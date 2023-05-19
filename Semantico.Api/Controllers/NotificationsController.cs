@@ -22,7 +22,7 @@ public class NotificationsController : ControllerBase
     }
 
     [HttpDelete]
-    public async Task DeleteNotificationy()
+    public async Task DeleteNotification()
     {
     }
 }
