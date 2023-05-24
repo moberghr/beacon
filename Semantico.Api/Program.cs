@@ -2,6 +2,7 @@ using Hangfire;
 using Hangfire.PostgreSql;
 using Microsoft.EntityFrameworkCore;
 using Semantico.Api.Data;
+using System.Reflection;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -14,6 +15,8 @@ builder.Services.AddDbContext<SemanticoContext>((options) =>
     options.UseNpgsql(builder.Configuration.GetConnectionString(nameof(SemanticoContext)))
         .UseSnakeCaseNamingConvention();
 });
+
+builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(Assembly.GetExecutingAssembly()));
 
 // todo: use handfire :)
 builder.Services.AddHangfire(hangfireConfiguration => hangfireConfiguration

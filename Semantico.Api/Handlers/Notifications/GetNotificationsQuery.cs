@@ -6,11 +6,11 @@ using Semantico.Api.Helpers;
 
 namespace Semantico.Api.Handlers.Notifications;
 
-public class GetNotificationsCommand : IRequestHandler<GetNotificationsRequest, List<GetNotificationsResponse>>
+public class GetNotificationsQuery : IRequestHandler<GetNotificationsRequest, List<GetNotificationsResponse>>
 {
     private readonly SemanticoContext _context;
 
-    public GetNotificationsCommand(SemanticoContext context)
+    public GetNotificationsQuery(SemanticoContext context)
     {
         _context = context;
     }
@@ -19,15 +19,15 @@ public class GetNotificationsCommand : IRequestHandler<GetNotificationsRequest, 
     {
         var notifications = await _context.Notifications
             .WhereIf(request.NotificationId.HasValue, x => x.Id == request.NotificationId)
-            .WhereIf(request.QueryId.HasValue, x => x.QueryId == request.QueryId)
-            .Select(x => new GetNotificationsResponse
-            {
-                NotificationsId = x.Id,
-                NotificationType = x.NotificationType,
-                Query = x.Query,
-                Value = x.Value
-            })
-            .ToListAsync();
+            .Select(x =>
+                new GetNotificationsResponse
+                {
+                    NotificationsId = x.Id,
+                    NotificationType = x.NotificationType,
+                    Value = x.Value,
+                    QueryId = x.QueryId
+                })
+            .ToListAsync(cancellation);
 
         return notifications;
     }
@@ -35,8 +35,6 @@ public class GetNotificationsCommand : IRequestHandler<GetNotificationsRequest, 
 
 public class GetNotificationsRequest : IRequest<List<GetNotificationsResponse>>
 {
-    public int? QueryId { get; set; }
-
     public int? NotificationId { get; set; }
 }
 
@@ -49,6 +47,4 @@ public class GetNotificationsResponse
     public int QueryId { get; set; }
 
     public NotificationType NotificationType { get; set; }
-
-    public Query Query { get; set; } = null!;
 }
