@@ -30,11 +30,11 @@ public class UpdateQueryCommand : IRequestHandler<UpdateQueryRequest, UpdateQuer
 
 public class UpdateQueryRequest : IRequest<UpdateQueryResponse>
 {
-    public int QueryId { get; set; }
+    public int QueryId { get; init; }
 
-    public string SqlValue { get; set; } = string.Empty;
+    public string SqlValue { get; init; } = string.Empty;
 
-    public string CronExpression { get; set; } = string.Empty;
+    public string CronExpression { get; init; } = string.Empty;
 }
 
 public class UpdateQueryResponse

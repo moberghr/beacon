@@ -37,21 +37,21 @@ public class GetQueriesQuery : IRequestHandler<GetQueriesRequest, GetQueriesResp
 
 public class GetQueriesRequest : IRequest<GetQueriesResponse>
 {
-    public int? QueryId { get; set; }
+    public int? QueryId { get; init; }
 
-    public int? ProjectId { get; set; }
+    public int? ProjectId { get; init; }
 }
 
 public class GetQueriesResponse
 {
-    public required List<GetQueriesResponseListData> Queries { get; set; } = new();
+    public required List<GetQueriesResponseListData> Queries { get; init; }
 }
 
 public class GetQueriesResponseListData
 {
-    public required string SqlValue { get; set; }
+    public required string SqlValue { get; init; }
 
-    public required string CronExpression { get; set; }
+    public required string CronExpression { get; init; }
 
-    public required int ProjectId { get; set; }
+    public required int ProjectId { get; init; }
 }

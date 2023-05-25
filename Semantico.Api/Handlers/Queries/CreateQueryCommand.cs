@@ -31,11 +31,11 @@ public class CreateQueryCommand : IRequestHandler<CreateQueryRequest, CreateQuer
 
 public class CreateQueryRequest : IRequest<CreateQueryResponse>
 {
-    public string SqlValue { get; set; } = string.Empty;
+    public string SqlValue { get; init; } = string.Empty;
 
-    public string CronExpression { get; set; } = string.Empty;
+    public string CronExpression { get; init; } = string.Empty;
 
-    public int ProjectId { get; set; }
+    public int ProjectId { get; init; }
 }
 
 public class CreateQueryResponse

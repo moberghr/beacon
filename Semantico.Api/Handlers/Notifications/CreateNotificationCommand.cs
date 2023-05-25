@@ -31,11 +31,11 @@ public class CreateNotificationCommand : IRequestHandler<CreateNotificationReque
 
 public class CreateNotificationRequest : IRequest<CreateNotificationResponse>
 {
-    public string Value { get; set; } = string.Empty;
+    public string Value { get; init; } = string.Empty;
 
-    public int QueryId { get; set; }
+    public int QueryId { get; init; }
 
-    public NotificationType NotificationType { get; set; }
+    public NotificationType NotificationType { get; init; }
 }
 
 public class CreateNotificationResponse

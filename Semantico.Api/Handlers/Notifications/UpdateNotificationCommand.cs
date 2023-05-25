@@ -31,11 +31,11 @@ public class UpdateNotificationCommand : IRequestHandler<UpdateNotificationReque
 
 public class UpdateNotificationRequest : IRequest<UpdateNotificationResponse>
 {
-    public int NotificationId { get; set; }
+    public int NotificationId { get; init; }
 
-    public string Value { get; set; } = string.Empty;
+    public string Value { get; init; } = string.Empty;
 
-    public NotificationType NotificationType { get; set; }
+    public NotificationType NotificationType { get; init; }
 }
 
 public class UpdateNotificationResponse

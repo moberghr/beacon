@@ -28,7 +28,7 @@ public class DeleteQueryCommand : IRequestHandler<DeleteQueryRequest, DeleteQuer
 
 public class DeleteQueryRequest : IRequest<DeleteQueryResponse>
 {
-    public int QueryId { get; set; }
+    public int QueryId { get; init; }
 }
 
 public class DeleteQueryResponse
