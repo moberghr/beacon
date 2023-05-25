@@ -16,7 +16,7 @@ public class NotificationsController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<List<GetNotificationsResponse>> GetNotifications([FromQuery] GetNotificationsRequest request, CancellationToken cancellationToken)
+    public async Task<GetNotificationsResponse> GetNotifications([FromQuery] GetNotificationsRequest request, CancellationToken cancellationToken)
     {
         return await _mediator.Send(request, cancellationToken);
     }

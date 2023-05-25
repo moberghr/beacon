@@ -6,7 +6,7 @@ using Semantico.Api.Helpers;
 
 namespace Semantico.Api.Handlers.Notifications;
 
-public class GetNotificationsQuery : IRequestHandler<GetNotificationsRequest, List<GetNotificationsResponse>>
+public class GetNotificationsQuery : IRequestHandler<GetNotificationsRequest, GetNotificationsResponse>
 {
     private readonly SemanticoContext _context;
 
@@ -15,12 +15,13 @@ public class GetNotificationsQuery : IRequestHandler<GetNotificationsRequest, Li
         _context = context;
     }
 
-    public async Task<List<GetNotificationsResponse>> Handle(GetNotificationsRequest request, CancellationToken cancellation)
+    public async Task<GetNotificationsResponse> Handle(GetNotificationsRequest request, CancellationToken cancellation)
     {
         var notifications = await _context.Notifications
             .WhereIf(request.NotificationId.HasValue, x => x.Id == request.NotificationId)
+            .WhereIf(request.QueryId.HasValue, x => x.Id == request.QueryId)
             .Select(x =>
-                new GetNotificationsResponse
+                new GetNotificationsResponseListData
                 {
                     NotificationsId = x.Id,
                     NotificationType = x.NotificationType,
@@ -29,16 +30,26 @@ public class GetNotificationsQuery : IRequestHandler<GetNotificationsRequest, Li
                 })
             .ToListAsync(cancellation);
 
-        return notifications;
+        return new GetNotificationsResponse
+        {
+            Notifications = notifications
+        };
     }
 }
 
-public class GetNotificationsRequest : IRequest<List<GetNotificationsResponse>>
+public class GetNotificationsRequest : IRequest<GetNotificationsResponse>
 {
     public int? NotificationId { get; set; }
+
+    public int? QueryId { get; set; }
 }
 
 public class GetNotificationsResponse
+{
+    public List<GetNotificationsResponseListData> Notifications { get; set; } = new();
+}
+
+public class GetNotificationsResponseListData
 {
     public int NotificationsId { get; set; }
 
