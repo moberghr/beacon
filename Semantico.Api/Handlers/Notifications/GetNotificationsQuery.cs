@@ -51,11 +51,11 @@ public class GetNotificationsResponse
 
 public class GetNotificationsResponseListData
 {
-    public int NotificationsId { get; set; }
+    public required int NotificationsId { get; set; }
 
-    public string Value { get; set; } = string.Empty;
+    public required string Value { get; set; }
 
-    public int QueryId { get; set; }
+    public required int QueryId { get; set; }
 
-    public NotificationType NotificationType { get; set; }
+    public required NotificationType NotificationType { get; set; }
 }
