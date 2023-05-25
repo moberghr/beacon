@@ -16,7 +16,7 @@ public class QueriesController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<List<GetQueriesResponse>> GetQueries([FromQuery] GetQueriesRequest request, CancellationToken cancellationToken)
+    public async Task<GetQueriesResponse> GetQueries([FromQuery] GetQueriesRequest request, CancellationToken cancellationToken)
     {
         return await _mediator.Send(request, cancellationToken);
     }
