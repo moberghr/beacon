@@ -18,7 +18,7 @@ public class GetQueriesQuery : IRequestHandler<GetQueriesRequest, GetQueriesResp
     {
         var queries = await _context.Queries
             .WhereIf(request.QueryId.HasValue, x => x.Id == request.QueryId)
-            .WhereIf(request.ProjectId.HasValue, x => x.Id == request.ProjectId)
+            .WhereIf(request.ProjectId.HasValue, x => x.ProjectId == request.ProjectId)
             .Select(x =>
                 new GetQueriesResponseListData
                 {
@@ -44,7 +44,7 @@ public class GetQueriesRequest : IRequest<GetQueriesResponse>
 
 public class GetQueriesResponse
 {
-    public List<GetQueriesResponseListData> Queries { get; set; } = new();
+    public required List<GetQueriesResponseListData> Queries { get; set; } = new();
 }
 
 public class GetQueriesResponseListData

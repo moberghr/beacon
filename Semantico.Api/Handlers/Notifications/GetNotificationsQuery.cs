@@ -19,7 +19,7 @@ public class GetNotificationsQuery : IRequestHandler<GetNotificationsRequest, Ge
     {
         var notifications = await _context.Notifications
             .WhereIf(request.NotificationId.HasValue, x => x.Id == request.NotificationId)
-            .WhereIf(request.QueryId.HasValue, x => x.Id == request.QueryId)
+            .WhereIf(request.QueryId.HasValue, x => x.QueryId == request.QueryId)
             .Select(x =>
                 new GetNotificationsResponseListData
                 {
