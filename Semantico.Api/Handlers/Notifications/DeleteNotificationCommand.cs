@@ -28,7 +28,7 @@ public class DeleteNotificationCommand : IRequestHandler<DeleteNotificationReque
 
 public class DeleteNotificationRequest : IRequest<DeleteNotificationResponse>
 {
-    public int NotificationId { get; set; }
+    public int NotificationId { get; init; }
 }
 
 public class DeleteNotificationResponse

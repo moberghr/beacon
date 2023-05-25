@@ -39,23 +39,23 @@ public class GetNotificationsQuery : IRequestHandler<GetNotificationsRequest, Ge
 
 public class GetNotificationsRequest : IRequest<GetNotificationsResponse>
 {
-    public int? NotificationId { get; set; }
+    public int? NotificationId { get; init; }
 
-    public int? QueryId { get; set; }
+    public int? QueryId { get; init; }
 }
 
 public class GetNotificationsResponse
 {
-    public required List<GetNotificationsResponseListData> Notifications { get; set; } = new();
+    public required List<GetNotificationsResponseListData> Notifications { get; init; }
 }
 
 public class GetNotificationsResponseListData
 {
-    public required int NotificationsId { get; set; }
+    public required int NotificationsId { get; init; }
 
-    public required string Value { get; set; }
+    public required string Value { get; init; }
 
-    public required int QueryId { get; set; }
+    public required int QueryId { get; init; }
 
-    public required NotificationType NotificationType { get; set; }
+    public required NotificationType NotificationType { get; init; }
 }
