@@ -34,7 +34,7 @@ public class QueriesController : ControllerBase
     }
 
     [HttpDelete]
-    public async Task<DeleteQueryResponse> DeleteQuery([FromQuery] DeleteQueryRequest request, CancellationToken cancellationToken)
+    public async Task<DeleteQueryResponse> DeleteQuery(DeleteQueryRequest request, CancellationToken cancellationToken)
     {
         return await _mediator.Send(request, cancellationToken);
     }

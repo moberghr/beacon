@@ -34,7 +34,7 @@ public class NotificationsController : ControllerBase
     }
 
     [HttpDelete]
-    public async Task<DeleteNotificationResponse> DeleteNotification([FromQuery] DeleteNotificationRequest request, CancellationToken cancellationToken)
+    public async Task<DeleteNotificationResponse> DeleteNotification(DeleteNotificationRequest request, CancellationToken cancellationToken)
     {
         return await _mediator.Send(request, cancellationToken);
     }

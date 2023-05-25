@@ -34,7 +34,7 @@ public class ProjectsController : ControllerBase
     }
 
     [HttpDelete]
-    public async Task<DeleteProjectResponse> DeleteProject([FromQuery] DeleteProjectRequest request, CancellationToken cancellationToken)
+    public async Task<DeleteProjectResponse> DeleteProject(DeleteProjectRequest request, CancellationToken cancellationToken)
     {
         return await _mediator.Send(request, cancellationToken);
     }
