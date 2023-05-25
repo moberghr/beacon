@@ -1,4 +1,6 @@
+using MediatR;
 using Microsoft.AspNetCore.Mvc;
+using Semantico.Api.Handlers.Projects;
 
 namespace Semantico.Api.Controllers;
 
@@ -6,23 +8,34 @@ namespace Semantico.Api.Controllers;
 [Route("[controller]")]
 public class ProjectsController : ControllerBase
 {
-    [HttpGet]
-    public async Task GetProjects()
+    private readonly IMediator _mediator;
+
+    public ProjectsController(IMediator mediator)
     {
+        _mediator = mediator;
+    }
+
+    [HttpGet]
+    public async Task<GetProjectsResponse> GetProjects([FromQuery] GetProjectsRequest request, CancellationToken cancellationToken)
+    {
+        return await _mediator.Send(request, cancellationToken);
     }
 
     [HttpPost]
-    public async Task CreateProject()
+    public async Task<CreateProjectResponse> CreateProject(CreateProjectRequest request, CancellationToken cancellationToken)
     {
+        return await _mediator.Send(request, cancellationToken);
     }
 
     [HttpPut]
-    public async Task UpdateProject()
+    public async Task<UpdateProjectResponse> UpdateProject(UpdateProjectRequest request, CancellationToken cancellationToken)
     {
+        return await _mediator.Send(request, cancellationToken);
     }
 
     [HttpDelete]
-    public async Task DeleteProject()
+    public async Task<DeleteProjectResponse> DeleteProject(DeleteProjectRequest request, CancellationToken cancellationToken)
     {
+        return await _mediator.Send(request, cancellationToken);
     }
 }
