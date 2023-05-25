@@ -46,7 +46,7 @@ public class GetNotificationsRequest : IRequest<GetNotificationsResponse>
 
 public class GetNotificationsResponse
 {
-    public List<GetNotificationsResponseListData> Notifications { get; set; } = new();
+    public required List<GetNotificationsResponseListData> Notifications { get; set; } = new();
 }
 
 public class GetNotificationsResponseListData
