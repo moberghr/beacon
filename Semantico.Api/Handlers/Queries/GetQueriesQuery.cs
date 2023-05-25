@@ -49,9 +49,9 @@ public class GetQueriesResponse
 
 public class GetQueriesResponseListData
 {
-    public string SqlValue { get; set; } = string.Empty;
+    public required string SqlValue { get; set; }
 
-    public string CronExpression { get; set; } = string.Empty;
+    public required string CronExpression { get; set; }
 
-    public int ProjectId { get; set; }
+    public required int ProjectId { get; set; }
 }
