@@ -1,8 +1,8 @@
-﻿using Semantico.Api.Adapters.Mail;
-using Semantico.Api.Adapters.Mail.SendGrid;
-using Semantico.Api.Adapters.Teams;
+﻿using Semantico.Api.Adapter.Mail;
+using Semantico.Api.Adapter.Mail.SendGrid;
+using Semantico.Api.Adapter.Teams;
 
-namespace Semantico.Api.Adapters.Configuration;
+namespace Semantico.Api.Adapter.Configuration;
 
 public static class ServiceConfiguration
 {

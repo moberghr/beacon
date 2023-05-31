@@ -1,7 +1,7 @@
 ﻿using System.Text;
 using System.Text.Json;
 
-namespace Semantico.Api.Adapters.Teams;
+namespace Semantico.Api.Adapter.Teams;
 
 public interface ITeamsAdapter
 {

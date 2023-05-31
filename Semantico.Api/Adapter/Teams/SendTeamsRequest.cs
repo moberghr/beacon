@@ -1,6 +1,6 @@
 ﻿using System.Text.Json.Serialization;
 
-namespace Semantico.Api.Adapters.Teams;
+namespace Semantico.Api.Adapter.Teams;
 
 public class SendTeamsRequest
 {

@@ -1,4 +1,4 @@
-﻿namespace Semantico.Api.Adapters.Mail;
+﻿namespace Semantico.Api.Adapter.Mail;
 
 public interface IMailAdapter
 {

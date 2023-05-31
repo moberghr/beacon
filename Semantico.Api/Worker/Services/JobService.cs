@@ -1,16 +1,15 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Npgsql;
-using Semantico.Api.Adapters.Mail;
-using Semantico.Api.Adapters.Teams;
+using Semantico.Api.Adapter.Mail;
+using Semantico.Api.Adapter.Teams;
 using Semantico.Api.Data;
 using Semantico.Api.Data.Entities;
 
 namespace Semantico.Api.Worker.Services;
 
-public class JobService : IJobService
+public class JobService
 {
     private readonly SemanticoContext _context;
-    private readonly string _straumurConnectionString = "Host=localhost;Database=Payfac;Username=postgres;Password=";
     private readonly IMailAdapter _mailAdapter;
     private readonly ITeamsAdapter _teamsAdapter;
 
@@ -29,31 +28,20 @@ public class JobService : IJobService
                 new
                 {
                     x.Id,
-                    x.SqlValue
+                    x.SqlValue,
+                    x.Project,
+                    x.Notifications
                 })
             .FirstAsync();
 
-        using (var connection = new NpgsqlConnection(_straumurConnectionString))
+        using (var connection = new NpgsqlConnection(query.Project.ConnectionString))
         {
             connection.Open();
-            using (var command = new NpgsqlCommand(query.SqlValue, connection))
-            {
-                command.ExecuteNonQuery();
-            }
+            using var command = new NpgsqlCommand(query.SqlValue, connection);
+            command.ExecuteNonQuery();
         }
 
-        var notification = await _context.Notifications
-            .Where(x => x.QueryId == query.Id)
-            .Select(x =>
-                new
-                {
-                    x.Id,
-                    x.Value,
-                    x.NotificationType
-                })
-            .FirstOrDefaultAsync();
-
-        if (notification != null)
+        foreach (var notification in query.Notifications)
         {
             switch (notification.NotificationType)
             {
