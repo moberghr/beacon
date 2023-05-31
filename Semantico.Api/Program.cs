@@ -1,7 +1,10 @@
 using Hangfire;
 using Hangfire.PostgreSql;
 using Microsoft.EntityFrameworkCore;
+using Semantico.Api.Adapters.Configuration;
 using Semantico.Api.Data;
+using Semantico.Api.Worker;
+using Semantico.Api.Worker.Services;
 using System.Reflection;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -31,6 +34,9 @@ builder.Services.AddHangfire(hangfireConfiguration => hangfireConfiguration
         }));
 
 builder.Services.AddHangfireServer();
+
+builder.Services.AddAdapters(builder.Configuration);
+builder.Services.AddTransient<IJobService, JobService>();
 
 var app = builder.Build();
 

@@ -1,6 +1,9 @@
-﻿using MediatR;
+﻿using Hangfire;
+using MediatR;
+using NCrontab;
 using Semantico.Api.Data;
 using Semantico.Api.Data.Entities;
+using Semantico.Api.Worker;
 
 namespace Semantico.Api.Handlers.Queries;
 
@@ -15,6 +18,8 @@ public class CreateQueryCommand : IRequestHandler<CreateQueryRequest, CreateQuer
 
     public async Task<CreateQueryResponse> Handle(CreateQueryRequest request, CancellationToken cancellationToken)
     {
+        CrontabSchedule.Parse(request.CronExpression);
+
         var query = new Query
         {
             SqlValue = request.SqlValue,
@@ -24,6 +29,8 @@ public class CreateQueryCommand : IRequestHandler<CreateQueryRequest, CreateQuer
 
         _context.Queries.Add(query);
         await _context.SaveChangesAsync(cancellationToken);
+
+        RecurringJob.AddOrUpdate<IJobService>(query.Id.ToString(), x => x.ExecuteQuery(query.Id), query.CronExpression);
 
         return new();
     }
@@ -41,4 +48,3 @@ public class CreateQueryRequest : IRequest<CreateQueryResponse>
 public class CreateQueryResponse
 {
 }
-
