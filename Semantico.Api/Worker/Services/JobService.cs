@@ -1,13 +1,14 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Npgsql;
-using Semantico.Api.Adapter.Mail;
-using Semantico.Api.Adapter.Teams;
+using Semantico.Api.Adapters.Mail;
+using Semantico.Api.Adapters.Teams;
 using Semantico.Api.Data;
 using Semantico.Api.Data.Entities;
+using System.Text.Json;
 
 namespace Semantico.Api.Worker.Services;
 
-public class JobService
+public class JobService : IJobService
 {
     private readonly SemanticoContext _context;
     private readonly IMailAdapter _mailAdapter;
@@ -34,37 +35,67 @@ public class JobService
                 })
             .FirstAsync();
 
-        using (var connection = new NpgsqlConnection(query.Project.ConnectionString))
-        {
-            connection.Open();
-            using var command = new NpgsqlCommand(query.SqlValue, connection);
-            command.ExecuteNonQuery();
-        }
+        var messageRequest = await GetQueryResults(query.Project.ConnectionString, query.SqlValue, query.Project.Name);
 
         foreach (var notification in query.Notifications)
         {
             switch (notification.NotificationType)
             {
                 case NotificationType.Email:
-
-                    var sendEmailRequest = new SendEmailRequest
-                    {
-                        To = notification.Value,
-                        Subject = "Notification",
-                        Body = $"Query with id: {query.Id} has be executed"
-                    };
-                    await _mailAdapter.SendMailAsync(sendEmailRequest);
+                    await _mailAdapter.SendMailAsync(messageRequest, notification.Value);
                     break;
 
                 case NotificationType.Teams:
-
-                    var message = $"Query with id: {query.Id} has be executed";
-                    await _teamsAdapter.SendTeamsNotificationAsync(message, notification.Value);
+                    await _teamsAdapter.SendTeamsNotificationAsync(messageRequest, notification.Value);
                     break;
 
                 default:
                     throw new Exception("Invalid notification type");
             }
         }
+    }
+
+    private static async Task<MessageRequest> GetQueryResults(string connectionString, string sqlQuery, string projectName)
+    {
+        var connection = new NpgsqlConnection(connectionString);
+        await connection.OpenAsync();
+        var command = new NpgsqlCommand(sqlQuery, connection);
+        var reader = await command.ExecuteReaderAsync();
+
+        var results = new Dictionary<string, List<string>>();
+        var recordCounter = 0;
+        var jsonRecordCounter = 0;
+
+        while (await reader.ReadAsync())
+        {
+            if (jsonRecordCounter < 10)
+            {
+                for (int i = 0; i < reader.FieldCount; i++)
+                {
+                    var fieldName = reader.GetName(i);
+                    var fieldValue = reader[i].ToString();
+
+                    if (!results.ContainsKey(fieldName))
+                    {
+                        results[fieldName] = new List<string>();
+                    }
+
+                    results[fieldName].Add(fieldValue ?? string.Empty);
+                }
+
+                jsonRecordCounter++;
+            }
+
+            recordCounter++;
+        }
+
+        await connection.CloseAsync();
+
+        return new MessageRequest
+        {
+            QueryResults = JsonSerializer.Serialize(results),
+            TotalRecords = recordCounter,
+            ProjectName = $"{projectName} - notification"
+        };
     }
 }

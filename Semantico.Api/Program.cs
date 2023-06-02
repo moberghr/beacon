@@ -1,7 +1,7 @@
 using Hangfire;
 using Hangfire.PostgreSql;
 using Microsoft.EntityFrameworkCore;
-using Semantico.Api.Adapter.Configuration;
+using Semantico.Api.Adapters.Configuration;
 using Semantico.Api.Data;
 using Semantico.Api.Worker;
 using Semantico.Api.Worker.Services;
@@ -34,7 +34,7 @@ builder.Services.AddHangfire(hangfireConfiguration => hangfireConfiguration
         }));
 
 builder.Services.AddHangfireServer();
-
+builder.Services.AddTransient<IRecurringJobService, RecurringJobService>();
 builder.Services.AddAdapters(builder.Configuration);
 
 var app = builder.Build();

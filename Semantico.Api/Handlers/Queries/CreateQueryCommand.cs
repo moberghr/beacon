@@ -1,10 +1,8 @@
-﻿using Hangfire;
-using MediatR;
+﻿using MediatR;
 using NCrontab;
-using Semantico.Api.Adapter.Mail;
-using Semantico.Api.Adapter.Teams;
 using Semantico.Api.Data;
 using Semantico.Api.Data.Entities;
+using Semantico.Api.Worker;
 using Semantico.Api.Worker.Services;
 
 namespace Semantico.Api.Handlers.Queries;
@@ -12,14 +10,12 @@ namespace Semantico.Api.Handlers.Queries;
 public class CreateQueryCommand : IRequestHandler<CreateQueryRequest, CreateQueryResponse>
 {
     private readonly SemanticoContext _context;
-    private readonly IMailAdapter _mailAdapter;
-    private readonly ITeamsAdapter _teamsAdapter;
+    private readonly IRecurringJobService _recurringJobService;
 
-    public CreateQueryCommand(SemanticoContext context, IMailAdapter mailAdapter, ITeamsAdapter teamsAdapter)
+    public CreateQueryCommand(SemanticoContext context, IRecurringJobService recurringJobService)
     {
         _context = context;
-        _mailAdapter = mailAdapter;
-        _teamsAdapter = teamsAdapter;
+        _recurringJobService = recurringJobService;
     }
 
     public async Task<CreateQueryResponse> Handle(CreateQueryRequest request, CancellationToken cancellationToken)
@@ -36,8 +32,7 @@ public class CreateQueryCommand : IRequestHandler<CreateQueryRequest, CreateQuer
         _context.Queries.Add(query);
         await _context.SaveChangesAsync(cancellationToken);
 
-        var jobService = new JobService(_context, _mailAdapter, _teamsAdapter);
-        RecurringJob.AddOrUpdate(query.Id.ToString(), () => jobService.ExecuteQuery(query.Id), query.CronExpression);
+        _recurringJobService.AddOrUpdate<IJobService>(query.Id, query.Id.ToString(), query.CronExpression);
 
         return new();
     }

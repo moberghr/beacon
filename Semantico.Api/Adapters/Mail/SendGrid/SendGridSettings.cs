@@ -1,4 +1,4 @@
-﻿namespace Semantico.Api.Adapter.Mail.SendGrid;
+﻿namespace Semantico.Api.Adapters.Mail.SendGrid;
 
 public class SendGridSettings
 {
