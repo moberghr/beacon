@@ -22,4 +22,3 @@ public interface IRecurringJobService
     public void AddOrUpdate<T>(int queryId, string name, string cron)
         where T : IJobService;
 }
-
