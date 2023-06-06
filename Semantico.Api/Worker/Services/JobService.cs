@@ -37,20 +37,24 @@ public class JobService : IJobService
                 })
             .FirstAsync();
 
-        var messageRequest = await GetQueryResults(query.Project.ConnectionString, query.SqlValue, query.Project.Name);
+        var queryResult = await GetQueryResults(query.Project.ConnectionString, query.SqlValue, query.Project.Name);
 
         foreach (var notification in query.Notifications)
         {
-            messageRequest.Recipient = notification.Value;
+            var recipientQueryResult = new RecipientQueryResult
+            {
+                Recipient = notification.Value,
+                QueryResult = queryResult
+            };
 
             switch (notification.NotificationType)
             {
                 case NotificationType.Email:
-                    await _mailAdapter.SendMailAsync(messageRequest);
+                    await _mailAdapter.SendMailAsync(recipientQueryResult);
                     break;
 
                 case NotificationType.Teams:
-                    await _teamsAdapter.SendTeamsNotificationAsync(messageRequest);
+                    await _teamsAdapter.SendTeamsNotificationAsync(recipientQueryResult);
                     break;
 
                 default:
@@ -59,7 +63,7 @@ public class JobService : IJobService
         }
     }
 
-    private static async Task<MessageRequest> GetQueryResults(string connectionString, string sqlQuery, string projectName)
+    private static async Task<QueryResult> GetQueryResults(string connectionString, string sqlQuery, string projectName)
     {
         using var connection = new NpgsqlConnection(connectionString);
         await connection.OpenAsync();
@@ -69,7 +73,7 @@ public class JobService : IJobService
         var recordCounter = results.Count();
         var queryResults = results.Take(10).ToList();
 
-        return new MessageRequest
+        return new QueryResult
         {
             QueryResults = JsonSerializer.Serialize(queryResults),
             TotalRecords = recordCounter,

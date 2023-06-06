@@ -1,6 +1,6 @@
 ﻿namespace Semantico.Api.Adapters;
 
-public class MessageRequest
+public class QueryResult
 {
     public required string QueryResults { get; init; }
 
@@ -9,7 +9,11 @@ public class MessageRequest
     public required string ProjectName { get; init; }
 
     public required string SqlQuery { get; init; }
-
-    public string Recipient { get; set; } = string.Empty;
 }
 
+public class RecipientQueryResult
+{
+    public required string Recipient { get; init; }
+
+    public required QueryResult QueryResult { get; init; }
+}

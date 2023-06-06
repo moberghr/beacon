@@ -1,5 +1,4 @@
 ﻿using Microsoft.Extensions.Options;
-using Semantico.Api.Worker;
 using SendGrid;
 using SendGrid.Helpers.Mail;
 
@@ -16,13 +15,13 @@ public class SendGridAdapter : IMailAdapter
         _sendGridClient = sendGridClient;
     }
 
-    public async Task SendMailAsync(MessageRequest messageRequest)
+    public async Task SendMailAsync(RecipientQueryResult recipientQueryResult)
     {
         var senderEmail = new EmailAddress(_settings.SenderEmail, _settings.SenderName);
-        var to = new EmailAddress(messageRequest.Recipient);
-        var subject = $"{messageRequest.ProjectName} - notification";
-        var plainTextContent = $"Sql Query: {messageRequest.SqlQuery} \nQuery executed successfuly with total records of: {messageRequest.TotalRecords}";
-        var msg = MailHelper.CreateSingleEmail(senderEmail, to, subject, plainTextContent, messageRequest.QueryResults);
+        var to = new EmailAddress(recipientQueryResult.Recipient);
+        var subject = $"{recipientQueryResult.QueryResult.ProjectName} - notification";
+        var plainTextContent = $"Sql Query: {recipientQueryResult.QueryResult.SqlQuery} \nQuery executed successfuly with total records of: {recipientQueryResult.QueryResult.TotalRecords}";
+        var msg = MailHelper.CreateSingleEmail(senderEmail, to, subject, plainTextContent, recipientQueryResult.QueryResult.QueryResults);
 
         await _sendGridClient.SendEmailAsync(msg);
     }

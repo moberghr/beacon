@@ -33,11 +33,6 @@ builder.Services.AddHangfire(hangfireConfiguration => hangfireConfiguration
             PrepareSchemaIfNecessary = true
         }));
 
-builder.Services.AddHangfireServer(options =>
-{
-    options.WorkerCount = 1;
-});
-
 builder.Services.AddHangfireServer();
 builder.Services.AddTransient<IJobService, JobService>();
 builder.Services.AddTransient<IRecurringJobService, RecurringJobService>();

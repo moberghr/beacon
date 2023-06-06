@@ -1,8 +1,6 @@
-﻿using Semantico.Api.Worker;
-
-namespace Semantico.Api.Adapters.Mail;
+﻿namespace Semantico.Api.Adapters.Mail;
 
 public interface IMailAdapter
 {
-    Task SendMailAsync(MessageRequest messageRequest);
+    Task SendMailAsync(RecipientQueryResult recipientQueryResult);
 }
