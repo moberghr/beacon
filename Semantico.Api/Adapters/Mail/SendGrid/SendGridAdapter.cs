@@ -16,10 +16,10 @@ public class SendGridAdapter : IMailAdapter
         _sendGridClient = sendGridClient;
     }
 
-    public async Task SendMailAsync(MessageRequest messageRequest, string email)
+    public async Task SendMailAsync(MessageRequest messageRequest)
     {
         var senderEmail = new EmailAddress(_settings.SenderEmail, _settings.SenderName);
-        var to = new EmailAddress(email);
+        var to = new EmailAddress(messageRequest.Recipient);
         var subject = $"{messageRequest.ProjectName} - notification";
         var plainTextContent = $"Sql Query: {messageRequest.SqlQuery} \nQuery executed successfuly with total records of: {messageRequest.TotalRecords}";
         var msg = MailHelper.CreateSingleEmail(senderEmail, to, subject, plainTextContent, messageRequest.QueryResults);
