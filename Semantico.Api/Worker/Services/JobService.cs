@@ -45,11 +45,11 @@ public class JobService : IJobService
             switch (notification.NotificationType)
             {
                 case NotificationType.Email:
-                    await _mailAdapter.SendMailAsync(messageRequest, notification.Value);
+                    await _mailAdapter.SendMailAsync(messageRequest);
                     break;
 
                 case NotificationType.Teams:
-                    await _teamsAdapter.SendTeamsNotificationAsync(messageRequest, notification.Value);
+                    await _teamsAdapter.SendTeamsNotificationAsync(messageRequest);
                     break;
 
                 default:

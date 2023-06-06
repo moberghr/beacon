@@ -4,5 +4,5 @@ namespace Semantico.Api.Adapters.Mail;
 
 public interface IMailAdapter
 {
-    Task SendMailAsync(MessageRequest messageRequest, string email);
+    Task SendMailAsync(MessageRequest messageRequest);
 }
