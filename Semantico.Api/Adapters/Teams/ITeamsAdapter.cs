@@ -1,6 +1,6 @@
 ﻿using MessageCardModel;
+using Refit;
 using System.Text;
-using Semantico.Api.Worker;
 
 namespace Semantico.Api.Adapters.Teams;
 
@@ -11,15 +11,18 @@ public interface ITeamsAdapter
 
 public class TeamsAdapter : ITeamsAdapter
 {
-    private readonly ITeamsNotificationApi _teamsNotificationApi;
+    private readonly IHttpClientFactory _httpClientFactory;
 
-    public TeamsAdapter(ITeamsNotificationApi teamsNotificationApi)
+    public TeamsAdapter(IHttpClientFactory httpClientFactory)
     {
-        _teamsNotificationApi = teamsNotificationApi;
+        _httpClientFactory = httpClientFactory;
     }
 
     public async Task SendTeamsNotificationAsync(MessageRequest messageRequest)
     {
+        var client = _httpClientFactory.CreateClient();
+        client.BaseAddress = new Uri(messageRequest.Recipient);
+        var teamsNotificationApi = RestService.For<ITeamsNotificationApi>(client);
 
         var card = new MessageCard
         {
@@ -41,9 +44,8 @@ public class TeamsAdapter : ITeamsAdapter
         };
 
         var jsonPayload = card.ToJson();
-
         var content = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
 
-        await _teamsNotificationApi.SendTeamsNotificationAsync(messageRequest.Recipient, content);
+        await teamsNotificationApi.SendTeamsNotificationAsync(content);
     }
 }

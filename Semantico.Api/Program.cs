@@ -4,6 +4,7 @@ using Hangfire.PostgreSql;
 using Microsoft.EntityFrameworkCore;
 using Semantico.Api.Adapters.Configuration;
 using Semantico.Api.Data;
+using Semantico.Api.Worker;
 using Semantico.Api.Worker.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -32,7 +33,13 @@ builder.Services.AddHangfire(hangfireConfiguration => hangfireConfiguration
             PrepareSchemaIfNecessary = true
         }));
 
+builder.Services.AddHangfireServer(options =>
+{
+    options.WorkerCount = 1;
+});
+
 builder.Services.AddHangfireServer();
+builder.Services.AddTransient<IJobService, JobService>();
 builder.Services.AddTransient<IRecurringJobService, RecurringJobService>();
 builder.Services.AddAdapters(builder.Configuration);
 

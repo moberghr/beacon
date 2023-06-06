@@ -6,6 +6,7 @@ using Semantico.Api.Adapters.Mail;
 using Semantico.Api.Adapters.Teams;
 using Semantico.Api.Data;
 using Semantico.Api.Data.Entities;
+using Dapper;
 
 namespace Semantico.Api.Worker.Services;
 
@@ -63,39 +64,14 @@ public class JobService : IJobService
         using var connection = new NpgsqlConnection(connectionString);
         await connection.OpenAsync();
 
-        using var command = new NpgsqlCommand(sqlQuery, connection);
-        using var reader = await command.ExecuteReaderAsync();
+        var results = await connection.QueryAsync<object>(sqlQuery);
 
-        var results = new Dictionary<string, List<string>>();
-        var recordCounter = 0;
-        var jsonRecordCounter = 0;
-
-        while (await reader.ReadAsync())
-        {
-            if (jsonRecordCounter < 10)
-            {
-                for (int i = 0; i < reader.FieldCount; i++)
-                {
-                    var fieldName = reader.GetName(i);
-                    var fieldValue = reader[i].ToString();
-
-                    if (!results.ContainsKey(fieldName))
-                    {
-                        results[fieldName] = new List<string>();
-                    }
-
-                    results[fieldName].Add(fieldValue ?? string.Empty);
-                }
-
-                jsonRecordCounter++;
-            }
-
-            recordCounter++;
-        }
+        var recordCounter = results.Count();
+        var queryResults = results.Take(10).ToList();
 
         return new MessageRequest
         {
-            QueryResults = JsonSerializer.Serialize(results),
+            QueryResults = JsonSerializer.Serialize(queryResults),
             TotalRecords = recordCounter,
             ProjectName = $"{projectName} - notification",
             SqlQuery = sqlQuery,
