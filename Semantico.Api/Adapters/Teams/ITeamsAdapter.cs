@@ -6,26 +6,32 @@ namespace Semantico.Api.Adapters.Teams;
 
 public interface ITeamsAdapter
 {
-    Task SendTeamsNotificationAsync(MessageRequest message, string webHook);
+    Task SendTeamsNotificationAsync(MessageRequest message, string webhookUrl);
 }
 
-public class TeamsService : ITeamsAdapter
+public class TeamsAdapter : ITeamsAdapter
 {
-    private readonly HttpClient _httpClient;
+    private readonly ITeamsNotificationApi _teamsNotificationApi;
 
-    public TeamsService(HttpClient httpClient)
+    public TeamsAdapter(ITeamsNotificationApi teamsNotificationApi)
     {
-        _httpClient = httpClient;
+        _teamsNotificationApi = teamsNotificationApi;
     }
 
-    public async Task SendTeamsNotificationAsync(MessageRequest message, string webHook)
+    public async Task SendTeamsNotificationAsync(MessageRequest message, string webhookUrl)
     {
+
         var card = new MessageCard
         {
             Title = message.ProjectName,
             Text = $"Query executed successfuly with total records of: {message.TotalRecords}",
             Sections = new[]
             {
+                new Section
+                {
+                    Title = "Sql Query",
+                    Text = message.SqlQuery
+                },
                 new Section
                 {
                     Title = "First 10 records",
@@ -38,6 +44,6 @@ public class TeamsService : ITeamsAdapter
 
         var content = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
 
-        await _httpClient.PostAsync(webHook, content);
+        await _teamsNotificationApi.SendTeamsNotificationAsync(webhookUrl, content);
     }
 }

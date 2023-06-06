@@ -1,10 +1,11 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using Semantico.Api.Adapters;
 using Semantico.Api.Adapters.Mail;
 using Semantico.Api.Adapters.Teams;
 using Semantico.Api.Data;
 using Semantico.Api.Data.Entities;
-using System.Text.Json;
 
 namespace Semantico.Api.Worker.Services;
 
@@ -39,6 +40,8 @@ public class JobService : IJobService
 
         foreach (var notification in query.Notifications)
         {
+            messageRequest.Recipient = notification.Value;
+
             switch (notification.NotificationType)
             {
                 case NotificationType.Email:
@@ -57,10 +60,11 @@ public class JobService : IJobService
 
     private static async Task<MessageRequest> GetQueryResults(string connectionString, string sqlQuery, string projectName)
     {
-        var connection = new NpgsqlConnection(connectionString);
+        using var connection = new NpgsqlConnection(connectionString);
         await connection.OpenAsync();
-        var command = new NpgsqlCommand(sqlQuery, connection);
-        var reader = await command.ExecuteReaderAsync();
+
+        using var command = new NpgsqlCommand(sqlQuery, connection);
+        using var reader = await command.ExecuteReaderAsync();
 
         var results = new Dictionary<string, List<string>>();
         var recordCounter = 0;
@@ -89,13 +93,12 @@ public class JobService : IJobService
             recordCounter++;
         }
 
-        await connection.CloseAsync();
-
         return new MessageRequest
         {
             QueryResults = JsonSerializer.Serialize(results),
             TotalRecords = recordCounter,
-            ProjectName = $"{projectName} - notification"
+            ProjectName = $"{projectName} - notification",
+            SqlQuery = sqlQuery,
         };
     }
 }

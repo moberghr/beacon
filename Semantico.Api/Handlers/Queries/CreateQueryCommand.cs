@@ -32,7 +32,7 @@ public class CreateQueryCommand : IRequestHandler<CreateQueryRequest, CreateQuer
         _context.Queries.Add(query);
         await _context.SaveChangesAsync(cancellationToken);
 
-        _recurringJobService.AddOrUpdate<IJobService>(query.Id, query.Id.ToString(), query.CronExpression);
+        _recurringJobService.AddOrUpdate(query.Id, query.Id.ToString(), query.CronExpression);
 
         return new();
     }

@@ -11,14 +11,13 @@ public class RecurringJobService : IRecurringJobService
         _recurringJobManager = recurringJobManager;
     }
 
-    public void AddOrUpdate<T>(int queryId, string name, string cron) where T : IJobService
+    public void AddOrUpdate(int queryId, string name, string cron)
     {
-        _recurringJobManager.AddOrUpdate<T>(name, x => x.ExecuteQuery(queryId), cron);
+        _recurringJobManager.AddOrUpdate<IJobService>(name, x => x.ExecuteQuery(queryId), cron);
     }
 }
 
 public interface IRecurringJobService
 {
-    public void AddOrUpdate<T>(int queryId, string name, string cron)
-        where T : IJobService;
+    public void AddOrUpdate(int queryId, string name, string cron);
 }

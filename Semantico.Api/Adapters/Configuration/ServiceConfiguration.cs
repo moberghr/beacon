@@ -1,4 +1,5 @@
-﻿using Semantico.Api.Adapters.Mail;
+﻿using Refit;
+using Semantico.Api.Adapters.Mail;
 using Semantico.Api.Adapters.Mail.SendGrid;
 using Semantico.Api.Adapters.Teams;
 using SendGrid;
@@ -9,7 +10,6 @@ public static class ServiceConfiguration
 {
     public static void AddAdapters(this IServiceCollection services, IConfiguration configuration)
     {
-        services.AddHttpClient();
         var settings = configuration.GetSection(nameof(SendGridSettings));
         var sendGridSettings = settings.Get<SendGridSettings>()!;
         services.Configure<SendGridSettings>(settings);
@@ -20,7 +20,8 @@ public static class ServiceConfiguration
             return new SendGridClient(apiKey);
         });
 
+        services.AddRefitClient<ITeamsNotificationApi>();
         services.AddTransient<IMailAdapter, SendGridAdapter>();
-        services.AddTransient<ITeamsAdapter, TeamsService>();
+        services.AddTransient<ITeamsAdapter, TeamsAdapter>();
     }
 }
