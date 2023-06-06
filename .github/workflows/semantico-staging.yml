@@ -1,0 +1,27 @@
+# Build Semantico
+name: Build
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    name: "Build Semantico"
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v3
+
+    - name: "Build image"
+      run: |
+        cd Semantico.Api
+        docker build -f Dockerfile --target final -t final:latest .
+
+    - name: "Upload artifacts"
+      uses: actions/upload-artifact@v2
+      with:
+        name: "build-artifacts"
+        path: |
+          ./publish/**
