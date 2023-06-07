@@ -20,7 +20,6 @@ public class TeamsAdapter : ITeamsAdapter
     public async Task SendTeamsNotificationAsync(RecipientQueryResult recipientQueryResult)
     {
         var client = _httpClientFactory.CreateClient();
-        client.BaseAddress = new Uri(recipientQueryResult.Recipient);
 
         var card = new MessageCard
         {
@@ -44,6 +43,6 @@ public class TeamsAdapter : ITeamsAdapter
         var jsonPayload = card.ToJson();
         var content = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
 
-        await client.PostAsync("", content);
+        await client.PostAsync(recipientQueryResult.Recipient, content);
     }
 }

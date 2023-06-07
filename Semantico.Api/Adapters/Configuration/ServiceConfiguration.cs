@@ -19,6 +19,7 @@ public static class ServiceConfiguration
             return new SendGridClient(apiKey);
         });
 
+        services.AddHttpClient();
         services.AddTransient<IMailAdapter, SendGridAdapter>();
         services.AddTransient<ITeamsAdapter, TeamsAdapter>();
     }
