@@ -17,20 +17,21 @@ jobs:
       uses: actions/setup-dotnet@v1
       with:
         dotnet-version: '7.0'
+        
+    - name: Install dependencies
+      run: |
+        cd Semantico.Api
+        dotnet restore
 
     - name: "Build application"
-      run: |
-        cd Semantico.Api
-        dotnet build --configuration Release
+      run: dotnet build --configuration Release --no-restore
 
     - name: "Publish application"
-      run: |
-        cd Semantico.Api
-        dotnet publish -c Release -o ./publish
+      run: dotnet publish -c Release -o semantico
 
     - name: "Upload artifacts"
       uses: actions/upload-artifact@v2
       with:
         name: "build-artifacts"
-        path: |
-          ./publish/**
+        path: semantico/**
+        if-no-files-found: error
