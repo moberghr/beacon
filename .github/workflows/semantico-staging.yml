@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [ task#5/add-github-build-script ]
+    branches: [ main ]
 
 jobs:
   build:
