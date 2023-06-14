@@ -1,9 +1,8 @@
-# Build Semantico
 name: Build
 
 on:
   push:
-    branches: [ main ]
+    branches: [ task#5/add-github-build-script ]
 
 jobs:
   build:
@@ -14,10 +13,20 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v3
 
-    - name: "Build image"
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v1
+      with:
+        dotnet-version: '7.0'
+
+    - name: "Build application"
       run: |
         cd Semantico.Api
-        docker build -f Dockerfile --target final -t final:latest .
+        dotnet build --configuration Release
+
+    - name: "Publish application"
+      run: |
+        cd Semantico.Api
+        dotnet publish -c Release -o ./publish
 
     - name: "Upload artifacts"
       uses: actions/upload-artifact@v2
