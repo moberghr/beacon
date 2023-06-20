@@ -11,4 +11,6 @@ public class Query : BaseEntity
     public required int ProjectId { get; set; }
 
     public Project Project { get; set; } = null!;
+
+    public List<Notification> Notifications { get; set; } = new();
 }

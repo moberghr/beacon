@@ -41,4 +41,3 @@ public class CreateNotificationRequest : IRequest<CreateNotificationResponse>
 public class CreateNotificationResponse
 {
 }
-
