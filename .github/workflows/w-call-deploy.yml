@@ -23,17 +23,17 @@ jobs:
           - name: Download a services artifacts
             uses: actions/download-artifact@v3
             with:
-              name: services-artifacts
+              name: build-artifacts
     
           - name: "Unzip artifacts"
-            run: "unzip services.zip"
-    
+            run: unzip services.zip
+
           - name: "Configure AWS credentials"
             uses: aws-actions/configure-aws-credentials@v1
             with:
               aws-access-key-id: ${{ secrets.aws-access-key-id }}
               aws-secret-access-key: ${{ secrets.aws-secret-access-key }}
-              aws-region: ${{ env.aws_region }}
+              aws-region: ${{ secrets.aws_region }}
     
           - name: Login to Amazon ECR
             id: login-ecr
@@ -43,11 +43,27 @@ jobs:
             env:
               ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
             run: |
-              docker build -f Dockerfile --target semantico -t $ECR_REGISTRY/semantico:$IMAGE_TAG -t $ECR_REGISTRY/semantico:latest .
+              docker build -f Dockerfile --target semantico-api -t $ECR_REGISTRY/semantico:$IMAGE_TAG -t $ECR_REGISTRY/semantico-api:latest .
           - name: "Push images" 
             env:
               ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
             run: |
               # Push semantico images to registry
-              docker push $ECR_REGISTRY/semantico:$IMAGE_TAG
-              docker push $ECR_REGISTRY/semantico:latest
+              docker push $ECR_REGISTRY/semantico-api:$IMAGE_TAG
+              docker push $ECR_REGISTRY/semantico-api:latest
+
+    deploy-services:
+      name: Deploy services
+      runs-on: ubuntu-latest
+      env: 
+        cluster: ${{ vars.AWS_CLUSTER }}
+      steps:
+        - name: Configure AWS credentials
+          uses: aws-actions/configure-aws-credentials@v1
+          with:
+            aws-access-key-id: ${{ secrets.aws-access-key-id }}
+            aws-secret-access-key: ${{ secrets.aws-secret-access-key }}
+            aws-region: ${{ env.aws_region }}
+            
+        - name: Deploy Semantico
+          run: aws ecs update-service --cluster $cluster --force-new-deployment --service semantico-api
