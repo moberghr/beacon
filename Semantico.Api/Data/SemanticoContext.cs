@@ -15,4 +15,10 @@ public class SemanticoContext : DbContext
     public DbSet<Query> Queries => Set<Query>();
 
     public DbSet<Project> Projects => Set<Project>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        modelBuilder.HasDefaultSchema("semantico");
+        base.OnModelCreating(modelBuilder);
+    }
 }

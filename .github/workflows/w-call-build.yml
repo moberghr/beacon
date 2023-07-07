@@ -1,8 +1,7 @@
 name: Build
 
 on:
-  push:
-    branches: [ main ]
+  workflow_call:
 
 jobs:
   build:
@@ -27,11 +26,15 @@ jobs:
       run: dotnet build --configuration Release --no-restore
 
     - name: "Publish application"
-      run: dotnet publish -c Release -o semantico
+      run: dotnet publish --no-build -c Release -p:PublishDir=./publish
+
+    - name: "Create service.zip"
+      working-directory: Semantico.Api
+      run: zip -r services.zip Dockerfile publish
 
     - name: "Upload artifacts"
       uses: actions/upload-artifact@v2
       with:
         name: "build-artifacts"
-        path: semantico/**
+        path: ./Semantico.Api/services.zip
         if-no-files-found: error
