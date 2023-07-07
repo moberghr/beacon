@@ -5,5 +5,5 @@ WORKDIR /app
 ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false
 
 FROM base as semantico-api
-COPY Semantico.Api/publish .
+COPY publish .
 ENTRYPOINT ["dotnet", "Semantico.Api.dll"]
