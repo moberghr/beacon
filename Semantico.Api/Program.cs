@@ -1,9 +1,11 @@
 using System.Reflection;
 using Hangfire;
 using Hangfire.PostgreSql;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.EntityFrameworkCore;
 using Semantico.Api.Adapters.Configuration;
 using Semantico.Api.Data;
+using Semantico.Api.Web;
 using Semantico.Api.Worker;
 using Semantico.Api.Worker.Services;
 
@@ -38,6 +40,10 @@ builder.Services.AddTransient<IJobService, JobService>();
 builder.Services.AddTransient<IRecurringJobService, RecurringJobService>();
 builder.Services.AddAdapters(builder.Configuration);
 
+builder.Services.AddAuthentication("BasicAuthentication")
+                .AddScheme<AuthenticationSchemeOptions, BasicAuthenticationHandler>
+                ("BasicAuthentication", null);
+
 var app = builder.Build();
 
 app.UseSwagger();
@@ -45,7 +51,10 @@ app.UseSwaggerUI();
 
 app.UseHttpsRedirection();
 
-app.MapControllers();
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.MapControllers().RequireAuthorization();
 
 app.MapHangfireDashboard();
 
