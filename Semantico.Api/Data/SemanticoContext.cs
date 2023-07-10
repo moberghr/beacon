@@ -10,6 +10,8 @@ public class SemanticoContext : DbContext
     {
     }
 
+    public DbSet<Account> Accounts => Set<Account>();
+
     public DbSet<Notification> Notifications => Set<Notification>();
 
     public DbSet<Query> Queries => Set<Query>();
