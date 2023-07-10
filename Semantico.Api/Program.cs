@@ -40,8 +40,8 @@ builder.Services.AddAdapters(builder.Configuration);
 
 var app = builder.Build();
 
-using var scope = app.Services.CreateScope();
-await scope.ServiceProvider.GetRequiredService<SemanticoContext>().Database.MigrateAsync();
+var context = app.Services.GetRequiredService<SemanticoContext>();
+await context.Database.MigrateAsync();
 
 app.UseSwagger();
 app.UseSwaggerUI();
