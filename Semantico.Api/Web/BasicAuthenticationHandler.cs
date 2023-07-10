@@ -3,14 +3,19 @@ using System.Text;
 using System.Text.Encodings.Web;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Options;
+using Semantico.Api.Helpers;
+using Semantico.Api.Services;
 
 namespace Semantico.Api.Web;
 
 public class BasicAuthenticationHandler : AuthenticationHandler<AuthenticationSchemeOptions>
 {
-    public BasicAuthenticationHandler(IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder, ISystemClock clock)
+    private readonly IAccountService _accountService;
+
+    public BasicAuthenticationHandler(IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder, ISystemClock clock, IAccountService accountService)
         : base(options, logger, encoder, clock)
     {
+        _accountService = accountService;
     }
 
     protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
@@ -28,7 +33,9 @@ public class BasicAuthenticationHandler : AuthenticationHandler<AuthenticationSc
             var credentialString = Encoding.UTF8.GetString(Convert.FromBase64String(token));
             var credentials = credentialString.Split(':');
 
-            if (credentials[0] == "moberg" && credentials[1] == "3Semantico6#")
+            var account = await _accountService.GetAccount(credentials[0]);
+
+            if (PasswordHasher.Check(account.Value, credentials[1]))
             {
                 var claims = new List<Claim>
                 {

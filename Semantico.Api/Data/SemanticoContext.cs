@@ -21,6 +21,7 @@ public class SemanticoContext : DbContext
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema("semantico");
+        modelBuilder.Seed();
         base.OnModelCreating(modelBuilder);
     }
 }
