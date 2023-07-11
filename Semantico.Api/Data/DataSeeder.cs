@@ -9,6 +9,6 @@ public static class DataSeeder
     public static void Seed(this ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<Account>().HasData(
-            new Account { Id = 1, Username = "moberg", Value = PasswordHasher.Hash("3Semantico6#") });
+            new Account { Id = 1, CreatedTime = DateTime.UtcNow, Username = "moberg", Value = PasswordHasher.Hash("3Semantico6#") });
     }
 }
