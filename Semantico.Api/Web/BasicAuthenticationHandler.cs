@@ -33,14 +33,18 @@ public class BasicAuthenticationHandler : AuthenticationHandler<AuthenticationSc
             var credentialString = Encoding.UTF8.GetString(Convert.FromBase64String(token));
             var credentials = credentialString.Split(':');
 
-            var account = await _accountService.GetAccount(credentials[0]);
+            var username = credentials[0];
+            var password = credentials[1];
 
-            if (PasswordHasher.Check(account.Value, credentials[1]))
+            var account = await _accountService.GetAccount(username);
+
+            if (PasswordHasher.Check(account.Value, password))
             {
                 var claims = new List<Claim>
                 {
-                    new Claim("name", credentials[0]),
+                    new Claim("name", username),
                     new Claim(ClaimTypes.Role, "Admin"),
+                    new Claim("accountId", account.Id.ToString())
                 };
 
                 var identity = new ClaimsIdentity(claims, "Basic");

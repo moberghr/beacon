@@ -19,10 +19,10 @@ public class RemoveAccountCommand : IRequestHandler<RemoveAccountRequest, Remove
     public async Task<RemoveAccountResponse> Handle(RemoveAccountRequest request, CancellationToken cancellationToken)
     {
         var account = await _context.Accounts
-            .Where(x => x.Id == request.AccountId)
+            .Where(x => x.Username == request.Username)
             .SingleAsync(cancellationToken);
 
-        if (account.Username == _account.Username)
+        if (account.Id == _account.AccountId)
         {
             throw new Exception("The logged-in user cannot delete themselves.");
         }
@@ -36,7 +36,7 @@ public class RemoveAccountCommand : IRequestHandler<RemoveAccountRequest, Remove
 
 public class RemoveAccountRequest : IRequest<RemoveAccountResponse>
 {
-    public required int AccountId { get; set; }
+    public required string Username { get; set; }
 }
 
 public class RemoveAccountResponse

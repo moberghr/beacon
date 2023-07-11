@@ -15,6 +15,12 @@ public class AccountsController : ControllerBase
         _mediator = mediator;
     }
 
+    [HttpGet]
+    public async Task<GetAccountsResponse> GetAccounts([FromQuery] GetAccountsRequst requst, CancellationToken cancellationToken)
+    {
+        return await _mediator.Send(requst, cancellationToken);
+    }
+
     [HttpPost("create-account")]
     public async Task<CreateAccountResponse> CreateAccount(CreateAccountRequest request, CancellationToken cancellationToken)
     {

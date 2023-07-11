@@ -1,4 +1,5 @@
-﻿using System.Security.Claims;
+﻿using Semantico.Api.Types;
+using System.Security.Claims;
 
 namespace Semantico.Api.Web;
 
@@ -13,13 +14,18 @@ public class AccountClaimsResolver : IAccount
             throw new Exception(nameof(identity));
         }
 
-        Username = identity.FindFirst("name")?.Value!;
+        Username = identity.FindFirst(AccountClaimType.Name)?.Value!;
+        AccountId = int.Parse(identity.FindFirst(AccountClaimType.AccountId)?.Value!);
     }
 
     public string Username { get; }
+
+    public int AccountId { get; }
 }
 
 public interface IAccount
 {
     public string Username { get; }
+
+    public int AccountId { get; }
 }
