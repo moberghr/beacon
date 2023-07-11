@@ -46,6 +46,9 @@ builder.Services.AddAuthentication("BasicAuthentication")
 
 var app = builder.Build();
 
+var context = app.Services.GetRequiredService<SemanticoContext>();
+await context.Database.MigrateAsync();
+
 app.UseSwagger();
 app.UseSwaggerUI();
 
