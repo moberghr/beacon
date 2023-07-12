@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Options;
 using Semantico.Api.Helpers;
 using Semantico.Api.Services;
+using Semantico.Api.Types;
 
 namespace Semantico.Api.Web;
 
@@ -42,9 +43,9 @@ public class BasicAuthenticationHandler : AuthenticationHandler<AuthenticationSc
             {
                 var claims = new List<Claim>
                 {
-                    new Claim("name", username),
+                    new Claim(AccountClaimType.Name, username),
                     new Claim(ClaimTypes.Role, "Admin"),
-                    new Claim("accountId", account.Id.ToString())
+                    new Claim(AccountClaimType.AccountId, account.Id.ToString())
                 };
 
                 var identity = new ClaimsIdentity(claims, "Basic");
