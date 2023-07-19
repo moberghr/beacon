@@ -54,6 +54,7 @@ jobs:
 
     deploy-services:
       name: Deploy services
+      needs: build-images
       runs-on: ubuntu-latest
       env: 
         cluster: ${{ vars.AWS_CLUSTER }}

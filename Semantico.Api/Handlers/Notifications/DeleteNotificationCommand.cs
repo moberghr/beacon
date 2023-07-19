@@ -34,4 +34,3 @@ public class DeleteNotificationRequest : IRequest<DeleteNotificationResponse>
 public class DeleteNotificationResponse
 {
 }
-

@@ -10,6 +10,8 @@ public class SemanticoContext : DbContext
     {
     }
 
+    public DbSet<Account> Accounts => Set<Account>();
+
     public DbSet<Notification> Notifications => Set<Notification>();
 
     public DbSet<Query> Queries => Set<Query>();
@@ -19,6 +21,7 @@ public class SemanticoContext : DbContext
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema("semantico");
+        modelBuilder.Seed();
         base.OnModelCreating(modelBuilder);
     }
 }

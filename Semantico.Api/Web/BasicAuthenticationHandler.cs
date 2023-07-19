@@ -3,14 +3,20 @@ using System.Text;
 using System.Text.Encodings.Web;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Options;
+using Semantico.Api.Helpers;
+using Semantico.Api.Services;
+using Semantico.Api.Types;
 
 namespace Semantico.Api.Web;
 
 public class BasicAuthenticationHandler : AuthenticationHandler<AuthenticationSchemeOptions>
 {
-    public BasicAuthenticationHandler(IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder, ISystemClock clock)
+    private readonly IAccountService _accountService;
+
+    public BasicAuthenticationHandler(IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder, ISystemClock clock, IAccountService accountService)
         : base(options, logger, encoder, clock)
     {
+        _accountService = accountService;
     }
 
     protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
@@ -28,12 +34,18 @@ public class BasicAuthenticationHandler : AuthenticationHandler<AuthenticationSc
             var credentialString = Encoding.UTF8.GetString(Convert.FromBase64String(token));
             var credentials = credentialString.Split(':');
 
-            if (credentials[0] == "moberg" && credentials[1] == "3Semantico6#")
+            var username = credentials[0];
+            var password = credentials[1];
+
+            var account = await _accountService.GetAccount(username);
+
+            if (PasswordHasher.Check(account.Value, password))
             {
                 var claims = new List<Claim>
                 {
-                    new Claim("name", credentials[0]),
+                    new Claim(AccountClaimType.Name, username),
                     new Claim(ClaimTypes.Role, "Admin"),
+                    new Claim(AccountClaimType.AccountId, account.Id.ToString())
                 };
 
                 var identity = new ClaimsIdentity(claims, "Basic");

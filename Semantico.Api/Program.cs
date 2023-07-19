@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.EntityFrameworkCore;
 using Semantico.Api.Adapters.Configuration;
 using Semantico.Api.Data;
+using Semantico.Api.Services;
 using Semantico.Api.Web;
 using Semantico.Api.Worker;
 using Semantico.Api.Worker.Services;
@@ -39,6 +40,9 @@ builder.Services.AddHangfireServer();
 builder.Services.AddTransient<IJobService, JobService>();
 builder.Services.AddTransient<IRecurringJobService, RecurringJobService>();
 builder.Services.AddAdapters(builder.Configuration);
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddTransient<IAccount, AccountClaimsResolver>();
+builder.Services.AddTransient<IAccountService, AccountService>();
 
 builder.Services.AddAuthentication("BasicAuthentication")
                 .AddScheme<AuthenticationSchemeOptions, BasicAuthenticationHandler>
@@ -46,8 +50,8 @@ builder.Services.AddAuthentication("BasicAuthentication")
 
 var app = builder.Build();
 
-var context = app.Services.GetRequiredService<SemanticoContext>();
-await context.Database.MigrateAsync();
+using var scope = app.Services.CreateScope();
+await scope.ServiceProvider.GetRequiredService<SemanticoContext>().Database.MigrateAsync();
 
 app.UseSwagger();
 app.UseSwaggerUI();
