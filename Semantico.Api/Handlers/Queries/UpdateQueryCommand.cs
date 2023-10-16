@@ -1,5 +1,6 @@
 ﻿using MediatR;
 using Microsoft.EntityFrameworkCore;
+using NCrontab;
 using Semantico.Api.Data;
 using Semantico.Api.Validators;
 
@@ -20,6 +21,7 @@ public class UpdateQueryCommand : IRequestHandler<UpdateQueryRequest, UpdateQuer
             .Where(x => x.Id == request.QueryId)
             .FirstAsync(cancellationToken);
 
+        CrontabSchedule.Parse(request.CronExpression);
 
         QueryValidator.ContainsFlaggedWords(request.SqlValue);
 
