@@ -10,7 +10,8 @@ namespace Semantico.Api.Validators
             "update",
             "delete",
             "drop",
-            "replace"
+            "replace",
+            "alter"
         };
 
         public static void ContainsFlaggedWords(string sqlQuery)
