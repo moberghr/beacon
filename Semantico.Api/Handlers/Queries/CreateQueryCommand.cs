@@ -2,6 +2,7 @@
 using NCrontab;
 using Semantico.Api.Data;
 using Semantico.Api.Data.Entities;
+using Semantico.Api.Validators;
 using Semantico.Api.Worker;
 using Semantico.Api.Worker.Services;
 
@@ -21,6 +22,8 @@ public class CreateQueryCommand : IRequestHandler<CreateQueryRequest, CreateQuer
     public async Task<CreateQueryResponse> Handle(CreateQueryRequest request, CancellationToken cancellationToken)
     {
         CrontabSchedule.Parse(request.CronExpression);
+
+        QueryValidator.ContainsFlaggedWords(request.SqlValue);
 
         var query = new Query
         {

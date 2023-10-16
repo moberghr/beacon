@@ -1,6 +1,7 @@
 ﻿using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Semantico.Api.Data;
+using Semantico.Api.Validators;
 
 namespace Semantico.Api.Handlers.Queries;
 
@@ -18,6 +19,9 @@ public class UpdateQueryCommand : IRequestHandler<UpdateQueryRequest, UpdateQuer
         var query = await _context.Queries
             .Where(x => x.Id == request.QueryId)
             .FirstAsync(cancellationToken);
+
+
+        QueryValidator.ContainsFlaggedWords(request.SqlValue);
 
         query.SqlValue = request.SqlValue;
         query.CronExpression = request.CronExpression;
