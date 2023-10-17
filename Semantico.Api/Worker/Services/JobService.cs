@@ -33,34 +33,36 @@ public class JobService : IJobService
                     x.Id,
                     x.SqlValue,
                     x.Project,
-                    x.Notifications
+                    x.Subscriptions
                 })
             .FirstAsync();
 
         var queryResult = await GetQueryResults(query.Project.ConnectionString, query.SqlValue, query.Project.Name);
 
-        foreach (var notification in query.Notifications)
-        {
-            var recipientQueryResult = new RecipientQueryResult
-            {
-                Recipient = notification.Value,
-                QueryResult = queryResult
-            };
+        // TODO: implement notification sending logic
 
-            switch (notification.NotificationType)
-            {
-                case NotificationType.Email:
-                    await _mailAdapter.SendMailAsync(recipientQueryResult);
-                    break;
+        //foreach (var subscription in query.Subscriptions)
+        //{
+        //    var recipientQueryResult = new RecipientQueryResult
+        //    {
+        //        Recipient = subscription.Value,
+        //        QueryResult = queryResult
+        //    };
 
-                case NotificationType.Teams:
-                    await _teamsAdapter.SendTeamsNotificationAsync(recipientQueryResult);
-                    break;
+        //    switch (subscription.NotificationType)
+        //    {
+        //        case NotificationType.Email:
+        //            await _mailAdapter.SendMailAsync(recipientQueryResult);
+        //            break;
 
-                default:
-                    throw new Exception("Invalid notification type");
-            }
-        }
+        //        case NotificationType.Teams:
+        //            await _teamsAdapter.SendTeamsNotificationAsync(recipientQueryResult);
+        //            break;
+
+        //        default:
+        //            throw new Exception("Invalid notification type");
+        //    }
+        //}
     }
 
     private static async Task<QueryResult> GetQueryResults(string connectionString, string sqlQuery, string projectName)
