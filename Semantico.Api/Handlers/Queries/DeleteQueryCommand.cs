@@ -19,7 +19,12 @@ public class DeleteQueryCommand : IRequestHandler<DeleteQueryRequest, DeleteQuer
             .Where(x => x.Id == request.QueryId)
             .FirstAsync(cancellationToken);
 
-        _context.Queries.Remove(query);
+        if (query.Subscriptions.Count > 0)
+        {
+            throw new Exception($"Unable to remove query due to active subscriptions.");
+        }
+
+        query.ArchivedTime = DateTime.UtcNow;
         await _context.SaveChangesAsync(cancellationToken);
 
         return new();

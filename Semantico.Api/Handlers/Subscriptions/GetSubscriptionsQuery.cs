@@ -2,6 +2,7 @@
 using Microsoft.EntityFrameworkCore;
 using Semantico.Api.Data;
 using Semantico.Api.Data.Entities;
+using Semantico.Api.Data.Enums;
 using Semantico.Api.Helpers;
 
 namespace Semantico.Api.Handlers.Subscriptions;
@@ -20,12 +21,15 @@ public class GetSubscriptionsQuery : IRequestHandler<GetSubscriptionsRequest, Ge
         var Subscriptions = await _context.Subscriptions
             .WhereIf(request.SubscriptionId.HasValue, x => x.Id == request.SubscriptionId)
             .WhereIf(request.QueryId.HasValue, x => x.QueryId == request.QueryId)
+            .WhereIf(request.NotificationType.HasValue, x => x.NotificationType == request.NotificationType)
             .Select(x =>
                 new GetSubscriptionsResponseListData
                 {
                     SubscriptionId = x.Id,
                     Name = x.Name,
-                    QueryId = x.QueryId
+                    QueryId = x.QueryId,
+                    Recipient = x.Recipient,
+                    NotificationType = x.NotificationType
                 })
             .ToListAsync(cancellation);
 
@@ -41,6 +45,8 @@ public class GetSubscriptionsRequest : IRequest<GetSubscriptionsResponse>
     public int? SubscriptionId { get; init; }
 
     public int? QueryId { get; init; }
+    
+    public NotificationType? NotificationType { get; init; }
 }
 
 public class GetSubscriptionsResponse
@@ -55,4 +61,8 @@ public class GetSubscriptionsResponseListData
     public required string Name { get; init; }
 
     public required int QueryId { get; init; }
+
+    public required NotificationType NotificationType { get; init; }
+
+    public required string Recipient { get; init; } 
 }

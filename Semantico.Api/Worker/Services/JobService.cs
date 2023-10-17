@@ -7,6 +7,7 @@ using Semantico.Api.Adapters.Teams;
 using Semantico.Api.Data;
 using Semantico.Api.Data.Entities;
 using Dapper;
+using Semantico.Api.Data.Enums;
 
 namespace Semantico.Api.Worker.Services;
 
@@ -23,46 +24,45 @@ public class JobService : IJobService
         _teamsAdapter = teamsAdapter;
     }
 
-    public async Task ExecuteQuery(int queryId)
+    public async Task ExecuteQuery(int subscriptionId)
     {
+        var subscription = await _context.Subscriptions
+            .Where(x => x.Id == subscriptionId)
+            .FirstAsync();
+
         var query = await _context.Queries
-            .Where(x => x.Id == queryId)
+            .Where(x => x.Id == subscription.QueryId)
             .Select(x =>
                 new
                 {
                     x.Id,
                     x.SqlValue,
-                    x.Project,
-                    x.Subscriptions
+                    x.Project
                 })
             .FirstAsync();
 
         var queryResult = await GetQueryResults(query.Project.ConnectionString, query.SqlValue, query.Project.Name);
 
-        // TODO: implement notification sending logic
+        var recipientQueryResult = new RecipientQueryResult
+        {
+            SubscriptionName = subscription.Name,
+            Recipient = subscription.Recipient,
+            QueryResult = queryResult
+        };
 
-        //foreach (var subscription in query.Subscriptions)
-        //{
-        //    var recipientQueryResult = new RecipientQueryResult
-        //    {
-        //        Recipient = subscription.Value,
-        //        QueryResult = queryResult
-        //    };
+        switch (subscription.NotificationType)
+        {
+            case NotificationType.Email:
+                await _mailAdapter.SendMailAsync(recipientQueryResult);
+                break;
 
-        //    switch (subscription.NotificationType)
-        //    {
-        //        case NotificationType.Email:
-        //            await _mailAdapter.SendMailAsync(recipientQueryResult);
-        //            break;
+            case NotificationType.Teams:
+                await _teamsAdapter.SendTeamsNotificationAsync(recipientQueryResult);
+                break;
 
-        //        case NotificationType.Teams:
-        //            await _teamsAdapter.SendTeamsNotificationAsync(recipientQueryResult);
-        //            break;
-
-        //        default:
-        //            throw new Exception("Invalid notification type");
-        //    }
-        //}
+            default:
+                throw new Exception("Invalid notification type");
+        }
     }
 
     private static async Task<QueryResult> GetQueryResults(string connectionString, string sqlQuery, string projectName)

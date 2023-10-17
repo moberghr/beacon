@@ -2,6 +2,7 @@
 using NCrontab;
 using Semantico.Api.Data;
 using Semantico.Api.Data.Entities;
+using Semantico.Api.Data.Enums;
 using Semantico.Api.Web;
 using Semantico.Api.Worker.Services;
 using static Microsoft.EntityFrameworkCore.DbLoggerCategory;
@@ -28,15 +29,14 @@ public class CreateSubscriptionCommand : IRequestHandler<CreateSubscriptionReque
             Name = request.Name,
             CronExpression = request.CronExpression,
             QueryId = request.QueryId,
+            Recipient = request.Recipient,
+            NotificationType = request.NotificationType
         };
 
         _context.Subscriptions.Add(subscription);
-        var result = await _context.SaveChangesAsync(cancellationToken);
+        await _context.SaveChangesAsync(cancellationToken);
 
-        if (result > 0)
-        {
-            _recurringJobService.AddOrUpdate(subscription.Id, request.QueryId, request.CronExpression);
-        }
+        _recurringJobService.AddOrUpdate(subscription.Id, request.CronExpression);
 
         return new();
     }
@@ -47,6 +47,10 @@ public class CreateSubscriptionRequest : IRequest<CreateSubscriptionResponse>
     public string Name { get; init; } = string.Empty;
 
     public string CronExpression { get; init; } = string.Empty;
+
+    public string Recipient { get; init; } = string.Empty;
+    
+    public NotificationType NotificationType { get; init; }
 
     public int QueryId { get; init; }
 }

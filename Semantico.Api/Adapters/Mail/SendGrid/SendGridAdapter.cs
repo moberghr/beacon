@@ -19,7 +19,7 @@ public class SendGridAdapter : IMailAdapter
     {
         var senderEmail = new EmailAddress(_settings.SenderEmail, _settings.SenderName);
         var to = new EmailAddress(recipientQueryResult.Recipient);
-        var subject = $"{recipientQueryResult.QueryResult.ProjectName} - notification";
+        var subject = $"{recipientQueryResult.QueryResult.ProjectName} - {recipientQueryResult.SubscriptionName}";
         var plainTextContent = $"Sql Query: {recipientQueryResult.QueryResult.SqlQuery} \nQuery executed successfuly with total records of: {recipientQueryResult.QueryResult.TotalRecords}";
         var msg = MailHelper.CreateSingleEmail(senderEmail, to, subject, plainTextContent, recipientQueryResult.QueryResult.QueryResults);
 

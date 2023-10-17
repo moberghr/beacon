@@ -18,17 +18,14 @@ public class DeleteSubscriptionCommand : IRequestHandler<DeleteSubscriptionReque
 
     public async Task<DeleteSubscriptionResponse> Handle(DeleteSubscriptionRequest request, CancellationToken cancellationToken)
     {
-        var notification = await _context.Subscriptions
+        var subscription = await _context.Subscriptions
             .Where(x => x.Id == request.SubscriptionId)
             .FirstAsync(cancellationToken);
 
-        _context.Subscriptions.Remove(notification);
-        var result = await _context.SaveChangesAsync(cancellationToken);
+        subscription.ArchivedTime = DateTime.UtcNow;
+        await _context.SaveChangesAsync(cancellationToken);
 
-        if (result > 0)
-        {
-            _recurringJobService.Remove(request.SubscriptionId);
-        }
+        _recurringJobService.Remove(request.SubscriptionId);
 
         return new();
     }
