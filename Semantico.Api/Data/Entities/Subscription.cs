@@ -3,7 +3,7 @@ using Semantico.Api.Data.Enums;
 
 namespace Semantico.Api.Data.Entities;
 
-public class Subscription : BaseEntity
+public class Subscription : ArchivableBaseEntity
 {
     public required string Name { get; set; }
 
@@ -16,4 +16,6 @@ public class Subscription : BaseEntity
     public required string Recipient { get; set; }
     
     public NotificationType NotificationType { get; set; }
+
+    public List<SubscriptionParameter> Parameters { get; set; } = new();
 }

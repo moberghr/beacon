@@ -2,7 +2,7 @@
 
 namespace Semantico.Api.Data.Entities;
 
-public class Account : BaseEntity
+public class Account : ArchivableBaseEntity
 {
     public required string Username { get; set; }
 

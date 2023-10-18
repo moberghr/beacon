@@ -2,7 +2,7 @@
 
 namespace Semantico.Api.Data.Entities;
 
-public class Query : BaseEntity
+public class Query : ArchivableBaseEntity
 {
     public required string SqlValue { get; set; }
 
@@ -11,4 +11,6 @@ public class Query : BaseEntity
     public Project Project { get; set; } = null!;
 
     public List<Subscription> Subscriptions { get; set; } = new();
+
+    public List<QueryParameter> Parameters { get; set; } = new();
 }

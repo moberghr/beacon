@@ -30,6 +30,8 @@ public class CreateQueryCommand : IRequestHandler<CreateQueryRequest, CreateQuer
         _context.Queries.Add(query);
         await _context.SaveChangesAsync(cancellationToken);
 
+        // todo: add query parameters
+
         return new();
     }
 }
@@ -39,6 +41,8 @@ public class CreateQueryRequest : IRequest<CreateQueryResponse>
     public string SqlValue { get; init; } = string.Empty;
 
     public int ProjectId { get; init; }
+
+    public List<QueryParameter> Parameters { get; init; } = new();
 }
 
 public class CreateQueryResponse

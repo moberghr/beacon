@@ -14,7 +14,11 @@ public class SemanticoContext : DbContext
 
     public DbSet<Subscription> Subscriptions => Set<Subscription>();
 
+    public DbSet<SubscriptionParameter> SubscriptionParameters => Set<SubscriptionParameter>();
+
     public DbSet<Query> Queries => Set<Query>();
+
+    public DbSet<QueryParameter> QueryParameters => Set<QueryParameter>();
 
     public DbSet<Project> Projects => Set<Project>();
 
