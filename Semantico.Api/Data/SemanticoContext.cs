@@ -26,6 +26,15 @@ public class SemanticoContext : DbContext
     {
         modelBuilder.HasDefaultSchema("semantico");
         modelBuilder.Seed();
+
+        modelBuilder.Entity<QueryParameter>()
+            .HasIndex(p => new { p.QueryId, p.Placeholder })
+            .IsUnique();
+
+        modelBuilder.Entity<SubscriptionParameter>()
+            .HasIndex(p => new { p.SubscriptionId, p.QueryPlaceholder })
+            .IsUnique();
+
         base.OnModelCreating(modelBuilder);
     }
 }

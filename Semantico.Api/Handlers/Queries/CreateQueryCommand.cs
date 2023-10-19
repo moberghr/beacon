@@ -19,7 +19,7 @@ public class CreateQueryCommand : IRequestHandler<CreateQueryRequest, CreateQuer
 
     public async Task<CreateQueryResponse> Handle(CreateQueryRequest request, CancellationToken cancellationToken)
     {
-        QueryValidator.ContainsFlaggedWords(request.SqlValue);
+        QueryValidator.CheckForFlaggedWords(request.SqlValue);
 
         var query = new Query
         {

@@ -29,7 +29,8 @@ public class GetSubscriptionsQuery : IRequestHandler<GetSubscriptionsRequest, Ge
                     Name = x.Name,
                     QueryId = x.QueryId,
                     Recipient = x.Recipient,
-                    NotificationType = x.NotificationType
+                    NotificationType = x.NotificationType,
+                    Parameters = x.Parameters
                 })
             .ToListAsync(cancellation);
 
@@ -64,5 +65,7 @@ public class GetSubscriptionsResponseListData
 
     public required NotificationType NotificationType { get; init; }
 
-    public required string Recipient { get; init; } 
+    public required string Recipient { get; init; }
+
+    public required List<SubscriptionParameter> Parameters { get; init; }
 }

@@ -8,6 +8,8 @@ using Semantico.Api.Data;
 using Semantico.Api.Data.Entities;
 using Dapper;
 using Semantico.Api.Data.Enums;
+using Semantico.Api.Helpers;
+using Semantico.Api.Validators;
 
 namespace Semantico.Api.Worker.Services;
 
@@ -27,21 +29,28 @@ public class JobService : IJobService
     public async Task ExecuteQuery(int subscriptionId)
     {
         var subscription = await _context.Subscriptions
+            .Include(x => x.Parameters)
             .Where(x => x.Id == subscriptionId)
-            .FirstAsync();
+            .SingleAsync();
 
         var query = await _context.Queries
+            .Include(x => x.Parameters)
             .Where(x => x.Id == subscription.QueryId)
             .Select(x =>
                 new
                 {
                     x.Id,
                     x.SqlValue,
-                    x.Project
+                    x.Project,
+                    x.Parameters
                 })
-            .FirstAsync();
+            .SingleAsync();
 
-        var queryResult = await GetQueryResults(query.Project.ConnectionString, query.SqlValue, query.Project.Name);
+        var sql = QueryHelper.CompileSql(query.SqlValue, subscription.Parameters);
+
+        QueryValidator.CheckForFlaggedWords(sql);
+
+        var queryResult = await GetQueryResults(query.Project.ConnectionString, sql, query.Project.Name);
 
         var recipientQueryResult = new RecipientQueryResult
         {

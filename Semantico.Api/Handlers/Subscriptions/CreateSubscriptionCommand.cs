@@ -1,8 +1,11 @@
 ﻿using MediatR;
+using Microsoft.EntityFrameworkCore;
 using NCrontab;
 using Semantico.Api.Data;
 using Semantico.Api.Data.Entities;
 using Semantico.Api.Data.Enums;
+using Semantico.Api.Helpers;
+using Semantico.Api.Validators;
 using Semantico.Api.Web;
 using Semantico.Api.Worker.Services;
 using static Microsoft.EntityFrameworkCore.DbLoggerCategory;
@@ -26,38 +29,9 @@ public class CreateSubscriptionCommand : IRequestHandler<CreateSubscriptionReque
 
         var query = await _context.Queries
             .Where(x => x.Id == request.QueryId)
-            .FirstAsync();
+            .SingleAsync(cancellationToken);
 
-        // Query does not have user-definable parameters, we will ignore them.
-        if (query.Parameters.Count == 0)
-        {
-            request.Parameters.Clear();
-        }
-        else
-        {
-            if (request.Parameters.Count != query.Parameters.Count)
-            {
-                throw new Exception($"Defined subscription parameters count does not match specified query parameter count");
-            }
-
-            int matched = 0;
-            foreach (var queryParam in query.Parameters)
-            {
-                foreach (var subscriptionParam in request.Parameters)
-                {
-                    if (subscriptionParam.Name == queryParam.Name)
-                    {
-                        // check if value can be casted to given type
-                        ++matched;
-                    }
-                }
-            }
-
-            if (matched != query.Parameters.Count)
-            {
-                throw new Exception($"Not all requested query parameters are defined.");
-            }
-        }
+        SubscriptionValidator.ValidateParameters(request.Parameters, query.Parameters);
 
         var subscription = new Subscription
         {
@@ -76,7 +50,7 @@ public class CreateSubscriptionCommand : IRequestHandler<CreateSubscriptionReque
             var parameter = new SubscriptionParameter
             {
                 SubscriptionId = subscription.Id,
-                Name = subscriptionParameter.Name,
+                QueryPlaceholder = subscriptionParameter.QueryPlaceholder,
                 Value = subscriptionParameter.Value,
             };
 

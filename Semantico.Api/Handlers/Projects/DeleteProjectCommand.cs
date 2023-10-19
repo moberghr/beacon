@@ -17,14 +17,14 @@ public class DeleteProjectCommand : IRequestHandler<DeleteProjectRequest, Delete
     {
         var project = await _context.Projects
             .Where(x => x.Id == request.ProjectId)
-            .FirstAsync(cancellationToken);
+            .SingleAsync(cancellationToken);
 
         if (project.Queries.Count > 0)
         {
             throw new Exception($"Unable to remove project due to existing queries");
         }
-        
-        project.ArchivedTime = DateTime.UtcNow;
+
+        project.Archive();
         await _context.SaveChangesAsync(cancellationToken);
 
         return new();
