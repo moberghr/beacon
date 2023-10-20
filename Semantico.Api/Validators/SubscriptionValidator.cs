@@ -1,6 +1,7 @@
 ﻿using MediatR;
 using Semantico.Api.Data.Entities;
 using Semantico.Api.Helpers;
+using Semantico.Api.Types;
 using static Microsoft.EntityFrameworkCore.DbLoggerCategory;
 
 namespace Semantico.Api.Validators;
@@ -18,7 +19,7 @@ public static class SubscriptionValidator
 
         if (subscriptionParameters.Count != queryParameters.Count)
         {
-            throw new Exception($"Defined subscription parameters count does not match specified query parameter count.");
+            throw new SemanticoException($"Defined subscription parameters count does not match specified query parameter count.");
         }
 
         int matched = 0;
@@ -34,14 +35,14 @@ public static class SubscriptionValidator
                     {
                         QueryValidator.CheckForFlaggedWords(subscriptionParam.Value);
                     }
-                    catch (Exception)
+                    catch (SemanticoException)
                     {
-                        throw new Exception($"Parameter value contains keywords that are flagged as not allowed.");
+                        throw new SemanticoException($"Parameter value contains keywords that are flagged as not allowed.");
                     }
 
                     if (ParameterTypeHelper.CanParseParameter(subscriptionParam.Value, queryParam.Type) == false)
                     {
-                        throw new Exception($"Unable to parse {subscriptionParam.QueryPlaceholder} value to set query parameter type.");
+                        throw new SemanticoException($"Unable to parse {subscriptionParam.QueryPlaceholder} value to set query parameter type.");
                     }
                 }
             }
@@ -49,12 +50,12 @@ public static class SubscriptionValidator
 
         if (matched < queryParameters.Count)
         {
-            throw new Exception($"Not all requested query parameters are defined.");
+            throw new SemanticoException($"Not all requested query parameters are defined.");
         }
 
         if (matched > queryParameters.Count)
         {
-            throw new Exception($"There are multiple of the same query parameter names defined");
+            throw new SemanticoException($"There are multiple of the same query parameter names defined");
         }
     }
 }

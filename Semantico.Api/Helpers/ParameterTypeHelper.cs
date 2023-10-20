@@ -1,4 +1,5 @@
 ﻿using Semantico.Api.Data.Enums;
+using Semantico.Api.Types;
 using System.Globalization;
 
 namespace Semantico.Api.Helpers;
@@ -35,7 +36,7 @@ public static class ParameterTypeHelper
                     return value;
                 }
             default:
-                throw new Exception($"Unsupported parameter type");
+                throw new SemanticoException($"Unsupported parameter type");
         }
     }
 }

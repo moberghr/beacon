@@ -1,5 +1,6 @@
 ﻿using MediatR;
 using Semantico.Api.Data.Entities;
+using Semantico.Api.Types;
 
 namespace Semantico.Api.Validators;
 
@@ -21,7 +22,7 @@ public static class QueryValidator
         {
             if (sqlQuery.Contains(flaggedWord, StringComparison.InvariantCultureIgnoreCase))
             {
-                throw new Exception("Query contains keywords that are flagged as not allowed.");
+                throw new SemanticoException("Query contains keywords that are flagged as not allowed.");
             }
         }
     }
@@ -43,9 +44,9 @@ public static class QueryValidator
                     SubscriptionValidator.ValidateParameters(subscription.Parameters, updateParameters);
                 }
             }
-            catch(Exception)
+            catch(SemanticoException)
             {
-                throw new Exception($"Unable to modify query parameters.");
+                throw new SemanticoException($"Unable to modify query parameters.");
             }
         }
     }

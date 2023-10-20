@@ -11,7 +11,7 @@ public class AccountClaimsResolver : IAccount
 
         if (identity == null)
         {
-            throw new Exception(nameof(identity));
+            throw new SemanticoException($"Identity is null");
         }
 
         Username = identity.FindFirst(AccountClaimType.Name)?.Value!;

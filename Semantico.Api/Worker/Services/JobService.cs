@@ -10,6 +10,7 @@ using Dapper;
 using Semantico.Api.Data.Enums;
 using Semantico.Api.Helpers;
 using Semantico.Api.Validators;
+using Semantico.Api.Types;
 
 namespace Semantico.Api.Worker.Services;
 
@@ -70,7 +71,7 @@ public class JobService : IJobService
                 break;
 
             default:
-                throw new Exception("Invalid notification type");
+                throw new SemanticoException("Invalid notification type");
         }
     }
 

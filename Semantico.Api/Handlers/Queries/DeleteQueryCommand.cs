@@ -1,6 +1,7 @@
 ﻿using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Semantico.Api.Data;
+using Semantico.Api.Types;
 
 namespace Semantico.Api.Handlers.Queries;
 
@@ -21,7 +22,7 @@ public class DeleteQueryCommand : IRequestHandler<DeleteQueryRequest, DeleteQuer
 
         if (query.Subscriptions.Count > 0)
         {
-            throw new Exception($"Unable to remove query due to active subscriptions.");
+            throw new SemanticoException($"Unable to remove query due to active subscriptions.");
         }
 
         query.Archive();

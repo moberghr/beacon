@@ -1,6 +1,7 @@
 ﻿using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Semantico.Api.Data;
+using Semantico.Api.Types;
 using Semantico.Api.Web;
 
 namespace Semantico.Api.Handlers.Accounts;
@@ -24,7 +25,7 @@ public class RemoveAccountCommand : IRequestHandler<RemoveAccountRequest, Remove
 
         if (account.Id == _account.AccountId)
         {
-            throw new Exception("The logged-in user cannot delete themselves.");
+            throw new SemanticoException("The logged-in user cannot delete themselves.");
         }
 
         _context.Accounts.Remove(account);
