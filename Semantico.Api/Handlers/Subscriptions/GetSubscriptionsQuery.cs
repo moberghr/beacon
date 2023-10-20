@@ -19,6 +19,7 @@ public class GetSubscriptionsQuery : IRequestHandler<GetSubscriptionsRequest, Ge
     public async Task<GetSubscriptionsResponse> Handle(GetSubscriptionsRequest request, CancellationToken cancellation)
     {
         var Subscriptions = await _context.Subscriptions
+            .Include(x => x.Parameters)
             .WhereIf(request.SubscriptionId.HasValue, x => x.Id == request.SubscriptionId)
             .WhereIf(request.QueryId.HasValue, x => x.QueryId == request.QueryId)
             .WhereIf(request.NotificationType.HasValue, x => x.NotificationType == request.NotificationType)

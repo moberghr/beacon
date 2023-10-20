@@ -22,6 +22,8 @@ public class SemanticoContext : DbContext
 
     public DbSet<Project> Projects => Set<Project>();
 
+    public DbSet<Notification> Notifications => Set<Notification>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema("semantico");

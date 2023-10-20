@@ -18,4 +18,6 @@ public class Subscription : ArchivableBaseEntity
     public NotificationType NotificationType { get; set; }
 
     public List<SubscriptionParameter> Parameters { get; set; } = new();
+
+    public List<Notification> Notifications { get; set; } = new();
 }

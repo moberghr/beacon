@@ -73,6 +73,16 @@ public class JobService : IJobService
             default:
                 throw new SemanticoException("Invalid notification type");
         }
+
+        var notification = new Notification
+        {
+            Recipient = subscription.Recipient,
+            NotificationType = subscription.NotificationType,
+            SubscriptionId = subscriptionId,
+            ResultCount = recipientQueryResult.QueryResult.TotalRecords
+        };
+
+        await _context.Notifications.AddAsync(notification);
     }
 
     private static async Task<QueryResult> GetQueryResults(string connectionString, string sqlQuery, string projectName)
