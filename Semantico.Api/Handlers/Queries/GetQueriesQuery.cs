@@ -23,7 +23,6 @@ public class GetQueriesQuery : IRequestHandler<GetQueriesRequest, GetQueriesResp
                 new GetQueriesResponseListData
                 {
                     SqlValue = x.SqlValue,
-                    CronExpression = x.CronExpression,
                     ProjectId = x.ProjectId,
                 })
             .ToListAsync(cancellationToken);
@@ -50,8 +49,6 @@ public class GetQueriesResponse
 public class GetQueriesResponseListData
 {
     public required string SqlValue { get; init; }
-
-    public required string CronExpression { get; init; }
 
     public required int ProjectId { get; init; }
 }

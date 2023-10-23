@@ -12,7 +12,7 @@ public class SemanticoContext : DbContext
 
     public DbSet<Account> Accounts => Set<Account>();
 
-    public DbSet<Notification> Notifications => Set<Notification>();
+    public DbSet<Subscription> Subscriptions => Set<Subscription>();
 
     public DbSet<Query> Queries => Set<Query>();
 

@@ -23,7 +23,7 @@ public class TeamsAdapter : ITeamsAdapter
 
         var card = new MessageCard
         {
-            Title = recipientQueryResult.QueryResult.ProjectName,
+            Title = $"{recipientQueryResult.QueryResult.ProjectName} - {recipientQueryResult.SubscriptionName}",
             Text = $"Query executed successfuly with total records of: {recipientQueryResult.QueryResult.TotalRecords}",
             Sections = new[]
             {

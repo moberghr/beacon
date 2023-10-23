@@ -32,6 +32,10 @@ namespace Semantico.Api.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<DateTime?>("ArchivedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("archived_time");
+
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_time");
@@ -55,45 +59,10 @@ namespace Semantico.Api.Migrations
                         new
                         {
                             Id = 1,
-                            CreatedTime = new DateTime(2023, 7, 11, 10, 48, 23, 809, DateTimeKind.Utc).AddTicks(5305),
+                            CreatedTime = new DateTime(2023, 2, 2, 0, 0, 0, 0, DateTimeKind.Utc),
                             Username = "moberg",
                             Value = "AQAAAAIAAYagAAAAECWEQ1jq8CPkruy8QrQy4eQqwKjFAQ2tt8wW/tH7zCype5L2asjL4W9+uBdvLMvPNQ=="
                         });
-                });
-
-            modelBuilder.Entity("Semantico.Api.Data.Entities.Notification", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime>("CreatedTime")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_time");
-
-                    b.Property<int>("NotificationType")
-                        .HasColumnType("integer")
-                        .HasColumnName("notification_type");
-
-                    b.Property<int>("QueryId")
-                        .HasColumnType("integer")
-                        .HasColumnName("query_id");
-
-                    b.Property<string>("Value")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("value");
-
-                    b.HasKey("Id")
-                        .HasName("pk_notifications");
-
-                    b.HasIndex("QueryId")
-                        .HasDatabaseName("ix_notifications_query_id");
-
-                    b.ToTable("notifications", "semantico");
                 });
 
             modelBuilder.Entity("Semantico.Api.Data.Entities.Project", b =>
@@ -104,6 +73,10 @@ namespace Semantico.Api.Migrations
                         .HasColumnName("id");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime?>("ArchivedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("archived_time");
 
                     b.Property<string>("ConnectionString")
                         .IsRequired()
@@ -134,14 +107,13 @@ namespace Semantico.Api.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<DateTime?>("ArchivedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("archived_time");
+
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_time");
-
-                    b.Property<string>("CronExpression")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("cron_expression");
 
                     b.Property<int>("ProjectId")
                         .HasColumnType("integer")
@@ -161,16 +133,53 @@ namespace Semantico.Api.Migrations
                     b.ToTable("queries", "semantico");
                 });
 
-            modelBuilder.Entity("Semantico.Api.Data.Entities.Notification", b =>
+            modelBuilder.Entity("Semantico.Api.Data.Entities.Subscription", b =>
                 {
-                    b.HasOne("Semantico.Api.Data.Entities.Query", "Query")
-                        .WithMany("Notifications")
-                        .HasForeignKey("QueryId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_notifications_queries_query_id");
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
 
-                    b.Navigation("Query");
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime?>("ArchivedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("archived_time");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_time");
+
+                    b.Property<string>("CronExpression")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("cron_expression");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("name");
+
+                    b.Property<int>("NotificationType")
+                        .HasColumnType("integer")
+                        .HasColumnName("notification_type");
+
+                    b.Property<int>("QueryId")
+                        .HasColumnType("integer")
+                        .HasColumnName("query_id");
+
+                    b.Property<string>("Recipient")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("recipient");
+
+                    b.HasKey("Id")
+                        .HasName("pk_subscriptions");
+
+                    b.HasIndex("QueryId")
+                        .HasDatabaseName("ix_subscriptions_query_id");
+
+                    b.ToTable("subscriptions", "semantico");
                 });
 
             modelBuilder.Entity("Semantico.Api.Data.Entities.Query", b =>
@@ -185,6 +194,18 @@ namespace Semantico.Api.Migrations
                     b.Navigation("Project");
                 });
 
+            modelBuilder.Entity("Semantico.Api.Data.Entities.Subscription", b =>
+                {
+                    b.HasOne("Semantico.Api.Data.Entities.Query", "Query")
+                        .WithMany("Subscriptions")
+                        .HasForeignKey("QueryId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_subscriptions_queries_query_id");
+
+                    b.Navigation("Query");
+                });
+
             modelBuilder.Entity("Semantico.Api.Data.Entities.Project", b =>
                 {
                     b.Navigation("Queries");
@@ -192,7 +213,7 @@ namespace Semantico.Api.Migrations
 
             modelBuilder.Entity("Semantico.Api.Data.Entities.Query", b =>
                 {
-                    b.Navigation("Notifications");
+                    b.Navigation("Subscriptions");
                 });
 #pragma warning restore 612, 618
         }

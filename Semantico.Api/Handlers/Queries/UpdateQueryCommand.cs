@@ -21,12 +21,9 @@ public class UpdateQueryCommand : IRequestHandler<UpdateQueryRequest, UpdateQuer
             .Where(x => x.Id == request.QueryId)
             .FirstAsync(cancellationToken);
 
-        CrontabSchedule.Parse(request.CronExpression);
-
         QueryValidator.ContainsFlaggedWords(request.SqlValue);
 
         query.SqlValue = request.SqlValue;
-        query.CronExpression = request.CronExpression;
 
         await _context.SaveChangesAsync(cancellationToken);
 
@@ -39,8 +36,6 @@ public class UpdateQueryRequest : IRequest<UpdateQueryResponse>
     public int QueryId { get; init; }
 
     public string SqlValue { get; init; } = string.Empty;
-
-    public string CronExpression { get; init; } = string.Empty;
 }
 
 public class UpdateQueryResponse

@@ -2,5 +2,5 @@
 
 public interface IJobService
 {
-    Task ExecuteQuery(int queryId);
+    Task ExecuteQuery(int subscriptionId);
 }
