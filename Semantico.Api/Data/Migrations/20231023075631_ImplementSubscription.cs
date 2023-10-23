@@ -7,7 +7,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Semantico.Api.Migrations
 {
     /// <inheritdoc />
-    public partial class ImplementedSubscriptionsTable : Migration
+    public partial class ImplementSubscription : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -21,6 +21,27 @@ namespace Semantico.Api.Migrations
                 schema: "semantico",
                 table: "queries");
 
+            migrationBuilder.AddColumn<DateTime>(
+                name: "archived_time",
+                schema: "semantico",
+                table: "queries",
+                type: "timestamp with time zone",
+                nullable: true);
+
+            migrationBuilder.AddColumn<DateTime>(
+                name: "archived_time",
+                schema: "semantico",
+                table: "projects",
+                type: "timestamp with time zone",
+                nullable: true);
+
+            migrationBuilder.AddColumn<DateTime>(
+                name: "archived_time",
+                schema: "semantico",
+                table: "accounts",
+                type: "timestamp with time zone",
+                nullable: true);
+
             migrationBuilder.CreateTable(
                 name: "subscriptions",
                 schema: "semantico",
@@ -31,7 +52,10 @@ namespace Semantico.Api.Migrations
                     name = table.Column<string>(type: "text", nullable: false),
                     query_id = table.Column<int>(type: "integer", nullable: false),
                     cron_expression = table.Column<string>(type: "text", nullable: false),
-                    created_time = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
+                    recipient = table.Column<string>(type: "text", nullable: false),
+                    notification_type = table.Column<int>(type: "integer", nullable: false),
+                    created_time = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    archived_time = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
                 },
                 constraints: table =>
                 {
@@ -50,8 +74,8 @@ namespace Semantico.Api.Migrations
                 table: "accounts",
                 keyColumn: "id",
                 keyValue: 1,
-                column: "created_time",
-                value: new DateTime(2023, 2, 2, 0, 0, 0, 0, DateTimeKind.Utc));
+                columns: new[] { "archived_time", "created_time" },
+                values: new object[] { null, new DateTime(2023, 2, 2, 0, 0, 0, 0, DateTimeKind.Utc) });
 
             migrationBuilder.CreateIndex(
                 name: "ix_subscriptions_query_id",
@@ -66,6 +90,21 @@ namespace Semantico.Api.Migrations
             migrationBuilder.DropTable(
                 name: "subscriptions",
                 schema: "semantico");
+
+            migrationBuilder.DropColumn(
+                name: "archived_time",
+                schema: "semantico",
+                table: "queries");
+
+            migrationBuilder.DropColumn(
+                name: "archived_time",
+                schema: "semantico",
+                table: "projects");
+
+            migrationBuilder.DropColumn(
+                name: "archived_time",
+                schema: "semantico",
+                table: "accounts");
 
             migrationBuilder.AddColumn<string>(
                 name: "cron_expression",

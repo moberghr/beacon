@@ -32,6 +32,10 @@ namespace Semantico.Api.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<DateTime?>("ArchivedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("archived_time");
+
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_time");
@@ -70,6 +74,10 @@ namespace Semantico.Api.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<DateTime?>("ArchivedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("archived_time");
+
                     b.Property<string>("ConnectionString")
                         .IsRequired()
                         .HasColumnType("text")
@@ -98,6 +106,10 @@ namespace Semantico.Api.Migrations
                         .HasColumnName("id");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime?>("ArchivedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("archived_time");
 
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("timestamp with time zone")
@@ -129,6 +141,10 @@ namespace Semantico.Api.Migrations
                         .HasColumnName("id");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime?>("ArchivedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("archived_time");
 
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("timestamp with time zone")
