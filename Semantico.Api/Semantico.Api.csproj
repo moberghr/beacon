@@ -9,6 +9,7 @@
 	</PropertyGroup>
 
 	<ItemGroup>
+		<PackageReference Include="Atlassian.SDK" Version="13.0.0" />
 		<PackageReference Include="Dapper" Version="2.0.143" />
 		<PackageReference Include="MediatR" Version="12.1.0" />
 		<PackageReference Include="MessageCardModel" Version="1.1.4" />

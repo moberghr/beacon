@@ -4,6 +4,7 @@ using Npgsql;
 using Semantico.Api.Adapters;
 using Semantico.Api.Adapters.Mail;
 using Semantico.Api.Adapters.Teams;
+using Semantico.Api.Adapters.Jira;
 using Semantico.Api.Data;
 using Semantico.Api.Data.Entities;
 using Dapper;
@@ -21,12 +22,14 @@ public class JobService : IJobService
     private readonly SemanticoContext _context;
     private readonly IMailAdapter _mailAdapter;
     private readonly ITeamsAdapter _teamsAdapter;
+    private readonly IJiraAdapter _jiraAdapter;
 
-    public JobService(SemanticoContext context, IMailAdapter mailAdapter, ITeamsAdapter teamsAdapter)
+    public JobService(SemanticoContext context, IMailAdapter mailAdapter, ITeamsAdapter teamsAdapter, IJiraAdapter jiraAdapter)
     {
         _context = context;
         _mailAdapter = mailAdapter;
         _teamsAdapter = teamsAdapter;
+        _jiraAdapter = jiraAdapter;
     }
 
     public async Task ExecuteQuery(int subscriptionId)
@@ -99,6 +102,10 @@ public class JobService : IJobService
             case NotificationType.Teams:
                 await _teamsAdapter.SendTeamsNotificationAsync(recipientQueryResult);
                 break;
+
+			case NotificationType.Jira:
+				await _jiraAdapter.SendJiraNotificationAsync(recipientQueryResult);
+				break;
 
             default:
                 throw new SemanticoException("Invalid notification type");
