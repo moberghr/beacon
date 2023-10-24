@@ -39,7 +39,7 @@ public class JiraAdapter : IJiraAdapter
         {
             var description = CompileQueryResultMessage(recipientQueryResult);
 
-            await jira.CreateNewIssueAsync(credentials.Project, "", recipientQueryResult.QueryResult.SqlQuery, description, "");
+            await jira.CreateNewIssueAsync(credentials.Project, "", recipientQueryResult.SubscriptionName, description, "");
         }
     }
 

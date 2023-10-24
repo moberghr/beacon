@@ -45,9 +45,10 @@ public class JiraServiceTests
 
         await service.DeleteIssueAsync(fetchedIssue);
 
-        fetchedIssue = await service.GetIssueAsync(createdIssue.JiraIdentifier);
-
-        Assert.Null(fetchedIssue);
+        await Assert.ThrowsAsync<ResourceNotFoundException>(async () =>
+        {
+            await service.GetIssueAsync(createdIssue.JiraIdentifier);
+        });
     }
 
 }
