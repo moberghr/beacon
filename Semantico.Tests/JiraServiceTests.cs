@@ -8,12 +8,17 @@ using Xunit;
 namespace Semantico.Tests;
 public class JiraServiceTests
 {
-    JiraService service = new JiraService("https://your-domain-here.atlassian.net", "your-email-here", "your-cloud-api-here");
+    JiraService service = new JiraService(domainUrl, email, apiKey);
+
+    private static string projectKey = "NP";
+    private static string domainUrl = "https://your-domain-here.atlassian.net";
+    private static string email = "your-email-here";
+    private static string apiKey = "your-cloud-api-here";
 
     [Fact]
     public async Task AddCommentToIssue()
     {
-        var createdIssue = await service.CreateNewIssueAsync("TEST", "", "testSummary", "testDescription", "testComment");
+        var createdIssue = await service.CreateNewIssueAsync(projectKey, "", "testSummary", "testDescription", "testComment");
 
         Assert.NotNull(createdIssue);
 
@@ -33,7 +38,7 @@ public class JiraServiceTests
     [Fact]
     public async Task CreateAndRemoveJiraIssue()
     {
-        var createdIssue = await service.CreateNewIssueAsync("TEST", "", "testSummary", "testDescription", "testComment");
+        var createdIssue = await service.CreateNewIssueAsync(projectKey, "", "testSummary", "testDescription", "testComment");
 
         Assert.NotNull(createdIssue);
 

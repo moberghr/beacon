@@ -10,7 +10,7 @@ public interface IJiraService
 
     Task<Comment> AddCommentAsync(Issue issue, string comment);
 
-    Task<Issue> CreateNewIssueAsync(string project, string assignee, string summary, string description, string comment, string epic = "", string type = "");
+    Task<Issue> CreateNewIssueAsync(string project, string assignee, string summary, string description, string comment);
 
     Task DeleteIssueAsync(Issue issue);
 }
@@ -46,7 +46,7 @@ public class JiraService : IJiraService
         return await issue.AddCommentAsync(comment);
     }
 
-    public async Task<Issue> CreateNewIssueAsync(string project, string assignee, string summary, string description, string comment, string epic = "", string type = "")
+    public async Task<Issue> CreateNewIssueAsync(string project, string assignee, string summary, string description, string comment)
     {
         var issue = _jiraClient.CreateIssue(project);
         issue.Type = "Task";

@@ -88,7 +88,7 @@ public class JobService : IJobService
 
         var recipientQueryResult = new RecipientQueryResult
         {
-            SubscriptionName = $"{subscription.Name} ({subscription.Id})",
+            SubscriptionName = $"[{subscription.Id}] - {subscription.Name}",
             Recipient = subscription.Recipient,
             QueryResult = queryResult
         };
@@ -104,7 +104,7 @@ public class JobService : IJobService
                 break;
 
 			case NotificationType.Jira:
-				await _jiraAdapter.SendJiraNotificationAsync(recipientQueryResult);
+				await _jiraAdapter.SendJiraNotificationAsync(subscriptionId, recipientQueryResult);
 				break;
 
             default:
@@ -120,6 +120,7 @@ public class JobService : IJobService
         };
 
         await _context.Notifications.AddAsync(notification);
+        await _context.SaveChangesAsync();
     }
 
     private static async Task<QueryResult> GetQueryResults(string connectionString, string sqlQuery, string projectName)
@@ -136,7 +137,7 @@ public class JobService : IJobService
         {
             QueryResults = JsonSerializer.Serialize(queryResults),
             TotalRecords = recordCounter,
-            ProjectName = $"{projectName} - notification",
+            ProjectName = projectName,
             SqlQuery = sqlQuery,
         };
     }
