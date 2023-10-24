@@ -1,6 +1,5 @@
 ﻿using MediatR;
 using Microsoft.EntityFrameworkCore;
-using NCrontab;
 using Semantico.Api.Data;
 using Semantico.Api.Data.Entities;
 using Semantico.Api.Validators;
@@ -20,17 +19,33 @@ public class UpdateQueryCommand : IRequestHandler<UpdateQueryRequest, UpdateQuer
     {
         var query = await _context.Queries
             .Include(query => query.Parameters)
-            .Include(query => query.Subscriptions)
-            .ThenInclude(subscription => subscription.Parameters)
             .Where(x => x.Id == request.QueryId)
             .SingleAsync(cancellationToken);
 
         QueryValidator.CheckForFlaggedWords(request.SqlValue);
 
-        QueryValidator.ValidateQueryUpdate(query, request.Parameters);
+        QueryValidator.CheckForParameters(request.SqlValue, request.Parameters);
 
-        query.Parameters = request.Parameters;
         query.SqlValue = request.SqlValue;
+
+        foreach (var queryParameter in query.Parameters)
+        {
+            queryParameter.Archive();
+        }
+
+        foreach (var queryParameter in request.Parameters)
+        {
+            var queryParam = new QueryParameter
+            {
+                QueryId = query.Id,
+                Type = queryParameter.Type,
+                Name = queryParameter.Name,
+                Placeholder = queryParameter.Placeholder,
+                Description = queryParameter.Description,
+            };
+
+            _context.QueryParameters.Add(queryParam);
+        }
 
         await _context.SaveChangesAsync(cancellationToken);
 
@@ -44,7 +59,7 @@ public class UpdateQueryRequest : IRequest<UpdateQueryResponse>
 
     public string SqlValue { get; init; } = string.Empty;
 
-    public List<QueryParameter> Parameters { get; init; } = new();
+    public List<QueryParameterResponseListData> Parameters { get; init; } = new();
 }
 
 public class UpdateQueryResponse

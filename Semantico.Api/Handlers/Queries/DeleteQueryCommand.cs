@@ -17,6 +17,7 @@ public class DeleteQueryCommand : IRequestHandler<DeleteQueryRequest, DeleteQuer
     public async Task<DeleteQueryResponse> Handle(DeleteQueryRequest request, CancellationToken cancellationToken)
     {
         var query = await _context.Queries
+            .Include(x => x.Parameters)
             .Where(x => x.Id == request.QueryId)
             .SingleAsync(cancellationToken);
 
@@ -26,6 +27,12 @@ public class DeleteQueryCommand : IRequestHandler<DeleteQueryRequest, DeleteQuer
         }
 
         query.Archive();
+
+        foreach (var param in query.Parameters)
+        {
+            param.Archive();
+        }
+
         await _context.SaveChangesAsync(cancellationToken);
 
         return new();

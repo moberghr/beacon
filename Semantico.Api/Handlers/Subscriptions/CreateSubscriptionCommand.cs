@@ -4,11 +4,9 @@ using NCrontab;
 using Semantico.Api.Data;
 using Semantico.Api.Data.Entities;
 using Semantico.Api.Data.Enums;
-using Semantico.Api.Helpers;
+using Semantico.Api.Handlers.Queries;
 using Semantico.Api.Validators;
-using Semantico.Api.Web;
 using Semantico.Api.Worker.Services;
-using static Microsoft.EntityFrameworkCore.DbLoggerCategory;
 
 namespace Semantico.Api.Handlers.Subscriptions;
 
@@ -27,11 +25,19 @@ public class CreateSubscriptionCommand : IRequestHandler<CreateSubscriptionReque
     {
         CrontabSchedule.Parse(request.CronExpression);
 
-        var query = await _context.Queries
-            .Where(x => x.Id == request.QueryId)
-            .SingleAsync(cancellationToken);
+        var queryParams = await _context.QueryParameters
+            .Where(x => x.QueryId == request.QueryId)
+            .Select(x =>
+                new QueryParameterResponseListData
+                {
+                    Description = x.Description,
+                    Placeholder = x.Placeholder,
+                    Name = x.Name,
+                    Type = x.Type
+                })
+            .ToListAsync(cancellationToken);
 
-        SubscriptionValidator.ValidateParameters(request.Parameters, query.Parameters);
+        SubscriptionValidator.ValidateParameters(request.Parameters, queryParams);
 
         var subscription = new Subscription
         {
@@ -43,7 +49,6 @@ public class CreateSubscriptionCommand : IRequestHandler<CreateSubscriptionReque
         };
 
         _context.Subscriptions.Add(subscription);
-        await _context.SaveChangesAsync(cancellationToken);
 
         foreach (var subscriptionParameter in request.Parameters)
         {
@@ -55,8 +60,9 @@ public class CreateSubscriptionCommand : IRequestHandler<CreateSubscriptionReque
             };
 
             _context.SubscriptionParameters.Add(parameter);
-            await _context.SaveChangesAsync(cancellationToken);
         }
+
+        await _context.SaveChangesAsync(cancellationToken);
 
         _recurringJobService.AddOrUpdate(subscription.Id, request.CronExpression);
 
@@ -76,7 +82,7 @@ public class CreateSubscriptionRequest : IRequest<CreateSubscriptionResponse>
 
     public int QueryId { get; init; }
 
-    public List<SubscriptionParameter> Parameters { get; init; } = new();
+    public List<SubscriptionParameterResponseListData> Parameters { get; init; } = new();
 }
 
 public class CreateSubscriptionResponse

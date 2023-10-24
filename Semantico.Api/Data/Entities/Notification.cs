@@ -11,7 +11,7 @@ public class Notification : BaseEntity
 
     public required int SubscriptionId { get; set; }
 
-    public Subscription Subscription { get; set; } = null!;
-
     public required int ResultCount { get; set; }
+
+    public Subscription Subscription { get; set; } = null!;
 }

@@ -4,9 +4,9 @@ using NCrontab;
 using Semantico.Api.Data;
 using Semantico.Api.Data.Entities;
 using Semantico.Api.Data.Enums;
+using Semantico.Api.Handlers.Queries;
 using Semantico.Api.Validators;
 using Semantico.Api.Worker.Services;
-using System.Reflection.Metadata;
 
 namespace Semantico.Api.Handlers.Subscriptions;
 
@@ -27,12 +27,22 @@ public class UpdateSubscriptionCommand : IRequestHandler<UpdateSubscriptionReque
 
         var subscription = await _context.Subscriptions
             .Include(subscription => subscription.Parameters)
-            .Include(subscription => subscription.Query)
-            .ThenInclude(query => query.Parameters)
             .Where(x => x.Id == request.SubscriptionId)
             .SingleAsync(cancellationToken);
 
-        SubscriptionValidator.ValidateParameters(request.Parameters, subscription.Query.Parameters);
+        var queryParams = await _context.QueryParameters
+            .Where(x => x.QueryId == subscription.QueryId)
+            .Select(x =>
+                new QueryParameterResponseListData
+                {
+                    Type = x.Type,
+                    Name = x.Name,
+                    Description = x.Description,
+                    Placeholder = x.Placeholder,
+                })
+            .ToListAsync(cancellationToken);
+
+        SubscriptionValidator.ValidateParameters(request.Parameters, queryParams);
         
         var shouldUpdateHangfire = subscription.CronExpression != request.CronExpression;
 
@@ -41,32 +51,24 @@ public class UpdateSubscriptionCommand : IRequestHandler<UpdateSubscriptionReque
         subscription.Recipient = request.Recipient;
         subscription.NotificationType = request.NotificationType;
 
-        await _context.SaveChangesAsync(cancellationToken);
-
-        foreach (var subscriptionRequestParameter in request.Parameters)
+        foreach (var subscriptionParameter in subscription.Parameters)
         {
-            var subscriptionParameter = subscription.Parameters
-                .Where(x => x.QueryPlaceholder == subscriptionRequestParameter.QueryPlaceholder)
-                .SingleOrDefault();
-
-            if (subscriptionParameter == null)
-            {
-                subscriptionParameter = new SubscriptionParameter
-                {
-                    SubscriptionId = subscription.Id,
-                    QueryPlaceholder = subscriptionRequestParameter.QueryPlaceholder,
-                    Value = subscriptionRequestParameter.Value
-                };
-
-                _context.SubscriptionParameters.Add(subscriptionParameter);
-            }
-            else
-            {
-                subscriptionParameter.Value = subscriptionRequestParameter.Value;
-            }
-
-            await _context.SaveChangesAsync(cancellationToken);
+            subscriptionParameter.Archive();
         }
+
+        foreach (var subscriptionParameter in request.Parameters)
+        {
+            var subscriptionParam = new SubscriptionParameter
+            {
+                SubscriptionId = subscription.Id,
+                QueryPlaceholder = subscriptionParameter.QueryPlaceholder,
+                Value = subscriptionParameter.Value
+            };
+
+            _context.SubscriptionParameters.Add(subscriptionParam);
+        }
+
+        await _context.SaveChangesAsync(cancellationToken);
 
         if (shouldUpdateHangfire)
         {
@@ -89,7 +91,7 @@ public class UpdateSubscriptionRequest : IRequest<UpdateSubscriptionResponse>
     
     public string Recipient { get; init; } = string.Empty;
 
-    public List<SubscriptionParameter> Parameters { get; init; } = new();
+    public List<SubscriptionParameterResponseListData> Parameters { get; init; } = new();
 }
 
 public class UpdateSubscriptionResponse

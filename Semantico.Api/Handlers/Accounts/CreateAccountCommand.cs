@@ -19,7 +19,7 @@ public class CreateAccountCommand : IRequestHandler<CreateAccountRequest, Create
     public async Task<CreateAccountResponse> Handle(CreateAccountRequest request, CancellationToken cancellationToken)
     {
         var accountExists = await _context.Accounts
-            .AnyAsync(x => x.Username == request.Username);
+            .AnyAsync(x => x.Username == request.Username, cancellationToken);
 
         if (accountExists)
         {

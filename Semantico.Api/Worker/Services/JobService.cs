@@ -11,6 +11,8 @@ using Semantico.Api.Data.Enums;
 using Semantico.Api.Helpers;
 using Semantico.Api.Validators;
 using Semantico.Api.Types;
+using Semantico.Api.Handlers.Queries;
+using Semantico.Api.Handlers.Subscriptions;
 
 namespace Semantico.Api.Worker.Services;
 
@@ -32,20 +34,48 @@ public class JobService : IJobService
         var subscription = await _context.Subscriptions
             .Include(x => x.Parameters)
             .Where(x => x.Id == subscriptionId)
+            .Select(x =>
+                new
+                {
+                    x.Id,
+                    x.Name,
+                    x.NotificationType,
+                    x.QueryId,
+                    x.Recipient,
+                    x.CronExpression,
+                    Parameters = x.Parameters.Select(y =>
+                        new SubscriptionParameterResponseListData
+                        {
+                            QueryPlaceholder = y.QueryPlaceholder,
+                            Value = y.Value
+                        }).ToList()
+                })
             .SingleAsync();
 
         var query = await _context.Queries
-            .Include(x => x.Parameters)
             .Where(x => x.Id == subscription.QueryId)
             .Select(x =>
                 new
                 {
                     x.Id,
                     x.SqlValue,
-                    x.Project,
-                    x.Parameters
+                    Project = new
+                    {
+                        x.Project.Name,
+                        x.Project.ConnectionString
+                    },
+                    Parameters = x.Parameters.Select(y =>
+                        new QueryParameterResponseListData
+                        {
+                            Name = y.Name,
+                            Type = y.Type,
+                            Description = y.Description,
+                            Placeholder = y.Placeholder
+                        }).ToList()
                 })
             .SingleAsync();
+
+        SubscriptionValidator.ValidateParameters(subscription.Parameters, query.Parameters);
 
         var sql = QueryHelper.CompileSql(query.SqlValue, subscription.Parameters);
 

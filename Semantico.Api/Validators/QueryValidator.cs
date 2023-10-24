@@ -1,5 +1,7 @@
 ﻿using MediatR;
 using Semantico.Api.Data.Entities;
+using Semantico.Api.Handlers.Queries;
+using Semantico.Api.Handlers.Subscriptions;
 using Semantico.Api.Types;
 
 namespace Semantico.Api.Validators;
@@ -27,26 +29,13 @@ public static class QueryValidator
         }
     }
 
-    public static void ValidateQueryUpdate(Query query, List<QueryParameter> updateParameters)
+    public static void CheckForParameters(string sqlQuery, List<QueryParameterResponseListData> parameters)
     {
-        // If parameters aren't impacted, query update is "valid"
-        if (updateParameters.Count == 0 && query.Parameters.Count == 0)
+        foreach (var parameter in parameters)
         {
-            return;
-        }
-
-        if (query.Subscriptions.Any())
-        {
-            try
+            if (sqlQuery.Contains(parameter.Placeholder) == false)
             {
-                foreach (var subscription in query.Subscriptions)
-                {
-                    SubscriptionValidator.ValidateParameters(subscription.Parameters, updateParameters);
-                }
-            }
-            catch(SemanticoException)
-            {
-                throw new SemanticoException($"Unable to modify query parameters.");
+                throw new SemanticoException($"Query does not contain defined parameter with placeholder '{parameter.Placeholder}'.");
             }
         }
     }

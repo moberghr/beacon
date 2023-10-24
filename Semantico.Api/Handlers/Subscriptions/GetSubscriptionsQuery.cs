@@ -1,7 +1,6 @@
 ﻿using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Semantico.Api.Data;
-using Semantico.Api.Data.Entities;
 using Semantico.Api.Data.Enums;
 using Semantico.Api.Helpers;
 
@@ -19,7 +18,6 @@ public class GetSubscriptionsQuery : IRequestHandler<GetSubscriptionsRequest, Ge
     public async Task<GetSubscriptionsResponse> Handle(GetSubscriptionsRequest request, CancellationToken cancellation)
     {
         var Subscriptions = await _context.Subscriptions
-            .Include(x => x.Parameters)
             .WhereIf(request.SubscriptionId.HasValue, x => x.Id == request.SubscriptionId)
             .WhereIf(request.QueryId.HasValue, x => x.QueryId == request.QueryId)
             .WhereIf(request.NotificationType.HasValue, x => x.NotificationType == request.NotificationType)
@@ -31,7 +29,12 @@ public class GetSubscriptionsQuery : IRequestHandler<GetSubscriptionsRequest, Ge
                     QueryId = x.QueryId,
                     Recipient = x.Recipient,
                     NotificationType = x.NotificationType,
-                    Parameters = x.Parameters
+                    Parameters = x.Parameters.Select(y =>
+                        new SubscriptionParameterResponseListData
+                        {
+                            QueryPlaceholder = y.QueryPlaceholder,
+                            Value = y.Value
+                        }).ToList()
                 })
             .ToListAsync(cancellation);
 
@@ -56,6 +59,13 @@ public class GetSubscriptionsResponse
     public required List<GetSubscriptionsResponseListData> Subscriptions { get; init; }
 }
 
+public class SubscriptionParameterResponseListData
+{
+    public required string QueryPlaceholder { get; init; }
+
+    public required string Value { get; init; }
+}
+
 public class GetSubscriptionsResponseListData
 {
     public required int SubscriptionId { get; init; }
@@ -68,5 +78,5 @@ public class GetSubscriptionsResponseListData
 
     public required string Recipient { get; init; }
 
-    public required List<SubscriptionParameter> Parameters { get; init; }
+    public required List<SubscriptionParameterResponseListData> Parameters { get; init; }
 }

@@ -1,4 +1,6 @@
-﻿namespace Semantico.Api.Data.Entities.Base;
+﻿using Semantico.Api.Types;
+
+namespace Semantico.Api.Data.Entities.Base;
 
 public class ArchivableBaseEntity : BaseEntity
 {
@@ -6,6 +8,19 @@ public class ArchivableBaseEntity : BaseEntity
 
     public void Archive()
     {
+        if (ArchivedTime != null)
+        {
+            throw new SemanticoException($"Unable to archive already archived entity.");
+        }
+
         ArchivedTime = DateTime.UtcNow;
+    }
+
+    public void Unarchive()
+    {
+        if (ArchivedTime != null)
+        {
+            ArchivedTime = null;
+        }
     }
 }

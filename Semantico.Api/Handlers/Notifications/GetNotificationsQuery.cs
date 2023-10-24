@@ -19,7 +19,7 @@ public class GetNotificationsQuery : IRequestHandler<GetNotificationsRequest, Ge
     {
         var notifications = await _context.Notifications
             .Where(x => x.SubscriptionId == request.SubscriptionId)
-            .WhereIf(request.LastNotificationId.HasValue, x => x.Id > request.LastNotificationId)
+            .WhereIf(request.LastNotificationId.HasValue, x => x.Id < request.LastNotificationId)
             .OrderByDescending(x => x.Id)
             .TakeIf(request.PageSize.HasValue, request.PageSize)
             .Select(x =>

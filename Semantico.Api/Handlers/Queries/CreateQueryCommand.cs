@@ -21,6 +21,8 @@ public class CreateQueryCommand : IRequestHandler<CreateQueryRequest, CreateQuer
     {
         QueryValidator.CheckForFlaggedWords(request.SqlValue);
 
+        QueryValidator.CheckForParameters(request.SqlValue, request.Parameters);
+
         var query = new Query
         {
             SqlValue = request.SqlValue,
@@ -28,9 +30,23 @@ public class CreateQueryCommand : IRequestHandler<CreateQueryRequest, CreateQuer
         };
 
         _context.Queries.Add(query);
+
+        foreach (var queryParameter in request.Parameters)
+        {
+            var parameter = new QueryParameter
+            {
+                QueryId = query.Id,
+                Description = queryParameter.Description,
+                Name = queryParameter.Name,
+                Type = queryParameter.Type,
+                Placeholder = queryParameter.Placeholder,
+            };
+
+            _context.QueryParameters.Add(parameter);
+        }
+
         await _context.SaveChangesAsync(cancellationToken);
 
-        // todo: add query parameters
 
         return new();
     }
@@ -42,7 +58,7 @@ public class CreateQueryRequest : IRequest<CreateQueryResponse>
 
     public int ProjectId { get; init; }
 
-    public List<QueryParameter> Parameters { get; init; } = new();
+    public List<QueryParameterResponseListData> Parameters { get; init; } = new();
 }
 
 public class CreateQueryResponse

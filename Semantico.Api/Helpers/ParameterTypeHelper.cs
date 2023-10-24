@@ -6,11 +6,6 @@ namespace Semantico.Api.Helpers;
 
 public static class ParameterTypeHelper
 {
-    public static bool CanParseParameter(this string value, ParameterType type)
-    {
-        return value.ParseParameter(type) != null;
-    }
-
     public static object ParseParameter(this string value, ParameterType type)
     {
         switch (type)
@@ -21,7 +16,7 @@ public static class ParameterTypeHelper
                     {
                         return parsed;
                     }
-                    return null!;
+                    break;
                 }
             case ParameterType.DateTime:
                 {
@@ -29,7 +24,7 @@ public static class ParameterTypeHelper
                     {
                         return parsed;
                     }
-                    return null!;
+                    break;
                 }
             case ParameterType.String:
                 {
@@ -38,5 +33,7 @@ public static class ParameterTypeHelper
             default:
                 throw new SemanticoException($"Unsupported parameter type");
         }
+
+        throw new SemanticoException($"Unable to parse value '{value}' as type {type}.");
     }
 }
