@@ -1,7 +1,6 @@
-﻿namespace Semantico.Api.Adapters
+﻿namespace Semantico.Api.Adapters;
+
+public interface INotificationAdapter
 {
-    public interface INotificationAdapter
-    {
-        public Task SendNotificationAsync(int subscriptionId, RecipientQueryResult recipientQueryResult);
-    }
+    public Task SendNotificationAsync(int subscriptionId, RecipientQueryResult recipientQueryResult);
 }
