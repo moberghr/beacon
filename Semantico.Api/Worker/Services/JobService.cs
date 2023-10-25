@@ -8,6 +8,11 @@ using Semantico.Api.Data;
 using Semantico.Api.Data.Entities;
 using Dapper;
 using Semantico.Api.Data.Enums;
+using Semantico.Api.Helpers;
+using Semantico.Api.Validators;
+using Semantico.Api.Types;
+using Semantico.Api.Handlers.Queries;
+using Semantico.Api.Handlers.Subscriptions;
 
 namespace Semantico.Api.Worker.Services;
 
@@ -27,8 +32,25 @@ public class JobService : IJobService
     public async Task ExecuteQuery(int subscriptionId)
     {
         var subscription = await _context.Subscriptions
+            .Include(x => x.Parameters)
             .Where(x => x.Id == subscriptionId)
-            .FirstAsync();
+            .Select(x =>
+                new
+                {
+                    x.Id,
+                    x.Name,
+                    x.NotificationType,
+                    x.QueryId,
+                    x.Recipient,
+                    x.CronExpression,
+                    Parameters = x.Parameters.Select(y =>
+                        new SubscriptionParameterResponseListData
+                        {
+                            QueryPlaceholder = y.QueryPlaceholder,
+                            Value = y.Value
+                        }).ToList()
+                })
+            .SingleAsync();
 
         var query = await _context.Queries
             .Where(x => x.Id == subscription.QueryId)
@@ -37,11 +59,29 @@ public class JobService : IJobService
                 {
                     x.Id,
                     x.SqlValue,
-                    x.Project
+                    Project = new
+                    {
+                        x.Project.Name,
+                        x.Project.ConnectionString
+                    },
+                    Parameters = x.Parameters.Select(y =>
+                        new QueryParameterResponseListData
+                        {
+                            Name = y.Name,
+                            Type = y.Type,
+                            Description = y.Description,
+                            Placeholder = y.Placeholder
+                        }).ToList()
                 })
-            .FirstAsync();
+            .SingleAsync();
 
-        var queryResult = await GetQueryResults(query.Project.ConnectionString, query.SqlValue, query.Project.Name);
+        SubscriptionValidator.ValidateParameters(subscription.Parameters, query.Parameters);
+
+        var sql = QueryHelper.CompileSql(query.SqlValue, subscription.Parameters);
+
+        QueryValidator.CheckForFlaggedWords(sql);
+
+        var queryResult = await GetQueryResults(query.Project.ConnectionString, sql, query.Project.Name);
 
         var recipientQueryResult = new RecipientQueryResult
         {
@@ -61,8 +101,18 @@ public class JobService : IJobService
                 break;
 
             default:
-                throw new Exception("Invalid notification type");
+                throw new SemanticoException("Invalid notification type");
         }
+
+        var notification = new Notification
+        {
+            Recipient = subscription.Recipient,
+            NotificationType = subscription.NotificationType,
+            SubscriptionId = subscriptionId,
+            ResultCount = recipientQueryResult.QueryResult.TotalRecords
+        };
+
+        await _context.Notifications.AddAsync(notification);
     }
 
     private static async Task<QueryResult> GetQueryResults(string connectionString, string sqlQuery, string projectName)

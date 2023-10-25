@@ -1,6 +1,7 @@
 ﻿using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Semantico.Api.Data;
+using Semantico.Api.Types;
 
 namespace Semantico.Api.Handlers.Projects;
 
@@ -17,14 +18,14 @@ public class DeleteProjectCommand : IRequestHandler<DeleteProjectRequest, Delete
     {
         var project = await _context.Projects
             .Where(x => x.Id == request.ProjectId)
-            .FirstAsync(cancellationToken);
+            .SingleAsync(cancellationToken);
 
         if (project.Queries.Count > 0)
         {
-            throw new Exception($"Unable to remove project due to existing queries");
+            throw new SemanticoException($"Unable to remove project due to existing queries");
         }
-        
-        project.ArchivedTime = DateTime.UtcNow;
+
+        project.Archive();
         await _context.SaveChangesAsync(cancellationToken);
 
         return new();

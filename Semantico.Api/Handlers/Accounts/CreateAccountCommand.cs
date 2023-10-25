@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Semantico.Api.Data;
 using Semantico.Api.Data.Entities;
 using Semantico.Api.Helpers;
+using Semantico.Api.Types;
 
 namespace Semantico.Api.Handlers.Accounts;
 
@@ -18,11 +19,11 @@ public class CreateAccountCommand : IRequestHandler<CreateAccountRequest, Create
     public async Task<CreateAccountResponse> Handle(CreateAccountRequest request, CancellationToken cancellationToken)
     {
         var accountExists = await _context.Accounts
-            .AnyAsync(x => x.Username == request.Username);
+            .AnyAsync(x => x.Username == request.Username, cancellationToken);
 
         if (accountExists)
         {
-            throw new Exception($"User with username:{request.Username} already exists!");
+            throw new SemanticoException($"User with username:{request.Username} already exists!");
         }
 
         var account = new Account

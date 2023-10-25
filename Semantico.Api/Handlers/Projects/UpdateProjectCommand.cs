@@ -17,7 +17,7 @@ public class UpdateProjectCommand : IRequestHandler<UpdateProjectRequest, Update
     {
         var project = await _context.Projects
             .Where(x => x.Id == request.ProjectId)
-            .FirstAsync(cancellationToken);
+            .SingleAsync(cancellationToken);
 
         project.ConnectionString = request.ConnectionString;
         project.Name = request.Name;

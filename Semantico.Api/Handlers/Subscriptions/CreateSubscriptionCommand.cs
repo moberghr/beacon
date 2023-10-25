@@ -1,11 +1,12 @@
 ﻿using MediatR;
+using Microsoft.EntityFrameworkCore;
 using NCrontab;
 using Semantico.Api.Data;
 using Semantico.Api.Data.Entities;
 using Semantico.Api.Data.Enums;
-using Semantico.Api.Web;
+using Semantico.Api.Handlers.Queries;
+using Semantico.Api.Validators;
 using Semantico.Api.Worker.Services;
-using static Microsoft.EntityFrameworkCore.DbLoggerCategory;
 
 namespace Semantico.Api.Handlers.Subscriptions;
 
@@ -24,6 +25,20 @@ public class CreateSubscriptionCommand : IRequestHandler<CreateSubscriptionReque
     {
         CrontabSchedule.Parse(request.CronExpression);
 
+        var queryParams = await _context.QueryParameters
+            .Where(x => x.QueryId == request.QueryId)
+            .Select(x =>
+                new QueryParameterResponseListData
+                {
+                    Description = x.Description,
+                    Placeholder = x.Placeholder,
+                    Name = x.Name,
+                    Type = x.Type
+                })
+            .ToListAsync(cancellationToken);
+
+        SubscriptionValidator.ValidateParameters(request.Parameters, queryParams);
+
         var subscription = new Subscription
         {
             Name = request.Name,
@@ -34,6 +49,19 @@ public class CreateSubscriptionCommand : IRequestHandler<CreateSubscriptionReque
         };
 
         _context.Subscriptions.Add(subscription);
+
+        foreach (var subscriptionParameter in request.Parameters)
+        {
+            var parameter = new SubscriptionParameter
+            {
+                SubscriptionId = subscription.Id,
+                QueryPlaceholder = subscriptionParameter.QueryPlaceholder,
+                Value = subscriptionParameter.Value,
+            };
+
+            _context.SubscriptionParameters.Add(parameter);
+        }
+
         await _context.SaveChangesAsync(cancellationToken);
 
         _recurringJobService.AddOrUpdate(subscription.Id, request.CronExpression);
@@ -53,6 +81,8 @@ public class CreateSubscriptionRequest : IRequest<CreateSubscriptionResponse>
     public NotificationType NotificationType { get; init; }
 
     public int QueryId { get; init; }
+
+    public List<SubscriptionParameterResponseListData> Parameters { get; init; } = new();
 }
 
 public class CreateSubscriptionResponse

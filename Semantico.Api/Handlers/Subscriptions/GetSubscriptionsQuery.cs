@@ -1,7 +1,6 @@
 ﻿using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Semantico.Api.Data;
-using Semantico.Api.Data.Entities;
 using Semantico.Api.Data.Enums;
 using Semantico.Api.Helpers;
 
@@ -29,7 +28,13 @@ public class GetSubscriptionsQuery : IRequestHandler<GetSubscriptionsRequest, Ge
                     Name = x.Name,
                     QueryId = x.QueryId,
                     Recipient = x.Recipient,
-                    NotificationType = x.NotificationType
+                    NotificationType = x.NotificationType,
+                    Parameters = x.Parameters.Select(y =>
+                        new SubscriptionParameterResponseListData
+                        {
+                            QueryPlaceholder = y.QueryPlaceholder,
+                            Value = y.Value
+                        }).ToList()
                 })
             .ToListAsync(cancellation);
 
@@ -54,6 +59,13 @@ public class GetSubscriptionsResponse
     public required List<GetSubscriptionsResponseListData> Subscriptions { get; init; }
 }
 
+public class SubscriptionParameterResponseListData
+{
+    public required string QueryPlaceholder { get; init; }
+
+    public required string Value { get; init; }
+}
+
 public class GetSubscriptionsResponseListData
 {
     public required int SubscriptionId { get; init; }
@@ -64,5 +76,7 @@ public class GetSubscriptionsResponseListData
 
     public required NotificationType NotificationType { get; init; }
 
-    public required string Recipient { get; init; } 
+    public required string Recipient { get; init; }
+
+    public required List<SubscriptionParameterResponseListData> Parameters { get; init; }
 }

@@ -1,6 +1,7 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Semantico.Api.Data;
 using Semantico.Api.Data.Entities;
+using Semantico.Api.Types;
 
 namespace Semantico.Api.Services;
 
@@ -32,7 +33,7 @@ public class AccountService : IAccountService
 
         if (account == null)
         {
-            throw new Exception($"Account with username: {username} don't exists");
+            throw new SemanticoException($"Account with username: {username} doesn't exist");
         }
 
         return account;

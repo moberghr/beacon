@@ -19,13 +19,20 @@ public class DeleteSubscriptionCommand : IRequestHandler<DeleteSubscriptionReque
     public async Task<DeleteSubscriptionResponse> Handle(DeleteSubscriptionRequest request, CancellationToken cancellationToken)
     {
         var subscription = await _context.Subscriptions
+            .Include(x => x.Parameters)
             .Where(x => x.Id == request.SubscriptionId)
-            .FirstAsync(cancellationToken);
+            .SingleAsync(cancellationToken);
 
-        subscription.ArchivedTime = DateTime.UtcNow;
-        await _context.SaveChangesAsync(cancellationToken);
+        subscription.Archive();
 
         _recurringJobService.Remove(request.SubscriptionId);
+
+        foreach (var param in subscription.Parameters)
+        {
+            param.Archive();
+        }
+
+        await _context.SaveChangesAsync(cancellationToken);
 
         return new();
     }

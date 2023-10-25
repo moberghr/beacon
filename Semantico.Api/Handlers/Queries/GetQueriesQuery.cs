@@ -1,6 +1,7 @@
 ﻿using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Semantico.Api.Data;
+using Semantico.Api.Data.Enums;
 using Semantico.Api.Helpers;
 
 namespace Semantico.Api.Handlers.Queries;
@@ -24,6 +25,14 @@ public class GetQueriesQuery : IRequestHandler<GetQueriesRequest, GetQueriesResp
                 {
                     SqlValue = x.SqlValue,
                     ProjectId = x.ProjectId,
+                    Parameters = x.Parameters.Select(y => 
+                        new QueryParameterResponseListData
+                        {
+                            Name = y.Name,
+                            Type = y.Type,
+                            Description = y.Description,
+                            Placeholder = y.Placeholder
+                        }).ToList()
                 })
             .ToListAsync(cancellationToken);
 
@@ -51,4 +60,17 @@ public class GetQueriesResponseListData
     public required string SqlValue { get; init; }
 
     public required int ProjectId { get; init; }
+
+    public List<QueryParameterResponseListData> Parameters { get; init; } = new();
+}
+
+public class QueryParameterResponseListData
+{
+    public required string Name { get; init; }
+
+    public required ParameterType Type { get; init; }
+
+    public required string Description { get; init; }
+
+    public required string Placeholder { get; init; }
 }

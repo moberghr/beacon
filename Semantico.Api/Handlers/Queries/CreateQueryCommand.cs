@@ -19,7 +19,9 @@ public class CreateQueryCommand : IRequestHandler<CreateQueryRequest, CreateQuer
 
     public async Task<CreateQueryResponse> Handle(CreateQueryRequest request, CancellationToken cancellationToken)
     {
-        QueryValidator.ContainsFlaggedWords(request.SqlValue);
+        QueryValidator.CheckForFlaggedWords(request.SqlValue);
+
+        QueryValidator.CheckForParameters(request.SqlValue, request.Parameters);
 
         var query = new Query
         {
@@ -28,7 +30,23 @@ public class CreateQueryCommand : IRequestHandler<CreateQueryRequest, CreateQuer
         };
 
         _context.Queries.Add(query);
+
+        foreach (var queryParameter in request.Parameters)
+        {
+            var parameter = new QueryParameter
+            {
+                QueryId = query.Id,
+                Description = queryParameter.Description,
+                Name = queryParameter.Name,
+                Type = queryParameter.Type,
+                Placeholder = queryParameter.Placeholder,
+            };
+
+            _context.QueryParameters.Add(parameter);
+        }
+
         await _context.SaveChangesAsync(cancellationToken);
+
 
         return new();
     }
@@ -39,6 +57,8 @@ public class CreateQueryRequest : IRequest<CreateQueryResponse>
     public string SqlValue { get; init; } = string.Empty;
 
     public int ProjectId { get; init; }
+
+    public List<QueryParameterResponseListData> Parameters { get; init; } = new();
 }
 
 public class CreateQueryResponse
