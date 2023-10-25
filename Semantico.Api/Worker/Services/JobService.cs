@@ -85,7 +85,7 @@ public class JobService : IJobService
 
         var recipientQueryResult = new RecipientQueryResult
         {
-            SubscriptionName = $"[{subscription.Id}] - {subscription.Name}",
+            SubscriptionName = subscription.Name,
             Recipient = subscription.Recipient,
             QueryResult = queryResult
         };

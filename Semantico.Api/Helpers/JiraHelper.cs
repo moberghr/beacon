@@ -17,10 +17,10 @@ public class JiraHelper
 
         return new JiraCredentials
         {
-            DomainName = $"https://{data[0]}.atlassian.net",
+            DomainUrl = $"https://{data[0]}.atlassian.net",
             Project = data[1],
             Email = data[2],
-            APIKey = data[3]
+            ApiKey = data[3]
         };
     }
 }

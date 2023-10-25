@@ -1,4 +1,5 @@
-﻿using Semantico.Api.Adapters;
+﻿using Microsoft.EntityFrameworkCore;
+using Semantico.Api.Adapters;
 using Semantico.Api.Adapters.Jira;
 using Semantico.Api.Adapters.Mail;
 using Semantico.Api.Adapters.Teams;
@@ -34,15 +35,33 @@ public class NotificationService : INotificationService
         switch (notificationType)
         {
             case NotificationType.Email:
-                await _mailAdapter.SendNotificationAsync(subscriptionId, recipientQueryResult);
+                await _mailAdapter.SendNotificationAsync(recipientQueryResult);
                 break;
 
             case NotificationType.Teams:
-                await _teamsAdapter.SendNotificationAsync(subscriptionId, recipientQueryResult);
+                await _teamsAdapter.SendNotificationAsync(recipientQueryResult);
                 break;
 
             case NotificationType.Jira:
-                await _jiraAdapter.SendNotificationAsync(subscriptionId, recipientQueryResult);
+                var lastNotification = _context.Notifications
+                    .Where(x => x.SubscriptionId == subscriptionId)
+                    .OrderByDescending(x => x.CreatedTime)
+                    .Select(x =>
+                        new
+                        {
+                            x.ResultCount
+                        })
+                    .FirstOrDefault();
+
+                if (lastNotification != null)
+                {
+                    await _jiraAdapter.SendNotificationAsync(recipientQueryResult, lastNotification.ResultCount);
+                }
+                else
+                {
+                    await _jiraAdapter.SendNotificationAsync(recipientQueryResult);
+                }
+
                 break;
 
             default:

@@ -1,7 +1,8 @@
-﻿using Semantico.Api.Data;
+﻿namespace Semantico.Api.Adapters.Jira;
 
-namespace Semantico.Api.Adapters.Jira;
-
-public interface IJiraAdapter : INotificationAdapter
+public interface IJiraAdapter
 {
+    public Task SendNotificationAsync(RecipientQueryResult recipientQueryResult);
+
+    public Task SendNotificationAsync(RecipientQueryResult recipientQueryResult, int lastNotificationResultCount);
 }

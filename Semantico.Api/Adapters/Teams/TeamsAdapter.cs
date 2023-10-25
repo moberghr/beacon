@@ -12,7 +12,7 @@ public class TeamsAdapter : ITeamsAdapter
         _httpClientFactory = httpClientFactory;
     }
 
-    public async Task SendNotificationAsync(int subscriptionId, RecipientQueryResult recipientQueryResult)
+    public async Task SendNotificationAsync(RecipientQueryResult recipientQueryResult)
     {
         var client = _httpClientFactory.CreateClient();
 
