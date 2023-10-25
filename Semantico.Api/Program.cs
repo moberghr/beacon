@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using Semantico.Api.Adapters.Configuration;
 using Semantico.Api.Data;
 using Semantico.Api.Services;
+using Semantico.Api.Types;
 using Semantico.Api.Web;
 using Semantico.Api.Worker;
 using Semantico.Api.Worker.Services;
@@ -64,6 +65,12 @@ app.UseAuthorization();
 
 app.MapControllers().RequireAuthorization();
 
-app.MapHangfireDashboard();
+app.MapHangfireDashboard(new DashboardOptions
+{
+    Authorization = new[]
+        {
+            new HangfireAuthorizationFilter()
+        }
+});
 
 app.Run();
