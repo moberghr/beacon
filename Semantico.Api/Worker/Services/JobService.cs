@@ -14,22 +14,19 @@ using Semantico.Api.Validators;
 using Semantico.Api.Types;
 using Semantico.Api.Handlers.Queries;
 using Semantico.Api.Handlers.Subscriptions;
+using Semantico.Api.Services;
 
 namespace Semantico.Api.Worker.Services;
 
 public class JobService : IJobService
 {
     private readonly SemanticoContext _context;
-    private readonly IMailAdapter _mailAdapter;
-    private readonly ITeamsAdapter _teamsAdapter;
-    private readonly IJiraAdapter _jiraAdapter;
+    private readonly INotificationService _notificationService;
 
-    public JobService(SemanticoContext context, IMailAdapter mailAdapter, ITeamsAdapter teamsAdapter, IJiraAdapter jiraAdapter)
+    public JobService(SemanticoContext context, INotificationService notificationService)
     {
         _context = context;
-        _mailAdapter = mailAdapter;
-        _teamsAdapter = teamsAdapter;
-        _jiraAdapter = jiraAdapter;
+        _notificationService = notificationService;
     }
 
     public async Task ExecuteQuery(int subscriptionId)
@@ -93,34 +90,7 @@ public class JobService : IJobService
             QueryResult = queryResult
         };
 
-        switch (subscription.NotificationType)
-        {
-            case NotificationType.Email:
-                await _mailAdapter.SendMailAsync(recipientQueryResult);
-                break;
-
-            case NotificationType.Teams:
-                await _teamsAdapter.SendTeamsNotificationAsync(recipientQueryResult);
-                break;
-
-			case NotificationType.Jira:
-				await _jiraAdapter.SendJiraNotificationAsync(subscriptionId, recipientQueryResult);
-				break;
-
-            default:
-                throw new SemanticoException("Invalid notification type");
-        }
-
-        var notification = new Notification
-        {
-            Recipient = subscription.Recipient,
-            NotificationType = subscription.NotificationType,
-            SubscriptionId = subscriptionId,
-            ResultCount = recipientQueryResult.QueryResult.TotalRecords
-        };
-
-        await _context.Notifications.AddAsync(notification);
-        await _context.SaveChangesAsync();
+        await _notificationService.SendNotificationAsync(subscriptionId, subscription.NotificationType, recipientQueryResult);
     }
 
     private static async Task<QueryResult> GetQueryResults(string connectionString, string sqlQuery, string projectName)

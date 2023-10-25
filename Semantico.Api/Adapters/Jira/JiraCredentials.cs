@@ -1,4 +1,4 @@
-﻿namespace Semantico.Api.Adapters;
+﻿namespace Semantico.Api.Adapters.Jira;
 
 public class JiraCredentials
 {

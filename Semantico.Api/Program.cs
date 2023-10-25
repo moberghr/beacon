@@ -38,7 +38,8 @@ builder.Services.AddHangfire(hangfireConfiguration => hangfireConfiguration
 
 builder.Services.AddHangfireServer();
 builder.Services.AddTransient<IJobService, JobService>();
-builder.Services.AddTransient<IRecurringJobService, RecurringJobService>();
+builder.Services.AddTransient<INotificationService, NotificationService>();
+builder.Services.AddSingleton<IRecurringJobService, RecurringJobService>();
 builder.Services.AddAdapters(builder.Configuration);
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddTransient<IAccount, AccountClaimsResolver>();

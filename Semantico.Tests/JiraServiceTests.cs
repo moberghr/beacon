@@ -2,7 +2,6 @@
 using Atlassian.Jira.Remote;
 using Microsoft.EntityFrameworkCore.Metadata.Conventions;
 using Semantico.Api.Services;
-using System.Collections.Generic;
 using Xunit;
 
 namespace Semantico.Tests;

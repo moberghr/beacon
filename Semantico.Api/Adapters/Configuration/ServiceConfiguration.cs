@@ -22,8 +22,8 @@ public static class ServiceConfiguration
         });
 
         services.AddHttpClient();
-        services.AddTransient<IMailAdapter, SendGridAdapter>();
-        services.AddTransient<ITeamsAdapter, TeamsAdapter>();
+        services.AddSingleton<ITeamsAdapter, TeamsAdapter>();
+        services.AddSingleton<IMailAdapter, SendGridAdapter>();
         services.AddTransient<IJiraAdapter, JiraAdapter>();
     }
 }
