@@ -19,15 +19,6 @@ public class JiraAdapter : IJiraAdapter
         await CreateIssueAndCommentAsync(credentials, jiraClient, recipientQueryResult);
     }
 
-    private async Task<Issue> CreateIssueAndCommentAsync(JiraCredentials credentials, Atlassian.Jira.Jira jiraClient, RecipientQueryResult recipientQueryResult)
-    {
-        var issue = await CreateNewIssueAsync(jiraClient, credentials.Project, "", recipientQueryResult.SubscriptionName, recipientQueryResult.QueryResult.SqlQuery);
-
-        await CreateJiraCommentAsync(credentials.Email, issue, recipientQueryResult);
-
-        return issue;
-    }
-
     public async Task SendNotificationAsync(RecipientQueryResult recipientQueryResult, int lastNotificationResultCount)
     {
         if (lastNotificationResultCount == 0)
@@ -40,16 +31,20 @@ public class JiraAdapter : IJiraAdapter
 
         var jiraClient = Atlassian.Jira.Jira.CreateRestClient(credentials.DomainUrl, credentials.Email, credentials.ApiKey);
 
-        var jqlQuery = $"text ~ \"{recipientQueryResult.SubscriptionName}\" order by created DESC";
+        var jqlQuery = $"text = \"{recipientQueryResult.SubscriptionName}\" order by created DESC";
         var issues =  (await jiraClient.Issues.GetIssuesFromJqlAsync(jqlQuery)).ToList();
 
         var existingIssue = issues
             .Where(x => x.Summary == recipientQueryResult.SubscriptionName)
-            .SingleOrDefault();
+            .FirstOrDefault();
 
-        if (recipientQueryResult.QueryResult.TotalRecords == 0 && existingIssue == null)
+        if (recipientQueryResult.QueryResult.TotalRecords == 0)
         {
-            await jiraClient.Issues.DeleteIssueAsync(existingIssue.Key.Value);
+            if (existingIssue != null)
+            {
+                await jiraClient.Issues.DeleteIssueAsync(existingIssue.Key.Value);
+            }
+
             return;
         }
 
@@ -63,6 +58,15 @@ public class JiraAdapter : IJiraAdapter
         {
             await CreateJiraCommentAsync(credentials.Email, existingIssue, recipientQueryResult);
         }
+    }
+
+    private async Task<Issue> CreateIssueAndCommentAsync(JiraCredentials credentials, Atlassian.Jira.Jira jiraClient, RecipientQueryResult recipientQueryResult)
+    {
+        var issue = await CreateNewIssueAsync(jiraClient, credentials.Project, "", recipientQueryResult.SubscriptionName, recipientQueryResult.QueryResult.SqlQuery);
+
+        await CreateJiraCommentAsync(credentials.Email, issue, recipientQueryResult);
+
+        return issue;
     }
 
     private static string CompileQueryResultMessage(RecipientQueryResult recipientQueryResult)
