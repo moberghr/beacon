@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using Semantico.Api.Adapters.Configuration;
 using Semantico.Api.Data;
 using Semantico.Api.Services;
+using Semantico.Api.Types;
 using Semantico.Api.Web;
 using Semantico.Api.Worker;
 using Semantico.Api.Worker.Services;
@@ -38,7 +39,8 @@ builder.Services.AddHangfire(hangfireConfiguration => hangfireConfiguration
 
 builder.Services.AddHangfireServer();
 builder.Services.AddTransient<IJobService, JobService>();
-builder.Services.AddTransient<IRecurringJobService, RecurringJobService>();
+builder.Services.AddTransient<INotificationService, NotificationService>();
+builder.Services.AddSingleton<IRecurringJobService, RecurringJobService>();
 builder.Services.AddAdapters(builder.Configuration);
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddTransient<IAccount, AccountClaimsResolver>();
@@ -63,6 +65,12 @@ app.UseAuthorization();
 
 app.MapControllers().RequireAuthorization();
 
-app.MapHangfireDashboard();
+app.MapHangfireDashboard(new DashboardOptions
+{
+    Authorization = new[]
+        {
+            new HangfireAuthorizationFilter()
+        }
+});
 
 app.Run();

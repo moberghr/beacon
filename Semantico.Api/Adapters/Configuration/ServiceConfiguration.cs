@@ -1,6 +1,8 @@
-﻿using Semantico.Api.Adapters.Mail;
+﻿using Semantico.Api.Adapters.Jira;
+using Semantico.Api.Adapters.Mail;
 using Semantico.Api.Adapters.Mail.SendGrid;
 using Semantico.Api.Adapters.Teams;
+using Semantico.Api.Services;
 using SendGrid;
 
 namespace Semantico.Api.Adapters.Configuration;
@@ -20,7 +22,8 @@ public static class ServiceConfiguration
         });
 
         services.AddHttpClient();
-        services.AddTransient<IMailAdapter, SendGridAdapter>();
-        services.AddTransient<ITeamsAdapter, TeamsAdapter>();
+        services.AddSingleton<ITeamsAdapter, TeamsAdapter>();
+        services.AddSingleton<IMailAdapter, SendGridAdapter>();
+        services.AddSingleton<IJiraAdapter, JiraAdapter>();
     }
 }

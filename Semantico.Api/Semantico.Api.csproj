@@ -9,7 +9,9 @@
 	</PropertyGroup>
 
 	<ItemGroup>
+		<PackageReference Include="Atlassian.SDK" Version="13.0.0" />
 		<PackageReference Include="Dapper" Version="2.0.143" />
+		<PackageReference Include="Hangfire.Dashboard.Basic.Authentication" Version="7.0.1" />
 		<PackageReference Include="MediatR" Version="12.1.0" />
 		<PackageReference Include="MessageCardModel" Version="1.1.4" />
 		<PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="7.0.8" />

@@ -15,7 +15,7 @@ public class SendGridAdapter : IMailAdapter
         _sendGridClient = sendGridClient;
     }
 
-    public async Task SendMailAsync(RecipientQueryResult recipientQueryResult)
+    public async Task SendNotificationAsync(RecipientQueryResult recipientQueryResult)
     {
         var senderEmail = new EmailAddress(_settings.SenderEmail, _settings.SenderName);
         var to = new EmailAddress(recipientQueryResult.Recipient);

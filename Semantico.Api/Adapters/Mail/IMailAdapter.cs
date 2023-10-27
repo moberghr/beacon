@@ -2,5 +2,5 @@
 
 public interface IMailAdapter
 {
-    Task SendMailAsync(RecipientQueryResult recipientQueryResult);
+    public Task SendNotificationAsync(RecipientQueryResult recipientQueryResult);
 }

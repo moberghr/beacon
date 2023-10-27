@@ -3,5 +3,6 @@
 public enum NotificationType
 {
     Teams = 1,
-    Email = 2
+    Email = 2,
+    Jira = 3
 }
