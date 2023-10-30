@@ -1,9 +1,10 @@
-FROM mcr.microsoft.com/dotnet/aspnet:7.0-alpine AS base
-WORKDIR /app
+FROM mcr.microsoft.com/dotnet/sdk:7.0 AS build-env
+WORKDIR /App
+COPY . ./
+RUN dotnet restore
+RUN dotnet publish -c Release -o out
 
-# Disable the invariant mode (set in base image)
-ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false
-
-FROM base as semantico-api
-COPY publish .
+FROM mcr.microsoft.com/dotnet/aspnet:7.0
+WORKDIR /App
+COPY --from=build-env /App/out .
 ENTRYPOINT ["dotnet", "Semantico.Api.dll"]
