@@ -35,14 +35,3 @@ jobs:
 
     - name: "Publish application"
       run: dotnet publish --no-build -c Release -p:PublishProfile=github -p:PublishDir=./publish -p:Version=${{github.ref_name}}
-
-    - name: "Create service.zip"
-      working-directory: Semantico.Api
-      run: zip -r services.zip Dockerfile publish
-
-    - name: "Upload artifacts"
-      uses: actions/upload-artifact@v2
-      with:
-        name: "build-artifacts"
-        path: ./Semantico.Api/services.zip
-        if-no-files-found: error
