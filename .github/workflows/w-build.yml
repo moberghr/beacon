@@ -1,11 +1,12 @@
-name: Build
+name: Build the Semantico Release
 
 on:
-  workflow_call:
+  release:
+    types: [published]
 
 jobs:
   build:
-    name: "Build Semantico"
+    name: "Build and Publish Semantico"
     runs-on: ubuntu-latest
 
     steps:
@@ -22,19 +23,15 @@ jobs:
         cd Semantico.Api
         dotnet restore
 
+    - name: Login to GitHub Container Registry
+      uses: docker/login-action@v1
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
     - name: "Build application"
       run: dotnet build --configuration Release --no-restore
 
     - name: "Publish application"
-      run: dotnet publish --no-build -c Release -p:PublishDir=./publish
-
-    - name: "Create service.zip"
-      working-directory: Semantico.Api
-      run: zip -r services.zip Dockerfile publish
-
-    - name: "Upload artifacts"
-      uses: actions/upload-artifact@v2
-      with:
-        name: "build-artifacts"
-        path: ./Semantico.Api/services.zip
-        if-no-files-found: error
+      run: dotnet publish --no-build -c Release -p:PublishProfile=github -p:PublishDir=./publish -p:Version=${{github.ref_name}}

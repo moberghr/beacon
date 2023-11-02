@@ -31,7 +31,7 @@ public class JiraAdapter : IJiraAdapter
 
         var jiraClient = Atlassian.Jira.Jira.CreateRestClient(credentials.DomainUrl, credentials.Email, credentials.ApiKey);
 
-        var jqlQuery = $"text = \"{recipientQueryResult.SubscriptionName}\" order by created DESC";
+        var jqlQuery = $"text ~ \"{recipientQueryResult.SubscriptionName}\" AND reporter = \"{credentials.Email}\" order by created DESC";
         var issues =  (await jiraClient.Issues.GetIssuesFromJqlAsync(jqlQuery)).ToList();
 
         var existingIssue = issues
@@ -71,7 +71,9 @@ public class JiraAdapter : IJiraAdapter
 
     private static string CompileQueryResultMessage(RecipientQueryResult recipientQueryResult)
     {
-        return $"The Query produced: {recipientQueryResult.QueryResult.TotalRecords} results\nThe results are: \n{recipientQueryResult.QueryResult.QueryResults}";
+        return $"The Query produced: {recipientQueryResult.QueryResult.TotalRecords} results\n" +
+               $"The results are: \n" +
+               $"{recipientQueryResult.QueryResult.QueryResults}";
     }
 
     private async Task<Comment> CreateJiraCommentAsync(string currentUser, Issue issue, RecipientQueryResult recipientQueryResult)

@@ -19,21 +19,23 @@ builder.Services.AddSwaggerGen();
 
 builder.Services.AddDbContext<SemanticoContext>((options) =>
 {
-    options.UseNpgsql(builder.Configuration.GetConnectionString(nameof(SemanticoContext)))
+    options.UseNpgsql(
+            builder.Configuration.GetConnectionString(nameof(SemanticoContext)),
+            x => x.MigrationsHistoryTable("__SemanticoMigrationsHistory", "semantico"))
         .UseSnakeCaseNamingConvention();
 });
 
 builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(Assembly.GetExecutingAssembly()));
 
-// todo: use handfire :)
 builder.Services.AddHangfire(hangfireConfiguration => hangfireConfiguration
     .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
     .UseSimpleAssemblyNameTypeSerializer()
     .UseRecommendedSerializerSettings()
     .UsePostgreSqlStorage(
-        builder.Configuration.GetConnectionString("Hangfire"),
+        builder.Configuration.GetConnectionString(nameof(SemanticoContext)),
         new PostgreSqlStorageOptions
         {
+            SchemaName = "semantico_hangfire",
             PrepareSchemaIfNecessary = true
         }));
 
