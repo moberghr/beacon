@@ -17,14 +17,14 @@ public class GetQueryExecutionHistoryQuery : IRequestHandler<GetQueryExecutionHi
 
     public async Task<GetQueryExecutionHistoryResponse> Handle(GetQueryExecutionHistoryRequest request, CancellationToken cancellationToken)
     {
-        var notifications = await _context.QueryExecutionHistory
+        var queryExecutionHistory = await _context.QueryExecutionHistory
             .Where(x => x.SubscriptionId == request.SubscriptionId)
             .WhereIf(request.LastQueryExecutionHistoryId.HasValue, x => x.Id < request.LastQueryExecutionHistoryId)
             .WhereIf(request.NotificationSent.HasValue, x => x.NotificationSent == request.NotificationSent)
             .OrderByDescending(x => x.Id)
             .TakeIf(request.PageSize.HasValue, request.PageSize)
             .Select(x =>
-                new GetNotificationsResponseDataList
+                new GetQueryExecutionHistoryResponseDataList
                 {
                     QueryExecutionHistoryId = x.Id,
                     Recipient = x.Recipient,
@@ -35,8 +35,8 @@ public class GetQueryExecutionHistoryQuery : IRequestHandler<GetQueryExecutionHi
 
         return new GetQueryExecutionHistoryResponse
         {
-            LastQueryExecutionHistoryId = notifications.Last().QueryExecutionHistoryId,
-            Notifications = notifications
+            LastQueryExecutionHistoryId = queryExecutionHistory.LastOrDefault()?.QueryExecutionHistoryId,
+            QueryExecutionHistory = queryExecutionHistory
         };
     }
 }
@@ -54,13 +54,13 @@ public class GetQueryExecutionHistoryRequest : IRequest<GetQueryExecutionHistory
 
 public class GetQueryExecutionHistoryResponse
 {
-    public required List<GetNotificationsResponseDataList> Notifications { get; set; }
+    public required List<GetQueryExecutionHistoryResponseDataList> QueryExecutionHistory { get; set; }
 
     public int? LastQueryExecutionHistoryId { get; init; }
 
 }
 
-public class GetNotificationsResponseDataList
+public class GetQueryExecutionHistoryResponseDataList
 {
     public required int QueryExecutionHistoryId { get; set; }
 
