@@ -19,5 +19,5 @@ public class Subscription : ArchivableBaseEntity
 
     public List<SubscriptionParameter> Parameters { get; set; } = new();
 
-    public List<Notification> Notifications { get; set; } = new();
+    public List<QueryExecutionHistory> Notifications { get; set; } = new();
 }

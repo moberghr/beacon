@@ -6,60 +6,63 @@ using Semantico.Api.Helpers;
 
 namespace Semantico.Api.Handlers.Notifications;
 
-public class GetNotificationsQuery : IRequestHandler<GetNotificationsRequest, GetNotificationsResponse>
+public class GetQueryExecutionHistoryQuery : IRequestHandler<GetQueryExecutionHistoryRequest, GetQueryExecutionHistoryResponse>
 {
     private readonly SemanticoContext _context;
 
-    public GetNotificationsQuery(SemanticoContext context)
+    public GetQueryExecutionHistoryQuery(SemanticoContext context)
     {
         _context = context;
     }
 
-    public async Task<GetNotificationsResponse> Handle(GetNotificationsRequest request, CancellationToken cancellationToken)
+    public async Task<GetQueryExecutionHistoryResponse> Handle(GetQueryExecutionHistoryRequest request, CancellationToken cancellationToken)
     {
-        var notifications = await _context.Notifications
+        var notifications = await _context.QueryExecutionHistory
             .Where(x => x.SubscriptionId == request.SubscriptionId)
-            .WhereIf(request.LastNotificationId.HasValue, x => x.Id < request.LastNotificationId)
+            .WhereIf(request.LastQueryExecutionHistoryId.HasValue, x => x.Id < request.LastQueryExecutionHistoryId)
+            .WhereIf(request.NotificationSent.HasValue, x => x.NotificationSent == request.NotificationSent)
             .OrderByDescending(x => x.Id)
             .TakeIf(request.PageSize.HasValue, request.PageSize)
             .Select(x =>
                 new GetNotificationsResponseDataList
                 {
-                    NotificationId = x.Id,
+                    QueryExecutionHistoryId = x.Id,
                     Recipient = x.Recipient,
                     NotificationType = x.NotificationType,
                     ResultCount = x.ResultCount
                 })
             .ToListAsync(cancellationToken);
 
-        return new GetNotificationsResponse
+        return new GetQueryExecutionHistoryResponse
         {
-            LastNotificationId = notifications.Last().NotificationId,
+            LastQueryExecutionHistoryId = notifications.Last().QueryExecutionHistoryId,
             Notifications = notifications
         };
     }
 }
 
-public class GetNotificationsRequest : IRequest<GetNotificationsResponse>
+public class GetQueryExecutionHistoryRequest : IRequest<GetQueryExecutionHistoryResponse>
 {
     public required int SubscriptionId { get; init; }
 
     public int? PageSize { get; init; }
 
-    public int? LastNotificationId { get; init; }
+    public int? LastQueryExecutionHistoryId { get; init; }
+
+    public bool? NotificationSent { get; init; }
 }
 
-public class GetNotificationsResponse
+public class GetQueryExecutionHistoryResponse
 {
     public required List<GetNotificationsResponseDataList> Notifications { get; set; }
 
-    public int? LastNotificationId { get; init; }
+    public int? LastQueryExecutionHistoryId { get; init; }
 
 }
 
 public class GetNotificationsResponseDataList
 {
-    public required int NotificationId { get; set; }
+    public required int QueryExecutionHistoryId { get; set; }
 
     public required string Recipient { get; set; }
     

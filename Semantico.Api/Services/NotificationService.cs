@@ -32,7 +32,7 @@ public class NotificationService : INotificationService
 
     public async Task SendNotificationAsync(int subscriptionId, NotificationType notificationType, RecipientQueryResult recipientQueryResult)
     {
-        var lastNotification = _context.Notifications
+        var lastExecutedQuery = _context.QueryExecutionHistory
             .Where(x => x.SubscriptionId == subscriptionId)
             .OrderByDescending(x => x.CreatedTime)
             .Select(x =>
@@ -42,23 +42,26 @@ public class NotificationService : INotificationService
                 })
             .FirstOrDefault();
 
-        var notification = new Notification
+        var executedQuery = new QueryExecutionHistory
         {
             Recipient = recipientQueryResult.Recipient,
             NotificationType = notificationType,
             SubscriptionId = subscriptionId,
-            ResultCount = recipientQueryResult.QueryResult.TotalRecords
+            ResultCount = recipientQueryResult.QueryResult.TotalRecords,
+            CompiledSql = recipientQueryResult.QueryResult.SqlQuery,
+            NotificationSent = true
         };
 
-        await _context.Notifications.AddAsync(notification);
+        await _context.QueryExecutionHistory.AddAsync(executedQuery);
 
-        bool noNewRecords = (lastNotification == null && recipientQueryResult.QueryResult.TotalRecords == 0);
-        bool previousRecordCountIsTheSame = (lastNotification != null && recipientQueryResult.QueryResult.TotalRecords != lastNotification.ResultCount);
+        bool noNewRecords = (lastExecutedQuery == null && recipientQueryResult.QueryResult.TotalRecords == 0);
+        bool previousRecordCountIsTheSame = (lastExecutedQuery != null && recipientQueryResult.QueryResult.TotalRecords != lastExecutedQuery.ResultCount);
 
         // if a previous notification wasn't sent and there are no query results or
         // if a previous notification was sent, and the current result is the same we won't send a notification.
         if (noNewRecords || previousRecordCountIsTheSame)
         {
+            executedQuery.NotificationSent = false;
             await _context.SaveChangesAsync();
             return;
         }
@@ -74,9 +77,9 @@ public class NotificationService : INotificationService
                 break;
 
             case NotificationType.Jira:
-                if (lastNotification != null)
+                if (lastExecutedQuery != null)
                 {
-                    await _jiraAdapter.SendNotificationAsync(recipientQueryResult, lastNotification.ResultCount);
+                    await _jiraAdapter.SendNotificationAsync(recipientQueryResult, lastExecutedQuery.ResultCount);
                 }
                 else
                 {
