@@ -7,11 +7,6 @@ public class JiraAdapter : IJiraAdapter
 {
     public async Task SendNotificationAsync(RecipientQueryResult recipientQueryResult)
     {
-        if (recipientQueryResult.QueryResult.TotalRecords == 0)
-        {
-            return;
-        }
-
         var credentials = JiraHelper.GetJiraCredentials(recipientQueryResult.Recipient);
 
         var jiraClient = Atlassian.Jira.Jira.CreateRestClient(credentials.DomainUrl, credentials.Email, credentials.ApiKey);
@@ -21,12 +16,6 @@ public class JiraAdapter : IJiraAdapter
 
     public async Task SendNotificationAsync(RecipientQueryResult recipientQueryResult, int lastNotificationResultCount)
     {
-        if (lastNotificationResultCount == 0)
-        {
-            await SendNotificationAsync(recipientQueryResult);
-            return;
-        }
-
         var credentials = JiraHelper.GetJiraCredentials(recipientQueryResult.Recipient);
 
         var jiraClient = Atlassian.Jira.Jira.CreateRestClient(credentials.DomainUrl, credentials.Email, credentials.ApiKey);
