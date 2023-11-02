@@ -2,7 +2,5 @@
 
 public static class AccountClaimType
 {
-    public const string Name = "name";
-
-    public const string AccountId = "accountId";
+    public const string ApiKey = "apiKey";
 }

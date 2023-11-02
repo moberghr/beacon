@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.EntityFrameworkCore;
 using Semantico.Api.Adapters.Configuration;
 using Semantico.Api.Data;
+using Semantico.Api.Helpers;
 using Semantico.Api.Services;
 using Semantico.Api.Types;
 using Semantico.Api.Web;
@@ -15,7 +16,8 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+
+builder.Services.AddSwaggerWithApiKey("Semantico");
 
 builder.Services.AddDbContext<SemanticoContext>((options) =>
 {
@@ -45,12 +47,11 @@ builder.Services.AddTransient<INotificationService, NotificationService>();
 builder.Services.AddSingleton<IRecurringJobService, RecurringJobService>();
 builder.Services.AddAdapters(builder.Configuration);
 builder.Services.AddHttpContextAccessor();
-builder.Services.AddTransient<IAccount, AccountClaimsResolver>();
 builder.Services.AddTransient<IAccountService, AccountService>();
 
-builder.Services.AddAuthentication("BasicAuthentication")
-                .AddScheme<AuthenticationSchemeOptions, BasicAuthenticationHandler>
-                ("BasicAuthentication", null);
+builder.Services.AddAuthentication("Semantico")
+                .AddScheme<AuthenticationSchemeOptions, ApiKeyAuthenticationHandler>
+                ("Semantico", null);
 
 var app = builder.Build();
 

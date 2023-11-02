@@ -9,12 +9,12 @@ namespace Semantico.Api.Handlers.Accounts;
 public class RemoveAccountCommand : IRequestHandler<RemoveAccountRequest, RemoveAccountResponse>
 {
     private readonly SemanticoContext _context;
-    private readonly IAccount _account;
+    private readonly IHttpContextAccessor _httpContextAccessor;
 
-    public RemoveAccountCommand(SemanticoContext context, IAccount account)
+    public RemoveAccountCommand(SemanticoContext context, IHttpContextAccessor httpContextAccessor)
     {
         _context = context;
-        _account = account;
+        _httpContextAccessor = httpContextAccessor;
     }
 
     public async Task<RemoveAccountResponse> Handle(RemoveAccountRequest request, CancellationToken cancellationToken)
@@ -23,7 +23,9 @@ public class RemoveAccountCommand : IRequestHandler<RemoveAccountRequest, Remove
             .Where(x => x.Username == request.Username)
             .SingleAsync(cancellationToken);
 
-        if (account.Id == _account.AccountId)
+        var currentApiKey = _httpContextAccessor.HttpContext.Request.Headers["Semantico"].ToString();
+
+        if (account.Value == currentApiKey)
         {
             throw new SemanticoException("The logged-in user cannot delete themselves.");
         }

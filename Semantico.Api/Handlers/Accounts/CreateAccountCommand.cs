@@ -23,28 +23,31 @@ public class CreateAccountCommand : IRequestHandler<CreateAccountRequest, Create
 
         if (accountExists)
         {
-            throw new SemanticoException($"User with username:{request.Username} already exists!");
+            throw new SemanticoException($"User with username: '{request.Username}' already exists!");
         }
 
         var account = new Account
         {
             Username = request.Username,
-            Value = PasswordHasher.Hash(request.Password)
+            Value = Guid.NewGuid().ToString().ToUpper()
         };
 
         _context.Accounts.Add(account);
         await _context.SaveChangesAsync(cancellationToken);
 
-        return new();
+        return new CreateAccountResponse
+        {
+            ApiKey = account.Value
+        };
     }
 }
 
 public class CreateAccountRequest : IRequest<CreateAccountResponse>
 {
-    public required string Username { get; set; }
-
-    public required string Password { get; set; }
+    public required string Username { get; init; }
 }
 
 public class CreateAccountResponse
-{ }
+{
+    public required string ApiKey { get; init; }
+}
