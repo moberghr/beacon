@@ -1,6 +1,7 @@
 ﻿using MediatR;
 using Semantico.Api.Data;
 using Semantico.Api.Data.Entities;
+using Semantico.Api.Data.Enums;
 
 namespace Semantico.Api.Handlers.Projects;
 
@@ -17,8 +18,9 @@ public class CreateProjectCommand : IRequestHandler<CreateProjectRequest, Create
     {
         var project = new Project
         {
+            Name = request.Name,
             ConnectionString = request.ConnectionString,
-            Name = request.Name
+            DatabaseEngine = request.DatabaseEngine
         };
 
         _context.Projects.Add(project);
@@ -33,6 +35,8 @@ public class CreateProjectRequest : IRequest<CreateProjectResponse>
     public string Name { get; init; } = string.Empty;
 
     public string ConnectionString { get; init; } = string.Empty;
+
+    public DatabaseEngineType DatabaseEngine { get; init; }
 }
 
 public class CreateProjectResponse

@@ -1,6 +1,7 @@
 ﻿using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Semantico.Api.Data;
+using Semantico.Api.Data.Enums;
 
 namespace Semantico.Api.Handlers.Projects;
 
@@ -19,8 +20,9 @@ public class UpdateProjectCommand : IRequestHandler<UpdateProjectRequest, Update
             .Where(x => x.Id == request.ProjectId)
             .SingleAsync(cancellationToken);
 
-        project.ConnectionString = request.ConnectionString;
         project.Name = request.Name;
+        project.ConnectionString = request.ConnectionString;
+        project.DatabaseEngine = request.DatabaseEngine;
 
         await _context.SaveChangesAsync(cancellationToken);
 
@@ -35,6 +37,8 @@ public class UpdateProjectRequest : IRequest<UpdateProjectResponse>
     public string Name { get; init; } = string.Empty;
 
     public string ConnectionString { get; init; } = string.Empty;
+
+    public DatabaseEngineType DatabaseEngine { get; init; }
 }
 
 public class UpdateProjectResponse
