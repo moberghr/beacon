@@ -1,9 +1,11 @@
-﻿using System.Text.Json;
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
+using System.Data.Common;
+using System.Data.SqlClient;
 using Npgsql;
+using Dapper;
 using Semantico.Api.Adapters;
 using Semantico.Api.Data;
-using Dapper;
 using Semantico.Api.Data.Enums;
 using Semantico.Api.Helpers;
 using Semantico.Api.Validators;
@@ -11,8 +13,7 @@ using Semantico.Api.Types;
 using Semantico.Api.Handlers.Queries;
 using Semantico.Api.Handlers.Subscriptions;
 using Semantico.Api.Services;
-using System.Data.Common;
-using System.Data.SqlClient;
+using Semantico.Api.Data.Entities;
 
 namespace Semantico.Api.Worker.Services;
 
@@ -89,7 +90,40 @@ public class JobService : IJobService
             QueryResult = queryResult
         };
 
-        await _notificationService.SendNotificationAsync(subscriptionId, subscription.NotificationType, recipientQueryResult);
+        var lastExecutedQuery = _context.QueryExecutionHistory
+            .Where(x => x.SubscriptionId == subscriptionId)
+            .OrderByDescending(x => x.CreatedTime)
+            .Select(x =>
+                new
+                {
+                    x.ResultCount
+                })
+            .FirstOrDefault();
+
+        var noNewRecords = (lastExecutedQuery == null && recipientQueryResult.QueryResult.TotalRecords == 0);
+        var previousRecordCountIsTheSame = (lastExecutedQuery != null && recipientQueryResult.QueryResult.TotalRecords != lastExecutedQuery.ResultCount);
+
+        // if a previous notification wasn't sent and there are no query results or
+        // if a previous notification was sent, and the current result is the same we won't send a notification.
+
+        var executedQuery = new QueryExecutionHistory
+        {
+            Recipient = recipientQueryResult.Recipient,
+            NotificationType = subscription.NotificationType,
+            SubscriptionId = subscriptionId,
+            ResultCount = recipientQueryResult.QueryResult.TotalRecords,
+            CompiledSql = recipientQueryResult.QueryResult.SqlQuery,
+            NotificationSent = !(noNewRecords || previousRecordCountIsTheSame)
+        };
+
+        await _context.QueryExecutionHistory.AddAsync(executedQuery);
+
+        if (executedQuery.NotificationSent)
+        {
+            await _notificationService.SendNotificationAsync(subscriptionId, subscription.NotificationType, recipientQueryResult, lastExecutedQuery?.ResultCount);
+        }
+
+        await _context.SaveChangesAsync();
     }
 
     private static async Task<QueryResult> GetQueryResultsAsync(DatabaseEngineType dbEngineType, string connectionString, string sqlQuery, string projectName)
