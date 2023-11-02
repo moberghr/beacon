@@ -20,7 +20,7 @@ public class CreateProjectCommand : IRequestHandler<CreateProjectRequest, Create
         {
             Name = request.Name,
             ConnectionString = request.ConnectionString,
-            DatabaseEngine = request.DatabaseEngine
+            DatabaseEngineType = request.DatabaseEngine
         };
 
         _context.Projects.Add(project);

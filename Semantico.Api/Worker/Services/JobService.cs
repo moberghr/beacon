@@ -13,6 +13,7 @@ using Semantico.Api.Handlers.Subscriptions;
 using Semantico.Api.Services;
 using System.Data.Common;
 using System.Data.SqlClient;
+using MySql.Data.MySqlClient;
 
 namespace Semantico.Api.Worker.Services;
 
@@ -61,7 +62,7 @@ public class JobService : IJobService
                     {
                         x.Project.Name,
                         x.Project.ConnectionString,
-                        x.Project.DatabaseEngine
+                        x.Project.DatabaseEngineType
                     },
                     Parameters = x.Parameters.Select(y =>
                         new QueryParameterResponseListData
@@ -80,7 +81,7 @@ public class JobService : IJobService
 
         QueryValidator.CheckForFlaggedWords(sql);
 
-        var queryResult = await GetQueryResultsAsync(query.Project.DatabaseEngine, query.Project.ConnectionString, sql, query.Project.Name);
+        var queryResult = await GetQueryResultsAsync(query.Project.DatabaseEngineType, query.Project.ConnectionString, sql, query.Project.Name);
 
         var recipientQueryResult = new RecipientQueryResult
         {
@@ -120,6 +121,9 @@ public class JobService : IJobService
 
             case DatabaseEngineType.MSSQL:
                 return new SqlConnection(connectionString);
+
+            case DatabaseEngineType.MySQL:
+                return new MySqlConnection(connectionString);
 
             default:
                 throw new SemanticoException($"Unsupported database engine.");
