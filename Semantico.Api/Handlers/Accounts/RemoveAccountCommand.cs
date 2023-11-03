@@ -23,7 +23,7 @@ public class RemoveAccountCommand : IRequestHandler<RemoveAccountRequest, Remove
             .Where(x => x.Username == request.Username)
             .SingleAsync(cancellationToken);
 
-        var currentApiKey = _httpContextAccessor.HttpContext.Request.Headers["Semantico"].ToString();
+        var currentApiKey = _httpContextAccessor.HttpContext.Request.Headers[Constants.SemanticoApiKeyHeaderName].ToString();
 
         if (account.Value == currentApiKey)
         {

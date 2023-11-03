@@ -31,7 +31,7 @@ public class ApiKeyAuthenticationHandler : AuthenticationHandler<AuthenticationS
     {
         try
         {
-            Request.Headers.TryGetValue("Semantico", out var authHeader);
+            Request.Headers.TryGetValue(Constants.SemanticoApiKeyHeaderName, out var authHeader);
             var authValue = authHeader.ToString() ?? string.Empty;
 
             if (string.IsNullOrEmpty(authValue))
