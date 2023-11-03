@@ -9,6 +9,7 @@ using Semantico.Api.Services;
 using Semantico.Api.Types;
 using Semantico.Api.Web;
 using Semantico.Api.Worker;
+using Semantico.Api.Worker.Repositories;
 using Semantico.Api.Worker.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -40,6 +41,7 @@ builder.Services.AddHangfire(hangfireConfiguration => hangfireConfiguration
         }));
 
 builder.Services.AddHangfireServer();
+builder.Services.AddTransient<IJobRepository, JobRepository>();
 builder.Services.AddTransient<IJobService, JobService>();
 builder.Services.AddTransient<INotificationService, NotificationService>();
 builder.Services.AddSingleton<IRecurringJobService, RecurringJobService>();

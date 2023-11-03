@@ -1,30 +1,26 @@
-﻿using System.Text.Json;
-using Microsoft.EntityFrameworkCore;
-using Npgsql;
+﻿using Microsoft.EntityFrameworkCore;
 using Semantico.Api.Adapters;
 using Semantico.Api.Data;
-using Dapper;
-using Semantico.Api.Data.Enums;
 using Semantico.Api.Helpers;
 using Semantico.Api.Validators;
-using Semantico.Api.Types;
 using Semantico.Api.Handlers.Queries;
 using Semantico.Api.Handlers.Subscriptions;
 using Semantico.Api.Services;
-using System.Data.Common;
-using System.Data.SqlClient;
-using MySql.Data.MySqlClient;
+using Semantico.Api.Handlers.Projects;
+using Semantico.Api.Worker.Repositories;
 
 namespace Semantico.Api.Worker.Services;
 
 public class JobService : IJobService
 {
     private readonly SemanticoContext _context;
+    private readonly IJobRepository _jobRepository;
     private readonly INotificationService _notificationService;
 
-    public JobService(SemanticoContext context, INotificationService notificationService)
+    public JobService(SemanticoContext context, IJobRepository jobRepository, INotificationService notificationService)
     {
         _context = context;
+        _jobRepository = jobRepository;
         _notificationService = notificationService;
     }
 
@@ -58,11 +54,11 @@ public class JobService : IJobService
                 {
                     x.Id,
                     x.SqlValue,
-                    Project = new
+                    Project = new GetProjectsResponseListData
                     {
-                        x.Project.Name,
-                        x.Project.ConnectionString,
-                        x.Project.DatabaseEngineType
+                        Name = x.Project.Name,
+                        ConnectionString = x.Project.ConnectionString,
+                        DatabaseEngineType = x.Project.DatabaseEngineType
                     },
                     Parameters = x.Parameters.Select(y =>
                         new QueryParameterResponseListData
@@ -81,7 +77,7 @@ public class JobService : IJobService
 
         QueryValidator.CheckForFlaggedWords(sql);
 
-        var queryResult = await GetQueryResultsAsync(query.Project.DatabaseEngineType, query.Project.ConnectionString, sql, query.Project.Name);
+        var queryResult = await _jobRepository.GetQueryResultsAsync(query.Project, sql);
 
         var recipientQueryResult = new RecipientQueryResult
         {
@@ -91,42 +87,5 @@ public class JobService : IJobService
         };
 
         await _notificationService.SendNotificationAsync(subscriptionId, subscription.NotificationType, recipientQueryResult);
-    }
-
-    private static async Task<QueryResult> GetQueryResultsAsync(DatabaseEngineType dbEngineType, string connectionString, string sqlQuery, string projectName)
-    {
-        using var connection = await GetDbConnectionAsync(dbEngineType, connectionString);
-        await connection.OpenAsync();
-
-        var results = await connection.QueryAsync<object>(sqlQuery);
-
-        var recordCounter = results.Count();
-        var queryResults = results.Take(10).ToList();
-
-        return new QueryResult
-        {
-            QueryResults = JsonSerializer.Serialize(queryResults),
-            TotalRecords = recordCounter,
-            ProjectName = projectName,
-            SqlQuery = sqlQuery,
-        };
-    }
-
-    private static async Task<DbConnection> GetDbConnectionAsync(DatabaseEngineType dbEngineType, string connectionString)
-    {
-        switch (dbEngineType)
-        {
-            case DatabaseEngineType.PostgreSQL:
-                return new NpgsqlConnection(connectionString);
-
-            case DatabaseEngineType.MSSQL:
-                return new SqlConnection(connectionString);
-
-            case DatabaseEngineType.MySQL:
-                return new MySqlConnection(connectionString);
-
-            default:
-                throw new SemanticoException($"Unsupported database engine.");
-        }
     }
 }

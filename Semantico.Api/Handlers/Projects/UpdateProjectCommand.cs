@@ -22,7 +22,7 @@ public class UpdateProjectCommand : IRequestHandler<UpdateProjectRequest, Update
 
         project.Name = request.Name;
         project.ConnectionString = request.ConnectionString;
-        project.DatabaseEngineType = request.DatabaseEngine;
+        project.DatabaseEngineType = request.DatabaseEngineType;
 
         await _context.SaveChangesAsync(cancellationToken);
 
@@ -38,7 +38,7 @@ public class UpdateProjectRequest : IRequest<UpdateProjectResponse>
 
     public string ConnectionString { get; init; } = string.Empty;
 
-    public DatabaseEngineType DatabaseEngine { get; init; }
+    public DatabaseEngineType DatabaseEngineType { get; init; }
 }
 
 public class UpdateProjectResponse

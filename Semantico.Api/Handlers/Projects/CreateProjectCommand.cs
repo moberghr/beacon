@@ -20,7 +20,7 @@ public class CreateProjectCommand : IRequestHandler<CreateProjectRequest, Create
         {
             Name = request.Name,
             ConnectionString = request.ConnectionString,
-            DatabaseEngineType = request.DatabaseEngine
+            DatabaseEngineType = request.DatabaseEngineType
         };
 
         _context.Projects.Add(project);
@@ -36,7 +36,7 @@ public class CreateProjectRequest : IRequest<CreateProjectResponse>
 
     public string ConnectionString { get; init; } = string.Empty;
 
-    public DatabaseEngineType DatabaseEngine { get; init; }
+    public DatabaseEngineType DatabaseEngineType { get; init; }
 }
 
 public class CreateProjectResponse
