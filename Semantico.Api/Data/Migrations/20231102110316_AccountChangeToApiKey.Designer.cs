@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Semantico.Api.Data;
@@ -11,9 +12,11 @@ using Semantico.Api.Data;
 namespace Semantico.Api.Migrations
 {
     [DbContext(typeof(SemanticoContext))]
-    partial class SemanticoContextModelSnapshot : ModelSnapshot
+    [Migration("20231102110316_AccountChangeToApiKey")]
+    partial class AccountChangeToApiKey
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -126,9 +129,9 @@ namespace Semantico.Api.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_time");
 
-                    b.Property<int>("DatabaseEngineType")
+                    b.Property<int>("DatabaseEngine")
                         .HasColumnType("integer")
-                        .HasColumnName("database_engine_type");
+                        .HasColumnName("database_engine");
 
                     b.Property<string>("Name")
                         .IsRequired()
