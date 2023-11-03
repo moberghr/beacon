@@ -50,7 +50,7 @@ public class ApiKeyAuthenticationHandler : AuthenticationHandler<AuthenticationS
                     new Claim(ClaimTypes.Role, "Admin")
                 };
 
-                var identity = new ClaimsIdentity(claims, "Semantico");
+                var identity = new ClaimsIdentity(claims, Constants.SemanticoApiKeyHeaderName);
                 var claimsPrincipal = new ClaimsPrincipal(identity);
 
                 return AuthenticateResult.Success(new AuthenticationTicket(claimsPrincipal, Scheme.Name));

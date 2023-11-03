@@ -17,7 +17,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 
-builder.Services.AddSwaggerWithApiKey("Semantico");
+builder.Services.AddSwaggerWithApiKey(Constants.SemanticoApiKeyHeaderName);
 
 builder.Services.AddDbContext<SemanticoContext>((options) =>
 {
@@ -47,11 +47,12 @@ builder.Services.AddTransient<INotificationService, NotificationService>();
 builder.Services.AddSingleton<IRecurringJobService, RecurringJobService>();
 builder.Services.AddAdapters(builder.Configuration);
 builder.Services.AddHttpContextAccessor();
+builder.Services.AddTransient<IAccount, AccountClaimsResolver>();
 builder.Services.AddTransient<IAccountService, AccountService>();
 
-builder.Services.AddAuthentication("Semantico")
+builder.Services.AddAuthentication(Constants.SemanticoApiKeyHeaderName)
                 .AddScheme<AuthenticationSchemeOptions, ApiKeyAuthenticationHandler>
-                ("Semantico", null);
+                (Constants.SemanticoApiKeyHeaderName, null);
 
 var app = builder.Build();
 
