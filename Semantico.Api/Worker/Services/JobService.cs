@@ -6,8 +6,8 @@ using Semantico.Api.Validators;
 using Semantico.Api.Handlers.Queries;
 using Semantico.Api.Handlers.Subscriptions;
 using Semantico.Api.Services;
-using Semantico.Api.Handlers.Projects;
 using Semantico.Api.Worker.Repositories;
+using System.Text.Json;
 
 namespace Semantico.Api.Worker.Services;
 
@@ -54,11 +54,11 @@ public class JobService : IJobService
                 {
                     x.Id,
                     x.SqlValue,
-                    Project = new GetProjectsResponseListData
+                    Project = new
                     {
-                        Name = x.Project.Name,
-                        ConnectionString = x.Project.ConnectionString,
-                        DatabaseEngineType = x.Project.DatabaseEngineType
+                        x.Project.Name,
+                        x.Project.ConnectionString,
+                        x.Project.DatabaseEngineType
                     },
                     Parameters = x.Parameters.Select(y =>
                         new QueryParameterResponseListData
@@ -77,7 +77,18 @@ public class JobService : IJobService
 
         QueryValidator.CheckForFlaggedWords(sql);
 
-        var queryResult = await _jobRepository.GetQueryResultsAsync(query.Project, sql);
+        var dbQueryResult = await _jobRepository.ExecuteQueryAsync(query.Project.DatabaseEngineType, query.Project.ConnectionString, sql);
+
+        // We will only send the top 10 rows in a notification.
+        var messageRows = dbQueryResult.Take(10).ToList();
+
+        var queryResult = new QueryResult
+        {
+            QueryResults = JsonSerializer.Serialize(messageRows),
+            TotalRecords = dbQueryResult.Count(),
+            ProjectName = query.Project.Name,
+            SqlQuery = sql,
+        };
 
         var recipientQueryResult = new RecipientQueryResult
         {
