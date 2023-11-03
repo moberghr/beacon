@@ -41,22 +41,22 @@ public class ApiKeyAuthenticationHandler : AuthenticationHandler<AuthenticationS
 
             var account = await _accountService.GetAccountByApiKeyAsync(authValue);
 
-            if (account != null)
+            if (account == null)
             {
-                var claims = new List<Claim>
+                return AuthenticateResult.Fail("Invalid API key.");
+            }
+
+            var claims = new List<Claim>
                 {
                     new Claim(AccountClaimType.AccountId, account.Id.ToString()),
                     new Claim(AccountClaimType.ApiKey, account.Value),
                     new Claim(ClaimTypes.Role, "Admin")
                 };
 
-                var identity = new ClaimsIdentity(claims, Constants.SemanticoApiKeyHeaderName);
-                var claimsPrincipal = new ClaimsPrincipal(identity);
+            var identity = new ClaimsIdentity(claims, Constants.SemanticoApiKeyHeaderName);
+            var claimsPrincipal = new ClaimsPrincipal(identity);
 
-                return AuthenticateResult.Success(new AuthenticationTicket(claimsPrincipal, Scheme.Name));
-            }
-
-            return AuthenticateResult.Fail("Invalid API key.");
+            return AuthenticateResult.Success(new AuthenticationTicket(claimsPrincipal, Scheme.Name));
         }
         catch (Exception e)
         {
