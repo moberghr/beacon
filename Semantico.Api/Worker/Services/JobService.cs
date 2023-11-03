@@ -120,7 +120,7 @@ public class JobService : IJobService
 
         if (executedQuery.NotificationSent)
         {
-            await _notificationService.SendNotificationAsync(subscriptionId, subscription.NotificationType, recipientQueryResult, lastExecutedQuery?.ResultCount);
+            await _notificationService.SendNotificationAsync(subscription.NotificationType, recipientQueryResult, lastExecutedQuery?.ResultCount);
         }
 
         await _context.SaveChangesAsync();

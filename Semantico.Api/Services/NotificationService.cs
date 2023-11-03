@@ -12,25 +12,22 @@ namespace Semantico.Api.Services;
 
 public class NotificationService : INotificationService
 {
-    private readonly SemanticoContext _context;
     private readonly ITeamsAdapter _teamsAdapter;
     private readonly IMailAdapter _mailAdapter;
     private readonly IJiraAdapter _jiraAdapter;
 
     public NotificationService(
-        SemanticoContext context,
         ITeamsAdapter teamsAdapter,
         IMailAdapter mailAdapter,
         IJiraAdapter jiraAdapter
     )
     {
-        _context = context;
         _teamsAdapter = teamsAdapter;
         _mailAdapter = mailAdapter;
         _jiraAdapter = jiraAdapter;
     }
 
-    public async Task SendNotificationAsync(int subscriptionId, NotificationType notificationType, RecipientQueryResult recipientQueryResult, int? lastExecutedQueryResultCount)
+    public async Task SendNotificationAsync(NotificationType notificationType, RecipientQueryResult recipientQueryResult, int? lastExecutedQueryResultCount)
     {
         switch (notificationType)
         {
@@ -57,12 +54,10 @@ public class NotificationService : INotificationService
             default:
                 throw new SemanticoException("Invalid notification type");
         }
-
-        await _context.SaveChangesAsync();
     }
 }
 
 public interface INotificationService
 {
-    public Task SendNotificationAsync(int subscriptionId, NotificationType notificationType, RecipientQueryResult recipientQueryResult, int? lastExecutedQueryResultCount);
+    public Task SendNotificationAsync(NotificationType notificationType, RecipientQueryResult recipientQueryResult, int? lastExecutedQueryResultCount);
 }
