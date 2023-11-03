@@ -7,7 +7,7 @@ namespace Semantico.Api.Services;
 
 public interface IAccountService
 {
-    Task<Account> GetAccount(string username);
+    Task<Account> GetAccountByApiKeyAsync(string apiKey);
 }
 
 public class AccountService : IAccountService
@@ -19,23 +19,10 @@ public class AccountService : IAccountService
         _context = context;
     }
 
-    public async Task<Account> GetAccount(string username)
+    public async Task<Account> GetAccountByApiKeyAsync(string apiKey)
     {
-        var account = await _context.Accounts
-            .Where(x => x.Username == username)
-            .Select(x =>
-              new Account
-              {
-                  Username = x.Username,
-                  Value = x.Value
-              })
-            .FirstOrDefaultAsync();
-
-        if (account == null)
-        {
-            throw new SemanticoException($"Account with username: {username} doesn't exist");
-        }
-
-        return account;
+        return await _context.Accounts
+            .Where(x => x.Value == apiKey)
+            .SingleOrDefaultAsync();
     }
 }

@@ -2,6 +2,7 @@
 using Microsoft.EntityFrameworkCore;
 using Semantico.Api.Data;
 using Semantico.Api.Data.Entities;
+using Semantico.Api.Data.Enums;
 using Semantico.Api.Helpers;
 
 namespace Semantico.Api.Handlers.Projects;
@@ -24,6 +25,7 @@ public class GetProjectsQuery : IRequestHandler<GetProjectsRequest, GetProjectsR
                 {
                     Name = x.Name,
                     ConnectionString = x.ConnectionString,
+                    DatabaseEngine = x.DatabaseEngine,
                     Queries = x.Queries,
                 })
              .ToListAsync(cancellationToken);
@@ -51,6 +53,8 @@ public class GetProjectsResponseListData
     public required string Name { get; init; }
 
     public required string ConnectionString { get; init; }
+
+    public required DatabaseEngineType DatabaseEngine { get; init; }
 
     public List<Query> Queries { get; init; } = new();
 }

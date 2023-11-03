@@ -6,11 +6,11 @@ namespace Semantico.Api.Data;
 public static class DataSeeder
 {
     private static readonly DateTime _createdTime = new(2023, 2, 2, 0, 0, 0, 0, DateTimeKind.Utc);
-    private static readonly string _passwordHash = "AQAAAAIAAYagAAAAECWEQ1jq8CPkruy8QrQy4eQqwKjFAQ2tt8wW/tH7zCype5L2asjL4W9+uBdvLMvPNQ==";
+    private static readonly string _apiKey = "00000000-0000-0000-0000-000000000000";
 
     public static void Seed(this ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<Account>().HasData(
-            new Account { Id = 1, CreatedTime = _createdTime, Username = "moberg", Value = _passwordHash });
+            new Account { Id = 1, CreatedTime = _createdTime, Username = "moberg", Value = _apiKey });
     }
 }

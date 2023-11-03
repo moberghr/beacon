@@ -3,6 +3,13 @@ using System.Security.Claims;
 
 namespace Semantico.Api.Web;
 
+public interface IAccount
+{
+    string ApiKey { get; }
+
+    int AccountId { get; }
+}
+
 public class AccountClaimsResolver : IAccount
 {
     public AccountClaimsResolver(IHttpContextAccessor httpContextAccessor)
@@ -14,18 +21,11 @@ public class AccountClaimsResolver : IAccount
             throw new SemanticoException($"Identity is null");
         }
 
-        Username = identity.FindFirst(AccountClaimType.Name)?.Value!;
+        ApiKey = identity.FindFirst(AccountClaimType.ApiKey)?.Value!;
         AccountId = int.Parse(identity.FindFirst(AccountClaimType.AccountId)?.Value!);
     }
 
-    public string Username { get; }
-
-    public int AccountId { get; }
-}
-
-public interface IAccount
-{
-    public string Username { get; }
+    public string ApiKey { get; }
 
     public int AccountId { get; }
 }

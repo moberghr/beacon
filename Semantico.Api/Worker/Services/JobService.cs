@@ -2,11 +2,7 @@
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using Semantico.Api.Adapters;
-using Semantico.Api.Adapters.Mail;
-using Semantico.Api.Adapters.Teams;
-using Semantico.Api.Adapters.Jira;
 using Semantico.Api.Data;
-using Semantico.Api.Data.Entities;
 using Dapper;
 using Semantico.Api.Data.Enums;
 using Semantico.Api.Helpers;
@@ -15,6 +11,8 @@ using Semantico.Api.Types;
 using Semantico.Api.Handlers.Queries;
 using Semantico.Api.Handlers.Subscriptions;
 using Semantico.Api.Services;
+using System.Data.Common;
+using System.Data.SqlClient;
 
 namespace Semantico.Api.Worker.Services;
 
@@ -62,7 +60,8 @@ public class JobService : IJobService
                     Project = new
                     {
                         x.Project.Name,
-                        x.Project.ConnectionString
+                        x.Project.ConnectionString,
+                        x.Project.DatabaseEngine
                     },
                     Parameters = x.Parameters.Select(y =>
                         new QueryParameterResponseListData
@@ -81,7 +80,7 @@ public class JobService : IJobService
 
         QueryValidator.CheckForFlaggedWords(sql);
 
-        var queryResult = await GetQueryResults(query.Project.ConnectionString, sql, query.Project.Name);
+        var queryResult = await GetQueryResultsAsync(query.Project.DatabaseEngine, query.Project.ConnectionString, sql, query.Project.Name);
 
         var recipientQueryResult = new RecipientQueryResult
         {
@@ -93,9 +92,9 @@ public class JobService : IJobService
         await _notificationService.SendNotificationAsync(subscriptionId, subscription.NotificationType, recipientQueryResult);
     }
 
-    private static async Task<QueryResult> GetQueryResults(string connectionString, string sqlQuery, string projectName)
+    private static async Task<QueryResult> GetQueryResultsAsync(DatabaseEngineType dbEngineType, string connectionString, string sqlQuery, string projectName)
     {
-        using var connection = new NpgsqlConnection(connectionString);
+        using var connection = await GetDbConnectionAsync(dbEngineType, connectionString);
         await connection.OpenAsync();
 
         var results = await connection.QueryAsync<object>(sqlQuery);
@@ -110,5 +109,20 @@ public class JobService : IJobService
             ProjectName = projectName,
             SqlQuery = sqlQuery,
         };
+    }
+
+    private static async Task<DbConnection> GetDbConnectionAsync(DatabaseEngineType dbEngineType, string connectionString)
+    {
+        switch (dbEngineType)
+        {
+            case DatabaseEngineType.PostgreSQL:
+                return new NpgsqlConnection(connectionString);
+
+            case DatabaseEngineType.MSSQL:
+                return new SqlConnection(connectionString);
+
+            default:
+                throw new SemanticoException($"Unsupported database engine.");
+        }
     }
 }

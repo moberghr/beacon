@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Semantico.Api.Data;
@@ -11,9 +12,11 @@ using Semantico.Api.Data;
 namespace Semantico.Api.Migrations
 {
     [DbContext(typeof(SemanticoContext))]
-    partial class SemanticoContextModelSnapshot : ModelSnapshot
+    [Migration("20231102091058_ProjectAddDatabaseEngine")]
+    partial class ProjectAddDatabaseEngine
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -61,7 +64,7 @@ namespace Semantico.Api.Migrations
                             Id = 1,
                             CreatedTime = new DateTime(2023, 2, 2, 0, 0, 0, 0, DateTimeKind.Utc),
                             Username = "moberg",
-                            Value = "00000000-0000-0000-0000-000000000000"
+                            Value = "AQAAAAIAAYagAAAAECWEQ1jq8CPkruy8QrQy4eQqwKjFAQ2tt8wW/tH7zCype5L2asjL4W9+uBdvLMvPNQ=="
                         });
                 });
 
