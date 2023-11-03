@@ -39,13 +39,14 @@ public class ApiKeyAuthenticationHandler : AuthenticationHandler<AuthenticationS
                 return AuthenticateResult.Fail("Missing API key.");
             }
 
-            var validKey = await _accountService.ValidateApiKeyAsync(authValue);
+            var account = await _accountService.GetAccountByApiKeyAsync(authValue);
 
-            if (validKey)
+            if (account != null)
             {
                 var claims = new List<Claim>
                 {
-                    new Claim(AccountClaimType.ApiKey, authValue),
+                    new Claim(AccountClaimType.AccountId, account.Id.ToString()),
+                    new Claim(AccountClaimType.ApiKey, account.Value),
                     new Claim(ClaimTypes.Role, "Admin")
                 };
 
