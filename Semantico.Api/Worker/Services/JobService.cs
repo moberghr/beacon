@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Semantico.Api.Adapters;
 using Semantico.Api.Data;
+using Semantico.Api.Data.Entities;
 using Semantico.Api.Helpers;
 using Semantico.Api.Validators;
 using Semantico.Api.Handlers.Queries;
