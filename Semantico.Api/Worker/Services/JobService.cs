@@ -108,10 +108,10 @@ public class JobService : IJobService
                 })
             .FirstOrDefault();
 
-        var noNewRecords = lastExecutedQuery == null && recipientQueryResult.QueryResult.TotalRecords == 0;
-        var previousRecordCountIsTheSame = lastExecutedQuery != null && recipientQueryResult.QueryResult.TotalRecords != lastExecutedQuery.ResultCount;
+        var initialNotification = lastExecutedQuery == null && recipientQueryResult.QueryResult.TotalRecords != 0;
+        var differentResults = lastExecutedQuery != null && recipientQueryResult.QueryResult.TotalRecords != lastExecutedQuery.ResultCount;
 
-        // if a previous notification wasn't sent and there are no query results or
+        // if a previous notification wasn't sent and there are some query results or
         // if a previous notification was sent, and the current result is the same we won't send a notification.
 
         var executedQuery = new QueryExecutionHistory
@@ -121,7 +121,7 @@ public class JobService : IJobService
             SubscriptionId = subscriptionId,
             ResultCount = recipientQueryResult.QueryResult.TotalRecords,
             CompiledSql = recipientQueryResult.QueryResult.SqlQuery,
-            NotificationSent = !(noNewRecords || previousRecordCountIsTheSame)
+            NotificationSent = initialNotification || differentResults
         };
 
         await _context.QueryExecutionHistory.AddAsync(executedQuery);
