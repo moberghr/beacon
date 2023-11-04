@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Semantico.Api.Adapters;
 using Semantico.Api.Data;
 using Semantico.Api.Helpers;
@@ -97,6 +97,39 @@ public class JobService : IJobService
             QueryResult = queryResult
         };
 
-        await _notificationService.SendNotificationAsync(subscriptionId, subscription.NotificationType, recipientQueryResult);
+        var lastExecutedQuery = _context.QueryExecutionHistory
+            .Where(x => x.SubscriptionId == subscriptionId)
+            .OrderByDescending(x => x.CreatedTime)
+            .Select(x =>
+                new
+                {
+                    x.ResultCount
+                })
+            .FirstOrDefault();
+
+        var noNewRecords = lastExecutedQuery == null && recipientQueryResult.QueryResult.TotalRecords == 0;
+        var previousRecordCountIsTheSame = lastExecutedQuery != null && recipientQueryResult.QueryResult.TotalRecords != lastExecutedQuery.ResultCount;
+
+        // if a previous notification wasn't sent and there are no query results or
+        // if a previous notification was sent, and the current result is the same we won't send a notification.
+
+        var executedQuery = new QueryExecutionHistory
+        {
+            Recipient = recipientQueryResult.Recipient,
+            NotificationType = subscription.NotificationType,
+            SubscriptionId = subscriptionId,
+            ResultCount = recipientQueryResult.QueryResult.TotalRecords,
+            CompiledSql = recipientQueryResult.QueryResult.SqlQuery,
+            NotificationSent = !(noNewRecords || previousRecordCountIsTheSame)
+        };
+
+        await _context.QueryExecutionHistory.AddAsync(executedQuery);
+
+        if (executedQuery.NotificationSent)
+        {
+            await _notificationService.SendNotificationAsync(subscription.NotificationType, recipientQueryResult, lastExecutedQuery?.ResultCount);
+        }
+
+        await _context.SaveChangesAsync();
     }
 }

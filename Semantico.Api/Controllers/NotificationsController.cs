@@ -6,17 +6,17 @@ namespace Semantico.Api.Controllers;
 
 [ApiController]
 [Route("[controller]")]
-public class NotificationsController : ControllerBase
+public class QueryExecutionHistoryController : ControllerBase
 {
     private readonly IMediator _mediator;
 
-    public NotificationsController(IMediator mediator)
+    public QueryExecutionHistoryController(IMediator mediator)
     {
         _mediator = mediator;
     }
 
     [HttpGet]
-    public async Task<GetNotificationsResponse> GetAccounts([FromQuery] GetNotificationsRequest request, CancellationToken cancellationToken)
+    public async Task<GetQueryExecutionHistoryResponse> GetQueryExecutionHistory([FromQuery] GetQueryExecutionHistoryRequest request, CancellationToken cancellationToken)
     {
         return await _mediator.Send(request, cancellationToken);
     }
