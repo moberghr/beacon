@@ -9,7 +9,7 @@ public class Project : ArchivableBaseEntity
 
     public required string ConnectionString { get; set; }
 
-    public required DatabaseEngineType DatabaseEngine { get; set; }
+    public required DatabaseEngineType DatabaseEngineType { get; set; }
 
     public List<Query> Queries { get; set; } = new();
 }

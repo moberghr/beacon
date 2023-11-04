@@ -7,7 +7,7 @@ namespace Semantico.Api.Services;
 
 public interface IAccountService
 {
-    Task<bool> ValidateApiKeyAsync(string apiKey);
+    Task<Account> GetAccountByApiKeyAsync(string apiKey);
 }
 
 public class AccountService : IAccountService
@@ -19,12 +19,10 @@ public class AccountService : IAccountService
         _context = context;
     }
 
-    public async Task<bool> ValidateApiKeyAsync(string apiKey)
+    public async Task<Account> GetAccountByApiKeyAsync(string apiKey)
     {
-        var accountExists = await _context.Accounts
+        return await _context.Accounts
             .Where(x => x.Value == apiKey)
-            .AnyAsync();
-
-        return accountExists;
+            .SingleOrDefaultAsync();
     }
 }

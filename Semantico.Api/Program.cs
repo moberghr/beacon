@@ -10,6 +10,7 @@ using Semantico.Api.Services;
 using Semantico.Api.Types;
 using Semantico.Api.Web;
 using Semantico.Api.Worker;
+using Semantico.Api.Worker.Repositories;
 using Semantico.Api.Worker.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -17,7 +18,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 
-builder.Services.AddSwaggerWithApiKey("Semantico");
+builder.Services.AddSwaggerWithApiKey(Constants.SemanticoApiKeyHeaderName);
 
 builder.Services.AddDbContext<SemanticoContext>((options) =>
 {
@@ -42,16 +43,18 @@ builder.Services.AddHangfire(hangfireConfiguration => hangfireConfiguration
         }));
 
 builder.Services.AddHangfireServer();
+builder.Services.AddTransient<IJobRepository, JobRepository>();
 builder.Services.AddTransient<IJobService, JobService>();
 builder.Services.AddTransient<INotificationService, NotificationService>();
 builder.Services.AddSingleton<IRecurringJobService, RecurringJobService>();
 builder.Services.AddAdapters(builder.Configuration);
 builder.Services.AddHttpContextAccessor();
+builder.Services.AddTransient<IAccount, AccountClaimsResolver>();
 builder.Services.AddTransient<IAccountService, AccountService>();
 
-builder.Services.AddAuthentication("Semantico")
+builder.Services.AddAuthentication(Constants.SemanticoApiKeyHeaderName)
                 .AddScheme<AuthenticationSchemeOptions, ApiKeyAuthenticationHandler>
-                ("Semantico", null);
+                (Constants.SemanticoApiKeyHeaderName, null);
 
 var app = builder.Build();
 

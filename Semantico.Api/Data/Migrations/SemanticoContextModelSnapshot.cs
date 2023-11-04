@@ -87,9 +87,9 @@ namespace Semantico.Api.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_time");
 
-                    b.Property<int>("DatabaseEngine")
+                    b.Property<int>("DatabaseEngineType")
                         .HasColumnType("integer")
-                        .HasColumnName("database_engine");
+                        .HasColumnName("database_engine_type");
 
                     b.Property<string>("Name")
                         .IsRequired()

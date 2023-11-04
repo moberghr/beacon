@@ -31,7 +31,7 @@ public class ApiKeyAuthenticationHandler : AuthenticationHandler<AuthenticationS
     {
         try
         {
-            Request.Headers.TryGetValue("Semantico", out var authHeader);
+            Request.Headers.TryGetValue(Constants.SemanticoApiKeyHeaderName, out var authHeader);
             var authValue = authHeader.ToString() ?? string.Empty;
 
             if (string.IsNullOrEmpty(authValue))
@@ -39,23 +39,24 @@ public class ApiKeyAuthenticationHandler : AuthenticationHandler<AuthenticationS
                 return AuthenticateResult.Fail("Missing API key.");
             }
 
-            var validKey = await _accountService.ValidateApiKeyAsync(authValue);
+            var account = await _accountService.GetAccountByApiKeyAsync(authValue);
 
-            if (validKey)
+            if (account == null)
             {
-                var claims = new List<Claim>
+                return AuthenticateResult.Fail("Invalid API key.");
+            }
+
+            var claims = new List<Claim>
                 {
-                    new Claim(AccountClaimType.ApiKey, authValue),
+                    new Claim(AccountClaimType.AccountId, account.Id.ToString()),
+                    new Claim(AccountClaimType.ApiKey, account.Value),
                     new Claim(ClaimTypes.Role, "Admin")
                 };
 
-                var identity = new ClaimsIdentity(claims, "Semantico");
-                var claimsPrincipal = new ClaimsPrincipal(identity);
+            var identity = new ClaimsIdentity(claims, Constants.SemanticoApiKeyHeaderName);
+            var claimsPrincipal = new ClaimsPrincipal(identity);
 
-                return AuthenticateResult.Success(new AuthenticationTicket(claimsPrincipal, Scheme.Name));
-            }
-
-            return AuthenticateResult.Fail("Invalid API key.");
+            return AuthenticateResult.Success(new AuthenticationTicket(claimsPrincipal, Scheme.Name));
         }
         catch (Exception e)
         {
