@@ -21,7 +21,7 @@ namespace Semantico.Api.Migrations
                 table: "query_parameters");
 
             migrationBuilder.AddColumn<int>(
-                name: "database_engine",
+                name: "database_engine_type",
                 schema: "semantico",
                 table: "projects",
                 type: "integer",
@@ -55,7 +55,7 @@ namespace Semantico.Api.Migrations
                 table: "query_parameters");
 
             migrationBuilder.DropColumn(
-                name: "database_engine",
+                name: "database_engine_type",
                 schema: "semantico",
                 table: "projects");
 

@@ -25,7 +25,7 @@ public class GetProjectsQuery : IRequestHandler<GetProjectsRequest, GetProjectsR
                 {
                     Name = x.Name,
                     ConnectionString = x.ConnectionString,
-                    DatabaseEngine = x.DatabaseEngine,
+                    DatabaseEngineType = x.DatabaseEngineType,
                     Queries = x.Queries,
                 })
              .ToListAsync(cancellationToken);
@@ -54,7 +54,7 @@ public class GetProjectsResponseListData
 
     public required string ConnectionString { get; init; }
 
-    public required DatabaseEngineType DatabaseEngine { get; init; }
+    public required DatabaseEngineType DatabaseEngineType { get; init; }
 
     public List<Query> Queries { get; init; } = new();
 }

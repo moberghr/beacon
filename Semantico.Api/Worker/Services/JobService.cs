@@ -1,29 +1,26 @@
-﻿using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
-using Npgsql;
 using Semantico.Api.Adapters;
 using Semantico.Api.Data;
-using Dapper;
-using Semantico.Api.Data.Enums;
 using Semantico.Api.Helpers;
 using Semantico.Api.Validators;
-using Semantico.Api.Types;
 using Semantico.Api.Handlers.Queries;
 using Semantico.Api.Handlers.Subscriptions;
 using Semantico.Api.Services;
-using System.Data.Common;
-using System.Data.SqlClient;
+using Semantico.Api.Worker.Repositories;
+using System.Text.Json;
 
 namespace Semantico.Api.Worker.Services;
 
 public class JobService : IJobService
 {
     private readonly SemanticoContext _context;
+    private readonly IJobRepository _jobRepository;
     private readonly INotificationService _notificationService;
 
-    public JobService(SemanticoContext context, INotificationService notificationService)
+    public JobService(SemanticoContext context, IJobRepository jobRepository, INotificationService notificationService)
     {
         _context = context;
+        _jobRepository = jobRepository;
         _notificationService = notificationService;
     }
 
@@ -61,7 +58,7 @@ public class JobService : IJobService
                     {
                         x.Project.Name,
                         x.Project.ConnectionString,
-                        x.Project.DatabaseEngine
+                        x.Project.DatabaseEngineType
                     },
                     Parameters = x.Parameters.Select(y =>
                         new QueryParameterResponseListData
@@ -80,7 +77,18 @@ public class JobService : IJobService
 
         QueryValidator.CheckForFlaggedWords(sql);
 
-        var queryResult = await GetQueryResultsAsync(query.Project.DatabaseEngine, query.Project.ConnectionString, sql, query.Project.Name);
+        var dbQueryResult = await _jobRepository.ExecuteQueryAsync(query.Project.DatabaseEngineType, query.Project.ConnectionString, sql);
+
+        // We will only send the top 10 rows in a notification.
+        var messageRows = dbQueryResult.Take(10).ToList();
+
+        var queryResult = new QueryResult
+        {
+            QueryResults = JsonSerializer.Serialize(messageRows),
+            TotalRecords = dbQueryResult.Count(),
+            ProjectName = query.Project.Name,
+            SqlQuery = sql,
+        };
 
         var recipientQueryResult = new RecipientQueryResult
         {
@@ -89,40 +97,39 @@ public class JobService : IJobService
             QueryResult = queryResult
         };
 
-        await _notificationService.SendNotificationAsync(subscriptionId, subscription.NotificationType, recipientQueryResult);
-    }
+        var lastExecutedQuery = _context.QueryExecutionHistory
+            .Where(x => x.SubscriptionId == subscriptionId)
+            .OrderByDescending(x => x.CreatedTime)
+            .Select(x =>
+                new
+                {
+                    x.ResultCount
+                })
+            .FirstOrDefault();
 
-    private static async Task<QueryResult> GetQueryResultsAsync(DatabaseEngineType dbEngineType, string connectionString, string sqlQuery, string projectName)
-    {
-        using var connection = await GetDbConnectionAsync(dbEngineType, connectionString);
-        await connection.OpenAsync();
+        var noNewRecords = lastExecutedQuery == null && recipientQueryResult.QueryResult.TotalRecords == 0;
+        var previousRecordCountIsTheSame = lastExecutedQuery != null && recipientQueryResult.QueryResult.TotalRecords != lastExecutedQuery.ResultCount;
 
-        var results = await connection.QueryAsync<object>(sqlQuery);
+        // if a previous notification wasn't sent and there are no query results or
+        // if a previous notification was sent, and the current result is the same we won't send a notification.
 
-        var recordCounter = results.Count();
-        var queryResults = results.Take(10).ToList();
-
-        return new QueryResult
+        var executedQuery = new QueryExecutionHistory
         {
-            QueryResults = JsonSerializer.Serialize(queryResults),
-            TotalRecords = recordCounter,
-            ProjectName = projectName,
-            SqlQuery = sqlQuery,
+            Recipient = recipientQueryResult.Recipient,
+            NotificationType = subscription.NotificationType,
+            SubscriptionId = subscriptionId,
+            ResultCount = recipientQueryResult.QueryResult.TotalRecords,
+            CompiledSql = recipientQueryResult.QueryResult.SqlQuery,
+            NotificationSent = !(noNewRecords || previousRecordCountIsTheSame)
         };
-    }
 
-    private static async Task<DbConnection> GetDbConnectionAsync(DatabaseEngineType dbEngineType, string connectionString)
-    {
-        switch (dbEngineType)
+        await _context.QueryExecutionHistory.AddAsync(executedQuery);
+
+        if (executedQuery.NotificationSent)
         {
-            case DatabaseEngineType.PostgreSQL:
-                return new NpgsqlConnection(connectionString);
-
-            case DatabaseEngineType.MSSQL:
-                return new SqlConnection(connectionString);
-
-            default:
-                throw new SemanticoException($"Unsupported database engine.");
+            await _notificationService.SendNotificationAsync(subscription.NotificationType, recipientQueryResult, lastExecutedQuery?.ResultCount);
         }
+
+        await _context.SaveChangesAsync();
     }
 }

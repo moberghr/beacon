@@ -3,7 +3,7 @@ using Semantico.Api.Data.Enums;
 
 namespace Semantico.Api.Data.Entities;
 
-public class Notification : BaseEntity
+public class QueryExecutionHistory : BaseEntity
 {
     public required string Recipient { get; set; }
 
@@ -12,6 +12,10 @@ public class Notification : BaseEntity
     public required int SubscriptionId { get; set; }
 
     public required int ResultCount { get; set; }
+
+    public required string CompiledSql { get; set; }
+
+    public required bool NotificationSent { get; set; }
 
     public Subscription Subscription { get; set; } = null!;
 }
