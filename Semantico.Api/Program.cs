@@ -79,4 +79,6 @@ app.MapHangfireDashboard(new DashboardOptions
         }
 });
 
+app.MapGet("/", () => "OK").ExcludeFromDescription().AllowAnonymous();
+
 app.Run();
