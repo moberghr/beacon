@@ -125,12 +125,13 @@ public class JobService : IJobService
         };
 
         await _context.QueryExecutionHistory.AddAsync(executedQuery);
+        await _context.SaveChangesAsync();
 
-        if (executedQuery.NotificationSent)
+        if (executedQuery.NotificationSent == false)
         {
-            await _notificationService.SendNotificationAsync(subscription.NotificationType, recipientQueryResult, lastExecutedQuery?.ResultCount);
+            return;
         }
 
-        await _context.SaveChangesAsync();
+        await _notificationService.SendNotificationAsync(subscription.NotificationType, recipientQueryResult, lastExecutedQuery?.ResultCount);
     }
 }
