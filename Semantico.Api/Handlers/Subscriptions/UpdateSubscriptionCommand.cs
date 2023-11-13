@@ -72,7 +72,7 @@ public class UpdateSubscriptionCommand : IRequestHandler<UpdateSubscriptionReque
 
         if (shouldUpdateHangfire)
         {
-            _recurringJobService.AddOrUpdate(subscription.Id, subscription.CronExpression);
+            _recurringJobService.AddOrUpdate(subscription.Id, subscription.Name, subscription.CronExpression);
         }
 
         return new();

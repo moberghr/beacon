@@ -64,7 +64,7 @@ public class CreateSubscriptionCommand : IRequestHandler<CreateSubscriptionReque
 
         await _context.SaveChangesAsync(cancellationToken);
 
-        _recurringJobService.AddOrUpdate(subscription.Id, request.CronExpression);
+        _recurringJobService.AddOrUpdate(subscription.Id, subscription.Name, request.CronExpression);
 
         return new();
     }

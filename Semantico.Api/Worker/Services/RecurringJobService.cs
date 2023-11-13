@@ -11,20 +11,25 @@ public class RecurringJobService : IRecurringJobService
         _recurringJobManager = recurringJobManager;
     }
 
-    public void AddOrUpdate(int subscriptionId, string cron)
+    public void AddOrUpdate(int subscriptionId, string subscriptionName, string cron)
     {
-        _recurringJobManager.AddOrUpdate<IJobService>(subscriptionId.ToString(), x => x.ExecuteQuery(subscriptionId), cron);
+        _recurringJobManager.AddOrUpdate<IJobService>(CompileSubscriptionJobKey(subscriptionId, subscriptionName), x => x.ExecuteQuery(subscriptionId), cron);
     }
 
-    public void Remove(int subscriptionId)
+    public void Remove(int subscriptionId, string subscriptionName)
     {
-        _recurringJobManager.RemoveIfExists(subscriptionId.ToString());
+        _recurringJobManager.RemoveIfExists(CompileSubscriptionJobKey(subscriptionId, subscriptionName));
+    }
+
+    private static string CompileSubscriptionJobKey(int subscriptionId, string subscriptionName)
+    {
+        return $"{subscriptionId} - {subscriptionName}";
     }
 }
 
 public interface IRecurringJobService
 {
-    public void AddOrUpdate(int subscriptionId, string cron);
+    public void AddOrUpdate(int subscriptionId, string subscriptionName, string cron);
 
-    public void Remove(int subscriptionId);
+    public void Remove(int subscriptionId, string subscriptionName);
 }
