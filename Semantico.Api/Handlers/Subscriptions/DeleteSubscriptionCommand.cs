@@ -25,7 +25,7 @@ public class DeleteSubscriptionCommand : IRequestHandler<DeleteSubscriptionReque
 
         subscription.Archive();
 
-        _recurringJobService.Remove(request.SubscriptionId);
+        _recurringJobService.Remove(subscription.Id, subscription.Name);
 
         foreach (var param in subscription.Parameters)
         {
