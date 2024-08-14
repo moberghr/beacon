@@ -3,7 +3,7 @@ using Semantico.Core.Data.Enums;
 
 namespace Semantico.Core.Data.Entities;
 
-public class QueryExecutionHistory : BaseEntity
+internal class QueryExecutionHistory : BaseEntity
 {
     public required string Recipient { get; set; }
 

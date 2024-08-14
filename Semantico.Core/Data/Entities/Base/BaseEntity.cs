@@ -1,6 +1,6 @@
 ﻿namespace Semantico.Core.Data.Entities.Base;
 
-public abstract class BaseEntity
+internal abstract class BaseEntity
 {
     public int Id { get; set; }
 

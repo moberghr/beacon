@@ -3,7 +3,7 @@ using Semantico.Core.Data.Enums;
 
 namespace Semantico.Core.Data.Entities;
 
-public class QueryParameter : ArchivableBaseEntity
+internal class QueryParameter : ArchivableBaseEntity
 {
     public required int QueryId { get; set; }
 

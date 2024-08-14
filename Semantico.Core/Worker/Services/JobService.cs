@@ -12,11 +12,6 @@ using Semantico.Core.Models.Subscriptions;
 
 namespace Semantico.Core.Worker.Services;
 
-public interface IJobService
-{
-    Task ExecuteQuery(int subscriptionId);
-}
-
 internal class JobService : IJobService
 {
     private readonly SemanticoContext _context;

@@ -1,4 +1,5 @@
 ﻿using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Semantico.Core.Data.Enums;
 using Semantico.Core.Models.Projects;
@@ -12,48 +13,16 @@ namespace Semantico.Web.Endpoints
     {
         internal static void MapSemanticoEndpoints(this WebApplication app)
         {
-            app.MapAccountsEndpoints();
             app.MapSubscriptionsEndpoints();
             app.MapQueriesEndpoints();
             app.MapProjectsEndpoints();
             app.MapNotificationsEndpoints();
         }
 
-        private static void MapAccountsEndpoints(this WebApplication app)
-        {
-            var apiGroup = app.MapGroup($"semantico/accounts").RequireAuthorization();
-
-            apiGroup.MapGet("/get-accounts", async (
-                IAccountService service,
-                CancellationToken cancellationToken) =>
-            {
-                var response = await service.GetAccountsAsync(cancellationToken);
-
-                return response;
-            });
-
-            apiGroup.MapPost("/create-account", async (
-                [FromBody] string username,
-                IAccountService service,
-                CancellationToken cancellationToken) =>
-            {
-                var response = await service.CreateAccountAsync(username, cancellationToken);
-
-                return response;
-            });
-
-            apiGroup.MapDelete("/remove-account/{username}", async (
-                [FromRoute] string username,
-                IAccountService service,
-                CancellationToken cancellationToken) =>
-            {
-                await service.RemoveAccountAsync(username, cancellationToken);
-            });
-        }
-
         private static void MapSubscriptionsEndpoints(this WebApplication app)
         {
-            var apiGroup = app.MapGroup($"semantico/subscriptions").RequireAuthorization();
+            var apiGroup = app.MapGroup($"semantico/subscriptions")
+                .WithTags("Subscriptions");
 
             apiGroup.MapGet("/get-subscriptions", async (
                 [FromQuery] int? subscriptionId,
@@ -94,7 +63,8 @@ namespace Semantico.Web.Endpoints
 
         private static void MapQueriesEndpoints(this WebApplication app)
         {
-            var apiGroup = app.MapGroup($"semantico/queries").RequireAuthorization();
+            var apiGroup = app.MapGroup($"semantico/queries")
+                .WithTags("Queries");
 
             apiGroup.MapGet("/get-queries", async (
                 [FromQuery] int? queryId,
@@ -135,7 +105,8 @@ namespace Semantico.Web.Endpoints
 
         private static void MapProjectsEndpoints(this WebApplication app)
         {
-            var apiGroup = app.MapGroup($"semantico/projects").RequireAuthorization();
+            var apiGroup = app.MapGroup($"semantico/projects")
+                .WithTags("Projects");
 
             apiGroup.MapGet("/get-projects", async (
                 [FromQuery] int? projectId,
@@ -174,7 +145,8 @@ namespace Semantico.Web.Endpoints
 
         private static void MapNotificationsEndpoints(this WebApplication app)
         {
-            var apiGroup = app.MapGroup($"semantico/notifications").RequireAuthorization();
+            var apiGroup = app.MapGroup($"semantico/notifications")
+                .WithTags("Notifications");
 
             apiGroup.MapGet("/get-query-execution-history", async (
                 [FromQuery] int subscriptionId,

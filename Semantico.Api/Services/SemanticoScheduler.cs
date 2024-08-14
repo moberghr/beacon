@@ -1,9 +1,11 @@
 ﻿using Hangfire;
-using Semantico.Core.Worker.Services;
 using Semantico.Core.Worker;
 
 namespace Semantico.Api.Services
 {
+    /// <summary>
+    /// One possible implementation of the semantico schedule execute query
+    /// </summary>
     public class SemanticoScheduler : ISemanticoScheduler
     {
         private readonly IRecurringJobManager _recurringJobManager;

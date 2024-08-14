@@ -2,7 +2,7 @@
 
 namespace Semantico.Core.Data.Entities;
 
-public class Query : ArchivableBaseEntity
+internal class Query : ArchivableBaseEntity
 {
     public required string SqlValue { get; set; }
 

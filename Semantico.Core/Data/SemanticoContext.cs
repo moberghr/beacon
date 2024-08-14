@@ -5,14 +5,12 @@ using System.Linq.Expressions;
 
 namespace Semantico.Core.Data;
 
-public class SemanticoContext : DbContext
+internal class SemanticoContext : DbContext
 {
     public SemanticoContext(DbContextOptions<SemanticoContext> options)
        : base(options)
     {
     }
-
-    public DbSet<Account> Accounts => Set<Account>();
 
     public DbSet<Subscription> Subscriptions => Set<Subscription>();
 
@@ -29,7 +27,6 @@ public class SemanticoContext : DbContext
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema("semantico");
-        modelBuilder.Seed();
 
         SetSoftDeleteQueryFilter(modelBuilder);
 

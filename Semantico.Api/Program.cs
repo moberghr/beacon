@@ -1,20 +1,25 @@
 using Hangfire;
 using Hangfire.PostgreSql;
-using Microsoft.AspNetCore.Authentication;
 using Microsoft.EntityFrameworkCore;
 using Semantico.Api.Services;
-using Semantico.Api.Web;
 using Semantico.Core;
 using Semantico.Web;
-using Semantico.Core.Data;
 using Semantico.Api.Hangfire;
+using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 
-builder.Services.AddSwaggerWithApiKey(SemanticoAuth.ApiKeyHeaderName);
+builder.Services.AddSwaggerGen(options =>
+{
+    options.SwaggerDoc("v1", new OpenApiInfo
+    {
+        Title = "Semantico",
+        Version = "v1",
+    });
+});
 
 builder.Services.AddHangfire(hangfireConfiguration => hangfireConfiguration
     .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
@@ -22,7 +27,7 @@ builder.Services.AddHangfire(hangfireConfiguration => hangfireConfiguration
     .UseRecommendedSerializerSettings()
     .UsePostgreSqlStorage(options =>
     {
-        options.UseNpgsqlConnection(builder.Configuration.GetConnectionString(nameof(SemanticoContext)));
+        options.UseNpgsqlConnection(builder.Configuration.GetConnectionString("SemanticoContext"));
     }, 
     new PostgreSqlStorageOptions
     {
@@ -31,28 +36,24 @@ builder.Services.AddHangfire(hangfireConfiguration => hangfireConfiguration
     }));
 
 builder.Services.AddHangfireServer();
-builder.Services.AddSemanticoCore<SemanticoScheduler>(builder.Configuration);
-builder.Services.AddHttpContextAccessor();
 
-builder.Services.AddAuthentication(SemanticoAuth.ApiKeyHeaderName)
-                .AddScheme<AuthenticationSchemeOptions, ApiKeyAuthenticationHandler>
-                (SemanticoAuth.ApiKeyHeaderName, null);
+// register semantico services here
+builder.Services.AddSemantico<SemanticoScheduler>(builder.Configuration);
+
+builder.Services.AddHttpContextAccessor();
 
 var app = builder.Build();
 
-using var scope = app.Services.CreateScope();
-await scope.ServiceProvider.GetRequiredService<SemanticoContext>().Database.MigrateAsync();
-
 app.UseSwagger();
 app.UseSwaggerUI();
-
 app.UseHttpsRedirection();
-
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.MapControllers().RequireAuthorization();
-app.UseSemanticoUI();
+// use semantico
+app.UseSemantico();
+// or use semantico with endpoints
+app.UseSemanticoApi();
 
 app.MapHangfireDashboard(new DashboardOptions
 {

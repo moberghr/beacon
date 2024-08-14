@@ -4,7 +4,6 @@ using Semantico.Core.Data.Entities;
 using Semantico.Core.Helpers;
 using Semantico.Core.Models;
 using Semantico.Core.Models.Queries;
-using Semantico.Core.Models.QueryExecutionHistory;
 using Semantico.Core.Validators;
 
 namespace Semantico.Core.Services

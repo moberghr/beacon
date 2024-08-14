@@ -3,7 +3,7 @@ using Semantico.Core.Data.Enums;
 
 namespace Semantico.Core.Data.Entities;
 
-public class Project : ArchivableBaseEntity
+internal class Project : ArchivableBaseEntity
 {
     public required string Name { get; set; }
 
