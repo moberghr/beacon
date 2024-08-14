@@ -1,6 +1,6 @@
 ﻿namespace Semantico.Core.Adapters.Teams;
 
-public interface ITeamsAdapter
+internal interface ITeamsAdapter
 {
     public Task SendNotificationAsync(RecipientQueryResult recipientQueryResult);
 

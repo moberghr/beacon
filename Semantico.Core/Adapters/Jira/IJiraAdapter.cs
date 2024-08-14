@@ -1,6 +1,6 @@
 ﻿namespace Semantico.Core.Adapters.Jira;
 
-public interface IJiraAdapter
+internal interface IJiraAdapter
 {
     /// <summary>
     /// Use this method when no previous notifications were sent.

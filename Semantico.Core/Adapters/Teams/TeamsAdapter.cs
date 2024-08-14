@@ -3,7 +3,7 @@ using System.Text;
 
 namespace Semantico.Core.Adapters.Teams;
 
-public class TeamsAdapter : ITeamsAdapter
+internal class TeamsAdapter : ITeamsAdapter
 {
     private readonly IHttpClientFactory _httpClientFactory;
 

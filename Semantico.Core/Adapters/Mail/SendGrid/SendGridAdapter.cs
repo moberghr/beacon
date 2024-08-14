@@ -4,7 +4,7 @@ using SendGrid.Helpers.Mail;
 
 namespace Semantico.Core.Adapters.Mail.SendGrid;
 
-public class SendGridAdapter : IMailAdapter
+internal class SendGridAdapter : IMailAdapter
 {
     private readonly SendGridSettings _settings;
     private readonly ISendGridClient _sendGridClient;

@@ -2,7 +2,7 @@
 
 namespace Semantico.Core.Helpers;
 
-public class QueryHelper
+internal class QueryHelper
 {
     public static string CompileSql(string querySql, List<SubscriptionParamaterData> parameterValues)
     {

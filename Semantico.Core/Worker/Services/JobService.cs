@@ -17,7 +17,7 @@ public interface IJobService
     Task ExecuteQuery(int subscriptionId);
 }
 
-public class JobService : IJobService
+internal class JobService : IJobService
 {
     private readonly SemanticoContext _context;
     private readonly IJobRepository _jobRepository;

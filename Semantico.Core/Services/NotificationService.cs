@@ -11,7 +11,7 @@ using Semantico.Core.Models.QueryExecutionHistory;
 
 namespace Semantico.Core.Services;
 
-public class NotificationService : INotificationService
+internal class NotificationService : INotificationService
 {
     private readonly SemanticoContext _context;
     private readonly ITeamsAdapter _teamsAdapter;

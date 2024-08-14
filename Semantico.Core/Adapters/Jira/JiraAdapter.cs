@@ -3,7 +3,7 @@ using Semantico.Core.Helpers;
 
 namespace Semantico.Core.Adapters.Jira;
 
-public class JiraAdapter : IJiraAdapter
+internal class JiraAdapter : IJiraAdapter
 {
     public async Task SendNotificationAsync(RecipientQueryResult recipientQueryResult)
     {

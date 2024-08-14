@@ -1,6 +1,6 @@
 ﻿namespace Semantico.Core.Adapters.Jira;
 
-public class JiraCredentials
+internal class JiraCredentials
 {
     public required string DomainUrl;
 

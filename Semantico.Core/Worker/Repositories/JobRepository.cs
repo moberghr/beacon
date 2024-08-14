@@ -8,12 +8,12 @@ using Semantico.Core.Models;
 
 namespace Semantico.Core.Worker.Repositories;
 
-public interface IJobRepository
+internal interface IJobRepository
 {
     Task<List<object>> ExecuteQueryAsync(DatabaseEngineType dbEngineType, string connectionString, string sqlQuery);
 }
 
-public class JobRepository : IJobRepository
+internal class JobRepository : IJobRepository
 {
     public async Task<List<object>> ExecuteQueryAsync(DatabaseEngineType dbEngineType, string connectionString, string sqlQuery)
     {

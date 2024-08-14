@@ -1,6 +1,6 @@
 ﻿namespace Semantico.Core.Adapters.Mail.SendGrid;
 
-public class SendGridSettings
+internal class SendGridSettings
 {
     public required string Apikey { get; init; }
 

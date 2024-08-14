@@ -1,6 +1,6 @@
 ﻿namespace Semantico.Core.Adapters.Mail;
 
-public interface IMailAdapter
+internal interface IMailAdapter
 {
     public Task SendNotificationAsync(RecipientQueryResult recipientQueryResult);
 }

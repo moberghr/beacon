@@ -4,7 +4,7 @@ using System.Globalization;
 
 namespace Semantico.Core.Helpers;
 
-public static class ParameterTypeHelper
+internal static class ParameterTypeHelper
 {
     public static object ParseParameter(this string value, ParameterType type)
     {

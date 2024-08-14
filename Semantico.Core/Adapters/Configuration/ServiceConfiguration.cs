@@ -4,12 +4,11 @@ using Semantico.Core.Adapters.Jira;
 using Semantico.Core.Adapters.Mail;
 using Semantico.Core.Adapters.Mail.SendGrid;
 using Semantico.Core.Adapters.Teams;
-using Semantico.Core.Services;
 using SendGrid;
 
 namespace Semantico.Core.Adapters.Configuration;
 
-public static class ServiceConfiguration
+internal static class ServiceConfiguration
 {
     public static void AddAdapters(this IServiceCollection services, IConfiguration configuration)
     {

@@ -2,7 +2,7 @@
 
 namespace Semantico.Core.Helpers;
 
-public static class LinqHelpers
+internal static class LinqHelpers
 {
     public static IQueryable<T> WhereIf<T>(this IQueryable<T> source, bool condition, Expression<Func<T, bool>> selector)
     {
