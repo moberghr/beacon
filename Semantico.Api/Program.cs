@@ -1,60 +1,42 @@
-using System.Reflection;
 using Hangfire;
 using Hangfire.PostgreSql;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.EntityFrameworkCore;
-using Semantico.Api.Adapters.Configuration;
-using Semantico.Api.Data;
-using Semantico.Api.Helpers;
 using Semantico.Api.Services;
-using Semantico.Api.Types;
 using Semantico.Api.Web;
-using Semantico.Api.Worker;
-using Semantico.Api.Worker.Repositories;
-using Semantico.Api.Worker.Services;
+using Semantico.Core;
+using Semantico.Web;
+using Semantico.Core.Data;
+using Semantico.Api.Hangfire;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 
-builder.Services.AddSwaggerWithApiKey(Constants.SemanticoApiKeyHeaderName);
-
-builder.Services.AddDbContext<SemanticoContext>((options) =>
-{
-    options.UseNpgsql(
-            builder.Configuration.GetConnectionString(nameof(SemanticoContext)),
-            x => x.MigrationsHistoryTable("__SemanticoMigrationsHistory", "semantico"))
-        .UseSnakeCaseNamingConvention();
-});
-
-builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(Assembly.GetExecutingAssembly()));
+builder.Services.AddSwaggerWithApiKey(SemanticoAuth.ApiKeyHeaderName);
 
 builder.Services.AddHangfire(hangfireConfiguration => hangfireConfiguration
     .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
     .UseSimpleAssemblyNameTypeSerializer()
     .UseRecommendedSerializerSettings()
-    .UsePostgreSqlStorage(
-        builder.Configuration.GetConnectionString(nameof(SemanticoContext)),
-        new PostgreSqlStorageOptions
-        {
-            SchemaName = "semantico_hangfire",
-            PrepareSchemaIfNecessary = true
-        }));
+    .UsePostgreSqlStorage(options =>
+    {
+        options.UseNpgsqlConnection(builder.Configuration.GetConnectionString(nameof(SemanticoContext)));
+    }, 
+    new PostgreSqlStorageOptions
+    {
+        SchemaName = "semantico_hangfire",
+        PrepareSchemaIfNecessary = true
+    }));
 
 builder.Services.AddHangfireServer();
-builder.Services.AddTransient<IJobRepository, JobRepository>();
-builder.Services.AddTransient<IJobService, JobService>();
-builder.Services.AddTransient<INotificationService, NotificationService>();
-builder.Services.AddSingleton<IRecurringJobService, RecurringJobService>();
-builder.Services.AddAdapters(builder.Configuration);
+builder.Services.AddSemanticoCore<SemanticoScheduler>(builder.Configuration);
 builder.Services.AddHttpContextAccessor();
-builder.Services.AddTransient<IAccount, AccountClaimsResolver>();
-builder.Services.AddTransient<IAccountService, AccountService>();
 
-builder.Services.AddAuthentication(Constants.SemanticoApiKeyHeaderName)
+builder.Services.AddAuthentication(SemanticoAuth.ApiKeyHeaderName)
                 .AddScheme<AuthenticationSchemeOptions, ApiKeyAuthenticationHandler>
-                (Constants.SemanticoApiKeyHeaderName, null);
+                (SemanticoAuth.ApiKeyHeaderName, null);
 
 var app = builder.Build();
 
@@ -70,6 +52,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers().RequireAuthorization();
+app.UseSemanticoUI();
 
 app.MapHangfireDashboard(new DashboardOptions
 {

@@ -1,4 +1,4 @@
-﻿using Semantico.Api.Types;
+﻿using Semantico.Core.Models;
 using System.Security.Claims;
 
 namespace Semantico.Api.Web;
@@ -21,8 +21,8 @@ public class AccountClaimsResolver : IAccount
             throw new SemanticoException($"Identity is null");
         }
 
-        ApiKey = identity.FindFirst(AccountClaimType.ApiKey)?.Value!;
-        AccountId = int.Parse(identity.FindFirst(AccountClaimType.AccountId)?.Value!);
+        ApiKey = identity.FindFirst(SemanticoAuth.ApiKey)?.Value!;
+        AccountId = int.Parse(identity.FindFirst(SemanticoAuth.AccountId)?.Value!);
     }
 
     public string ApiKey { get; }
