@@ -1,12 +1,12 @@
-name: BWebld the Semantico Release
+name: Build the Semantico Release
 
 on:
   release:
     types: [published]
 
 jobs:
-  bWebld:
-    name: "BWebld and Publish Semantico"
+  Build:
+    name: "Build and Publish Semantico"
     runs-on: ubuntu-latest
 
     steps:
