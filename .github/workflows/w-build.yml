@@ -1,12 +1,12 @@
-name: Build the Semantico Release
+name: BWebld the Semantico Release
 
 on:
   release:
     types: [published]
 
 jobs:
-  build:
-    name: "Build and Publish Semantico"
+  bWebld:
+    name: "BWebld and Publish Semantico"
     runs-on: ubuntu-latest
 
     steps:
@@ -17,21 +17,34 @@ jobs:
       uses: actions/setup-dotnet@v1
       with:
         dotnet-version: '8.0'
-        
-    - name: Install dependencies
+    
+    - name: Add the GitHub NuGet Source
       run: |
-        cd Semantico.Api
-        dotnet restore
+        dotnet nuget add source "https://nuget.pkg.github.com/moberghr/index.json" --name github --username ${{ github.actor }} --password ${{ secrets.GITHUB_TOKEN }} --store-password-in-clear-text
 
-    - name: Login to GitHub Container Registry
-      uses: docker/login-action@v1
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
+    - name: Semantico.Core - Install dependencies
+      working-directory: Semantico.Core
+      run: dotnet restore
 
-    - name: "Build application"
-      run: dotnet build --configuration Release --no-restore
+    - name: "Semantico.Core - Create a NuGet package"
+      working-directory: Semantico.Core
+      run: dotnet pack -p:PackageVersion=${{github.ref_name}} --configuration Release
 
-    - name: "Publish application"
-      run: dotnet publish --no-build -c Release -p:PublishProfile=github -p:PublishDir=./publish -p:Version=${{github.ref_name}}
+    - name: "Semantico.Core - Push NuGet package"
+      working-directory: Semantico.Core
+      run: dotnet nuget push "bin/Release/Semantico.Core.${{github.ref_name}}.nupkg" --source "github"
+
+    - name: Semantico.Web - Install dependencies
+      working-directory: Semantico.Web
+      run: dotnet restore
+
+    - name: "Semantico.Web - Create a NuGet package"
+      working-directory: Semantico.Web
+      run: dotnet pack -p:PackageVersion=${{github.ref_name}} --configuration Release
+
+    - name: "Semantico.Web - Push NuGet package"
+      working-directory: Semantico.Web
+      run: dotnet nuget push "bin/Release/Semantico.Web.${{github.ref_name}}.nupkg" --source "github"
+
+    - name: "Cleanup - Remove NuGet Source"
+      run: dotnet nuget remove source github
