@@ -5,7 +5,7 @@ on:
     types: [published]
 
 jobs:
-  Build:
+  build:
     name: "Build and Publish Semantico"
     runs-on: ubuntu-latest
 
