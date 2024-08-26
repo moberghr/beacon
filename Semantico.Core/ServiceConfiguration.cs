@@ -12,6 +12,7 @@ using Semantico.Core.Worker.Repositories;
 using Semantico.Core.Worker.Services;
 using SendGrid;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Semantico.Core
 {
@@ -30,26 +31,26 @@ namespace Semantico.Core
             var sendGridSettings = settings.Get<SendGridSettings>()!;
             services.Configure<SendGridSettings>(settings);
 
-            services.AddSingleton<ISendGridClient>(provider =>
+            services.TryAddSingleton<ISendGridClient>(provider =>
             {
                 var apiKey = sendGridSettings.Apikey;
                 return new SendGridClient(apiKey);
             });
 
             services.AddHttpClient();
-            services.AddSingleton<ITeamsAdapter, TeamsAdapter>();
-            services.AddSingleton<IMailAdapter, SendGridAdapter>();
-            services.AddSingleton<IJiraAdapter, JiraAdapter>();
+            services.TryAddSingleton<ITeamsAdapter, TeamsAdapter>();
+            services.TryAddSingleton<IMailAdapter, SendGridAdapter>();
+            services.TryAddSingleton<IJiraAdapter, JiraAdapter>();
 
-            services.AddTransient<IJobRepository, JobRepository>();
-            services.AddTransient<IJobService, JobService>();
-            services.AddTransient<INotificationService, NotificationService>();
-            services.AddTransient<IProjectService, ProjectService>();
-            services.AddTransient<IQueryService, QueryService>();
-            services.AddTransient<ISubscriptionService, SubscriptionService>();
+            services.TryAddTransient<IJobRepository, JobRepository>();
+            services.TryAddTransient<IJobService, JobService>();
+            services.TryAddTransient<INotificationService, NotificationService>();
+            services.TryAddTransient<IProjectService, ProjectService>();
+            services.TryAddTransient<IQueryService, QueryService>();
+            services.TryAddTransient<ISubscriptionService, SubscriptionService>();
 
 
-            services.AddTransient<ISemanticoScheduler, TSemanticoScheduler>();
+            services.TryAddTransient<ISemanticoScheduler, TSemanticoScheduler>();
 
             return services;
         }
