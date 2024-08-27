@@ -1,23 +1,20 @@
-﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
 	<PropertyGroup>
 		<TargetFramework>net8.0</TargetFramework>
-		<Nullable>enable</Nullable>
 		<ImplicitUsings>enable</ImplicitUsings>
-		<UserSecretsId>d575d108-ed10-42a8-82c2-42a914130a83</UserSecretsId>
-		<DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
+		<Nullable>enable</Nullable>
 	</PropertyGroup>
 
 	<ItemGroup>
 		<PackageReference Include="Atlassian.SDK" Version="13.0.0" />
 		<PackageReference Include="Dapper" Version="2.1.35" />
 		<PackageReference Include="Hangfire.Dashboard.Basic.Authentication" Version="7.0.1" />
-		<PackageReference Include="MediatR" Version="12.4.0" />
 		<PackageReference Include="MessageCardModel" Version="1.1.4" />
 		<PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.8" />
 		<PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="8.0.8">
-		  <PrivateAssets>all</PrivateAssets>
-		  <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+			<PrivateAssets>all</PrivateAssets>
+			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
 		</PackageReference>
 		<PackageReference Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" Version="1.21.0" />
 		<PackageReference Include="MySql.Data" Version="9.0.0" />
@@ -30,11 +27,6 @@
 		<PackageReference Include="Hangfire.AspNetCore" Version="1.8.14" />
 		<PackageReference Include="Hangfire.PostgreSql" Version="1.20.9" />
 		<PackageReference Include="System.Data.SqlClient" Version="4.8.6" />
-	</ItemGroup>
-
-	<ItemGroup>
-	  <ProjectReference Include="..\Semantico.Core\Semantico.Core.csproj" />
-	  <ProjectReference Include="..\Semantico.Web\Semantico.Web.csproj" />
 	</ItemGroup>
 
 </Project>
