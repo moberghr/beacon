@@ -61,24 +61,24 @@ namespace Semantico.Core.Services
             return await _context.Projects
                 .WhereIf(projectId.HasValue, x => x.Id == projectId)
                 .Select(x => new ProjectListData
+                {
+                    Name = x.Name,
+                    DatabaseEngineType = x.DatabaseEngineType,
+                    Queries = x.Queries.Select(y => new QueryData
                     {
-                        Name = x.Name,
-                        DatabaseEngineType = x.DatabaseEngineType,
-                        Queries = x.Queries.Select(y => new QueryData
-                        {
-                            QueryId = y.Id,
-                            SqlValue = y.SqlValue,
-                            ProjectId = y.ProjectId,
-                            Parameters = y.Parameters.Select(z =>
-                                new QueryParameterData
-                                {
-                                    Name = z.Name,
-                                    Type = z.Type,
-                                    Description = z.Description,
-                                    Placeholder = z.Placeholder
-                                }).ToList()
-                        }).ToList()
-                    })
+                        QueryId = y.Id,
+                        SqlValue = y.SqlValue,
+                        ProjectId = y.ProjectId,
+                        Parameters = y.Parameters.Select(z =>
+                            new QueryParameterData
+                            {
+                                Name = z.Name,
+                                Type = z.Type,
+                                Description = z.Description,
+                                Placeholder = z.Placeholder
+                            }).ToList()
+                    }).ToList()
+                })
                  .ToListAsync(cancellationToken);
         }
 

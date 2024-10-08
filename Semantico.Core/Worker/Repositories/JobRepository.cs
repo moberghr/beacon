@@ -1,10 +1,10 @@
 ﻿using Dapper;
-using Npgsql;
 using MySql.Data.MySqlClient;
+using Npgsql;
 using Semantico.Core.Data.Enums;
+using Semantico.Core.Models;
 using System.Data.Common;
 using System.Data.SqlClient;
-using Semantico.Core.Models;
 
 namespace Semantico.Core.Worker.Repositories;
 

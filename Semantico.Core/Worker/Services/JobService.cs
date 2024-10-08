@@ -3,12 +3,12 @@ using Semantico.Core.Adapters;
 using Semantico.Core.Data;
 using Semantico.Core.Data.Entities;
 using Semantico.Core.Helpers;
-using Semantico.Core.Validators;
-using Semantico.Core.Services;
-using Semantico.Core.Worker.Repositories;
-using System.Text.Json;
 using Semantico.Core.Models.Queries;
 using Semantico.Core.Models.Subscriptions;
+using Semantico.Core.Services;
+using Semantico.Core.Validators;
+using Semantico.Core.Worker.Repositories;
+using System.Text.Json;
 
 namespace Semantico.Core.Worker.Services;
 
