@@ -21,7 +21,7 @@ internal class JiraAdapter : IJiraAdapter
         var jiraClient = Atlassian.Jira.Jira.CreateRestClient(credentials.DomainUrl, credentials.Email, credentials.ApiKey);
 
         var jqlQuery = $"text ~ \"{recipientQueryResult.SubscriptionName}\" AND reporter = \"{credentials.Email}\" order by created DESC";
-        var issues =  (await jiraClient.Issues.GetIssuesFromJqlAsync(jqlQuery)).ToList();
+        var issues = (await jiraClient.Issues.GetIssuesFromJqlAsync(jqlQuery)).ToList();
 
         var existingIssue = issues
             .Where(x => x.Summary == recipientQueryResult.SubscriptionName)

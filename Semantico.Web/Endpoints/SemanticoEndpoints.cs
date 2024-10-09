@@ -22,7 +22,8 @@ namespace Semantico.Web.Endpoints
         private static void MapSubscriptionsEndpoints(this WebApplication app)
         {
             var apiGroup = app.MapGroup($"semantico/subscriptions")
-                .WithTags("Subscriptions");
+                .WithTags("Subscriptions")
+                .WithGroupName("semantico");
 
             apiGroup.MapGet("/get-subscriptions", async (
                 [FromQuery] int? subscriptionId,
@@ -64,7 +65,8 @@ namespace Semantico.Web.Endpoints
         private static void MapQueriesEndpoints(this WebApplication app)
         {
             var apiGroup = app.MapGroup($"semantico/queries")
-                .WithTags("Queries");
+                .WithTags("Queries")
+                .WithGroupName("semantico");
 
             apiGroup.MapGet("/get-queries", async (
                 [FromQuery] int? queryId,
@@ -106,7 +108,8 @@ namespace Semantico.Web.Endpoints
         private static void MapProjectsEndpoints(this WebApplication app)
         {
             var apiGroup = app.MapGroup($"semantico/projects")
-                .WithTags("Projects");
+                .WithTags("Projects")
+                .WithGroupName("semantico");
 
             apiGroup.MapGet("/get-projects", async (
                 [FromQuery] int? projectId,
@@ -146,7 +149,8 @@ namespace Semantico.Web.Endpoints
         private static void MapNotificationsEndpoints(this WebApplication app)
         {
             var apiGroup = app.MapGroup($"semantico/notifications")
-                .WithTags("Notifications");
+                .WithTags("Notifications")
+                .WithGroupName("semantico");
 
             apiGroup.MapGet("/get-query-execution-history", async (
                 [FromQuery] int subscriptionId,

@@ -14,7 +14,7 @@ internal class Subscription : ArchivableBaseEntity
     public Query Query { get; set; } = null!;
 
     public required string Recipient { get; set; }
-    
+
     public NotificationType NotificationType { get; set; }
 
     public List<SubscriptionParameter> Parameters { get; set; } = new();
