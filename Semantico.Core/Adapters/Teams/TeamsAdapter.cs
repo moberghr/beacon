@@ -1,11 +1,14 @@
 ﻿using MessageCardModel;
+using Semantico.Core.Data.Enums;
 using System.Text;
 
 namespace Semantico.Core.Adapters.Teams;
 
-internal class TeamsAdapter : ITeamsAdapter
+internal class TeamsAdapter : IAdapter
 {
     private readonly IHttpClientFactory _httpClientFactory;
+
+    public NotificationType NotificationType => NotificationType.Teams;
 
     public TeamsAdapter(IHttpClientFactory httpClientFactory)
     {
@@ -39,5 +42,10 @@ internal class TeamsAdapter : ITeamsAdapter
         var content = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
 
         await client.PostAsync(recipientQueryResult.Recipient, content);
+    }
+
+    public Task SendNotificationAsync(RecipientQueryResult recipientQueryResult, int lastNotificationResultCount)
+    {
+        throw new NotSupportedException();
     }
 }

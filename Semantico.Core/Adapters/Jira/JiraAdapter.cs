@@ -1,10 +1,13 @@
 ﻿using Atlassian.Jira;
+using Semantico.Core.Data.Enums;
 using Semantico.Core.Helpers;
 
 namespace Semantico.Core.Adapters.Jira;
 
-internal class JiraAdapter : IJiraAdapter
+internal class JiraAdapter : IAdapter
 {
+    public NotificationType NotificationType => NotificationType.Jira;
+
     public async Task SendNotificationAsync(RecipientQueryResult recipientQueryResult)
     {
         var credentials = JiraHelper.GetJiraCredentials(recipientQueryResult.Recipient);
