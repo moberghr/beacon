@@ -13,6 +13,7 @@ using Semantico.Core.Worker.Services;
 using SendGrid;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Semantico.Core.Adapters;
 
 namespace Semantico.Core
 {
@@ -38,9 +39,10 @@ namespace Semantico.Core
             });
 
             services.AddHttpClient();
-            services.TryAddSingleton<ITeamsAdapter, TeamsAdapter>();
-            services.TryAddSingleton<IMailAdapter, SendGridAdapter>();
-            services.TryAddSingleton<IJiraAdapter, JiraAdapter>();
+            services.TryAddSingleton<IAdapter, TeamsAdapter>();
+            services.TryAddSingleton<IAdapter, SendGridAdapter>();
+            services.TryAddSingleton<IAdapter, JiraAdapter>();
+            services.TryAddSingleton<AdapterFactory>();
 
             services.TryAddTransient<IJobRepository, JobRepository>();
             services.TryAddTransient<IJobService, JobService>();
@@ -48,7 +50,6 @@ namespace Semantico.Core
             services.TryAddTransient<IProjectService, ProjectService>();
             services.TryAddTransient<IQueryService, QueryService>();
             services.TryAddTransient<ISubscriptionService, SubscriptionService>();
-
 
             services.TryAddTransient<ISemanticoScheduler, TSemanticoScheduler>();
 

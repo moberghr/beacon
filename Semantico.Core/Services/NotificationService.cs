@@ -14,49 +14,28 @@ namespace Semantico.Core.Services;
 internal class NotificationService : INotificationService
 {
     private readonly SemanticoContext _context;
-    private readonly ITeamsAdapter _teamsAdapter;
-    private readonly IMailAdapter _mailAdapter;
-    private readonly IJiraAdapter _jiraAdapter;
+    private readonly AdapterFactory _adapterFactory;
 
     public NotificationService(
         SemanticoContext context,
-        ITeamsAdapter teamsAdapter,
-        IMailAdapter mailAdapter,
-        IJiraAdapter jiraAdapter
+        AdapterFactory adapterFactory
     )
     {
         _context = context;
-        _teamsAdapter = teamsAdapter;
-        _mailAdapter = mailAdapter;
-        _jiraAdapter = jiraAdapter;
+        _adapterFactory = adapterFactory;
     }
 
     public async Task SendNotificationAsync(NotificationType notificationType, RecipientQueryResult recipientQueryResult, int? lastExecutedQueryResultCount)
     {
-        switch (notificationType)
+        var adapter = _adapterFactory.GetAdapterService(notificationType);
+
+        if (notificationType == NotificationType.Jira && lastExecutedQueryResultCount.HasValue)
         {
-            case NotificationType.Email:
-                await _mailAdapter.SendNotificationAsync(recipientQueryResult);
-                break;
-
-            case NotificationType.Teams:
-                await _teamsAdapter.SendNotificationAsync(recipientQueryResult);
-                break;
-
-            case NotificationType.Jira:
-                if (lastExecutedQueryResultCount.HasValue)
-                {
-                    await _jiraAdapter.SendNotificationAsync(recipientQueryResult, lastExecutedQueryResultCount.Value);
-                }
-                else
-                {
-                    await _jiraAdapter.SendNotificationAsync(recipientQueryResult);
-                }
-
-                break;
-
-            default:
-                throw new SemanticoException("Invalid notification type");
+            await adapter.SendNotificationAsync(recipientQueryResult, lastExecutedQueryResultCount.Value);
+        }
+        else
+        {
+            await adapter.SendNotificationAsync(recipientQueryResult);
         }
     }
 

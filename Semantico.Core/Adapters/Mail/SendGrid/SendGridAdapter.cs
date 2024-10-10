@@ -1,13 +1,16 @@
 ﻿using Microsoft.Extensions.Options;
+using Semantico.Core.Data.Enums;
 using SendGrid;
 using SendGrid.Helpers.Mail;
 
 namespace Semantico.Core.Adapters.Mail.SendGrid;
 
-internal class SendGridAdapter : IMailAdapter
+internal class SendGridAdapter : IAdapter
 {
     private readonly SendGridSettings _settings;
     private readonly ISendGridClient _sendGridClient;
+
+    public NotificationType NotificationType => NotificationType.Email;
 
     public SendGridAdapter(IOptions<SendGridSettings> settings, ISendGridClient sendGridClient)
     {
@@ -24,5 +27,10 @@ internal class SendGridAdapter : IMailAdapter
         var msg = MailHelper.CreateSingleEmail(senderEmail, to, subject, plainTextContent, recipientQueryResult.QueryResult.QueryResults);
 
         await _sendGridClient.SendEmailAsync(msg);
+    }
+
+    public Task SendNotificationAsync(RecipientQueryResult recipientQueryResult, int lastNotificationResultCount)
+    {
+        throw new NotSupportedException();
     }
 }
