@@ -20,7 +20,13 @@ internal class JobRepository : IJobRepository
         using var connection = GetDbConnection(dbEngineType, connectionString);
         await connection.OpenAsync();
 
-        var results = await connection.QueryAsync<object>(sqlQuery);
+        // Replace newline, carriage return, and tab characters with a space
+        var cleanedSql = sqlQuery.Replace("\n", " ")
+                            .Replace("\r", " ")
+                            .Replace("\t", " ")
+                            .Trim();
+
+        var results = await connection.QueryAsync<object>(cleanedSql);
 
         return results.ToList();
     }

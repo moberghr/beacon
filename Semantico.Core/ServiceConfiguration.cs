@@ -2,7 +2,6 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Semantico.Core.Adapters.Jira;
-using Semantico.Core.Adapters.Mail.SendGrid;
 using Semantico.Core.Adapters.Mail;
 using Semantico.Core.Adapters.Teams;
 using Semantico.Core.Data;
@@ -10,17 +9,16 @@ using Semantico.Core.Services;
 using Semantico.Core.Worker;
 using Semantico.Core.Worker.Repositories;
 using Semantico.Core.Worker.Services;
-using SendGrid;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Semantico.Core.Adapters;
+using Semantico.Core.Models;
 
 namespace Semantico.Core;
 
 public static class ServiceConfiguration
 {
-    public static IServiceCollection AddSemantico<TSemanticoScheduler>(this IServiceCollection services, IConfiguration configuration)
-        where TSemanticoScheduler : class, ISemanticoScheduler
+    public static IServiceCollection AddSemantico(this IServiceCollection services, IConfiguration configuration, Action<SemanticoConfiguration> semanticoConfiguration)
     {
         services.AddDbContext<SemanticoContext>((options) =>
         {
@@ -28,19 +26,17 @@ public static class ServiceConfiguration
                 .UseSnakeCaseNamingConvention();
         });
 
-        var settings = configuration.GetSection(nameof(SendGridSettings));
-        var sendGridSettings = settings.Get<SendGridSettings>()!;
-        services.Configure<SendGridSettings>(settings);
-
-        services.TryAddSingleton<ISendGridClient>(provider =>
-        {
-            var apiKey = sendGridSettings.Apikey;
-            return new SendGridClient(apiKey);
-        });
+        var options = new SemanticoConfiguration();
+        semanticoConfiguration(options);
+        options.Validate();
 
         services.AddHttpClient();
         services.TryAddSingleton<IAdapter, TeamsAdapter>();
-        services.TryAddSingleton<IAdapter, SendGridAdapter>();
+        if (options.EmailSender != null)
+        {
+            services.TryAddSingleton(typeof(IEmailSender), options.EmailSender);
+            services.TryAddSingleton<IAdapter, EmailAdapter>();
+        }
         services.TryAddSingleton<IAdapter, JiraAdapter>();
         services.TryAddSingleton<AdapterFactory>();
 
@@ -51,7 +47,7 @@ public static class ServiceConfiguration
         services.TryAddTransient<IQueryService, QueryService>();
         services.TryAddTransient<ISubscriptionService, SubscriptionService>();
 
-        services.TryAddTransient<ISemanticoScheduler, TSemanticoScheduler>();
+        services.TryAddTransient(typeof(ISemanticoScheduler), options.SemanticoScheduler!);
 
         return services;
     }
@@ -64,5 +60,30 @@ public static class ServiceConfiguration
         context.Database.Migrate();
         
         return app;
+    }
+}
+
+public class SemanticoConfiguration
+{
+    public void AddSemanticoScheduler<T>() where T : class, ISemanticoScheduler
+    {
+        SemanticoScheduler = typeof(T);
+    }
+
+    public void AddEmailSender<T>() where T : class, IEmailSender
+    {
+        SemanticoScheduler = typeof(T);
+    }
+
+    internal Type? SemanticoScheduler { get; set; }
+
+    internal Type? EmailSender { get; set; }
+
+    internal void Validate()
+    {
+        if (SemanticoScheduler == null)
+        {
+            throw new SemanticoException($"Implementation of ISemanticoScheduler is required.");
+        }
     }
 }
