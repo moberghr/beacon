@@ -2,16 +2,15 @@
 using Semantico.Core;
 using Semantico.Web.Endpoints;
 
-namespace Semantico.Web
-{
-    public static class ServiceConfiguration
-    {
-        public static IApplicationBuilder UseSemanticoApi(this WebApplication app) 
-        {
-            app.UseSemantico();
-            app.MapSemanticoEndpoints();
+namespace Semantico.Web;
 
-            return app;
-        }
+public static class ServiceConfiguration
+{
+    public static IApplicationBuilder UseSemanticoApi(this WebApplication app) 
+    {
+        app.UseSemantico();
+        app.MapSemanticoEndpoints();
+
+        return app;
     }
 }

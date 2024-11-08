@@ -7,16 +7,16 @@ namespace Semantico.Core.Validators;
 
 internal static class SubscriptionValidator
 {
-    public static void ValidateParameters(List<SubscriptionParamaterData> subscriptionParameters, List<QueryParameterData> queryParameters)
+    public static void ValidateParameters(List<SubscriptionParamaterData>? subscriptionParameters, List<QueryParameterData> queryParameters)
     {
         // Query does not have user-definable parameters so we will reset/ignore them if they exist.
         if (queryParameters.Count == 0)
         {
-            subscriptionParameters.Clear();
+            subscriptionParameters?.Clear();
             return;
         }
 
-        if (subscriptionParameters.Count != queryParameters.Count)
+        if (subscriptionParameters?.Count != queryParameters.Count)
         {
             throw new SemanticoException($"Defined subscription parameters count does not match specified query parameter count.");
         }

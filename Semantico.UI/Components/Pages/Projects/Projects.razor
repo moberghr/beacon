@@ -1,0 +1,76 @@
+﻿@page "/semantico/projects"
+@inherits BasePageComponent
+@using MudBlazor.Extensions
+@using Semantico.Core.Models.Projects
+@using Semantico.Core.Services
+
+
+<SemanticoPageTitle Title="Projects"/>
+
+<MudContainer Class="my-4 px-4">
+    <SemanticoPageHeader Icon="@Icons.Material.Filled.Apartment" Title="Projects" ButtonText="New project" OnClick="@AddProject"/>
+    <SemanticoPageAlert Text="List of projects."/>
+    <MudDataGrid @ref="_dataGrid" ServerData="ServerReload" T="ProjectListData" Hover="true" Filterable="false">
+        <Columns>
+            <PropertyColumn Property="x => x.Name" Title="Name"/>
+            <PropertyColumn Property="x => x.DatabaseEngineType" Title="Database engine"/>
+            <PropertyColumn Property="x => x.Queries.Count" Title="Queries count"/>
+        </Columns>
+        <PagerContent>
+            <MudDataGridPager T="ProjectListData"/>
+        </PagerContent>
+    </MudDataGrid>
+</MudContainer>
+
+@inject IProjectService _service
+@inject IDialogService DialogService
+
+@code {
+    private List<ProjectListData> _list;
+    MudDataGrid<ProjectListData>? _dataGrid;
+    private bool _loading;
+    private string _searchString;
+
+    private async Task<GridData<ProjectListData>> ServerReload(GridState<ProjectListData> state)
+    {
+        _list = await _service.GetProjectsAsync(null, CancellationToken.None);
+
+        return new GridData<ProjectListData>
+        {
+            TotalItems = _list.Count(),
+            Items = _list
+        };
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _list = await _service.GetProjectsAsync(null, CancellationToken.None);
+    }
+    
+
+    private async Task AddProject()
+    {
+        var breakpoint = await BrowserViewport.GetCurrentBreakpointAsync();
+        var options = new DialogOptions {
+            MaxWidth = MaxWidth.Small,
+            FullWidth = true,
+            FullScreen = breakpoint == Breakpoint.Xs,
+        };
+
+        var project = new ProjectData();
+        
+        var parameters = new DialogParameters<AddProjectDialog> { { x => x.Project, project } };
+
+        var dialog = await DialogService.ShowAsync<AddProjectDialog>("", parameters, options);
+
+        var result = await dialog.Result;
+
+        if (result!.Canceled)
+        {
+            return;
+        }
+        
+        // TODO: we could just reload the subscriptions instead of the whole page
+        await _dataGrid?.ReloadServerData();
+    }
+}

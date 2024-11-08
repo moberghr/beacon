@@ -15,53 +15,54 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Semantico.Core.Adapters;
 
-namespace Semantico.Core
+namespace Semantico.Core;
+
+public static class ServiceConfiguration
 {
-    public static class ServiceConfiguration
+    public static IServiceCollection AddSemantico<TSemanticoScheduler>(this IServiceCollection services, IConfiguration configuration)
+        where TSemanticoScheduler : class, ISemanticoScheduler
     {
-        public static IServiceCollection AddSemantico<TSemanticoScheduler>(this IServiceCollection services, IConfiguration configuration)
-            where TSemanticoScheduler : class, ISemanticoScheduler
+        services.AddDbContext<SemanticoContext>((options) =>
         {
-            services.AddDbContext<SemanticoContext>((options) =>
-            {
-                options.UseNpgsql(configuration.GetConnectionString(nameof(SemanticoContext)))
-                    .UseSnakeCaseNamingConvention();
-            });
+            options.UseNpgsql(configuration.GetConnectionString(nameof(SemanticoContext)))
+                .UseSnakeCaseNamingConvention();
+        });
 
-            var settings = configuration.GetSection(nameof(SendGridSettings));
-            var sendGridSettings = settings.Get<SendGridSettings>()!;
-            services.Configure<SendGridSettings>(settings);
+        var settings = configuration.GetSection(nameof(SendGridSettings));
+        var sendGridSettings = settings.Get<SendGridSettings>()!;
+        services.Configure<SendGridSettings>(settings);
 
-            services.TryAddSingleton<ISendGridClient>(provider =>
-            {
-                var apiKey = sendGridSettings.Apikey;
-                return new SendGridClient(apiKey);
-            });
-
-            services.AddHttpClient();
-            services.TryAddSingleton<IAdapter, TeamsAdapter>();
-            services.TryAddSingleton<IAdapter, SendGridAdapter>();
-            services.TryAddSingleton<IAdapter, JiraAdapter>();
-            services.TryAddSingleton<AdapterFactory>();
-
-            services.TryAddTransient<IJobRepository, JobRepository>();
-            services.TryAddTransient<IJobService, JobService>();
-            services.TryAddTransient<INotificationService, NotificationService>();
-            services.TryAddTransient<IProjectService, ProjectService>();
-            services.TryAddTransient<IQueryService, QueryService>();
-            services.TryAddTransient<ISubscriptionService, SubscriptionService>();
-
-            services.TryAddTransient<ISemanticoScheduler, TSemanticoScheduler>();
-
-            return services;
-        }
-
-        public static IApplicationBuilder UseSemantico(this WebApplication app)
+        services.TryAddSingleton<ISendGridClient>(provider =>
         {
-            using var scope = app.Services.CreateScope();
-            scope.ServiceProvider.GetRequiredService<SemanticoContext>().Database.EnsureCreated();
+            var apiKey = sendGridSettings.Apikey;
+            return new SendGridClient(apiKey);
+        });
 
-            return app;
-        }
+        services.AddHttpClient();
+        services.TryAddSingleton<IAdapter, TeamsAdapter>();
+        services.TryAddSingleton<IAdapter, SendGridAdapter>();
+        services.TryAddSingleton<IAdapter, JiraAdapter>();
+        services.TryAddSingleton<AdapterFactory>();
+
+        services.TryAddTransient<IJobRepository, JobRepository>();
+        services.TryAddTransient<IJobService, JobService>();
+        services.TryAddTransient<INotificationService, NotificationService>();
+        services.TryAddTransient<IProjectService, ProjectService>();
+        services.TryAddTransient<IQueryService, QueryService>();
+        services.TryAddTransient<ISubscriptionService, SubscriptionService>();
+
+        services.TryAddTransient<ISemanticoScheduler, TSemanticoScheduler>();
+
+        return services;
+    }
+
+    public static IApplicationBuilder UseSemantico(this WebApplication app)
+    {
+        using var scope = app.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<SemanticoContext>();
+
+        context.Database.Migrate();
+        
+        return app;
     }
 }

@@ -1,0 +1,69 @@
+﻿@page "/semantico/queries"
+@inherits BasePageComponent
+@using Semantico.Core.Models.Queries
+
+
+<SemanticoPageTitle Title="Queries"/>
+
+<MudContainer Class="my-4 px-4">
+    <SemanticoPageHeader Icon="@Icons.Material.Filled.QueryBuilder" Title="Queries" ButtonText="New query" OnClick="@NewQuery"/>
+    <SemanticoPageAlert Text="List of defined queries. You can create new on or click on row and edit subscriptions to existing query."/>
+    <MudDataGrid @ref="_dataGrid" ServerData="ServerReload" T="QueryData" RowClick="OnRowClick" Hover="true" Filterable="false">
+        <ToolBarContent>
+            <MudTextField T="string" ValueChanged="@(s => OnSearch(s))" Placeholder="Search" Adornment="Adornment.Start"
+                          Immediate="true"
+                          AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium" Class="mt-0">
+            </MudTextField>
+
+        </ToolBarContent>
+        <Columns>
+            <PropertyColumn Property="x => x.QueryId" Title="Id"/>
+            <PropertyColumn Property="x => x.Name" Title="Name"/>
+            <PropertyColumn Property="x => x.Description" Title="Description"/>
+            <PropertyColumn Property="x => x.CreatedTime" Title="Created"/>
+            <PropertyColumn Property="x => x.SubscriptionsCount"/>
+            <PropertyColumn Property="x => x.Parameters.ToJson()"/>
+            <PropertyColumn Property="x => x.SqlValue"/>
+        </Columns>
+        <PagerContent>
+            <MudDataGridPager T="QueryData"/>
+        </PagerContent>
+    </MudDataGrid>
+</MudContainer>
+
+
+@inject Semantico.Core.Services.IQueryService service;
+
+@code {
+    private List<QueryData> QueriesList { get; set; } = new();
+    MudDataGrid<QueryData>? _dataGrid;
+    private bool _loading;
+    private string _searchString;
+
+    private async Task<GridData<QueryData>> ServerReload(GridState<QueryData> state)
+    {
+        QueriesList = await service.GetQueriesAsync(null, null, _searchString, CancellationToken.None);
+
+        return new GridData<QueryData>
+        {
+            TotalItems = QueriesList.Count(),
+            Items = QueriesList
+        };
+    }
+
+    private void OnSearch(string text)
+    {
+        _searchString = text;
+        _dataGrid?.ReloadServerData();
+    }
+
+    private async Task OnRowClick(DataGridRowClickEventArgs<QueryData> args)
+    {
+        NavManager.NavigateTo($"/semantico/queries/details/{args.Item.QueryId}");
+    }
+
+    private void NewQuery()
+    {
+        NavManager.NavigateTo("/semantico/queries/create");
+    }
+}

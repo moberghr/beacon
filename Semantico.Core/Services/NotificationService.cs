@@ -39,15 +39,14 @@ internal class NotificationService : INotificationService
         }
     }
 
-    public async Task<QueryExecutionHistoryListData> GetQueryExecutionHistoryAsync(int subscriptionId, int? pageSize,
+    public async Task<QueryExecutionHistoryListData> GetQueryExecutionHistoryAsync(int? subscriptionId, BaseListRequest request,
             int? lastQueryExecutionHistoryId, bool? notificationSent, CancellationToken cancellationToken)
     {
         var queryExecutionHistory = await _context.QueryExecutionHistory
-            .Where(x => x.SubscriptionId == subscriptionId)
+            .WhereIf(subscriptionId.HasValue, x => x.SubscriptionId == subscriptionId)
             .WhereIf(lastQueryExecutionHistoryId.HasValue, x => x.Id < lastQueryExecutionHistoryId)
             .WhereIf(notificationSent.HasValue, x => x.NotificationSent == notificationSent)
             .OrderByDescending(x => x.Id)
-            .TakeIf(pageSize.HasValue, pageSize)
             .Select(x =>
                 new QueryExecutionHistoryData
                 {
@@ -56,12 +55,13 @@ internal class NotificationService : INotificationService
                     NotificationType = x.NotificationType,
                     ResultCount = x.ResultCount
                 })
-            .ToListAsync(cancellationToken);
+            .ToPagedListAsync(request, cancellationToken);
 
         return new QueryExecutionHistoryListData
         {
-            LastQueryExecutionHistoryId = queryExecutionHistory.LastOrDefault()?.QueryExecutionHistoryId,
-            QueryExecutionHistory = queryExecutionHistory
+            LastQueryExecutionHistoryId = queryExecutionHistory.Items.LastOrDefault()?.QueryExecutionHistoryId,
+            Data = queryExecutionHistory.Items,
+            TotalCount = queryExecutionHistory.TotalCount
         };
     }
 }
@@ -70,6 +70,6 @@ public interface INotificationService
 {
     public Task SendNotificationAsync(NotificationType notificationType, RecipientQueryResult recipientQueryResult, int? lastExecutedQueryResultCount);
 
-    Task<QueryExecutionHistoryListData> GetQueryExecutionHistoryAsync(int subscriptionId, int? pageSize,
+    Task<QueryExecutionHistoryListData> GetQueryExecutionHistoryAsync(int? subscriptionId, BaseListRequest request,
         int? lastQueryExecutionHistoryId, bool? notificationSent, CancellationToken cancellationToken);
 }

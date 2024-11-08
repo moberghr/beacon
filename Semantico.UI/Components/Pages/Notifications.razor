@@ -1,0 +1,54 @@
+﻿@page "/semantico/notifications"
+@inherits BasePageComponent
+@using Semantico.Core.Models.QueryExecutionHistory
+@inject Semantico.Core.Services.INotificationService service;
+
+<SemanticoPageTitle Title="Notifications" />
+
+<MudContainer Class="my-4 px-4">
+    <SemanticoPageHeader Icon="@Icons.Material.Filled.QueryBuilder" Title="Notifications"/>
+    <SemanticoPageAlert Text="List of sent notifications." />
+    <MudDataGrid @ref="_dataGrid" ServerData="ServerReload" T="QueryExecutionHistoryData" Hover="true" Filterable="false">
+        <ToolBarContent>
+            <MudSelect T="bool?" Text="Only sent notifications?" ValueChanged="c => OnNotificationSent(c)"></MudSelect>
+        </ToolBarContent>
+        <Columns>
+            <PropertyColumn Property="x => x.QueryExecutionHistoryId" Title="Id"/>
+            <PropertyColumn Property="x => x.Recipient"/>
+            <PropertyColumn Property="x => x.NotificationType"/>
+            <PropertyColumn Property="x => x.ResultCount"/>
+        </Columns>
+        <PagerContent>
+            <MudDataGridPager T="QueryExecutionHistoryData" />
+        </PagerContent>
+    </MudDataGrid>
+    </MudContainer>
+
+@code {
+    private QueryExecutionHistoryListData List { get; set; }
+    MudDataGrid<QueryExecutionHistoryData>? _dataGrid;
+    private bool _loading;
+    private bool? _notificationSent;
+    
+    private async Task<GridData<QueryExecutionHistoryData>> ServerReload(GridState<QueryExecutionHistoryData> state)
+    {
+        var request = new BaseListRequest()
+        {
+            Page = state.Page,
+            PageSize = state.PageSize
+        };
+        
+        List = await service.GetQueryExecutionHistoryAsync(null, request,null,_notificationSent, CancellationToken.None);
+        
+        return new GridData<QueryExecutionHistoryData> {
+            TotalItems = List.Data.Count,
+            Items = List.Data
+        };
+    }
+    
+    private void OnNotificationSent(bool? value)
+    {
+        _notificationSent = value;
+        _dataGrid?.ReloadServerData();
+    }
+}
