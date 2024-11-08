@@ -56,7 +56,8 @@
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         _breakpoint = await BrowserViewportService.GetCurrentBreakpointAsync();
-        _isDark = await LocalStorage.GetItemAsync<bool>("IsDark");
+        var isDark = await LocalStorage.GetItemAsync<string>("IsDark");
+        _isDark = isDark == "True";
         await base.OnAfterRenderAsync(firstRender);
     }
 
