@@ -11,9 +11,9 @@ namespace Semantico.Core.Services;
 
 public interface IQueryService
 {
-    Task CreateQueryAsync(QueryData queryData, CancellationToken cancellationToken);
+    Task<BaseResponse> CreateQueryAsync(QueryData queryData, CancellationToken cancellationToken);
 
-    Task UpdateQueryAsync(QueryData queryData, CancellationToken cancellationToken);
+    Task<BaseResponse> UpdateQueryAsync(QueryData queryData, CancellationToken cancellationToken);
 
     Task DeleteQueryAsync(int queryId, CancellationToken cancellationToken);
 
