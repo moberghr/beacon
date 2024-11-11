@@ -33,7 +33,7 @@ internal static class SemanticoEndpoints
             ISubscriptionService service,
             CancellationToken cancellationToken) =>
         {
-            var response = await service.GetSubscriptionsAsync(subscriptionId, queryId, notificationType, cancellationToken);
+            var response = await service.GetSubscriptionsAsync(subscriptionId, queryId, notificationType, null, cancellationToken);
 
             return response;
         });

@@ -1,5 +1,6 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using NCrontab.Advanced;
+using RestSharp.Extensions;
 using Semantico.Core.Data;
 using Semantico.Core.Data.Entities;
 using Semantico.Core.Data.Enums;
@@ -19,7 +20,7 @@ public interface ISubscriptionService
 
     Task DeleteSubscriptionAsync(int subscriptionId, CancellationToken cancellationToken);
 
-    Task<List<SubscriptionData>> GetSubscriptionsAsync(int? subscriptionId, int? queryId, NotificationType? notificationType, CancellationToken cancellationToken);
+    Task<List<SubscriptionData>> GetSubscriptionsAsync(int? subscriptionId, int? queryId, NotificationType? notificationType, string keyword, CancellationToken cancellationToken);
 }
 
 internal class SubscriptionService : ISubscriptionService
@@ -97,12 +98,13 @@ internal class SubscriptionService : ISubscriptionService
         await _context.SaveChangesAsync(cancellationToken);
     }
 
-    public async Task<List<SubscriptionData>> GetSubscriptionsAsync(int? subscriptionId, int? queryId, NotificationType? notificationType, CancellationToken cancellationToken)
+    public async Task<List<SubscriptionData>> GetSubscriptionsAsync(int? subscriptionId, int? queryId, NotificationType? notificationType, string? keyword, CancellationToken cancellationToken)
     {
         return await _context.Subscriptions
             .WhereIf(subscriptionId.HasValue, x => x.Id == subscriptionId)
             .WhereIf(queryId.HasValue, x => x.QueryId == queryId)
             .WhereIf(notificationType.HasValue, x => x.NotificationType == notificationType)
+            .WhereIf(!string.IsNullOrWhiteSpace(keyword), x => x.Recipient.Contains(keyword!))
             .Select(x =>
                 new SubscriptionData
                 {
