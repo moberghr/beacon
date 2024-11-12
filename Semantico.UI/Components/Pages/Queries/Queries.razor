@@ -33,6 +33,7 @@
 
 
 @inject Semantico.Core.Services.IQueryService service;
+@inject IDialogService DialogService
 
 @code {
     private List<QueryData> QueriesList { get; set; } = new();
@@ -62,8 +63,29 @@
         NavManager.NavigateTo($"/semantico/queries/details/{args.Item.QueryId}");
     }
 
-    private void NewQuery()
+    private async Task NewQuery()
     {
-        NavManager.NavigateTo("/semantico/queries/create");
+        var breakpoint = await BrowserViewport.GetCurrentBreakpointAsync();
+        var options = new DialogOptions
+        {
+            MaxWidth = MaxWidth.Small,
+            FullWidth = true,
+            FullScreen = breakpoint == Breakpoint.Xs,
+        };
+
+        var query = new QueryData();
+
+        var parameters = new DialogParameters<AddQueryDialog>{{x => x.Query, query}};
+
+        var dialog = await DialogService.ShowAsync<AddQueryDialog>("", parameters, options);
+
+        var result = await dialog.Result;
+
+        if (result!.Canceled)
+        {
+            return;
+        }
+
+        await _dataGrid?.ReloadServerData();
     }
 }

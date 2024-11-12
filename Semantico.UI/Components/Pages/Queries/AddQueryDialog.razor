@@ -7,14 +7,14 @@
     <TitleContent>
         <MudText Typo="Typo.h6">
             <MudIcon Icon="@Icons.Material.Filled.Add" Class="mr-1 mb-n1" />
-            Add project
+            Add query
         </MudText>
     </TitleContent>
     <DialogContent>
         <MudForm @ref="@_form" Class="pt-1" @bind-Errors="@errors" @bind-IsValid="_isFormValid">
             <MudTextField OnlyValidateIfDirty="true"
-                          Margin="Margin.Normal"
-                          Variant="Variant.Text"
+                          Margin="Margin.Dense"
+                          Variant="Variant.Outlined"
                           Class="mb-2"
                           @bind-Value="@Query.Name"
                           T="String"
@@ -22,23 +22,23 @@
                           Required="true" />
             <MudTextField OnlyValidateIfDirty="true"
                           Immediate="true"
-                          Margin="Margin.Dense"
-                          Variant="Variant.Outlined"
+                          Margin="Margin.Normal"
+                          Variant="Variant.Text"
                           Class="mb-2"
                           @bind-Value="@Query.Description"
                           T="string"
-                          Label="SQL"
-                          Required="true" ,
+                          Label="Description"
+                          Required="true"
                           AutoGrow />
             <MudTextField OnlyValidateIfDirty="true"
                           Immediate="true"
-                          Margin="Margin.Dense"
-                          Variant="Variant.Outlined"
+                          Margin="Margin.Normal"
+                          Variant="Variant.Text"
                           Class="mb-2"
                           @bind-Value="@Query.SqlValue"
                           T="string"
                           Label="SQL"
-                          Required="true",
+                          Required="true"
                           AutoGrow/>
             <MudSelect T="int" Label="Project" @bind-Value="@Query.ProjectId" Required="true">
                 @{
@@ -102,17 +102,26 @@
         }
 
         _loading = true;
-        var response = await QueryService.CreateQueryAsync(Query, CancellationToken.None);
 
-        if (response.Success)
+        try
         {
-            MudDialog.Close(DialogResult.Ok(true));
-            Snackbar.Add(response.Message, Severity.Success);
+            var response = await QueryService.CreateQueryAsync(Query, CancellationToken.None);
+
+            if (response.Success)
+            {
+                MudDialog.Close(DialogResult.Ok(true));
+                Snackbar.Add(response.Message, Severity.Success);
+            }
+            else
+            {
+                Snackbar.Add(response.Message, Severity.Error);
+            }
         }
-        else
+        catch (Exception e)
         {
-            Snackbar.Add(response.Message, Severity.Error);
+            Snackbar.Add(e.Message, Severity.Error);
         }
+
         _loading = false;
     }
 

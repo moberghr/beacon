@@ -10,11 +10,11 @@ public class QueryData
     
     public DateTime CreatedTime { get; set; }
 
-    public required string SqlValue { get; set; }
+    public string SqlValue { get; set; }
 
-    public required int ProjectId { get; set; }
+    public int ProjectId { get; set; }
         
-    public required int SubscriptionsCount { get; set; }
+    public int SubscriptionsCount { get; set; }
 
     public List<QueryParameterData> Parameters { get; set; } = new();
 }
