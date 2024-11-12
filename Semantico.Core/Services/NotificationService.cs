@@ -39,14 +39,13 @@ internal class NotificationService : INotificationService
         }
     }
 
-    public async Task<QueryExecutionHistoryListData> GetQueryExecutionHistoryAsync(int? subscriptionId, BaseListRequest request,
+    public async Task<QueryExecutionHistoryListData> GetQueryExecutionHistoryAsync(int? subscriptionId, SortedListRequest request,
             int? lastQueryExecutionHistoryId, bool? notificationSent, CancellationToken cancellationToken)
     {
         var queryExecutionHistory = await _context.QueryExecutionHistory
             .WhereIf(subscriptionId.HasValue, x => x.SubscriptionId == subscriptionId)
             .WhereIf(lastQueryExecutionHistoryId.HasValue, x => x.Id < lastQueryExecutionHistoryId)
             .WhereIf(notificationSent.HasValue, x => x.NotificationSent == notificationSent)
-            .OrderByDescending(x => x.Id)
             .Select(x =>
                 new QueryExecutionHistoryData
                 {
@@ -68,8 +67,8 @@ internal class NotificationService : INotificationService
 
 public interface INotificationService
 {
-    public Task SendNotificationAsync(NotificationType notificationType, RecipientQueryResult recipientQueryResult, int? lastExecutedQueryResultCount);
+    Task SendNotificationAsync(NotificationType notificationType, RecipientQueryResult recipientQueryResult, int? lastExecutedQueryResultCount);
 
-    Task<QueryExecutionHistoryListData> GetQueryExecutionHistoryAsync(int? subscriptionId, BaseListRequest request,
+    Task<QueryExecutionHistoryListData> GetQueryExecutionHistoryAsync(int? subscriptionId, SortedListRequest request, 
         int? lastQueryExecutionHistoryId, bool? notificationSent, CancellationToken cancellationToken);
 }
