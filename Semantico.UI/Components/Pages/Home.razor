@@ -1,12 +1,63 @@
 ﻿@page "/semantico"
+@using Semantico.Core.Models.QueryExecutionHistory
 @inherits BasePageComponent
+@using ApexCharts
 <SemanticoPageTitle Title="Dashboard" />
 
 <MudContainer Class="my-4 px-4">
     <SemanticoPageHeader Icon="@Icons.Material.Filled.Dashboard" Title="Dashboard"/>
+        <MudCard Class="my-4 px-2">
+            <MudCardContent>
+                <MudGrid Justify="Justify.FlexStart" Spacing="1">
+                    <MudItem xs="12" sm="6" md="6" lg="6">
+                        <MudStack Spacing="1">
+                @* <MudChart ChartType="MudBlazor.ChartType.Line" ChartSeries="@_chartSeries" XAxisLabels="@XAxisLabels" ChartOptions="@_options" @bind-SelectedIndex="Index" Width="100%" Height="350px"/> *@
+                <ApexChart TItem="NotificationDateStatisticsData"
+                           Title="Notifications last 30 days">
+
+                    <ApexPointSeries TItem="NotificationDateStatisticsData"
+                                     Items="model?.NotificationDateStatistics"
+                                     Name="Notifications sent"
+                                     SeriesType="SeriesType.Line"
+                                     XValue="e => e.Date.ToShortDateString()"
+                                     YValue="e => e.NotificationsSent"/>
+
+                    <ApexPointSeries TItem="NotificationDateStatisticsData"
+                                     Items="model?.NotificationDateStatistics"
+                                     Name="Notifications"
+                                     SeriesType="SeriesType.Line"
+                                     XValue="e => e.Date.ToShortDateString()"
+                                     YValue="e => e.TotalQueries"/>
+                </ApexChart>
+                        </MudStack>
+                    </MudItem>
+                </MudGrid>
+            </MudCardContent>
+    </MudCard>
     
-    </MudContainer>
+</MudContainer>
+
+@inject Semantico.Core.Services.IQueryService service;
+@inject Semantico.Core.Services.INotificationService notificationService;
 
 @code {
+    private int Index = -1; //default value cannot be 0 -> first selectedindex is 0
+    public ChartOptions _options = new ChartOptions();
+    private NotificationStatisticsData? model;
+    private List<ChartSeries> _chartSeries;
+    private string[] XAxisLabels = [];
     
+    protected override async Task OnInitializedAsync()
+    {
+        model = await notificationService.GetNotificationStatisticsAsync(CancellationToken.None);
+        _chartSeries = new List<ChartSeries>()
+        {
+            new ChartSeries() { Name = "Sent notifications", Data = model.NotificationDateStatistics.Select(x => (double)x.NotificationsSent).ToArray() },
+            new ChartSeries() { Name = "Total executions", Data = model.NotificationDateStatistics.Select(x => (double)x.TotalQueries).ToArray() },
+        };
+        
+        XAxisLabels = model.NotificationDateStatistics.Select(x => x.Date.ToString("dd/MM/yyyy")).ToArray();
+        
+    }
+
 }

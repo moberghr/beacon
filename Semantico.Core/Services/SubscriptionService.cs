@@ -21,6 +21,9 @@ public interface ISubscriptionService
     Task DeleteSubscriptionAsync(int subscriptionId, CancellationToken cancellationToken);
 
     Task<List<SubscriptionData>> GetSubscriptionsAsync(int? subscriptionId, int? queryId, NotificationType? notificationType, string keyword, CancellationToken cancellationToken);
+
+    Task<SubscriptionDetailsData> GetSubscriptionDetailsAsync(int subscriptionId, CancellationToken cancellationToken);
+    
 }
 
 internal class SubscriptionService : ISubscriptionService
@@ -63,18 +66,17 @@ internal class SubscriptionService : ISubscriptionService
                 {
                     QueryPlaceholder = x.QueryPlaceholder,
                     Value = x.Value,
-                    
                 }).ToList()
         };
 
         _context.Subscriptions.Add(subscription);
 
         await _context.SaveChangesAsync(cancellationToken);
-        
+
         var query = _context.Queries.Single(x => x.Id == subscriptionData.QueryId);
-        
+
         _semanticoScheduler.AddOrUpdate(subscription.Id, $"{query.Name}: {subscription.Id}", subscription.CronExpression);
-        
+
         return new BaseResponse { Success = true, Message = "Subscription created successfully" };
     }
 
@@ -170,12 +172,36 @@ internal class SubscriptionService : ISubscriptionService
         }
 
         await _context.SaveChangesAsync(cancellationToken);
-        
+
         var query = _context.Queries.Single(x => x.Id == subscription.QueryId);
 
         if (shouldUpdateHangfire)
         {
-            _semanticoScheduler.AddOrUpdate(subscription.Id, $"{query.Name}: {subscription.Id}" , subscription.CronExpression);
+            _semanticoScheduler.AddOrUpdate(subscription.Id, $"{query.Name}: {subscription.Id}", subscription.CronExpression);
         }
+    }
+
+    public async Task<SubscriptionDetailsData> GetSubscriptionDetailsAsync(int subscriptionId, CancellationToken cancellationToken)
+    {
+        var subscription = await _context.Subscriptions
+            .IgnoreQueryFilters()
+            .Where(x => x.Id == subscriptionId)
+            .Select(x => new SubscriptionDetailsData
+            {
+                SubscriptionId = x.Id,
+                QueryId = x.QueryId,
+                Recipient = x.Recipient,
+                NotificationType = x.NotificationType,
+                CronExpression = x.CronExpression,
+                Status = x.ArchivedTime.HasValue ? "Archived" : "Active",
+                Parameters = x.Parameters.Select(y => new SubscriptionParamaterData()
+                {
+                    QueryPlaceholder = y.QueryPlaceholder,
+                    Value = y.Value
+                }).ToList(),
+            })
+            .SingleAsync(cancellationToken);
+
+        return subscription;
     }
 }

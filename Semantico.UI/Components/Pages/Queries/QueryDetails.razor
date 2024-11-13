@@ -7,7 +7,7 @@
 <SemanticoPageTitle Title="Query"/>
 
 <MudContainer Class="my-4 px-4">
-    <SemanticoPageHeader Icon="@Icons.Material.Filled.QueryStats" Title="Query details" ButtonText="Add subscription" OnClick="@AddSubscription"/>
+    <SemanticoPageHeader Icon="@Icons.Material.Filled.QueryStats" Title="@($"Query details: {Model?.Name}")" ButtonText="Add subscription" OnClick="@AddSubscription"/>
     <MudCard Class="px-2">
         <MudCardContent>
             @if (_loading)
@@ -57,11 +57,11 @@
                             </MudText>
                             <MudStack Row="true" AlignItems="AlignItems.Center">
                                 <MudText>
-                                    <strong>Parameters (should be notifications sent)</strong>
+                                    <strong>Notifications sent/total</strong>
                                 </MudText>
-                                <MudProgressLinear Color="Color.Primary" Rounded="true" Size="Size.Large" Value="@decimal.ToDouble(Model?.Parameters.Count ?? 0)" Style="height: 24px">
+                                <MudProgressLinear Color="Color.Primary" Rounded="true" Size="Size.Large" Value="@decimal.ToDouble(Model?.SentNotifications ?? 0)" Min="0" Max="@decimal.ToDouble(Model?.TotalExecutions ?? 0)" Style="height: 24px">
                                     <MudText Typo="Typo.body1">
-                                        <b>@Model?.Parameters.Count</b>
+                                        <b>@Model?.SentNotifications / @Model?.TotalExecutions</b>
                                     </MudText>
                                 </MudProgressLinear>
                             </MudStack>
@@ -86,7 +86,6 @@
                     </HeaderContent>
                     <RowTemplate>
                         <MudTd DataLabel="Subscription ID">@context.SubscriptionId</MudTd>
-                        <MudTd DataLabel="Name">@context.Name</MudTd>
                         <MudTd DataLabel="Cron Expression">@context.CronExpression</MudTd>
                         <MudTd DataLabel="Recipient">@context.Recipient</MudTd>
                         <MudTd DataLabel="Notification Type">@context.NotificationType</MudTd>

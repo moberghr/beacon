@@ -9,13 +9,6 @@
     <SemanticoPageHeader Icon="@Icons.Material.Filled.QueryBuilder" Title="Queries" ButtonText="New query" OnClick="@NewQuery"/>
     <SemanticoPageAlert Text="List of defined queries. You can create new on or click on row and edit subscriptions to existing query."/>
     <MudDataGrid @ref="_dataGrid" ServerData="ServerReload" T="QueryData" RowClick="OnRowClick" Hover="true" Filterable="false">
-        <ToolBarContent>
-            <MudTextField T="string" ValueChanged="@(s => OnSearch(s))" Placeholder="Search" Adornment="Adornment.Start"
-                          Immediate="true"
-                          AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium" Class="mt-0">
-            </MudTextField>
-
-        </ToolBarContent>
         <Columns>
             <PropertyColumn Property="x => x.QueryId" Title="Id"/>
             <PropertyColumn Property="x => x.Name" Title="Name"/>
@@ -23,7 +16,6 @@
             <PropertyColumn Property="x => x.CreatedTime" Title="Created"/>
             <PropertyColumn Property="x => x.SubscriptionsCount"/>
             <PropertyColumn Property="x => x.Parameters.ToJson()"/>
-            <PropertyColumn Property="x => x.SqlValue"/>
         </Columns>
         <PagerContent>
             <MudDataGridPager T="QueryData"/>
