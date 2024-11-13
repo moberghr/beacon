@@ -1,0 +1,142 @@
+﻿@page "/semantico/subscriptions/details/{id:int}"
+@inherits BasePageComponent
+@using Semantico.Core.Models.QueryExecutionHistory
+@using Semantico.Core.Models.Subscriptions
+@using Semantico.Core.Services
+
+<SemanticoPageTitle Title="Query"/>
+
+<MudContainer Class="my-4 px-4">
+    <SemanticoPageHeader Icon="@Icons.Material.Filled.Subscriptions" Title="Subscription details" Alert="@Model?.Status" AlertSeverity="@(isSubscriptionActive ? Severity.Success : Severity.Error)" ButtonIcon="@Icons.Material.Outlined.Archive" ButtonText="Archive" ButtonDisabled="@(!isSubscriptionActive)" OnClick="@ArchiveSubscription"/>
+    <MudCard Class="my-4 px-2">
+        <MudCardContent>
+            @if (_loading)
+            {
+                <MudSkeleton />
+            }
+            else
+            {
+                <MudGrid Justify="Justify.FlexStart" Spacing="1">
+                    <MudItem xs="12" sm="6" md="6" lg="6">
+                        <MudStack Spacing="1">
+                            <MudText>
+                                <strong>Query:</strong> @Model?.QueryName
+                            </MudText>
+                            <MudText>
+                                <strong>Cron:</strong> @Model?.CronExpression
+                            </MudText>
+                            <MudText>
+                                <strong>Type:</strong> @Model?.NotificationType
+                            </MudText>
+                        </MudStack>
+                    </MudItem>
+                    <MudItem xs="12" sm="6" md="6" lg="6">
+                        <MudStack Spacing="1">
+                            <MudText>
+                                <strong>Sql:</strong> @Model?.Recipient
+                            </MudText>
+                            <MudText>
+                                <strong>Parameters:</strong> @Model?.Parameters.ToJson()
+                            </MudText>
+                        </MudStack>
+                    </MudItem>
+                    <MudItem>
+                        <MudStack Spacing="1">
+                        </MudStack>
+                    </MudItem>
+                </MudGrid>
+            }
+        </MudCardContent>
+        <MudCardContent>
+            <MudItem xs="12">
+                <MudContainer Class="my-4 px-4">
+                    <SemanticoPageAlert Text="List of executions." />
+                    <MudDataGrid @ref="_notificationsDataGrid" ServerData="NotificationsServerReload" T="QueryExecutionHistoryData" Hover="true" Filterable="false">
+                        <Columns>
+                            <PropertyColumn Property="x => x.CreatedTime" Title="Created"/>
+                            <PropertyColumn Property="x => x.QueryExecutionHistoryId" Title="Id"/>
+                            <PropertyColumn Property="x => x.Recipient"/>
+                            <PropertyColumn Property="x => x.NotificationType"/>
+                            <PropertyColumn Property="x => x.ResultCount"/>
+                            <PropertyColumn Property="x => x.NotificationSent"/>
+                        </Columns>
+                        <PagerContent>
+                            <MudDataGridPager T="QueryExecutionHistoryData" />
+                        </PagerContent>
+                    </MudDataGrid>
+                </MudContainer>
+            </MudItem>
+
+        </MudCardContent>
+    </MudCard>
+</MudContainer>
+
+@inject ISubscriptionService Service
+@inject INotificationService NotificationsService
+@inject IDialogService DialogService
+
+@code
+{
+    [Parameter]
+    public int Id { get; set; }
+
+    public SubscriptionDetailsData? Model;
+
+    private bool _loading;
+    
+    private QueryExecutionHistoryListData List { get; set; }
+    
+    MudDataGrid<QueryExecutionHistoryData>? _notificationsDataGrid;
+
+    private bool isSubscriptionActive;
+                
+    private async Task<GridData<QueryExecutionHistoryData>> NotificationsServerReload(GridState<QueryExecutionHistoryData> state)
+    {
+        var request = new BaseListRequest()
+        {
+            Page = state.Page,
+            PageSize = state.PageSize
+        };
+
+        List = await NotificationsService.GetQueryExecutionHistoryAsync(Id, request,null, null, CancellationToken.None);
+
+        return new GridData<QueryExecutionHistoryData> {
+            TotalItems = List.Data.Count,
+            Items = List.Data
+        };
+    }
+    
+    protected override async Task OnInitializedAsync()
+    {
+        await Load();
+    }
+
+    private async Task Load()
+    {
+        _loading = true;
+
+        Model = await Service.GetSubscriptionDetailsAsync(Id, new CancellationToken());
+
+        isSubscriptionActive = Model?.Status == "Active";
+
+        _loading = false;
+    }
+
+    private async Task ArchiveSubscription()
+    {
+        bool? result = await DialogService.ShowMessageBox(
+            "Warning", 
+            "Do you want to archive this subscription?",
+            yesText: "Yes",
+            cancelText: "No");
+
+        if (result == null || !result.Value)
+        {
+            return;
+        }
+
+        await Service.DeleteSubscriptionAsync(Id, new CancellationToken());
+        
+        await Load();
+    }
+}

@@ -53,7 +53,9 @@ internal class NotificationService : INotificationService
                     QueryExecutionHistoryId = x.Id,
                     Recipient = x.Recipient,
                     NotificationType = x.NotificationType,
-                    ResultCount = x.ResultCount
+                    ResultCount = x.ResultCount,
+                    CreatedTime = x.CreatedTime,
+                    NotificationSent = x.NotificationSent
                 })
             .ToPagedListAsync(request, cancellationToken);
 
@@ -64,6 +66,27 @@ internal class NotificationService : INotificationService
             TotalCount = queryExecutionHistory.TotalCount
         };
     }
+    
+    public async Task<NotificationStatisticsData> GetNotificationStatisticsAsync(CancellationToken cancellationToken)
+    {
+        var cutoffDate = DateTime.UtcNow.AddDays(-30);
+
+        var dates = await _context.QueryExecutionHistory
+            .Where(x => x.CreatedTime >= cutoffDate)
+            .GroupBy(x => x.CreatedTime.Date)
+            .Select(x => new NotificationDateStatisticsData()
+            {
+                Date = x.Key,
+                TotalQueries = x.Count(),
+                NotificationsSent = x.Count(y => y.NotificationSent)
+            })
+            .ToListAsync(cancellationToken);
+
+        return new NotificationStatisticsData
+        {
+            NotificationDateStatistics = dates
+        };
+    }
 }
 
 public interface INotificationService
@@ -72,4 +95,6 @@ public interface INotificationService
 
     Task<QueryExecutionHistoryListData> GetQueryExecutionHistoryAsync(int? subscriptionId, BaseListRequest request,
         int? lastQueryExecutionHistoryId, bool? notificationSent, CancellationToken cancellationToken);
+    
+    Task<NotificationStatisticsData> GetNotificationStatisticsAsync(CancellationToken cancellationToken);
 }

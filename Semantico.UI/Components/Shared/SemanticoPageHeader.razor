@@ -5,6 +5,10 @@
                 <MudStack Row="true" AlignItems="AlignItems.Center">
                     <MudIcon Icon="@Icon" Class="mb-1" Size="Size.Large"/>
                     <MudText Typo="Typo.h5" Style="font-weight: bold">@Title</MudText>
+                    @if(!string.IsNullOrEmpty(Alert))
+                    {
+                        <MudAlert Severity="@AlertSeverity">@Alert</MudAlert>
+                    }
                 </MudStack>
             </MudItem>
             @if (OnClick.HasDelegate)
@@ -41,12 +45,19 @@
 
     [Parameter]
     public string ButtonText { get; set; }
+    
+    [Parameter]
+    public string? Alert { get; set; }
+
+    [Parameter]
+    public Severity AlertSeverity { get; set; } = Severity.Success;
 
     [Parameter]
     public string ButtonIcon { get; set; } = Icons.Material.Outlined.Add;
 
     [Parameter]
     public bool ButtonDisabled { get; set; }
+    
     [Parameter]
     public EventCallback<bool> ButtonDisabledChanged { get; set; }
 

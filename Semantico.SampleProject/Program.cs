@@ -1,4 +1,5 @@
 using System;
+using ApexCharts;
 using Blazored.LocalStorage;
 using Hangfire;
 using Hangfire.PostgreSql;
@@ -57,6 +58,14 @@ builder.Services.AddRazorComponents().AddInteractiveServerComponents();
 builder.Services.AddMudServices();
 builder.Services.AddSingleton<PageHistoryState>();
 builder.Services.AddBlazoredLocalStorage();
+builder.Services.AddApexCharts(e =>
+{
+    e.GlobalOptions = new ApexChartBaseOptions
+    {
+        Debug = true,
+        Theme = new Theme { Palette = PaletteType.Palette6, Mode = Mode.Dark}
+    };
+});
 
 
 var app = builder.Build();

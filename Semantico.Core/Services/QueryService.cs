@@ -36,6 +36,10 @@ public class QueryDetailsData
 
     public string ProjectName { get; set; }
 
+    public int TotalExecutions { get; set; }
+
+    public int SentNotifications { get; set; }
+
     public List<QueryParameterData> Parameters { get; set; } = new();
 
     public List<SubscriptionListData> Subscriptions { get; set; }
@@ -165,6 +169,8 @@ internal class QueryService : IQueryService
                     ProjectName = x.Project.Name,
                     Name = x.Name,
                     Description = x.Description,
+                    TotalExecutions = x.Subscriptions.Sum(y => y.QueryExecutionHistory.Count),
+                    SentNotifications = x.Subscriptions.Sum(y => y.QueryExecutionHistory.Count(z => z.NotificationSent)),
                     Parameters = x.Parameters.Select(y =>
                         new QueryParameterData
                         {
