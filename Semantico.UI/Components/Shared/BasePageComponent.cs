@@ -7,6 +7,7 @@ public class BasePageComponent: ComponentBase
 {
     [Inject]
     protected NavigationManager NavManager { get; set; }
+    
     [Inject]
     protected PageHistoryState PageState { get; set; }
     

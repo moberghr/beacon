@@ -5,6 +5,8 @@ namespace Semantico.Core.Models.Projects;
 
 public class ProjectListData
 {
+    public required int Id { get; init; }
+
     public required string Name { get; init; }
 
     public required DatabaseEngineType DatabaseEngineType { get; init; }

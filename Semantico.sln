@@ -5,15 +5,15 @@ VisualStudioVersion = 17.6.33706.43
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Semantico.Api", "Semantico.Api\Semantico.Api.csproj", "{6F597D65-E754-40DB-BB7D-0BCAE2AE1D25}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Semantico.Core", "Semantico.Core\Semantico.Core.csproj", "{541E5738-AA0A-4CA4-8397-B0260F287E24}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Semantico.Core", "Semantico.Core\Semantico.Core.csproj", "{541E5738-AA0A-4CA4-8397-B0260F287E24}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Semantico.Web", "Semantico.Web\Semantico.Web.csproj", "{91ABE5B0-8F6B-440D-96B5-9F536D175264}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Semantico.Web", "Semantico.Web\Semantico.Web.csproj", "{91ABE5B0-8F6B-440D-96B5-9F536D175264}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Semantico.UI", "Semantico.UI\Semantico.UI.csproj", "{C486F558-2FAD-4315-B8A5-3AC2DAD7D286}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Semantico.UI", "Semantico.UI\Semantico.UI.csproj", "{C486F558-2FAD-4315-B8A5-3AC2DAD7D286}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Semantico.SampleProject", "Semantico.SampleProject\Semantico.SampleProject.csproj", "{C3BEF32C-0C1B-4348-8D9D-3DAF7A03392C}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Semantico.SampleProject", "Semantico.SampleProject\Semantico.SampleProject.csproj", "{C3BEF32C-0C1B-4348-8D9D-3DAF7A03392C}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BlazorApp1", "BlazorApp1\BlazorApp1.csproj", "{EC6E9FCF-A460-4124-9E04-2FDAD27FF481}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "BlazorApp1", "BlazorApp1\BlazorApp1.csproj", "{EC6E9FCF-A460-4124-9E04-2FDAD27FF481}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

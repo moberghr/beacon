@@ -13,13 +13,15 @@ namespace Semantico.Core.Services;
 
 public interface ISubscriptionService
 {
-    Task<BaseResponse> CreateSubscriptionAsync(SubscriptionData subscriptionData, CancellationToken cancellationToken);
+    Task<BaseResponse> CreateSubscription(SubscriptionData subscriptionData, CancellationToken cancellationToken);
 
-    Task UpdateSubscriptionAsync(SubscriptionData subscriptionData, CancellationToken cancellationToken);
+    Task UpdateSubscription(SubscriptionData subscriptionData, CancellationToken cancellationToken);
 
-    Task DeleteSubscriptionAsync(int subscriptionId, CancellationToken cancellationToken);
+    Task DeleteSubscription(int subscriptionId, CancellationToken cancellationToken);
 
-    Task<List<SubscriptionData>> GetSubscriptionsAsync(int? subscriptionId, int? queryId, NotificationType? notificationType, CancellationToken cancellationToken);
+    Task<List<SubscriptionData>> GetSubscriptions(int? subscriptionId, int? queryId, NotificationType? notificationType, string keyword, CancellationToken cancellationToken);
+
+    Task<SubscriptionDetailsData> GetSubscriptionDetails(int subscriptionId, CancellationToken cancellationToken);
 }
 
 internal class SubscriptionService : ISubscriptionService
@@ -33,7 +35,7 @@ internal class SubscriptionService : ISubscriptionService
         _semanticoScheduler = semanticoScheduler;
     }
 
-    public async Task<BaseResponse> CreateSubscriptionAsync(SubscriptionData subscriptionData, CancellationToken cancellationToken)
+    public async Task<BaseResponse> CreateSubscription(SubscriptionData subscriptionData, CancellationToken cancellationToken)
     {
         CrontabSchedule.Parse(subscriptionData.CronExpression);
 
@@ -62,22 +64,21 @@ internal class SubscriptionService : ISubscriptionService
                 {
                     QueryPlaceholder = x.QueryPlaceholder,
                     Value = x.Value,
-                    
                 }).ToList()
         };
 
         _context.Subscriptions.Add(subscription);
 
         await _context.SaveChangesAsync(cancellationToken);
-        
+
         var query = _context.Queries.Single(x => x.Id == subscriptionData.QueryId);
-        
+
         _semanticoScheduler.AddOrUpdate(subscription.Id, $"{query.Name}: {subscription.Id}", subscription.CronExpression);
-        
+
         return new BaseResponse { Success = true, Message = "Subscription created successfully" };
     }
 
-    public async Task DeleteSubscriptionAsync(int subscriptionId, CancellationToken cancellationToken)
+    public async Task DeleteSubscription(int subscriptionId, CancellationToken cancellationToken)
     {
         var subscription = await _context.Subscriptions
             .Include(x => x.Parameters)
@@ -97,12 +98,13 @@ internal class SubscriptionService : ISubscriptionService
         await _context.SaveChangesAsync(cancellationToken);
     }
 
-    public async Task<List<SubscriptionData>> GetSubscriptionsAsync(int? subscriptionId, int? queryId, NotificationType? notificationType, CancellationToken cancellationToken)
+    public async Task<List<SubscriptionData>> GetSubscriptions(int? subscriptionId, int? queryId, NotificationType? notificationType, string? keyword, CancellationToken cancellationToken)
     {
         return await _context.Subscriptions
             .WhereIf(subscriptionId.HasValue, x => x.Id == subscriptionId)
             .WhereIf(queryId.HasValue, x => x.QueryId == queryId)
             .WhereIf(notificationType.HasValue, x => x.NotificationType == notificationType)
+            .WhereIf(!string.IsNullOrWhiteSpace(keyword), x => x.Recipient.Contains(keyword!))
             .Select(x =>
                 new SubscriptionData
                 {
@@ -121,7 +123,7 @@ internal class SubscriptionService : ISubscriptionService
             .ToListAsync(cancellationToken);
     }
 
-    public async Task UpdateSubscriptionAsync(SubscriptionData subscriptionData, CancellationToken cancellationToken)
+    public async Task UpdateSubscription(SubscriptionData subscriptionData, CancellationToken cancellationToken)
     {
         CrontabSchedule.Parse(subscriptionData.CronExpression);
 
@@ -168,12 +170,36 @@ internal class SubscriptionService : ISubscriptionService
         }
 
         await _context.SaveChangesAsync(cancellationToken);
-        
+
         var query = _context.Queries.Single(x => x.Id == subscription.QueryId);
 
         if (shouldUpdateHangfire)
         {
-            _semanticoScheduler.AddOrUpdate(subscription.Id, $"{query.Name}: {subscription.Id}" , subscription.CronExpression);
+            _semanticoScheduler.AddOrUpdate(subscription.Id, $"{query.Name}: {subscription.Id}", subscription.CronExpression);
         }
+    }
+
+    public async Task<SubscriptionDetailsData> GetSubscriptionDetails(int subscriptionId, CancellationToken cancellationToken)
+    {
+        var subscription = await _context.Subscriptions
+            .IgnoreQueryFilters()
+            .Where(x => x.Id == subscriptionId)
+            .Select(x => new SubscriptionDetailsData
+            {
+                SubscriptionId = x.Id,
+                QueryId = x.QueryId,
+                Recipient = x.Recipient,
+                NotificationType = x.NotificationType,
+                CronExpression = x.CronExpression,
+                Status = x.ArchivedTime.HasValue ? "Archived" : "Active",
+                Parameters = x.Parameters.Select(y => new SubscriptionParamaterData()
+                {
+                    QueryPlaceholder = y.QueryPlaceholder,
+                    Value = y.Value
+                }).ToList(),
+            })
+            .SingleAsync(cancellationToken);
+
+        return subscription;
     }
 }

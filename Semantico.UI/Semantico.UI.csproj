@@ -8,10 +8,11 @@
 
 
     <ItemGroup>
-        <SupportedPlatform Include="browser"/>
+        <SupportedPlatform Include="browser" />
     </ItemGroup>
 
     <ItemGroup>
+        <PackageReference Include="Blazor-ApexCharts" Version="4.0.0" />
         <PackageReference Include="Blazored.LocalStorage" Version="4.5.0" />
         <PackageReference Include="Microsoft.AspNetCore.Components.Web" Version="8.0.10" />
         <PackageReference Include="MudBlazor" Version="7.15.0" />
@@ -19,7 +20,6 @@
 
     <ItemGroup>
       <AdditionalFiles Include="Components\Layout\MainLayout.razor" />
-      <AdditionalFiles Include="Components\Layout\NavMenu.razor" />
       <AdditionalFiles Include="Components\Pages\Error.razor" />
       <AdditionalFiles Include="Components\Routes.razor" />
       <AdditionalFiles Include="Components\_Imports.razor" />

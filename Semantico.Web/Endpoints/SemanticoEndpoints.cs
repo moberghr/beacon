@@ -33,7 +33,7 @@ internal static class SemanticoEndpoints
             ISubscriptionService service,
             CancellationToken cancellationToken) =>
         {
-            var response = await service.GetSubscriptionsAsync(subscriptionId, queryId, notificationType, cancellationToken);
+            var response = await service.GetSubscriptions(subscriptionId, queryId, notificationType, null, cancellationToken);
 
             return response;
         });
@@ -43,7 +43,7 @@ internal static class SemanticoEndpoints
             ISubscriptionService service,
             CancellationToken cancellationToken) =>
         {
-            await service.CreateSubscriptionAsync(subscription, cancellationToken);
+            await service.CreateSubscription(subscription, cancellationToken);
         });
 
         apiGroup.MapPatch("/update-subscription", async (
@@ -51,7 +51,7 @@ internal static class SemanticoEndpoints
             ISubscriptionService service,
             CancellationToken cancellationToken) =>
         {
-            await service.UpdateSubscriptionAsync(subscription, cancellationToken);
+            await service.UpdateSubscription(subscription, cancellationToken);
         });
 
         apiGroup.MapDelete("/delete-subscription/{subscriptionId}", async (
@@ -59,7 +59,7 @@ internal static class SemanticoEndpoints
             ISubscriptionService service,
             CancellationToken cancellationToken) =>
         {
-            await service.DeleteSubscriptionAsync(subscriptionId, cancellationToken);
+            await service.DeleteSubscription(subscriptionId, cancellationToken);
         });
     }
 
@@ -76,7 +76,7 @@ internal static class SemanticoEndpoints
             IQueryService service,
             CancellationToken cancellationToken) =>
         {
-            var response = await service.GetQueriesAsync(queryId, projectId, string.Empty, cancellationToken);
+            var response = await service.GetQueries(queryId, projectId, string.Empty, cancellationToken);
 
             return response;
         });
@@ -86,7 +86,7 @@ internal static class SemanticoEndpoints
             IQueryService service,
             CancellationToken cancellationToken) =>
         {
-            await service.CreateQueryAsync(query, cancellationToken);
+            await service.CreateQuery(query, cancellationToken);
         });
 
         apiGroup.MapPatch("/update-query", async (
@@ -94,7 +94,7 @@ internal static class SemanticoEndpoints
             IQueryService service,
             CancellationToken cancellationToken) =>
         {
-            await service.UpdateQueryAsync(query, cancellationToken);
+            await service.UpdateQuery(query, cancellationToken);
         });
 
         apiGroup.MapDelete("/delete-query/{queryId}", async (
@@ -102,7 +102,7 @@ internal static class SemanticoEndpoints
             IQueryService service,
             CancellationToken cancellationToken) =>
         {
-            await service.DeleteQueryAsync(queryId, cancellationToken);
+            await service.DeleteQuery(queryId, cancellationToken);
         });
     }
 
@@ -117,7 +117,7 @@ internal static class SemanticoEndpoints
             IProjectService service,
             CancellationToken cancellationToken) =>
         {
-            var response = await service.GetProjectsAsync(projectId, cancellationToken);
+            var response = await service.GetProjects(projectId, cancellationToken);
 
             return response;
         });
@@ -127,7 +127,7 @@ internal static class SemanticoEndpoints
             IProjectService service,
             CancellationToken cancellationToken) =>
         {
-            await service.CreateProjectAsync(project, cancellationToken);
+            await service.CreateProject(project, cancellationToken);
         });
 
         apiGroup.MapPatch("/update-project", async (
@@ -135,7 +135,7 @@ internal static class SemanticoEndpoints
             IProjectService service,
             CancellationToken cancellationToken) =>
         {
-            await service.UpdateProjectAsync(project, cancellationToken);
+            await service.UpdateProject(project, cancellationToken);
         });
 
         apiGroup.MapDelete("/delete-project/{projectId}", async (
@@ -143,7 +143,7 @@ internal static class SemanticoEndpoints
             IProjectService service,
             CancellationToken cancellationToken) =>
         {
-            await service.DeleteProjectAsync(projectId, cancellationToken);
+            await service.DeleteProject(projectId, cancellationToken);
         });
     }
 
@@ -153,22 +153,14 @@ internal static class SemanticoEndpoints
             .WithTags("Notifications")
             .WithGroupName("semantico");
 
-        apiGroup.MapGet("/get-query-execution-history", async (
-            [FromQuery] int subscriptionId,
-            [FromQuery] int? pageSize,
-            [FromQuery] int? lastQueryExecutionHistoryId,
-            [FromQuery] bool? notificationSent,
-            INotificationService service,
-            CancellationToken cancellationToken) =>
-        {
-            var request = new BaseListRequest
-            {
-                PageSize = pageSize ?? 10
-            };
-                
-            var response = await service.GetQueryExecutionHistoryAsync(subscriptionId, request, lastQueryExecutionHistoryId, notificationSent, cancellationToken);
-
-            return response;
-        });
+        // apiGroup.MapGet("/get-query-execution-history", async (
+        //     [FromRoute] GetQueryExecutionHistoryRequest request,
+        //     INotificationService service,
+        //     CancellationToken cancellationToken) =>
+        // {
+        //     var response = await service.GetQueryExecutionHistory(request, cancellationToken);
+        //
+        //     return response;
+        // });
     }
 }

@@ -33,7 +33,7 @@
 
     private async Task<GridData<ProjectListData>> ServerReload(GridState<ProjectListData> state)
     {
-        _list = await _service.GetProjectsAsync(null, CancellationToken.None);
+        _list = await _service.GetProjects(null, CancellationToken.None);
 
         return new GridData<ProjectListData>
         {
@@ -44,10 +44,9 @@
 
     protected override async Task OnInitializedAsync()
     {
-        _list = await _service.GetProjectsAsync(null, CancellationToken.None);
+        _list = await _service.GetProjects(null, CancellationToken.None);
     }
     
-
     private async Task AddProject()
     {
         var breakpoint = await BrowserViewport.GetCurrentBreakpointAsync();

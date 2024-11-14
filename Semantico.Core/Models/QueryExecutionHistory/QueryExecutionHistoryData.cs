@@ -11,4 +11,8 @@ public class QueryExecutionHistoryData
     public required NotificationType NotificationType { get; set; }
 
     public required int ResultCount { get; set; }
+
+    public DateTime CreatedTime { get; set; }
+
+    public bool NotificationSent { get; set; }
 }
