@@ -22,7 +22,7 @@
             <MudDataGridPager T="QueryExecutionHistoryData" />
         </PagerContent>
     </MudDataGrid>
-    </MudContainer>
+</MudContainer>
 
 @code {
     private QueryExecutionHistoryListData List { get; set; }
@@ -32,16 +32,12 @@
     
     private async Task<GridData<QueryExecutionHistoryData>> ServerReload(GridState<QueryExecutionHistoryData> state)
     {
-        var request = new BaseListRequest()
+        var request = DataGridHelper.BuildSortedRequest(state);
+        List = await service.GetQueryExecutionHistoryAsync(null, request, null, _notificationSent, CancellationToken.None);
+        
+        return new GridData<QueryExecutionHistoryData> 
         {
-            Page = state.Page,
-            PageSize = state.PageSize
-        };
-        
-        List = await service.GetQueryExecutionHistoryAsync(null, request,null,_notificationSent, CancellationToken.None);
-        
-        return new GridData<QueryExecutionHistoryData> {
-            TotalItems = List.Data.Count,
+            TotalItems = List.TotalCount ?? List.Data.Count,
             Items = List.Data
         };
     }
