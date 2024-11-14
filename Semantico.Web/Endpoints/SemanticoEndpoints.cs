@@ -161,7 +161,7 @@ internal static class SemanticoEndpoints
             INotificationService service,
             CancellationToken cancellationToken) =>
         {
-            var request = new BaseListRequest
+            var request = new SortedListRequest
             {
                 PageSize = pageSize ?? 10
             };
