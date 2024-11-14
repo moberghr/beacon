@@ -92,11 +92,7 @@
                 
     private async Task<GridData<QueryExecutionHistoryData>> NotificationsServerReload(GridState<QueryExecutionHistoryData> state)
     {
-        var request = new BaseListRequest()
-        {
-            Page = state.Page,
-            PageSize = state.PageSize
-        };
+        var request = DataGridHelper.BuildSortedRequest(state);
 
         List = await NotificationsService.GetQueryExecutionHistoryAsync(Id, request,null, null, CancellationToken.None);
 
