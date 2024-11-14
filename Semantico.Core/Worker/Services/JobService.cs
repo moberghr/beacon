@@ -3,7 +3,6 @@ using Semantico.Core.Adapters;
 using Semantico.Core.Data;
 using Semantico.Core.Data.Entities;
 using Semantico.Core.Helpers;
-using Semantico.Core.Models.Queries;
 using Semantico.Core.Models.Subscriptions;
 using Semantico.Core.Services;
 using Semantico.Core.Validators;
@@ -113,6 +112,6 @@ internal class JobService : IJobService
             return;
         }
 
-        await _notificationService.SendNotificationAsync(subscription.NotificationType, recipientQueryResult, lastExecutedQuery?.ResultCount);
+        await _notificationService.SendNotification(subscription.NotificationType, recipientQueryResult, lastExecutedQuery?.ResultCount);
     }
 }

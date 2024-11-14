@@ -84,7 +84,7 @@
 
     protected override async Task OnInitializedAsync()
     {
-        var projects = await ProjectService.GetProjectsAsync(null, default);
+        var projects = await ProjectService.GetProjects(null, default);
 
         _projects = projects.ToDictionary(x => x.Id, x => x.Name);
     }
@@ -107,7 +107,7 @@
 
         try
         {
-            var response = await QueryService.CreateQueryAsync(Query, CancellationToken.None);
+            var response = await QueryService.CreateQuery(Query, CancellationToken.None);
 
             if (response.Success)
             {

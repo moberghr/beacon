@@ -119,7 +119,7 @@
     {
         _loading = true;
 
-        Model = await Service.GetQueryDetailsAsync(Id, new CancellationToken());
+        Model = await Service.GetQueryDetails(Id, new CancellationToken());
 
         _loading = false;
     }

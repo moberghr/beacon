@@ -36,7 +36,7 @@
 
     private async Task<GridData<QueryData>> ServerReload(GridState<QueryData> state)
     {
-        QueriesList = await service.GetQueriesAsync(null, null, _searchString, CancellationToken.None);
+        QueriesList = await service.GetQueries(null, null, _searchString, CancellationToken.None);
 
         return new GridData<QueryData>
         {

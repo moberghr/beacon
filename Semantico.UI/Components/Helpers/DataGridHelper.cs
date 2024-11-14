@@ -18,8 +18,25 @@ public static class DataGridHelper
             Page = state.Page,
             PageSize = state.PageSize,
             SortCriteria = sortCriteria is null 
-                ? new List<SortCriterion>()
-                : new List<SortCriterion> { sortCriteria }
+                ? []
+                : [sortCriteria]
+        };
+    }
+    
+    public static T BuildSortedRequest<T, TData>(GridState<TData> state) where T : SortedListRequest, new()
+    {
+        var sortDefinition = state.SortDefinitions.FirstOrDefault();
+        var sortCriteria = sortDefinition is not null
+            ? new SortCriterion(sortDefinition.SortBy, sortDefinition.Descending ? SortDirection.Descending : SortDirection.Ascending)
+            : null;
+
+        return new T
+        {
+            Page = state.Page,
+            PageSize = state.PageSize,
+            SortCriteria = sortCriteria is null 
+                ? []
+                : [sortCriteria]
         };
     }
 }

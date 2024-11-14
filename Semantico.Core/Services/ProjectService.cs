@@ -10,13 +10,13 @@ namespace Semantico.Core.Services;
 
 public interface IProjectService
 {
-    Task <BaseResponse>CreateProjectAsync(ProjectData projectData, CancellationToken cancellationToken);
+    Task <BaseResponse>CreateProject(ProjectData projectData, CancellationToken cancellationToken);
 
-    Task UpdateProjectAsync(ProjectData projectData, CancellationToken cancellationToken);
+    Task UpdateProject(ProjectData projectData, CancellationToken cancellationToken);
 
-    Task DeleteProjectAsync(int projectId, CancellationToken cancellationToken);
+    Task DeleteProject(int projectId, CancellationToken cancellationToken);
 
-    Task<List<ProjectListData>> GetProjectsAsync(int? projectId, CancellationToken cancellationToken);
+    Task<List<ProjectListData>> GetProjects(int? projectId, CancellationToken cancellationToken);
 }
 
 internal class ProjectService : IProjectService
@@ -28,7 +28,7 @@ internal class ProjectService : IProjectService
         _context = context;
     }
 
-    public async Task<BaseResponse> CreateProjectAsync(ProjectData projectData, CancellationToken cancellationToken)
+    public async Task<BaseResponse> CreateProject(ProjectData projectData, CancellationToken cancellationToken)
     {
         var project = new Project
         {
@@ -46,7 +46,7 @@ internal class ProjectService : IProjectService
         };
     }
 
-    public async Task DeleteProjectAsync(int projectId, CancellationToken cancellationToken)
+    public async Task DeleteProject(int projectId, CancellationToken cancellationToken)
     {
         var project = await _context.Projects
             .Where(x => x.Id == projectId)
@@ -61,7 +61,7 @@ internal class ProjectService : IProjectService
         await _context.SaveChangesAsync(cancellationToken);
     }
 
-    public async Task<List<ProjectListData>> GetProjectsAsync(int? projectId, CancellationToken cancellationToken)
+    public async Task<List<ProjectListData>> GetProjects(int? projectId, CancellationToken cancellationToken)
     {
         return await _context.Projects
             .WhereIf(projectId.HasValue, x => x.Id == projectId)
@@ -90,7 +90,7 @@ internal class ProjectService : IProjectService
             .ToListAsync(cancellationToken);
     }
 
-    public async Task UpdateProjectAsync(ProjectData projectData, CancellationToken cancellationToken)
+    public async Task UpdateProject(ProjectData projectData, CancellationToken cancellationToken)
     {
         var project = await _context.Projects
             .Where(x => x.Id == projectData.ProjectId)

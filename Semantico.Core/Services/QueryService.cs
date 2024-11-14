@@ -11,15 +11,15 @@ namespace Semantico.Core.Services;
 
 public interface IQueryService
 {
-    Task<BaseResponse> CreateQueryAsync(QueryData queryData, CancellationToken cancellationToken);
+    Task<BaseResponse> CreateQuery(QueryData queryData, CancellationToken cancellationToken);
 
-    Task<BaseResponse> UpdateQueryAsync(QueryData queryData, CancellationToken cancellationToken);
+    Task<BaseResponse> UpdateQuery(QueryData queryData, CancellationToken cancellationToken);
 
-    Task DeleteQueryAsync(int queryId, CancellationToken cancellationToken);
+    Task DeleteQuery(int queryId, CancellationToken cancellationToken);
 
-    Task<List<QueryData>> GetQueriesAsync(int? queryId, int? projectId, string? sql, CancellationToken cancellationToken);
+    Task<List<QueryData>> GetQueries(int? queryId, int? projectId, string? sql, CancellationToken cancellationToken);
 
-    Task<QueryDetailsData> GetQueryDetailsAsync(int queryId, CancellationToken cancellationToken);
+    Task<QueryDetailsData> GetQueryDetails(int queryId, CancellationToken cancellationToken);
 }
 
 public class QueryDetailsData
@@ -67,7 +67,7 @@ internal class QueryService : IQueryService
         _context = context;
     }
 
-    public async Task<BaseResponse> CreateQueryAsync(QueryData queryData, CancellationToken cancellationToken)
+    public async Task<BaseResponse> CreateQuery(QueryData queryData, CancellationToken cancellationToken)
     {
         QueryValidator.CheckForFlaggedWords(queryData.SqlValue);
 
@@ -106,7 +106,7 @@ internal class QueryService : IQueryService
         };
     }
 
-    public async Task DeleteQueryAsync(int queryId, CancellationToken cancellationToken)
+    public async Task DeleteQuery(int queryId, CancellationToken cancellationToken)
     {
         var query = await _context.Queries
             .Include(x => x.Parameters)
@@ -128,7 +128,7 @@ internal class QueryService : IQueryService
         await _context.SaveChangesAsync(cancellationToken);
     }
 
-    public async Task<List<QueryData>> GetQueriesAsync(int? queryId, int? projectId, string? sql, CancellationToken cancellationToken)
+    public async Task<List<QueryData>> GetQueries(int? queryId, int? projectId, string? sql, CancellationToken cancellationToken)
     {
         return await _context.Queries
             .WhereIf(queryId.HasValue, x => x.Id == queryId)
@@ -156,7 +156,7 @@ internal class QueryService : IQueryService
             .ToListAsync(cancellationToken);
     }
 
-    public Task<QueryDetailsData> GetQueryDetailsAsync(int queryId, CancellationToken cancellationToken)
+    public Task<QueryDetailsData> GetQueryDetails(int queryId, CancellationToken cancellationToken)
     {
         return _context.Queries
             .Where(x => x.Id == queryId)
@@ -190,7 +190,7 @@ internal class QueryService : IQueryService
                 }).SingleAsync(cancellationToken);
     }
 
-    public async Task<BaseResponse> UpdateQueryAsync(QueryData queryData, CancellationToken cancellationToken)
+    public async Task<BaseResponse> UpdateQuery(QueryData queryData, CancellationToken cancellationToken)
     {
         var query = await _context.Queries
             .Include(query => query.Parameters)

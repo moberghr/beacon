@@ -13,3 +13,16 @@ public class NotificationDateStatisticsData
 
     public int NotificationsSent { get; set; }
 }
+
+public class DashboardStatisticsData
+{
+    public int TotalSubscriptions { get; set; }
+    
+    public int TotalQueries { get; set; }
+    
+    public int TotalQueriesExecuted { get; set; }
+
+    public int TotalNotificationsSent { get; set; }
+
+    public int ActiveSubscriptions { get; set; }
+}

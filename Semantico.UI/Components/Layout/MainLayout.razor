@@ -1,4 +1,6 @@
-﻿@using Blazored.LocalStorage
+﻿@using ApexCharts
+@using Blazored.LocalStorage
+@using Color = MudBlazor.Color
 @inherits LayoutComponentBase
 
 @* Required *@
@@ -49,6 +51,8 @@
 @inject IBrowserViewportService BrowserViewportService
 @inject ILocalStorageService LocalStorage
 @inject IJSRuntime JS
+@inject IApexChartService ApexChartService
+
 @code
 {
     private static bool _isDark = true;
@@ -57,16 +61,10 @@
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         _breakpoint = await BrowserViewportService.GetCurrentBreakpointAsync();
-        var isDark = await LocalStorage.GetItemAsync<string>("IsDark");
-        _isDark = isDark == "True";
-        if (_isDark)
-        {
-            await JS.InvokeVoidAsync("loadCss", "./_content/Semantico.UI/highlight/styles/github-dark.css");
-        }
-        else
-        {
-            await JS.InvokeVoidAsync("loadCss", "./_content/Semantico.UI/highlight/styles/github.css");
-        }
+        _isDark = await LocalStorage.GetItemAsync<string>("IsDark") == "True";
+
+        await LoadTheme();
+        
         await base.OnAfterRenderAsync(firstRender);
     }
 
@@ -74,14 +72,28 @@
     {
         _isDark = !_isDark;
         await LocalStorage.SetItemAsync("IsDark", _isDark.ToString()); 
-
+        await LoadTheme();
+    }
+    
+    private async Task LoadTheme()
+    {
         if (_isDark)
         {
             await JS.InvokeVoidAsync("loadCss", "./_content/Semantico.UI/highlight/styles/github-dark.css");
+            ApexChartService.GlobalOptions.Theme = new Theme()
+            {
+                Mode = Mode.Dark,
+                Palette = PaletteType.Palette5
+            };
         }
         else
         {
             await JS.InvokeVoidAsync("loadCss", "./_content/Semantico.UI/highlight/styles/github.css");
+            ApexChartService.GlobalOptions.Theme = new Theme()
+            {
+                Mode = Mode.Light,
+                Palette = PaletteType.Palette5
+            };
         }
     }
 }

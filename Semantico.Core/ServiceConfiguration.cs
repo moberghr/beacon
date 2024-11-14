@@ -3,7 +3,6 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Semantico.Core.Adapters.Jira;
 using Semantico.Core.Adapters.Mail.SendGrid;
-using Semantico.Core.Adapters.Mail;
 using Semantico.Core.Adapters.Teams;
 using Semantico.Core.Data;
 using Semantico.Core.Services;
@@ -50,6 +49,7 @@ public static class ServiceConfiguration
         services.TryAddTransient<IProjectService, ProjectService>();
         services.TryAddTransient<IQueryService, QueryService>();
         services.TryAddTransient<ISubscriptionService, SubscriptionService>();
+        services.TryAddTransient<IStatisticsService, StatisticsService>();
 
         services.TryAddTransient<ISemanticoScheduler, TSemanticoScheduler>();
 

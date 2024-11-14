@@ -1,7 +1,7 @@
 ﻿@page "/semantico/notifications"
 @inherits BasePageComponent
 @using Semantico.Core.Models.QueryExecutionHistory
-@inject Semantico.Core.Services.INotificationService service;
+@using Semantico.Core.Services
 
 <SemanticoPageTitle Title="Notifications" />
 
@@ -10,7 +10,7 @@
     <SemanticoPageAlert Text="List of sent notifications." />
     <MudDataGrid @ref="_dataGrid" ServerData="ServerReload" T="QueryExecutionHistoryData" Hover="true" Filterable="false">
         <ToolBarContent>
-            <MudSelect T="bool?" Text="Only sent notifications?" ValueChanged="c => OnNotificationSent(c)"></MudSelect>
+            @* TODO: fix the filters on all grids <MudSelect T="bool?" Text="Only sent notifications?" ValueChanged="c => OnNotificationSent(c)"></MudSelect> *@
         </ToolBarContent>
         <Columns>
             <PropertyColumn Property="x => x.QueryExecutionHistoryId" Title="Id"/>
@@ -24,6 +24,8 @@
     </MudDataGrid>
 </MudContainer>
 
+@inject Semantico.Core.Services.INotificationService service;
+
 @code {
     private QueryExecutionHistoryListData List { get; set; }
     MudDataGrid<QueryExecutionHistoryData>? _dataGrid;
@@ -32,8 +34,9 @@
     
     private async Task<GridData<QueryExecutionHistoryData>> ServerReload(GridState<QueryExecutionHistoryData> state)
     {
-        var request = DataGridHelper.BuildSortedRequest(state);
-        List = await service.GetQueryExecutionHistoryAsync(null, request, null, _notificationSent, CancellationToken.None);
+        var request = DataGridHelper.BuildSortedRequest<GetQueryExecutionHistoryRequest, QueryExecutionHistoryData>(state);
+        request.NotificationSent = _notificationSent;
+        List = await service.GetQueryExecutionHistory(request, new CancellationToken());
         
         return new GridData<QueryExecutionHistoryData> 
         {

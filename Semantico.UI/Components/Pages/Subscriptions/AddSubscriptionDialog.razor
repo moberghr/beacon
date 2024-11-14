@@ -84,7 +84,7 @@
         }
 
         _loading = true;
-        var response = await Service.CreateSubscriptionAsync(Subscription, CancellationToken.None);
+        var response = await Service.CreateSubscription(Subscription, CancellationToken.None);
         
         if (response.Success)
         {

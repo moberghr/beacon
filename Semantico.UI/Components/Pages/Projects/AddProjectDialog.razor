@@ -82,7 +82,7 @@
         }
 
         _loading = true;
-        var response = await Service.CreateProjectAsync(Project, CancellationToken.None);
+        var response = await Service.CreateProject(Project, CancellationToken.None);
         
         if (response.Success)
         {

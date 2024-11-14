@@ -41,7 +41,7 @@
     private async Task<GridData<SubscriptionData>> ServerReload(GridState
         <SubscriptionData> state)
     {
-        SubscriptionsList = await service.GetSubscriptionsAsync(null, null, null, _searchString, CancellationToken.None);
+        SubscriptionsList = await service.GetSubscriptions(null, null, null, _searchString, CancellationToken.None);
 
         return new GridData<SubscriptionData>
         {

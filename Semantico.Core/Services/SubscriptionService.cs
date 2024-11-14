@@ -1,6 +1,5 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using NCrontab.Advanced;
-using RestSharp.Extensions;
 using Semantico.Core.Data;
 using Semantico.Core.Data.Entities;
 using Semantico.Core.Data.Enums;
@@ -14,16 +13,15 @@ namespace Semantico.Core.Services;
 
 public interface ISubscriptionService
 {
-    Task<BaseResponse> CreateSubscriptionAsync(SubscriptionData subscriptionData, CancellationToken cancellationToken);
+    Task<BaseResponse> CreateSubscription(SubscriptionData subscriptionData, CancellationToken cancellationToken);
 
-    Task UpdateSubscriptionAsync(SubscriptionData subscriptionData, CancellationToken cancellationToken);
+    Task UpdateSubscription(SubscriptionData subscriptionData, CancellationToken cancellationToken);
 
-    Task DeleteSubscriptionAsync(int subscriptionId, CancellationToken cancellationToken);
+    Task DeleteSubscription(int subscriptionId, CancellationToken cancellationToken);
 
-    Task<List<SubscriptionData>> GetSubscriptionsAsync(int? subscriptionId, int? queryId, NotificationType? notificationType, string keyword, CancellationToken cancellationToken);
+    Task<List<SubscriptionData>> GetSubscriptions(int? subscriptionId, int? queryId, NotificationType? notificationType, string keyword, CancellationToken cancellationToken);
 
-    Task<SubscriptionDetailsData> GetSubscriptionDetailsAsync(int subscriptionId, CancellationToken cancellationToken);
-    
+    Task<SubscriptionDetailsData> GetSubscriptionDetails(int subscriptionId, CancellationToken cancellationToken);
 }
 
 internal class SubscriptionService : ISubscriptionService
@@ -37,7 +35,7 @@ internal class SubscriptionService : ISubscriptionService
         _semanticoScheduler = semanticoScheduler;
     }
 
-    public async Task<BaseResponse> CreateSubscriptionAsync(SubscriptionData subscriptionData, CancellationToken cancellationToken)
+    public async Task<BaseResponse> CreateSubscription(SubscriptionData subscriptionData, CancellationToken cancellationToken)
     {
         CrontabSchedule.Parse(subscriptionData.CronExpression);
 
@@ -80,7 +78,7 @@ internal class SubscriptionService : ISubscriptionService
         return new BaseResponse { Success = true, Message = "Subscription created successfully" };
     }
 
-    public async Task DeleteSubscriptionAsync(int subscriptionId, CancellationToken cancellationToken)
+    public async Task DeleteSubscription(int subscriptionId, CancellationToken cancellationToken)
     {
         var subscription = await _context.Subscriptions
             .Include(x => x.Parameters)
@@ -100,7 +98,7 @@ internal class SubscriptionService : ISubscriptionService
         await _context.SaveChangesAsync(cancellationToken);
     }
 
-    public async Task<List<SubscriptionData>> GetSubscriptionsAsync(int? subscriptionId, int? queryId, NotificationType? notificationType, string? keyword, CancellationToken cancellationToken)
+    public async Task<List<SubscriptionData>> GetSubscriptions(int? subscriptionId, int? queryId, NotificationType? notificationType, string? keyword, CancellationToken cancellationToken)
     {
         return await _context.Subscriptions
             .WhereIf(subscriptionId.HasValue, x => x.Id == subscriptionId)
@@ -125,7 +123,7 @@ internal class SubscriptionService : ISubscriptionService
             .ToListAsync(cancellationToken);
     }
 
-    public async Task UpdateSubscriptionAsync(SubscriptionData subscriptionData, CancellationToken cancellationToken)
+    public async Task UpdateSubscription(SubscriptionData subscriptionData, CancellationToken cancellationToken)
     {
         CrontabSchedule.Parse(subscriptionData.CronExpression);
 
@@ -181,7 +179,7 @@ internal class SubscriptionService : ISubscriptionService
         }
     }
 
-    public async Task<SubscriptionDetailsData> GetSubscriptionDetailsAsync(int subscriptionId, CancellationToken cancellationToken)
+    public async Task<SubscriptionDetailsData> GetSubscriptionDetails(int subscriptionId, CancellationToken cancellationToken)
     {
         var subscription = await _context.Subscriptions
             .IgnoreQueryFilters()

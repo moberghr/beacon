@@ -58,14 +58,7 @@ builder.Services.AddRazorComponents().AddInteractiveServerComponents();
 builder.Services.AddMudServices();
 builder.Services.AddSingleton<PageHistoryState>();
 builder.Services.AddBlazoredLocalStorage();
-builder.Services.AddApexCharts(e =>
-{
-    e.GlobalOptions = new ApexChartBaseOptions
-    {
-        Debug = true,
-        Theme = new Theme { Palette = PaletteType.Palette6, Mode = Mode.Dark}
-    };
-});
+builder.Services.AddApexCharts();
 
 
 var app = builder.Build();
