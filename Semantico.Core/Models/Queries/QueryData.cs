@@ -2,7 +2,7 @@
 
 public class QueryData
 {
-    public int? QueryId { get; init; }
+    public int? QueryId { get; set; }
 
     public string Name { get; set; }
 
@@ -10,11 +10,11 @@ public class QueryData
     
     public DateTime CreatedTime { get; set; }
 
-    public required string SqlValue { get; init; }
+    public string SqlValue { get; set; }
 
-    public required int ProjectId { get; init; }
+    public int ProjectId { get; set; }
         
-    public required int SubscriptionsCount { get; init; }
+    public int SubscriptionsCount { get; set; }
 
-    public List<QueryParameterData> Parameters { get; init; } = new();
+    public List<QueryParameterData> Parameters { get; set; } = new();
 }

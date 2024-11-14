@@ -67,6 +67,7 @@ internal class ProjectService : IProjectService
             .WhereIf(projectId.HasValue, x => x.Id == projectId)
             .Select(x => new ProjectListData
             {
+                Id = x.Id,
                 Name = x.Name,
                 DatabaseEngineType = x.DatabaseEngineType,
                 Queries = x.Queries.Select(y => new QueryData

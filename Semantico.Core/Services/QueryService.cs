@@ -11,9 +11,9 @@ namespace Semantico.Core.Services;
 
 public interface IQueryService
 {
-    Task CreateQueryAsync(QueryData queryData, CancellationToken cancellationToken);
+    Task<BaseResponse> CreateQueryAsync(QueryData queryData, CancellationToken cancellationToken);
 
-    Task UpdateQueryAsync(QueryData queryData, CancellationToken cancellationToken);
+    Task<BaseResponse> UpdateQueryAsync(QueryData queryData, CancellationToken cancellationToken);
 
     Task DeleteQueryAsync(int queryId, CancellationToken cancellationToken);
 
@@ -67,7 +67,7 @@ internal class QueryService : IQueryService
         _context = context;
     }
 
-    public async Task CreateQueryAsync(QueryData queryData, CancellationToken cancellationToken)
+    public async Task<BaseResponse> CreateQueryAsync(QueryData queryData, CancellationToken cancellationToken)
     {
         QueryValidator.CheckForFlaggedWords(queryData.SqlValue);
 
@@ -76,7 +76,9 @@ internal class QueryService : IQueryService
         var query = new Query
         {
             SqlValue = queryData.SqlValue,
-            ProjectId = queryData.ProjectId
+            ProjectId = queryData.ProjectId,
+            Name = queryData.Name,
+            Description = queryData.Description
         };
 
         _context.Queries.Add(query);
@@ -96,6 +98,12 @@ internal class QueryService : IQueryService
         }
 
         await _context.SaveChangesAsync(cancellationToken);
+
+        return new BaseResponse
+        {
+            Message = "Saved successfuly",
+            Success = true
+        };
     }
 
     public async Task DeleteQueryAsync(int queryId, CancellationToken cancellationToken)
@@ -182,7 +190,7 @@ internal class QueryService : IQueryService
                 }).SingleAsync(cancellationToken);
     }
 
-    public async Task UpdateQueryAsync(QueryData queryData, CancellationToken cancellationToken)
+    public async Task<BaseResponse> UpdateQueryAsync(QueryData queryData, CancellationToken cancellationToken)
     {
         var query = await _context.Queries
             .Include(query => query.Parameters)
@@ -214,5 +222,11 @@ internal class QueryService : IQueryService
         }
 
         await _context.SaveChangesAsync(cancellationToken);
+
+        return new BaseResponse
+        {
+            Message = "Saved successfuly",
+            Success = true
+        };
     }
 }
