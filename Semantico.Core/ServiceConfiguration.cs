@@ -20,21 +20,21 @@ public static class ServiceConfiguration
 {
     public static IServiceCollection AddSemantico(this IServiceCollection services, IConfiguration configuration, Action<SemanticoConfiguration> semanticoConfiguration)
     {
+        var configurationOptions = new SemanticoConfiguration();
+        semanticoConfiguration(configurationOptions);
+        configurationOptions.Validate();
+
         services.AddDbContext<SemanticoContext>((options) =>
         {
-            options.UseNpgsql(configuration.GetConnectionString(nameof(SemanticoContext)))
+            options.UseNpgsql(configuration.GetConnectionString(configurationOptions.ConnectionStringName))
                 .UseSnakeCaseNamingConvention();
         });
 
-        var options = new SemanticoConfiguration();
-        semanticoConfiguration(options);
-        options.Validate();
-
         services.AddHttpClient();
         services.TryAddSingleton<IAdapter, TeamsAdapter>();
-        if (options.EmailSender != null)
+        if (configurationOptions.EmailSender != null)
         {
-            services.TryAddSingleton(typeof(IEmailSender), options.EmailSender);
+            services.TryAddSingleton(typeof(IEmailSender), configurationOptions.EmailSender);
             services.TryAddSingleton<IAdapter, EmailAdapter>();
         }
         services.TryAddSingleton<IAdapter, JiraAdapter>();
@@ -48,7 +48,7 @@ public static class ServiceConfiguration
         services.TryAddTransient<ISubscriptionService, SubscriptionService>();
         services.TryAddTransient<IStatisticsService, StatisticsService>();
 
-        services.TryAddTransient(typeof(ISemanticoScheduler), options.SemanticoScheduler!);
+        services.TryAddTransient(typeof(ISemanticoScheduler), configurationOptions.SemanticoScheduler!);
 
         return services;
     }
@@ -66,6 +66,8 @@ public static class ServiceConfiguration
 
 public class SemanticoConfiguration
 {
+    public string ConnectionStringName { get; set; } = nameof(SemanticoContext);
+
     public void AddSemanticoScheduler<T>() where T : class, ISemanticoScheduler
     {
         SemanticoScheduler = typeof(T);
