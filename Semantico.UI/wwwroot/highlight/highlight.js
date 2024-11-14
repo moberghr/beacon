@@ -25,8 +25,6 @@ window.loadCss = (url) => {
 };
 
 
-
-
 /*!
   Highlight.js v11.10.0 (git: 366a8bd012)
   (c) 2006-2024 Josh Goebel <hello@joshgoebel.com> and other contributors

@@ -48,16 +48,25 @@
 
 @inject IBrowserViewportService BrowserViewportService
 @inject ILocalStorageService LocalStorage
+@inject IJSRuntime JS
 @code
 {
     private static bool _isDark = true;
     private Breakpoint _breakpoint;
-    
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         _breakpoint = await BrowserViewportService.GetCurrentBreakpointAsync();
         var isDark = await LocalStorage.GetItemAsync<string>("IsDark");
         _isDark = isDark == "True";
+        if (_isDark)
+        {
+            await JS.InvokeVoidAsync("loadCss", "./_content/Semantico.UI/highlight/styles/github-dark.css");
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("loadCss", "./_content/Semantico.UI/highlight/styles/github.css");
+        }
         await base.OnAfterRenderAsync(firstRender);
     }
 
@@ -65,5 +74,14 @@
     {
         _isDark = !_isDark;
         await LocalStorage.SetItemAsync("IsDark", _isDark.ToString()); 
+
+        if (_isDark)
+        {
+            await JS.InvokeVoidAsync("loadCss", "./_content/Semantico.UI/highlight/styles/github-dark.css");
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("loadCss", "./_content/Semantico.UI/highlight/styles/github.css");
+        }
     }
 }
