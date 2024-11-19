@@ -32,9 +32,9 @@ public static class ServiceConfiguration
 
         services.AddHttpClient();
         services.TryAddSingleton<IAdapter, TeamsAdapter>();
-        if (configurationOptions.EmailSender != null)
+        if (configurationOptions.EmailAdapter != null)
         {
-            services.TryAddSingleton(typeof(IEmailSender), configurationOptions.EmailSender);
+            services.TryAddSingleton(typeof(IEmailAdapter), configurationOptions.EmailAdapter);
             services.TryAddSingleton<IAdapter, EmailAdapter>();
         }
         services.TryAddSingleton<IAdapter, JiraAdapter>();
@@ -73,14 +73,14 @@ public class SemanticoConfiguration
         SemanticoScheduler = typeof(T);
     }
 
-    public void AddEmailSender<T>() where T : class, IEmailSender
+    public void AddEmailAdapter<T>() where T : class, IEmailAdapter
     {
-        SemanticoScheduler = typeof(T);
+        EmailAdapter = typeof(T);
     }
 
     internal Type? SemanticoScheduler { get; set; }
 
-    internal Type? EmailSender { get; set; }
+    internal Type? EmailAdapter { get; set; }
 
     internal void Validate()
     {

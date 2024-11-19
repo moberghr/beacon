@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 
 namespace Semantico.Core.Adapters.Mail
 {
-    public interface IEmailSender
+    public interface IEmailAdapter
     {
         public Task SendEmailAsync(string to, string subject, string body);
     }

@@ -4,11 +4,11 @@ namespace Semantico.Core.Adapters.Mail;
 
 internal class EmailAdapter : IAdapter
 {
-    private readonly IEmailSender _emailAdapter;
+    private readonly IEmailAdapter _emailAdapter;
 
     public NotificationType NotificationType => NotificationType.Email;
 
-    public EmailAdapter(IEmailSender emailAdapter)
+    public EmailAdapter(IEmailAdapter emailAdapter)
     {
         _emailAdapter = emailAdapter;
     }

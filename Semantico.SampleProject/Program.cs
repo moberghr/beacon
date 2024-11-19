@@ -4,7 +4,6 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Models;
 using Semantico.Api.Services;
 using Semantico.UI;
-using Semantico.Web;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -57,8 +56,6 @@ app.UseSwaggerUI(x =>
 app.UseHttpsRedirection();
 
 app.UseAuthorization();
-
-app.UseSemanticoApi();
 
 //SEMANTICO admin UI setup
 app.UseSemanticoUI();

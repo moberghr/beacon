@@ -3,7 +3,6 @@ using Hangfire.PostgreSql;
 using Microsoft.EntityFrameworkCore;
 using Semantico.Api.Services;
 using Semantico.Core;
-using Semantico.Web;
 using Semantico.Api.Hangfire;
 using Microsoft.OpenApi.Models;
 
@@ -65,8 +64,6 @@ app.UseAuthorization();
 
 // use semantico
 app.UseSemantico();
-// or use semantico with endpoints
-app.UseSemanticoApi();
 
 app.MapHangfireDashboard(new DashboardOptions
 {

@@ -34,10 +34,6 @@ namespace Semantico.UI
             app.MapRazorComponents<SemanticoApp>()
                 .AddInteractiveServerRenderMode();
 
-            app.MapGroup("/xxx")
-                .MapRazorComponents<SemanticoApp>()
-                .AddInteractiveServerRenderMode();
-
             app.UseStaticFiles();
 
             return app;
