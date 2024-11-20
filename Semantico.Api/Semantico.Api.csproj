@@ -34,7 +34,6 @@
 
 	<ItemGroup>
 	  <ProjectReference Include="..\Semantico.Core\Semantico.Core.csproj" />
-	  <ProjectReference Include="..\Semantico.Web\Semantico.Web.csproj" />
 	</ItemGroup>
 
 </Project>

@@ -6,6 +6,7 @@ using Semantico.Core.Helpers;
 using Semantico.Core.Models;
 using Semantico.Core.Models.Queries;
 using Semantico.Core.Validators;
+using Semantico.Core.Worker;
 
 namespace Semantico.Core.Services;
 

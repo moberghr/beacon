@@ -1,21 +1,9 @@
-using System;
-using ApexCharts;
-using Blazored.LocalStorage;
 using Hangfire;
 using Hangfire.PostgreSql;
-using Microsoft.AspNetCore.Builder;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Internal;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.OpenApi.Models;
-using MudBlazor.Services;
 using Semantico.Api.Services;
-using Semantico.Core;
-using Semantico.Core.Data;
-using Semantico.UI.Components;
-using Semantico.UI.Components.Shared;
-using Semantico.Web;
+using Semantico.UI;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -53,13 +41,10 @@ builder.Services.AddHangfire((provider, hangfireConfiguration) => hangfireConfig
 ;
 
 //SEMANTICO setup
-builder.Services.AddSemantico<SemanticoScheduler>(builder.Configuration);
-builder.Services.AddRazorComponents().AddInteractiveServerComponents();
-builder.Services.AddMudServices();
-builder.Services.AddSingleton<PageHistoryState>();
-builder.Services.AddBlazoredLocalStorage();
-builder.Services.AddApexCharts();
-
+builder.Services.AddSemanticoAdmin(builder.Configuration, options =>
+{
+    options.AddSemanticoScheduler<SemanticoScheduler>();
+});
 
 var app = builder.Build();
 
@@ -70,23 +55,9 @@ app.UseSwaggerUI(x =>
 
 app.UseHttpsRedirection();
 
-app.UseSemantico();
-app.UseSemanticoApi();
-
 app.UseAuthorization();
 
-app.UseAntiforgery();
-
-
-app
-    .MapRazorComponents<SemanticoApp>()
-    .AddInteractiveServerRenderMode();
-
-
-app.MapGroup("/xxx")
-    .MapRazorComponents<SemanticoApp>()
-    .AddInteractiveServerRenderMode();
-
-app.UseStaticFiles();
+//SEMANTICO admin UI setup
+app.UseSemanticoUI();
 
 app.Run();
