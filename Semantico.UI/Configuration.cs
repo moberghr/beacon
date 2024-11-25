@@ -29,8 +29,6 @@ namespace Semantico.UI
         {
             app.UseSemantico();
 
-            app.UseAntiforgery();
-
             app.MapRazorComponents<SemanticoApp>()
                 .AddInteractiveServerRenderMode();
 
