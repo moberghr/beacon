@@ -11,6 +11,8 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Semantico.UI", "Semantico.U
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Semantico.SampleProject", "Semantico.SampleProject\Semantico.SampleProject.csproj", "{C3BEF32C-0C1B-4348-8D9D-3DAF7A03392C}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Test", "Test", "{03B08263-40FB-4846-8ECD-21C47B6156D2}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -36,6 +38,10 @@ Global
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{6F597D65-E754-40DB-BB7D-0BCAE2AE1D25} = {03B08263-40FB-4846-8ECD-21C47B6156D2}
+		{C3BEF32C-0C1B-4348-8D9D-3DAF7A03392C} = {03B08263-40FB-4846-8ECD-21C47B6156D2}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {7E41E827-707B-47AF-ABA6-807C8C7D2470}
