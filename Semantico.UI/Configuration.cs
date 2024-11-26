@@ -32,6 +32,8 @@ namespace Semantico.UI
             app.MapRazorComponents<SemanticoApp>()
                 .AddInteractiveServerRenderMode();
 
+            app.UseAntiforgery();
+
             app.UseStaticFiles();
 
             return app;
