@@ -26,7 +26,8 @@ public static class ServiceConfiguration
 
         services.AddDbContext<SemanticoContext>((options) =>
         {
-            options.UseNpgsql(configuration.GetConnectionString(configurationOptions.ConnectionStringName))
+            options.UseNpgsql(configuration.GetConnectionString(configurationOptions.ConnectionStringName),
+                builder => builder.MigrationsHistoryTable("__EFMigrationsHistory", "semantico"))
                 .UseSnakeCaseNamingConvention();
         });
 
