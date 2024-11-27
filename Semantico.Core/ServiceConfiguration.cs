@@ -13,7 +13,6 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Semantico.Core.Adapters;
 using Semantico.Core.Models;
-using MySqlX.XDevAPI;
 
 namespace Semantico.Core;
 
