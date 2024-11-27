@@ -1,21 +1,20 @@
 ﻿using Semantico.Core.Data.Enums;
 
-namespace Semantico.Core.Models.Subscriptions
+namespace Semantico.Core.Models.Subscriptions;
+
+public class SubscriptionData
 {
-    public class SubscriptionData
-    {
-        public int? SubscriptionId { get; init; }
+    public int? SubscriptionId { get; set; }
 
-        public required string Name { get; init; }
+    public string Name { get; set; }
 
-        public required int QueryId { get; init; }
+    public int QueryId { get; set; }
 
-        public required string CronExpression { get; init; }
+    public string CronExpression { get; set; }
 
-        public required NotificationType NotificationType { get; init; }
+    public NotificationType NotificationType { get; set; }
 
-        public required string Recipient { get; init; }
+    public string Recipient { get; set; }
 
-        public required List<SubscriptionParamaterData> Parameters { get; init; }
-    }
+    public List<SubscriptionParamaterData> Parameters { get; set; } = new();
 }

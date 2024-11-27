@@ -1,0 +1,99 @@
+﻿@using ApexCharts
+@using Blazored.LocalStorage
+@using Color = MudBlazor.Color
+@inherits LayoutComponentBase
+
+@* Required *@
+<MudThemeProvider IsDarkMode="@_isDark" />
+<MudPopoverProvider />
+
+@* Needed for dialogs *@
+<MudDialogProvider />
+
+@* Needed for snackbars *@
+<MudSnackbarProvider />
+
+<link href="https://fonts.googleapis.com/css?family=Roboto:300,400,500,700&display=swap" rel="stylesheet" />
+<link href="_content/MudBlazor/MudBlazor.min.css" rel="stylesheet" />
+
+<MudLayout>
+    <MudAppBar Elevation="0" Dense="true" ToolBarClass="pl-1 pr-1">
+        <HomeButton />
+        <MudSpacer />
+        <ThemeIconButton @bind-IsDark="@_isDark" OnClick="@ChangeTheme" />
+        <MudIconButton OnClick="() => { }" Icon="@Icons.Material.Filled.Settings" Color="Color.Inherit" />
+    </MudAppBar>
+    <MudDrawer Open="true" ClipMode="DrawerClipMode.Always" Elevation="2" Width="250px">
+        <MudNavMenu>
+            <MudText Typo="Typo.h6" Class="px-4">Moberg</MudText>
+            <MudText Typo="Typo.body2" Class="px-4 mud-text-secondary">v0.1.1</MudText>
+            <MudDivider Class="my-2"/>
+            <MudNavLink Href="/semantico/">Home</MudNavLink>
+            <MudNavLink Href="/semantico/projects">Projects</MudNavLink>
+            <MudNavLink Href="/semantico/queries">Queries</MudNavLink>
+            <MudNavLink Href="/semantico/subscriptions">Subscriptions</MudNavLink>
+            <MudNavLink Href="/semantico/notifications">Notifications</MudNavLink>
+            <MudNavLink Href="/about" Disabled="true">About</MudNavLink>
+        </MudNavMenu>
+    </MudDrawer>
+    <MudMainContent Class="pb-12">
+        @Body
+    </MudMainContent>
+</MudLayout>
+
+<script src="_content/MudBlazor/MudBlazor.min.js"></script>
+<div id="blazor-error-ui">
+    An unhandled error has occurred.
+    <a href="" class="reload">Reload</a>
+    <a class="dismiss">🗙</a>
+</div>
+
+@inject IBrowserViewportService BrowserViewportService
+@inject ILocalStorageService LocalStorage
+@inject IJSRuntime JS
+@inject IApexChartService ApexChartService
+
+@code
+{
+    private static bool _isDark = true;
+    private Breakpoint _breakpoint;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        _breakpoint = await BrowserViewportService.GetCurrentBreakpointAsync();
+        _isDark = await LocalStorage.GetItemAsync<string>("IsDark") == "True";
+
+        await LoadTheme();
+        
+        await base.OnAfterRenderAsync(firstRender);
+    }
+
+    private async Task ChangeTheme()
+    {
+        _isDark = !_isDark;
+        await LocalStorage.SetItemAsync("IsDark", _isDark.ToString()); 
+        await LoadTheme();
+    }
+    
+    private async Task LoadTheme()
+    {
+        if (_isDark)
+        {
+            await JS.InvokeVoidAsync("loadCss", "./_content/Semantico.UI/highlight/styles/github-dark.css");
+            ApexChartService.GlobalOptions.Theme = new Theme()
+            {
+                Mode = Mode.Dark,
+                Palette = PaletteType.Palette5
+            };
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("loadCss", "./_content/Semantico.UI/highlight/styles/github.css");
+            ApexChartService.GlobalOptions.Theme = new Theme()
+            {
+                Mode = Mode.Light,
+                Palette = PaletteType.Palette5
+            };
+        }
+    }
+}

@@ -1,7 +1,6 @@
-﻿namespace Semantico.Core.Worker
+﻿namespace Semantico.Core.Worker;
+
+public interface IJobService
 {
-    public interface IJobService
-    {
-        Task ExecuteQuery(int subscriptionId);
-    }
+    Task ExecuteQuery(int subscriptionId);
 }

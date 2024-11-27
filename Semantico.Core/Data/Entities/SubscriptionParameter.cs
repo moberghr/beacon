@@ -4,7 +4,7 @@ namespace Semantico.Core.Data.Entities;
 
 internal class SubscriptionParameter : ArchivableBaseEntity
 {
-    public required int SubscriptionId { get; set; }
+    public int SubscriptionId { get; set; }
 
     public Subscription Subscription { get; set; } = null!;
 

@@ -5,8 +5,6 @@ namespace Semantico.Core.Data.Entities;
 
 internal class Subscription : ArchivableBaseEntity
 {
-    public required string Name { get; set; }
-
     public required int QueryId { get; set; }
 
     public required string CronExpression { get; set; }

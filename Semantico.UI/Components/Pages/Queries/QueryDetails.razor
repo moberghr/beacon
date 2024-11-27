@@ -1,0 +1,154 @@
+﻿@page "/semantico/queries/details/{id:int}"
+@inherits BasePageComponent
+@using Semantico.Core.Models.Subscriptions
+@using Semantico.Core.Services
+@using Semantico.UI.Components.Custom
+@using Semantico.UI.Components.Pages.Subscriptions
+
+<SemanticoPageTitle Title="Query"/>
+
+<MudContainer Class="my-4 px-4">
+    <SemanticoPageHeader Icon="@Icons.Material.Filled.QueryStats" Title="@($"Query details: {Model?.Name}")" ButtonText="Add subscription" OnClick="@AddSubscription"/>
+    <MudCard Class="px-2">
+        <MudCardContent>
+            @if (_loading)
+            {
+                <MudSkeleton Animation="Animation.Wave"/>
+            }
+            else
+            {
+                @* <MudGrid Class="align-center"> *@
+                @*     <MudItem xs="12" sm="9" md="9" lg="9"> *@
+                @*         <MudText Typo="Typo.h5" Style="font-weight: bold">Query: @Model?.Id</MudText> *@
+                @*     </MudItem> *@
+                @* </MudGrid> *@
+            }
+        </MudCardContent>
+    </MudCard>
+
+    <MudCard Class="my-4 px-2">
+        <MudCardContent>
+            @if (_loading)
+            {
+                <MudSkeleton Animation="Animation.Wave"/>
+            }
+            else
+            {
+                <MudGrid Justify="Justify.FlexStart" Spacing="1">
+                    <MudItem xs="12" sm="6" md="6" lg="6">
+                        <MudStack Spacing="1">
+                            <MudText>
+                                <strong>Query:</strong> @Model?.Id
+                            </MudText>
+                            <MudText>
+                                <strong>Project:</strong> @Model?.ProjectName
+                            </MudText>
+                            <MudText>
+                                <strong>Created:</strong> @Model?.CreatedTime
+                            </MudText>
+                        </MudStack>
+                    </MudItem>
+                    <MudItem xs="12" sm="6" md="6" lg="6">
+                        <MudStack Spacing="1">
+                            <MudText>
+                                <strong>Sql:</strong> <CodeHiglight Code="@Model?.SqlValue"></CodeHiglight>
+                            </MudText>
+                            <MudText>
+                                <strong>Parameters:</strong> @Model?.Parameters.ToJson()
+                            </MudText>
+                            <MudStack Row="true" AlignItems="AlignItems.Center">
+                                <MudText>
+                                    <strong>Notifications sent/total</strong>
+                                </MudText>
+                                <MudProgressLinear Color="Color.Primary" Rounded="true" Size="Size.Large" Value="@decimal.ToDouble(Model?.SentNotifications ?? 0)" Min="0" Max="@decimal.ToDouble(Model?.TotalExecutions ?? 0)" Style="height: 24px">
+                                    <MudText Typo="Typo.body1">
+                                        <b>@Model?.SentNotifications / @Model?.TotalExecutions</b>
+                                    </MudText>
+                                </MudProgressLinear>
+                            </MudStack>
+                        </MudStack>
+                    </MudItem>
+                    <MudItem>
+                        <MudStack Spacing="1">
+                        </MudStack>
+                    </MudItem>
+                </MudGrid>
+            }
+        </MudCardContent>
+        <MudCardContent>
+            <MudItem xs="12">
+                <MudTable Items="@Model?.Subscriptions" Hover="true">
+                    <HeaderContent>
+                        <MudTh>Subscription ID</MudTh>
+                        <MudTh>Name</MudTh>
+                        <MudTh>Cron Expression</MudTh>
+                        <MudTh>Recipient</MudTh>
+                        <MudTh>Notification Type</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Subscription ID">@context.SubscriptionId</MudTd>
+                        <MudTd DataLabel="Cron Expression">@context.CronExpression</MudTd>
+                        <MudTd DataLabel="Recipient">@context.Recipient</MudTd>
+                        <MudTd DataLabel="Notification Type">@context.NotificationType</MudTd>
+                    </RowTemplate>
+                </MudTable>
+            </MudItem>
+
+        </MudCardContent>
+    </MudCard>
+</MudContainer>
+
+@inject IQueryService Service
+@inject IDialogService DialogService
+
+@code
+{
+    [Parameter]
+    public int Id { get; set; }
+
+    public QueryDetailsData? Model;
+
+    private bool _loading;
+    
+    protected override async Task OnInitializedAsync()
+    {
+        await Load();
+    }
+
+    private async Task Load()
+    {
+        _loading = true;
+
+        Model = await Service.GetQueryDetails(Id, new CancellationToken());
+
+        _loading = false;
+    }
+
+    private async Task AddSubscription()
+    {
+        var breakpoint = await BrowserViewport.GetCurrentBreakpointAsync();
+        var options = new DialogOptions {
+            MaxWidth = MaxWidth.Small,
+            FullWidth = true,
+            FullScreen = breakpoint == Breakpoint.Xs,
+        };
+        
+        var subscription = new SubscriptionData {
+            QueryId = Id
+        };
+        
+        var parameters = new DialogParameters<AddSubscriptionDialog> { { x => x.Subscription, subscription } };
+
+        var dialog = await DialogService.ShowAsync<AddSubscriptionDialog>("", parameters, options);
+
+        var result = await dialog.Result;
+
+        if (result!.Canceled)
+        {
+            return;
+        }
+        
+        // TODO: we could just reload the subscriptions instead of the whole page
+        await Load();
+    }
+}

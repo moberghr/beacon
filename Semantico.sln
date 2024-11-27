@@ -5,9 +5,13 @@ VisualStudioVersion = 17.6.33706.43
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Semantico.Api", "Semantico.Api\Semantico.Api.csproj", "{6F597D65-E754-40DB-BB7D-0BCAE2AE1D25}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Semantico.Core", "Semantico.Core\Semantico.Core.csproj", "{541E5738-AA0A-4CA4-8397-B0260F287E24}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Semantico.Core", "Semantico.Core\Semantico.Core.csproj", "{541E5738-AA0A-4CA4-8397-B0260F287E24}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Semantico.Web", "Semantico.Web\Semantico.Web.csproj", "{91ABE5B0-8F6B-440D-96B5-9F536D175264}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Semantico.UI", "Semantico.UI\Semantico.UI.csproj", "{C486F558-2FAD-4315-B8A5-3AC2DAD7D286}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Semantico.SampleProject", "Semantico.SampleProject\Semantico.SampleProject.csproj", "{C3BEF32C-0C1B-4348-8D9D-3DAF7A03392C}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Test", "Test", "{03B08263-40FB-4846-8ECD-21C47B6156D2}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -23,13 +27,21 @@ Global
 		{541E5738-AA0A-4CA4-8397-B0260F287E24}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{541E5738-AA0A-4CA4-8397-B0260F287E24}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{541E5738-AA0A-4CA4-8397-B0260F287E24}.Release|Any CPU.Build.0 = Release|Any CPU
-		{91ABE5B0-8F6B-440D-96B5-9F536D175264}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{91ABE5B0-8F6B-440D-96B5-9F536D175264}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{91ABE5B0-8F6B-440D-96B5-9F536D175264}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{91ABE5B0-8F6B-440D-96B5-9F536D175264}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C486F558-2FAD-4315-B8A5-3AC2DAD7D286}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C486F558-2FAD-4315-B8A5-3AC2DAD7D286}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C486F558-2FAD-4315-B8A5-3AC2DAD7D286}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C486F558-2FAD-4315-B8A5-3AC2DAD7D286}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C3BEF32C-0C1B-4348-8D9D-3DAF7A03392C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C3BEF32C-0C1B-4348-8D9D-3DAF7A03392C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C3BEF32C-0C1B-4348-8D9D-3DAF7A03392C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C3BEF32C-0C1B-4348-8D9D-3DAF7A03392C}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{6F597D65-E754-40DB-BB7D-0BCAE2AE1D25} = {03B08263-40FB-4846-8ECD-21C47B6156D2}
+		{C3BEF32C-0C1B-4348-8D9D-3DAF7A03392C} = {03B08263-40FB-4846-8ECD-21C47B6156D2}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {7E41E827-707B-47AF-ABA6-807C8C7D2470}

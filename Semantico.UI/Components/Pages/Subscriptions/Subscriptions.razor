@@ -1,0 +1,69 @@
+﻿@page "/semantico/subscriptions"
+@inherits BasePageComponent 
+@using Semantico.Core.Models.Subscriptions
+@using Semantico.Core.Services
+
+<SemanticoPageTitle Title="Queries"/>
+
+<MudContainer Class="my-4 px-4">
+    <SemanticoPageHeader Icon="@Icons.Material.Filled.QueryBuilder" Title="Subscriptions"/>
+    <SemanticoPageAlert Text="List of defined subscriptions."/>
+    <MudDataGrid @ref="_dataGrid" ServerData="ServerReload" T="SubscriptionData" RowClick="OnRowClick" Hover="true" Filterable="false">
+        <ToolBarContent>
+            <MudTextField T="string" ValueChanged="@(s => OnSearch(s))" Placeholder="Search" Adornment="Adornment.Start"
+                          Immediate="true"
+                          AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium" Class="mt-0">
+            </MudTextField>
+
+        </ToolBarContent>
+
+        <Columns>
+            <PropertyColumn Property="x => x.SubscriptionId" Title="Id"/>
+            <PropertyColumn Property="x => x.Name" Title="Name"/>
+            <PropertyColumn Property="x => x.CronExpression" Title="Cron Expression"/>
+            <PropertyColumn Property="x => x.Recipient" Title="Recipient"/>
+            <PropertyColumn Property="x => x.NotificationType" Title="Notification Type"/>
+        </Columns>
+        <PagerContent>
+            <MudDataGridPager T="SubscriptionData"/>
+        </PagerContent>
+    </MudDataGrid>
+</MudContainer>
+
+@inject ISubscriptionService service;
+
+@code {
+    private List<SubscriptionData> SubscriptionsList { get; set; } = new();
+    MudDataGrid<SubscriptionData>? _dataGrid;
+    private bool _loading;
+    private string _searchString;
+
+    private async Task<GridData<SubscriptionData>> ServerReload(GridState
+        <SubscriptionData> state)
+    {
+        SubscriptionsList = await service.GetSubscriptions(null, null, null, _searchString, CancellationToken.None);
+
+        return new GridData<SubscriptionData>
+        {
+            TotalItems = SubscriptionsList.Count(),
+            Items = SubscriptionsList
+        };
+    }
+
+    private void OnSearch(string text)
+    {
+        _searchString = text;
+        _dataGrid?.ReloadServerData();
+    }
+
+    private async Task OnRowClick(DataGridRowClickEventArgs<SubscriptionData> args)
+    {
+        NavManager.NavigateTo($"/semantico/subscriptions/details/{args.Item.SubscriptionId}");
+    }
+
+    private void NewSubscription()
+    {
+        NavManager.NavigateTo("/semantico/subscriptions/create");
+    }
+
+}

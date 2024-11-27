@@ -1,0 +1,103 @@
+﻿@page "/semantico"
+@using Semantico.Core.Models.QueryExecutionHistory
+@inherits BasePageComponent
+@using ApexCharts
+
+<SemanticoPageTitle Title="Dashboard"/>
+
+<MudContainer Class="my-4 px-4">
+    <SemanticoPageHeader Icon="@Icons.Material.Filled.Dashboard" Title="Dashboard"/>
+    <MudCard Class="my-4 px-2">
+        <MudCardContent>
+            <MudGrid Justify="Justify.FlexStart" Spacing="1">
+                <MudItem xs="12" sm="6" md="6" lg="6">
+                    <MudStack Spacing="1">
+                        <MudAlert>Queries executed and notifications sent last 30 days</MudAlert>
+                        <ApexChart TItem="NotificationDateStatisticsData">
+                            <ApexPointSeries TItem="NotificationDateStatisticsData"
+                                             Items="notificationStatisticsData?.NotificationDateStatistics"
+                                             Name="Notifications sent"
+                                             SeriesType="SeriesType.Line"
+                                             XValue="e => e.Date.ToShortDate()"
+                                             YValue="e => e.NotificationsSent"/>
+
+                            <ApexPointSeries TItem="NotificationDateStatisticsData"
+                                             Items="notificationStatisticsData?.NotificationDateStatistics"
+                                             Name="Queries executed"
+                                             SeriesType="SeriesType.Line"
+                                             XValue="e => e.Date.ToShortDate()"
+                                             YValue="e => e.TotalQueries"/>
+                        </ApexChart>
+                    </MudStack>
+                </MudItem>
+                <MudItem xs="12" sm="6" md="6" lg="6">
+                    <MudStack Spacing="1">
+                        <MudAlert Icon="@Icons.Material.Filled.Analytics">Overall system statistics</MudAlert>
+                        <MudStack Row="true">
+                            <MudPaper Class="pa-6">
+                                <MudTooltip Text="Total queries">
+                                    <MudStack Row="true">
+                                        <MudAvatar Size="MudBlazor.Size.Large">
+                                            <MudIcon Icon="@Icons.Material.Rounded.QueryBuilder"></MudIcon>
+                                        </MudAvatar>
+                                        <MudStack Justify="Justify.Center" Spacing="0">
+                                            <MudText Typo="Typo.body1">Total queries</MudText>
+                                            <MudText Typo="Typo.h5">@dashboardStatistics?.TotalQueries</MudText>
+                                        </MudStack>
+                                    </MudStack>
+                                </MudTooltip>
+                            </MudPaper>
+                            <MudPaper Class="pa-6">
+                                <MudTooltip Text="Active / total subscriptions">
+                                    <MudStack Row="true">
+                                        <MudAvatar Size="MudBlazor.Size.Large">
+                                            <MudIcon Icon="@Icons.Material.Rounded.Subscriptions"></MudIcon>
+                                        </MudAvatar>
+                                        <MudStack Justify="Justify.Center" Spacing="0">
+                                            <MudText Typo="Typo.body1">Subscriptions</MudText>
+                                            <MudText Typo="Typo.h5">@dashboardStatistics?.ActiveSubscriptions / @dashboardStatistics?.TotalSubscriptions</MudText>
+                                        </MudStack>
+                                    </MudStack>
+                                </MudTooltip>
+                            </MudPaper>
+                        </MudStack>
+                        <MudPaper Class="pa-6">
+                            <MudTooltip Text="Notifications and queries executed. If the query has 0 results, or there is already active notification with same results as existing query, we will not send it.">
+                                <MudStack Row="true">
+                                    <MudAvatar Size="MudBlazor.Size.Large">
+                                        <MudIcon Icon="@Icons.Material.Rounded.Numbers"></MudIcon>
+                                    </MudAvatar>
+                                    <MudStack Justify="Justify.Center" Spacing="0">
+                                        <MudText Typo="Typo.body1">Total query executions and notifications sent</MudText>
+                                        <MudText Typo="Typo.h5">@dashboardStatistics?.TotalQueriesExecuted / @dashboardStatistics?.TotalNotificationsSent</MudText>
+                                    </MudStack>
+                                </MudStack>
+                            </MudTooltip>
+                        </MudPaper>
+
+                    </MudStack>
+                </MudItem>
+            </MudGrid>
+        </MudCardContent>
+    </MudCard>
+
+</MudContainer>
+
+@inject Semantico.Core.Services.INotificationService notificationService;
+@inject Semantico.Core.Services.IStatisticsService statisticsService;
+
+@code {
+    private int Index = -1; //default value cannot be 0 -> first selectedindex is 0
+    public ChartOptions _options = new ChartOptions();
+    private NotificationStatisticsData? notificationStatisticsData;
+    private DashboardStatisticsData? dashboardStatistics;
+    private List<ChartSeries> _chartSeries;
+    private string[] XAxisLabels = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        notificationStatisticsData = await notificationService.GetNotificationStatistics(CancellationToken.None);
+        dashboardStatistics = await statisticsService.GetDashboardStatistics(CancellationToken.None);
+    }
+
+}

@@ -1,12 +1,8 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Semantico.Core.Adapters;
-using Semantico.Core.Adapters.Jira;
-using Semantico.Core.Adapters.Mail;
-using Semantico.Core.Adapters.Teams;
 using Semantico.Core.Data;
 using Semantico.Core.Data.Enums;
 using Semantico.Core.Helpers;
-using Semantico.Core.Models;
 using Semantico.Core.Models.QueryExecutionHistory;
 
 namespace Semantico.Core.Services;
@@ -16,16 +12,13 @@ internal class NotificationService : INotificationService
     private readonly SemanticoContext _context;
     private readonly AdapterFactory _adapterFactory;
 
-    public NotificationService(
-        SemanticoContext context,
-        AdapterFactory adapterFactory
-    )
+    public NotificationService(SemanticoContext context, AdapterFactory adapterFactory)
     {
         _context = context;
         _adapterFactory = adapterFactory;
     }
 
-    public async Task SendNotificationAsync(NotificationType notificationType, RecipientQueryResult recipientQueryResult, int? lastExecutedQueryResultCount)
+    public async Task SendNotification(NotificationType notificationType, RecipientQueryResult recipientQueryResult, int? lastExecutedQueryResultCount)
     {
         var adapter = _adapterFactory.GetAdapterService(notificationType);
 
@@ -39,37 +32,66 @@ internal class NotificationService : INotificationService
         }
     }
 
-    public async Task<QueryExecutionHistoryListData> GetQueryExecutionHistoryAsync(int subscriptionId, int? pageSize,
-            int? lastQueryExecutionHistoryId, bool? notificationSent, CancellationToken cancellationToken)
+    public async Task<QueryExecutionHistoryListData> GetQueryExecutionHistory(GetQueryExecutionHistoryRequest request, CancellationToken cancellationToken)
     {
         var queryExecutionHistory = await _context.QueryExecutionHistory
-            .Where(x => x.SubscriptionId == subscriptionId)
-            .WhereIf(lastQueryExecutionHistoryId.HasValue, x => x.Id < lastQueryExecutionHistoryId)
-            .WhereIf(notificationSent.HasValue, x => x.NotificationSent == notificationSent)
-            .OrderByDescending(x => x.Id)
-            .TakeIf(pageSize.HasValue, pageSize)
+            .WhereIf(request.SubscriptionId.HasValue, x => x.SubscriptionId == request.SubscriptionId)
+            .WhereIf(request.LastQueryExecutionHistoryId.HasValue, x => x.Id < request.LastQueryExecutionHistoryId)
+            .WhereIf(request.NotificationSent.HasValue, x => x.NotificationSent == request.NotificationSent)
             .Select(x =>
                 new QueryExecutionHistoryData
                 {
                     QueryExecutionHistoryId = x.Id,
                     Recipient = x.Recipient,
                     NotificationType = x.NotificationType,
-                    ResultCount = x.ResultCount
+                    ResultCount = x.ResultCount,
+                    CreatedTime = x.CreatedTime,
+                    NotificationSent = x.NotificationSent
                 })
-            .ToListAsync(cancellationToken);
+            .ToPagedListAsync(request, cancellationToken);
 
         return new QueryExecutionHistoryListData
         {
-            LastQueryExecutionHistoryId = queryExecutionHistory.LastOrDefault()?.QueryExecutionHistoryId,
-            QueryExecutionHistory = queryExecutionHistory
+            LastQueryExecutionHistoryId = queryExecutionHistory.Items.LastOrDefault()?.QueryExecutionHistoryId,
+            Data = queryExecutionHistory.Items,
+            TotalCount = queryExecutionHistory.TotalCount
+        };
+    }
+
+    public async Task<NotificationStatisticsData> GetNotificationStatistics(CancellationToken cancellationToken)
+    {
+        var cutoffDate = DateTime.UtcNow.AddDays(-30);
+
+        var dates = await _context.QueryExecutionHistory
+            .Where(x => x.CreatedTime >= cutoffDate)
+            .GroupBy(x => x.CreatedTime.Date)
+            .Select(x => new NotificationDateStatisticsData()
+            {
+                Date = x.Key,
+                TotalQueries = x.Count(),
+                NotificationsSent = x.Count(y => y.NotificationSent)
+            })
+            .ToListAsync(cancellationToken);
+
+        return new NotificationStatisticsData
+        {
+            NotificationDateStatistics = dates
         };
     }
 }
 
 public interface INotificationService
 {
-    public Task SendNotificationAsync(NotificationType notificationType, RecipientQueryResult recipientQueryResult, int? lastExecutedQueryResultCount);
+    Task SendNotification(NotificationType notificationType, RecipientQueryResult recipientQueryResult, int? lastExecutedQueryResultCount);
 
-    Task<QueryExecutionHistoryListData> GetQueryExecutionHistoryAsync(int subscriptionId, int? pageSize,
-        int? lastQueryExecutionHistoryId, bool? notificationSent, CancellationToken cancellationToken);
+    Task<QueryExecutionHistoryListData> GetQueryExecutionHistory(GetQueryExecutionHistoryRequest request, CancellationToken cancellationToken);
+
+    Task<NotificationStatisticsData> GetNotificationStatistics(CancellationToken cancellationToken);
+}
+
+public class GetQueryExecutionHistoryRequest : SortedListRequest
+{
+    public int? SubscriptionId { get; set; }
+    public int? LastQueryExecutionHistoryId { get; set; }
+    public bool? NotificationSent { get; set; }
 }

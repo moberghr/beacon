@@ -1,0 +1,6 @@
+@Semantico.SampleProject_HostAddress = http://localhost:5296
+
+GET {{Semantico.SampleProject_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

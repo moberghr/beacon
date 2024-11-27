@@ -1,20 +1,19 @@
 ﻿using Semantico.Core.Data.Enums;
 
-namespace Semantico.Core.Adapters
+namespace Semantico.Core.Adapters;
+
+internal class AdapterFactory
 {
-    internal class AdapterFactory
+    private readonly IEnumerable<IAdapter> _adapters;
+
+    public AdapterFactory(IEnumerable<IAdapter> adapters)
     {
-        private readonly IEnumerable<IAdapter> _adapters;
+        _adapters = adapters;
+    }
 
-        public AdapterFactory(IEnumerable<IAdapter> adapters)
-        {
-            _adapters = adapters;
-        }
-
-        public IAdapter GetAdapterService(NotificationType notificationType)
-        {
-            return _adapters.FirstOrDefault(e => e.NotificationType == notificationType)
-                ?? throw new NotSupportedException();
-        }
+    public IAdapter GetAdapterService(NotificationType notificationType)
+    {
+        return _adapters.FirstOrDefault(e => e.NotificationType == notificationType)
+               ?? throw new NotSupportedException();
     }
 }

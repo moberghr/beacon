@@ -3,7 +3,6 @@ using Semantico.Core.Adapters;
 using Semantico.Core.Data;
 using Semantico.Core.Data.Entities;
 using Semantico.Core.Helpers;
-using Semantico.Core.Models.Queries;
 using Semantico.Core.Models.Subscriptions;
 using Semantico.Core.Services;
 using Semantico.Core.Validators;
@@ -34,11 +33,18 @@ internal class JobService : IJobService
                 new
                 {
                     x.Id,
-                    x.Name,
                     x.NotificationType,
                     x.QueryId,
                     x.Recipient,
                     x.CronExpression,
+                    x.Query.SqlValue,
+                    x.Query.Name,
+                    Project = new
+                    {
+                        x.Query.Project.Name,
+                        x.Query.Project.ConnectionString,
+                        x.Query.Project.DatabaseEngineType
+                    },
                     Parameters = x.Parameters.Select(y =>
                         new SubscriptionParamaterData
                         {
@@ -47,38 +53,12 @@ internal class JobService : IJobService
                         }).ToList()
                 })
             .SingleAsync();
-
-        var query = await _context.Queries
-            .Where(x => x.Id == subscription.QueryId)
-            .Select(x =>
-                new
-                {
-                    x.Id,
-                    x.SqlValue,
-                    Project = new
-                    {
-                        x.Project.Name,
-                        x.Project.ConnectionString,
-                        x.Project.DatabaseEngineType
-                    },
-                    Parameters = x.Parameters.Select(y =>
-                        new QueryParameterData
-                        {
-                            Name = y.Name,
-                            Type = y.Type,
-                            Description = y.Description,
-                            Placeholder = y.Placeholder
-                        }).ToList()
-                })
-            .SingleAsync();
-
-        SubscriptionValidator.ValidateParameters(subscription.Parameters, query.Parameters);
-
-        var sql = QueryHelper.CompileSql(query.SqlValue, subscription.Parameters);
+        
+        var sql = QueryHelper.CompileSql(subscription.SqlValue, subscription.Parameters);
 
         QueryValidator.CheckForFlaggedWords(sql);
 
-        var dbQueryResult = await _jobRepository.ExecuteQueryAsync(query.Project.DatabaseEngineType, query.Project.ConnectionString, sql);
+        var dbQueryResult = await _jobRepository.ExecuteQueryAsync(subscription.Project.DatabaseEngineType, subscription.Project.ConnectionString, sql);
 
         // We will only send the top 10 rows in a notification.
         var messageRows = dbQueryResult.Take(10).ToList();
@@ -87,7 +67,7 @@ internal class JobService : IJobService
         {
             QueryResults = JsonSerializer.Serialize(messageRows),
             TotalRecords = dbQueryResult.Count(),
-            ProjectName = query.Project.Name,
+            ProjectName = subscription.Project.Name,
             SqlQuery = sql,
         };
 
@@ -132,6 +112,6 @@ internal class JobService : IJobService
             return;
         }
 
-        await _notificationService.SendNotificationAsync(subscription.NotificationType, recipientQueryResult, lastExecutedQuery?.ResultCount);
+        await _notificationService.SendNotification(subscription.NotificationType, recipientQueryResult, lastExecutedQuery?.ResultCount);
     }
 }

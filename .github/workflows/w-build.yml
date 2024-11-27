@@ -34,17 +34,17 @@ jobs:
       working-directory: Semantico.Core
       run: dotnet nuget push "bin/Release/Semantico.Core.${{github.ref_name}}.nupkg" --source "github"
 
-    - name: Semantico.Web - Install dependencies
-      working-directory: Semantico.Web
+    - name: Semantico.UI - Install dependencies
+      working-directory: Semantico.UI
       run: dotnet restore
 
-    - name: "Semantico.Web - Create a NuGet package"
-      working-directory: Semantico.Web
+    - name: "Semantico.UI - Create a NuGet package"
+      working-directory: Semantico.UI
       run: dotnet pack -p:PackageVersion=${{github.ref_name}} --configuration Release
 
-    - name: "Semantico.Web - Push NuGet package"
-      working-directory: Semantico.Web
-      run: dotnet nuget push "bin/Release/Semantico.Web.${{github.ref_name}}.nupkg" --source "github"
+    - name: "Semantico.UI - Push NuGet package"
+      working-directory: Semantico.UI
+      run: dotnet nuget push "bin/Release/Semantico.UI.${{github.ref_name}}.nupkg" --source "github"
 
     - name: "Cleanup - Remove NuGet Source"
       run: dotnet nuget remove source github

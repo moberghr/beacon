@@ -1,13 +1,20 @@
-﻿namespace Semantico.Core.Models.Queries
+﻿namespace Semantico.Core.Models.Queries;
+
+public class QueryData
 {
-    public class QueryData
-    {
-        public int? QueryId { get; init; }
+    public int? QueryId { get; set; }
 
-        public required string SqlValue { get; init; }
+    public string Name { get; set; }
 
-        public required int ProjectId { get; init; }
+    public string? Description { get; set; }
+    
+    public DateTime CreatedTime { get; set; }
 
-        public List<QueryParameterData> Parameters { get; init; } = new();
-    }
+    public string SqlValue { get; set; }
+
+    public int ProjectId { get; set; }
+        
+    public int SubscriptionsCount { get; set; }
+
+    public List<QueryParameterData> Parameters { get; set; } = new();
 }
