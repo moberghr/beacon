@@ -15,8 +15,8 @@
             <PropertyColumn Property="x => x.Name" Title="Name"/>
             <PropertyColumn Property="x => x.Description" Title="Description"/>
             <PropertyColumn Property="x => x.CreatedTime" Title="Created"/>
-            <PropertyColumn Property="x => x.SubscriptionsCount"/>
-            <PropertyColumn Property="x => x.Parameters.ToJson()"/>
+            <PropertyColumn Property="x => x.SubscriptionsCount" Title="Subscriptions Count"/>
+            <PropertyColumn Property="x => x.Parameters.ToJson()" Title="Parameters"/>
         </Columns>
         <PagerContent>
             <MudDataGridPager T="QueryData"/>

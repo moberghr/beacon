@@ -24,6 +24,8 @@ internal class SemanticoContext : DbContext
 
     public DbSet<QueryExecutionHistory> QueryExecutionHistory => Set<QueryExecutionHistory>();
 
+    public DbSet<Recipient> Recipients => Set<Recipient>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema("semantico");

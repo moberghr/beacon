@@ -57,8 +57,7 @@ internal class SubscriptionService : ISubscriptionService
         {
             CronExpression = subscriptionData.CronExpression,
             QueryId = subscriptionData.QueryId,
-            Recipient = subscriptionData.Recipient,
-            NotificationType = subscriptionData.NotificationType,
+            RecipientId = subscriptionData.RecipientId,
             Parameters = subscriptionData.Parameters.Select(x =>
                 new SubscriptionParameter
                 {
@@ -103,15 +102,15 @@ internal class SubscriptionService : ISubscriptionService
         return await _context.Subscriptions
             .WhereIf(subscriptionId.HasValue, x => x.Id == subscriptionId)
             .WhereIf(queryId.HasValue, x => x.QueryId == queryId)
-            .WhereIf(notificationType.HasValue, x => x.NotificationType == notificationType)
-            .WhereIf(!string.IsNullOrWhiteSpace(keyword), x => x.Recipient.Contains(keyword!))
+            .WhereIf(notificationType.HasValue, x => x.Recipient.NotificationType == notificationType)
+            .WhereIf(!string.IsNullOrWhiteSpace(keyword), x => x.Recipient.Name.Contains(keyword!))
             .Select(x =>
                 new SubscriptionData
                 {
                     SubscriptionId = x.Id,
                     QueryId = x.QueryId,
-                    Recipient = x.Recipient,
-                    NotificationType = x.NotificationType,
+                    RecipientId = x.RecipientId,
+                    RecipientName = x.Recipient.Name,
                     CronExpression = x.CronExpression,
                     Parameters = x.Parameters.Select(y =>
                         new SubscriptionParamaterData
@@ -149,8 +148,7 @@ internal class SubscriptionService : ISubscriptionService
         var shouldUpdateHangfire = subscription.CronExpression != subscriptionData.CronExpression;
 
         subscription.CronExpression = subscriptionData.CronExpression;
-        subscription.Recipient = subscriptionData.Recipient;
-        subscription.NotificationType = subscriptionData.NotificationType;
+        subscription.RecipientId = subscriptionData.RecipientId;
 
         foreach (var subscriptionParameter in subscription.Parameters)
         {
@@ -188,8 +186,10 @@ internal class SubscriptionService : ISubscriptionService
             {
                 SubscriptionId = x.Id,
                 QueryId = x.QueryId,
-                Recipient = x.Recipient,
-                NotificationType = x.NotificationType,
+                RecipientName = x.Recipient.Name,
+                NotificationType = x.Recipient.NotificationType,
+                RecipientDestination = x.Recipient.Destination,
+                QueryName = x.Query.Name,
                 CronExpression = x.CronExpression,
                 Status = x.ArchivedTime.HasValue ? "Archived" : "Active",
                 Parameters = x.Parameters.Select(y => new SubscriptionParamaterData()

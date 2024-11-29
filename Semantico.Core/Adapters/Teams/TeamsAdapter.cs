@@ -41,7 +41,7 @@ internal class TeamsAdapter : IAdapter
         var jsonPayload = card.ToJson();
         var content = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
 
-        await client.PostAsync(recipientQueryResult.Recipient, content);
+        await client.PostAsync(recipientQueryResult.RecipientDestination, content);
     }
 
     public Task SendNotificationAsync(RecipientQueryResult recipientQueryResult, int lastNotificationResultCount)

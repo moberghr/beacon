@@ -33,7 +33,10 @@
                     <MudItem xs="12" sm="6" md="6" lg="6">
                         <MudStack Spacing="1">
                             <MudText>
-                                <strong>Sql:</strong> @Model?.Recipient
+                                <strong>Recipient name:</strong> @Model?.RecipientName
+                            </MudText>
+                            <MudText>
+                                <strong>Recipient destination:</strong> @Model?.RecipientDestination
                             </MudText>
                             <MudText>
                                 <strong>Parameters:</strong> @Model?.Parameters.ToJson()
@@ -55,7 +58,7 @@
                         <Columns>
                             <PropertyColumn Property="x => x.CreatedTime" Title="Created"/>
                             <PropertyColumn Property="x => x.QueryExecutionHistoryId" Title="Id"/>
-                            <PropertyColumn Property="x => x.Recipient"/>
+                            <PropertyColumn Property="x => x.RecipientName"/>
                             <PropertyColumn Property="x => x.NotificationType"/>
                             <PropertyColumn Property="x => x.ResultCount"/>
                             <PropertyColumn Property="x => x.NotificationSent"/>

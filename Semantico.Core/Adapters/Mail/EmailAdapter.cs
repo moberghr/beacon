@@ -15,7 +15,7 @@ internal class EmailAdapter : IAdapter
 
     public async Task SendNotificationAsync(RecipientQueryResult recipientQueryResult)
     {
-        var to = recipientQueryResult.Recipient;
+        var to = recipientQueryResult.RecipientDestination;
         var subject = $"{recipientQueryResult.QueryResult.ProjectName} - {recipientQueryResult.SubscriptionName}";
 
         var body = $"Sql Query: \n{recipientQueryResult.QueryResult.SqlQuery} \n" +

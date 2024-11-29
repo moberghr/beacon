@@ -10,7 +10,7 @@ internal class JiraAdapter : IAdapter
 
     public async Task SendNotificationAsync(RecipientQueryResult recipientQueryResult)
     {
-        var credentials = JiraHelper.GetJiraCredentials(recipientQueryResult.Recipient);
+        var credentials = JiraHelper.GetJiraCredentials(recipientQueryResult.RecipientDestination);
 
         var jiraClient = Atlassian.Jira.Jira.CreateRestClient(credentials.DomainUrl, credentials.Email, credentials.ApiKey);
 
@@ -19,7 +19,7 @@ internal class JiraAdapter : IAdapter
 
     public async Task SendNotificationAsync(RecipientQueryResult recipientQueryResult, int lastNotificationResultCount)
     {
-        var credentials = JiraHelper.GetJiraCredentials(recipientQueryResult.Recipient);
+        var credentials = JiraHelper.GetJiraCredentials(recipientQueryResult.RecipientDestination);
 
         var jiraClient = Atlassian.Jira.Jira.CreateRestClient(credentials.DomainUrl, credentials.Email, credentials.ApiKey);
 

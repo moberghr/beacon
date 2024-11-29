@@ -42,8 +42,8 @@ internal class NotificationService : INotificationService
                 new QueryExecutionHistoryData
                 {
                     QueryExecutionHistoryId = x.Id,
-                    Recipient = x.Recipient,
-                    NotificationType = x.NotificationType,
+                    RecipientName = x.Subscription.Recipient.Name,
+                    NotificationType = x.Subscription.Recipient.NotificationType,
                     ResultCount = x.ResultCount,
                     CreatedTime = x.CreatedTime,
                     NotificationSent = x.NotificationSent

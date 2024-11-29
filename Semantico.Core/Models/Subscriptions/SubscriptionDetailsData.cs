@@ -12,8 +12,10 @@ public class SubscriptionDetailsData
 
     public string Status { get; set; }
     
-    public string Recipient { get; set; }
-    
+    public string RecipientName { get; set; }
+
+    public string RecipientDestination { get; set; }
+
     public NotificationType NotificationType { get; set; }
     
     public string CronExpression { get; set; }

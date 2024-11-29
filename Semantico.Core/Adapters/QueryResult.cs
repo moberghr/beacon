@@ -15,7 +15,7 @@ public class RecipientQueryResult
 {
     public required string SubscriptionName { get; init; }
 
-    public required string Recipient { get; init; }
+    public required string RecipientDestination { get; init; }
 
     public required QueryResult QueryResult { get; init; }
 }

@@ -26,7 +26,7 @@ public static class ServiceConfiguration
 
         services.AddDbContext<SemanticoContext>((options) =>
         {
-            options.UseNpgsql(configuration.GetConnectionString(configurationOptions.ConnectionStringName),
+            options.UseNpgsql("Host=localhost:5433;Database=semantico;Username=postgres;Password=",
                 builder => builder.MigrationsHistoryTable("__EFMigrationsHistory", "semantico"))
                 .UseSnakeCaseNamingConvention();
         });
@@ -47,6 +47,7 @@ public static class ServiceConfiguration
         services.TryAddTransient<IProjectService, ProjectService>();
         services.TryAddTransient<IQueryService, QueryService>();
         services.TryAddTransient<ISubscriptionService, SubscriptionService>();
+        services.TryAddTransient<IRecipientService, RecipientService>();
         services.TryAddTransient<IStatisticsService, StatisticsService>();
 
         services.TryAddTransient(typeof(ISemanticoScheduler), configurationOptions.SemanticoScheduler!);

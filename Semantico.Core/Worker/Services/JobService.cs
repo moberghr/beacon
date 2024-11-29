@@ -33,9 +33,9 @@ internal class JobService : IJobService
                 new
                 {
                     x.Id,
-                    x.NotificationType,
+                    x.Recipient.NotificationType,
+                    RecipientDestination = x.Recipient.Destination,
                     x.QueryId,
-                    x.Recipient,
                     x.CronExpression,
                     x.Query.SqlValue,
                     x.Query.Name,
@@ -74,7 +74,7 @@ internal class JobService : IJobService
         var recipientQueryResult = new RecipientQueryResult
         {
             SubscriptionName = subscription.Name,
-            Recipient = subscription.Recipient,
+            RecipientDestination = subscription.RecipientDestination,
             QueryResult = queryResult
         };
 
@@ -96,8 +96,6 @@ internal class JobService : IJobService
 
         var executedQuery = new QueryExecutionHistory
         {
-            Recipient = recipientQueryResult.Recipient,
-            NotificationType = subscription.NotificationType,
             SubscriptionId = subscriptionId,
             ResultCount = recipientQueryResult.QueryResult.TotalRecords,
             CompiledSql = recipientQueryResult.QueryResult.SqlQuery,

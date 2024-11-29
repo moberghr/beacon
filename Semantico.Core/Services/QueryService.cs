@@ -6,7 +6,6 @@ using Semantico.Core.Helpers;
 using Semantico.Core.Models;
 using Semantico.Core.Models.Queries;
 using Semantico.Core.Validators;
-using Semantico.Core.Worker;
 
 namespace Semantico.Core.Services;
 
@@ -184,8 +183,8 @@ internal class QueryService : IQueryService
                         new SubscriptionListData
                         {
                             SubscriptionId = y.Id,
-                            NotificationType = y.NotificationType,
-                            Recipient = y.Recipient,
+                            NotificationType = y.Recipient.NotificationType,
+                            Recipient = y.Recipient.Name,
                             CronExpression = y.CronExpression
                         }).ToList()
                 }).SingleAsync(cancellationToken);

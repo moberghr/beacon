@@ -19,10 +19,8 @@
 
         <Columns>
             <PropertyColumn Property="x => x.SubscriptionId" Title="Id"/>
-            <PropertyColumn Property="x => x.Name" Title="Name"/>
             <PropertyColumn Property="x => x.CronExpression" Title="Cron Expression"/>
-            <PropertyColumn Property="x => x.Recipient" Title="Recipient"/>
-            <PropertyColumn Property="x => x.NotificationType" Title="Notification Type"/>
+            <PropertyColumn Property="x => x.RecipientName" Title="Recipient" />
         </Columns>
         <PagerContent>
             <MudDataGridPager T="SubscriptionData"/>

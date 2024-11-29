@@ -1,0 +1,110 @@
+﻿@page "/semantico/recipients"
+@inherits BasePageComponent 
+@using Semantico.Core.Models.Recipients
+@using Semantico.Core.Models.Subscriptions
+@using Semantico.Core.Services
+
+<SemanticoPageTitle Title="Recipients"/>
+
+<MudContainer Class="my-4 px-4">
+    <SemanticoPageHeader Icon="@Icons.Material.Filled.QueryBuilder" Title="Recipients" ButtonText="New recipient" OnClick="@NewRecipient" />
+    <SemanticoPageAlert Text="List of recipients. Create new or click on row and edit recipient"/>
+    <MudDataGrid @ref="_dataGrid" ServerData="ServerReload" T="RecipientData" RowClick="OnRowClick" Hover="true" Filterable="false">
+        <ToolBarContent>
+            <MudTextField T="string" ValueChanged="@(s => OnSearch(s))" Placeholder="Search" Adornment="Adornment.Start"
+                          Immediate="true"
+                          AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium" Class="mt-0">
+            </MudTextField>
+
+        </ToolBarContent>
+
+        <Columns>
+            <PropertyColumn Property="x => x.RecipientId" Title="Id"/>
+            <PropertyColumn Property="x => x.Name" Title="Name"/>
+            <PropertyColumn Property="x => x.Destination" Title="Destination" />
+            <PropertyColumn Property="x => x.NotificationType" Title="Notification Type" />
+            <PropertyColumn Property="x => x.Description" Title="Description" />
+        </Columns>
+        <PagerContent>
+            <MudDataGridPager T="RecipientData"/>
+        </PagerContent>
+    </MudDataGrid>
+</MudContainer>
+
+@inject IRecipientService service;
+@inject IDialogService DialogService
+
+@code {
+    private List<RecipientData> RecipientList { get; set; } = new();
+    MudDataGrid<RecipientData>? _dataGrid;
+    private bool _loading;
+    private string _searchString;
+
+    private async Task<GridData<RecipientData>> ServerReload(GridState
+        <RecipientData> state)
+    {
+        RecipientList = await service.GetRecipients(null, CancellationToken.None);
+
+        return new GridData<RecipientData>
+        {
+            TotalItems = RecipientList.Count(),
+            Items = RecipientList
+        };
+    }
+
+    private void OnSearch(string text)
+    {
+        _searchString = text;
+        _dataGrid?.ReloadServerData();
+    }
+
+    private async Task OnRowClick(DataGridRowClickEventArgs<RecipientData> args)
+    {
+        var breakpoint = await BrowserViewport.GetCurrentBreakpointAsync();
+        var options = new DialogOptions
+            {
+                MaxWidth = MaxWidth.Small,
+                FullWidth = true,
+                FullScreen = breakpoint == Breakpoint.Xs,
+            };
+
+        var parameters = new DialogParameters<UpdateRecipientDialog> { { x => x.Recipient, args.Item } };
+
+        var dialog = await DialogService.ShowAsync<UpdateRecipientDialog>("", parameters, options);
+
+        var result = await dialog.Result;
+
+        if (result!.Canceled)
+        {
+            return;
+        }
+
+        await _dataGrid?.ReloadServerData();
+    }
+
+    private async Task NewRecipient()
+    {
+        var breakpoint = await BrowserViewport.GetCurrentBreakpointAsync();
+        var options = new DialogOptions
+            {
+                MaxWidth = MaxWidth.Small,
+                FullWidth = true,
+                FullScreen = breakpoint == Breakpoint.Xs,
+            };
+
+        var recipient = new RecipientData();
+
+        var parameters = new DialogParameters<AddRecipientDialog> { { x => x.Recipient, recipient } };
+
+        var dialog = await DialogService.ShowAsync<AddRecipientDialog>("", parameters, options);
+
+        var result = await dialog.Result;
+
+        if (result!.Canceled)
+        {
+            return;
+        }
+
+        await _dataGrid?.ReloadServerData();
+    }
+}
