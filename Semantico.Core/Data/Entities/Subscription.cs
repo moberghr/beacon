@@ -6,13 +6,11 @@ internal class Subscription : ArchivableBaseEntity
 {
     public required int QueryId { get; set; }
 
-    public required int RecipientId { get; set; }
-
     public required string CronExpression { get; set; }
 
     public Query Query { get; set; } = null!;
 
-    public Recipient Recipient { get; set; } = null!;
+    public List<Recipient> Recipients { get; set; } = new();
 
     public List<SubscriptionParameter> Parameters { get; set; } = new();
 

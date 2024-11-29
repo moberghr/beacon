@@ -1,4 +1,6 @@
-﻿namespace Semantico.Core.Adapters;
+﻿using Semantico.Core.Data.Enums;
+
+namespace Semantico.Core.Adapters;
 
 public class QueryResult
 {
@@ -16,6 +18,8 @@ public class RecipientQueryResult
     public required string SubscriptionName { get; init; }
 
     public required string RecipientDestination { get; init; }
+
+    public required NotificationType RecipientNotificationType { get; init; }
 
     public required QueryResult QueryResult { get; init; }
 }

@@ -2,7 +2,7 @@
 
 namespace Semantico.Core.Adapters;
 
-internal interface IAdapter
+public interface IAdapter
 {
     public NotificationType NotificationType { get; }
     /// <summary>

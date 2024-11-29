@@ -3,6 +3,7 @@ using Semantico.Core.Adapters;
 using Semantico.Core.Data;
 using Semantico.Core.Data.Entities;
 using Semantico.Core.Helpers;
+using Semantico.Core.Models.Recipients;
 using Semantico.Core.Models.Subscriptions;
 using Semantico.Core.Services;
 using Semantico.Core.Validators;
@@ -33,8 +34,14 @@ internal class JobService : IJobService
                 new
                 {
                     x.Id,
-                    x.Recipient.NotificationType,
-                    RecipientDestination = x.Recipient.Destination,
+                    Recipients = x.Recipients.Select(y => new RecipientData
+                    {
+                        RecipientId = y.Id,
+                        Name = y.Name,
+                        Description = y.Description,
+                        Destination = y.Destination,
+                        NotificationType = y.NotificationType,
+                    }).ToList(),
                     x.QueryId,
                     x.CronExpression,
                     x.Query.SqlValue,
@@ -71,45 +78,51 @@ internal class JobService : IJobService
             SqlQuery = sql,
         };
 
-        var recipientQueryResult = new RecipientQueryResult
+        var recipientsQueryResults = subscription.Recipients
+            .Select(x => new RecipientQueryResult
+            {
+                SubscriptionName = subscription.Name,
+                RecipientDestination = x.Destination,
+                RecipientNotificationType = x.NotificationType,
+                QueryResult = queryResult
+            })
+            .ToList();
+
+        foreach (var recipientQueryResult in recipientsQueryResults)
         {
-            SubscriptionName = subscription.Name,
-            RecipientDestination = subscription.RecipientDestination,
-            QueryResult = queryResult
-        };
+            var lastExecutedQuery = _context.QueryExecutionHistory
+                .Where(x => x.SubscriptionId == subscriptionId)
+                .OrderByDescending(x => x.CreatedTime)
+                .Select(x =>
+                    new
+                    {
+                        x.ResultCount
+                    })
+                .FirstOrDefault();
 
-        var lastExecutedQuery = _context.QueryExecutionHistory
-            .Where(x => x.SubscriptionId == subscriptionId)
-            .OrderByDescending(x => x.CreatedTime)
-            .Select(x =>
-                new
-                {
-                    x.ResultCount
-                })
-            .FirstOrDefault();
+            var initialNotification = lastExecutedQuery == null && recipientQueryResult.QueryResult.TotalRecords != 0;
+            var differentResults = lastExecutedQuery != null && recipientQueryResult.QueryResult.TotalRecords != lastExecutedQuery.ResultCount;
 
-        var initialNotification = lastExecutedQuery == null && recipientQueryResult.QueryResult.TotalRecords != 0;
-        var differentResults = lastExecutedQuery != null && recipientQueryResult.QueryResult.TotalRecords != lastExecutedQuery.ResultCount;
+            // if a previous notification wasn't sent and there are some query results or
+            // if a previous notification was sent, and the current result is the same we won't send a notification.
 
-        // if a previous notification wasn't sent and there are some query results or
-        // if a previous notification was sent, and the current result is the same we won't send a notification.
+            var executedQuery = new QueryExecutionHistory
+            {
+                SubscriptionId = subscriptionId,
+                ResultCount = recipientQueryResult.QueryResult.TotalRecords,
+                CompiledSql = recipientQueryResult.QueryResult.SqlQuery,
+                NotificationSent = initialNotification || differentResults
+            };
 
-        var executedQuery = new QueryExecutionHistory
-        {
-            SubscriptionId = subscriptionId,
-            ResultCount = recipientQueryResult.QueryResult.TotalRecords,
-            CompiledSql = recipientQueryResult.QueryResult.SqlQuery,
-            NotificationSent = initialNotification || differentResults
-        };
+            await _context.QueryExecutionHistory.AddAsync(executedQuery);
+            await _context.SaveChangesAsync();
 
-        await _context.QueryExecutionHistory.AddAsync(executedQuery);
-        await _context.SaveChangesAsync();
+            if (executedQuery.NotificationSent == false)
+            {
+                return;
+            }
 
-        if (executedQuery.NotificationSent == false)
-        {
-            return;
+            await _notificationService.SendNotification(recipientQueryResult, lastExecutedQuery?.ResultCount);
         }
-
-        await _notificationService.SendNotification(subscription.NotificationType, recipientQueryResult, lastExecutedQuery?.ResultCount);
     }
 }

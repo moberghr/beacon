@@ -2,7 +2,7 @@
 
 namespace Semantico.Core.Adapters;
 
-internal class AdapterFactory
+public class AdapterFactory
 {
     private readonly IEnumerable<IAdapter> _adapters;
 

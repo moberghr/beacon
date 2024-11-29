@@ -23,6 +23,25 @@ namespace Semantico.Core.Data.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("RecipientSubscription", b =>
+                {
+                    b.Property<int>("RecipientsId")
+                        .HasColumnType("integer")
+                        .HasColumnName("recipients_id");
+
+                    b.Property<int>("SubscriptionsId")
+                        .HasColumnType("integer")
+                        .HasColumnName("subscriptions_id");
+
+                    b.HasKey("RecipientsId", "SubscriptionsId")
+                        .HasName("pk_recipient_subscription");
+
+                    b.HasIndex("SubscriptionsId")
+                        .HasDatabaseName("ix_recipient_subscription_subscriptions_id");
+
+                    b.ToTable("recipient_subscription", "semantico");
+                });
+
             modelBuilder.Entity("Semantico.Core.Data.Entities.Project", b =>
                 {
                     b.Property<int>("Id")
@@ -259,18 +278,11 @@ namespace Semantico.Core.Data.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("query_id");
 
-                    b.Property<int>("RecipientId")
-                        .HasColumnType("integer")
-                        .HasColumnName("recipient_id");
-
                     b.HasKey("Id")
                         .HasName("pk_subscriptions");
 
                     b.HasIndex("QueryId")
                         .HasDatabaseName("ix_subscriptions_query_id");
-
-                    b.HasIndex("RecipientId")
-                        .HasDatabaseName("ix_subscriptions_recipient_id");
 
                     b.ToTable("subscriptions", "semantico");
                 });
@@ -313,6 +325,23 @@ namespace Semantico.Core.Data.Migrations
                         .HasDatabaseName("ix_subscription_parameters_subscription_id");
 
                     b.ToTable("subscription_parameters", "semantico");
+                });
+
+            modelBuilder.Entity("RecipientSubscription", b =>
+                {
+                    b.HasOne("Semantico.Core.Data.Entities.Recipient", null)
+                        .WithMany()
+                        .HasForeignKey("RecipientsId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_recipient_subscription_recipients_recipients_id");
+
+                    b.HasOne("Semantico.Core.Data.Entities.Subscription", null)
+                        .WithMany()
+                        .HasForeignKey("SubscriptionsId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_recipient_subscription_subscriptions_subscriptions_id");
                 });
 
             modelBuilder.Entity("Semantico.Core.Data.Entities.Query", b =>
@@ -360,16 +389,7 @@ namespace Semantico.Core.Data.Migrations
                         .IsRequired()
                         .HasConstraintName("fk_subscriptions_queries_query_id");
 
-                    b.HasOne("Semantico.Core.Data.Entities.Recipient", "Recipient")
-                        .WithMany("Subscriptions")
-                        .HasForeignKey("RecipientId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_subscriptions_recipients_recipient_id");
-
                     b.Navigation("Query");
-
-                    b.Navigation("Recipient");
                 });
 
             modelBuilder.Entity("Semantico.Core.Data.Entities.SubscriptionParameter", b =>
@@ -393,11 +413,6 @@ namespace Semantico.Core.Data.Migrations
                 {
                     b.Navigation("Parameters");
 
-                    b.Navigation("Subscriptions");
-                });
-
-            modelBuilder.Entity("Semantico.Core.Data.Entities.Recipient", b =>
-                {
                     b.Navigation("Subscriptions");
                 });
 

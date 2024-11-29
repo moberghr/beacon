@@ -17,30 +17,37 @@
             else
             {
                 <MudGrid Justify="Justify.FlexStart" Spacing="1">
-                    <MudItem xs="12" sm="6" md="6" lg="6">
-                        <MudStack Spacing="1">
+                    <MudItem xs="12" sm="12" md="5" lg="5">
+                        <MudStack Spacing="5">
                             <MudText>
                                 <strong>Query:</strong> @Model?.QueryName
                             </MudText>
                             <MudText>
-                                <strong>Cron:</strong> @Model?.CronExpression
-                            </MudText>
-                            <MudText>
-                                <strong>Type:</strong> @Model?.NotificationType
-                            </MudText>
-                        </MudStack>
-                    </MudItem>
-                    <MudItem xs="12" sm="6" md="6" lg="6">
-                        <MudStack Spacing="1">
-                            <MudText>
-                                <strong>Recipient name:</strong> @Model?.RecipientName
-                            </MudText>
-                            <MudText>
-                                <strong>Recipient destination:</strong> @Model?.RecipientDestination
+                                <strong>Cron:</strong> @Model?.CronExpression <br />
+                                @_cronDescription
                             </MudText>
                             <MudText>
                                 <strong>Parameters:</strong> @Model?.Parameters.ToJson()
                             </MudText>
+                        </MudStack>
+                    </MudItem>
+                    <MudItem xs="12" sm="12" md="7" lg="7">
+                        <MudStack Spacing="1">
+                            <MudTable Items="@Model?.Recipients" Hover="true">
+                                <ToolBarContent>
+                                    <MudText Typo="Typo.h6">Recipients</MudText>
+                                </ToolBarContent>
+                                <HeaderContent>
+                                    <MudTh>Name</MudTh>
+                                    <MudTh>Destination</MudTh>
+                                    <MudTh>Notification Type</MudTh>
+                                </HeaderContent>
+                                <RowTemplate>
+                                    <MudTd DataLabel="Name">@context.Name</MudTd>
+                                    <MudTd DataLabel="Destination">@(context.Destination.Length <= 30 ? context.Destination : context.Destination.Substring(0, 30) + " ...")</MudTd>
+                                    <MudTd DataLabel="Notification Type">@context.NotificationType</MudTd>
+                                </RowTemplate>
+                            </MudTable>
                         </MudStack>
                     </MudItem>
                     <MudItem>
@@ -92,6 +99,8 @@
     MudDataGrid<QueryExecutionHistoryData>? _notificationsDataGrid;
 
     private bool isSubscriptionActive;
+
+    private string _cronDescription;
                 
     private async Task<GridData<QueryExecutionHistoryData>> NotificationsServerReload(GridState<QueryExecutionHistoryData> state)
     {
@@ -129,6 +138,8 @@
         Model = await Service.GetSubscriptionDetails(Id, new CancellationToken());
 
         isSubscriptionActive = Model?.Status == "Active";
+
+        _cronDescription = Model?.CronExpression?.GetCronDescription();
 
         _loading = false;
     }

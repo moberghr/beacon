@@ -18,9 +18,10 @@
         </ToolBarContent>
 
         <Columns>
-            <PropertyColumn Property="x => x.SubscriptionId" Title="Id"/>
+            <PropertyColumn Property="x => x.SubscriptionId" Title="Subscription Id" />
+            <PropertyColumn Property="x => x.QueryId" Title="Query Id" />
+            <PropertyColumn Property="x => x.QueryName" Title="Query Name" />
             <PropertyColumn Property="x => x.CronExpression" Title="Cron Expression"/>
-            <PropertyColumn Property="x => x.RecipientName" Title="Recipient" />
         </Columns>
         <PagerContent>
             <MudDataGridPager T="SubscriptionData"/>

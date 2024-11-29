@@ -13,6 +13,11 @@ namespace Semantico.Core.Data.Migrations
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropColumn(
+                name: "notification_type",
+                schema: "semantico",
+                table: "subscriptions");
+
+            migrationBuilder.DropColumn(
                 name: "recipient",
                 schema: "semantico",
                 table: "subscriptions");
@@ -26,12 +31,6 @@ namespace Semantico.Core.Data.Migrations
                 name: "recipient",
                 schema: "semantico",
                 table: "query_execution_history");
-
-            migrationBuilder.RenameColumn(
-                name: "notification_type",
-                schema: "semantico",
-                table: "subscriptions",
-                newName: "recipient_id");
 
             migrationBuilder.CreateTable(
                 name: "recipients",
@@ -52,45 +51,58 @@ namespace Semantico.Core.Data.Migrations
                     table.PrimaryKey("pk_recipients", x => x.id);
                 });
 
-            migrationBuilder.CreateIndex(
-                name: "ix_subscriptions_recipient_id",
+            migrationBuilder.CreateTable(
+                name: "recipient_subscription",
                 schema: "semantico",
-                table: "subscriptions",
-                column: "recipient_id");
+                columns: table => new
+                {
+                    recipients_id = table.Column<int>(type: "integer", nullable: false),
+                    subscriptions_id = table.Column<int>(type: "integer", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("pk_recipient_subscription", x => new { x.recipients_id, x.subscriptions_id });
+                    table.ForeignKey(
+                        name: "fk_recipient_subscription_recipients_recipients_id",
+                        column: x => x.recipients_id,
+                        principalSchema: "semantico",
+                        principalTable: "recipients",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Cascade);
+                    table.ForeignKey(
+                        name: "fk_recipient_subscription_subscriptions_subscriptions_id",
+                        column: x => x.subscriptions_id,
+                        principalSchema: "semantico",
+                        principalTable: "subscriptions",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Cascade);
+                });
 
-            migrationBuilder.AddForeignKey(
-                name: "fk_subscriptions_recipients_recipient_id",
+            migrationBuilder.CreateIndex(
+                name: "ix_recipient_subscription_subscriptions_id",
                 schema: "semantico",
-                table: "subscriptions",
-                column: "recipient_id",
-                principalSchema: "semantico",
-                principalTable: "recipients",
-                principalColumn: "id",
-                onDelete: ReferentialAction.Cascade);
+                table: "recipient_subscription",
+                column: "subscriptions_id");
         }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropForeignKey(
-                name: "fk_subscriptions_recipients_recipient_id",
-                schema: "semantico",
-                table: "subscriptions");
+            migrationBuilder.DropTable(
+                name: "recipient_subscription",
+                schema: "semantico");
 
             migrationBuilder.DropTable(
                 name: "recipients",
                 schema: "semantico");
 
-            migrationBuilder.DropIndex(
-                name: "ix_subscriptions_recipient_id",
-                schema: "semantico",
-                table: "subscriptions");
-
-            migrationBuilder.RenameColumn(
-                name: "recipient_id",
+            migrationBuilder.AddColumn<int>(
+                name: "notification_type",
                 schema: "semantico",
                 table: "subscriptions",
-                newName: "notification_type");
+                type: "integer",
+                nullable: false,
+                defaultValue: 0);
 
             migrationBuilder.AddColumn<string>(
                 name: "recipient",
