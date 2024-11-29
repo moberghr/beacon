@@ -88,9 +88,7 @@ internal class JobService : IJobService
             })
             .ToList();
 
-        foreach (var recipientQueryResult in recipientsQueryResults)
-        {
-            var lastExecutedQuery = _context.QueryExecutionHistory
+        var lastExecutedQuery = _context.QueryExecutionHistory
                 .Where(x => x.SubscriptionId == subscriptionId)
                 .OrderByDescending(x => x.CreatedTime)
                 .Select(x =>
@@ -100,28 +98,29 @@ internal class JobService : IJobService
                     })
                 .FirstOrDefault();
 
-            var initialNotification = lastExecutedQuery == null && recipientQueryResult.QueryResult.TotalRecords != 0;
-            var differentResults = lastExecutedQuery != null && recipientQueryResult.QueryResult.TotalRecords != lastExecutedQuery.ResultCount;
+        var initialNotification = lastExecutedQuery == null && queryResult.TotalRecords != 0;
+        var differentResults = lastExecutedQuery != null && queryResult.TotalRecords != lastExecutedQuery.ResultCount;
 
-            // if a previous notification wasn't sent and there are some query results or
-            // if a previous notification was sent, and the current result is the same we won't send a notification.
+        var executedQuery = new QueryExecutionHistory
+        {
+            SubscriptionId = subscriptionId,
+            ResultCount = queryResult.TotalRecords,
+            CompiledSql = queryResult.SqlQuery,
+            NotificationSent = initialNotification || differentResults
+        };
 
-            var executedQuery = new QueryExecutionHistory
-            {
-                SubscriptionId = subscriptionId,
-                ResultCount = recipientQueryResult.QueryResult.TotalRecords,
-                CompiledSql = recipientQueryResult.QueryResult.SqlQuery,
-                NotificationSent = initialNotification || differentResults
-            };
+        await _context.QueryExecutionHistory.AddAsync(executedQuery);
+        await _context.SaveChangesAsync();
 
-            await _context.QueryExecutionHistory.AddAsync(executedQuery);
-            await _context.SaveChangesAsync();
+        // if a previous notification wasn't sent and there are some query results or
+        // if a previous notification was sent, and the current result is the same we won't send a notification.
+        if (executedQuery.NotificationSent == false)
+        {
+            return;
+        }
 
-            if (executedQuery.NotificationSent == false)
-            {
-                return;
-            }
-
+        foreach (var recipientQueryResult in recipientsQueryResults)
+        {
             await _notificationService.SendNotification(recipientQueryResult, lastExecutedQuery?.ResultCount);
         }
     }
