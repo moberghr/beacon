@@ -26,19 +26,19 @@ public static class ServiceConfiguration
 
         services.AddDbContext<SemanticoContext>((options) =>
         {
-            options.UseNpgsql("Host=localhost:5433;Database=semantico;Username=postgres;Password=",
+            options.UseNpgsql(configuration.GetConnectionString(configurationOptions.ConnectionStringName),
                 builder => builder.MigrationsHistoryTable("__EFMigrationsHistory", "semantico"))
                 .UseSnakeCaseNamingConvention();
         });
 
         services.AddHttpClient();
-        services.TryAddSingleton<IAdapter, TeamsAdapter>();
+        services.AddSingleton<IAdapter, TeamsAdapter>();
         if (configurationOptions.EmailAdapter != null)
         {
             services.TryAddSingleton(typeof(IEmailAdapter), configurationOptions.EmailAdapter);
-            services.TryAddSingleton<IAdapter, EmailAdapter>();
+            services.AddSingleton<IAdapter, EmailAdapter>();
         }
-        services.TryAddSingleton<IAdapter, JiraAdapter>();
+        services.AddSingleton<IAdapter, JiraAdapter>();
         services.TryAddSingleton<AdapterFactory>();
 
         services.TryAddTransient<IJobRepository, JobRepository>();
