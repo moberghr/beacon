@@ -7,7 +7,7 @@
 
 <MudContainer Class="my-4 px-4">
     <SemanticoPageHeader Icon="@Icons.Material.Filled.QueryBuilder" Title="Subscriptions"/>
-    <SemanticoPageAlert Text="List of defined subscriptions."/>
+    <SemanticoPageAlert Text="List of defined subscriptions. Click on subscription to view more."/>
     <MudDataGrid @ref="_dataGrid" ServerData="ServerReload" T="SubscriptionData" RowClick="OnRowClick" Hover="true" Filterable="false">
         <ToolBarContent>
             <MudTextField T="string" ValueChanged="@(s => OnSearch(s))" Placeholder="Search" Adornment="Adornment.Start"

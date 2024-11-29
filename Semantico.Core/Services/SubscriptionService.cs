@@ -20,6 +20,10 @@ public interface ISubscriptionService
 
     Task DeleteSubscription(int subscriptionId, CancellationToken cancellationToken);
 
+    Task AddRecipients(int subscriptionId, List<int> recipientIds, CancellationToken cancellationToken);
+
+    Task RemoveRecipient(int subscriptionId, int recipientId, CancellationToken cancellationToken);
+
     Task<List<SubscriptionData>> GetSubscriptions(int? subscriptionId, int? queryId, NotificationType? notificationType, string keyword, CancellationToken cancellationToken);
 
     Task<SubscriptionDetailsData> GetSubscriptionDetails(int subscriptionId, CancellationToken cancellationToken);
@@ -220,5 +224,35 @@ internal class SubscriptionService : ISubscriptionService
             .SingleAsync(cancellationToken);
 
         return subscription;
+    }
+
+    public async Task RemoveRecipient(int subscriptionId, int recipientId, CancellationToken cancellationToken)
+    {
+        var subscription = await _context.Subscriptions
+            .Where(x => x.Id == subscriptionId)
+            .Include(x => x.Recipients)
+            .SingleAsync(cancellationToken);
+
+        subscription.Recipients = subscription.Recipients.Where(x => x.Id != recipientId).ToList();
+
+        await _context.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task AddRecipients(int subscriptionId, List<int> recipientIds, CancellationToken cancellationToken)
+    {
+        var subscription = await _context.Subscriptions
+            .Where(x => x.Id == subscriptionId)
+            .Include(x => x.Recipients)
+            .SingleAsync(cancellationToken);
+
+        recipientIds = recipientIds.Except(subscription.Recipients.Select(x => x.Id)).ToList();
+
+        var recipients = await _context.Recipients
+            .Where(x => recipientIds.Contains(x.Id))
+            .ToListAsync(cancellationToken);
+
+        subscription.Recipients.AddRange(recipients);
+
+        await _context.SaveChangesAsync(cancellationToken);
     }
 }
