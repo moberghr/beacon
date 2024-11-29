@@ -21,7 +21,8 @@
                     <MudItem xs="12" sm="12" md="5" lg="5">
                         <MudStack Spacing="5">
                             <MudText>
-                                <strong>Query:</strong> @Model?.QueryName
+                                <strong>Query:</strong> @Model?.QueryName <br />
+                                <strong>Query ID:</strong> @Model?.QueryId
                             </MudText>
                             <MudText>
                                 <strong>Cron:</strong> @Model?.CronExpression <br />
@@ -52,6 +53,12 @@
                                     <MudTd DataLabel="Notification Type">@context.NotificationType</MudTd>
                                     <MudTd><MudIconButton Size="Size.Small" Disabled="@(Model?.Recipients?.Count <= 1)" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.Delete" Color="Color.Error" OnClick="@(async () => await RemoveRecipientAsync(context))"></MudIconButton></MudTd>
                                 </RowTemplate>
+                                <PagerContent>
+                                    <MudTablePager PageSizeOptions="new int[] { 4 }"
+                                                   HorizontalAlignment="HorizontalAlignment.Center"
+                                                   HideRowsPerPage="true"
+                                                   HidePageNumber="true" />
+                                </PagerContent>
                             </MudTable>
                         </MudStack>
                     </MudItem>
@@ -65,8 +72,10 @@
         <MudCardContent>
             <MudItem xs="12">
                 <MudContainer Class="my-4 px-4">
-                    <SemanticoPageAlert Text="List of executions." />
                     <MudDataGrid @ref="_notificationsDataGrid" ServerData="NotificationsServerReload" T="QueryExecutionHistoryData" Hover="true" Filterable="false">
+                        <ToolBarContent>
+                            <MudText Typo="Typo.h6">Execution history</MudText>
+                        </ToolBarContent>
                         <Columns>
                             <PropertyColumn Property="x => x.CreatedTime" Title="Created"/>
                             <PropertyColumn Property="x => x.QueryExecutionHistoryId" Title="Id"/>
