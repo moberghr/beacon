@@ -23,6 +23,27 @@ public static class Helpers
     {
         return value.ToString("dd.MM.yyyy");
     }
+
+    public static string GetCronDescription(this string cron)
+    {
+        if (!Cronos.CronExpression.TryParse(cron, out var expression))
+        {
+            return string.Empty;
+        }
+
+        var description = CronExpressionDescriptor.ExpressionDescriptor.GetDescription(cron, new CronExpressionDescriptor.Options()
+        {
+            DayOfWeekStartIndexZero = false,
+            Use24HourTimeFormat = true,
+            ThrowExceptionOnParseError = false
+        });
+
+        var nextOccurenceString = expression?.GetNextOccurrence(DateTime.UtcNow, true)?.ToUniversalTime().ToString("dd.MM.yyyy HH:mm:ss zz");
+
+        return string.IsNullOrWhiteSpace(description) 
+            ? $"next at: {nextOccurenceString}" 
+            : $"({description}) \r\n next at: {nextOccurenceString}";
+    }
 }
 
 public class BaseResponse

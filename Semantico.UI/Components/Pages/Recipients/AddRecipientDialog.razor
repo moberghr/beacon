@@ -1,0 +1,106 @@
+@using Semantico.Core.Data.Enums
+@using Semantico.Core.Models.Recipients
+@using Semantico.Core.Services
+
+<MudDialog Class="pb-2">
+    <TitleContent>
+        <MudText Typo="Typo.h6">
+            <MudIcon Icon="@Icons.Material.Filled.Add" Class="mr-1 mb-n1" />
+            Add recipient
+        </MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudForm @ref="@_form" Class="pt-1" @bind-Errors="@errors" @bind-IsValid="_isFormValid">
+            <MudTextField OnlyValidateIfDirty="true"
+                          Margin="Margin.Dense"
+                          Variant="Variant.Outlined"
+                          Class="mb-2"
+                          @bind-Value="@Recipient.Name"
+                          T="String"
+                          Label="Name"
+                          Required="true" />
+            <MudTextField OnlyValidateIfDirty="true"
+                          Margin="Margin.Dense"
+                          Variant="Variant.Outlined"
+                          Class="mb-2"
+                          @bind-Value="@Recipient.Destination"
+                          T="String"
+                          Label="Destination"
+                          Required="true" />
+            <MudTextField OnlyValidateIfDirty="true"
+                          Immediate="true"
+                          Margin="Margin.Dense"
+                          Variant="Variant.Outlined"
+                          Class="mb-2"
+                          @bind-Value="@Recipient.Description"
+                          Placeholder="Description (optional)"
+                          T="String"
+                          Label="Description"
+                          Required="false" />
+            <MudSelect T="NotificationType" Label="Notification Type" @bind-Value="@Recipient.NotificationType" Required="true" Margin="Margin.Dense" Variant="Variant.Outlined">
+                <MudSelectItem Value="NotificationType.Email">Email</MudSelectItem>
+                <MudSelectItem Value="NotificationType.Teams">Teams</MudSelectItem>
+                <MudSelectItem Value="NotificationType.Jira">Jira</MudSelectItem>
+            </MudSelect>
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton
+        Class="ml-4"
+        OnClick="@Cancel"
+        Variant="Variant.Filled"
+        >
+            Cancel
+        </MudButton>
+
+        <DialogSaveButton Disabled="!_isFormValid" OnClick="@Submit"/>
+    </DialogActions>
+</MudDialog>
+
+@inject ISnackbar Snackbar
+@inject IRecipientService Service
+
+@code
+{
+    [CascadingParameter]
+    MudDialogInstance MudDialog { get; set; }
+
+    [Parameter]
+    public RecipientData Recipient { get; set; } = new RecipientData();
+
+    private MudForm _form;
+    private bool _loading;
+    bool _isFormValid = false;
+    string[] errors = { };
+
+    async Task Submit()
+    {
+        if (_loading)
+        {
+            return;
+        }
+
+        await _form.Validate();
+        
+        if (!_form.IsValid)
+        {
+            return;
+        }
+
+        _loading = true;
+        var response = await Service.CreateRecipient(Recipient, CancellationToken.None);
+        
+        if (response.Success)
+        {
+            MudDialog.Close(DialogResult.Ok(true));
+            Snackbar.Add(response.Message, Severity.Success);
+        }
+        else
+        {
+            Snackbar.Add(response.Message, Severity.Error);
+        }
+        _loading = false;
+    }
+
+    void Cancel() => MudDialog.Cancel();
+}

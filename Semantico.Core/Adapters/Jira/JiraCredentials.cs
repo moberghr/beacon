@@ -1,12 +1,32 @@
-﻿namespace Semantico.Core.Adapters.Jira;
+﻿using Semantico.Core.Models;
+
+namespace Semantico.Core.Adapters.Jira;
 
 internal class JiraCredentials
 {
-    public required string DomainUrl;
+    /// <summary>
+    /// "your-domain-here;jira-project-key-here;your-email-here;your-cloud-api-key-here"
+    /// </summary>
+    public JiraCredentials(string recipient)
+    {
+        var data = recipient.Split(';');
 
-    public required string Project;
+        if (data.Length != 4)
+        {
+            throw new SemanticoException($"Jira recipient format is not correct.");
+        }
 
-    public required string Email;
+        DomainUrl = $"https://{data[0]}.atlassian.net";
+        Project = data[1];
+        Email = data[2];
+        ApiKey = data[3];
+    }
 
-    public required string ApiKey;
+    public readonly string DomainUrl;
+
+    public readonly string Project;
+
+    public readonly string Email;
+
+    public readonly string ApiKey;
 }

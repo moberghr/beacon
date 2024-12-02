@@ -2,6 +2,7 @@
 @inherits BasePageComponent
 @using Semantico.Core.Models.QueryExecutionHistory
 @using Semantico.Core.Models.Subscriptions
+@using Semantico.Core.Models.Recipients
 @using Semantico.Core.Services
 
 <SemanticoPageTitle Title="Query"/>
@@ -17,27 +18,48 @@
             else
             {
                 <MudGrid Justify="Justify.FlexStart" Spacing="1">
-                    <MudItem xs="12" sm="6" md="6" lg="6">
-                        <MudStack Spacing="1">
+                    <MudItem xs="12" sm="12" md="5" lg="5">
+                        <MudStack Spacing="5">
                             <MudText>
-                                <strong>Query:</strong> @Model?.QueryName
+                                <strong>Query:</strong> @Model?.QueryName <br />
+                                <strong>Query ID:</strong> @Model?.QueryId
                             </MudText>
                             <MudText>
-                                <strong>Cron:</strong> @Model?.CronExpression
-                            </MudText>
-                            <MudText>
-                                <strong>Type:</strong> @Model?.NotificationType
-                            </MudText>
-                        </MudStack>
-                    </MudItem>
-                    <MudItem xs="12" sm="6" md="6" lg="6">
-                        <MudStack Spacing="1">
-                            <MudText>
-                                <strong>Sql:</strong> @Model?.Recipient
+                                <strong>Cron:</strong> @Model?.CronExpression <br />
+                                @_cronDescription
                             </MudText>
                             <MudText>
                                 <strong>Parameters:</strong> @Model?.Parameters.ToJson()
                             </MudText>
+                        </MudStack>
+                    </MudItem>
+                    <MudItem xs="12" sm="12" md="7" lg="7">
+                        <MudStack Spacing="1">
+                            <MudTable Items="@Model?.Recipients" Hover="true">
+                                <ToolBarContent>
+                                    <MudText Typo="Typo.h6">Recipients</MudText>
+                                    <MudSpacer />
+                                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="@(async () => await AddRecipientsAsync())">Add Recipients</MudButton>
+                                </ToolBarContent>
+                                <HeaderContent>
+                                    <MudTh>Name</MudTh>
+                                    <MudTh>Destination</MudTh>
+                                    <MudTh>Notification Type</MudTh>
+                                    <MudTh></MudTh>
+                                </HeaderContent>
+                                <RowTemplate>
+                                    <MudTd DataLabel="Name">@context.Name</MudTd>
+                                    <MudTd DataLabel="Destination">@(context.Destination.Length <= 30 ? context.Destination : context.Destination.Substring(0, 30) + " ...")</MudTd>
+                                    <MudTd DataLabel="Notification Type">@context.NotificationType</MudTd>
+                                    <MudTd><MudIconButton Size="Size.Small" Disabled="@(Model?.Recipients?.Count <= 1)" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.Delete" Color="Color.Error" OnClick="@(async () => await RemoveRecipientAsync(context))"></MudIconButton></MudTd>
+                                </RowTemplate>
+                                <PagerContent>
+                                    <MudTablePager PageSizeOptions="new int[] { 4 }"
+                                                   HorizontalAlignment="HorizontalAlignment.Center"
+                                                   HideRowsPerPage="true"
+                                                   HidePageNumber="true" />
+                                </PagerContent>
+                            </MudTable>
                         </MudStack>
                     </MudItem>
                     <MudItem>
@@ -50,12 +72,14 @@
         <MudCardContent>
             <MudItem xs="12">
                 <MudContainer Class="my-4 px-4">
-                    <SemanticoPageAlert Text="List of executions." />
                     <MudDataGrid @ref="_notificationsDataGrid" ServerData="NotificationsServerReload" T="QueryExecutionHistoryData" Hover="true" Filterable="false">
+                        <ToolBarContent>
+                            <MudText Typo="Typo.h6">Execution history</MudText>
+                        </ToolBarContent>
                         <Columns>
                             <PropertyColumn Property="x => x.CreatedTime" Title="Created"/>
                             <PropertyColumn Property="x => x.QueryExecutionHistoryId" Title="Id"/>
-                            <PropertyColumn Property="x => x.Recipient"/>
+                            <PropertyColumn Property="x => x.RecipientName"/>
                             <PropertyColumn Property="x => x.NotificationType"/>
                             <PropertyColumn Property="x => x.ResultCount"/>
                             <PropertyColumn Property="x => x.NotificationSent"/>
@@ -83,13 +107,15 @@
     public SubscriptionDetailsData? Model;
 
     private bool _loading;
-    
+
     private QueryExecutionHistoryListData List { get; set; }
-    
+
     MudDataGrid<QueryExecutionHistoryData>? _notificationsDataGrid;
 
     private bool isSubscriptionActive;
-                
+
+    private string _cronDescription;
+
     private async Task<GridData<QueryExecutionHistoryData>> NotificationsServerReload(GridState<QueryExecutionHistoryData> state)
     {
         var gridRequest = DataGridHelper.BuildSortedRequest<GetQueryExecutionHistoryRequest, QueryExecutionHistoryData>(state);
@@ -103,9 +129,9 @@
         //     NotificationSent = null,
         //     LastQueryExecutionHistoryId = null
         // };
-        
+
         gridRequest.SubscriptionId = Id;
-        
+
         List = await NotificationsService.GetQueryExecutionHistory(gridRequest, new CancellationToken());
 
         return new GridData<QueryExecutionHistoryData> {
@@ -113,7 +139,7 @@
             Items = List.Data
         };
     }
-    
+
     protected override async Task OnInitializedAsync()
     {
         await Load();
@@ -126,6 +152,8 @@
         Model = await Service.GetSubscriptionDetails(Id, new CancellationToken());
 
         isSubscriptionActive = Model?.Status == "Active";
+
+        _cronDescription = Model?.CronExpression?.GetCronDescription();
 
         _loading = false;
     }
@@ -144,7 +172,27 @@
         }
 
         await Service.DeleteSubscription(Id, new CancellationToken());
-        
+
+        await Load();
+    }
+
+    private async Task AddRecipientsAsync()
+    {
+        var parameters = new DialogParameters<AddRecipientsDialog> { { x => x.Subscription, Model }};
+
+        var dialog = await DialogService.ShowAsync<AddRecipientsDialog>("", parameters);
+        var result = await dialog.Result;
+
+        if (!result.Canceled)
+        {
+            await Load();
+        }
+    }
+
+    private async Task RemoveRecipientAsync(RecipientData recipientData)
+    {
+        await Service.RemoveRecipient(Model!.SubscriptionId, recipientData.RecipientId.Value, new CancellationToken());
+
         await Load();
     }
 }

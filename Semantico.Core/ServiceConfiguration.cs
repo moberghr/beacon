@@ -32,13 +32,13 @@ public static class ServiceConfiguration
         });
 
         services.AddHttpClient();
-        services.TryAddSingleton<IAdapter, TeamsAdapter>();
+        services.AddSingleton<IAdapter, TeamsAdapter>();
         if (configurationOptions.EmailAdapter != null)
         {
             services.TryAddSingleton(typeof(IEmailAdapter), configurationOptions.EmailAdapter);
-            services.TryAddSingleton<IAdapter, EmailAdapter>();
+            services.AddSingleton<IAdapter, EmailAdapter>();
         }
-        services.TryAddSingleton<IAdapter, JiraAdapter>();
+        services.AddSingleton<IAdapter, JiraAdapter>();
         services.TryAddSingleton<AdapterFactory>();
 
         services.TryAddTransient<IJobRepository, JobRepository>();
@@ -47,6 +47,7 @@ public static class ServiceConfiguration
         services.TryAddTransient<IProjectService, ProjectService>();
         services.TryAddTransient<IQueryService, QueryService>();
         services.TryAddTransient<ISubscriptionService, SubscriptionService>();
+        services.TryAddTransient<IRecipientService, RecipientService>();
         services.TryAddTransient<IStatisticsService, StatisticsService>();
 
         services.TryAddTransient(typeof(ISemanticoScheduler), configurationOptions.SemanticoScheduler!);

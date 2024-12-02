@@ -1,4 +1,4 @@
-using Semantico.Core.Data.Enums;
+using Semantico.Core.Models.Recipients;
 
 namespace Semantico.Core.Models.Subscriptions;
 
@@ -12,22 +12,9 @@ public class SubscriptionDetailsData
 
     public string Status { get; set; }
     
-    public string Recipient { get; set; }
-    
-    public NotificationType NotificationType { get; set; }
-    
     public string CronExpression { get; set; }
-    
-    public List<SubscriptionParamaterData> Parameters { get; set; }
-}
 
-public class NotificationData
-{
-    public DateTime CreatedTime { get; set; }
-    
-    public NotificationType NotificationType { get; set; }
+    public List<SubscriptionParamaterData> Parameters { get; set; } = new();
 
-    public string Recipient { get; set; }
-
-    public int ResultCount { get; set; }
+    public List<RecipientData> Recipients { get; set; } = new();
 }

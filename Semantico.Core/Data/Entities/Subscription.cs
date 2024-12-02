@@ -1,5 +1,4 @@
 ﻿using Semantico.Core.Data.Entities.Base;
-using Semantico.Core.Data.Enums;
 
 namespace Semantico.Core.Data.Entities;
 
@@ -11,9 +10,7 @@ internal class Subscription : ArchivableBaseEntity
 
     public Query Query { get; set; } = null!;
 
-    public required string Recipient { get; set; }
-
-    public NotificationType NotificationType { get; set; }
+    public List<Recipient> Recipients { get; set; } = new();
 
     public List<SubscriptionParameter> Parameters { get; set; } = new();
 

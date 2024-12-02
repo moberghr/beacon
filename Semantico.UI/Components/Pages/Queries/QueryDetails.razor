@@ -77,19 +77,16 @@
         </MudCardContent>
         <MudCardContent>
             <MudItem xs="12">
-                <MudTable Items="@Model?.Subscriptions" Hover="true">
+                <MudTable T="SubscriptionListData" Items="@Model?.Subscriptions" Hover="true" OnRowClick="OnRowClick">
                     <HeaderContent>
                         <MudTh>Subscription ID</MudTh>
                         <MudTh>Name</MudTh>
                         <MudTh>Cron Expression</MudTh>
-                        <MudTh>Recipient</MudTh>
-                        <MudTh>Notification Type</MudTh>
                     </HeaderContent>
                     <RowTemplate>
                         <MudTd DataLabel="Subscription ID">@context.SubscriptionId</MudTd>
+                        <MudTd DataLabel="Name">@context.Name</MudTd>
                         <MudTd DataLabel="Cron Expression">@context.CronExpression</MudTd>
-                        <MudTd DataLabel="Recipient">@context.Recipient</MudTd>
-                        <MudTd DataLabel="Notification Type">@context.NotificationType</MudTd>
                     </RowTemplate>
                 </MudTable>
             </MudItem>
@@ -150,5 +147,10 @@
         
         // TODO: we could just reload the subscriptions instead of the whole page
         await Load();
+    }
+
+    private async Task OnRowClick(TableRowClickEventArgs<SubscriptionListData> args)
+    {
+        NavManager.NavigateTo($"/semantico/subscriptions/details/{args.Item.SubscriptionId}");
     }
 }

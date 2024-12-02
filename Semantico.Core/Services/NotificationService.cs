@@ -18,11 +18,11 @@ internal class NotificationService : INotificationService
         _adapterFactory = adapterFactory;
     }
 
-    public async Task SendNotification(NotificationType notificationType, RecipientQueryResult recipientQueryResult, int? lastExecutedQueryResultCount)
+    public async Task SendNotification(RecipientQueryResult recipientQueryResult, int? lastExecutedQueryResultCount)
     {
-        var adapter = _adapterFactory.GetAdapterService(notificationType);
+        var adapter = _adapterFactory.GetAdapterService(recipientQueryResult.RecipientNotificationType);
 
-        if (notificationType == NotificationType.Jira && lastExecutedQueryResultCount.HasValue)
+        if (recipientQueryResult.RecipientNotificationType == NotificationType.Jira && lastExecutedQueryResultCount.HasValue)
         {
             await adapter.SendNotificationAsync(recipientQueryResult, lastExecutedQueryResultCount.Value);
         }
@@ -38,16 +38,16 @@ internal class NotificationService : INotificationService
             .WhereIf(request.SubscriptionId.HasValue, x => x.SubscriptionId == request.SubscriptionId)
             .WhereIf(request.LastQueryExecutionHistoryId.HasValue, x => x.Id < request.LastQueryExecutionHistoryId)
             .WhereIf(request.NotificationSent.HasValue, x => x.NotificationSent == request.NotificationSent)
-            .Select(x =>
-                new QueryExecutionHistoryData
-                {
+            .SelectMany(x => x.Subscription.Recipients
+                .Select(y => new QueryExecutionHistoryData {
                     QueryExecutionHistoryId = x.Id,
-                    Recipient = x.Recipient,
-                    NotificationType = x.NotificationType,
+                    RecipientName = y.Name,
+                    NotificationType = y.NotificationType,
                     ResultCount = x.ResultCount,
                     CreatedTime = x.CreatedTime,
                     NotificationSent = x.NotificationSent
                 })
+                .ToList())
             .ToPagedListAsync(request, cancellationToken);
 
         return new QueryExecutionHistoryListData
@@ -82,7 +82,7 @@ internal class NotificationService : INotificationService
 
 public interface INotificationService
 {
-    Task SendNotification(NotificationType notificationType, RecipientQueryResult recipientQueryResult, int? lastExecutedQueryResultCount);
+    Task SendNotification(RecipientQueryResult recipientQueryResult, int? lastExecutedQueryResultCount);
 
     Task<QueryExecutionHistoryListData> GetQueryExecutionHistory(GetQueryExecutionHistoryRequest request, CancellationToken cancellationToken);
 

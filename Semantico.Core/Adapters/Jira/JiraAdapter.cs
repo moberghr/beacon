@@ -1,6 +1,5 @@
 ﻿using Atlassian.Jira;
 using Semantico.Core.Data.Enums;
-using Semantico.Core.Helpers;
 
 namespace Semantico.Core.Adapters.Jira;
 
@@ -10,7 +9,7 @@ internal class JiraAdapter : IAdapter
 
     public async Task SendNotificationAsync(RecipientQueryResult recipientQueryResult)
     {
-        var credentials = JiraHelper.GetJiraCredentials(recipientQueryResult.Recipient);
+        var credentials = new JiraCredentials(recipientQueryResult.RecipientDestination);
 
         var jiraClient = Atlassian.Jira.Jira.CreateRestClient(credentials.DomainUrl, credentials.Email, credentials.ApiKey);
 
@@ -19,7 +18,7 @@ internal class JiraAdapter : IAdapter
 
     public async Task SendNotificationAsync(RecipientQueryResult recipientQueryResult, int lastNotificationResultCount)
     {
-        var credentials = JiraHelper.GetJiraCredentials(recipientQueryResult.Recipient);
+        var credentials = new JiraCredentials(recipientQueryResult.RecipientDestination);
 
         var jiraClient = Atlassian.Jira.Jira.CreateRestClient(credentials.DomainUrl, credentials.Email, credentials.ApiKey);
 

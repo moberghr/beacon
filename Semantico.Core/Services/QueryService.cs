@@ -1,12 +1,10 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Semantico.Core.Data;
 using Semantico.Core.Data.Entities;
-using Semantico.Core.Data.Enums;
 using Semantico.Core.Helpers;
 using Semantico.Core.Models;
 using Semantico.Core.Models.Queries;
 using Semantico.Core.Validators;
-using Semantico.Core.Worker;
 
 namespace Semantico.Core.Services;
 
@@ -43,7 +41,7 @@ public class QueryDetailsData
 
     public List<QueryParameterData> Parameters { get; set; } = new();
 
-    public List<SubscriptionListData> Subscriptions { get; set; }
+    public List<SubscriptionListData> Subscriptions { get; set; } = new();
 }
 
 public class SubscriptionListData
@@ -53,10 +51,6 @@ public class SubscriptionListData
     public string Name { get; set; }
 
     public string CronExpression { get; set; }
-
-    public string Recipient { get; set; }
-
-    public NotificationType NotificationType { get; set; }
 }
 
 internal class QueryService : IQueryService
@@ -184,8 +178,7 @@ internal class QueryService : IQueryService
                         new SubscriptionListData
                         {
                             SubscriptionId = y.Id,
-                            NotificationType = y.NotificationType,
-                            Recipient = y.Recipient,
+                            Name = y.Query.Name,
                             CronExpression = y.CronExpression
                         }).ToList()
                 }).SingleAsync(cancellationToken);
