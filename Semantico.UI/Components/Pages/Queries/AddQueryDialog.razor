@@ -30,7 +30,7 @@
                           Label="Description"
                           Required="true"
                           AutoGrow />
-            <MudSelect T="int" Label="Project" @bind-Value="@Query.ProjectId" Required="true" Variant="Variant.Outlined" Margin="Margin.Dense">
+            <MudSelect Placeholder="Choose project" Label="Project" @bind-Value="@Query.ProjectId"  Required="true" Variant="Variant.Outlined" Margin="Margin.Dense">
                 @{
                     foreach (var project in _projects)
                     {

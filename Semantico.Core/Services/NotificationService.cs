@@ -45,7 +45,9 @@ internal class NotificationService : INotificationService
                     NotificationType = y.NotificationType,
                     ResultCount = x.ResultCount,
                     CreatedTime = x.CreatedTime,
-                    NotificationSent = x.NotificationSent
+                    NotificationSent = x.NotificationSent,
+                    QueryName = x.Subscription.Query.Name,
+                    SubscriptionId = x.SubscriptionId
                 })
                 .ToList())
             .ToPagedListAsync(request, cancellationToken);

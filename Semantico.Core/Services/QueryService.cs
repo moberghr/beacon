@@ -135,6 +135,7 @@ internal class QueryService : IQueryService
                     QueryId = x.Id,
                     SqlValue = x.SqlValue,
                     ProjectId = x.ProjectId,
+                    ProjectName = x.Project.Name,
                     SubscriptionsCount = x.Subscriptions.Count,
                     CreatedTime = x.CreatedTime,
                     Name = x.Name,

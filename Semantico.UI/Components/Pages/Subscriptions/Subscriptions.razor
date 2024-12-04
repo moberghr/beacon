@@ -21,6 +21,11 @@
             <PropertyColumn Property="x => x.SubscriptionId" Title="Subscription Id" />
             <PropertyColumn Property="x => x.QueryId" Title="Query Id" />
             <PropertyColumn Property="x => x.QueryName" Title="Query Name" />
+            <TemplateColumn Title="Recipients">
+                <CellTemplate>
+                        @($"[{context.Item.Recipients.Count}] {string.Join(", ", context.Item.Recipients.Select(y => y.Name).ToList()).GetSubstring(30)}")
+                </CellTemplate>
+            </TemplateColumn>
             <PropertyColumn Property="x => x.CronExpression" Title="Cron Expression"/>
         </Columns>
         <PagerContent>

@@ -93,8 +93,10 @@
             ApexChartService.GlobalOptions.Theme = new Theme()
             {
                 Mode = Mode.Light,
-                Palette = PaletteType.Palette5
+                Palette = PaletteType.Palette7
             };
         }
+        
+        await ApexChartService.SetGlobalOptionsAsync(true);
     }
 }
