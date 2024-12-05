@@ -75,6 +75,7 @@ internal class ProjectService : IProjectService
                     QueryId = y.Id,
                     SqlValue = y.SqlValue,
                     ProjectId = y.ProjectId,
+                    ProjectName = x.Name,
                     SubscriptionsCount = y.Subscriptions.Count,
                     CreatedTime = y.CreatedTime,
                     Parameters = y.Parameters.Select(z =>

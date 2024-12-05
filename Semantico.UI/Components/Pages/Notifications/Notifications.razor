@@ -14,9 +14,17 @@
         </ToolBarContent>
         <Columns>
             <PropertyColumn Property="x => x.QueryExecutionHistoryId" Title="Id"/>
+            <PropertyColumn Property="x => x.CreatedTime"/>
+            <TemplateColumn >
+                <CellTemplate>
+                    <MudLink Href="#" OnClick="@(() => OnQueryNameClick(context.Item?.SubscriptionId ?? 0))">@context.Item?.QueryName</MudLink>
+                </CellTemplate>
+            </TemplateColumn>
+            <PropertyColumn Property="x => x.QueryName" />
             <PropertyColumn Property="x => x.RecipientName"/>
             <PropertyColumn Property="x => x.NotificationType"/>
             <PropertyColumn Property="x => x.ResultCount"/>
+            <PropertyColumn Property="x => x.NotificationSent"/>
         </Columns>
         <PagerContent>
             <MudDataGridPager T="QueryExecutionHistoryData" />
@@ -49,5 +57,10 @@
     {
         _notificationSent = value;
         _dataGrid?.ReloadServerData();
+    }
+    
+    private void OnQueryNameClick(int subscriptionId)
+    {
+        NavManager.NavigateTo($"/semantico/subscriptions/details/{subscriptionId}");
     }
 }

@@ -23,6 +23,18 @@ public static class Helpers
     {
         return value.ToString("dd.MM.yyyy");
     }
+    
+    public static string GetSubstring(this string value, int length)
+    {
+        if (string.IsNullOrEmpty(value) || value.Length <= length)
+        {
+            return value;
+        }
+        else
+        {
+            return value.Substring(0, length - 3) + "...";
+        }
+    }
 
     public static string GetCronDescription(this string cron)
     {
@@ -38,7 +50,7 @@ public static class Helpers
             ThrowExceptionOnParseError = false
         });
 
-        var nextOccurenceString = expression?.GetNextOccurrence(DateTime.UtcNow, true)?.ToUniversalTime().ToString("dd.MM.yyyy HH:mm:ss zz");
+        var nextOccurenceString = expression?.GetNextOccurrence(DateTime.UtcNow, true)?.ToLocalTime().ToString("dd.MM.yyyy HH:mm:ss zz");
 
         return string.IsNullOrWhiteSpace(description) 
             ? $"next at: {nextOccurenceString}" 
