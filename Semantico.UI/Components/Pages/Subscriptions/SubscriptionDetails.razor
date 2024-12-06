@@ -26,7 +26,8 @@
                             </MudText>
                             <MudText>
                                 <strong>Cron:</strong> @Model?.CronExpression <br />
-                                @_cronDescription
+                                @_cronDescription <br />
+                                @_cronNextAt
                             </MudText>
                             <MudText>
                                 <strong>Parameters:</strong> @Model?.Parameters.ToJson()
@@ -55,9 +56,9 @@
                                 </RowTemplate>
                                 <PagerContent>
                                     <MudTablePager PageSizeOptions="new int[] { 4 }"
-                                                   HorizontalAlignment="HorizontalAlignment.Center"
-                                                   HideRowsPerPage="true"
-                                                   HidePageNumber="true" />
+                                    HorizontalAlignment="HorizontalAlignment.Center"
+                                    HideRowsPerPage="true"
+                                    HidePageNumber="true" />
                                 </PagerContent>
                             </MudTable>
                         </MudStack>
@@ -98,6 +99,7 @@
 @inject ISubscriptionService Service
 @inject INotificationService NotificationsService
 @inject IDialogService DialogService
+@inject IJSRuntime JSRuntime
 
 @code
 {
@@ -114,21 +116,12 @@
 
     private bool isSubscriptionActive;
 
-    private string _cronDescription;
+    private string? _cronDescription;
+    private string? _cronNextAt;
 
     private async Task<GridData<QueryExecutionHistoryData>> NotificationsServerReload(GridState<QueryExecutionHistoryData> state)
     {
         var gridRequest = DataGridHelper.BuildSortedRequest<GetQueryExecutionHistoryRequest, QueryExecutionHistoryData>(state);
-
-        // var request = new GetQueryExecutionHistoryRequest
-        // {
-        //     SubscriptionId = Id,
-        //     Page = gridRequest.Page,
-        //     PageSize = gridRequest.PageSize,
-        //     SortCriteria = gridRequest.SortCriteria,
-        //     NotificationSent = null,
-        //     LastQueryExecutionHistoryId = null
-        // };
 
         gridRequest.SubscriptionId = Id;
 
@@ -154,6 +147,11 @@
         isSubscriptionActive = Model?.Status == "Active";
 
         _cronDescription = Model?.CronExpression?.GetCronDescription();
+
+        var cronNextAt = Model?.CronExpression.GetCronNextAt();
+        var localNextAt = await JSRuntime.InvokeAsync<string>("toLocalTime", cronNextAt);
+
+        _cronNextAt = $"next at: {localNextAt}";
 
         _loading = false;
     }
@@ -191,7 +189,7 @@
 
     private async Task RemoveRecipientAsync(RecipientData recipientData)
     {
-        await Service.RemoveRecipient(Model!.SubscriptionId, recipientData.RecipientId.Value, new CancellationToken());
+        await Service.RemoveRecipient(Model!.SubscriptionId, recipientData!.RecipientId!.Value, new CancellationToken());
 
         await Load();
     }

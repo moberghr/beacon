@@ -36,6 +36,16 @@ public static class Helpers
         }
     }
 
+    public static DateTime? GetCronNextAt(this string cron)
+    {
+        if (!Cronos.CronExpression.TryParse(cron, out var expression))
+        {
+            return null;
+        }
+
+        return expression?.GetNextOccurrence(DateTime.UtcNow, true);
+    }
+
     public static string GetCronDescription(this string cron)
     {
         if (!Cronos.CronExpression.TryParse(cron, out var expression))
@@ -43,18 +53,12 @@ public static class Helpers
             return string.Empty;
         }
 
-        var description = CronExpressionDescriptor.ExpressionDescriptor.GetDescription(cron, new CronExpressionDescriptor.Options()
+        return CronExpressionDescriptor.ExpressionDescriptor.GetDescription(cron, new CronExpressionDescriptor.Options()
         {
             DayOfWeekStartIndexZero = false,
             Use24HourTimeFormat = true,
             ThrowExceptionOnParseError = false
         });
-
-        var nextOccurenceString = expression?.GetNextOccurrence(DateTime.UtcNow, true)?.ToLocalTime().ToString("dd.MM.yyyy HH:mm:ss zz");
-
-        return string.IsNullOrWhiteSpace(description) 
-            ? $"next at: {nextOccurenceString}" 
-            : $"({description}) \r\n next at: {nextOccurenceString}";
     }
 }
 

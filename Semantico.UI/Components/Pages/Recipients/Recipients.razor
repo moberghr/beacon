@@ -9,7 +9,7 @@
 <MudContainer Class="my-4 px-4">
     <SemanticoPageHeader Icon="@Icons.Material.Filled.QueryBuilder" Title="Recipients" ButtonText="New recipient" OnClick="@NewRecipient" />
     <SemanticoPageAlert Text="List of recipients. Create new or click on row and edit recipient"/>
-    <MudDataGrid @ref="_dataGrid" ServerData="ServerReload" T="RecipientData" RowClick="OnRowClick" Hover="true" Filterable="false">
+    <MudDataGrid @ref="_dataGrid" ServerData="ServerReload" T="RecipientData" RowClick="OnRowClick" Hover="true" Filterable="false" >
         <ToolBarContent>
             <MudTextField T="string" ValueChanged="@(s => OnSearch(s))" Placeholder="Search" Adornment="Adornment.Start"
                           Immediate="true"
@@ -43,7 +43,7 @@
     private async Task<GridData<RecipientData>> ServerReload(GridState
         <RecipientData> state)
     {
-        RecipientList = await service.GetRecipients(null, CancellationToken.None);
+        RecipientList = await service.GetRecipients(null, _searchString, CancellationToken.None);
 
         return new GridData<RecipientData>
         {

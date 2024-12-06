@@ -62,7 +62,7 @@ internal class NotificationService : INotificationService
 
     public async Task<NotificationStatisticsData> GetNotificationStatistics(CancellationToken cancellationToken)
     {
-        var cutoffDate = DateTime.UtcNow.AddDays(-30);
+        var cutoffDate = DateTime.UtcNow.AddDays(-60);
 
         var dates = await _context.QueryExecutionHistory
             .Where(x => x.CreatedTime >= cutoffDate)
@@ -73,6 +73,7 @@ internal class NotificationService : INotificationService
                 TotalQueries = x.Count(),
                 NotificationsSent = x.Count(y => y.NotificationSent)
             })
+            .OrderBy(x => x.Date)
             .ToListAsync(cancellationToken);
 
         return new NotificationStatisticsData
