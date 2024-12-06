@@ -18,7 +18,7 @@
             <PropertyColumn InitialDirection="SortDirection.Descending" Property="x => x.CreatedTime"/>
             <TemplateColumn>
                 <CellTemplate>
-                    <MudLink Href="#" OnClick="@(() => OnQueryNameClick(context.Item?.SubscriptionId ?? 0))">@context.Item?.QueryName</MudLink>
+                    <MudLink OnClick="@(() => OnQueryNameClick(context.Item?.SubscriptionId ?? 0))">@context.Item?.QueryName</MudLink>
                 </CellTemplate>
             </TemplateColumn>
             <PropertyColumn Property="x => x.QueryName" />
