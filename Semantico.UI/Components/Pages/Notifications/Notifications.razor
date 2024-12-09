@@ -2,6 +2,7 @@
 @inherits BasePageComponent
 @using Semantico.Core.Models.QueryExecutionHistory
 @using Semantico.Core.Services
+@using SortDirection = MudBlazor.SortDirection
 
 <SemanticoPageTitle Title="Notifications" />
 
@@ -14,10 +15,10 @@
         </ToolBarContent>
         <Columns>
             <PropertyColumn Property="x => x.QueryExecutionHistoryId" Title="Id"/>
-            <PropertyColumn Property="x => x.CreatedTime"/>
-            <TemplateColumn >
+            <PropertyColumn InitialDirection="SortDirection.Descending" Property="x => x.CreatedTime"/>
+            <TemplateColumn>
                 <CellTemplate>
-                    <MudLink Href="#" OnClick="@(() => OnQueryNameClick(context.Item?.SubscriptionId ?? 0))">@context.Item?.QueryName</MudLink>
+                    <MudLink OnClick="@(() => OnQueryNameClick(context.Item?.SubscriptionId ?? 0))">@context.Item?.QueryName</MudLink>
                 </CellTemplate>
             </TemplateColumn>
             <PropertyColumn Property="x => x.QueryName" />
