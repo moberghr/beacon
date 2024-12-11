@@ -1,7 +1,9 @@
 ﻿@page "/semantico/queries"
 @inherits BasePageComponent
 @using Semantico.Core.Models.Queries
+@using Semantico.Core.Services
 @using Semantico.UI.Components.Custom
+@using SortDirection = MudBlazor.SortDirection
 
 
 <SemanticoPageTitle Title="Queries"/>
@@ -11,7 +13,7 @@
     <SemanticoPageAlert Text="List of defined queries. You can create new on or click on row and edit subscriptions to existing query."/>
     <MudDataGrid @ref="_dataGrid" ServerData="ServerReload" T="QueryData" RowClick="OnRowClick" Hover="true" Filterable="false">
         <Columns>
-            <PropertyColumn Property="x => x.QueryId" Title="Id"/>
+            <PropertyColumn InitialDirection="SortDirection.Descending" Property="x => x.QueryId" Title="Id"/>
             <PropertyColumn Property="x => x.Name" Title="Name"/>
             <PropertyColumn Property="x => x.Description" Title="Description"/>
             <PropertyColumn Property="x => x.CreatedTime" Title="Created"/>
@@ -30,19 +32,20 @@
 @inject IDialogService DialogService
 
 @code {
-    private List<QueryData> QueriesList { get; set; } = new();
+    private PagedList<QueryData> QueriesList { get; set; }
     MudDataGrid<QueryData>? _dataGrid;
     private bool _loading;
     private string _searchString;
 
     private async Task<GridData<QueryData>> ServerReload(GridState<QueryData> state)
     {
-        QueriesList = await service.GetQueries(null, null, _searchString, CancellationToken.None);
+        var request = DataGridHelper.BuildSortedRequest<GetQueriesRequest, QueryData>(state);
+        QueriesList = await service.GetQueries(request, CancellationToken.None);
 
         return new GridData<QueryData>
         {
-            TotalItems = QueriesList.Count(),
-            Items = QueriesList
+            TotalItems = QueriesList.TotalCount ?? 0,
+            Items = QueriesList.Items
         };
     }
 

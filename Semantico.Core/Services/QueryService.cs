@@ -16,7 +16,7 @@ public interface IQueryService
 
     Task DeleteQuery(int queryId, CancellationToken cancellationToken);
 
-    Task<List<QueryData>> GetQueries(int? queryId, int? projectId, string? sql, CancellationToken cancellationToken);
+    Task<PagedList<QueryData>> GetQueries(GetQueriesRequest request, CancellationToken cancellationToken);
 
     Task<QueryDetailsData> GetQueryDetails(int queryId, CancellationToken cancellationToken);
 }
@@ -51,6 +51,12 @@ public class SubscriptionListData
     public string Name { get; set; }
 
     public string CronExpression { get; set; }
+}
+
+public class GetQueriesRequest : SortedListRequest
+{
+    public int? QueryId { get; set; }
+    public int? ProjectId { get; set; }
 }
 
 internal class QueryService : IQueryService
@@ -123,12 +129,11 @@ internal class QueryService : IQueryService
         await _context.SaveChangesAsync(cancellationToken);
     }
 
-    public async Task<List<QueryData>> GetQueries(int? queryId, int? projectId, string? sql, CancellationToken cancellationToken)
+    public async Task<PagedList<QueryData>> GetQueries(GetQueriesRequest request, CancellationToken cancellationToken)
     {
         return await _context.Queries
-            .WhereIf(queryId.HasValue, x => x.Id == queryId)
-            .WhereIf(!string.IsNullOrWhiteSpace(sql), x => x.SqlValue.Contains(sql!))
-            .WhereIf(projectId.HasValue, x => x.ProjectId == projectId)
+            .WhereIf(request.QueryId.HasValue, x => x.Id == request.QueryId)
+            .WhereIf(request.ProjectId.HasValue, x => x.ProjectId == request.ProjectId)
             .Select(x =>
                 new QueryData
                 {
@@ -149,7 +154,7 @@ internal class QueryService : IQueryService
                             Placeholder = y.Placeholder
                         }).ToList()
                 })
-            .ToListAsync(cancellationToken);
+            .ToPagedListAsync(request, cancellationToken);
     }
 
     public Task<QueryDetailsData> GetQueryDetails(int queryId, CancellationToken cancellationToken)
