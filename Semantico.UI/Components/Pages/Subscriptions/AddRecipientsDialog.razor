@@ -42,7 +42,7 @@
 
     protected override async Task OnInitializedAsync()
     {
-        var recipients = await RecipientService.GetRecipients(null, default);
+        var recipients = await RecipientService.GetRecipients(null, null, default);
 
         _availableRecipients = recipients.ExceptBy(Subscription.Recipients.Select(x => x.RecipientId), x => x.RecipientId).ToList();
     }

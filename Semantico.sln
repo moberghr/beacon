@@ -3,8 +3,6 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.6.33706.43
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Semantico.Api", "Semantico.Api\Semantico.Api.csproj", "{6F597D65-E754-40DB-BB7D-0BCAE2AE1D25}"
-EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Semantico.Core", "Semantico.Core\Semantico.Core.csproj", "{541E5738-AA0A-4CA4-8397-B0260F287E24}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Semantico.UI", "Semantico.UI\Semantico.UI.csproj", "{C486F558-2FAD-4315-B8A5-3AC2DAD7D286}"
@@ -19,10 +17,6 @@ Global
 		Release|Any CPU = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{6F597D65-E754-40DB-BB7D-0BCAE2AE1D25}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{6F597D65-E754-40DB-BB7D-0BCAE2AE1D25}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{6F597D65-E754-40DB-BB7D-0BCAE2AE1D25}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{6F597D65-E754-40DB-BB7D-0BCAE2AE1D25}.Release|Any CPU.Build.0 = Release|Any CPU
 		{541E5738-AA0A-4CA4-8397-B0260F287E24}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{541E5738-AA0A-4CA4-8397-B0260F287E24}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{541E5738-AA0A-4CA4-8397-B0260F287E24}.Release|Any CPU.ActiveCfg = Release|Any CPU
@@ -40,7 +34,6 @@ Global
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
-		{6F597D65-E754-40DB-BB7D-0BCAE2AE1D25} = {03B08263-40FB-4846-8ECD-21C47B6156D2}
 		{C3BEF32C-0C1B-4348-8D9D-3DAF7A03392C} = {03B08263-40FB-4846-8ECD-21C47B6156D2}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution

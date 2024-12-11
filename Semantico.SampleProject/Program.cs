@@ -1,8 +1,7 @@
 using Hangfire;
 using Hangfire.PostgreSql;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Models;
-using Semantico.Api.Services;
+using Semantico.SampleProject.Services;
 using Semantico.UI;
 
 var builder = WebApplication.CreateBuilder(args);

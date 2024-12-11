@@ -1,5 +1,4 @@
-﻿using Microsoft.AspNetCore.DataProtection.XmlEncryption;
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Semantico.Core.Data;
 using Semantico.Core.Data.Entities;
 using Semantico.Core.Helpers;

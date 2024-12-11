@@ -1,4 +1,3 @@
-@using Semantico.Core.Data.Enums
 @using Semantico.Core.Models.Subscriptions
 @using Semantico.Core.Models.Recipients
 @using Semantico.Core.Services
@@ -74,7 +73,7 @@
     {
         _loading = true;
 
-        _recipients = await RecipientService.GetRecipients(null, default);
+        _recipients = await RecipientService.GetRecipients(null, null, default);
 
         _loading = false;
     }
