@@ -88,16 +88,13 @@
 
 @code {
     private int Index = -1; //default value cannot be 0 -> first selectedindex is 0
-    public ChartOptions _options = new ChartOptions();
     private NotificationStatisticsData? notificationStatisticsData;
     private DashboardStatisticsData? dashboardStatistics;
     private List<ChartSeries> _chartSeries;
-    private string[] XAxisLabels = [];
 
     protected override async Task OnInitializedAsync()
     {
         notificationStatisticsData = await notificationService.GetNotificationStatistics(CancellationToken.None);
         dashboardStatistics = await statisticsService.GetDashboardStatistics(CancellationToken.None);
     }
-
 }

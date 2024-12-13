@@ -12,8 +12,8 @@
     <SemanticoPageAlert Text="List of defined queries. You can create new on or click on row and edit subscriptions to existing query."/>
     <MudDataGrid @ref="_dataGrid" ServerData="ServerReload" T="QueryData" RowClick="OnRowClick" Hover="true" Filterable="false">
         <Columns>
-            <PropertyColumn InitialDirection="SortDirection.Descending" Property="x => x.QueryId" Title="Id"/>
-            <PropertyColumn Property="x => x.Name" Title="Name"/>
+            <PropertyColumn Property="x => x.QueryId" Title="Id"/>
+            <PropertyColumn InitialDirection="SortDirection.Ascending" Property="x => x.Name" Title="Name"/>
             <PropertyColumn Property="x => x.Description" Title="Description"/>
             <PropertyColumn Property="x => x.CreatedTime" Title="Created"/>
             <PropertyColumn Property="x => x.ProjectName"/>
