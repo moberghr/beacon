@@ -1,7 +1,7 @@
 ﻿using Hangfire;
 using Semantico.Core.Worker;
 
-namespace Semantico.Api.Services
+namespace Semantico.SampleProject.Services
 {
     /// <summary>
     /// One possible implementation of the semantico schedule execute query

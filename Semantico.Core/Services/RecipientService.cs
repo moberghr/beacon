@@ -15,7 +15,7 @@ namespace Semantico.Core.Services
 
         Task DeleteRecipient(int recipientId, CancellationToken cancellationToken);
 
-        Task<List<RecipientData>> GetRecipients(int? recipientId, CancellationToken cancellationToken);
+        Task<List<RecipientData>> GetRecipients(int? recipientId, string? searchQuery, CancellationToken cancellationToken);
     }
 
     internal class RecipientService : IRecipientService
@@ -61,10 +61,13 @@ namespace Semantico.Core.Services
             await _context.SaveChangesAsync(cancellationToken);
         }
 
-        public async Task<List<RecipientData>> GetRecipients(int? recipientId, CancellationToken cancellationToken)
+        public async Task<List<RecipientData>> GetRecipients(int? recipientId, string? searchQuery, CancellationToken cancellationToken)
         {
             return await _context.Recipients
                 .WhereIf(recipientId.HasValue, x => x.Id == recipientId)
+                .WhereIf(!string.IsNullOrWhiteSpace(searchQuery), 
+                    x => (x.Name + x.Description + x.NotificationType + x.Destination)
+                    .Contains(searchQuery, StringComparison.CurrentCultureIgnoreCase))
                 .Select(x => new RecipientData
                 {
                     RecipientId = x.Id,

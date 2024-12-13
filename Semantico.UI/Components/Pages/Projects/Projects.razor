@@ -1,6 +1,5 @@
 ﻿@page "/semantico/projects"
 @inherits BasePageComponent
-@using MudBlazor.Extensions
 @using Semantico.Core.Models.Projects
 @using Semantico.Core.Services
 
@@ -10,7 +9,7 @@
 <MudContainer Class="my-4 px-4">
     <SemanticoPageHeader Icon="@Icons.Material.Filled.Apartment" Title="Projects" ButtonText="New project" OnClick="@AddProject"/>
     <SemanticoPageAlert Text="List of projects."/>
-    <MudDataGrid @ref="_dataGrid" ServerData="ServerReload" T="ProjectListData" Hover="true" Filterable="false">
+    <MudDataGrid @ref="_dataGrid" ServerData="ServerReload" T="ProjectListData" Hover="true" Filterable="false" SortMode="SortMode.None">
         <Columns>
             <PropertyColumn Property="x => x.Name" Title="Name"/>
             <PropertyColumn Property="x => x.DatabaseEngineType" Title="Database engine"/>
@@ -29,7 +28,6 @@
     private List<ProjectListData> _list;
     MudDataGrid<ProjectListData>? _dataGrid;
     private bool _loading;
-    private string _searchString;
 
     private async Task<GridData<ProjectListData>> ServerReload(GridState<ProjectListData> state)
     {

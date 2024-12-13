@@ -11,7 +11,7 @@
 		<PackageReference Include="CronExpressionDescriptor" Version="2.36.0" />
 		<PackageReference Include="Cronos" Version="0.8.4" />
 		<PackageReference Include="Dapper" Version="2.1.35" />
-		<PackageReference Include="MessageCardModel" Version="1.1.4" />
+		<PackageReference Include="MessageCardModel" Version="1.1.5" />
 		<PackageReference Include="MySql.Data" Version="9.1.0" />
 		<PackageReference Include="Swashbuckle.AspNetCore" Version="6.9.0" />
 		<PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.10" />

@@ -1,4 +1,3 @@
-@using Semantico.Core.Data.Enums
 @using Semantico.Core.Models.Subscriptions
 @using Semantico.Core.Models.Recipients
 @using Semantico.Core.Services
@@ -18,7 +17,7 @@
             Class="mb-2"
             @bind-Value="@Subscription.CronExpression"
             Placeholder="* * * * *"
-            Validation="@(new Func<string, string>(ValidateCron))"
+            Validation="@(new Func<string, Task<string>>(ValidateCron))"
             T="String"
             HelperText="@_cronDescription"
             Label="Cron"
@@ -49,6 +48,7 @@
 @inject ISnackbar Snackbar
 @inject ISubscriptionService Service
 @inject IRecipientService RecipientService
+@inject IJSRuntime JSRuntime
 
 @code
 {
@@ -73,7 +73,7 @@
     {
         _loading = true;
 
-        _recipients = await RecipientService.GetRecipients(null, default);
+        _recipients = await RecipientService.GetRecipients(null, null, default);
 
         _loading = false;
     }
@@ -112,14 +112,21 @@
 
     void Cancel() => MudDialog.Cancel();
 
-    private string ValidateCron(string cron)
+    private async Task<string> ValidateCron(string cron)
     {
         if (!Cronos.CronExpression.TryParse(cron, out Cronos.CronExpression? expression))
         {
+            _cronDescription = "";
+
             return "Invalid cron expression";
         }
 
         _cronDescription = cron.GetCronDescription();
+
+        var cronNextAt = cron.GetCronNextAt();
+        var localNextAt = await JSRuntime.InvokeAsync<string>("toLocalTime", cronNextAt);
+
+        _cronDescription += $" -> next at: {localNextAt}";
 
         return string.Empty;
     }
