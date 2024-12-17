@@ -1,4 +1,5 @@
 ﻿using Semantico.Core.Data.Enums;
+using Semantico.Core.Models.Recipients;
 
 namespace Semantico.Core.Adapters;
 
@@ -11,6 +12,10 @@ public class QueryResult
     public required string ProjectName { get; init; }
 
     public required string SqlQuery { get; init; }
+
+    public List<RecipientData> Recipients { get; set; }
+
+    public string SubscriptionName { get; set; }
 }
 
 public class RecipientQueryResult

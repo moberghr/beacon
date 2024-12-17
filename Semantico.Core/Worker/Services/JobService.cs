@@ -15,73 +15,24 @@ namespace Semantico.Core.Worker.Services;
 internal class JobService : IJobService
 {
     private readonly SemanticoContext _context;
-    private readonly IJobRepository _jobRepository;
+    private readonly IQueryService _queryService;
     private readonly INotificationService _notificationService;
 
-    public JobService(SemanticoContext context, IJobRepository jobRepository, INotificationService notificationService)
+    public JobService(SemanticoContext context, IQueryService queryService, INotificationService notificationService)
     {
         _context = context;
-        _jobRepository = jobRepository;
+        _queryService = queryService;
         _notificationService = notificationService;
     }
 
     public async Task ExecuteQuery(int subscriptionId)
     {
-        var subscription = await _context.Subscriptions
-            .Include(x => x.Parameters)
-            .Where(x => x.Id == subscriptionId)
-            .Select(x =>
-                new
-                {
-                    x.Id,
-                    Recipients = x.Recipients.Select(y => new RecipientData
-                    {
-                        RecipientId = y.Id,
-                        Name = y.Name,
-                        Description = y.Description,
-                        Destination = y.Destination,
-                        NotificationType = y.NotificationType,
-                    }).ToList(),
-                    x.QueryId,
-                    x.CronExpression,
-                    x.Query.SqlValue,
-                    x.Query.Name,
-                    Project = new
-                    {
-                        x.Query.Project.Name,
-                        x.Query.Project.ConnectionString,
-                        x.Query.Project.DatabaseEngineType
-                    },
-                    Parameters = x.Parameters.Select(y =>
-                        new SubscriptionParamaterData
-                        {
-                            QueryPlaceholder = y.QueryPlaceholder,
-                            Value = y.Value
-                        }).ToList()
-                })
-            .SingleAsync();
+        var queryResult = await _queryService.ExecuteQuery(subscriptionId, CancellationToken.None);
         
-        var sql = QueryHelper.CompileSql(subscription.SqlValue, subscription.Parameters);
-
-        QueryValidator.CheckForFlaggedWords(sql);
-
-        var dbQueryResult = await _jobRepository.ExecuteQueryAsync(subscription.Project.DatabaseEngineType, subscription.Project.ConnectionString, sql);
-
-        // We will only send the top 10 rows in a notification.
-        var messageRows = dbQueryResult.Take(10).ToList();
-
-        var queryResult = new QueryResult
-        {
-            QueryResults = JsonSerializer.Serialize(messageRows),
-            TotalRecords = dbQueryResult.Count(),
-            ProjectName = subscription.Project.Name,
-            SqlQuery = sql,
-        };
-
-        var recipientsQueryResults = subscription.Recipients
+        var recipientsQueryResults = queryResult.Recipients
             .Select(x => new RecipientQueryResult
             {
-                SubscriptionName = subscription.Name,
+                SubscriptionName = queryResult.SubscriptionName,
                 RecipientDestination = x.Destination,
                 RecipientNotificationType = x.NotificationType,
                 QueryResult = queryResult
