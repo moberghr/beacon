@@ -1,5 +1,6 @@
 ﻿using System.Data.Common;
 using System.Data.SqlClient;
+using System.Dynamic;
 using System.Text.Json;
 using Dapper;
 using Microsoft.EntityFrameworkCore;
@@ -205,7 +206,7 @@ internal class QueryService : IQueryService
     public async Task<QueryResult> ExecuteQuery(int subscriptionId, CancellationToken cancellationToken)
     {
         var subscription = await _context.Subscriptions
-            .Include(x => x.Parameters)
+            .AsSplitQuery()
             .Where(x => x.Id == subscriptionId)
             .Select(x =>
                 new
@@ -250,7 +251,8 @@ internal class QueryService : IQueryService
         var queryResult = new QueryResult
         {
             QueryResults = JsonSerializer.Serialize(messageRows),
-            TotalRecords = dbQueryResult.Count(),
+            TopRecords = messageRows,
+            TotalRecords = dbQueryResult.Count,
             ProjectName = subscription.Project.Name,
             SqlQuery = sql,
             Recipients = subscription.Recipients,
@@ -300,20 +302,20 @@ internal class QueryService : IQueryService
         };
     }
     
-    private async Task<List<object>> ExecuteQueryAsync(DatabaseEngineType dbEngineType, string connectionString, string sqlQuery)
+    private async Task<List<IDictionary<string, object?>>>ExecuteQueryAsync(DatabaseEngineType dbEngineType, string connectionString, string sqlQuery)
     {
-        using var connection = GetDbConnection(dbEngineType, connectionString);
+        await using var connection = GetDbConnection(dbEngineType, connectionString);
         await connection.OpenAsync();
 
         // Replace newline, carriage return, and tab characters with a space
+        
         var cleanedSql = sqlQuery.Replace("\n", " ")
             .Replace("\r", " ")
             .Replace("\t", " ")
             .Trim();
 
-        var results = await connection.QueryAsync<object>(cleanedSql);
-
-        return results.ToList();
+        var results = (await connection.QueryAsync(cleanedSql)).Select(x => (IDictionary<string, object?>)x).ToList();
+        return results;
     }
 
     private static DbConnection GetDbConnection(DatabaseEngineType dbEngineType, string connectionString) => dbEngineType switch

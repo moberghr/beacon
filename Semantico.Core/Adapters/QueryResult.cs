@@ -14,6 +14,8 @@ public class QueryResult
     public required string SqlQuery { get; init; }
 
     public List<RecipientData> Recipients { get; set; }
+    
+    public List<IDictionary<string, object?>> TopRecords { get; set; }
 
     public string SubscriptionName { get; set; }
 }
