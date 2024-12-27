@@ -5,6 +5,7 @@
 @using Semantico.Core.Models.Recipients
 @using Semantico.Core.Services
 @using Semantico.Core.Worker
+@using SortDirection = MudBlazor.SortDirection
 
 <SemanticoPageTitle Title="Query"/>
 
@@ -83,7 +84,7 @@
                             <MudText Typo="Typo.h6">Execution history</MudText>
                         </ToolBarContent>
                         <Columns>
-                            <PropertyColumn Property="x => x.CreatedTime" Title="Created"/>
+                            <PropertyColumn InitialDirection="SortDirection.Descending" Property="x => x.CreatedTime" Title="Created"/>
                             <PropertyColumn Property="x => x.QueryExecutionHistoryId" Title="Id"/>
                             <PropertyColumn Property="x => x.RecipientName"/>
                             <PropertyColumn Property="x => x.NotificationType"/>
@@ -149,7 +150,7 @@
     {
         _cronDescription = Model?.CronExpression?.GetCronDescription();
 
-        var cronNextAt = Model?.CronExpression.GetCronNextAt();
+        var cronNextAt = Model?.CronExpression?.GetCronNextAt();
         var localNextAt = await JSRuntime.InvokeAsync<string>("toLocalTime", cronNextAt);
 
         _cronNextAt = $"next at: {localNextAt}";

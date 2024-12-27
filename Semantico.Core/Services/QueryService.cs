@@ -1,6 +1,5 @@
 ﻿using System.Data.Common;
 using System.Data.SqlClient;
-using System.Dynamic;
 using System.Text.Json;
 using Dapper;
 using Microsoft.EntityFrameworkCore;
@@ -173,6 +172,7 @@ internal class QueryService : IQueryService
     public Task<QueryDetailsData> GetQueryDetails(int queryId, CancellationToken cancellationToken)
     {
         return _context.Queries
+            .AsSplitQuery()
             .Where(x => x.Id == queryId)
             .Select(x =>
                 new QueryDetailsData
@@ -308,13 +308,16 @@ internal class QueryService : IQueryService
         await connection.OpenAsync();
 
         // Replace newline, carriage return, and tab characters with a space
-        
         var cleanedSql = sqlQuery.Replace("\n", " ")
             .Replace("\r", " ")
             .Replace("\t", " ")
             .Trim();
 
-        var results = (await connection.QueryAsync(cleanedSql)).Select(x => (IDictionary<string, object?>)x).ToList();
+        var dapperRows = await connection.QueryAsync(cleanedSql);
+
+        // we need to convert the dapper rows to a list of dictionaries to be able to do nice reflection (and to be able to serialize to json) and construct tables.
+        //https://stackoverflow.com/questions/55607619/dapper-row-to-json/55608014#55608014
+        var results = dapperRows.Select(x => (IDictionary<string, object?>)x).ToList();
         return results;
     }
 
