@@ -19,7 +19,7 @@ internal class EmailAdapter : IAdapter
         var to = recipientQueryResult.RecipientDestination;
         var subject = $"[semantico] {recipientQueryResult.QueryResult.ProjectName} - {recipientQueryResult.SubscriptionName}";
         
-        var htmlBody = Helpers.GenerateHtmlBody(recipientQueryResult.QueryResult);
+        var htmlBody = Helpers.GenerateEmailContent(recipientQueryResult.QueryResult);
 
         await _emailAdapter.SendEmailAsync(to, subject, htmlBody);
     }

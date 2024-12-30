@@ -1,8 +1,11 @@
+using System.Text.Encodings.Web;
+using System.Text.RegularExpressions;
+
 namespace Semantico.Core.Adapters;
 
 public static class Helpers
 {
-    public static string GenerateHtmlBody(QueryResult queryResult)
+    public static string GenerateEmailContent(QueryResult queryResult)
     {
         return $@"
         <html>
@@ -40,5 +43,21 @@ public static class Helpers
             </table>
         </body>
         </html>";
+    }
+
+    public static string GenerateJiraContent(QueryResult queryResult)
+    {
+        return $@"
+        h3. Sql Query:
+        {{code:sql}}
+            {queryResult.SqlQuery}
+        {{code}}
+
+        ----
+
+        Total records: *{queryResult.TotalRecords}*
+
+        |{string.Join("|", queryResult.TopRecords.FirstOrDefault().Select(property => property.Key))}|
+        {string.Join("\n", queryResult.TopRecords.Select(record => $"|{string.Join("|", record.Select(property =>  Regex.Replace(property.Value?.ToString() ?? "-", @"\t|\n|\r", "")))}|"))}|";
     }
 }
