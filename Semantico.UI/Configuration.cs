@@ -8,35 +8,34 @@ using Semantico.Core;
 using Semantico.UI.Components;
 using Semantico.UI.Components.Shared;
 
-namespace Semantico.UI
+namespace Semantico.UI;
+
+public static class Configuration
 {
-    public static class Configuration
+    public static IServiceCollection AddSemanticoAdmin(this IServiceCollection services, IConfiguration configuration, Action<SemanticoConfiguration> semanticoConfiguration)
     {
-        public static IServiceCollection AddSemanticoAdmin(this IServiceCollection services, IConfiguration configuration, Action<SemanticoConfiguration> semanticoConfiguration)
-        {
-            services.AddSemantico(configuration, semanticoConfiguration);
+        services.AddSemantico(configuration, semanticoConfiguration);
 
-            services.AddRazorComponents().AddInteractiveServerComponents();
-            services.AddMudServices();
-            services.AddSingleton<PageHistoryState>();
-            services.AddBlazoredLocalStorage();
-            services.AddApexCharts();
+        services.AddRazorComponents().AddInteractiveServerComponents();
+        services.AddMudServices();
+        services.AddSingleton<PageHistoryState>();
+        services.AddBlazoredLocalStorage();
+        services.AddApexCharts();
 
-            return services;
-        }
+        return services;
+    }
 
-        public static IApplicationBuilder UseSemanticoUI(this WebApplication app)
-        {
-            app.UseSemantico();
+    public static IApplicationBuilder UseSemanticoUI(this WebApplication app)
+    {
+        app.UseSemantico();
 
-            app.MapRazorComponents<SemanticoApp>()
-                .AddInteractiveServerRenderMode();
+        app.MapRazorComponents<SemanticoApp>()
+            .AddInteractiveServerRenderMode();
 
-            app.UseAntiforgery();
+        app.UseAntiforgery();
 
-            app.UseStaticFiles();
+        app.UseStaticFiles();
 
-            return app;
-        }
+        return app;
     }
 }

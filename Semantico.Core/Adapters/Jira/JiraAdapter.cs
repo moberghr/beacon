@@ -33,7 +33,7 @@ internal class JiraAdapter : IAdapter
         {
             if (existingIssue != null)
             {
-                await jiraClient.Issues.DeleteIssueAsync(existingIssue.Key.Value);
+                await existingIssue.WorkflowTransitionAsync("Done");
             }
 
             return;
@@ -41,11 +41,11 @@ internal class JiraAdapter : IAdapter
 
         if (existingIssue == null)
         {
-            existingIssue = await CreateIssueAndCommentAsync(credentials, jiraClient, recipientQueryResult);
+            await CreateIssueAndCommentAsync(credentials, jiraClient, recipientQueryResult);
             return;
         }
 
-        if (lastNotificationResultCount != recipientQueryResult.QueryResult.TotalRecords)
+        //if (lastNotificationResultCount != recipientQueryResult.QueryResult.TotalRecords)
         {
             await CreateJiraCommentAsync(credentials.Email, existingIssue, recipientQueryResult);
         }
@@ -53,28 +53,23 @@ internal class JiraAdapter : IAdapter
 
     private async Task<Issue> CreateIssueAndCommentAsync(JiraCredentials credentials, Atlassian.Jira.Jira jiraClient, RecipientQueryResult recipientQueryResult)
     {
-        var issue = await CreateNewIssueAsync(jiraClient, credentials.Project, "", recipientQueryResult.SubscriptionName, recipientQueryResult.QueryResult.SqlQuery);
+        var description = Helpers.GenerateJiraContent(recipientQueryResult.QueryResult);
+        
+        var issue = await CreateNewIssueAsync(jiraClient, credentials.Project, "", recipientQueryResult.SubscriptionName, description);
 
         await CreateJiraCommentAsync(credentials.Email, issue, recipientQueryResult);
 
         return issue;
     }
 
-    private static string CompileQueryResultMessage(RecipientQueryResult recipientQueryResult)
-    {
-        return $"The Query produced: {recipientQueryResult.QueryResult.TotalRecords} results\n" +
-               $"The results are: \n" +
-               $"{recipientQueryResult.QueryResult.QueryResults}";
-    }
-
     private async Task<Comment> CreateJiraCommentAsync(string currentUser, Issue issue, RecipientQueryResult recipientQueryResult)
     {
-        var commentBody = CompileQueryResultMessage(recipientQueryResult);
+        var description = Helpers.GenerateJiraContent(recipientQueryResult.QueryResult);
 
         var comment = new Comment
         {
             Author = currentUser,
-            Body = commentBody
+            Body = description
         };
 
         return await issue.AddCommentAsync(comment);

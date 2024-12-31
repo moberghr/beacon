@@ -1,9 +1,19 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using System.Data.Common;
+using System.Data.SqlClient;
+using System.Text.Json;
+using Dapper;
+using Microsoft.EntityFrameworkCore;
+using MySql.Data.MySqlClient;
+using Npgsql;
+using Semantico.Core.Adapters;
 using Semantico.Core.Data;
 using Semantico.Core.Data.Entities;
+using Semantico.Core.Data.Enums;
 using Semantico.Core.Helpers;
 using Semantico.Core.Models;
 using Semantico.Core.Models.Queries;
+using Semantico.Core.Models.Recipients;
+using Semantico.Core.Models.Subscriptions;
 using Semantico.Core.Validators;
 
 namespace Semantico.Core.Services;
@@ -19,6 +29,8 @@ public interface IQueryService
     Task<PagedList<QueryData>> GetQueries(GetQueriesRequest request, CancellationToken cancellationToken);
 
     Task<QueryDetailsData> GetQueryDetails(int queryId, CancellationToken cancellationToken);
+    
+    Task<QueryResult> ExecuteQuery(int subscriptionId, CancellationToken cancellationToken);
 }
 
 public class QueryDetailsData
@@ -160,6 +172,7 @@ internal class QueryService : IQueryService
     public Task<QueryDetailsData> GetQueryDetails(int queryId, CancellationToken cancellationToken)
     {
         return _context.Queries
+            .AsSplitQuery()
             .Where(x => x.Id == queryId)
             .Select(x =>
                 new QueryDetailsData
@@ -188,6 +201,65 @@ internal class QueryService : IQueryService
                             CronExpression = y.CronExpression
                         }).ToList()
                 }).SingleAsync(cancellationToken);
+    }
+
+    public async Task<QueryResult> ExecuteQuery(int subscriptionId, CancellationToken cancellationToken)
+    {
+        var subscription = await _context.Subscriptions
+            .AsSplitQuery()
+            .Where(x => x.Id == subscriptionId)
+            .Select(x =>
+                new
+                {
+                    x.Id,
+                    Recipients = x.Recipients.Select(y => new RecipientData
+                    {
+                        RecipientId = y.Id,
+                        Name = y.Name,
+                        Description = y.Description,
+                        Destination = y.Destination,
+                        NotificationType = y.NotificationType,
+                    }).ToList(),
+                    x.QueryId,
+                    x.CronExpression,
+                    x.Query.SqlValue,
+                    x.Query.Name,
+                    Project = new
+                    {
+                        x.Query.Project.Name,
+                        x.Query.Project.ConnectionString,
+                        x.Query.Project.DatabaseEngineType
+                    },
+                    Parameters = x.Parameters.Select(y =>
+                        new SubscriptionParamaterData
+                        {
+                            QueryPlaceholder = y.QueryPlaceholder,
+                            Value = y.Value
+                        }).ToList()
+                })
+            .SingleAsync(cancellationToken);
+        
+        var sql = QueryHelper.CompileSql(subscription.SqlValue, subscription.Parameters);
+
+        QueryValidator.CheckForFlaggedWords(sql);
+
+        var dbQueryResult = await ExecuteQueryAsync(subscription.Project.DatabaseEngineType, subscription.Project.ConnectionString, sql);
+
+        // We will only send the top 10 rows in a notification.
+        var messageRows = dbQueryResult.Take(10).ToList();
+
+        var queryResult = new QueryResult
+        {
+            QueryResults = JsonSerializer.Serialize(messageRows),
+            TopRecords = messageRows,
+            TotalRecords = dbQueryResult.Count,
+            ProjectName = subscription.Project.Name,
+            SqlQuery = sql,
+            Recipients = subscription.Recipients,
+            SubscriptionName = subscription.Name
+        };
+
+        return queryResult;
     }
 
     public async Task<BaseResponse> UpdateQuery(QueryData queryData, CancellationToken cancellationToken)
@@ -229,4 +301,31 @@ internal class QueryService : IQueryService
             Success = true
         };
     }
+    
+    private async Task<List<IDictionary<string, object?>>>ExecuteQueryAsync(DatabaseEngineType dbEngineType, string connectionString, string sqlQuery)
+    {
+        await using var connection = GetDbConnection(dbEngineType, connectionString);
+        await connection.OpenAsync();
+
+        // Replace newline, carriage return, and tab characters with a space
+        var cleanedSql = sqlQuery.Replace("\n", " ")
+            .Replace("\r", " ")
+            .Replace("\t", " ")
+            .Trim();
+
+        var dapperRows = await connection.QueryAsync(cleanedSql);
+
+        // we need to convert the dapper rows to a list of dictionaries to be able to do nice reflection (and to be able to serialize to json) and construct tables.
+        //https://stackoverflow.com/questions/55607619/dapper-row-to-json/55608014#55608014
+        var results = dapperRows.Select(x => (IDictionary<string, object?>)x).ToList();
+        return results;
+    }
+
+    private static DbConnection GetDbConnection(DatabaseEngineType dbEngineType, string connectionString) => dbEngineType switch
+    {
+        DatabaseEngineType.PostgreSQL => new NpgsqlConnection(connectionString),
+        DatabaseEngineType.MSSQL => new SqlConnection(connectionString),
+        DatabaseEngineType.MySQL => new MySqlConnection(connectionString),
+        _ => throw new SemanticoException($"Unsupported database engine.")
+    };
 }
