@@ -1,4 +1,5 @@
-﻿using Semantico.Core.Data.Enums;
+﻿using System.Reflection;
+using Semantico.Core.Data.Enums;
 
 namespace Semantico.Core.Adapters.Mail;
 
@@ -16,13 +17,11 @@ internal class EmailAdapter : IAdapter
     public async Task SendNotificationAsync(RecipientQueryResult recipientQueryResult)
     {
         var to = recipientQueryResult.RecipientDestination;
-        var subject = $"{recipientQueryResult.QueryResult.ProjectName} - {recipientQueryResult.SubscriptionName}";
+        var subject = $"[semantico] {recipientQueryResult.QueryResult.ProjectName} - {recipientQueryResult.QueryResult.SubscriptionName}";
+        
+        var htmlBody = Helpers.GenerateEmailContent(recipientQueryResult.QueryResult);
 
-        var body = $"Sql Query: \n{recipientQueryResult.QueryResult.SqlQuery} \n" +
-            $"Query executed successfuly with total records of: {recipientQueryResult.QueryResult.TotalRecords} \n" +
-            $"Results: {recipientQueryResult.QueryResult.QueryResults}";
-
-        await _emailAdapter.SendEmailAsync(to, subject, body, recipientQueryResult.QueryResultFile);
+        await _emailAdapter.SendEmailAsync(to, subject, htmlBody, recipientQueryResult.QueryResultFile);
     }
 
     public Task SendNotificationAsync(RecipientQueryResult recipientQueryResult, int lastNotificationResultCount)

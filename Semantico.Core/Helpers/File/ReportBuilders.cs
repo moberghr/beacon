@@ -11,7 +11,7 @@ namespace Semantico.Core.Helpers.File;
 
 internal static class ExportProvider
 {
-    public static async Task<QueryResultFile?> GetReport(FileType? exportType, List<object> data)
+    public static async Task<QueryResultFile?> GetReport(FileType? exportType, List<IDictionary<string, object?>>? data)
     {
         switch (exportType)
         {
@@ -47,7 +47,7 @@ internal static class CsvBuilder
     private const string _csvDelimiter = ",";
     private const string _newLine = "\r\n";
 
-    public static async Task<byte[]> GetReport(List<object> data)
+    public static async Task<byte[]> GetReport(List<IDictionary<string, object?>>? data)
     {
         var csvConfiguration = new CsvConfiguration(new CultureInfo("en-US"))
         {
@@ -65,22 +65,16 @@ internal static class CsvBuilder
 
         csvWriter.Context.TypeConverterOptionsCache.GetOptions<DateTime>().Formats = new[] { _csvDateTimeFormat };
 
-        var columns = ObjectHelpers.GetPropertyNames(data);
-
-        foreach (var col in columns)
+        foreach (var col in data?.FirstOrDefault()?.Select(x => x.Key) ?? [])
         {
             csvWriter.WriteField(col);
         }
 
         await csvWriter.NextRecordAsync();
 
-        foreach (var item in data)
+        foreach (var item in data ?? [])
         {
-            var values = columns
-                .Select(x => ObjectHelpers.GetPropertyValue(item!, x, "-"))
-                .ToArray();
-
-            foreach (var value in values)
+            foreach (var value in item?.Select(x => x.Value) ?? [])
             {
                 csvWriter.WriteField(value);
             }
@@ -98,7 +92,7 @@ public static class XlsxBuilder
 {
     private const string _xlsxDateTimeFormat = "dd.MM.yyyy";
 
-    public static Task<byte[]> GetReport(List<object> data)
+    public static Task<byte[]> GetReport(List<IDictionary<string, object?>>? data)
     {
         var xlsxDataTable = PrepareDataTable(data);
 
@@ -115,22 +109,19 @@ public static class XlsxBuilder
         return Task.FromResult(memoryStream.ToArray());
     }
 
-    private static DataTable PrepareDataTable(List<object> data)
+    private static DataTable PrepareDataTable(List<IDictionary<string, object?>>? data)
     {
         var dt = new DataTable();
 
-        if (data.Count == 0)
+        if (data?.Count == 0)
         {
             return dt;
         }
 
-        var type = data.First().GetType();
-
-        var columns = ObjectHelpers.GetPropertyNames(data);
-
-        foreach (var column in columns)
+        foreach (var column in data.FirstOrDefault()!)
         {
-            var columnName = column;
+            var columnName = column.Key ?? "";
+            var propertyType = column.Value?.GetType();
             // check if column name is unique as DataTable doesn't allow duplicates
             var index = 1;
             while (dt.Columns.Contains(columnName))
@@ -138,8 +129,6 @@ public static class XlsxBuilder
                 columnName = column + index.ToString();
                 index++;
             }
-
-            var propertyType = ObjectHelpers.GetPropertyType(type, columnName);
 
             if (propertyType == null)
             {
@@ -152,11 +141,7 @@ public static class XlsxBuilder
 
         foreach (var item in data)
         {
-            var values = columns
-                .Select(x => ObjectHelpers.GetPropertyValue(item!, x))
-                .ToArray();
-
-            dt.Rows.Add(values);
+            dt.Rows.Add(item?.Select(x => x.Value));
         }
 
         return dt;

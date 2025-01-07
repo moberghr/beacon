@@ -5,69 +5,69 @@ using Semantico.Core.Helpers;
 using Semantico.Core.Models;
 using Semantico.Core.Models.Recipients;
 
-namespace Semantico.Core.Services
+namespace Semantico.Core.Services;
+
+public interface IRecipientService
 {
-    public interface IRecipientService
+    Task<BaseResponse> CreateRecipient(RecipientData recipientData, CancellationToken cancellationToken);
+
+    Task<BaseResponse> UpdateRecipient(RecipientData recipientData, CancellationToken cancellationToken);
+
+    Task DeleteRecipient(int recipientId, CancellationToken cancellationToken);
+
+    Task<List<RecipientData>> GetRecipients(int? recipientId, string? searchQuery, CancellationToken cancellationToken);
+}
+
+internal class RecipientService : IRecipientService
+{
+    private readonly SemanticoContext _context;
+
+    public RecipientService(SemanticoContext context)
     {
-        Task<BaseResponse> CreateRecipient(RecipientData recipientData, CancellationToken cancellationToken);
-
-        Task<BaseResponse> UpdateRecipient(RecipientData recipientData, CancellationToken cancellationToken);
-
-        Task DeleteRecipient(int recipientId, CancellationToken cancellationToken);
-
-        Task<List<RecipientData>> GetRecipients(int? recipientId, string? searchQuery, CancellationToken cancellationToken);
+        _context = context;
     }
 
-    internal class RecipientService : IRecipientService
+    public async Task<BaseResponse> CreateRecipient(RecipientData recipientData, CancellationToken cancellationToken)
     {
-        private readonly SemanticoContext _context;
-
-        public RecipientService(SemanticoContext context)
+        var recipient = new Recipient
         {
-            _context = context;
+            Name = recipientData.Name,
+            Description = recipientData.Description,
+            Destination = recipientData.Destination,
+            NotificationType = recipientData.NotificationType,
+            ResultAttachment = recipientData.ResultAttachment
+        };
+
+        _context.Recipients.Add(recipient);
+        await _context.SaveChangesAsync(cancellationToken);
+
+        return new BaseResponse
+        {
+            Success = true
+        };
+    }
+
+    public async Task DeleteRecipient(int recipientId, CancellationToken cancellationToken)
+    {
+        var recipient = await _context.Recipients
+            .Where(x => x.Id == recipientId)
+            .SingleAsync(cancellationToken);
+
+        if (recipient.Subscriptions.Count > 0)
+        {
+            throw new SemanticoException($"Unable to remove recipient due to existing subscriptions");
         }
 
-        public async Task<BaseResponse> CreateRecipient(RecipientData recipientData, CancellationToken cancellationToken)
-        {
-            var recipient = new Recipient
-            {
-                Name = recipientData.Name,
-                Description = recipientData.Description,
-                Destination = recipientData.Destination,
-                NotificationType = recipientData.NotificationType,
-                ResultAttachment = recipientData.ResultAttachment
-            };
+        recipient.Archive();
+        await _context.SaveChangesAsync(cancellationToken);
+    }
 
-            _context.Recipients.Add(recipient);
-            await _context.SaveChangesAsync(cancellationToken);
-
-            return new BaseResponse
-            {
-                Success = true
-            };
-        }
-
-        public async Task DeleteRecipient(int recipientId, CancellationToken cancellationToken)
-        {
-            var recipient = await _context.Recipients
-                .Where(x => x.Id == recipientId)
-                .SingleAsync(cancellationToken);
-
-            if (recipient.Subscriptions.Count > 0)
-            {
-                throw new SemanticoException($"Unable to remove recipient due to existing subscriptions");
-            }
-
-            recipient.Archive();
-            await _context.SaveChangesAsync(cancellationToken);
-        }
-
-        public async Task<List<RecipientData>> GetRecipients(int? recipientId, string? searchQuery, CancellationToken cancellationToken)
-        {
-            return await _context.Recipients
-                .WhereIf(recipientId.HasValue, x => x.Id == recipientId)
-                .WhereIf(!string.IsNullOrWhiteSpace(searchQuery), 
-                    x => (x.Name + x.Description + x.NotificationType + x.Destination)
+    public async Task<List<RecipientData>> GetRecipients(int? recipientId, string? searchQuery, CancellationToken cancellationToken)
+    {
+        return await _context.Recipients
+            .WhereIf(recipientId.HasValue, x => x.Id == recipientId)
+            .WhereIf(!string.IsNullOrWhiteSpace(searchQuery), 
+                x => (x.Name + x.Description + x.NotificationType + x.Destination)
                     .Contains(searchQuery, StringComparison.CurrentCultureIgnoreCase))
                 .Select(x => new RecipientData
                 {
@@ -93,12 +93,11 @@ namespace Semantico.Core.Services
             recipient.Description = recipientData.Description;
             recipient.ResultAttachment = recipientData.ResultAttachment;
 
-            await _context.SaveChangesAsync(cancellationToken);
+        await _context.SaveChangesAsync(cancellationToken);
 
-            return new BaseResponse
-            {
-                Success = true
-            };
-        }
+        return new BaseResponse
+        {
+            Success = true
+        };
     }
 }

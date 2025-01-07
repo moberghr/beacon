@@ -4,11 +4,17 @@
 @using Semantico.Core.Models.Subscriptions
 @using Semantico.Core.Models.Recipients
 @using Semantico.Core.Services
+@using Semantico.Core.Worker
+@using SortDirection = MudBlazor.SortDirection
 
 <SemanticoPageTitle Title="Query"/>
 
 <MudContainer Class="my-4 px-4">
-    <SemanticoPageHeader Icon="@Icons.Material.Filled.Subscriptions" Title="Subscription details" Alert="@Model?.Status" AlertSeverity="@(isSubscriptionActive ? Severity.Success : Severity.Error)" ButtonIcon="@Icons.Material.Outlined.Archive" ButtonText="Archive" ButtonDisabled="@(!isSubscriptionActive)" OnClick="@ArchiveSubscription"/>
+    <SemanticoPageHeader Icon="@Icons.Material.Filled.Subscriptions" Title="Subscription details" Alert="@Model?.Status" AlertSeverity="@(isSubscriptionActive ? Severity.Success : Severity.Error)" ButtonIcon="@Icons.Material.Outlined.Archive" ButtonText="Archive" ButtonDisabled="@(!isSubscriptionActive)" OnClick="@ArchiveSubscription">
+        <MudItem xs="6" sm="2" md="2" lg="2" Class="d-flex justify-end">
+        <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="@(async () => await TestSubscription())">Test</MudButton>
+        </MudItem>
+    </SemanticoPageHeader>
     <MudCard Class="my-4 px-2">
         <MudCardContent>
             @if (_loading)
@@ -78,7 +84,7 @@
                             <MudText Typo="Typo.h6">Execution history</MudText>
                         </ToolBarContent>
                         <Columns>
-                            <PropertyColumn Property="x => x.CreatedTime" Title="Created"/>
+                            <PropertyColumn InitialDirection="SortDirection.Descending" Property="x => x.CreatedTime" Title="Created"/>
                             <PropertyColumn Property="x => x.QueryExecutionHistoryId" Title="Id"/>
                             <PropertyColumn Property="x => x.RecipientName"/>
                             <PropertyColumn Property="x => x.NotificationType"/>
@@ -97,6 +103,8 @@
 </MudContainer>
 
 @inject ISubscriptionService Service
+@inject IQueryService QueryService
+@inject IJobService JobService
 @inject INotificationService NotificationsService
 @inject IDialogService DialogService
 @inject IJSRuntime JSRuntime
@@ -125,7 +133,7 @@
 
         gridRequest.SubscriptionId = Id;
 
-        List = await NotificationsService.GetQueryExecutionHistory(gridRequest, new CancellationToken());
+        List = await NotificationsService.GetQueryExecutionHistory(gridRequest, CancellationToken.None);
 
         return new GridData<QueryExecutionHistoryData> {
             TotalItems = List.Data.Count,
@@ -138,21 +146,25 @@
         await Load();
     }
 
-    private async Task Load()
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        _loading = true;
-
-        Model = await Service.GetSubscriptionDetails(Id, new CancellationToken());
-
-        isSubscriptionActive = Model?.Status == "Active";
-
         _cronDescription = Model?.CronExpression?.GetCronDescription();
 
-        var cronNextAt = Model?.CronExpression.GetCronNextAt();
+        var cronNextAt = Model?.CronExpression?.GetCronNextAt();
         var localNextAt = await JSRuntime.InvokeAsync<string>("toLocalTime", cronNextAt);
 
         _cronNextAt = $"next at: {localNextAt}";
 
+    }
+
+    private async Task Load()
+    {
+        _loading = true;
+
+        Model = await Service.GetSubscriptionDetails(Id, CancellationToken.None);
+
+        isSubscriptionActive = Model?.Status == "Active";
+        
         _loading = false;
     }
 
@@ -169,7 +181,14 @@
             return;
         }
 
-        await Service.DeleteSubscription(Id, new CancellationToken());
+        await Service.DeleteSubscription(Id, CancellationToken.None);
+
+        await Load();
+    }
+    
+    private async Task TestSubscription()
+    {
+        await JobService.ExecuteQuery(Id);
 
         await Load();
     }
@@ -181,7 +200,7 @@
         var dialog = await DialogService.ShowAsync<AddRecipientsDialog>("", parameters);
         var result = await dialog.Result;
 
-        if (!result.Canceled)
+        if (!result?.Canceled ?? false)
         {
             await Load();
         }
@@ -189,7 +208,7 @@
 
     private async Task RemoveRecipientAsync(RecipientData recipientData)
     {
-        await Service.RemoveRecipient(Model!.SubscriptionId, recipientData!.RecipientId!.Value, new CancellationToken());
+        await Service.RemoveRecipient(Model!.SubscriptionId, recipientData!.RecipientId!.Value, CancellationToken.None);
 
         await Load();
     }
