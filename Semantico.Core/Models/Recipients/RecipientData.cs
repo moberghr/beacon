@@ -12,5 +12,7 @@ public class RecipientData
 
     public string Destination { get; set; }
 
+    public FileType? ResultAttachment { get; set; }
+
     public NotificationType NotificationType { get; set; }
 }

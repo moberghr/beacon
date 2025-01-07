@@ -35,6 +35,7 @@ namespace Semantico.Core.Services
                 Description = recipientData.Description,
                 Destination = recipientData.Destination,
                 NotificationType = recipientData.NotificationType,
+                ResultAttachment = recipientData.ResultAttachment
             };
 
             _context.Recipients.Add(recipient);
@@ -75,20 +76,22 @@ namespace Semantico.Core.Services
                     Description = x.Description,
                     Destination = x.Destination,
                     NotificationType= x.NotificationType,
+                    ResultAttachment = x.ResultAttachment
                 })
                 .ToListAsync(cancellationToken);
         }
 
         public async Task<BaseResponse> UpdateRecipient(RecipientData recipientData, CancellationToken cancellationToken)
         {
-            var project = await _context.Recipients
+            var recipient = await _context.Recipients
                 .Where(x => x.Id == recipientData.RecipientId)
                 .SingleAsync(cancellationToken);
 
-            project.Name = recipientData.Name;
-            project.NotificationType = recipientData.NotificationType;
-            project.Destination = recipientData.Destination;
-            project.Description = recipientData.Description;
+            recipient.Name = recipientData.Name;
+            recipient.NotificationType = recipientData.NotificationType;
+            recipient.Destination = recipientData.Destination;
+            recipient.Description = recipientData.Description;
+            recipient.ResultAttachment = recipientData.ResultAttachment;
 
             await _context.SaveChangesAsync(cancellationToken);
 

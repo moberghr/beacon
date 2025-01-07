@@ -3,6 +3,7 @@ using Semantico.Core.Adapters;
 using Semantico.Core.Data;
 using Semantico.Core.Data.Entities;
 using Semantico.Core.Helpers;
+using Semantico.Core.Helpers.File;
 using Semantico.Core.Models.Recipients;
 using Semantico.Core.Models.Subscriptions;
 using Semantico.Core.Services;
@@ -41,6 +42,7 @@ internal class JobService : IJobService
                         Description = y.Description,
                         Destination = y.Destination,
                         NotificationType = y.NotificationType,
+                        ResultAttachment = y.ResultAttachment,
                     }).ToList(),
                     x.QueryId,
                     x.CronExpression,
@@ -78,15 +80,21 @@ internal class JobService : IJobService
             SqlQuery = sql,
         };
 
-        var recipientsQueryResults = subscription.Recipients
-            .Select(x => new RecipientQueryResult
+        var recipientsQueryResults = new List<RecipientQueryResult>();
+
+        foreach (var recipient in subscription.Recipients)
+        {
+            var resultFile = await ExportProvider.GetReport(recipient.ResultAttachment, messageRows);
+
+            recipientsQueryResults.Add(new RecipientQueryResult
             {
                 SubscriptionName = subscription.Name,
-                RecipientDestination = x.Destination,
-                RecipientNotificationType = x.NotificationType,
-                QueryResult = queryResult
-            })
-            .ToList();
+                RecipientDestination = recipient.Destination,
+                RecipientNotificationType = recipient.NotificationType,
+                QueryResult = queryResult,
+                QueryResultFile = resultFile
+            });
+        }
 
         var lastExecutedQuery = _context.QueryExecutionHistory
                 .Where(x => x.SubscriptionId == subscriptionId)

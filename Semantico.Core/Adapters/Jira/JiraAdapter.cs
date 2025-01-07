@@ -77,6 +77,13 @@ internal class JiraAdapter : IAdapter
             Body = commentBody
         };
 
+        if (recipientQueryResult.QueryResultFile != null)
+        {
+            var attachment = new UploadAttachmentInfo(recipientQueryResult.QueryResultFile.Name, recipientQueryResult.QueryResultFile.Data);
+
+            await issue.AddAttachmentAsync([attachment]);
+        }
+
         return await issue.AddCommentAsync(comment);
     }
 

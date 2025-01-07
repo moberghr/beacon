@@ -42,6 +42,10 @@
                 <MudSelectItem Value="NotificationType.Teams">Teams</MudSelectItem>
                 <MudSelectItem Value="NotificationType.Jira">Jira</MudSelectItem>
             </MudSelect>
+            <MudSelect T="string" Label="Result Attachment" @bind-Value="FileAttachmentType" Clearable Required="false" Margin="Margin.Dense" Variant="Variant.Outlined">
+                <MudSelectItem Value="FileType.Csv.ToString()">Csv</MudSelectItem>
+                <MudSelectItem Value="FileType.Xlsx.ToString()">Xlsx</MudSelectItem>
+            </MudSelect>
         </MudForm>
     </DialogContent>
     <DialogActions>
@@ -66,6 +70,8 @@
     [Parameter]
     public RecipientData Recipient { get; set; } = new RecipientData();
 
+    private string FileAttachmentType { get; set; } = string.Empty;
+
     private MudForm _form;
     private bool _loading;
     bool _isFormValid = false;
@@ -86,6 +92,12 @@
         }
 
         _loading = true;
+
+        if (!string.IsNullOrWhiteSpace(FileAttachmentType))
+        {
+            Recipient.ResultAttachment = Enum.Parse<FileType>(FileAttachmentType, ignoreCase: true);
+        }
+
         var response = await Service.UpdateRecipient(Recipient, CancellationToken.None);
 
         if (response.Success)

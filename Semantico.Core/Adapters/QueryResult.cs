@@ -22,4 +22,15 @@ public class RecipientQueryResult
     public required NotificationType RecipientNotificationType { get; init; }
 
     public required QueryResult QueryResult { get; init; }
+
+    public QueryResultFile? QueryResultFile { get; init; }
+}
+
+public class QueryResultFile
+{
+    public required byte[] Data { get; init; }
+
+    public required string Name { get; init; }
+
+    public required string ContentType { get; init; }
 }

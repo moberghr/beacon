@@ -12,35 +12,39 @@
     <DialogContent>
         <MudForm @ref="@_form" Class="pt-1" @bind-Errors="@errors" @bind-IsValid="_isFormValid">
             <MudTextField OnlyValidateIfDirty="true"
-                          Margin="Margin.Dense"
-                          Variant="Variant.Outlined"
-                          Class="mb-2"
-                          @bind-Value="@Recipient.Name"
-                          T="String"
-                          Label="Name"
-                          Required="true" />
+            Margin="Margin.Dense"
+            Variant="Variant.Outlined"
+            Class="mb-2"
+            @bind-Value="@Recipient.Name"
+            T="String"
+            Label="Name"
+            Required="true" />
             <MudTextField OnlyValidateIfDirty="true"
-                          Margin="Margin.Dense"
-                          Variant="Variant.Outlined"
-                          Class="mb-2"
-                          @bind-Value="@Recipient.Destination"
-                          T="String"
-                          Label="Destination"
-                          Required="true" />
+            Margin="Margin.Dense"
+            Variant="Variant.Outlined"
+            Class="mb-2"
+            @bind-Value="@Recipient.Destination"
+            T="String"
+            Label="Destination"
+            Required="true" />
             <MudTextField OnlyValidateIfDirty="true"
-                          Immediate="true"
-                          Margin="Margin.Dense"
-                          Variant="Variant.Outlined"
-                          Class="mb-2"
-                          @bind-Value="@Recipient.Description"
-                          Placeholder="Description (optional)"
-                          T="String"
-                          Label="Description"
-                          Required="false" />
+            Immediate="true"
+            Margin="Margin.Dense"
+            Variant="Variant.Outlined"
+            Class="mb-2"
+            @bind-Value="@Recipient.Description"
+            Placeholder="Description (optional)"
+            T="String"
+            Label="Description"
+            Required="false" />
             <MudSelect T="NotificationType" Label="Notification Type" @bind-Value="@Recipient.NotificationType" Required="true" Margin="Margin.Dense" Variant="Variant.Outlined">
                 <MudSelectItem Value="NotificationType.Email">Email</MudSelectItem>
                 <MudSelectItem Value="NotificationType.Teams">Teams</MudSelectItem>
                 <MudSelectItem Value="NotificationType.Jira">Jira</MudSelectItem>
+            </MudSelect>
+            <MudSelect T="string" Label="Result Attachment" @bind-Value="FileAttachmentType" Clearable Required="false" Margin="Margin.Dense" Variant="Variant.Outlined">
+                <MudSelectItem Value="FileType.Csv.ToString()">Csv</MudSelectItem>
+                <MudSelectItem Value="FileType.Xlsx.ToString()">Xlsx</MudSelectItem>
             </MudSelect>
         </MudForm>
     </DialogContent>
@@ -68,6 +72,8 @@
     [Parameter]
     public RecipientData Recipient { get; set; } = new RecipientData();
 
+    private string FileAttachmentType { get; set; } = string.Empty;
+
     private MudForm _form;
     private bool _loading;
     bool _isFormValid = false;
@@ -81,13 +87,19 @@
         }
 
         await _form.Validate();
-        
+
         if (!_form.IsValid)
         {
             return;
         }
 
         _loading = true;
+
+        if(!string.IsNullOrWhiteSpace(FileAttachmentType))
+        {
+            Recipient.ResultAttachment = Enum.Parse<FileType>(FileAttachmentType, ignoreCase: true);
+        }
+
         var response = await Service.CreateRecipient(Recipient, CancellationToken.None);
         
         if (response.Success)

@@ -22,7 +22,7 @@ internal class EmailAdapter : IAdapter
             $"Query executed successfuly with total records of: {recipientQueryResult.QueryResult.TotalRecords} \n" +
             $"Results: {recipientQueryResult.QueryResult.QueryResults}";
 
-        await _emailAdapter.SendEmailAsync(to, subject, body);
+        await _emailAdapter.SendEmailAsync(to, subject, body, recipientQueryResult.QueryResultFile);
     }
 
     public Task SendNotificationAsync(RecipientQueryResult recipientQueryResult, int lastNotificationResultCount)
