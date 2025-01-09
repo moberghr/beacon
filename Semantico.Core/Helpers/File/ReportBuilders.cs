@@ -49,11 +49,7 @@ internal static class CsvBuilder
 
     public static async Task<byte[]> GetReport(List<IDictionary<string, object?>>? data)
     {
-        var csvConfiguration = new CsvConfiguration(new CultureInfo("en-US"))
-        {
-            Delimiter = _csvDelimiter,
-            NewLine = _newLine
-        };
+        var csvConfiguration = new CsvConfiguration(CultureInfo.InvariantCulture);
 
         using var memoryStream = new MemoryStream();
         using var streamWriter = new StreamWriter(memoryStream, Encoding.UTF8);
@@ -141,7 +137,9 @@ public static class XlsxBuilder
 
         foreach (var item in data)
         {
-            dt.Rows.Add(item?.Select(x => x.Value));
+            var rows = item?.Select(x => x.Value).ToArray();
+
+            dt.Rows.Add(rows);
         }
 
         return dt;

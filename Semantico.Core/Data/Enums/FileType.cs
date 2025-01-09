@@ -8,6 +8,6 @@ namespace Semantico.Core.Data.Enums;
 
 public enum FileType
 {
-    Csv,
-    Xlsx
+    Csv = 1,
+    Xlsx = 2,
 }

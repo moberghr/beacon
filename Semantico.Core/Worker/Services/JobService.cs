@@ -23,21 +23,6 @@ internal class JobService : IJobService
     {
         var queryResult = await _queryService.ExecuteQuery(subscriptionId, CancellationToken.None);
 
-        var recipientsQueryResults = new List<RecipientQueryResult>();
-
-        foreach (var recipient in queryResult.Recipients)
-        {
-            var resultFile = await ExportProvider.GetReport(recipient.ResultAttachment, queryResult.AllRecords);
-
-            recipientsQueryResults.Add(new RecipientQueryResult
-            {
-                RecipientDestination = recipient.Destination,
-                RecipientNotificationType = recipient.NotificationType,
-                QueryResult = queryResult,
-                QueryResultFile = resultFile
-            });
-        }
-
         var lastExecutedQuery = _context.QueryExecutionHistory
                 .Where(x => x.SubscriptionId == subscriptionId)
                 .OrderByDescending(x => x.CreatedTime)
@@ -67,6 +52,21 @@ internal class JobService : IJobService
         if (executedQuery.NotificationSent == false)
         {
             return;
+        }
+
+        var recipientsQueryResults = new List<RecipientQueryResult>();
+
+        foreach (var recipient in queryResult.Recipients)
+        {
+            var resultFile = await ExportProvider.GetReport(recipient.ResultAttachmentType, queryResult.AllRecords);
+
+            recipientsQueryResults.Add(new RecipientQueryResult
+            {
+                RecipientDestination = recipient.Destination,
+                RecipientNotificationType = recipient.NotificationType,
+                QueryResult = queryResult,
+                QueryResultFile = resultFile
+            });
         }
 
         foreach (var recipientQueryResult in recipientsQueryResults)

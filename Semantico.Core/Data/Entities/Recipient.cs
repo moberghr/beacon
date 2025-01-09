@@ -11,7 +11,7 @@ internal class Recipient : ArchivableBaseEntity
 
     public required string Destination { get; set; }
 
-    public FileType? ResultAttachment { get; set; }
+    public FileType? ResultAttachmentType { get; set; }
 
     public NotificationType NotificationType { get; set; }
 

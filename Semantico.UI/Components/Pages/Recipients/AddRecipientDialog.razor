@@ -97,7 +97,7 @@
 
         if(!string.IsNullOrWhiteSpace(FileAttachmentType))
         {
-            Recipient.ResultAttachment = Enum.Parse<FileType>(FileAttachmentType, ignoreCase: true);
+            Recipient.ResultAttachmentType = Enum.Parse<FileType>(FileAttachmentType, ignoreCase: true);
         }
 
         var response = await Service.CreateRecipient(Recipient, CancellationToken.None);

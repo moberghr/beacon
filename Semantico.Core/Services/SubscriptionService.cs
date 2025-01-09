@@ -125,7 +125,7 @@ internal class SubscriptionService : ISubscriptionService
                         Description = y.Description,
                         Destination = y.Destination,
                         NotificationType = y.NotificationType,
-                        ResultAttachment = y.ResultAttachment
+                        ResultAttachmentType = y.ResultAttachmentType
                     }).ToList(),
                     CronExpression = x.CronExpression,
                     Parameters = x.Parameters.Select(y => new SubscriptionParamaterData
@@ -212,7 +212,7 @@ internal class SubscriptionService : ISubscriptionService
                     Description = y.Description,
                     Destination = y.Destination,
                     NotificationType = y.NotificationType,
-                    ResultAttachment = y.ResultAttachment
+                    ResultAttachmentType = y.ResultAttachmentType
                 }).ToList(),
                 QueryName = x.Query.Name,
                 CronExpression = x.CronExpression,

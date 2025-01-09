@@ -220,6 +220,7 @@ internal class QueryService : IQueryService
                         Description = y.Description,
                         Destination = y.Destination,
                         NotificationType = y.NotificationType,
+                        ResultAttachmentType = y.ResultAttachmentType,
                     }).ToList(),
                     x.QueryId,
                     x.CronExpression,

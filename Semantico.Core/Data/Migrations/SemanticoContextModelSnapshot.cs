@@ -246,9 +246,9 @@ namespace Semantico.Core.Data.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("notification_type");
 
-                    b.Property<int?>("ResultAttachment")
+                    b.Property<int?>("ResultAttachmentType")
                         .HasColumnType("integer")
-                        .HasColumnName("result_attachment");
+                        .HasColumnName("result_attachment_type");
 
                     b.HasKey("Id")
                         .HasName("pk_recipients");

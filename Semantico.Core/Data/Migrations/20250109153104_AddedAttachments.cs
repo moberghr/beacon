@@ -11,7 +11,7 @@ namespace Semantico.Core.Data.Migrations
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.AddColumn<int>(
-                name: "result_attachment",
+                name: "result_attachment_type",
                 schema: "semantico",
                 table: "recipients",
                 type: "integer",
@@ -22,7 +22,7 @@ namespace Semantico.Core.Data.Migrations
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropColumn(
-                name: "result_attachment",
+                name: "result_attachment_type",
                 schema: "semantico",
                 table: "recipients");
         }
