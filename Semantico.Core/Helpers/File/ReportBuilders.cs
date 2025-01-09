@@ -11,7 +11,7 @@ namespace Semantico.Core.Helpers.File;
 
 internal static class ExportProvider
 {
-    public static async Task<QueryResultFile?> GetReport(FileType? exportType, List<IDictionary<string, object?>>? data)
+    public static async Task<QueryResultFile> GetReport(FileType exportType, List<IDictionary<string, object?>>? data)
     {
         switch (exportType)
         {
@@ -33,8 +33,6 @@ internal static class ExportProvider
                     ContentType = contentTypeXlsx,
                     Name = filenameXlsx
                 };
-            case null:
-                return null;
         }
 
         throw new ArgumentOutOfRangeException("Unkown export type");

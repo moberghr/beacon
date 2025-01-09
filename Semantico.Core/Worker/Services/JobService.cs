@@ -1,6 +1,7 @@
 using Semantico.Core.Adapters;
 using Semantico.Core.Data;
 using Semantico.Core.Data.Entities;
+using Semantico.Core.Data.Enums;
 using Semantico.Core.Helpers.File;
 using Semantico.Core.Services;
 
@@ -55,17 +56,28 @@ internal class JobService : IJobService
         }
 
         var recipientsQueryResults = new List<RecipientQueryResult>();
+        var resultFiles = new Dictionary<FileType, QueryResultFile>();
+
+        var fileTypes = queryResult.Recipients
+            .Where(x => x.ResultAttachmentType.HasValue)
+            .Select(x => x.ResultAttachmentType!.Value)
+            .Distinct();
+
+        foreach (var fileType in fileTypes)
+        {
+            resultFiles.Add(fileType, await ExportProvider.GetReport(fileType, queryResult.AllRecords));
+        }
 
         foreach (var recipient in queryResult.Recipients)
         {
-            var resultFile = await ExportProvider.GetReport(recipient.ResultAttachmentType, queryResult.AllRecords);
-
             recipientsQueryResults.Add(new RecipientQueryResult
             {
                 RecipientDestination = recipient.Destination,
                 RecipientNotificationType = recipient.NotificationType,
                 QueryResult = queryResult,
-                QueryResultFile = resultFile
+                QueryResultFile = recipient.ResultAttachmentType.HasValue 
+                    ? resultFiles.GetValueOrDefault(recipient.ResultAttachmentType.Value) 
+                    : null
             });
         }
 
