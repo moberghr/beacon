@@ -10,6 +10,7 @@ using Semantico.Core.Data;
 using Semantico.Core.Data.Entities;
 using Semantico.Core.Data.Enums;
 using Semantico.Core.Helpers;
+using Semantico.Core.Helpers.File;
 using Semantico.Core.Models;
 using Semantico.Core.Models.Queries;
 using Semantico.Core.Models.Recipients;
@@ -219,6 +220,7 @@ internal class QueryService : IQueryService
                         Description = y.Description,
                         Destination = y.Destination,
                         NotificationType = y.NotificationType,
+                        ResultAttachmentType = y.ResultAttachmentType,
                     }).ToList(),
                     x.QueryId,
                     x.CronExpression,
@@ -256,7 +258,8 @@ internal class QueryService : IQueryService
             ProjectName = subscription.Project.Name,
             SqlQuery = sql,
             Recipients = subscription.Recipients,
-            SubscriptionName = subscription.Name
+            SubscriptionName = subscription.Name,
+            AllRecords = dbQueryResult
         };
 
         return queryResult;

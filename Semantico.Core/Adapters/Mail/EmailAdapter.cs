@@ -17,11 +17,11 @@ internal class EmailAdapter : IAdapter
     public async Task SendNotificationAsync(RecipientQueryResult recipientQueryResult)
     {
         var to = recipientQueryResult.RecipientDestination;
-        var subject = $"[semantico] {recipientQueryResult.QueryResult.ProjectName} - {recipientQueryResult.SubscriptionName}";
+        var subject = $"[semantico] {recipientQueryResult.QueryResult.ProjectName} - {recipientQueryResult.QueryResult.SubscriptionName}";
         
         var htmlBody = Helpers.GenerateEmailContent(recipientQueryResult.QueryResult);
 
-        await _emailAdapter.SendEmailAsync(to, subject, htmlBody);
+        await _emailAdapter.SendEmailAsync(to, subject, htmlBody, recipientQueryResult.QueryResultFile);
     }
 
     public Task SendNotificationAsync(RecipientQueryResult recipientQueryResult, int lastNotificationResultCount)

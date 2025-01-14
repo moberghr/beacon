@@ -1,4 +1,5 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Semantico.Core.Data.Entities;
 using Semantico.Core.Data.Entities.Base;
 using System.Linq.Expressions;

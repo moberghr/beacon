@@ -1,6 +1,8 @@
 using Semantico.Core.Adapters;
 using Semantico.Core.Data;
 using Semantico.Core.Data.Entities;
+using Semantico.Core.Data.Enums;
+using Semantico.Core.Helpers.File;
 using Semantico.Core.Services;
 
 namespace Semantico.Core.Worker.Services;
@@ -21,16 +23,6 @@ internal class JobService : IJobService
     public async Task ExecuteQuery(int subscriptionId)
     {
         var queryResult = await _queryService.ExecuteQuery(subscriptionId, CancellationToken.None);
-        
-        var recipientsQueryResults = queryResult.Recipients
-            .Select(x => new RecipientQueryResult
-            {
-                SubscriptionName = queryResult.SubscriptionName,
-                RecipientDestination = x.Destination,
-                RecipientNotificationType = x.NotificationType,
-                QueryResult = queryResult
-            })
-            .ToList();
 
         var lastExecutedQuery = _context.QueryExecutionHistory
                 .Where(x => x.SubscriptionId == subscriptionId)
@@ -61,6 +53,32 @@ internal class JobService : IJobService
         if (executedQuery.NotificationSent == false)
         {
             return;
+        }
+
+        var recipientsQueryResults = new List<RecipientQueryResult>();
+        var resultFiles = new Dictionary<FileType, QueryResultFile>();
+
+        var fileTypes = queryResult.Recipients
+            .Where(x => x.ResultAttachmentType.HasValue)
+            .Select(x => x.ResultAttachmentType!.Value)
+            .Distinct();
+
+        foreach (var fileType in fileTypes)
+        {
+            resultFiles.Add(fileType, await ExportProvider.GetReport(fileType, queryResult.AllRecords));
+        }
+
+        foreach (var recipient in queryResult.Recipients)
+        {
+            recipientsQueryResults.Add(new RecipientQueryResult
+            {
+                RecipientDestination = recipient.Destination,
+                RecipientNotificationType = recipient.NotificationType,
+                QueryResult = queryResult,
+                QueryResultFile = recipient.ResultAttachmentType.HasValue 
+                    ? resultFiles.GetValueOrDefault(recipient.ResultAttachmentType.Value) 
+                    : null
+            });
         }
 
         foreach (var recipientQueryResult in recipientsQueryResults)

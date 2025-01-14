@@ -14,7 +14,7 @@ public interface IRecipientService
     Task<BaseResponse> UpdateRecipient(RecipientData recipientData, CancellationToken cancellationToken);
 
     Task DeleteRecipient(int recipientId, CancellationToken cancellationToken);
-
+    
     Task<List<RecipientData>> GetRecipients(int? recipientId, string? searchQuery, CancellationToken cancellationToken);
 }
 
@@ -35,6 +35,7 @@ internal class RecipientService : IRecipientService
             Description = recipientData.Description,
             Destination = recipientData.Destination,
             NotificationType = recipientData.NotificationType,
+            ResultAttachmentType = recipientData.ResultAttachmentType
         };
 
         _context.Recipients.Add(recipient);
@@ -65,30 +66,32 @@ internal class RecipientService : IRecipientService
     {
         return await _context.Recipients
             .WhereIf(recipientId.HasValue, x => x.Id == recipientId)
-            .WhereIf(!string.IsNullOrWhiteSpace(searchQuery), 
+            .WhereIf(!string.IsNullOrWhiteSpace(searchQuery),
                 x => (x.Name + x.Description + x.NotificationType + x.Destination)
-                    .Contains(searchQuery, StringComparison.CurrentCultureIgnoreCase))
+                .Contains(searchQuery, StringComparison.CurrentCultureIgnoreCase))
             .Select(x => new RecipientData
             {
                 RecipientId = x.Id,
                 Name = x.Name,
                 Description = x.Description,
                 Destination = x.Destination,
-                NotificationType= x.NotificationType,
+                NotificationType = x.NotificationType,
+                ResultAttachmentType = x.ResultAttachmentType
             })
             .ToListAsync(cancellationToken);
     }
 
     public async Task<BaseResponse> UpdateRecipient(RecipientData recipientData, CancellationToken cancellationToken)
     {
-        var project = await _context.Recipients
+        var recipient = await _context.Recipients
             .Where(x => x.Id == recipientData.RecipientId)
             .SingleAsync(cancellationToken);
 
-        project.Name = recipientData.Name;
-        project.NotificationType = recipientData.NotificationType;
-        project.Destination = recipientData.Destination;
-        project.Description = recipientData.Description;
+        recipient.Name = recipientData.Name;
+        recipient.NotificationType = recipientData.NotificationType;
+        recipient.Destination = recipientData.Destination;
+        recipient.Description = recipientData.Description;
+        recipient.ResultAttachmentType = recipientData.ResultAttachmentType;
 
         await _context.SaveChangesAsync(cancellationToken);
 

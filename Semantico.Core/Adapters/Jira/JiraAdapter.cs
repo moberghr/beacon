@@ -22,11 +22,11 @@ internal class JiraAdapter : IAdapter
 
         var jiraClient = Atlassian.Jira.Jira.CreateRestClient(credentials.DomainUrl, credentials.Email, credentials.ApiKey);
 
-        var jqlQuery = $"text ~ \"{recipientQueryResult.SubscriptionName}\" AND reporter = \"{credentials.Email}\" order by created DESC";
+        var jqlQuery = $"text ~ \"{recipientQueryResult.QueryResult.SubscriptionName}\" AND reporter = \"{credentials.Email}\" order by created DESC";
         var issues = (await jiraClient.Issues.GetIssuesFromJqlAsync(jqlQuery)).ToList();
 
         var existingIssue = issues
-            .Where(x => x.Summary == recipientQueryResult.SubscriptionName)
+            .Where(x => x.Summary == recipientQueryResult.QueryResult.SubscriptionName)
             .FirstOrDefault();
 
         if (recipientQueryResult.QueryResult.TotalRecords == 0)
@@ -55,7 +55,7 @@ internal class JiraAdapter : IAdapter
     {
         var description = Helpers.GenerateJiraContent(recipientQueryResult.QueryResult);
         
-        var issue = await CreateNewIssueAsync(jiraClient, credentials.Project, "", recipientQueryResult.SubscriptionName, description);
+        var issue = await CreateNewIssueAsync(jiraClient, credentials.Project, "", recipientQueryResult.QueryResult.SubscriptionName, description);
 
         await CreateJiraCommentAsync(credentials.Email, issue, recipientQueryResult);
 
@@ -71,6 +71,13 @@ internal class JiraAdapter : IAdapter
             Author = currentUser,
             Body = description
         };
+
+        if (recipientQueryResult.QueryResultFile != null)
+        {
+            var attachment = new UploadAttachmentInfo(recipientQueryResult.QueryResultFile.Name, recipientQueryResult.QueryResultFile.Data);
+
+            await issue.AddAttachmentAsync([attachment]);
+        }
 
         return await issue.AddCommentAsync(comment);
     }

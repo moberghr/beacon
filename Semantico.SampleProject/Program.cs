@@ -37,7 +37,9 @@ builder.Services.AddHangfire((provider, hangfireConfiguration) => hangfireConfig
             PrepareSchemaIfNecessary = true,
             QueuePollInterval = TimeSpan.FromSeconds(1),
         }));
-;
+
+
+builder.Services.AddHangfireServer();
 
 //SEMANTICO setup
 builder.Services.AddSemanticoAdmin(builder.Configuration, options =>
@@ -58,5 +60,10 @@ app.UseAuthorization();
 
 //SEMANTICO admin UI setup
 app.UseSemanticoUI();
+
+app.UseHangfireDashboard("/hangfire", new DashboardOptions
+{
+    IgnoreAntiforgeryToken = true,
+});
 
 app.Run();

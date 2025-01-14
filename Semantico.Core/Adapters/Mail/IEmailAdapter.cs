@@ -2,5 +2,5 @@
 
 public interface IEmailAdapter
 {
-    public Task SendEmailAsync(string to, string subject, string body);
+    public Task SendEmailAsync(string to, string subject, string body, QueryResultFile? queryResultAttachmentFile);
 }

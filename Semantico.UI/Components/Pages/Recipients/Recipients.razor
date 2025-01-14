@@ -11,7 +11,7 @@
     <SemanticoPageAlert Text="List of recipients. recipients need to be defined and then added to a subscription to receive notifications. Create new or click on row and edit recipient."/>
     <MudDataGrid @ref="_dataGrid" ServerData="ServerReload" T="RecipientData" RowClick="OnRowClick" Hover="true" Filterable="false" >
         <ToolBarContent>
-            <MudTextField T="string" ValueChanged="@(s => OnSearch(s))" Placeholder="Search" Adornment="Adornment.Start"
+            <MudTextField T="string" ValueChanged="@(s=>OnSearch(s))" Placeholder="Search" Adornment="Adornment.Start"
                           Immediate="true"
                           AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium" Class="mt-0">
             </MudTextField>
@@ -21,6 +21,7 @@
             <PropertyColumn InitialDirection="SortDirection.Ascending"  Property="x => x.Name" Title="Name"/>
             <PropertyColumn Property="x => x.Destination" Title="Destination" />
             <PropertyColumn Property="x => x.NotificationType" Title="Notification Type" />
+            <PropertyColumn Property="x => x.ResultAttachmentType" Title="Result attachment" />
             <PropertyColumn Property="x => x.Description" Title="Description" />
         </Columns>
         <PagerContent>

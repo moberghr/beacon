@@ -21,7 +21,7 @@ internal class TeamsAdapter : IAdapter
 
         var card = new MessageCard
         {
-            Title = $"{recipientQueryResult.QueryResult.ProjectName} - {recipientQueryResult.SubscriptionName}",
+            Title = $"{recipientQueryResult.QueryResult.ProjectName} - {recipientQueryResult.QueryResult.SubscriptionName}",
             Text = $"Query executed successfuly with total records of: {recipientQueryResult.QueryResult.TotalRecords}",
             Sections = new[]
             {
