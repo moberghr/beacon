@@ -12,6 +12,10 @@ public class QueryResult
     public required string ProjectName { get; init; }
 
     public required string SqlQuery { get; init; }
+    
+    public bool ShowQuery { get; set; } = true;
+    
+    public int? MaxRows { get; set; }
 
     public List<RecipientData> Recipients { get; set; } = [];
 

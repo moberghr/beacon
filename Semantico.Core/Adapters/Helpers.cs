@@ -7,6 +7,12 @@ public static class Helpers
 {
     public static string GenerateEmailContent(QueryResult queryResult)
     {
+        var querySection = queryResult.ShowQuery 
+            ? $@"
+            <p>Sql Query:</p>
+            <pre>{queryResult.SqlQuery}</pre>"
+            : "";
+            
         return $@"
         <html>
         <head>
@@ -28,8 +34,7 @@ public static class Helpers
         </head>
         <body>
             <h2>Query Execution Results</h2>
-            <p>Sql Query:</p>
-            <pre>{queryResult.SqlQuery}</pre>
+            {querySection}
             <p>Query executed successfully with total records of: {queryResult.TotalRecords}</p>
             <table>
                 <thead>
@@ -47,13 +52,18 @@ public static class Helpers
 
     public static string GenerateJiraContent(QueryResult queryResult)
     {
-        return $@"
+        var querySection = queryResult.ShowQuery 
+            ? $@"
         h3. Sql Query:
         {{code:sql}}
             {queryResult.SqlQuery}
         {{code}}
 
-        ----
+        ----"
+            : "";
+            
+        return $@"
+        {querySection}
 
         Total records: *{queryResult.TotalRecords}*
 

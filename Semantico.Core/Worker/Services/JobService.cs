@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using Semantico.Core.Adapters;
 using Semantico.Core.Data;
 using Semantico.Core.Data.Entities;
@@ -23,6 +24,26 @@ internal class JobService : IJobService
     public async Task ExecuteQuery(int subscriptionId)
     {
         var queryResult = await _queryService.ExecuteQuery(subscriptionId, CancellationToken.None);
+        
+        var subscription = await _context.Subscriptions
+            .Where(x => x.Id == subscriptionId)
+            .FirstOrDefaultAsync();
+            
+        if (subscription == null)
+        {
+            return;
+        }
+        
+        // Set subscription specific parameters
+        queryResult.ShowQuery = subscription.ShowQuery;
+        queryResult.MaxRows = subscription.MaxRows;
+        
+        // Apply max rows limit if specified
+        if (subscription.MaxRows.HasValue && subscription.MaxRows > 0)
+        {
+            queryResult.AllRecords = queryResult.AllRecords.Take(subscription.MaxRows.Value).ToList();
+            queryResult.TopRecords = queryResult.TopRecords.Take(subscription.MaxRows.Value).ToList();
+        }
 
         var lastExecutedQuery = _context.QueryExecutionHistory
                 .Where(x => x.SubscriptionId == subscriptionId)
@@ -58,14 +79,18 @@ internal class JobService : IJobService
         var recipientsQueryResults = new List<RecipientQueryResult>();
         var resultFiles = new Dictionary<FileType, QueryResultFile>();
 
-        var fileTypes = queryResult.Recipients
-            .Where(x => x.ResultAttachmentType.HasValue)
-            .Select(x => x.ResultAttachmentType!.Value)
-            .Distinct();
-
-        foreach (var fileType in fileTypes)
+        // Only create attachments if subscription has attachments enabled
+        if (subscription.IncludeAttachment)
         {
-            resultFiles.Add(fileType, await ExportProvider.GetReport(fileType, queryResult.AllRecords));
+            var fileTypes = queryResult.Recipients
+                .Where(x => x.ResultAttachmentType.HasValue)
+                .Select(x => x.ResultAttachmentType!.Value)
+                .Distinct();
+
+            foreach (var fileType in fileTypes)
+            {
+                resultFiles.Add(fileType, await ExportProvider.GetReport(fileType, queryResult.AllRecords));
+            }
         }
 
         foreach (var recipient in queryResult.Recipients)
@@ -75,7 +100,7 @@ internal class JobService : IJobService
                 RecipientDestination = recipient.Destination,
                 RecipientNotificationType = recipient.NotificationType,
                 QueryResult = queryResult,
-                QueryResultFile = recipient.ResultAttachmentType.HasValue 
+                QueryResultFile = subscription.IncludeAttachment && recipient.ResultAttachmentType.HasValue 
                     ? resultFiles.GetValueOrDefault(recipient.ResultAttachmentType.Value) 
                     : null
             });
