@@ -37,7 +37,7 @@ internal class NotificationService : INotificationService
         var queryExecutionHistory = await _context.QueryExecutionHistory
             .WhereIf(request.SubscriptionId.HasValue, x => x.SubscriptionId == request.SubscriptionId)
             .WhereIf(request.LastQueryExecutionHistoryId.HasValue, x => x.Id < request.LastQueryExecutionHistoryId)
-            .WhereIf(request.NotificationSent.HasValue, x => x.NotificationSent == request.NotificationSent)
+            .WhereIf(request.NotificationStatus.HasValue, x => x.NotificationStatus == request.NotificationStatus)
             .SelectMany(x => x.Subscription.Recipients
                 .Select(y => new QueryExecutionHistoryData {
                     QueryExecutionHistoryId = x.Id,
@@ -45,7 +45,7 @@ internal class NotificationService : INotificationService
                     NotificationType = y.NotificationType,
                     ResultCount = x.ResultCount,
                     CreatedTime = x.CreatedTime,
-                    NotificationSent = x.NotificationSent,
+                    NotificationStatus = x.NotificationStatus,
                     QueryName = x.Subscription.Query.Name,
                     SubscriptionId = x.SubscriptionId
                 })
@@ -71,7 +71,7 @@ internal class NotificationService : INotificationService
             {
                 Date = x.Key,
                 TotalQueries = x.Count(),
-                NotificationsSent = x.Count(y => y.NotificationSent)
+                NotificationsSent = x.Count(y => y.NotificationStatus == NotificationStatus.NotificationSent)
             })
             .OrderBy(x => x.Date)
             .ToListAsync(cancellationToken);
@@ -96,5 +96,5 @@ public class GetQueryExecutionHistoryRequest : SortedListRequest
 {
     public int? SubscriptionId { get; set; }
     public int? LastQueryExecutionHistoryId { get; set; }
-    public bool? NotificationSent { get; set; }
+    public NotificationStatus? NotificationStatus { get; set; }
 }

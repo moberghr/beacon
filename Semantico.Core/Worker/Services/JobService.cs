@@ -55,23 +55,38 @@ internal class JobService : IJobService
                     })
                 .FirstOrDefault();
 
-        var initialNotification = lastExecutedQuery == null && queryResult.TotalRecords != 0;
-        var differentResults = lastExecutedQuery != null && queryResult.TotalRecords != lastExecutedQuery.ResultCount;
+        NotificationStatus status;
+        
+        if (queryResult.TotalRecords == 0)
+        {
+            status = NotificationStatus.NoResults;
+        }
+        else if (lastExecutedQuery == null)
+        {
+            status = NotificationStatus.NotificationSent;
+        }
+        else if (queryResult.TotalRecords != lastExecutedQuery.ResultCount)
+        {
+            status = NotificationStatus.NotificationSent;
+        }
+        else
+        {
+            status = NotificationStatus.NotificationSilenced;
+        }
 
         var executedQuery = new QueryExecutionHistory
         {
             SubscriptionId = subscriptionId,
             ResultCount = queryResult.TotalRecords,
             CompiledSql = queryResult.SqlQuery,
-            NotificationSent = initialNotification || differentResults
+            NotificationStatus = status
         };
 
         await _context.QueryExecutionHistory.AddAsync(executedQuery);
         await _context.SaveChangesAsync();
 
-        // if a previous notification wasn't sent and there are some query results or
-        // if a previous notification was sent, and the current result is the same we won't send a notification.
-        if (executedQuery.NotificationSent == false)
+        // Only send notification if the status is NotificationSent
+        if (executedQuery.NotificationStatus != NotificationStatus.NotificationSent)
         {
             return;
         }
