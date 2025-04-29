@@ -2,8 +2,8 @@
 
 public enum NotificationStatus
 {
-    Created,
-    NotificationSent,
-    NotificationSilenced,
-    NoResults
+    Created = 1,
+    NotificationSent = 2,
+    NotificationSilenced = 3,
+    NoResults = 4
 }

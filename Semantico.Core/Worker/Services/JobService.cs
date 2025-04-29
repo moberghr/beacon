@@ -79,7 +79,8 @@ internal class JobService : IJobService
             SubscriptionId = subscriptionId,
             ResultCount = queryResult.TotalRecords,
             CompiledSql = queryResult.SqlQuery,
-            NotificationStatus = status
+            NotificationStatus = status,
+            ExecutionTimeMs = queryResult.ExecutionTimeMs
         };
 
         await _context.QueryExecutionHistory.AddAsync(executedQuery);

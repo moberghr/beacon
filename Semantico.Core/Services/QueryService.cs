@@ -185,7 +185,7 @@ internal class QueryService : IQueryService
                     Name = x.Name,
                     Description = x.Description,
                     TotalExecutions = x.Subscriptions.Sum(y => y.QueryExecutionHistory.Count),
-                    SentNotifications = x.Subscriptions.Sum(y => y.QueryExecutionHistory.Count(z => z.NotificationSent)),
+                    SentNotifications = x.Subscriptions.Sum(y => y.QueryExecutionHistory.Count(z => z.NotificationStatus == NotificationStatus.NotificationSent)),
                     Parameters = x.Parameters.Select(y =>
                         new QueryParameterData
                         {
@@ -245,21 +245,22 @@ internal class QueryService : IQueryService
 
         QueryValidator.CheckForFlaggedWords(sql);
 
-        var dbQueryResult = await ExecuteQueryAsync(subscription.Project.DatabaseEngineType, subscription.Project.ConnectionString, sql);
+        var (results, executionTimeMs) = await ExecuteQueryAsync(subscription.Project.DatabaseEngineType, subscription.Project.ConnectionString, sql);
 
         // We will only send the top 10 rows in a notification.
-        var messageRows = dbQueryResult.Take(10).ToList();
+        var messageRows = results.Take(10).ToList();
 
         var queryResult = new QueryResult
         {
             QueryResults = JsonSerializer.Serialize(messageRows),
             TopRecords = messageRows,
-            TotalRecords = dbQueryResult.Count,
+            TotalRecords = results.Count,
             ProjectName = subscription.Project.Name,
             SqlQuery = sql,
             Recipients = subscription.Recipients,
             SubscriptionName = subscription.Name,
-            AllRecords = dbQueryResult
+            AllRecords = results,
+            ExecutionTimeMs = executionTimeMs
         };
 
         return queryResult;
@@ -305,7 +306,7 @@ internal class QueryService : IQueryService
         };
     }
     
-    private async Task<List<IDictionary<string, object?>>>ExecuteQueryAsync(DatabaseEngineType dbEngineType, string connectionString, string sqlQuery)
+    private async Task<(List<IDictionary<string, object?>> Results, double ExecutionTimeMs)> ExecuteQueryAsync(DatabaseEngineType dbEngineType, string connectionString, string sqlQuery)
     {
         await using var connection = GetDbConnection(dbEngineType, connectionString);
         await connection.OpenAsync();
@@ -316,12 +317,18 @@ internal class QueryService : IQueryService
             .Replace("\t", " ")
             .Trim();
 
+        var stopwatch = new System.Diagnostics.Stopwatch();
+        stopwatch.Start();
+        
         var dapperRows = await connection.QueryAsync(cleanedSql);
+        
+        stopwatch.Stop();
+        var executionTimeMs = stopwatch.Elapsed.TotalMilliseconds;
 
         // we need to convert the dapper rows to a list of dictionaries to be able to do nice reflection (and to be able to serialize to json) and construct tables.
         //https://stackoverflow.com/questions/55607619/dapper-row-to-json/55608014#55608014
         var results = dapperRows.Select(x => (IDictionary<string, object?>)x).ToList();
-        return results;
+        return (results, executionTimeMs);
     }
 
     private static DbConnection GetDbConnection(DatabaseEngineType dbEngineType, string connectionString) => dbEngineType switch

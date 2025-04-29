@@ -1,5 +1,6 @@
 ﻿@page "/semantico/notifications"
 @inherits BasePageComponent
+@using Semantico.Core.Data.Enums
 @using Semantico.Core.Models.QueryExecutionHistory
 @using Semantico.Core.Services
 @using SortDirection = MudBlazor.SortDirection
@@ -24,7 +25,8 @@
             <PropertyColumn Property="x => x.RecipientName"/>
             <PropertyColumn Property="x => x.NotificationType"/>
             <PropertyColumn Property="x => x.ResultCount"/>
-            <PropertyColumn Property="x => x.NotificationSent"/>
+            <PropertyColumn Property="x => x.NotificationStatus"/>
+            <PropertyColumn Property="x => x.ExecutionTimeMs" Title="Execution Time (ms)" Format="N2"/>
         </Columns>
         <PagerContent>
             <MudDataGridPager T="QueryExecutionHistoryData" />
@@ -38,12 +40,12 @@
     private QueryExecutionHistoryListData List { get; set; }
     MudDataGrid<QueryExecutionHistoryData>? _dataGrid;
     private bool _loading;
-    private bool? _notificationSent;
+    private NotificationStatus? _notificationStatus;
     
     private async Task<GridData<QueryExecutionHistoryData>> ServerReload(GridState<QueryExecutionHistoryData> state)
     {
         var request = DataGridHelper.BuildSortedRequest<GetQueryExecutionHistoryRequest, QueryExecutionHistoryData>(state);
-        request.NotificationSent = _notificationSent;
+        request.NotificationStatus = _notificationStatus;
         List = await service.GetQueryExecutionHistory(request, new CancellationToken());
         
         return new GridData<QueryExecutionHistoryData> 
@@ -53,9 +55,9 @@
         };
     }
     
-    private void OnNotificationSent(bool? value)
+    private void OnNotificationSent(NotificationStatus? value)
     {
-        _notificationSent = value;
+        _notificationStatus = value;
         _dataGrid?.ReloadServerData();
     }
 }

@@ -24,6 +24,8 @@ public class QueryResult
     public List<IDictionary<string, object?>> AllRecords { get; set; } = [];
 
     public required string SubscriptionName { get; init; }
+    
+    public double ExecutionTimeMs { get; set; }
 }
 
 public class RecipientQueryResult

@@ -12,6 +12,8 @@ internal class QueryExecutionHistory : BaseEntity
     public required string CompiledSql { get; set; }
 
     public required NotificationStatus NotificationStatus { get; set; }
+    
+    public required double ExecutionTimeMs { get; set; }
 
     public Subscription Subscription { get; set; } = null!;
 }

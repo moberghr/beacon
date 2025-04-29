@@ -19,4 +19,6 @@ public class QueryExecutionHistoryData
     public string QueryName { get; set; }
 
     public int SubscriptionId { get; set; }
+    
+    public double ExecutionTimeMs { get; set; }
 }
