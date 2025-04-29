@@ -26,6 +26,11 @@ public class QueryResult
     public required string SubscriptionName { get; init; }
     
     public double ExecutionTimeMs { get; set; }
+    
+    /// <summary>
+    /// Indicates whether the query execution was cancelled due to a timeout
+    /// </summary>
+    public bool TimedOut { get; set; }
 }
 
 public class RecipientQueryResult

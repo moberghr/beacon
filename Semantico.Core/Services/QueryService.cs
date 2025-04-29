@@ -246,7 +246,7 @@ internal class QueryService : IQueryService
 
         QueryValidator.CheckForFlaggedWords(sql);
 
-        var (results, executionTimeMs) = await ExecuteQueryAsync(
+        var (results, executionTimeMs, timedOut) = await ExecuteQueryAsync(
             subscription.Project.DatabaseEngineType, 
             subscription.Project.ConnectionString, 
             sql,
@@ -265,7 +265,8 @@ internal class QueryService : IQueryService
             Recipients = subscription.Recipients,
             SubscriptionName = subscription.Name,
             AllRecords = results,
-            ExecutionTimeMs = executionTimeMs
+            ExecutionTimeMs = executionTimeMs,
+            TimedOut = timedOut
         };
 
         return queryResult;
@@ -311,7 +312,7 @@ internal class QueryService : IQueryService
         };
     }
     
-    private async Task<(List<IDictionary<string, object?>> Results, double ExecutionTimeMs)> ExecuteQueryAsync(
+    private async Task<(List<IDictionary<string, object?>> Results, double ExecutionTimeMs, bool TimedOut)> ExecuteQueryAsync(
         DatabaseEngineType dbEngineType, 
         string connectionString, 
         string sqlQuery, 
@@ -353,7 +354,7 @@ internal class QueryService : IQueryService
 
             // Convert the dapper rows to a list of dictionaries for reflection and serialization
             var results = dapperRows.Select(x => (IDictionary<string, object?>)x).ToList();
-            return (results, executionTimeMs);
+            return (results, executionTimeMs, false);
         }
         catch (TaskCanceledException)
         {
@@ -361,8 +362,8 @@ internal class QueryService : IQueryService
             stopwatch.Stop();
             var executionTimeMs = stopwatch.Elapsed.TotalMilliseconds;
             
-            // Return empty results for timeout
-            return (new List<IDictionary<string, object?>>(), executionTimeMs);
+            // Return empty results with timeout indicator
+            return (new List<IDictionary<string, object?>>(), executionTimeMs, true);
         }
         catch (Exception)
         {

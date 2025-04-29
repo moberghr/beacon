@@ -25,7 +25,21 @@
             <PropertyColumn Property="x => x.RecipientName"/>
             <PropertyColumn Property="x => x.NotificationType"/>
             <PropertyColumn Property="x => x.ResultCount"/>
-            <PropertyColumn Property="x => x.NotificationStatus"/>
+            <TemplateColumn Title="Status">
+                <CellTemplate>
+                    @{
+                        var status = context.Item?.NotificationStatus;
+                        var color = status switch
+                        {
+                            NotificationStatus.NotificationSent => Color.Success,
+                            NotificationStatus.Timeout => Color.Error,
+                            NotificationStatus.NoResults => Color.Warning,
+                            _ => Color.Default
+                        };
+                    }
+                    <MudChip Color="@color" Size="Size.Small">@status</MudChip>
+                </CellTemplate>
+            </TemplateColumn>
             <PropertyColumn Property="x => x.ExecutionTimeMs" Title="Execution Time (ms)" Format="N2"/>
         </Columns>
         <PagerContent>
