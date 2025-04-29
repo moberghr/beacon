@@ -56,8 +56,17 @@ internal class JobService : IJobService
                 .FirstOrDefault();
 
         NotificationStatus status;
-        
-        if (queryResult.TotalRecords == 0)
+
+        // Check for timeout - if the query was canceled due to timeout, 
+        // results will be empty but we'll have a non-zero execution time
+        if (queryResult.TotalRecords == 0 && 
+            queryResult.ExecutionTimeMs > 0 && 
+            subscription.TimeoutSeconds.HasValue && 
+            queryResult.ExecutionTimeMs >= subscription.TimeoutSeconds.Value * 1000 * 0.9) // Allow for some margin
+        {
+            status = NotificationStatus.Timeout;
+        }
+        else if (queryResult.TotalRecords == 0)
         {
             status = NotificationStatus.NoResults;
         }

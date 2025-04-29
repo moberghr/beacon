@@ -19,6 +19,11 @@ public class SubscriptionDetailsData
     public bool IncludeAttachment { get; set; } = true;
     
     public bool ShowQuery { get; set; } = true;
+    
+    /// <summary>
+    /// Query execution timeout in seconds. If null, no timeout is applied.
+    /// </summary>
+    public int? TimeoutSeconds { get; set; }
 
     public List<SubscriptionParamaterData> Parameters { get; set; } = new();
 

@@ -13,6 +13,11 @@ internal class Subscription : ArchivableBaseEntity
     public bool IncludeAttachment { get; set; } = true;
     
     public bool ShowQuery { get; set; } = true;
+    
+    /// <summary>
+    /// Query execution timeout in seconds. If null, no timeout is applied.
+    /// </summary>
+    public int? TimeoutSeconds { get; set; }
 
     public Query Query { get; set; } = null!;
 

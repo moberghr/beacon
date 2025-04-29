@@ -30,6 +30,14 @@
                 Min="0"
                 HelperText="Maximum number of rows to include in email (leave empty for all)" 
                 Class="mb-2" />
+                
+            <MudNumericField @bind-Value="Subscription.TimeoutSeconds" 
+                Label="Timeout (seconds)" 
+                Variant="Variant.Outlined" 
+                Margin="Margin.Dense"
+                Min="0"
+                HelperText="Maximum execution time in seconds (leave empty for no timeout)" 
+                Class="mb-2" />
             
             @* <MudCheckBox @bind-Checked="Subscription.IncludeAttachment"  *@
             @*     Label="Include Attachment"  *@

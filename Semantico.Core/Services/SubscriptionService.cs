@@ -69,6 +69,7 @@ internal class SubscriptionService : ISubscriptionService
             MaxRows = subscriptionData.MaxRows,
             IncludeAttachment = subscriptionData.IncludeAttachment,
             ShowQuery = subscriptionData.ShowQuery,
+            TimeoutSeconds = subscriptionData.TimeoutSeconds,
             Recipients = recipients,
             Parameters = subscriptionData.Parameters.Select(x =>
                 new SubscriptionParameter
@@ -134,6 +135,7 @@ internal class SubscriptionService : ISubscriptionService
                     MaxRows = x.MaxRows,
                     IncludeAttachment = x.IncludeAttachment,
                     ShowQuery = x.ShowQuery,
+                    TimeoutSeconds = x.TimeoutSeconds,
                     Parameters = x.Parameters.Select(y => new SubscriptionParamaterData
                     {
                         QueryPlaceholder = y.QueryPlaceholder,
@@ -176,6 +178,7 @@ internal class SubscriptionService : ISubscriptionService
         subscription.MaxRows = subscriptionData.MaxRows;
         subscription.IncludeAttachment = subscriptionData.IncludeAttachment;
         subscription.ShowQuery = subscriptionData.ShowQuery;
+        subscription.TimeoutSeconds = subscriptionData.TimeoutSeconds;
         subscription.Recipients = recipients;
 
         foreach (var subscriptionParameter in subscription.Parameters)
@@ -228,6 +231,7 @@ internal class SubscriptionService : ISubscriptionService
                 MaxRows = x.MaxRows,
                 IncludeAttachment = x.IncludeAttachment,
                 ShowQuery = x.ShowQuery,
+                TimeoutSeconds = x.TimeoutSeconds,
                 Status = x.ArchivedTime.HasValue ? "Archived" : "Active",
                 Parameters = x.Parameters.Select(y => new SubscriptionParamaterData()
                 {
