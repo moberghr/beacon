@@ -66,6 +66,10 @@ internal class SubscriptionService : ISubscriptionService
         {
             CronExpression = subscriptionData.CronExpression,
             QueryId = subscriptionData.QueryId,
+            MaxRows = subscriptionData.MaxRows,
+            IncludeAttachment = subscriptionData.IncludeAttachment,
+            ShowQuery = subscriptionData.ShowQuery,
+            TimeoutSeconds = subscriptionData.TimeoutSeconds,
             Recipients = recipients,
             Parameters = subscriptionData.Parameters.Select(x =>
                 new SubscriptionParameter
@@ -128,6 +132,10 @@ internal class SubscriptionService : ISubscriptionService
                         ResultAttachmentType = y.ResultAttachmentType
                     }).ToList(),
                     CronExpression = x.CronExpression,
+                    MaxRows = x.MaxRows,
+                    IncludeAttachment = x.IncludeAttachment,
+                    ShowQuery = x.ShowQuery,
+                    TimeoutSeconds = x.TimeoutSeconds,
                     Parameters = x.Parameters.Select(y => new SubscriptionParamaterData
                     {
                         QueryPlaceholder = y.QueryPlaceholder,
@@ -167,6 +175,10 @@ internal class SubscriptionService : ISubscriptionService
         var shouldUpdateHangfire = subscription.CronExpression != subscriptionData.CronExpression;
 
         subscription.CronExpression = subscriptionData.CronExpression;
+        subscription.MaxRows = subscriptionData.MaxRows;
+        subscription.IncludeAttachment = subscriptionData.IncludeAttachment;
+        subscription.ShowQuery = subscriptionData.ShowQuery;
+        subscription.TimeoutSeconds = subscriptionData.TimeoutSeconds;
         subscription.Recipients = recipients;
 
         foreach (var subscriptionParameter in subscription.Parameters)
@@ -216,6 +228,10 @@ internal class SubscriptionService : ISubscriptionService
                 }).ToList(),
                 QueryName = x.Query.Name,
                 CronExpression = x.CronExpression,
+                MaxRows = x.MaxRows,
+                IncludeAttachment = x.IncludeAttachment,
+                ShowQuery = x.ShowQuery,
+                TimeoutSeconds = x.TimeoutSeconds,
                 Status = x.ArchivedTime.HasValue ? "Archived" : "Active",
                 Parameters = x.Parameters.Select(y => new SubscriptionParamaterData()
                 {

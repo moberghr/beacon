@@ -9,7 +9,6 @@ using Semantico.Core.Services;
 using Semantico.Core.Worker;
 using Semantico.Core.Worker.Repositories;
 using Semantico.Core.Worker.Services;
-using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Semantico.Core.Adapters;
 using Semantico.Core.Models;
@@ -30,13 +29,12 @@ public static class ServiceConfiguration
                 builder => builder.MigrationsHistoryTable("__EFMigrationsHistory", "semantico"))
                 .UseSnakeCaseNamingConvention();
         });
-
-        services.AddHttpClient();
-        services.AddSingleton<IAdapter, TeamsAdapter>();
+        
+        services.TryAddSingleton<IAdapter, TeamsAdapter>();
         if (configurationOptions.EmailAdapter != null)
         {
             services.TryAddSingleton(typeof(IEmailAdapter), configurationOptions.EmailAdapter);
-            services.AddSingleton<IAdapter, EmailAdapter>();
+            services.TryAddSingleton<IAdapter, EmailAdapter>();
         }
         services.AddSingleton<IAdapter, JiraAdapter>();
         services.TryAddSingleton<AdapterFactory>();
@@ -54,15 +52,13 @@ public static class ServiceConfiguration
 
         return services;
     }
-
-    public static IApplicationBuilder UseSemantico(this WebApplication app)
+    
+    public static void UseSemantico(IServiceProvider serviceProvider)
     {
-        using var scope = app.Services.CreateScope();
+        var scope = serviceProvider.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<SemanticoContext>();
-
+    
         context.Database.Migrate();
-        
-        return app;
     }
 }
 

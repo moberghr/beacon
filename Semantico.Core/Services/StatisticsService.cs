@@ -1,5 +1,6 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Semantico.Core.Data;
+using Semantico.Core.Data.Enums;
 using Semantico.Core.Models.QueryExecutionHistory;
 
 namespace Semantico.Core.Services;
@@ -20,7 +21,7 @@ internal class StatisticsService : IStatisticsService
             .Select(x => new NotificationDateStatisticsData()
             {
                 TotalQueries = x.Count(),
-                NotificationsSent = x.Count(y => y.NotificationSent)
+                NotificationsSent = x.Count(y => y.NotificationStatus == NotificationStatus.NotificationSent)
             })
             .FirstOrDefaultAsync(cancellationToken);
 

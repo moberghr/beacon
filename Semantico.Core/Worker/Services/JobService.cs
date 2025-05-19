@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using Semantico.Core.Adapters;
 using Semantico.Core.Data;
 using Semantico.Core.Data.Entities;
@@ -23,6 +24,26 @@ internal class JobService : IJobService
     public async Task ExecuteQuery(int subscriptionId)
     {
         var queryResult = await _queryService.ExecuteQuery(subscriptionId, CancellationToken.None);
+        
+        var subscription = await _context.Subscriptions
+            .Where(x => x.Id == subscriptionId)
+            .FirstOrDefaultAsync();
+            
+        if (subscription == null)
+        {
+            return;
+        }
+        
+        // Set subscription specific parameters
+        queryResult.ShowQuery = subscription.ShowQuery;
+        queryResult.MaxRows = subscription.MaxRows;
+        
+        // Apply max rows limit if specified
+        if (subscription.MaxRows.HasValue && subscription.MaxRows > 0)
+        {
+            queryResult.AllRecords = queryResult.AllRecords.Take(subscription.MaxRows.Value).ToList();
+            queryResult.TopRecords = queryResult.TopRecords.Take(subscription.MaxRows.Value).ToList();
+        }
 
         var lastExecutedQuery = _context.QueryExecutionHistory
                 .Where(x => x.SubscriptionId == subscriptionId)
@@ -34,23 +55,44 @@ internal class JobService : IJobService
                     })
                 .FirstOrDefault();
 
-        var initialNotification = lastExecutedQuery == null && queryResult.TotalRecords != 0;
-        var differentResults = lastExecutedQuery != null && queryResult.TotalRecords != lastExecutedQuery.ResultCount;
+        NotificationStatus status;
+
+        // Use the explicit TimedOut flag
+        if (queryResult.TimedOut)
+        {
+            status = NotificationStatus.Timeout;
+        }
+        else if (queryResult.TotalRecords == 0)
+        {
+            status = NotificationStatus.NoResults;
+        }
+        else if (lastExecutedQuery == null)
+        {
+            status = NotificationStatus.NotificationSent;
+        }
+        else if (queryResult.TotalRecords != lastExecutedQuery.ResultCount)
+        {
+            status = NotificationStatus.NotificationSent;
+        }
+        else
+        {
+            status = NotificationStatus.NotificationSilenced;
+        }
 
         var executedQuery = new QueryExecutionHistory
         {
             SubscriptionId = subscriptionId,
             ResultCount = queryResult.TotalRecords,
             CompiledSql = queryResult.SqlQuery,
-            NotificationSent = initialNotification || differentResults
+            NotificationStatus = status,
+            ExecutionTimeMs = queryResult.ExecutionTimeMs
         };
 
         await _context.QueryExecutionHistory.AddAsync(executedQuery);
         await _context.SaveChangesAsync();
 
-        // if a previous notification wasn't sent and there are some query results or
-        // if a previous notification was sent, and the current result is the same we won't send a notification.
-        if (executedQuery.NotificationSent == false)
+        // Only send notification if the status is NotificationSent
+        if (executedQuery.NotificationStatus != NotificationStatus.NotificationSent)
         {
             return;
         }
@@ -58,14 +100,18 @@ internal class JobService : IJobService
         var recipientsQueryResults = new List<RecipientQueryResult>();
         var resultFiles = new Dictionary<FileType, QueryResultFile>();
 
-        var fileTypes = queryResult.Recipients
-            .Where(x => x.ResultAttachmentType.HasValue)
-            .Select(x => x.ResultAttachmentType!.Value)
-            .Distinct();
-
-        foreach (var fileType in fileTypes)
+        // Only create attachments if subscription has attachments enabled
+        if (subscription.IncludeAttachment)
         {
-            resultFiles.Add(fileType, await ExportProvider.GetReport(fileType, queryResult.AllRecords));
+            var fileTypes = queryResult.Recipients
+                .Where(x => x.ResultAttachmentType.HasValue)
+                .Select(x => x.ResultAttachmentType!.Value)
+                .Distinct();
+
+            foreach (var fileType in fileTypes)
+            {
+                resultFiles.Add(fileType, await ExportProvider.GetReport(fileType, queryResult.AllRecords));
+            }
         }
 
         foreach (var recipient in queryResult.Recipients)
@@ -75,7 +121,7 @@ internal class JobService : IJobService
                 RecipientDestination = recipient.Destination,
                 RecipientNotificationType = recipient.NotificationType,
                 QueryResult = queryResult,
-                QueryResultFile = recipient.ResultAttachmentType.HasValue 
+                QueryResultFile = subscription.IncludeAttachment && recipient.ResultAttachmentType.HasValue 
                     ? resultFiles.GetValueOrDefault(recipient.ResultAttachmentType.Value) 
                     : null
             });

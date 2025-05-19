@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Semantico.Core.Data;
@@ -11,9 +12,11 @@ using Semantico.Core.Data;
 namespace Semantico.Core.Data.Migrations
 {
     [DbContext(typeof(SemanticoContext))]
-    partial class SemanticoContextModelSnapshot : ModelSnapshot
+    [Migration("20250409192304_SubscriptionsNotifications")]
+    partial class SubscriptionsNotifications
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -140,10 +143,6 @@ namespace Semantico.Core.Data.Migrations
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_time");
-
-                    b.Property<double>("ExecutionTimeMs")
-                        .HasColumnType("double precision")
-                        .HasColumnName("execution_time_ms");
 
                     b.Property<int>("NotificationStatus")
                         .HasColumnType("integer")
@@ -297,10 +296,6 @@ namespace Semantico.Core.Data.Migrations
                     b.Property<bool>("ShowQuery")
                         .HasColumnType("boolean")
                         .HasColumnName("show_query");
-
-                    b.Property<int?>("TimeoutSeconds")
-                        .HasColumnType("integer")
-                        .HasColumnName("timeout_seconds");
 
                     b.HasKey("Id")
                         .HasName("pk_subscriptions");

@@ -80,12 +80,16 @@
                 <MudTable T="SubscriptionListData" Items="@Model?.Subscriptions" Hover="true" OnRowClick="OnRowClick">
                     <HeaderContent>
                         <MudTh>Subscription ID</MudTh>
+                        <MudTh>Created</MudTh>
+                        <MudTh>Subscribers</MudTh>
                         <MudTh>Name</MudTh>
                         <MudTh>Cron Expression</MudTh>
                     </HeaderContent>
                     <RowTemplate>
                         <MudTd DataLabel="Subscription ID">@context.SubscriptionId</MudTd>
+                        <MudTd DataLabel="Created">@context.CreatedTime</MudTd>
                         <MudTd DataLabel="Name">@context.Name</MudTd>
+                        <MudTd DataLabel="Subscribers">@context.Subscribers</MudTd>
                         <MudTd DataLabel="Cron Expression">@context.CronExpression</MudTd>
                     </RowTemplate>
                 </MudTable>

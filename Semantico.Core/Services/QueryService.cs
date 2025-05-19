@@ -61,7 +61,10 @@ public class SubscriptionListData
 {
     public int SubscriptionId { get; set; }
 
+    public DateTime CreatedTime { get; set; }
     public string Name { get; set; }
+    
+    public string Subscribers { get; set; }
 
     public string CronExpression { get; set; }
 }
@@ -185,7 +188,7 @@ internal class QueryService : IQueryService
                     Name = x.Name,
                     Description = x.Description,
                     TotalExecutions = x.Subscriptions.Sum(y => y.QueryExecutionHistory.Count),
-                    SentNotifications = x.Subscriptions.Sum(y => y.QueryExecutionHistory.Count(z => z.NotificationSent)),
+                    SentNotifications = x.Subscriptions.Sum(y => y.QueryExecutionHistory.Count(z => z.NotificationStatus == NotificationStatus.NotificationSent)),
                     Parameters = x.Parameters.Select(y =>
                         new QueryParameterData
                         {
@@ -199,7 +202,9 @@ internal class QueryService : IQueryService
                         {
                             SubscriptionId = y.Id,
                             Name = y.Query.Name,
-                            CronExpression = y.CronExpression
+                            CronExpression = y.CronExpression,
+                            CreatedTime = y.CreatedTime,
+                            Subscribers = y.Recipients.Select(x => x.Name).ToJson()
                         }).ToList()
                 }).SingleAsync(cancellationToken);
     }
@@ -224,6 +229,7 @@ internal class QueryService : IQueryService
                     }).ToList(),
                     x.QueryId,
                     x.CronExpression,
+                    x.TimeoutSeconds,
                     x.Query.SqlValue,
                     x.Query.Name,
                     Project = new
@@ -245,21 +251,27 @@ internal class QueryService : IQueryService
 
         QueryValidator.CheckForFlaggedWords(sql);
 
-        var dbQueryResult = await ExecuteQueryAsync(subscription.Project.DatabaseEngineType, subscription.Project.ConnectionString, sql);
+        var (results, executionTimeMs, timedOut) = await ExecuteQueryAsync(
+            subscription.Project.DatabaseEngineType, 
+            subscription.Project.ConnectionString, 
+            sql,
+            subscription.TimeoutSeconds);
 
         // We will only send the top 10 rows in a notification.
-        var messageRows = dbQueryResult.Take(10).ToList();
+        var messageRows = results.Take(10).ToList();
 
         var queryResult = new QueryResult
         {
             QueryResults = JsonSerializer.Serialize(messageRows),
             TopRecords = messageRows,
-            TotalRecords = dbQueryResult.Count,
+            TotalRecords = results.Count,
             ProjectName = subscription.Project.Name,
             SqlQuery = sql,
             Recipients = subscription.Recipients,
             SubscriptionName = subscription.Name,
-            AllRecords = dbQueryResult
+            AllRecords = results,
+            ExecutionTimeMs = executionTimeMs,
+            TimedOut = timedOut
         };
 
         return queryResult;
@@ -305,7 +317,11 @@ internal class QueryService : IQueryService
         };
     }
     
-    private async Task<List<IDictionary<string, object?>>>ExecuteQueryAsync(DatabaseEngineType dbEngineType, string connectionString, string sqlQuery)
+    private async Task<(List<IDictionary<string, object?>> Results, double ExecutionTimeMs, bool TimedOut)> ExecuteQueryAsync(
+        DatabaseEngineType dbEngineType, 
+        string connectionString, 
+        string sqlQuery, 
+        int? timeoutSeconds = null)
     {
         await using var connection = GetDbConnection(dbEngineType, connectionString);
         await connection.OpenAsync();
@@ -316,12 +332,50 @@ internal class QueryService : IQueryService
             .Replace("\t", " ")
             .Trim();
 
-        var dapperRows = await connection.QueryAsync(cleanedSql);
+        var stopwatch = new System.Diagnostics.Stopwatch();
+        stopwatch.Start();
+        
+        try
+        {
+            // Create a cancellation token source with timeout if specified
+            using var timeoutCts = timeoutSeconds.HasValue 
+                ? new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds.Value)) 
+                : new CancellationTokenSource();
+            
+            // Combine with the provided cancellation token if needed
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(timeoutCts.Token);
+            
+            // Execute the query with the timeout
+            var commandDefinition = new CommandDefinition(
+                commandText: cleanedSql,
+                commandTimeout: timeoutSeconds,
+                cancellationToken: linkedCts.Token
+            );
+            
+            var dapperRows = await connection.QueryAsync(commandDefinition);
+            
+            stopwatch.Stop();
+            var executionTimeMs = stopwatch.Elapsed.TotalMilliseconds;
 
-        // we need to convert the dapper rows to a list of dictionaries to be able to do nice reflection (and to be able to serialize to json) and construct tables.
-        //https://stackoverflow.com/questions/55607619/dapper-row-to-json/55608014#55608014
-        var results = dapperRows.Select(x => (IDictionary<string, object?>)x).ToList();
-        return results;
+            // Convert the dapper rows to a list of dictionaries for reflection and serialization
+            var results = dapperRows.Select(x => (IDictionary<string, object?>)x).ToList();
+            return (results, executionTimeMs, false);
+        }
+        catch (TaskCanceledException)
+        {
+            // Query was cancelled due to timeout
+            stopwatch.Stop();
+            var executionTimeMs = stopwatch.Elapsed.TotalMilliseconds;
+            
+            // Return empty results with timeout indicator
+            return (new List<IDictionary<string, object?>>(), executionTimeMs, true);
+        }
+        catch (Exception)
+        {
+            stopwatch.Stop();
+            // Re-throw other exceptions
+            throw;
+        }
     }
 
     private static DbConnection GetDbConnection(DatabaseEngineType dbEngineType, string connectionString) => dbEngineType switch

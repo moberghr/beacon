@@ -11,6 +11,17 @@ public class SubscriptionData
     public string QueryName { get; set; }
 
     public string CronExpression { get; set; }
+    
+    public int? MaxRows { get; set; }
+    
+    public bool IncludeAttachment { get; set; } = true;
+    
+    public bool ShowQuery { get; set; } = true;
+    
+    /// <summary>
+    /// Query execution timeout in seconds. If null, no timeout is applied.
+    /// </summary>
+    public int? TimeoutSeconds { get; set; }
 
     public List<RecipientData> Recipients { get; set; } = new();
 
