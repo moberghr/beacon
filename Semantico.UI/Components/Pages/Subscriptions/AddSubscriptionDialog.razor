@@ -39,15 +39,15 @@
                 HelperText="Maximum execution time in seconds (leave empty for no timeout)" 
                 Class="mb-2" />
             
-            @* <MudCheckBox @bind-Checked="Subscription.IncludeAttachment"  *@
-            @*     Label="Include Attachment"  *@
-            @*     Color="Color.Primary" *@
-            @*     Class="mb-2" /> *@
-            @* *@
-            @* <MudCheckBox @bind-Checked="Subscription.ShowQuery"  *@
-            @*     Label="Show Query in Notification"  *@
-            @*     Color="Color.Primary" *@
-            @*     Class="mb-2" /> *@
+            <MudCheckBox @bind-Value="Subscription.IncludeAttachment"
+                Label="Include Attachment"
+                Color="Color.Primary"
+                Class="mb-2" />
+            
+            <MudCheckBox @bind-Value="Subscription.ShowQuery"
+                Label="Show Query in Notification"
+                Color="Color.Primary"
+                Class="mb-2" />
                 
             <MudSelect T="string" Label="Recipient" MultiSelection="true" @bind-SelectedValues="_selectedRecipientIds" Required="true" Variant="Variant.Outlined" Margin="Margin.Dense">
                 @{
@@ -80,7 +80,7 @@
 @code
 {
     [CascadingParameter]
-    MudDialogInstance MudDialog { get; set; }
+    IMudDialogInstance MudDialog { get; set; }
 
     [Parameter]
     public SubscriptionData Subscription { get; set; } = new SubscriptionData();

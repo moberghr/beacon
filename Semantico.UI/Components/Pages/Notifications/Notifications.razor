@@ -17,7 +17,7 @@
         <Columns>
             <PropertyColumn Property="x => x.QueryExecutionHistoryId" Title="Id"/>
             <PropertyColumn InitialDirection="SortDirection.Descending" Property="x => x.CreatedTime"/>
-            <TemplateColumn>
+            <TemplateColumn Title="Subscription">
                 <CellTemplate>
                     <MudLink Href="@($"/semantico/subscriptions/details/{context.Item?.SubscriptionId ?? 0}")">@context.Item?.QueryName</MudLink>
                 </CellTemplate>

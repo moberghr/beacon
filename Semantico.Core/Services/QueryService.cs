@@ -61,7 +61,10 @@ public class SubscriptionListData
 {
     public int SubscriptionId { get; set; }
 
+    public DateTime CreatedTime { get; set; }
     public string Name { get; set; }
+    
+    public string Subscribers { get; set; }
 
     public string CronExpression { get; set; }
 }
@@ -199,7 +202,9 @@ internal class QueryService : IQueryService
                         {
                             SubscriptionId = y.Id,
                             Name = y.Query.Name,
-                            CronExpression = y.CronExpression
+                            CronExpression = y.CronExpression,
+                            CreatedTime = y.CreatedTime,
+                            Subscribers = y.Recipients.Select(x => x.Name).ToJson()
                         }).ToList()
                 }).SingleAsync(cancellationToken);
     }

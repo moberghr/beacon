@@ -16,7 +16,7 @@ jobs:
     - name: Setup .NET
       uses: actions/setup-dotnet@v1
       with:
-        dotnet-version: '8.0'
+        dotnet-version: '9.0'
     
     - name: Add the GitHub NuGet Source
       run: |
@@ -45,6 +45,18 @@ jobs:
     - name: "Semantico.UI - Push NuGet package"
       working-directory: Semantico.UI
       run: dotnet nuget push "bin/Release/Semantico.UI.${{github.ref_name}}.nupkg" --source "github"
+
+    - name: Semantico.UI.AspNet - Install dependencies
+      working-directory: Semantico.UI.AspNet
+      run: dotnet restore
+
+    - name: "Semantico.UI.AspNet - Create a NuGet package"
+      working-directory: Semantico.UI.AspNet
+      run: dotnet pack -p:PackageVersion=${{github.ref_name}} --configuration Release
+
+    - name: "Semantico.UI.AspNet - Push NuGet package"
+      working-directory: Semantico.UI.AspNet
+      run: dotnet nuget push "bin/Release/Semantico.UI.AspNet.${{github.ref_name}}.nupkg" --source "github"
 
     - name: "Cleanup - Remove NuGet Source"
       run: dotnet nuget remove source github

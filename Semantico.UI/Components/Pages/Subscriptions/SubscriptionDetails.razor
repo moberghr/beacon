@@ -38,7 +38,8 @@
                             <MudText>
                                 <strong>Max Rows:</strong> @(Model?.MaxRows.HasValue == true ? Model.MaxRows.ToString() : "All") <br />
                                 <strong>Include Attachment:</strong> @(Model?.IncludeAttachment == true ? "Yes" : "No") <br />
-                                <strong>Show Query in Notification:</strong> @(Model?.ShowQuery == true ? "Yes" : "No")
+                                <strong>Show Query in Notification:</strong> @(Model?.ShowQuery == true ? "Yes" : "No") <br />
+                                <strong>Query timeout:</strong> @Model?.TimeoutSeconds
                             </MudText>
                             <MudText>
                                 <strong>Parameters:</strong> @Model?.Parameters.ToJson()
