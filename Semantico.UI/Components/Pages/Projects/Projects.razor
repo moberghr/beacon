@@ -39,11 +39,6 @@
             Items = _list
         };
     }
-
-    protected override async Task OnInitializedAsync()
-    {
-        _list = await _service.GetProjects(null, CancellationToken.None);
-    }
     
     private async Task AddProject()
     {
