@@ -1,17 +1,17 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Semantico.Core.Adapters;
 using Semantico.Core.Adapters.Jira;
 using Semantico.Core.Adapters.Mail;
 using Semantico.Core.Adapters.Teams;
 using Semantico.Core.Data;
+using Semantico.Core.Models;
 using Semantico.Core.Services;
 using Semantico.Core.Worker;
 using Semantico.Core.Worker.Repositories;
 using Semantico.Core.Worker.Services;
-using Microsoft.Extensions.DependencyInjection.Extensions;
-using Semantico.Core.Adapters;
-using Semantico.Core.Models;
 
 namespace Semantico.Core;
 
@@ -29,12 +29,12 @@ public static class ServiceConfiguration
                 builder => builder.MigrationsHistoryTable("__EFMigrationsHistory", "semantico"))
                 .UseSnakeCaseNamingConvention();
         });
-        
-        services.TryAddSingleton<IAdapter, TeamsAdapter>();
+
+        services.AddSingleton<IAdapter, TeamsAdapter>();
         if (configurationOptions.EmailAdapter != null)
         {
             services.TryAddSingleton(typeof(IEmailAdapter), configurationOptions.EmailAdapter);
-            services.TryAddSingleton<IAdapter, EmailAdapter>();
+            services.AddSingleton<IAdapter, EmailAdapter>();
         }
         services.AddSingleton<IAdapter, JiraAdapter>();
         services.TryAddSingleton<AdapterFactory>();
@@ -52,12 +52,12 @@ public static class ServiceConfiguration
 
         return services;
     }
-    
+
     public static void UseSemantico(IServiceProvider serviceProvider)
     {
         var scope = serviceProvider.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<SemanticoContext>();
-    
+
         context.Database.Migrate();
     }
 }
