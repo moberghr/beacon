@@ -18,16 +18,6 @@ internal class Subscription : ArchivableBaseEntity
     /// Query execution timeout in seconds. If null, no timeout is applied.
     /// </summary>
     public int? TimeoutSeconds { get; set; }
-    
-    /// <summary>
-    /// Start hour of the execution window (0-23). If null, no time restriction is applied.
-    /// </summary>
-    public int? ExecutionWindowStartHour { get; set; }
-    
-    /// <summary>
-    /// End hour of the execution window (0-23). If null, no time restriction is applied.
-    /// </summary>
-    public int? ExecutionWindowEndHour { get; set; }
 
     public Query Query { get; set; } = null!;
 

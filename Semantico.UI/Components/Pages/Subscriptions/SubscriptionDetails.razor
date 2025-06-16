@@ -42,17 +42,6 @@
                                 <strong>Query timeout:</strong> @Model?.TimeoutSeconds
                             </MudText>
                             <MudText>
-                                <strong>Execution Window:</strong> 
-                                @if (Model?.ExecutionWindowStartHour.HasValue == true && Model?.ExecutionWindowEndHour.HasValue == true)
-                                {
-                                    <span>@Model.ExecutionWindowStartHour:00 - @Model.ExecutionWindowEndHour:00</span>
-                                }
-                                else
-                                {
-                                    <span>24/7 (No restriction)</span>
-                                }
-                            </MudText>
-                            <MudText>
                                 <strong>Parameters:</strong> @Model?.Parameters.ToJson()
                             </MudText>
                         </MudStack>

@@ -14,28 +14,22 @@ internal class JobService(IDbContextFactory<SemanticoContext> contextFactory, IQ
     public async Task ExecuteQuery(int subscriptionId)
     {
         await using var context = await contextFactory.CreateDbContextAsync();
-        
+
         var subscription = await context.Subscriptions
             .Where(x => x.Id == subscriptionId)
             .FirstOrDefaultAsync();
-            
+
         if (subscription == null)
         {
             return;
         }
-        
-        // Check if execution is within the allowed time window
-        if (!IsWithinExecutionWindow(subscription))
-        {
-            return;
-        }
-        
+
         var queryResult = await queryService.ExecuteQuery(subscriptionId, CancellationToken.None);
-        
+
         // Set subscription specific parameters
         queryResult.ShowQuery = subscription.ShowQuery;
         queryResult.MaxRows = subscription.MaxRows;
-        
+
         // Apply max rows limit if specified
         if (subscription.MaxRows.HasValue && subscription.MaxRows > 0)
         {
@@ -44,14 +38,14 @@ internal class JobService(IDbContextFactory<SemanticoContext> contextFactory, IQ
         }
 
         var lastExecutedQuery = context.QueryExecutionHistory
-                .Where(x => x.SubscriptionId == subscriptionId)
-                .OrderByDescending(x => x.CreatedTime)
-                .Select(x =>
-                    new
-                    {
-                        x.ResultCount
-                    })
-                .FirstOrDefault();
+            .Where(x => x.SubscriptionId == subscriptionId)
+            .OrderByDescending(x => x.CreatedTime)
+            .Select(x =>
+                new
+                {
+                    x.ResultCount
+                })
+            .FirstOrDefault();
 
         NotificationStatus status;
 
@@ -85,7 +79,7 @@ internal class JobService(IDbContextFactory<SemanticoContext> contextFactory, IQ
             NotificationStatus = status,
             ExecutionTimeMs = queryResult.ExecutionTimeMs
         };
-        
+
         // Update the QueryExecutionHistory with the recipients that were notified
         if (queryResult.Recipients.Any())
         {
@@ -127,8 +121,8 @@ internal class JobService(IDbContextFactory<SemanticoContext> contextFactory, IQ
                 RecipientDestination = recipient.Destination,
                 RecipientNotificationType = recipient.NotificationType,
                 QueryResult = queryResult,
-                QueryResultFile = subscription.IncludeAttachment && recipient.ResultAttachmentType.HasValue 
-                    ? resultFiles.GetValueOrDefault(recipient.ResultAttachmentType.Value) 
+                QueryResultFile = subscription.IncludeAttachment && recipient.ResultAttachmentType.HasValue
+                    ? resultFiles.GetValueOrDefault(recipient.ResultAttachmentType.Value)
                     : null
             });
         }
@@ -137,27 +131,5 @@ internal class JobService(IDbContextFactory<SemanticoContext> contextFactory, IQ
         {
             await notificationService.SendNotification(recipientQueryResult, lastExecutedQuery?.ResultCount);
         }
-    }
-    
-    private static bool IsWithinExecutionWindow(Subscription subscription)
-    {
-        // If no execution window is defined, allow execution at any time
-        if (!subscription.ExecutionWindowStartHour.HasValue || !subscription.ExecutionWindowEndHour.HasValue)
-        {
-            return true;
-        }
-        
-        var currentHour = DateTime.Now.Hour;
-        var startHour = subscription.ExecutionWindowStartHour.Value;
-        var endHour = subscription.ExecutionWindowEndHour.Value;
-        
-        // Handle same-day window (e.g., 10:00 to 16:00)
-        if (startHour <= endHour)
-        {
-            return currentHour >= startHour && currentHour < endHour;
-        }
-        
-        // Handle overnight window (e.g., 22:00 to 06:00)
-        return currentHour >= startHour || currentHour < endHour;
     }
 }

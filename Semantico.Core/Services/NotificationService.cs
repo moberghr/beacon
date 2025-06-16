@@ -21,9 +21,6 @@ internal class NotificationService(IDbContextFactory<SemanticoContext> contextFa
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
         
         var queryExecutionHistory = await context.QueryExecutionHistory
-            .Include(x => x.Recipients)
-            .Include(x => x.Subscription)
-            .ThenInclude(x => x.Query)
             .WhereIf(request.SubscriptionId.HasValue, x => x.SubscriptionId == request.SubscriptionId)
             .WhereIf(request.LastQueryExecutionHistoryId.HasValue, x => x.Id < request.LastQueryExecutionHistoryId)
             .WhereIf(request.NotificationStatus.HasValue, x => x.NotificationStatus == request.NotificationStatus)

@@ -47,27 +47,4 @@ internal static class SubscriptionValidator
             throw new SemanticoException($"There are multiple of the same query parameter names defined");
         }
     }
-    
-    public static void ValidateExecutionWindow(int? startHour, int? endHour)
-    {
-        if (startHour == null && endHour == null)
-        {
-            return; // No execution window specified, which is valid.
-        }
-
-        if (startHour == null || endHour == null)
-        {
-            throw new SemanticoException("Both execution window start hour and end hour must be specified.");
-        }
-        
-        if (startHour is <0 or >23)
-        {
-            throw new SemanticoException("Execution window start hour must be between 0 and 23.");
-        }
-        
-        if (endHour is <0 or >23)
-        {
-            throw new SemanticoException("Execution window end hour must be between 0 and 23.");
-        }
-    }
 }
