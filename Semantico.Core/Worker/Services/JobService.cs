@@ -8,24 +8,12 @@ using Semantico.Core.Services;
 
 namespace Semantico.Core.Worker.Services;
 
-internal class JobService : IJobService
+internal class JobService(SemanticoContext context, IQueryService queryService, INotificationService notificationService)
+    : IJobService
 {
-    private readonly SemanticoContext _context;
-    private readonly IQueryService _queryService;
-    private readonly INotificationService _notificationService;
-
-    public JobService(SemanticoContext context, IQueryService queryService, INotificationService notificationService)
-    {
-        _context = context;
-        _queryService = queryService;
-        _notificationService = notificationService;
-    }
-
     public async Task ExecuteQuery(int subscriptionId)
     {
-        var queryResult = await _queryService.ExecuteQuery(subscriptionId, CancellationToken.None);
-        
-        var subscription = await _context.Subscriptions
+        var subscription = await context.Subscriptions
             .Where(x => x.Id == subscriptionId)
             .FirstOrDefaultAsync();
             
@@ -33,6 +21,14 @@ internal class JobService : IJobService
         {
             return;
         }
+        
+        // Check if execution is within the allowed time window
+        if (!IsWithinExecutionWindow(subscription))
+        {
+            return;
+        }
+        
+        var queryResult = await queryService.ExecuteQuery(subscriptionId, CancellationToken.None);
         
         // Set subscription specific parameters
         queryResult.ShowQuery = subscription.ShowQuery;
@@ -45,7 +41,7 @@ internal class JobService : IJobService
             queryResult.TopRecords = queryResult.TopRecords.Take(subscription.MaxRows.Value).ToList();
         }
 
-        var lastExecutedQuery = _context.QueryExecutionHistory
+        var lastExecutedQuery = context.QueryExecutionHistory
                 .Where(x => x.SubscriptionId == subscriptionId)
                 .OrderByDescending(x => x.CreatedTime)
                 .Select(x =>
@@ -88,8 +84,8 @@ internal class JobService : IJobService
             ExecutionTimeMs = queryResult.ExecutionTimeMs
         };
 
-        await _context.QueryExecutionHistory.AddAsync(executedQuery);
-        await _context.SaveChangesAsync();
+        await context.QueryExecutionHistory.AddAsync(executedQuery);
+        await context.SaveChangesAsync();
 
         // Only send notification if the status is NotificationSent
         if (executedQuery.NotificationStatus != NotificationStatus.NotificationSent)
@@ -129,7 +125,29 @@ internal class JobService : IJobService
 
         foreach (var recipientQueryResult in recipientsQueryResults)
         {
-            await _notificationService.SendNotification(recipientQueryResult, lastExecutedQuery?.ResultCount);
+            await notificationService.SendNotification(recipientQueryResult, lastExecutedQuery?.ResultCount);
         }
+    }
+    
+    private static bool IsWithinExecutionWindow(Subscription subscription)
+    {
+        // If no execution window is defined, allow execution at any time
+        if (!subscription.ExecutionWindowStartHour.HasValue || !subscription.ExecutionWindowEndHour.HasValue)
+        {
+            return true;
+        }
+        
+        var currentHour = DateTime.Now.Hour;
+        var startHour = subscription.ExecutionWindowStartHour.Value;
+        var endHour = subscription.ExecutionWindowEndHour.Value;
+        
+        // Handle same-day window (e.g., 10:00 to 16:00)
+        if (startHour <= endHour)
+        {
+            return currentHour >= startHour && currentHour < endHour;
+        }
+        
+        // Handle overnight window (e.g., 22:00 to 06:00)
+        return currentHour >= startHour || currentHour < endHour;
     }
 }

@@ -57,6 +57,7 @@ internal class SubscriptionService : ISubscriptionService
             .ToListAsync(cancellationToken);
 
         SubscriptionValidator.ValidateParameters(subscriptionData.Parameters, queryParams);
+        SubscriptionValidator.ValidateExecutionWindow(subscriptionData.ExecutionWindowStartHour, subscriptionData.ExecutionWindowEndHour);
 
         var recipients = await _context.Recipients
             .Where(x => subscriptionData.Recipients.Select(y => y.RecipientId).Contains(x.Id))
@@ -70,6 +71,8 @@ internal class SubscriptionService : ISubscriptionService
             IncludeAttachment = subscriptionData.IncludeAttachment,
             ShowQuery = subscriptionData.ShowQuery,
             TimeoutSeconds = subscriptionData.TimeoutSeconds,
+            ExecutionWindowStartHour = subscriptionData.ExecutionWindowStartHour,
+            ExecutionWindowEndHour = subscriptionData.ExecutionWindowEndHour,
             Recipients = recipients,
             Parameters = subscriptionData.Parameters.Select(x =>
                 new SubscriptionParameter
@@ -136,6 +139,8 @@ internal class SubscriptionService : ISubscriptionService
                     IncludeAttachment = x.IncludeAttachment,
                     ShowQuery = x.ShowQuery,
                     TimeoutSeconds = x.TimeoutSeconds,
+                    ExecutionWindowStartHour = x.ExecutionWindowStartHour,
+                    ExecutionWindowEndHour = x.ExecutionWindowEndHour,
                     Parameters = x.Parameters.Select(y => new SubscriptionParamaterData
                     {
                         QueryPlaceholder = y.QueryPlaceholder,
@@ -171,6 +176,7 @@ internal class SubscriptionService : ISubscriptionService
             .ToListAsync(cancellationToken);
 
         SubscriptionValidator.ValidateParameters(subscriptionData.Parameters, queryParams);
+        SubscriptionValidator.ValidateExecutionWindow(subscriptionData.ExecutionWindowStartHour, subscriptionData.ExecutionWindowEndHour);
 
         var shouldUpdateHangfire = subscription.CronExpression != subscriptionData.CronExpression;
 
@@ -179,6 +185,8 @@ internal class SubscriptionService : ISubscriptionService
         subscription.IncludeAttachment = subscriptionData.IncludeAttachment;
         subscription.ShowQuery = subscriptionData.ShowQuery;
         subscription.TimeoutSeconds = subscriptionData.TimeoutSeconds;
+        subscription.ExecutionWindowStartHour = subscriptionData.ExecutionWindowStartHour;
+        subscription.ExecutionWindowEndHour = subscriptionData.ExecutionWindowEndHour;
         subscription.Recipients = recipients;
 
         foreach (var subscriptionParameter in subscription.Parameters)
@@ -232,6 +240,8 @@ internal class SubscriptionService : ISubscriptionService
                 IncludeAttachment = x.IncludeAttachment,
                 ShowQuery = x.ShowQuery,
                 TimeoutSeconds = x.TimeoutSeconds,
+                ExecutionWindowStartHour = x.ExecutionWindowStartHour,
+                ExecutionWindowEndHour = x.ExecutionWindowEndHour,
                 Status = x.ArchivedTime.HasValue ? "Archived" : "Active",
                 Parameters = x.Parameters.Select(y => new SubscriptionParamaterData()
                 {

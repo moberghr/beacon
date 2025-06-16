@@ -39,6 +39,27 @@
                 HelperText="Maximum execution time in seconds (leave empty for no timeout)" 
                 Class="mb-2" />
             
+            <MudGrid Class="mb-2">
+                <MudItem xs="6">
+                    <MudNumericField @bind-Value="Subscription.ExecutionWindowStartHour" 
+                        Label="Execution Window Start Hour" 
+                        Variant="Variant.Outlined" 
+                        Margin="Margin.Dense"
+                        Min="0"
+                        Max="23"
+                        HelperText="Start hour (0-23, leave empty for no restriction)" />
+                </MudItem>
+                <MudItem xs="6">
+                    <MudNumericField @bind-Value="Subscription.ExecutionWindowEndHour" 
+                        Label="Execution Window End Hour" 
+                        Variant="Variant.Outlined" 
+                        Margin="Margin.Dense"
+                        Min="0"
+                        Max="23"
+                        HelperText="End hour (0-23, leave empty for no restriction)" />
+                </MudItem>
+            </MudGrid>
+            
             <MudCheckBox @bind-Value="Subscription.IncludeAttachment"
                 Label="Include Attachment"
                 Color="Color.Primary"

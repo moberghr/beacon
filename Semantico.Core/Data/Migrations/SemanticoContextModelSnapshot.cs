@@ -18,7 +18,7 @@ namespace Semantico.Core.Data.Migrations
 #pragma warning disable 612, 618
             modelBuilder
                 .HasDefaultSchema("semantico")
-                .HasAnnotation("ProductVersion", "8.0.10")
+                .HasAnnotation("ProductVersion", "9.0.5")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -281,6 +281,14 @@ namespace Semantico.Core.Data.Migrations
                         .IsRequired()
                         .HasColumnType("text")
                         .HasColumnName("cron_expression");
+
+                    b.Property<int?>("ExecutionWindowEndHour")
+                        .HasColumnType("integer")
+                        .HasColumnName("execution_window_end_hour");
+
+                    b.Property<int?>("ExecutionWindowStartHour")
+                        .HasColumnType("integer")
+                        .HasColumnName("execution_window_start_hour");
 
                     b.Property<bool>("IncludeAttachment")
                         .HasColumnType("boolean")
