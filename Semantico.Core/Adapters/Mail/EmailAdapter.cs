@@ -3,29 +3,17 @@ using Semantico.Core.Data.Enums;
 
 namespace Semantico.Core.Adapters.Mail;
 
-internal class EmailAdapter : IAdapter
+internal class EmailAdapter(IEmailAdapter emailAdapter) : IAdapter
 {
-    private readonly IEmailAdapter _emailAdapter;
-
     public NotificationType NotificationType => NotificationType.Email;
 
-    public EmailAdapter(IEmailAdapter emailAdapter)
-    {
-        _emailAdapter = emailAdapter;
-    }
-
-    public async Task SendNotificationAsync(RecipientQueryResult recipientQueryResult)
+    public async Task SendNotificationAsync(RecipientQueryResult recipientQueryResult, int? lastNotificationResultCount)
     {
         var to = recipientQueryResult.RecipientDestination;
         var subject = $"[semantico] {recipientQueryResult.QueryResult.ProjectName} - {recipientQueryResult.QueryResult.SubscriptionName}";
         
         var htmlBody = Helpers.GenerateEmailContent(recipientQueryResult.QueryResult);
 
-        await _emailAdapter.SendEmailAsync(to, subject, htmlBody, recipientQueryResult.QueryResultFile);
-    }
-
-    public Task SendNotificationAsync(RecipientQueryResult recipientQueryResult, int lastNotificationResultCount)
-    {
-        throw new NotSupportedException();
+        await emailAdapter.SendEmailAsync(to, subject, htmlBody, recipientQueryResult.QueryResultFile);
     }
 }

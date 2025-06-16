@@ -229,6 +229,7 @@ internal class QueryService : IQueryService
                     }).ToList(),
                     x.QueryId,
                     x.CronExpression,
+                    x.MaxRows,
                     x.TimeoutSeconds,
                     x.Query.SqlValue,
                     x.Query.Name,
@@ -257,8 +258,8 @@ internal class QueryService : IQueryService
             sql,
             subscription.TimeoutSeconds);
 
-        // We will only send the top 10 rows in a notification.
-        var messageRows = results.Take(10).ToList();
+        // We will only send the top 20 rows in a notification.
+        var messageRows = results.Take(20).ToList();
 
         var queryResult = new QueryResult
         {

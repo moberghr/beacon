@@ -21,15 +21,8 @@ internal class NotificationService : INotificationService
     public async Task SendNotification(RecipientQueryResult recipientQueryResult, int? lastExecutedQueryResultCount)
     {
         var adapter = _adapterFactory.GetAdapterService(recipientQueryResult.RecipientNotificationType);
-
-        if (recipientQueryResult.RecipientNotificationType == NotificationType.Jira && lastExecutedQueryResultCount.HasValue)
-        {
-            await adapter.SendNotificationAsync(recipientQueryResult, lastExecutedQueryResultCount.Value);
-        }
-        else
-        {
-            await adapter.SendNotificationAsync(recipientQueryResult);
-        }
+        
+        await adapter.SendNotificationAsync(recipientQueryResult, lastExecutedQueryResultCount);
     }
 
     public async Task<QueryExecutionHistoryListData> GetQueryExecutionHistory(GetQueryExecutionHistoryRequest request, CancellationToken cancellationToken)
