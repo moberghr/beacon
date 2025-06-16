@@ -17,5 +17,5 @@ internal class Recipient : ArchivableBaseEntity
 
     public List<Subscription> Subscriptions { get; set; } = new();
     
-    public List<QueryExecutionHistory> QueryExecutionHistories { get; set; } = new();
+    public List<Notification> Notifications { get; set; } = new();
 }

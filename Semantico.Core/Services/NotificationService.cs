@@ -26,8 +26,13 @@ internal class NotificationService(IDbContextFactory<SemanticoContext> contextFa
             .WhereIf(request.NotificationStatus.HasValue, x => x.NotificationStatus == request.NotificationStatus)
             .Select(x => new QueryExecutionHistoryData {
                     QueryExecutionHistoryId = x.Id,
-                    Recipients = x.Recipients.Select(y => y.Name).ToList(),
-                    NotificationTypes = x.Recipients.Select(y => y.NotificationType).ToList(),
+                    Notifications = x.Notifications.Select(y => new NotificationData
+                    {
+                        Created = y.CreatedTime,
+                        NotificationType = y.Type,
+                        RecipientName = y.Recipient.Name,
+                        SentAt = y.SentAt
+                    }).ToList(),
                     ResultCount = x.ResultCount,
                     CreatedTime = x.CreatedTime,
                     NotificationStatus = x.NotificationStatus,

@@ -94,12 +94,12 @@
                             <PropertyColumn Property="x => x.QueryExecutionHistoryId" Title="Id"/>
                             <TemplateColumn Title="Recipients">
                                 <CellTemplate>
-                                    @($"[{context.Item.Recipients.Count}] {string.Join(", ", context.Item.Recipients).GetSubstring(50)}")
+                                    @($"[{context.Item.Notifications.Count}] {string.Join(", ", context.Item.Notifications.Select(x => x.RecipientName).ToList()).GetSubstring(50)}")
                                 </CellTemplate>
                             </TemplateColumn>
                             <TemplateColumn Title="Notification types">
                                 <CellTemplate>
-                                    @($"{string.Join(", ", context.Item.NotificationTypes)}")
+                                    @($"{string.Join(", ", context.Item.Notifications.Select(x => x.NotificationType).ToList())}")
                                 </CellTemplate>
                             </TemplateColumn>
                             <PropertyColumn Property="x => x.ResultCount"/>

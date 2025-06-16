@@ -27,6 +27,8 @@ internal class SemanticoContext : DbContext
 
     public DbSet<Recipient> Recipients => Set<Recipient>();
 
+    public DbSet<Notification> Notifications => Set<Notification>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema("semantico");

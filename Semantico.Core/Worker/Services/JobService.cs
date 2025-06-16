@@ -80,22 +80,29 @@ internal class JobService(IDbContextFactory<SemanticoContext> contextFactory, IQ
             ExecutionTimeMs = queryResult.ExecutionTimeMs
         };
 
-        // Update the QueryExecutionHistory with the recipients that were notified
-        if (queryResult.Recipients.Any())
-        {
-            var recipientIds = queryResult.Recipients.Select(r => r.RecipientId).ToList();
-            var recipients = await context.Recipients.Where(r => recipientIds.Contains(r.Id)).ToListAsync();
-            executedQuery.Recipients = recipients;
-        }
-
         await context.QueryExecutionHistory.AddAsync(executedQuery);
-        await context.SaveChangesAsync();
 
         // Only send notification if the status is NotificationSent
         if (executedQuery.NotificationStatus != NotificationStatus.NotificationSent)
         {
+            await context.SaveChangesAsync();
             return;
         }
+
+        // Create Notification records for each recipient that was notified
+        foreach (var recipient in queryResult.Recipients)
+        {
+            var notification = new Notification
+            {
+                QueryExecutionHistoryId = executedQuery.Id,
+                RecipientId = recipient.RecipientId.Value,
+                Type = recipient.NotificationType,
+                SentAt = DateTime.UtcNow
+            };
+            await context.Notifications.AddAsync(notification);
+        }
+        
+        await context.SaveChangesAsync();
 
         var recipientsQueryResults = new List<RecipientQueryResult>();
         var resultFiles = new Dictionary<FileType, QueryResultFile>();
@@ -113,6 +120,8 @@ internal class JobService(IDbContextFactory<SemanticoContext> contextFactory, IQ
                 resultFiles.Add(fileType, await ExportProvider.GetReport(fileType, queryResult.AllRecords));
             }
         }
+        
+        // TODO: refactor this to use sending Notifications table
 
         foreach (var recipient in queryResult.Recipients)
         {
