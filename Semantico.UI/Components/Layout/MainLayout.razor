@@ -1,5 +1,4 @@
-﻿@using ApexCharts
-@using Blazored.LocalStorage
+﻿@using Blazored.LocalStorage
 @using Color = MudBlazor.Color
 @inherits LayoutComponentBase
 
@@ -42,6 +41,7 @@
     </MudMainContent>
 </MudLayout>
 
+
 <script src="_content/MudBlazor/MudBlazor.min.js"></script>
 <div id="blazor-error-ui">
     An unhandled error has occurred.
@@ -52,7 +52,6 @@
 @inject IBrowserViewportService BrowserViewportService
 @inject ILocalStorageService LocalStorage
 @inject IJSRuntime JS
-@inject IApexChartService ApexChartService
 
 @code
 {
@@ -81,22 +80,10 @@
         if (_isDark)
         {
             await JS.InvokeVoidAsync("loadCss", "./_content/Semantico.UI/highlight/styles/github-dark.css");
-            ApexChartService.GlobalOptions.Theme = new Theme()
-            {
-                Mode = Mode.Dark,
-                Palette = PaletteType.Palette5
-            };
         }
         else
         {
             await JS.InvokeVoidAsync("loadCss", "./_content/Semantico.UI/highlight/styles/github.css");
-            ApexChartService.GlobalOptions.Theme = new Theme()
-            {
-                Mode = Mode.Light,
-                Palette = PaletteType.Palette7
-            };
         }
-        
-        await ApexChartService.SetGlobalOptionsAsync(true);
     }
 }

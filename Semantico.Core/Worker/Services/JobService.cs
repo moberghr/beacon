@@ -8,11 +8,13 @@ using Semantico.Core.Services;
 
 namespace Semantico.Core.Worker.Services;
 
-internal class JobService(SemanticoContext context, IQueryService queryService, INotificationService notificationService)
+internal class JobService(IDbContextFactory<SemanticoContext> contextFactory, IQueryService queryService, INotificationService notificationService)
     : IJobService
 {
     public async Task ExecuteQuery(int subscriptionId)
     {
+        await using var context = await contextFactory.CreateDbContextAsync();
+        
         var subscription = await context.Subscriptions
             .Where(x => x.Id == subscriptionId)
             .FirstOrDefaultAsync();
@@ -83,6 +85,14 @@ internal class JobService(SemanticoContext context, IQueryService queryService, 
             NotificationStatus = status,
             ExecutionTimeMs = queryResult.ExecutionTimeMs
         };
+        
+        // Update the QueryExecutionHistory with the recipients that were notified
+        if (queryResult.Recipients.Any())
+        {
+            var recipientIds = queryResult.Recipients.Select(r => r.RecipientId).ToList();
+            var recipients = await context.Recipients.Where(r => recipientIds.Contains(r.Id)).ToListAsync();
+            executedQuery.Recipients = recipients;
+        }
 
         await context.QueryExecutionHistory.AddAsync(executedQuery);
         await context.SaveChangesAsync();

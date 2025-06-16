@@ -103,8 +103,16 @@
                         <Columns>
                             <PropertyColumn InitialDirection="SortDirection.Descending" Property="x => x.CreatedTime" Title="Created"/>
                             <PropertyColumn Property="x => x.QueryExecutionHistoryId" Title="Id"/>
-                            <PropertyColumn Property="x => x.RecipientName"/>
-                            <PropertyColumn Property="x => x.NotificationType"/>
+                            <TemplateColumn Title="Recipients">
+                                <CellTemplate>
+                                    @($"[{context.Item.Recipients.Count}] {string.Join(", ", context.Item.Recipients).GetSubstring(50)}")
+                                </CellTemplate>
+                            </TemplateColumn>
+                            <TemplateColumn Title="Notification types">
+                                <CellTemplate>
+                                    @($"{string.Join(", ", context.Item.NotificationTypes)}")
+                                </CellTemplate>
+                            </TemplateColumn>
                             <PropertyColumn Property="x => x.ResultCount"/>
                             <PropertyColumn Property="x => x.NotificationStatus"/>
                         </Columns>

@@ -22,8 +22,16 @@
                     <MudLink Href="@($"/semantico/subscriptions/details/{context.Item?.SubscriptionId ?? 0}")">@context.Item?.QueryName</MudLink>
                 </CellTemplate>
             </TemplateColumn>
-            <PropertyColumn Property="x => x.RecipientName"/>
-            <PropertyColumn Property="x => x.NotificationType"/>
+            <TemplateColumn Title="Recipients">
+                <CellTemplate>
+                    @($"[{context.Item.Recipients.Count}] {string.Join(", ", context.Item.Recipients).GetSubstring(50)}")
+                </CellTemplate>
+            </TemplateColumn>
+            <TemplateColumn Title="Notification types">
+                <CellTemplate>
+                    @($"{string.Join(", ", context.Item.NotificationTypes)}")
+                </CellTemplate>
+            </TemplateColumn>
             <PropertyColumn Property="x => x.ResultCount"/>
             <TemplateColumn Title="Status">
                 <CellTemplate>

@@ -24,6 +24,11 @@ public static class Helpers
         return value.ToString("dd.MM.yyyy");
     }
     
+    public static string ToShortDateWithoutYear(this DateTime value)
+    {
+        return value.ToString("dd.MM.");
+    }
+    
     public static string GetSubstring(this string value, int length)
     {
         if (string.IsNullOrEmpty(value) || value.Length <= length)

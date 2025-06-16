@@ -29,22 +29,16 @@ public interface ISubscriptionService
     Task<SubscriptionDetailsData> GetSubscriptionDetails(int subscriptionId, CancellationToken cancellationToken);
 }
 
-internal class SubscriptionService : ISubscriptionService
+internal class SubscriptionService(IDbContextFactory<SemanticoContext> contextFactory, ISemanticoScheduler semanticoScheduler)
+    : ISubscriptionService
 {
-    private readonly SemanticoContext _context;
-    private readonly ISemanticoScheduler _semanticoScheduler;
-
-    public SubscriptionService(SemanticoContext context, ISemanticoScheduler semanticoScheduler)
-    {
-        _context = context;
-        _semanticoScheduler = semanticoScheduler;
-    }
-
     public async Task<BaseResponse> CreateSubscription(SubscriptionData subscriptionData, CancellationToken cancellationToken)
     {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        
         CronExpression.Parse(subscriptionData.CronExpression);
 
-        var queryParams = await _context.QueryParameters
+        var queryParams = await context.QueryParameters
             .Where(x => x.QueryId == subscriptionData.QueryId)
             .Select(x =>
                 new QueryParameterData
@@ -59,7 +53,7 @@ internal class SubscriptionService : ISubscriptionService
         SubscriptionValidator.ValidateParameters(subscriptionData.Parameters, queryParams);
         SubscriptionValidator.ValidateExecutionWindow(subscriptionData.ExecutionWindowStartHour, subscriptionData.ExecutionWindowEndHour);
 
-        var recipients = await _context.Recipients
+        var recipients = await context.Recipients
             .Where(x => subscriptionData.Recipients.Select(y => y.RecipientId).Contains(x.Id))
             .ToListAsync(cancellationToken);
 
@@ -82,20 +76,22 @@ internal class SubscriptionService : ISubscriptionService
                 }).ToList()
         };
 
-        _context.Subscriptions.Add(subscription);
+        context.Subscriptions.Add(subscription);
 
-        await _context.SaveChangesAsync(cancellationToken);
+        await context.SaveChangesAsync(cancellationToken);
 
-        var query = _context.Queries.Single(x => x.Id == subscriptionData.QueryId);
+        var query = context.Queries.Single(x => x.Id == subscriptionData.QueryId);
 
-        _semanticoScheduler.AddOrUpdate(subscription.Id, $"{query.Name}: {subscription.Id}", subscription.CronExpression);
+        semanticoScheduler.AddOrUpdate(subscription.Id, $"{query.Name}: {subscription.Id}", subscription.CronExpression);
 
         return new BaseResponse { Success = true, Message = "Subscription created successfully" };
     }
 
     public async Task DeleteSubscription(int subscriptionId, CancellationToken cancellationToken)
     {
-        var subscription = await _context.Subscriptions
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        
+        var subscription = await context.Subscriptions
             .Include(x => x.Parameters)
             .Include(x => x.Query)
             .Where(x => x.Id == subscriptionId)
@@ -103,19 +99,21 @@ internal class SubscriptionService : ISubscriptionService
 
         subscription.Archive();
 
-        _semanticoScheduler.Remove(subscription.Id, $"{subscription.Query.Name}: {subscription.Id}");
+        semanticoScheduler.Remove(subscription.Id, $"{subscription.Query.Name}: {subscription.Id}");
 
         foreach (var param in subscription.Parameters)
         {
             param.Archive();
         }
 
-        await _context.SaveChangesAsync(cancellationToken);
+        await context.SaveChangesAsync(cancellationToken);
     }
 
     public async Task<List<SubscriptionData>> GetSubscriptions(int? subscriptionId, int? queryId, NotificationType? notificationType, string? keyword, CancellationToken cancellationToken)
     {
-        return await _context.Subscriptions
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        
+        return await context.Subscriptions
             .WhereIf(subscriptionId.HasValue, x => x.Id == subscriptionId)
             .WhereIf(queryId.HasValue, x => x.QueryId == queryId)
             .WhereIf(!string.IsNullOrWhiteSpace(keyword), x => x.Recipients.Select(y => y.Name).Contains(keyword!))
@@ -152,14 +150,16 @@ internal class SubscriptionService : ISubscriptionService
 
     public async Task UpdateSubscription(SubscriptionData subscriptionData, CancellationToken cancellationToken)
     {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        
         CronExpression.Parse(subscriptionData.CronExpression);
 
-        var subscription = await _context.Subscriptions
+        var subscription = await context.Subscriptions
             .Include(subscription => subscription.Parameters)
             .Where(x => x.Id == subscriptionData.SubscriptionId)
             .SingleAsync(cancellationToken);
 
-        var queryParams = await _context.QueryParameters
+        var queryParams = await context.QueryParameters
             .Where(x => x.QueryId == subscription.QueryId)
             .Select(x =>
                 new QueryParameterData
@@ -171,7 +171,7 @@ internal class SubscriptionService : ISubscriptionService
                 })
             .ToListAsync(cancellationToken);
 
-        var recipients = await _context.Recipients
+        var recipients = await context.Recipients
             .Where(x => subscriptionData.Recipients.Select(y => y.RecipientId).Contains(x.Id))
             .ToListAsync(cancellationToken);
 
@@ -203,22 +203,24 @@ internal class SubscriptionService : ISubscriptionService
                 Value = subscriptionParameter.Value
             };
 
-            _context.SubscriptionParameters.Add(subscriptionParam);
+            context.SubscriptionParameters.Add(subscriptionParam);
         }
 
-        await _context.SaveChangesAsync(cancellationToken);
+        await context.SaveChangesAsync(cancellationToken);
 
-        var query = _context.Queries.Single(x => x.Id == subscription.QueryId);
+        var query = context.Queries.Single(x => x.Id == subscription.QueryId);
 
         if (shouldUpdateHangfire)
         {
-            _semanticoScheduler.AddOrUpdate(subscription.Id, $"{query.Name}: {subscription.Id}", subscription.CronExpression);
+            semanticoScheduler.AddOrUpdate(subscription.Id, $"{query.Name}: {subscription.Id}", subscription.CronExpression);
         }
     }
 
     public async Task<SubscriptionDetailsData> GetSubscriptionDetails(int subscriptionId, CancellationToken cancellationToken)
     {
-        var subscription = await _context.Subscriptions
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        
+        var subscription = await context.Subscriptions
             .IgnoreQueryFilters()
             .Where(x => x.Id == subscriptionId)
             .Select(x => new SubscriptionDetailsData
@@ -256,31 +258,35 @@ internal class SubscriptionService : ISubscriptionService
 
     public async Task RemoveRecipient(int subscriptionId, int recipientId, CancellationToken cancellationToken)
     {
-        var subscription = await _context.Subscriptions
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        
+        var subscription = await context.Subscriptions
             .Where(x => x.Id == subscriptionId)
             .Include(x => x.Recipients)
             .SingleAsync(cancellationToken);
 
         subscription.Recipients = subscription.Recipients.Where(x => x.Id != recipientId).ToList();
 
-        await _context.SaveChangesAsync(cancellationToken);
+        await context.SaveChangesAsync(cancellationToken);
     }
 
     public async Task AddRecipients(int subscriptionId, List<int> recipientIds, CancellationToken cancellationToken)
     {
-        var subscription = await _context.Subscriptions
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        
+        var subscription = await context.Subscriptions
             .Where(x => x.Id == subscriptionId)
             .Include(x => x.Recipients)
             .SingleAsync(cancellationToken);
 
         recipientIds = recipientIds.Except(subscription.Recipients.Select(x => x.Id)).ToList();
 
-        var recipients = await _context.Recipients
+        var recipients = await context.Recipients
             .Where(x => recipientIds.Contains(x.Id))
             .ToListAsync(cancellationToken);
 
         subscription.Recipients.AddRange(recipients);
 
-        await _context.SaveChangesAsync(cancellationToken);
+        await context.SaveChangesAsync(cancellationToken);
     }
 }

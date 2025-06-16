@@ -23,18 +23,20 @@ public static class ServiceConfiguration
         semanticoConfiguration(configurationOptions);
         configurationOptions.Validate();
 
-        services.AddDbContext<SemanticoContext>((options) =>
+        services.AddDbContextFactory<SemanticoContext>((options) =>
         {
             options.UseNpgsql(configuration.GetConnectionString(configurationOptions.ConnectionStringName),
                 builder => builder.MigrationsHistoryTable("__EFMigrationsHistory", "semantico"))
                 .UseSnakeCaseNamingConvention();
         });
+
+        services.AddHttpClient();
         
-        services.TryAddSingleton<IAdapter, TeamsAdapter>();
+        services.AddSingleton<IAdapter, TeamsAdapter>();
         if (configurationOptions.EmailAdapter != null)
         {
-            services.TryAddSingleton(typeof(IEmailAdapter), configurationOptions.EmailAdapter);
-            services.TryAddSingleton<IAdapter, EmailAdapter>();
+            services.AddSingleton(typeof(IEmailAdapter), configurationOptions.EmailAdapter);
+            services.AddSingleton<IAdapter, EmailAdapter>();
         }
         services.AddSingleton<IAdapter, JiraAdapter>();
         services.TryAddSingleton<AdapterFactory>();

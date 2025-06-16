@@ -19,17 +19,12 @@ public interface IProjectService
     Task<List<ProjectListData>> GetProjects(int? projectId, CancellationToken cancellationToken);
 }
 
-internal class ProjectService : IProjectService
+internal class ProjectService(IDbContextFactory<SemanticoContext> contextFactory) : IProjectService
 {
-    private readonly SemanticoContext _context;
-
-    public ProjectService(SemanticoContext context)
-    {
-        _context = context;
-    }
-
     public async Task<BaseResponse> CreateProject(ProjectData projectData, CancellationToken cancellationToken)
     {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        
         var project = new Project
         {
             Name = projectData.Name,
@@ -37,8 +32,8 @@ internal class ProjectService : IProjectService
             DatabaseEngineType = projectData.DatabaseEngineType
         };
 
-        _context.Projects.Add(project);
-        await _context.SaveChangesAsync(cancellationToken);
+        context.Projects.Add(project);
+        await context.SaveChangesAsync(cancellationToken);
 
         return new BaseResponse
         {
@@ -48,7 +43,9 @@ internal class ProjectService : IProjectService
 
     public async Task DeleteProject(int projectId, CancellationToken cancellationToken)
     {
-        var project = await _context.Projects
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        
+        var project = await context.Projects
             .Where(x => x.Id == projectId)
             .SingleAsync(cancellationToken);
 
@@ -58,12 +55,14 @@ internal class ProjectService : IProjectService
         }
 
         project.Archive();
-        await _context.SaveChangesAsync(cancellationToken);
+        await context.SaveChangesAsync(cancellationToken);
     }
 
     public async Task<List<ProjectListData>> GetProjects(int? projectId, CancellationToken cancellationToken)
     {
-        return await _context.Projects
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        
+        return await context.Projects
             .WhereIf(projectId.HasValue, x => x.Id == projectId)
             .Select(x => new ProjectListData
             {
@@ -93,7 +92,9 @@ internal class ProjectService : IProjectService
 
     public async Task UpdateProject(ProjectData projectData, CancellationToken cancellationToken)
     {
-        var project = await _context.Projects
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        
+        var project = await context.Projects
             .Where(x => x.Id == projectData.ProjectId)
             .SingleAsync(cancellationToken);
 
@@ -101,6 +102,6 @@ internal class ProjectService : IProjectService
         project.ConnectionString = projectData.ConnectionString;
         project.DatabaseEngineType = projectData.DatabaseEngineType;
 
-        await _context.SaveChangesAsync(cancellationToken);
+        await context.SaveChangesAsync(cancellationToken);
     }
 }

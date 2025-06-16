@@ -7,35 +7,30 @@ using Semantico.Core.Models.QueryExecutionHistory;
 
 namespace Semantico.Core.Services;
 
-internal class NotificationService : INotificationService
+internal class NotificationService(IDbContextFactory<SemanticoContext> contextFactory, AdapterFactory adapterFactory) : INotificationService
 {
-    private readonly SemanticoContext _context;
-    private readonly AdapterFactory _adapterFactory;
-
-    public NotificationService(SemanticoContext context, AdapterFactory adapterFactory)
-    {
-        _context = context;
-        _adapterFactory = adapterFactory;
-    }
-
     public async Task SendNotification(RecipientQueryResult recipientQueryResult, int? lastExecutedQueryResultCount)
     {
-        var adapter = _adapterFactory.GetAdapterService(recipientQueryResult.RecipientNotificationType);
+        var adapter = adapterFactory.GetAdapterService(recipientQueryResult.RecipientNotificationType);
         
         await adapter.SendNotificationAsync(recipientQueryResult, lastExecutedQueryResultCount);
     }
 
     public async Task<QueryExecutionHistoryListData> GetQueryExecutionHistory(GetQueryExecutionHistoryRequest request, CancellationToken cancellationToken)
     {
-        var queryExecutionHistory = await _context.QueryExecutionHistory
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        
+        var queryExecutionHistory = await context.QueryExecutionHistory
+            .Include(x => x.Recipients)
+            .Include(x => x.Subscription)
+            .ThenInclude(x => x.Query)
             .WhereIf(request.SubscriptionId.HasValue, x => x.SubscriptionId == request.SubscriptionId)
             .WhereIf(request.LastQueryExecutionHistoryId.HasValue, x => x.Id < request.LastQueryExecutionHistoryId)
             .WhereIf(request.NotificationStatus.HasValue, x => x.NotificationStatus == request.NotificationStatus)
-            .SelectMany(x => x.Subscription.Recipients
-                .Select(y => new QueryExecutionHistoryData {
+            .Select(x => new QueryExecutionHistoryData {
                     QueryExecutionHistoryId = x.Id,
-                    RecipientName = y.Name,
-                    NotificationType = y.NotificationType,
+                    Recipients = x.Recipients.Select(y => y.Name).ToList(),
+                    NotificationTypes = x.Recipients.Select(y => y.NotificationType).ToList(),
                     ResultCount = x.ResultCount,
                     CreatedTime = x.CreatedTime,
                     NotificationStatus = x.NotificationStatus,
@@ -43,7 +38,6 @@ internal class NotificationService : INotificationService
                     SubscriptionId = x.SubscriptionId,
                     ExecutionTimeMs = x.ExecutionTimeMs
                 })
-                .ToList())
             .ToPagedListAsync(request, cancellationToken);
 
         return new QueryExecutionHistoryListData
@@ -56,9 +50,11 @@ internal class NotificationService : INotificationService
 
     public async Task<NotificationStatisticsData> GetNotificationStatistics(CancellationToken cancellationToken)
     {
-        var cutoffDate = DateTime.UtcNow.AddDays(-60);
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        
+        var cutoffDate = DateTime.UtcNow.AddDays(-30);
 
-        var dates = await _context.QueryExecutionHistory
+        var dates = await context.QueryExecutionHistory
             .Where(x => x.CreatedTime >= cutoffDate)
             .GroupBy(x => x.CreatedTime.Date)
             .Select(x => new NotificationDateStatisticsData()
