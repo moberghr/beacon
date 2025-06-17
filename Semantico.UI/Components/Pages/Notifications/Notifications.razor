@@ -27,11 +27,6 @@
                     @($"[{context.Item.Notifications.Count}] {string.Join(", ", context.Item.Notifications.Select(x => x.RecipientName).ToList()).GetSubstring(50)}")
                 </CellTemplate>
             </TemplateColumn>
-            <TemplateColumn Title="Notification types">
-                <CellTemplate>
-                    @($"{string.Join(", ", context.Item.Notifications.Select(x => x.NotificationType).ToList())}")
-                </CellTemplate>
-            </TemplateColumn>
             <PropertyColumn Property="x => x.ResultCount"/>
             <TemplateColumn Title="Status">
                 <CellTemplate>

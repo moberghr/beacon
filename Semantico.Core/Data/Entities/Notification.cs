@@ -5,7 +5,7 @@ namespace Semantico.Core.Data.Entities;
 
 internal class Notification : BaseEntity
 {
-    public required int QueryExecutionHistoryId { get; set; }
+    public int QueryExecutionHistoryId { get; set; }
     
     public required int RecipientId { get; set; }
     

@@ -94,12 +94,12 @@ internal class JobService(IDbContextFactory<SemanticoContext> contextFactory, IQ
         {
             var notification = new Notification
             {
-                QueryExecutionHistoryId = executedQuery.Id,
                 RecipientId = recipient.RecipientId.Value,
                 Type = recipient.NotificationType,
                 SentAt = DateTime.UtcNow
             };
-            await context.Notifications.AddAsync(notification);
+            
+            executedQuery.Notifications.Add(notification);
         }
         
         await context.SaveChangesAsync();
