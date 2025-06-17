@@ -5,18 +5,13 @@ using Semantico.Core.Models.QueryExecutionHistory;
 
 namespace Semantico.Core.Services;
 
-internal class StatisticsService : IStatisticsService
+internal class StatisticsService(IDbContextFactory<SemanticoContext> contextFactory) : IStatisticsService
 {
-    private readonly SemanticoContext _context;
-
-    public StatisticsService(SemanticoContext context)
-    {
-        _context = context;
-    }
-
     public async Task<DashboardStatisticsData> GetDashboardStatistics(CancellationToken cancellationToken)
     {
-        var notifications = await _context.QueryExecutionHistory
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        
+        var notifications = await context.QueryExecutionHistory
             .GroupBy(x => 1)
             .Select(x => new NotificationDateStatisticsData()
             {
@@ -27,11 +22,11 @@ internal class StatisticsService : IStatisticsService
 
         return new DashboardStatisticsData
         {
-            TotalSubscriptions = await _context.Subscriptions.IgnoreQueryFilters().CountAsync(cancellationToken),
-            TotalQueries = await _context.Queries.CountAsync(cancellationToken),
+            TotalSubscriptions = await context.Subscriptions.IgnoreQueryFilters().CountAsync(cancellationToken),
+            TotalQueries = await context.Queries.CountAsync(cancellationToken),
             TotalQueriesExecuted = notifications?.TotalQueries ?? 0,
             TotalNotificationsSent = notifications?.NotificationsSent ?? 0,
-            ActiveSubscriptions = await _context.Subscriptions.CountAsync(cancellationToken)
+            ActiveSubscriptions = await context.Subscriptions.CountAsync(cancellationToken)
         };
     }
 }

@@ -92,8 +92,11 @@
                         <Columns>
                             <PropertyColumn InitialDirection="SortDirection.Descending" Property="x => x.CreatedTime" Title="Created"/>
                             <PropertyColumn Property="x => x.QueryExecutionHistoryId" Title="Id"/>
-                            <PropertyColumn Property="x => x.RecipientName"/>
-                            <PropertyColumn Property="x => x.NotificationType"/>
+                            <TemplateColumn Title="Recipients">
+                                <CellTemplate>
+                                    @($"[{context.Item.Notifications.Count}] {string.Join(", ", context.Item.Notifications.Select(x => x.RecipientName).ToList()).GetSubstring(50)}")
+                                </CellTemplate>
+                            </TemplateColumn>
                             <PropertyColumn Property="x => x.ResultCount"/>
                             <PropertyColumn Property="x => x.NotificationStatus"/>
                         </Columns>
@@ -124,7 +127,7 @@
 
     private bool _loading;
 
-    private QueryExecutionHistoryListData List { get; set; }
+    private QueryExecutionHistoryListData List { get; set; } = new();
 
     MudDataGrid<QueryExecutionHistoryData>? _notificationsDataGrid;
 

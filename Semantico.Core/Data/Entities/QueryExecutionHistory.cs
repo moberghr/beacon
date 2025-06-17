@@ -15,5 +15,7 @@ internal class QueryExecutionHistory : BaseEntity
     
     public required double ExecutionTimeMs { get; set; }
 
+    public List<Notification> Notifications { get; set; } = new();
+
     public Subscription Subscription { get; set; } = null!;
 }

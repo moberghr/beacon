@@ -15,6 +15,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Imports**: Organize by System namespaces first, then third-party, then project namespaces
 - **Types**: Prefer strong typing with explicit models for data transfer
 
+### Entity Design
+- Implement `IChangeableEntity` for modifiable entities
+- Inherit from `BaseArchivableEntity` for archivable entities
+- Use `null!` for required string properties
+- Place nullable types after non-nullable properties
+- Add appropriate indexes in context's OnModelCreating method for properties that will be queried frequently
+
+### Database Operations
+```bash
+# Generate migration
+dotnet ef migrations add MigrationName --project Semantico.Core --startup-project Semantico.SampleProject
+
+# Update database
+dotnet ef database update --project Semantico.Core --startup-project Semantico.SampleProject
+```
+
+### Handler Structure
+- Create `internal sealed class` implementing `IRequestHandler<TRequest, TResponse>`
+- Define request/response as records at file end (not with "// Request/Response at end of file" comment)
+- Use primary constructor injection for dependencies
+
 ## Project Structure
 - Semantico.Core: Core domain model, services, data access
 - Semantico.UI: Blazor UI components

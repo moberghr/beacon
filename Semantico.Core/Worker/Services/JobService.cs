@@ -8,36 +8,28 @@ using Semantico.Core.Services;
 
 namespace Semantico.Core.Worker.Services;
 
-internal class JobService : IJobService
+internal class JobService(IDbContextFactory<SemanticoContext> contextFactory, IQueryService queryService, INotificationService notificationService)
+    : IJobService
 {
-    private readonly SemanticoContext _context;
-    private readonly IQueryService _queryService;
-    private readonly INotificationService _notificationService;
-
-    public JobService(SemanticoContext context, IQueryService queryService, INotificationService notificationService)
-    {
-        _context = context;
-        _queryService = queryService;
-        _notificationService = notificationService;
-    }
-
     public async Task ExecuteQuery(int subscriptionId)
     {
-        var queryResult = await _queryService.ExecuteQuery(subscriptionId, CancellationToken.None);
-        
-        var subscription = await _context.Subscriptions
+        await using var context = await contextFactory.CreateDbContextAsync();
+
+        var subscription = await context.Subscriptions
             .Where(x => x.Id == subscriptionId)
             .FirstOrDefaultAsync();
-            
+
         if (subscription == null)
         {
             return;
         }
-        
+
+        var queryResult = await queryService.ExecuteQuery(subscriptionId, CancellationToken.None);
+
         // Set subscription specific parameters
         queryResult.ShowQuery = subscription.ShowQuery;
         queryResult.MaxRows = subscription.MaxRows;
-        
+
         // Apply max rows limit if specified
         if (subscription.MaxRows.HasValue && subscription.MaxRows > 0)
         {
@@ -45,15 +37,15 @@ internal class JobService : IJobService
             queryResult.TopRecords = queryResult.TopRecords.Take(subscription.MaxRows.Value).ToList();
         }
 
-        var lastExecutedQuery = _context.QueryExecutionHistory
-                .Where(x => x.SubscriptionId == subscriptionId)
-                .OrderByDescending(x => x.CreatedTime)
-                .Select(x =>
-                    new
-                    {
-                        x.ResultCount
-                    })
-                .FirstOrDefault();
+        var lastExecutedQuery = context.QueryExecutionHistory
+            .Where(x => x.SubscriptionId == subscriptionId)
+            .OrderByDescending(x => x.CreatedTime)
+            .Select(x =>
+                new
+                {
+                    x.ResultCount
+                })
+            .FirstOrDefault();
 
         NotificationStatus status;
 
@@ -88,14 +80,29 @@ internal class JobService : IJobService
             ExecutionTimeMs = queryResult.ExecutionTimeMs
         };
 
-        await _context.QueryExecutionHistory.AddAsync(executedQuery);
-        await _context.SaveChangesAsync();
+        await context.QueryExecutionHistory.AddAsync(executedQuery);
 
         // Only send notification if the status is NotificationSent
         if (executedQuery.NotificationStatus != NotificationStatus.NotificationSent)
         {
+            await context.SaveChangesAsync();
             return;
         }
+
+        // Create Notification records for each recipient that was notified
+        foreach (var recipient in queryResult.Recipients)
+        {
+            var notification = new Notification
+            {
+                RecipientId = recipient.RecipientId.Value,
+                Type = recipient.NotificationType,
+                SentAt = DateTime.UtcNow
+            };
+            
+            executedQuery.Notifications.Add(notification);
+        }
+        
+        await context.SaveChangesAsync();
 
         var recipientsQueryResults = new List<RecipientQueryResult>();
         var resultFiles = new Dictionary<FileType, QueryResultFile>();
@@ -113,6 +120,8 @@ internal class JobService : IJobService
                 resultFiles.Add(fileType, await ExportProvider.GetReport(fileType, queryResult.AllRecords));
             }
         }
+        
+        // TODO: refactor this to use sending Notifications table
 
         foreach (var recipient in queryResult.Recipients)
         {
@@ -121,15 +130,15 @@ internal class JobService : IJobService
                 RecipientDestination = recipient.Destination,
                 RecipientNotificationType = recipient.NotificationType,
                 QueryResult = queryResult,
-                QueryResultFile = subscription.IncludeAttachment && recipient.ResultAttachmentType.HasValue 
-                    ? resultFiles.GetValueOrDefault(recipient.ResultAttachmentType.Value) 
+                QueryResultFile = subscription.IncludeAttachment && recipient.ResultAttachmentType.HasValue
+                    ? resultFiles.GetValueOrDefault(recipient.ResultAttachmentType.Value)
                     : null
             });
         }
 
         foreach (var recipientQueryResult in recipientsQueryResults)
         {
-            await _notificationService.SendNotification(recipientQueryResult, lastExecutedQuery?.ResultCount);
+            await notificationService.SendNotification(recipientQueryResult, lastExecutedQuery?.ResultCount);
         }
     }
 }

@@ -4,20 +4,13 @@ using System.Text;
 
 namespace Semantico.Core.Adapters.Teams;
 
-internal class TeamsAdapter : IAdapter
+internal class TeamsAdapter(IHttpClientFactory httpClientFactory) : IAdapter
 {
-    private readonly IHttpClientFactory _httpClientFactory;
-
     public NotificationType NotificationType => NotificationType.Teams;
 
-    public TeamsAdapter(IHttpClientFactory httpClientFactory)
+    public async Task SendNotificationAsync(RecipientQueryResult recipientQueryResult, int? lastNotificationResultCount)
     {
-        _httpClientFactory = httpClientFactory;
-    }
-
-    public async Task SendNotificationAsync(RecipientQueryResult recipientQueryResult)
-    {
-        var client = _httpClientFactory.CreateClient();
+        var client = httpClientFactory.CreateClient();
 
         var card = new MessageCard
         {
@@ -44,11 +37,6 @@ internal class TeamsAdapter : IAdapter
         await client.PostAsync(recipientQueryResult.RecipientDestination, content);
     }
 
-    public Task SendNotificationAsync(RecipientQueryResult recipientQueryResult, int lastNotificationResultCount)
-    {
-        throw new NotSupportedException();
-    }
-    
     private string GenerateTableFromQueryResults(IEnumerable<object> queryResults)
     {
         var sb = new StringBuilder();

@@ -75,21 +75,16 @@ public class GetQueriesRequest : SortedListRequest
     public int? ProjectId { get; set; }
 }
 
-internal class QueryService : IQueryService
+internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory) : IQueryService
 {
-    private readonly SemanticoContext _context;
-
-    public QueryService(SemanticoContext context)
-    {
-        _context = context;
-    }
-
     public async Task<BaseResponse> CreateQuery(QueryData queryData, CancellationToken cancellationToken)
     {
         QueryValidator.CheckForFlaggedWords(queryData.SqlValue);
 
         QueryValidator.CheckForParameters(queryData.SqlValue, queryData.Parameters);
 
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        
         var query = new Query
         {
             SqlValue = queryData.SqlValue,
@@ -98,7 +93,7 @@ internal class QueryService : IQueryService
             Description = queryData.Description
         };
 
-        _context.Queries.Add(query);
+        context.Queries.Add(query);
 
         foreach (var queryParameter in queryData.Parameters)
         {
@@ -111,10 +106,10 @@ internal class QueryService : IQueryService
                 Placeholder = queryParameter.Placeholder,
             };
 
-            _context.QueryParameters.Add(parameter);
+            context.QueryParameters.Add(parameter);
         }
 
-        await _context.SaveChangesAsync(cancellationToken);
+        await context.SaveChangesAsync(cancellationToken);
 
         return new BaseResponse
         {
@@ -125,7 +120,9 @@ internal class QueryService : IQueryService
 
     public async Task DeleteQuery(int queryId, CancellationToken cancellationToken)
     {
-        var query = await _context.Queries
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        
+        var query = await context.Queries
             .Include(x => x.Parameters)
             .Where(x => x.Id == queryId)
             .SingleAsync(cancellationToken);
@@ -142,12 +139,14 @@ internal class QueryService : IQueryService
             param.Archive();
         }
 
-        await _context.SaveChangesAsync(cancellationToken);
+        await context.SaveChangesAsync(cancellationToken);
     }
 
     public async Task<PagedList<QueryData>> GetQueries(GetQueriesRequest request, CancellationToken cancellationToken)
     {
-        return await _context.Queries
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        
+        return await context.Queries
             .WhereIf(request.QueryId.HasValue, x => x.Id == request.QueryId)
             .WhereIf(request.ProjectId.HasValue, x => x.ProjectId == request.ProjectId)
             .Select(x =>
@@ -173,9 +172,11 @@ internal class QueryService : IQueryService
             .ToPagedListAsync(request, cancellationToken);
     }
 
-    public Task<QueryDetailsData> GetQueryDetails(int queryId, CancellationToken cancellationToken)
+    public async Task<QueryDetailsData> GetQueryDetails(int queryId, CancellationToken cancellationToken)
     {
-        return _context.Queries
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        
+        return await context.Queries
             .AsSplitQuery()
             .Where(x => x.Id == queryId)
             .Select(x =>
@@ -211,7 +212,9 @@ internal class QueryService : IQueryService
 
     public async Task<QueryResult> ExecuteQuery(int subscriptionId, CancellationToken cancellationToken)
     {
-        var subscription = await _context.Subscriptions
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        
+        var subscription = await context.Subscriptions
             .AsSplitQuery()
             .Where(x => x.Id == subscriptionId)
             .Select(x =>
@@ -229,6 +232,7 @@ internal class QueryService : IQueryService
                     }).ToList(),
                     x.QueryId,
                     x.CronExpression,
+                    x.MaxRows,
                     x.TimeoutSeconds,
                     x.Query.SqlValue,
                     x.Query.Name,
@@ -257,8 +261,8 @@ internal class QueryService : IQueryService
             sql,
             subscription.TimeoutSeconds);
 
-        // We will only send the top 10 rows in a notification.
-        var messageRows = results.Take(10).ToList();
+        // We will only send the top 20 rows in a notification.
+        var messageRows = results.Take(20).ToList();
 
         var queryResult = new QueryResult
         {
@@ -279,7 +283,9 @@ internal class QueryService : IQueryService
 
     public async Task<BaseResponse> UpdateQuery(QueryData queryData, CancellationToken cancellationToken)
     {
-        var query = await _context.Queries
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        
+        var query = await context.Queries
             .Include(query => query.Parameters)
             .Where(x => x.Id == queryData.QueryId)
             .SingleAsync(cancellationToken);
@@ -305,10 +311,10 @@ internal class QueryService : IQueryService
                 Description = queryParameter.Description,
             };
 
-            _context.QueryParameters.Add(queryParam);
+            context.QueryParameters.Add(queryParam);
         }
 
-        await _context.SaveChangesAsync(cancellationToken);
+        await context.SaveChangesAsync(cancellationToken);
 
         return new BaseResponse
         {

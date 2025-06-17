@@ -23,13 +23,15 @@ public static class ServiceConfiguration
         semanticoConfiguration(configurationOptions);
         configurationOptions.Validate();
 
-        services.AddDbContext<SemanticoContext>((options) =>
+        services.AddDbContextFactory<SemanticoContext>((options) =>
         {
             options.UseNpgsql(configuration.GetConnectionString(configurationOptions.ConnectionStringName),
                 builder => builder.MigrationsHistoryTable("__EFMigrationsHistory", "semantico"))
                 .UseSnakeCaseNamingConvention();
         });
 
+        services.AddHttpClient();
+        
         services.AddSingleton<IAdapter, TeamsAdapter>();
         if (configurationOptions.EmailAdapter != null)
         {

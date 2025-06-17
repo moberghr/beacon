@@ -36,6 +36,7 @@ public static class Helpers
             <h2>Query Execution Results</h2>
             {querySection}
             <p>Query executed successfully with total records of: {queryResult.TotalRecords}</p>
+            <p>First {queryResult.TopRecords.Count} records:</p>
             <table>
                 <thead>
                     <tr>

@@ -6,21 +6,18 @@ namespace Semantico.Core.Adapters.Jira;
 internal class JiraAdapter : IAdapter
 {
     public NotificationType NotificationType => NotificationType.Jira;
-
-    public async Task SendNotificationAsync(RecipientQueryResult recipientQueryResult)
+    
+    public async Task SendNotificationAsync(RecipientQueryResult recipientQueryResult, int? lastNotificationResultCount)
     {
         var credentials = new JiraCredentials(recipientQueryResult.RecipientDestination);
 
         var jiraClient = Atlassian.Jira.Jira.CreateRestClient(credentials.DomainUrl, credentials.Email, credentials.ApiKey);
 
-        await CreateIssueAndCommentAsync(credentials, jiraClient, recipientQueryResult);
-    }
-
-    public async Task SendNotificationAsync(RecipientQueryResult recipientQueryResult, int lastNotificationResultCount)
-    {
-        var credentials = new JiraCredentials(recipientQueryResult.RecipientDestination);
-
-        var jiraClient = Atlassian.Jira.Jira.CreateRestClient(credentials.DomainUrl, credentials.Email, credentials.ApiKey);
+        if (lastNotificationResultCount == null)
+        {
+            await CreateIssueAndCommentAsync(credentials, jiraClient, recipientQueryResult);
+            return;
+        }
 
         var jqlQuery = $"text ~ \"{recipientQueryResult.QueryResult.SubscriptionName}\" AND reporter = \"{credentials.Email}\" order by created DESC";
         var issues = (await jiraClient.Issues.GetIssuesFromJqlAsync(jqlQuery)).ToList();

@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Semantico.Core.Data;
@@ -11,14 +12,16 @@ using Semantico.Core.Data;
 namespace Semantico.Core.Data.Migrations
 {
     [DbContext(typeof(SemanticoContext))]
-    partial class SemanticoContextModelSnapshot : ModelSnapshot
+    [Migration("20250616064025_AddExecutionWindowToSubscriptions")]
+    partial class AddExecutionWindowToSubscriptions
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
                 .HasDefaultSchema("semantico")
-                .HasAnnotation("ProductVersion", "9.0.6")
+                .HasAnnotation("ProductVersion", "9.0.5")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -40,47 +43,6 @@ namespace Semantico.Core.Data.Migrations
                         .HasDatabaseName("ix_recipient_subscription_subscriptions_id");
 
                     b.ToTable("recipient_subscription", "semantico");
-                });
-
-            modelBuilder.Entity("Semantico.Core.Data.Entities.Notification", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime>("CreatedTime")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_time");
-
-                    b.Property<int>("QueryExecutionHistoryId")
-                        .HasColumnType("integer")
-                        .HasColumnName("query_execution_history_id");
-
-                    b.Property<int>("RecipientId")
-                        .HasColumnType("integer")
-                        .HasColumnName("recipient_id");
-
-                    b.Property<DateTime>("SentAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("sent_at");
-
-                    b.Property<int>("Type")
-                        .HasColumnType("integer")
-                        .HasColumnName("type");
-
-                    b.HasKey("Id")
-                        .HasName("pk_notifications");
-
-                    b.HasIndex("QueryExecutionHistoryId")
-                        .HasDatabaseName("ix_notifications_query_execution_history_id");
-
-                    b.HasIndex("RecipientId")
-                        .HasDatabaseName("ix_notifications_recipient_id");
-
-                    b.ToTable("notifications", "semantico");
                 });
 
             modelBuilder.Entity("Semantico.Core.Data.Entities.Project", b =>
@@ -323,6 +285,14 @@ namespace Semantico.Core.Data.Migrations
                         .HasColumnType("text")
                         .HasColumnName("cron_expression");
 
+                    b.Property<int?>("ExecutionWindowEndHour")
+                        .HasColumnType("integer")
+                        .HasColumnName("execution_window_end_hour");
+
+                    b.Property<int?>("ExecutionWindowStartHour")
+                        .HasColumnType("integer")
+                        .HasColumnName("execution_window_start_hour");
+
                     b.Property<bool>("IncludeAttachment")
                         .HasColumnType("boolean")
                         .HasColumnName("include_attachment");
@@ -409,27 +379,6 @@ namespace Semantico.Core.Data.Migrations
                         .HasConstraintName("fk_recipient_subscription_subscriptions_subscriptions_id");
                 });
 
-            modelBuilder.Entity("Semantico.Core.Data.Entities.Notification", b =>
-                {
-                    b.HasOne("Semantico.Core.Data.Entities.QueryExecutionHistory", "QueryExecutionHistory")
-                        .WithMany("Notifications")
-                        .HasForeignKey("QueryExecutionHistoryId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_notifications_query_execution_history_query_execution_histo");
-
-                    b.HasOne("Semantico.Core.Data.Entities.Recipient", "Recipient")
-                        .WithMany("Notifications")
-                        .HasForeignKey("RecipientId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_notifications_recipients_recipient_id");
-
-                    b.Navigation("QueryExecutionHistory");
-
-                    b.Navigation("Recipient");
-                });
-
             modelBuilder.Entity("Semantico.Core.Data.Entities.Query", b =>
                 {
                     b.HasOne("Semantico.Core.Data.Entities.Project", "Project")
@@ -500,16 +449,6 @@ namespace Semantico.Core.Data.Migrations
                     b.Navigation("Parameters");
 
                     b.Navigation("Subscriptions");
-                });
-
-            modelBuilder.Entity("Semantico.Core.Data.Entities.QueryExecutionHistory", b =>
-                {
-                    b.Navigation("Notifications");
-                });
-
-            modelBuilder.Entity("Semantico.Core.Data.Entities.Recipient", b =>
-                {
-                    b.Navigation("Notifications");
                 });
 
             modelBuilder.Entity("Semantico.Core.Data.Entities.Subscription", b =>

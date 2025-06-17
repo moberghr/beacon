@@ -1,4 +1,3 @@
-using ApexCharts;
 using Blazored.LocalStorage;
 using MudBlazor.Services;
 using Semantico.Core;
@@ -17,7 +16,6 @@ public static class Helpers
         services.AddMudServices();
         services.AddSingleton<PageHistoryState>();
         services.AddBlazoredLocalStorage();
-        services.AddApexCharts();
 
         return services;
     }

@@ -6,9 +6,7 @@ public class QueryExecutionHistoryData
 {
     public required int QueryExecutionHistoryId { get; set; }
 
-    public required string RecipientName { get; set; }
-
-    public required NotificationType NotificationType { get; set; }
+    public required List<NotificationData> Notifications { get; set; }
 
     public required int ResultCount { get; set; }
 

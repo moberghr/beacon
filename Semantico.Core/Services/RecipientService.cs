@@ -18,17 +18,12 @@ public interface IRecipientService
     Task<List<RecipientData>> GetRecipients(int? recipientId, string? searchQuery, CancellationToken cancellationToken);
 }
 
-internal class RecipientService : IRecipientService
+internal class RecipientService(IDbContextFactory<SemanticoContext> contextFactory) : IRecipientService
 {
-    private readonly SemanticoContext _context;
-
-    public RecipientService(SemanticoContext context)
-    {
-        _context = context;
-    }
-
     public async Task<BaseResponse> CreateRecipient(RecipientData recipientData, CancellationToken cancellationToken)
     {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        
         var recipient = new Recipient
         {
             Name = recipientData.Name,
@@ -38,8 +33,8 @@ internal class RecipientService : IRecipientService
             ResultAttachmentType = recipientData.ResultAttachmentType
         };
 
-        _context.Recipients.Add(recipient);
-        await _context.SaveChangesAsync(cancellationToken);
+        context.Recipients.Add(recipient);
+        await context.SaveChangesAsync(cancellationToken);
 
         return new BaseResponse
         {
@@ -49,7 +44,9 @@ internal class RecipientService : IRecipientService
 
     public async Task DeleteRecipient(int recipientId, CancellationToken cancellationToken)
     {
-        var recipient = await _context.Recipients
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        
+        var recipient = await context.Recipients
             .Where(x => x.Id == recipientId)
             .SingleAsync(cancellationToken);
 
@@ -59,12 +56,14 @@ internal class RecipientService : IRecipientService
         }
 
         recipient.Archive();
-        await _context.SaveChangesAsync(cancellationToken);
+        await context.SaveChangesAsync(cancellationToken);
     }
 
     public async Task<List<RecipientData>> GetRecipients(int? recipientId, string? searchQuery, CancellationToken cancellationToken)
     {
-        return await _context.Recipients
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        
+        return await context.Recipients
             .WhereIf(recipientId.HasValue, x => x.Id == recipientId)
             .WhereIf(!string.IsNullOrWhiteSpace(searchQuery),
                 x => (x.Name + x.Description + x.NotificationType + x.Destination)
@@ -83,7 +82,9 @@ internal class RecipientService : IRecipientService
 
     public async Task<BaseResponse> UpdateRecipient(RecipientData recipientData, CancellationToken cancellationToken)
     {
-        var recipient = await _context.Recipients
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        
+        var recipient = await context.Recipients
             .Where(x => x.Id == recipientData.RecipientId)
             .SingleAsync(cancellationToken);
 
@@ -93,7 +94,7 @@ internal class RecipientService : IRecipientService
         recipient.Description = recipientData.Description;
         recipient.ResultAttachmentType = recipientData.ResultAttachmentType;
 
-        await _context.SaveChangesAsync(cancellationToken);
+        await context.SaveChangesAsync(cancellationToken);
 
         return new BaseResponse
         {
