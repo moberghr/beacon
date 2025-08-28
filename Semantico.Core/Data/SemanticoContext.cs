@@ -20,6 +20,10 @@ internal class SemanticoContext : DbContext
     public DbSet<Query> Queries => Set<Query>();
 
     public DbSet<QueryParameter> QueryParameters => Set<QueryParameter>();
+    
+    public DbSet<QueryStep> QuerySteps => Set<QueryStep>();
+    
+    public DbSet<QueryStepParameter> QueryStepParameters => Set<QueryStepParameter>();
 
     public DbSet<Project> Projects => Set<Project>();
 

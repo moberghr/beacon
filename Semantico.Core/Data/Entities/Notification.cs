@@ -13,6 +13,8 @@ internal class Notification : BaseEntity
     
     public required DateTime SentAt { get; set; }
     
+    public string? Results { get; set; }
+    
     public QueryExecutionHistory QueryExecutionHistory { get; set; } = null!;
     
     public Recipient Recipient { get; set; } = null!;

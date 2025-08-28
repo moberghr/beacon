@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Semantico.Core.Data;
@@ -11,9 +12,11 @@ using Semantico.Core.Data;
 namespace Semantico.Core.Data.Migrations
 {
     [DbContext(typeof(SemanticoContext))]
-    partial class SemanticoContextModelSnapshot : ModelSnapshot
+    [Migration("20250822084617_AddFinalQueryToQuery")]
+    partial class AddFinalQueryToQuery
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -62,10 +65,6 @@ namespace Semantico.Core.Data.Migrations
                     b.Property<int>("RecipientId")
                         .HasColumnType("integer")
                         .HasColumnName("recipient_id");
-
-                    b.Property<string>("Results")
-                        .HasColumnType("text")
-                        .HasColumnName("results");
 
                     b.Property<DateTime>("SentAt")
                         .HasColumnType("timestamp with time zone")
@@ -148,6 +147,10 @@ namespace Semantico.Core.Data.Migrations
                     b.Property<string>("FinalQuery")
                         .HasColumnType("text")
                         .HasColumnName("final_query");
+
+                    b.Property<int?>("FinalQueryProjectId")
+                        .HasColumnType("integer")
+                        .HasColumnName("final_query_project_id");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -427,10 +430,6 @@ namespace Semantico.Core.Data.Migrations
                     b.Property<bool>("ShowQuery")
                         .HasColumnType("boolean")
                         .HasColumnName("show_query");
-
-                    b.Property<bool>("StoreResults")
-                        .HasColumnType("boolean")
-                        .HasColumnName("store_results");
 
                     b.Property<int?>("TimeoutSeconds")
                         .HasColumnType("integer")

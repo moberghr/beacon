@@ -28,6 +28,7 @@ internal class NotificationService(IDbContextFactory<SemanticoContext> contextFa
                     QueryExecutionHistoryId = x.Id,
                     Notifications = x.Notifications.Select(y => new NotificationData
                     {
+                        Id = y.Id,
                         Created = y.CreatedTime,
                         NotificationType = y.Type,
                         RecipientName = y.Recipient.Name,
@@ -73,6 +74,30 @@ internal class NotificationService(IDbContextFactory<SemanticoContext> contextFa
             NotificationDateStatistics = dates
         };
     }
+
+    public async Task<NotificationDetailsData?> GetNotificationDetails(int notificationId, CancellationToken cancellationToken)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        return await context.Notifications
+            .Where(x => x.Id == notificationId)
+            .Select(x => new NotificationDetailsData
+            {
+                Id = x.Id,
+                CreatedTime = x.CreatedTime,
+                SentAt = x.SentAt,
+                Type = x.Type,
+                Results = x.Results,
+                RecipientName = x.Recipient.Name,
+                QueryName = x.QueryExecutionHistory.Subscription.Query.Name,
+                QueryId = x.QueryExecutionHistory.Subscription.QueryId,
+                SubscriptionId = x.QueryExecutionHistory.SubscriptionId,
+                ExecutionTimeMs = x.QueryExecutionHistory.ExecutionTimeMs,
+                ResultCount = x.QueryExecutionHistory.ResultCount,
+                NotificationStatus = x.QueryExecutionHistory.NotificationStatus
+            })
+            .FirstOrDefaultAsync(cancellationToken);
+    }
 }
 
 public interface INotificationService
@@ -82,6 +107,8 @@ public interface INotificationService
     Task<QueryExecutionHistoryListData> GetQueryExecutionHistory(GetQueryExecutionHistoryRequest request, CancellationToken cancellationToken);
 
     Task<NotificationStatisticsData> GetNotificationStatistics(CancellationToken cancellationToken);
+
+    Task<NotificationDetailsData?> GetNotificationDetails(int notificationId, CancellationToken cancellationToken);
 }
 
 public class GetQueryExecutionHistoryRequest : SortedListRequest

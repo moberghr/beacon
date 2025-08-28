@@ -1,20 +1,34 @@
 ﻿using Semantico.Core.Data.Entities.Base;
+using Semantico.Core.Data.Enums;
 
 namespace Semantico.Core.Data.Entities;
 
 internal class Query : ArchivableBaseEntity
 {
-    public required string SqlValue { get; set; }
-
-    public required int ProjectId { get; set; }
-
-    public string Name { get; set; }
+    public string Name { get; set; } = null!;
 
     public string? Description { get; set; }
 
-    public Project Project { get; set; } = null!;
+    /// <summary>
+    /// Final query to execute against the in-memory SQLite database with all step results loaded
+    /// Uses @result1, @result2, etc. to reference previous step results
+    /// </summary>
+    public string? FinalQuery { get; set; }
 
     public List<Subscription> Subscriptions { get; set; } = new();
 
-    public List<QueryParameter> Parameters { get; set; } = new();
+    public List<QueryStep> Steps { get; set; } = new();
+
+    /// <summary>
+    /// Computed properties for backward compatibility and query analysis
+    /// </summary>
+    public bool IsMultiStep => Steps.Count > 1;
+    
+    public bool IsCrossProject => Steps.Select(s => s.ProjectId).Distinct().Count() > 1;
+    
+    public bool IsCrossDatabase => Steps.Select(s => s.Project.DatabaseEngineType).Distinct().Count() > 1;
+    
+    public List<int> ProjectIds => Steps.Select(s => s.ProjectId).Distinct().ToList();
+    
+    public List<DatabaseEngineType> DatabaseEngines => Steps.Select(s => s.Project.DatabaseEngineType).Distinct().ToList();
 }

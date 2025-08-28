@@ -48,6 +48,12 @@
                 Label="Show Query in Notification"
                 Color="Color.Primary"
                 Class="mb-2" />
+            
+            <MudCheckBox @bind-Value="Subscription.StoreResults"
+                Label="Store Results in Notification"
+                Color="Color.Primary"
+                HelperText="Store query results in the notification record for later viewing"
+                Class="mb-2" />
                 
             <MudSelect T="string" Label="Recipient" MultiSelection="true" @bind-SelectedValues="_selectedRecipientIds" Required="true" Variant="Variant.Outlined" Margin="Margin.Dense">
                 @{

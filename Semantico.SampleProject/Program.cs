@@ -26,7 +26,7 @@ builder.Services.AddHangfire((provider, hangfireConfiguration) => hangfireConfig
         }));
 
 
-builder.Services.AddHangfireServer();
+//builder.Services.AddHangfireServer();
 
 //SEMANTICO setup
 builder.Services.AddSemanticoAdmin(builder.Configuration, options =>

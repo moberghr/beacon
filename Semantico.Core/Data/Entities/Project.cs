@@ -11,5 +11,5 @@ internal class Project : ArchivableBaseEntity
 
     public required DatabaseEngineType DatabaseEngineType { get; set; }
 
-    public List<Query> Queries { get; set; } = new();
+    public List<QueryStep> QuerySteps { get; set; } = new();
 }

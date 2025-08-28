@@ -24,7 +24,20 @@
             </TemplateColumn>
             <TemplateColumn Title="Recipients">
                 <CellTemplate>
-                    @($"[{context.Item.Notifications.Count}] {string.Join(", ", context.Item.Notifications.Select(x => x.RecipientName).ToList()).GetSubstring(50)}")
+                    <MudStack Spacing="1">
+                        @foreach (var notification in context.Item.Notifications.Take(3))
+                        {
+                            <MudLink Href="@($"/semantico/notifications/details/{notification.Id}")">
+                                @notification.RecipientName
+                            </MudLink>
+                        }
+                        @if (context.Item.Notifications.Count > 3)
+                        {
+                            <MudText Typo="Typo.caption">
+                                and @(context.Item.Notifications.Count - 3) more...
+                            </MudText>
+                        }
+                    </MudStack>
                 </CellTemplate>
             </TemplateColumn>
             <PropertyColumn Property="x => x.ResultCount"/>

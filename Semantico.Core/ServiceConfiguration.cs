@@ -46,6 +46,7 @@ public static class ServiceConfiguration
         services.TryAddTransient<INotificationService, NotificationService>();
         services.TryAddTransient<IProjectService, ProjectService>();
         services.TryAddTransient<IQueryService, QueryService>();
+        services.TryAddTransient<IQueryExecutionPreviewService, QueryExecutionPreviewService>();
         services.TryAddTransient<ISubscriptionService, SubscriptionService>();
         services.TryAddTransient<IRecipientService, RecipientService>();
         services.TryAddTransient<IStatisticsService, StatisticsService>();

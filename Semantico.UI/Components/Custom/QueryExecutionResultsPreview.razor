@@ -1,0 +1,305 @@
+@using Semantico.Core.Models.Queries
+@using Semantico.Core.Adapters
+
+<MudCard Class="mt-4" Style="position: relative; bottom: 0; background-color: #fafafa;">
+    <MudCardHeader>
+        <CardHeaderContent>
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                <MudIcon Icon="@Icons.Material.Filled.PlayCircleOutline" />
+                <MudText Typo="Typo.h6">Query Execution Results</MudText>
+                @if (ExecutionResult?.Success == true)
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Success">
+                        <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Small" />
+                        Success
+                    </MudChip>
+                }
+                else
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Error">
+                        <MudIcon Icon="@Icons.Material.Filled.Error" Size="Size.Small" />
+                        Failed
+                    </MudChip>
+                }
+                @if (ExecutionResult?.TotalExecutionTimeMs > 0)
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Secondary">
+                        Total: @($"{ExecutionResult.TotalExecutionTimeMs:F0}ms")
+                    </MudChip>
+                }
+            </MudStack>
+        </CardHeaderContent>
+        <CardHeaderActions>
+            <MudIconButton Icon="@Icons.Material.Filled.Close" 
+                           Color="Color.Default" 
+                           Size="Size.Small"
+                           OnClick="OnClose" />
+        </CardHeaderActions>
+    </MudCardHeader>
+    <MudCardContent>
+        @if (ExecutionResult == null)
+        {
+            <MudAlert Severity="Severity.Info">No execution result available.</MudAlert>
+        }
+        else if (!ExecutionResult.Success)
+        {
+            <MudAlert Severity="Severity.Error" Icon="@Icons.Material.Filled.Error">
+                <strong>Execution Failed:</strong> @ExecutionResult.ErrorMessage
+            </MudAlert>
+        }
+        else
+        {
+            @* Execution Summary *@
+            <MudExpansionPanels Class="mb-4" Elevation="2">
+                <MudExpansionPanel TitleContent="@summaryTitle" MaxHeight="200">
+                    <MudGrid>
+                        <MudItem xs="12" sm="6" md="3">
+                            <MudStack Spacing="1">
+                                <MudText Typo="Typo.caption" Color="Color.Tertiary">EXECUTION TYPE</MudText>
+                                <MudStack Row="true" Spacing="1">
+                                    @if (ExecutionResult.IsMultiStep)
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Info">Multi-Step</MudChip>
+                                    }
+                                    @if (ExecutionResult.IsCrossProject)
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Warning">Cross-Project</MudChip>
+                                    }
+                                    @if (ExecutionResult.IsCrossDatabase)
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Error">Cross-Database</MudChip>
+                                    }
+                                </MudStack>
+                            </MudStack>
+                        </MudItem>
+                        <MudItem xs="12" sm="6" md="3">
+                            <MudStack Spacing="1">
+                                <MudText Typo="Typo.caption" Color="Color.Tertiary">PROJECTS INVOLVED</MudText>
+                                <MudText Typo="Typo.body2">@string.Join(", ", ExecutionResult.ProjectsInvolved)</MudText>
+                            </MudStack>
+                        </MudItem>
+                        <MudItem xs="12" sm="6" md="3">
+                            <MudStack Spacing="1">
+                                <MudText Typo="Typo.caption" Color="Color.Tertiary">DATABASE ENGINES</MudText>
+                                <MudText Typo="Typo.body2">@string.Join(", ", ExecutionResult.DatabaseEnginesUsed.Distinct())</MudText>
+                            </MudStack>
+                        </MudItem>
+                        <MudItem xs="12" sm="6" md="3">
+                            <MudStack Spacing="1">
+                                <MudText Typo="Typo.caption" Color="Color.Tertiary">TOTAL TIME</MudText>
+                                <MudText Typo="Typo.body2">@($"{ExecutionResult.TotalExecutionTimeMs:F0}ms")</MudText>
+                            </MudStack>
+                        </MudItem>
+                    </MudGrid>
+                </MudExpansionPanel>
+            </MudExpansionPanels>
+
+            @* Step Results *@
+            @if (ExecutionResult.StepResults?.Any() == true)
+            {
+                <MudText Typo="Typo.h6" Class="mb-3">
+                    <MudIcon Icon="@Icons.Material.Filled.AccountTree" Class="mr-2" />
+                    Step Results (@ExecutionResult.StepResults.Count steps)
+                </MudText>
+                
+                <MudTimeline TimelineOrientation="TimelineOrientation.Vertical" TimelinePosition="TimelinePosition.Start">
+                    @foreach (var stepResult in ExecutionResult.StepResults.OrderBy(s => s.StepOrder))
+                    {
+                        <MudTimelineItem>
+                            <ItemOpposite>
+                                <MudText Color="Color.Primary" Typo="Typo.subtitle2">
+                                    Step @stepResult.StepOrder
+                                </MudText>
+                                <MudText Typo="Typo.caption">
+                                    @stepResult.ProjectName
+                                </MudText>
+                                <MudChip T="string" Size="Size.Small" Color="Color.Secondary">
+                                    @stepResult.DatabaseEngine
+                                </MudChip>
+                                <MudChip T="string" Size="Size.Small" Color="@(stepResult.Success ? Color.Success : Color.Error)">
+                                    @if (stepResult.Success)
+                                    {
+                                        <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Small" />
+                                        <span>@stepResult.TotalRows rows</span>
+                                    }
+                                    else
+                                    {
+                                        <MudIcon Icon="@Icons.Material.Filled.Error" Size="Size.Small" />
+                                        <span>Failed</span>
+                                    }
+                                </MudChip>
+                                <MudText Typo="Typo.caption" Color="Color.Tertiary">
+                                    @($"{stepResult.ExecutionTimeMs:F0}ms")
+                                </MudText>
+                            </ItemOpposite>
+                            <ItemContent>
+                                <MudCard Outlined="true" Class="pa-4">
+                                    <MudStack Spacing="2">
+                                        <MudText Typo="Typo.subtitle1">@stepResult.StepName</MudText>
+                                        
+                                        @if (!stepResult.Success)
+                                        {
+                                            <MudAlert Severity="Severity.Error" Dense="true">
+                                                @stepResult.ErrorMessage
+                                            </MudAlert>
+                                        }
+                                        else if (stepResult.PreviewResults?.Any() == true)
+                                        {
+                                            <MudCollapse Expanded="@(_expandedSteps.GetValueOrDefault(stepResult.StepOrder, false))">
+                                                <MudPaper Style="max-height: 200px; overflow-y: auto;" Elevation="0">
+                                                    <MudTable T="IDictionary<string, object?>" Items="@stepResult.PreviewResults.Take(5)" Dense="true" 
+                                                              Style="font-size: 0.75rem;">
+                                                        <HeaderContent>
+                                                            @if (stepResult.PreviewResults.FirstOrDefault() is { } firstRow)
+                                                            {
+                                                                @foreach (var column in firstRow.Keys.Take(6))
+                                                                {
+                                                                    <MudTh Style="font-weight: bold; background-color: #e8f5e8;">@column</MudTh>
+                                                                }
+                                                                @if (firstRow.Keys.Count > 6)
+                                                                {
+                                                                    <MudTh Style="font-weight: bold; background-color: #e8f5e8;">...</MudTh>
+                                                                }
+                                                            }
+                                                        </HeaderContent>
+                                                        <RowTemplate>
+                                                            @foreach (var kvp in context.Take(6))
+                                                            {
+                                                                <MudTd Style="max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" 
+                                                                       Title="@(kvp.Value?.ToString() ?? "")">
+                                                                    @if (kvp.Value == null)
+                                                                    {
+                                                                        <span style="color: #999; font-style: italic;">NULL</span>
+                                                                    }
+                                                                    else
+                                                                    {
+                                                                        @kvp.Value.ToString()
+                                                                    }
+                                                                </MudTd>
+                                                            }
+                                                            @if (context.Keys.Count > 6)
+                                                            {
+                                                                <MudTd Style="color: #999;">...</MudTd>
+                                                            }
+                                                        </RowTemplate>
+                                                    </MudTable>
+                                                </MudPaper>
+                                                @if (stepResult.TotalRows > 5)
+                                                {
+                                                    <MudText Typo="Typo.caption" Color="Color.Tertiary" Class="mt-1">
+                                                        Showing 5 of @stepResult.TotalRows total rows
+                                                    </MudText>
+                                                }
+                                            </MudCollapse>
+                                            <MudButton Size="Size.Small" 
+                                                       Variant="Variant.Text"
+                                                       StartIcon="@(_expandedSteps.GetValueOrDefault(stepResult.StepOrder, false) ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)"
+                                                       OnClick="@(() => ToggleStepExpansion(stepResult.StepOrder))">
+                                                @(_expandedSteps.GetValueOrDefault(stepResult.StepOrder, false) ? "Hide Data" : "Show Data")
+                                            </MudButton>
+                                        }
+                                        else
+                                        {
+                                            <MudAlert Severity="Severity.Info" Dense="true">
+                                                Step completed but returned no data
+                                            </MudAlert>
+                                        }
+                                    </MudStack>
+                                </MudCard>
+                            </ItemContent>
+                        </MudTimelineItem>
+                    }
+                </MudTimeline>
+            }
+
+            @* Final Result *@
+            @if (ExecutionResult.FinalResult != null)
+            {
+                <MudDivider Class="my-4" />
+                <MudText Typo="Typo.h6" Class="mb-3">
+                    <MudIcon Icon="@Icons.Material.Filled.TableChart" Class="mr-2" />
+                    Final Aggregated Result
+                    <MudChip T="string" Size="Size.Small" Color="Color.Primary" Class="ml-2">
+                        @ExecutionResult.FinalResult.TotalRecords rows
+                    </MudChip>
+                </MudText>
+                
+                <MudCard Outlined="true" Class="mb-4">
+                    <MudCardContent>
+                        @if (ExecutionResult.FinalResult.AllRecords?.Any() == true)
+                        {
+                            <MudPaper Style="max-height: 350px; overflow-y: auto;" Elevation="0">
+                                <MudTable T="IDictionary<string, object?>" Items="@ExecutionResult.FinalResult.AllRecords.Take(20)" 
+                                          Dense="true" Hover="true" Style="font-size: 0.8rem;">
+                                    <HeaderContent>
+                                        @if (ExecutionResult.FinalResult.AllRecords.FirstOrDefault() is { } firstRow)
+                                        {
+                                            @foreach (var column in firstRow.Keys)
+                                            {
+                                                <MudTh Style="font-weight: bold; background-color: #e3f2fd;">@column</MudTh>
+                                            }
+                                        }
+                                    </HeaderContent>
+                                    <RowTemplate>
+                                        @foreach (var kvp in context)
+                                        {
+                                            <MudTd Style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" 
+                                                   Title="@(kvp.Value?.ToString() ?? "")">
+                                                @if (kvp.Value == null)
+                                                {
+                                                    <span style="color: #999; font-style: italic;">NULL</span>
+                                                }
+                                                else
+                                                {
+                                                    @kvp.Value.ToString()
+                                                }
+                                            </MudTd>
+                                        }
+                                    </RowTemplate>
+                                </MudTable>
+                            </MudPaper>
+                            
+                            @if (ExecutionResult.FinalResult.TotalRecords > 20)
+                            {
+                                <MudAlert Severity="Severity.Info" Class="mt-2">
+                                    Showing 20 of @ExecutionResult.FinalResult.TotalRecords total rows (preview limited)
+                                </MudAlert>
+                            }
+                        }
+                        else
+                        {
+                            <MudAlert Severity="Severity.Info">
+                                Final query completed but returned no data.
+                            </MudAlert>
+                        }
+                    </MudCardContent>
+                </MudCard>
+            }
+        }
+    </MudCardContent>
+</MudCard>
+
+@code {
+    [Parameter] public QueryExecutionResult? ExecutionResult { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+    
+    private Dictionary<int, bool> _expandedSteps = new();
+    
+    private RenderFragment summaryTitle => @<div style="display: flex; align-items: center; gap: 8px;">
+        <MudIcon Icon="@Icons.Material.Filled.Assessment" Size="Size.Small" />
+        <span>Execution Summary</span>
+        @if (ExecutionResult?.StepResults?.Count > 0)
+        {
+            <MudChip T="string" Size="Size.Small" Color="Color.Info">@ExecutionResult.StepResults.Count steps</MudChip>
+        }
+        @if (ExecutionResult?.FinalResult != null)
+        {
+            <MudChip T="string" Size="Size.Small" Color="Color.Success">Final Result</MudChip>
+        }
+    </div>;
+
+    private void ToggleStepExpansion(int stepOrder)
+    {
+        _expandedSteps[stepOrder] = !_expandedSteps.GetValueOrDefault(stepOrder, false);
+    }
+}
