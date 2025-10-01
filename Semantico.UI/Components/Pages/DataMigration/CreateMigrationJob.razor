@@ -1,0 +1,478 @@
+@page "/semantico/data-migration/create"
+@page "/semantico/data-migration/edit/{JobId:int}"
+@inherits BasePageComponent
+@using Semantico.Core.Models.DataMigration
+@using Semantico.Core.Models.Projects
+@using Semantico.Core.Models.Queries
+@using Semantico.Core.Services
+@using Semantico.Core.Data.Enums
+@using Semantico.UI.Components.Custom
+@using QueryParameterValue = Semantico.Core.Models.Queries.ParameterValue
+
+<SemanticoPageTitle Title="@(IsEdit ? "Edit Migration Job" : "Create Migration Job")"/>
+
+<MudContainer Class="my-4 px-4">
+    <SemanticoPageHeader Icon="@Icons.Material.Filled.SwapHoriz" 
+                        Title="@(IsEdit ? "Edit Migration Job" : "Create Migration Job")" 
+                        ButtonText="Back to List" 
+                        OnClick="@NavigateBack"/>
+
+    <MudForm @ref="_form" Model="_model" @onsubmit="SaveJob">
+        <MudCard>
+            <MudCardContent>
+                <MudGrid>
+                    <!-- Basic Information -->
+                    <MudItem xs="12" md="6">
+                        <MudTextField @bind-Value="_model.Name"
+                                     Label="Job Name"
+                                     Required="true"
+                                     MaxLength="200" />
+                    </MudItem>
+
+                    <MudItem xs="12">
+                        <MudTextField @bind-Value="_model.Description"
+                                     Label="Description"
+                                     Required="true"
+                                     Lines="3"
+                                     MaxLength="1000" />
+                    </MudItem>
+                    
+                    
+                    <MudItem xs="12">
+                        <MudText Typo="Typo.h6" Class="mb-2">Source Query Configuration</MudText>
+                        <MudText Typo="Typo.body2" Class="mb-4">Build your data extraction query using multiple steps across different projects if needed.</MudText>
+                        
+                        <QueryStepBuilder Query="@_queryModel"
+                                          AvailableProjects="@_availableProjects"
+                                          OnQueryChanged="@OnQueryChanged"
+                                          OnPreviewStep="@OnPreviewStep"
+                                          OnPreviewStepWithParameters="@OnPreviewStepWithParameters"
+                                          OnExecuteQuery="@OnExecuteQuery"
+                                          OnSaveQuery="@(async () => {})" />
+                    </MudItem>
+                    
+                    @if (_queryModel?.Steps?.Any() == true)
+                    {
+                        <MudItem xs="12">
+                            <QueryFlowDiagram Query="@_queryModel" />
+                        </MudItem>
+                    }
+                    
+                    <!-- Destination Configuration -->
+                    <MudItem xs="12" md="6">
+                        <MudSelect @bind-Value="_model.DestinationProjectId" 
+                                  Label="Destination Project" 
+                                  Required="true"
+                                  >
+                            @if (_projects != null)
+                            {
+                                @foreach (var project in _projects)
+                                {
+                                    <MudSelectItem Value="project.Id">@project.Name (@project.DatabaseEngineType)</MudSelectItem>
+                                }
+                            }
+                        </MudSelect>
+                    </MudItem>
+                    
+                    <MudItem xs="12" md="6">
+                        <MudTextField @bind-Value="_model.DestinationTable" 
+                                     Label="Destination Table" 
+                                     Required="true" 
+                                                                          HelperText="Table name in destination database" />
+                    </MudItem>
+                    
+                    <MudItem xs="12" md="6">
+                        <MudSelect @bind-Value="_model.Mode" Label="Migration Mode" >
+                            <MudSelectItem Value="MigrationMode.Insert">Insert Only</MudSelectItem>
+                            <MudSelectItem Value="MigrationMode.Upsert">Insert or Update</MudSelectItem>
+                            <MudSelectItem Value="MigrationMode.Truncate">Truncate & Insert</MudSelectItem>
+                            <MudSelectItem Value="MigrationMode.SyncDelete">Sync with Delete</MudSelectItem>
+                        </MudSelect>
+                    </MudItem>
+                    
+                    <!-- Execution Options -->
+                    <MudItem xs="12" md="6">
+                        <MudTextField @bind-Value="_model.Schedule" 
+                                     Label="Schedule (Cron Expression)" 
+                                                                          HelperText="Leave empty for manual execution only" />
+                    </MudItem>
+                    
+                    <MudItem xs="12" md="3">
+                        <MudNumericField @bind-Value="_model.MaxRetries" 
+                                        Label="Max Retries" 
+                                                                                Min="0" Max="10" />
+                    </MudItem>
+                    
+                    <MudItem xs="12" md="3">
+                        <MudNumericField @bind-Value="_model.TimeoutMinutes" 
+                                        Label="Timeout (Minutes)" 
+                                                                                Min="1" Max="1440" />
+                    </MudItem>
+                    
+                    <MudItem xs="12" md="6">
+                        <MudCheckBox T="bool" @bind-Checked="_model.IsEnabled" 
+                                    Label="Enable migration job" />
+                    </MudItem>
+                    
+                    <MudItem xs="12" md="6">
+                        <MudCheckBox T="bool" @bind-Checked="_model.ValidateBeforeExecution" 
+                                    Label="Validate query before execution" />
+                    </MudItem>
+                    
+                    <!-- Advanced Options -->
+                    <MudItem xs="12">
+                        <MudTextField @bind-Value="_model.TransformationScript" 
+                                     Label="Data Transformation Script" 
+                                     Lines="5"
+                                                                          HelperText="Optional: Use result1, result2 syntax for data transformation" />
+                    </MudItem>
+                </MudGrid>
+            </MudCardContent>
+            
+            <MudCardActions>
+                <MudButton ButtonType="ButtonType.Submit" 
+                          Variant="Variant.Filled" 
+                          Color="Color.Primary"
+                          Disabled="@_loading"
+                          OnClick="@SaveJob">
+                    @if (_loading)
+                    {
+                        <MudProgressCircular Class="ms-n1" Size="Size.Small" Indeterminate="true"/>
+                        <MudText Class="ms-2">Saving...</MudText>
+                    }
+                    else
+                    {
+                        @(IsEdit ? "Update" : "Create")
+                    }
+                </MudButton>
+                <MudButton OnClick="@NavigateBack" 
+                          Variant="Variant.Text">
+                    Cancel
+                </MudButton>
+                <MudButton OnClick="@ValidateOnly" 
+                          Variant="Variant.Outlined"
+                          Color="Color.Info"
+                          Disabled="@_loading">
+                    Validate
+                </MudButton>
+            </MudCardActions>
+        </MudCard>
+    </MudForm>
+</MudContainer>
+
+@inject IMigrationService _migrationService
+@inject IProjectService _projectService
+@inject IQueryExecutionPreviewService _previewService
+@inject ISnackbar Snackbar
+
+@code {
+    [Parameter] public int? JobId { get; set; }
+    
+    private bool IsEdit => JobId.HasValue;
+    private CreateMigrationJobRequest _model = new();
+    private QueryData _queryModel = new() { Name = "", Description = "", Steps = new() };
+    private List<ProjectListData>? _projects;
+    private Dictionary<int, QueryStepBuilder.ProjectInfo> _availableProjects = new();
+    private bool _loading;
+    private MudForm? _form;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadProjects();
+        
+        if (IsEdit && JobId.HasValue)
+        {
+            await LoadMigrationJob();
+        }
+    }
+
+    private async Task LoadProjects()
+    {
+        try
+        {
+            _projects = await _projectService.GetProjects(null, CancellationToken.None);
+            
+            // Build available projects dictionary for QueryStepBuilder
+            _availableProjects = _projects?.ToDictionary(x => x.Id, x => new QueryStepBuilder.ProjectInfo 
+            { 
+                Name = x.Name, 
+                DatabaseEngine = x.DatabaseEngineType.ToString(),
+                DatabaseEngineType = x.DatabaseEngineType
+            }) ?? new();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error loading projects: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task LoadMigrationJob()
+    {
+        try
+        {
+            var job = await _migrationService.GetMigrationJob(JobId!.Value, CancellationToken.None);
+            if (job == null)
+            {
+                Snackbar.Add("Migration job not found", Severity.Error);
+                NavigateBack();
+                return;
+            }
+
+            // Populate the model
+            _model.Name = job.Name;
+            _model.Description = job.Description;
+            _model.ProjectId = job.ProjectId;
+            _model.QueryText = job.QueryText;
+            _model.DestinationProjectId = job.DestinationProjectId;
+            _model.DestinationTable = job.DestinationTable;
+            _model.Mode = job.Mode;
+            _model.IsEnabled = job.IsEnabled;
+            _model.Schedule = job.Schedule;
+            _model.MaxRetries = job.MaxRetries;
+            _model.TimeoutMinutes = job.TimeoutMinutes;
+            _model.ValidateBeforeExecution = job.ValidateBeforeExecution;
+            _model.TransformationScript = job.TransformationScript;
+
+            // Parse and populate query steps from QueryText JSON
+            if (!string.IsNullOrWhiteSpace(job.QueryText))
+            {
+                try
+                {
+                    var steps = System.Text.Json.JsonSerializer.Deserialize<List<System.Text.Json.JsonElement>>(job.QueryText);
+                    if (steps != null)
+                    {
+                        _queryModel.Steps = steps.Select((step, index) =>
+                        {
+                            var projectId = step.TryGetProperty("ProjectId", out var projId) ? projId.GetInt32() : 0;
+                            var projectInfo = _availableProjects.ContainsKey(projectId) ? _availableProjects[projectId] : null;
+
+                            return new QueryStepData
+                            {
+                                StepId = 0,
+                                StepOrder = step.TryGetProperty("StepOrder", out var stepOrder) ? stepOrder.GetInt32() : index + 1,
+                                Name = step.TryGetProperty("Name", out var name) ? name.GetString() ?? $"Step {index + 1}" : $"Step {index + 1}",
+                                Description = step.TryGetProperty("Description", out var desc) ? desc.GetString() : null,
+                                SqlValue = step.TryGetProperty("SqlValue", out var sql) ? sql.GetString() ?? "" : "",
+                                ProjectId = projectId,
+                                ProjectName = projectInfo?.Name ?? "Unknown Project",
+                                DatabaseEngineType = projectInfo?.DatabaseEngineType ?? DatabaseEngineType.PostgreSQL,
+                                Parameters = new List<QueryStepParameterData>()
+                            };
+                        }).ToList();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Snackbar.Add($"Error parsing query steps: {ex.Message}", Severity.Warning);
+                }
+            }
+
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error loading migration job: {ex.Message}", Severity.Error);
+            NavigateBack();
+        }
+    }
+
+    private async Task SaveJob()
+    {
+        // Ensure query model is synced with the migration model
+        UpdateMigrationModelFromQuery();
+
+        if (_form != null)
+        {
+            await _form.Validate();
+            if (!_form.IsValid)
+            {
+                Snackbar.Add("Please fill in all required fields", Severity.Warning);
+                return;
+            }
+        }
+
+        // Additional validation
+        if (string.IsNullOrWhiteSpace(_model.QueryText) || _model.ProjectId == 0)
+        {
+            Snackbar.Add("Please add at least one query step", Severity.Warning);
+            return;
+        }
+
+        if (_model.DestinationProjectId == 0)
+        {
+            Snackbar.Add("Please select a destination project", Severity.Warning);
+            return;
+        }
+
+        _loading = true;
+
+        try
+        {
+            if (IsEdit && JobId.HasValue)
+            {
+                var response = await _migrationService.UpdateMigrationJob(JobId.Value, _model, CancellationToken.None);
+                if (response.Success)
+                {
+                    Snackbar.Add("Migration job updated successfully", Severity.Success);
+                    NavigateBack();
+                }
+                else
+                {
+                    Snackbar.Add($"Error updating migration job: {response.Message}", Severity.Error);
+                }
+            }
+            else
+            {
+                var response = await _migrationService.CreateMigrationJob(_model, CancellationToken.None);
+                if (response.Success)
+                {
+                    Snackbar.Add("Migration job created successfully", Severity.Success);
+                    NavigateBack();
+                }
+                else
+                {
+                    Snackbar.Add($"Error creating migration job: {response.ErrorMessage}", Severity.Error);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error saving migration job: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+    
+    private async Task ValidateOnly()
+    {
+        // Simple validation - just check required fields
+        var isValid = !string.IsNullOrWhiteSpace(_model.Name) &&
+                     !string.IsNullOrWhiteSpace(_model.Description) &&
+                     _queryModel?.Steps?.Any() == true &&
+                     !string.IsNullOrWhiteSpace(_model.DestinationTable) &&
+                     _model.DestinationProjectId > 0;
+
+        if (isValid)
+        {
+            Snackbar.Add("Validation passed", Severity.Success);
+        }
+        else
+        {
+            Snackbar.Add("Please fill in all required fields and add at least one query step", Severity.Error);
+        }
+    }
+
+    private void OnQueryChanged(QueryData updatedQuery)
+    {
+        _queryModel = updatedQuery;
+        
+        // Update the migration request model with query data
+        UpdateMigrationModelFromQuery();
+        
+        StateHasChanged();
+    }
+
+    private void UpdateMigrationModelFromQuery()
+    {
+        if (_queryModel?.Steps?.Any() == true)
+        {
+            // Convert query steps to serialized format for migration job
+            var queryStepsJson = System.Text.Json.JsonSerializer.Serialize(_queryModel.Steps.Select(s => new
+            {
+                StepOrder = s.StepOrder,
+                Name = s.Name,
+                Description = s.Description,
+                SqlValue = s.SqlValue,
+                ProjectId = s.ProjectId,
+                ProjectName = s.ProjectName,
+                Parameters = s.Parameters
+            }));
+
+            _model.QueryText = queryStepsJson;
+
+            // Always set the primary project ID from the first step
+            _model.ProjectId = _queryModel.Steps.OrderBy(s => s.StepOrder).First().ProjectId;
+        }
+        else
+        {
+            _model.QueryText = "";
+            _model.ProjectId = 0;
+        }
+    }
+
+    private async Task OnPreviewStep(int stepOrder)
+    {
+        await OnPreviewStepWithParameters((stepOrder, new List<QueryParameterValue>()));
+    }
+
+    private async Task OnPreviewStepWithParameters((int stepOrder, List<QueryParameterValue> parameters) args)
+    {
+        var step = _queryModel.Steps.FirstOrDefault(s => s.StepOrder == args.stepOrder);
+        if (step == null) 
+        {
+            Snackbar.Add($"Step {args.stepOrder} not found", Severity.Error);
+            return;
+        }
+
+        try
+        {
+            Snackbar.Add($"Executing step {args.stepOrder}...", Severity.Info);
+            
+            // Use the preview service to execute the temporary step
+            var executionResult = await _previewService.ExecuteTemporaryStepPreview(_queryModel, args.stepOrder, args.parameters, CancellationToken.None);
+
+            if (executionResult != null && executionResult.Success)
+            {
+                Snackbar.Add($"Step {args.stepOrder} executed successfully! Returned {executionResult.TotalRows} rows in {executionResult.ExecutionTimeMs:F0}ms", Severity.Success);
+            }
+            else
+            {
+                Snackbar.Add($"Step {args.stepOrder} execution failed: {executionResult?.ErrorMessage ?? "Unknown error"}", Severity.Error);
+            }
+        }
+        catch (Exception e)
+        {
+            Snackbar.Add($"Error executing step {args.stepOrder}: {e.Message}", Severity.Error);
+        }
+    }
+
+    private async Task OnExecuteQuery()
+    {
+        if (!_queryModel.Steps.Any())
+        {
+            Snackbar.Add("Add at least one step before executing the query", Severity.Warning);
+            return;
+        }
+
+        try
+        {
+            Snackbar.Add("Executing full query...", Severity.Info);
+            
+            var executionResult = await _previewService.ExecuteTemporaryQueryPreview(_queryModel, CancellationToken.None);
+
+            if (executionResult != null && executionResult.Success)
+            {
+                var message = executionResult.IsMultiStep 
+                    ? $"Query executed successfully! {executionResult.StepResults.Count} steps completed in {executionResult.TotalExecutionTimeMs:F0}ms"
+                    : $"Query executed successfully! Returned {executionResult.FinalResult?.TotalRecords ?? 0} rows in {executionResult.TotalExecutionTimeMs:F0}ms";
+                    
+                Snackbar.Add(message, Severity.Success);
+            }
+            else
+            {
+                Snackbar.Add($"Query execution failed: {executionResult?.ErrorMessage ?? "Unknown error"}", Severity.Error);
+            }
+        }
+        catch (Exception e)
+        {
+            Snackbar.Add($"Error executing query: {e.Message}", Severity.Error);
+        }
+    }
+    
+    private void NavigateBack()
+    {
+        NavManager.NavigateTo("/semantico/data-migration");
+    }
+}

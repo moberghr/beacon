@@ -201,6 +201,12 @@
         </MudCard>
     }
 
+    @* Query Flow Diagram *@
+    @if (!_loading && Model?.Steps?.Any() == true)
+    {
+        <QueryFlowDiagram Query="@ConvertToQueryData()" />
+    }
+
     @* Query Steps Section *@
     @if (!_loading && Model?.Steps?.Any() == true)
     {
@@ -654,5 +660,21 @@
     {
         _currentStepResult = null;
         StateHasChanged();
+    }
+
+    private QueryData ConvertToQueryData()
+    {
+        if (Model == null) return new QueryData();
+        
+        return new QueryData
+        {
+            QueryId = Model.Id,
+            Name = Model.Name,
+            Description = Model.Description,
+            CreatedTime = Model.CreatedTime,
+            Steps = Model.Steps,
+            FinalQuery = Model.FinalQuery,
+            FinalQueryProjectId = Model.FinalQueryProjectId
+        };
     }
 }

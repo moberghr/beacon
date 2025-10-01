@@ -2,6 +2,7 @@
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Semantico.Core.Data.Entities;
 using Semantico.Core.Data.Entities.Base;
+using Semantico.Core.Data.Entities.DataMigration;
 using System.Linq.Expressions;
 
 namespace Semantico.Core.Data;
@@ -33,11 +34,16 @@ internal class SemanticoContext : DbContext
 
     public DbSet<Notification> Notifications => Set<Notification>();
 
+    public DbSet<MigrationJob> MigrationJobs => Set<MigrationJob>();
+
+    public DbSet<MigrationExecution> MigrationExecutions => Set<MigrationExecution>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema("semantico");
 
         SetSoftDeleteQueryFilter(modelBuilder);
+        ConfigureMigrationEntities(modelBuilder);
 
         base.OnModelCreating(modelBuilder);
     }
@@ -76,5 +82,58 @@ internal class SemanticoContext : DbContext
 
             return lambda;
         }
+    }
+
+    private static void ConfigureMigrationEntities(ModelBuilder modelBuilder)
+    {
+        // MigrationJob configuration
+        modelBuilder.Entity<MigrationJob>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Name).HasMaxLength(200).IsRequired();
+            entity.Property(e => e.Description).HasMaxLength(1000).IsRequired();
+            entity.Property(e => e.QueryText).IsRequired();
+            entity.Property(e => e.DestinationTable).HasMaxLength(100).IsRequired();
+            entity.Property(e => e.Schedule).HasMaxLength(50);
+            
+            // Relationships
+            entity.HasOne(e => e.Project)
+                  .WithMany()
+                  .HasForeignKey(e => e.ProjectId)
+                  .OnDelete(DeleteBehavior.Restrict);
+                  
+            entity.HasOne(e => e.DestinationProject)
+                  .WithMany()
+                  .HasForeignKey(e => e.DestinationProjectId)
+                  .OnDelete(DeleteBehavior.Restrict);
+                  
+            entity.HasMany(e => e.Executions)
+                  .WithOne(e => e.MigrationJob)
+                  .HasForeignKey(e => e.MigrationJobId);
+
+            // Indexes for performance
+            entity.HasIndex(e => e.ProjectId);
+            entity.HasIndex(e => e.DestinationProjectId);
+            entity.HasIndex(e => new { e.IsEnabled, e.ArchivedTime });
+        });
+
+        // MigrationExecution configuration
+        modelBuilder.Entity<MigrationExecution>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.ExecutedQuery).IsRequired();
+            entity.Property(e => e.ErrorMessage).HasMaxLength(4000);
+            
+            // Self-reference for retry tracking
+            entity.HasOne(e => e.ParentExecution)
+                  .WithMany()
+                  .HasForeignKey(e => e.ParentExecutionId)
+                  .OnDelete(DeleteBehavior.SetNull);
+
+            // Indexes for performance
+            entity.HasIndex(e => e.MigrationJobId);
+            entity.HasIndex(e => new { e.Status, e.StartedAt });
+            entity.HasIndex(e => e.StartedAt);
+        });
     }
 }

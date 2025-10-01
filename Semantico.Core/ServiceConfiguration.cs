@@ -50,6 +50,7 @@ public static class ServiceConfiguration
         services.TryAddTransient<ISubscriptionService, SubscriptionService>();
         services.TryAddTransient<IRecipientService, RecipientService>();
         services.TryAddTransient<IStatisticsService, StatisticsService>();
+        services.TryAddTransient<IMigrationService, MigrationService>();
 
         services.TryAddTransient(typeof(ISemanticoScheduler), configurationOptions.SemanticoScheduler!);
 

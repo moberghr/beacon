@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Semantico.Core.Data;
@@ -11,9 +12,11 @@ using Semantico.Core.Data;
 namespace Semantico.Core.Data.Migrations
 {
     [DbContext(typeof(SemanticoContext))]
-    partial class SemanticoContextModelSnapshot : ModelSnapshot
+    [Migration("20250905143833_DataMigrationFeature")]
+    partial class DataMigrationFeature
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

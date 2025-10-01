@@ -81,6 +81,11 @@
                           OnExecuteQuery="@OnExecuteQuery"
                           OnSaveQuery="@OnSaveQuery" />
 
+        @if (Query?.Steps?.Any() == true)
+        {
+            <QueryFlowDiagram Query="@Query" />
+        }
+
         @if (_currentQueryResult != null)
         {
             <QueryExecutionResultsPreview ExecutionResult="@_currentQueryResult"

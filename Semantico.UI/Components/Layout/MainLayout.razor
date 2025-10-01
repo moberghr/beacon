@@ -12,28 +12,36 @@
 @* Needed for snackbars *@
 <MudSnackbarProvider />
 
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
 <link href="https://fonts.googleapis.com/css?family=Roboto:300,400,500,700&display=swap" rel="stylesheet" />
 <link href="_content/MudBlazor/MudBlazor.min.css" rel="stylesheet" />
+<link href="css/semantico-styles.css" rel="stylesheet" />
 
 <MudLayout>
-    <MudAppBar Elevation="0" Dense="true" ToolBarClass="pl-1 pr-1">
+    <MudAppBar Elevation="1" Dense="true" ToolBarClass="px-3">
         <HomeButton />
         <MudSpacer />
-        <ThemeIconButton @bind-IsDark="@_isDark" OnClick="@ChangeTheme" />
-        <MudIconButton OnClick="() => { }" Icon="@Icons.Material.Filled.Settings" Color="Color.Inherit" />
+        <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+            <ThemeIconButton @bind-IsDark="@_isDark" OnClick="@ChangeTheme" />
+            <MudIconButton Icon="@Icons.Material.Filled.Settings" Color="Color.Inherit" Size="Size.Medium" />
+        </MudStack>
     </MudAppBar>
     <MudDrawer Open="true" ClipMode="DrawerClipMode.Always" Elevation="2" Width="250px">
-        <MudNavMenu>
-            <MudText Typo="Typo.h6" Class="px-4">Moberg</MudText>
-            <MudText Typo="Typo.body2" Class="px-4 mud-text-secondary">v0.8</MudText>
+        <MudNavMenu Class="pa-2">
+            <div class="d-flex flex-column align-center pa-4">
+                <MudText Typo="Typo.h5" Class="fw-bold">Moberg</MudText>
+                <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Text" Class="mt-1">v0.8</MudChip>
+            </div>
             <MudDivider Class="my-2"/>
-            <MudNavLink Href="/semantico/">Home</MudNavLink>
-            <MudNavLink Href="/semantico/projects">Projects</MudNavLink>
-            <MudNavLink Href="/semantico/recipients">Recipients</MudNavLink>
-            <MudNavLink Href="/semantico/queries">Queries</MudNavLink>
-            <MudNavLink Href="/semantico/subscriptions">Subscriptions</MudNavLink>
-            <MudNavLink Href="/semantico/notifications">Notifications</MudNavLink>
-            <MudNavLink Href="/about">About</MudNavLink>
+            <MudNavLink Href="/semantico/" Icon="@Icons.Material.Filled.Home" IconColor="Color.Primary">Home</MudNavLink>
+            <MudNavLink Href="/semantico/projects" Icon="@Icons.Material.Filled.Folder" IconColor="Color.Secondary">Projects</MudNavLink>
+            <MudNavLink Href="/semantico/recipients" Icon="@Icons.Material.Filled.People" IconColor="Color.Tertiary">Recipients</MudNavLink>
+            <MudNavLink Href="/semantico/queries" Icon="@Icons.Material.Filled.Search" IconColor="Color.Info">Queries</MudNavLink>
+            <MudNavLink Href="/semantico/subscriptions" Icon="@Icons.Material.Filled.Subscriptions" IconColor="Color.Success">Subscriptions</MudNavLink>
+            <MudNavLink Href="/semantico/notifications" Icon="@Icons.Material.Filled.Notifications" IconColor="Color.Warning">Notifications</MudNavLink>
+            <MudNavLink Href="/semantico/data-migration" Icon="@Icons.Material.Filled.SwapHoriz" IconColor="Color.Error">Data Migration</MudNavLink>
+            <MudDivider Class="my-2"/>
+            <MudNavLink Href="/about" Icon="@Icons.Material.Filled.Info" IconColor="Color.Default">About</MudNavLink>
         </MudNavMenu>
     </MudDrawer>
     <MudMainContent Class="pb-12">
@@ -60,11 +68,14 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        _breakpoint = await BrowserViewportService.GetCurrentBreakpointAsync();
-        _isDark = await LocalStorage.GetItemAsync<string>("IsDark") == "True";
+        if (firstRender)
+        {
+            _breakpoint = await BrowserViewportService.GetCurrentBreakpointAsync();
+            _isDark = await LocalStorage.GetItemAsync<string>("IsDark") == "True";
+            await LoadTheme();
+            StateHasChanged();
+        }
 
-        await LoadTheme();
-        
         await base.OnAfterRenderAsync(firstRender);
     }
 

@@ -4,68 +4,143 @@
 
 <SemanticoPageTitle Title="Dashboard"/>
 
-<MudContainer Class="my-4 px-4">
+<MudContainer MaxWidth="MaxWidth.ExtraExtraLarge" Class="my-4 px-4">
     <SemanticoPageHeader Icon="@Icons.Material.Filled.Dashboard" Title="Dashboard"/>
-    <MudCard Class="my-4 px-2">
+    <SemanticoPageAlert Text="Welcome to Query Lee!"/>
+    <MudCard Elevation="2">
+    
+    <MudGrid Spacing="3" Class="mb-4">
+        <MudItem xs="12" sm="6" md="3">
+            <MudCard Elevation="2" Class="pa-4 statistics-card">
+                <MudStack Spacing="2">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                        <MudIcon Icon="@Icons.Material.Filled.Search" Color="Color.Info" Size="Size.Large" />
+                        <MudChip T="string" Color="Color.Info" Variant="Variant.Text" Size="Size.Small">Total</MudChip>
+                    </MudStack>
+                    <MudText Typo="Typo.h4">@(dashboardStatistics?.TotalQueries ?? 0)</MudText>
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">Total Queries</MudText>
+                </MudStack>
+            </MudCard>
+        </MudItem>
+
+        <MudItem xs="12" sm="6" md="3">
+            <MudCard Elevation="2" Class="pa-4 statistics-card">
+                <MudStack Spacing="2">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                        <MudIcon Icon="@Icons.Material.Filled.Subscriptions" Color="Color.Success" Size="Size.Large" />
+                        <MudChip T="string" Color="Color.Success" Variant="Variant.Text" Size="Size.Small">Active</MudChip>
+                    </MudStack>
+                    <MudText Typo="Typo.h4">@(dashboardStatistics?.ActiveSubscriptions ?? 0) / @(dashboardStatistics?.TotalSubscriptions ?? 0)</MudText>
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">Subscriptions</MudText>
+                </MudStack>
+            </MudCard>
+        </MudItem>
+
+        <MudItem xs="12" sm="6" md="3">
+            <MudCard Elevation="2" Class="pa-4 statistics-card">
+                <MudStack Spacing="2">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                        <MudIcon Icon="@Icons.Material.Filled.PlayArrow" Color="Color.Primary" Size="Size.Large" />
+                        <MudChip T="string" Color="Color.Primary" Variant="Variant.Text" Size="Size.Small">Executed</MudChip>
+                    </MudStack>
+                    <MudText Typo="Typo.h4">@(dashboardStatistics?.TotalQueriesExecuted ?? 0)</MudText>
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">Query Executions</MudText>
+                </MudStack>
+            </MudCard>
+        </MudItem>
+
+        <MudItem xs="12" sm="6" md="3">
+            <MudCard Elevation="2" Class="pa-4 statistics-card">
+                <MudStack Spacing="2">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                        <MudIcon Icon="@Icons.Material.Filled.Notifications" Color="Color.Warning" Size="Size.Large" />
+                        <MudChip T="string" Color="Color.Warning" Variant="Variant.Text" Size="Size.Small">Sent</MudChip>
+                    </MudStack>
+                    <MudText Typo="Typo.h4">@(dashboardStatistics?.TotalNotificationsSent ?? 0)</MudText>
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">Notifications Sent</MudText>
+                </MudStack>
+            </MudCard>
+        </MudItem>
+    </MudGrid>
+    </MudCard>
+
+    <MudText Typo="Typo.h6" Class="my-4">
+        <MudIcon Icon="@Icons.Material.Filled.SwapHoriz" Class="mr-2" />
+        Data Migration Statistics
+    </MudText>
+
+    <MudCard Elevation="2">
+        <MudGrid Spacing="3" Class="pa-4">
+            <MudItem xs="12" sm="6" md="3">
+                <MudCard Elevation="1" Class="pa-4 statistics-card">
+                    <MudStack Spacing="2">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                            <MudIcon Icon="@Icons.Material.Filled.DataObject" Color="Color.Error" Size="Size.Large" />
+                            <MudChip T="string" Color="Color.Error" Variant="Variant.Text" Size="Size.Small">Total</MudChip>
+                        </MudStack>
+                        <MudText Typo="Typo.h4">@(dashboardStatistics?.TotalMigrationJobs ?? 0)</MudText>
+                        <MudText Typo="Typo.body2" Color="Color.Secondary">Migration Jobs</MudText>
+                    </MudStack>
+                </MudCard>
+            </MudItem>
+
+            <MudItem xs="12" sm="6" md="3">
+                <MudCard Elevation="1" Class="pa-4 statistics-card">
+                    <MudStack Spacing="2">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                            <MudIcon Icon="@Icons.Material.Filled.ToggleOn" Color="Color.Success" Size="Size.Large" />
+                            <MudChip T="string" Color="Color.Success" Variant="Variant.Text" Size="Size.Small">Enabled</MudChip>
+                        </MudStack>
+                        <MudText Typo="Typo.h4">@(dashboardStatistics?.EnabledMigrationJobs ?? 0)</MudText>
+                        <MudText Typo="Typo.body2" Color="Color.Secondary">Active Jobs</MudText>
+                    </MudStack>
+                </MudCard>
+            </MudItem>
+
+            <MudItem xs="12" sm="6" md="3">
+                <MudCard Elevation="1" Class="pa-4 statistics-card">
+                    <MudStack Spacing="2">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                            <MudIcon Icon="@Icons.Material.Filled.PlayCircle" Color="Color.Info" Size="Size.Large" />
+                            <MudChip T="string" Color="Color.Info" Variant="Variant.Text" Size="Size.Small">Total</MudChip>
+                        </MudStack>
+                        <MudText Typo="Typo.h4">@(dashboardStatistics?.TotalMigrationExecutions ?? 0)</MudText>
+                        <MudText Typo="Typo.body2" Color="Color.Secondary">Total Executions</MudText>
+                    </MudStack>
+                </MudCard>
+            </MudItem>
+
+            <MudItem xs="12" sm="6" md="3">
+                <MudCard Elevation="1" Class="pa-4 statistics-card">
+                    <MudStack Spacing="2">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                            <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Color="Color.Success" Size="Size.Large" />
+                            <MudChip T="string" Color="Color.Success" Variant="Variant.Text" Size="Size.Small">Success</MudChip>
+                        </MudStack>
+                        <MudText Typo="Typo.h4">@(dashboardStatistics?.SuccessfulMigrationExecutions ?? 0)</MudText>
+                        <MudText Typo="Typo.body2" Color="Color.Secondary">Successful Runs</MudText>
+                    </MudStack>
+                </MudCard>
+            </MudItem>
+        </MudGrid>
+    </MudCard>
+
+    <MudCard Elevation="2" Class="my-4">
         <MudCardContent>
-            <MudGrid Justify="Justify.FlexStart" Spacing="1">
-                <MudItem xs="12" sm="6" md="6" lg="6">
-                    <MudStack Spacing="1">
-                        <MudAlert>Queries executed and notifications sent last 30 days</MudAlert>
-                        <MudChart ChartType="ChartType.Line" 
-                                  ChartSeries="@chartSeries" 
+            <MudGrid Justify="Justify.FlexStart" Spacing="3">
+                <MudItem xs="12" sm="12" md="12" lg="12">
+                    <MudStack Spacing="2">
+                        <MudText Typo="Typo.h6" Class="mb-2">
+                            <MudIcon Icon="@Icons.Material.Filled.ShowChart" Class="mr-2" />
+                            Activity Trends - Last 30 Days
+                        </MudText>
+                        <MudChart ChartType="ChartType.Line"
+                                  ChartSeries="@chartSeries"
                                   XAxisLabels="@xAxisLabels"
-                                  Width="100%" 
+                                  Width="100%"
                                   Height="350px"
                                   ChartOptions="@chartOptions"
                                   AxisChartOptions="@axisChartOptions"/>
-                    </MudStack>
-                </MudItem>
-                <MudItem xs="12" sm="6" md="6" lg="6">
-                    <MudStack Spacing="1">
-                        <MudAlert Icon="@Icons.Material.Filled.Analytics">Overall system statistics</MudAlert>
-                        <MudStack Row="true">
-                            <MudPaper Class="pa-6">
-                                <MudTooltip Text="Total queries">
-                                    <MudStack Row="true">
-                                        <MudAvatar Size="MudBlazor.Size.Large">
-                                            <MudIcon Icon="@Icons.Material.Rounded.QueryBuilder"></MudIcon>
-                                        </MudAvatar>
-                                        <MudStack Justify="Justify.Center" Spacing="0">
-                                            <MudText Typo="Typo.body1">Total queries</MudText>
-                                            <MudText Typo="Typo.h5">@dashboardStatistics?.TotalQueries</MudText>
-                                        </MudStack>
-                                    </MudStack>
-                                </MudTooltip>
-                            </MudPaper>
-                            <MudPaper Class="pa-6">
-                                <MudTooltip Text="Active / total subscriptions">
-                                    <MudStack Row="true">
-                                        <MudAvatar Size="MudBlazor.Size.Large">
-                                            <MudIcon Icon="@Icons.Material.Rounded.Subscriptions"></MudIcon>
-                                        </MudAvatar>
-                                        <MudStack Justify="Justify.Center" Spacing="0">
-                                            <MudText Typo="Typo.body1">Subscriptions</MudText>
-                                            <MudText Typo="Typo.h5">@dashboardStatistics?.ActiveSubscriptions / @dashboardStatistics?.TotalSubscriptions</MudText>
-                                        </MudStack>
-                                    </MudStack>
-                                </MudTooltip>
-                            </MudPaper>
-                        </MudStack>
-                        <MudPaper Class="pa-6">
-                            <MudTooltip Text="Notifications and queries executed. If the query has 0 results, or there is already active notification with same results as existing query, we will not send it.">
-                                <MudStack Row="true">
-                                    <MudAvatar Size="MudBlazor.Size.Large">
-                                        <MudIcon Icon="@Icons.Material.Rounded.Numbers"></MudIcon>
-                                    </MudAvatar>
-                                    <MudStack Justify="Justify.Center" Spacing="0">
-                                        <MudText Typo="Typo.body1">Total query executions and notifications sent</MudText>
-                                        <MudText Typo="Typo.h5">@dashboardStatistics?.TotalQueriesExecuted / @dashboardStatistics?.TotalNotificationsSent</MudText>
-                                    </MudStack>
-                                </MudStack>
-                            </MudTooltip>
-                        </MudPaper>
-
                     </MudStack>
                 </MudItem>
             </MudGrid>
@@ -101,11 +176,16 @@
             return;
 
         var data = notificationStatisticsData.NotificationDateStatistics.OrderBy(x => x.Date).ToList();
-        
+
         xAxisLabels = data.Select(x => x.Date.ToShortDateWithoutYear()).ToArray();
-        
+
         chartSeries = new List<ChartSeries>
         {
+            new()
+            {
+                Name = "Queries executed",
+                Data = data.Select(x => (double)x.TotalQueries).ToArray()
+            },
             new()
             {
                 Name = "Notifications sent",
@@ -113,8 +193,13 @@
             },
             new()
             {
-                Name = "Queries executed", 
-                Data = data.Select(x => (double)x.TotalQueries).ToArray()
+                Name = "Migration executions",
+                Data = data.Select(x => (double)x.MigrationExecutions).ToArray()
+            },
+            new()
+            {
+                Name = "Successful migrations",
+                Data = data.Select(x => (double)x.SuccessfulMigrationExecutions).ToArray()
             }
         };
     }
@@ -122,10 +207,10 @@
     private void ConfigureChartOptions()
     {
         chartOptions.YAxisTicks = 10;
-        chartOptions.ChartPalette = new[] { "#1f77b4", "#ff7f0e" };
+        chartOptions.ChartPalette = new[] { "#1f77b4", "#ff7f0e", "#d62728", "#2ca02c" };
         chartOptions.YAxisLines = true;
         chartOptions.XAxisLines = true;
-        
+
         chartOptions.InterpolationOption = InterpolationOption.Straight;
 
         axisChartOptions.XAxisLabelRotation = 90;

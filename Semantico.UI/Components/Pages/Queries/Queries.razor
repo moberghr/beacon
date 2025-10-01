@@ -7,10 +7,11 @@
 
 <SemanticoPageTitle Title="Queries"/>
 
-<MudContainer Class="my-4 px-4">
-    <SemanticoPageHeader Icon="@Icons.Material.Filled.QueryBuilder" Title="Queries" ButtonText="New query" OnClick="@NewQuery"/>
-    <SemanticoPageAlert Text="List of defined queries. You can create new on or click on row and edit subscriptions to existing query."/>
-    <MudDataGrid @ref="_dataGrid" ServerData="ServerReload" T="QueryData" RowClick="OnRowClick" Hover="true" Filterable="false">
+<MudContainer MaxWidth="MaxWidth.ExtraExtraLarge" Class="my-4 px-4">
+    <SemanticoPageHeader Icon="@Icons.Material.Filled.Search" Title="Queries" ButtonText="New Query" OnClick="@NewQuery"/>
+    <SemanticoPageAlert Text="Manage your queries and subscriptions. Click on a row to view details and configure subscriptions."/>
+    <MudCard Elevation="2">
+        <MudDataGrid @ref="_dataGrid" ServerData="ServerReload" T="QueryData" RowClick="OnRowClick" Hover="true" Filterable="false" Bordered="false">
         <Columns>
             <PropertyColumn Property="x => x.QueryId" Title="Id"/>
             <PropertyColumn InitialDirection="SortDirection.Ascending" Property="x => x.Name" Title="Name"/>
@@ -20,10 +21,11 @@
             <PropertyColumn Property="x => x.SubscriptionsCount" Title="Subscriptions Count"/>
             <PropertyColumn Property="x => x.Parameters.ToJson()" Title="Parameters"/>
         </Columns>
-        <PagerContent>
-            <MudDataGridPager T="QueryData"/>
-        </PagerContent>
-    </MudDataGrid>
+            <PagerContent>
+                <MudDataGridPager T="QueryData"/>
+            </PagerContent>
+        </MudDataGrid>
+    </MudCard>
 </MudContainer>
 
 
