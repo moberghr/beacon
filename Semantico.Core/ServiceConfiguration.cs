@@ -87,9 +87,16 @@ public class SemanticoConfiguration
         EmailAdapter = typeof(T);
     }
 
+    public void AddAuthorizationProvider<T>() where T : class
+    {
+        AuthorizationProvider = typeof(T);
+    }
+
     internal Type? SemanticoScheduler { get; set; }
 
     internal Type? EmailAdapter { get; set; }
+
+    public Type? AuthorizationProvider { get; set; }
 
     internal void Validate()
     {
