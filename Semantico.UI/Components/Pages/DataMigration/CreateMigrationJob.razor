@@ -92,9 +92,10 @@
                     
                     <!-- Execution Options -->
                     <MudItem xs="12" md="6">
-                        <MudTextField @bind-Value="_model.Schedule" 
-                                     Label="Schedule (Cron Expression)" 
-                                                                          HelperText="Leave empty for manual execution only" />
+                        <CronExpressionField @bind-Value="_model.Schedule"
+                                            Label="Schedule (Cron Expression)"
+                                            Required="false"
+                                            Placeholder="* * * * * (leave empty for manual execution only)" />
                     </MudItem>
                     
                     <MudItem xs="12" md="3">
@@ -158,6 +159,13 @@
             </MudCardActions>
         </MudCard>
     </MudForm>
+
+    @* Query Execution Results Preview *@
+    @if (_currentQueryResult != null)
+    {
+        <QueryExecutionResultsPreview ExecutionResult="@_currentQueryResult"
+                                      OnClose="@CloseResultsPreview" />
+    }
 </MudContainer>
 
 @inject IMigrationService _migrationService
@@ -175,6 +183,7 @@
     private Dictionary<int, QueryStepBuilder.ProjectInfo> _availableProjects = new();
     private bool _loading;
     private MudForm? _form;
+    private QueryExecutionResult? _currentQueryResult;
 
     protected override async Task OnInitializedAsync()
     {
@@ -261,9 +270,29 @@
                         }).ToList();
                     }
                 }
+                catch (System.Text.Json.JsonException)
+                {
+                    // If JSON parsing fails, treat it as plain SQL (legacy format)
+                    _queryModel.Steps = new List<QueryStepData>
+                    {
+                        new QueryStepData
+                        {
+                            StepId = 0,
+                            StepOrder = 1,
+                            Name = "Migration Query",
+                            Description = "Data extraction query",
+                            SqlValue = job.QueryText,
+                            ProjectId = job.ProjectId,
+                            ProjectName = _availableProjects.ContainsKey(job.ProjectId) ? _availableProjects[job.ProjectId].Name : "Unknown Project",
+                            DatabaseEngineType = _availableProjects.ContainsKey(job.ProjectId) ? _availableProjects[job.ProjectId].DatabaseEngineType : DatabaseEngineType.PostgreSQL,
+                            Parameters = new List<QueryStepParameterData>()
+                        }
+                    };
+                    Snackbar.Add("Loaded legacy SQL format - please re-save to update to new format", Severity.Info);
+                }
                 catch (Exception ex)
                 {
-                    Snackbar.Add($"Error parsing query steps: {ex.Message}", Severity.Warning);
+                    Snackbar.Add($"Error loading query steps: {ex.Message}", Severity.Error);
                 }
             }
 
@@ -449,20 +478,31 @@
         try
         {
             Snackbar.Add("Executing full query...", Severity.Info);
-            
+
             var executionResult = await _previewService.ExecuteTemporaryQueryPreview(_queryModel, CancellationToken.None);
 
-            if (executionResult != null && executionResult.Success)
+            if (executionResult != null)
             {
-                var message = executionResult.IsMultiStep 
-                    ? $"Query executed successfully! {executionResult.StepResults.Count} steps completed in {executionResult.TotalExecutionTimeMs:F0}ms"
-                    : $"Query executed successfully! Returned {executionResult.FinalResult?.TotalRecords ?? 0} rows in {executionResult.TotalExecutionTimeMs:F0}ms";
-                    
-                Snackbar.Add(message, Severity.Success);
+                _currentQueryResult = executionResult;
+
+                if (executionResult.Success)
+                {
+                    var message = executionResult.IsMultiStep
+                        ? $"Query executed successfully! {executionResult.StepResults.Count} steps completed in {executionResult.TotalExecutionTimeMs:F0}ms"
+                        : $"Query executed successfully! Returned {executionResult.FinalResult?.TotalRecords ?? 0} rows in {executionResult.TotalExecutionTimeMs:F0}ms";
+
+                    Snackbar.Add(message, Severity.Success);
+                }
+                else
+                {
+                    Snackbar.Add($"Query execution failed: {executionResult.ErrorMessage}", Severity.Error);
+                }
+
+                StateHasChanged();
             }
             else
             {
-                Snackbar.Add($"Query execution failed: {executionResult?.ErrorMessage ?? "Unknown error"}", Severity.Error);
+                Snackbar.Add("Query execution failed", Severity.Error);
             }
         }
         catch (Exception e)
@@ -470,7 +510,13 @@
             Snackbar.Add($"Error executing query: {e.Message}", Severity.Error);
         }
     }
-    
+
+    private void CloseResultsPreview()
+    {
+        _currentQueryResult = null;
+        StateHasChanged();
+    }
+
     private void NavigateBack()
     {
         NavManager.NavigateTo("/semantico/data-migration");

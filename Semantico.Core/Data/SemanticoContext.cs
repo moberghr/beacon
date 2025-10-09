@@ -36,7 +36,7 @@ internal class SemanticoContext : DbContext
 
     public DbSet<MigrationJob> MigrationJobs => Set<MigrationJob>();
 
-    public DbSet<MigrationExecution> MigrationExecutions => Set<MigrationExecution>();
+    public DbSet<MigrationExecutionHistory> MigrationExecutions => Set<MigrationExecutionHistory>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -118,7 +118,7 @@ internal class SemanticoContext : DbContext
         });
 
         // MigrationExecution configuration
-        modelBuilder.Entity<MigrationExecution>(entity =>
+        modelBuilder.Entity<MigrationExecutionHistory>(entity =>
         {
             entity.HasKey(e => e.Id);
             entity.Property(e => e.ExecutedQuery).IsRequired();

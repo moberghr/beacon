@@ -1,9 +1,10 @@
+using Semantico.Core.Abstractions;
 using Semantico.Core.Data.Entities.Base;
 using Semantico.Core.Data.Enums;
 
 namespace Semantico.Core.Data.Entities.DataMigration;
 
-internal class MigrationExecution : BaseEntity
+internal class MigrationExecutionHistory : BaseEntity, IExecutionHistory
 {
     public int MigrationJobId { get; set; }
     public MigrationJob MigrationJob { get; set; } = null!;
@@ -32,10 +33,13 @@ internal class MigrationExecution : BaseEntity
     // Retry Information
     public int RetryAttempt { get; set; } = 0;
     public int? ParentExecutionId { get; set; }  // For retry tracking
-    public MigrationExecution? ParentExecution { get; set; }
+    public MigrationExecutionHistory? ParentExecution { get; set; }
     
     // Progress Tracking
     public int? EstimatedTotalRows { get; set; }
     public int ProcessedRows { get; set; }
     public decimal ProgressPercentage => EstimatedTotalRows > 0 ? (decimal)ProcessedRows / EstimatedTotalRows.Value * 100 : 0;
+
+    // IExecutionHistory implementation (most properties already naturally match the interface)
+    bool IExecutionHistory.Success => Status == MigrationStatus.Completed || Status == MigrationStatus.PartialSuccess;
 }

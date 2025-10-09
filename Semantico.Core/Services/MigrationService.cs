@@ -101,7 +101,7 @@ internal class MigrationService(
             }
 
             // Create execution record
-            var execution = new MigrationExecution
+            var execution = new MigrationExecutionHistory
             {
                 MigrationJobId = migrationJob.Id,
                 StartedAt = DateTime.UtcNow,
@@ -148,18 +148,18 @@ internal class MigrationService(
             {
                 execution.CompletedAt = DateTime.UtcNow;
                 execution.Status = MigrationStatus.Failed;
-                execution.ErrorMessage = ex.Message;
+                execution.ErrorMessage = GetFullExceptionMessage(ex);
                 await context.SaveChangesAsync(cancellationToken);
 
                 logger.LogError(ex, "Failed migration job {Name} execution {ExecutionId}", migrationJob.Name, execution.Id);
-                
-                return new ExecuteMigrationJobResponse(execution.Id, MigrationStatus.Failed, ErrorMessage: ex.Message);
+
+                return new ExecuteMigrationJobResponse(execution.Id, MigrationStatus.Failed, ErrorMessage: GetFullExceptionMessage(ex));
             }
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error executing migration job {MigrationJobId}", request.MigrationJobId);
-            return new ExecuteMigrationJobResponse(0, MigrationStatus.Failed, ErrorMessage: ex.Message);
+            return new ExecuteMigrationJobResponse(0, MigrationStatus.Failed, ErrorMessage: GetFullExceptionMessage(ex));
         }
     }
 
@@ -424,7 +424,7 @@ internal class MigrationService(
 
     private async Task<ExecuteMigrationJobResponse> ExecuteMigrationInternal(
         MigrationJob migrationJob, 
-        MigrationExecution execution, 
+        MigrationExecutionHistory execution, 
         ExecuteMigrationJobRequest request, 
         CancellationToken cancellationToken)
     {
@@ -815,5 +815,19 @@ internal class MigrationService(
         // TODO: Implement proper sync with delete
         var (written, failed, errors) = await ExecuteInserts(connection, transaction, tableName, data, engineType);
         return (written, 0, failed, errors);
+    }
+
+    private static string GetFullExceptionMessage(Exception ex)
+    {
+        var messages = new List<string>();
+        var currentException = ex;
+
+        while (currentException != null)
+        {
+            messages.Add(currentException.Message);
+            currentException = currentException.InnerException;
+        }
+
+        return string.Join(" --> ", messages);
     }
 }

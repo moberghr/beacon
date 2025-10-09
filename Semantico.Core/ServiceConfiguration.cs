@@ -9,6 +9,7 @@ using Semantico.Core.Adapters.Teams;
 using Semantico.Core.Data;
 using Semantico.Core.Models;
 using Semantico.Core.Services;
+using Semantico.Core.Services.Shared;
 using Semantico.Core.Worker;
 using Semantico.Core.Worker.Repositories;
 using Semantico.Core.Worker.Services;
@@ -41,6 +42,12 @@ public static class ServiceConfiguration
         services.AddSingleton<IAdapter, JiraAdapter>();
         services.TryAddSingleton<AdapterFactory>();
 
+        // Shared services (for use by Query and Migration features)
+        services.TryAddTransient<QueryExecutionOrchestrator>();
+        services.TryAddTransient<ParameterResolver>();
+        services.TryAddTransient<SchedulingService>();
+
+        // Domain services
         services.TryAddTransient<IJobRepository, JobRepository>();
         services.TryAddTransient<IJobService, JobService>();
         services.TryAddTransient<INotificationService, NotificationService>();

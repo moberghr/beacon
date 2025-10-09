@@ -1,9 +1,10 @@
-﻿using Semantico.Core.Data.Entities.Base;
+﻿using Semantico.Core.Abstractions;
+using Semantico.Core.Data.Entities.Base;
 using Semantico.Core.Data.Enums;
 
 namespace Semantico.Core.Data.Entities;
 
-internal class Query : ArchivableBaseEntity
+internal class Query : ArchivableBaseEntity, IMultiStepWorkflow
 {
     public string Name { get; set; } = null!;
 
