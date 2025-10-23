@@ -20,9 +20,11 @@
     </ItemGroup>
 
     <ItemGroup>
+      <ProjectReference Include="..\Semantico.Core.SqlServer\Semantico.Core.SqlServer.csproj" />
       <ProjectReference Include="..\Semantico.Core\Semantico.Core.csproj" />
       <ProjectReference Include="..\Semantico.UI.AspNet\Semantico.UI.AspNet.csproj" />
       <ProjectReference Include="..\Semantico.UI\Semantico.UI.csproj" />
+      <ProjectReference Include="..\Semantico.Core.PostgreSql\Semantico.Core.PostgreSql.csproj" />
     </ItemGroup>
 
 </Project>

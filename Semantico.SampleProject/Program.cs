@@ -1,5 +1,7 @@
 using Hangfire;
 using Hangfire.PostgreSql;
+using Semantico.Core.PostgreSql;
+using Semantico.Core.SqlServer;
 using Semantico.SampleProject.Services;
 using Semantico.UI;
 using Semantico.UI.AspNet;
@@ -28,7 +30,14 @@ builder.Services.AddHangfire((provider, hangfireConfiguration) => hangfireConfig
 
 //builder.Services.AddHangfireServer();
 
-//SEMANTICO setup
+//SEMANTICO setup - Configure database provider first
+builder.Services.AddPostgreSqlSemantico(
+    builder.Configuration.GetConnectionString("SemanticoContext")!, "test");
+
+// Uncomment to use SQL Server instead (requires SQL Server connection string)
+// builder.Services.AddSqlServerSemantico(
+//     builder.Configuration.GetConnectionString("SemanticoContext")!);
+
 builder.Services.AddSemanticoAdmin(builder.Configuration, options =>
 {
     options.AddSemanticoScheduler<SemanticoScheduler>();
@@ -45,7 +54,7 @@ app.UseAuthorization();
 app.UseSemanticoUI()
     .UseBasicAuthentication("admin", "admin")
     .UseAuthorization()
-    .AddBlazorUI();
+    .AddBlazorUI("/mirko");
 
 app.UseHangfireDashboard("/hangfire", new DashboardOptions
 {

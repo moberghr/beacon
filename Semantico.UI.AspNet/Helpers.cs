@@ -1,4 +1,5 @@
 using Blazored.LocalStorage;
+using Microsoft.AspNetCore.Components;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using MudBlazor.Services;
 using Semantico.Core;
@@ -21,6 +22,7 @@ public static class Helpers
         services.AddMudServices();
         services.AddSingleton<PageHistoryState>();
         services.AddBlazoredLocalStorage();
+        services.AddHttpContextAccessor();
 
         if (configurationOptions.AuthorizationProvider != null)
         {
@@ -76,8 +78,12 @@ public class SemanticoUIBuilder
         return this;
     }
 
-    public void AddBlazorUI()
+    public void AddBlazorUI(string? basePath = null)
     {
+        basePath = basePath ?? "/semantico";
+
+        _app.UsePathBase(basePath);
+
         if (_basicAuthConfiguration.Enabled)
         {
             _app.UseMiddleware<BasicAuthMiddleware>(_basicAuthConfiguration);
@@ -89,13 +95,14 @@ public class SemanticoUIBuilder
             _app.UseMiddleware<SemanticoAuthorizationMiddleware>(authorizationProvider);
         }
 
-        Semantico.Core.ServiceConfiguration.UseSemantico(_app.Services);
+        ServiceConfiguration.UseSemantico(_app.Services);
+
+        _app.UseStaticFiles();
+
+        _app.UseRouting();
+        _app.UseAntiforgery();
 
         _app.MapRazorComponents<SemanticoApp>()
             .AddInteractiveServerRenderMode();
-
-        _app.UseAntiforgery();
-
-        _app.UseStaticFiles();
     }
 }
