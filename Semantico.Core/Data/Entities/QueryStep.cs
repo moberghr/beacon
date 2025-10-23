@@ -2,7 +2,7 @@ using Semantico.Core.Data.Entities.Base;
 
 namespace Semantico.Core.Data.Entities;
 
-internal class QueryStep : BaseEntity
+public class QueryStep : BaseEntity
 {
     public required int QueryId { get; set; }
     

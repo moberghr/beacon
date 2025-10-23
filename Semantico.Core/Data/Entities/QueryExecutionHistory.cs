@@ -4,7 +4,7 @@ using Semantico.Core.Data.Enums;
 
 namespace Semantico.Core.Data.Entities;
 
-internal class QueryExecutionHistory : BaseEntity, IExecutionHistory
+public class QueryExecutionHistory : BaseEntity, IExecutionHistory
 {
     public required int SubscriptionId { get; set; }
 

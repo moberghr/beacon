@@ -4,7 +4,7 @@ using Semantico.Core.Data.Enums;
 
 namespace Semantico.Core.Data.Entities.DataMigration;
 
-internal class MigrationExecutionHistory : BaseEntity, IExecutionHistory
+public class MigrationExecutionHistory : BaseEntity, IExecutionHistory
 {
     public int MigrationJobId { get; set; }
     public MigrationJob MigrationJob { get; set; } = null!;

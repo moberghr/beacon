@@ -1,5 +1,4 @@
 ﻿using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Semantico.Core.Data.Entities;
 using Semantico.Core.Data.Entities.Base;
 using Semantico.Core.Data.Entities.DataMigration;
@@ -7,12 +6,15 @@ using System.Linq.Expressions;
 
 namespace Semantico.Core.Data;
 
-internal class SemanticoContext : DbContext
+public abstract partial class SemanticoContext : DbContext
 {
-    public SemanticoContext(DbContextOptions<SemanticoContext> options)
+    private readonly string _defaultSchema;
+    protected SemanticoContext(DbContextOptions options, string defaultSchema = "semantico")
        : base(options)
     {
+        _defaultSchema = defaultSchema;
     }
+    protected string DefaultSchema => _defaultSchema;
 
     public DbSet<Subscription> Subscriptions => Set<Subscription>();
 
@@ -21,9 +23,9 @@ internal class SemanticoContext : DbContext
     public DbSet<Query> Queries => Set<Query>();
 
     public DbSet<QueryParameter> QueryParameters => Set<QueryParameter>();
-    
+
     public DbSet<QueryStep> QuerySteps => Set<QueryStep>();
-    
+
     public DbSet<QueryStepParameter> QueryStepParameters => Set<QueryStepParameter>();
 
     public DbSet<Project> Projects => Set<Project>();
@@ -40,15 +42,13 @@ internal class SemanticoContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        modelBuilder.HasDefaultSchema("semantico");
-
+        // Derived classes can use DefaultSchema
         SetSoftDeleteQueryFilter(modelBuilder);
         ConfigureMigrationEntities(modelBuilder);
-
         base.OnModelCreating(modelBuilder);
     }
 
-    private void SetSoftDeleteQueryFilter(ModelBuilder modelBuilder)
+    protected void SetSoftDeleteQueryFilter(ModelBuilder modelBuilder)
     {
         var softDeleteEntities = typeof(ArchivableBaseEntity).Assembly.GetTypes()
             .Where(x => typeof(ArchivableBaseEntity).IsAssignableFrom(x))
@@ -84,7 +84,7 @@ internal class SemanticoContext : DbContext
         }
     }
 
-    private static void ConfigureMigrationEntities(ModelBuilder modelBuilder)
+    protected static void ConfigureMigrationEntities(ModelBuilder modelBuilder)
     {
         // MigrationJob configuration
         modelBuilder.Entity<MigrationJob>(entity =>

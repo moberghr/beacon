@@ -24,12 +24,8 @@ public static class ServiceConfiguration
         semanticoConfiguration(configurationOptions);
         configurationOptions.Validate();
 
-        services.AddDbContextFactory<SemanticoContext>((options) =>
-        {
-            options.UseNpgsql(configuration.GetConnectionString(configurationOptions.ConnectionStringName),
-                builder => builder.MigrationsHistoryTable("__EFMigrationsHistory", "semantico"))
-                .UseSnakeCaseNamingConvention();
-        });
+        // Note: DbContext registration is now handled by the database provider-specific extension methods
+        // (e.g., AddPostgreSqlSemantico or AddSqlServerSemantico)
 
         services.AddHttpClient();
         
@@ -66,10 +62,28 @@ public static class ServiceConfiguration
 
     public static void UseSemantico(IServiceProvider serviceProvider)
     {
-        var scope = serviceProvider.CreateScope();
-        var context = scope.ServiceProvider.GetRequiredService<SemanticoContext>();
+        using var scope = serviceProvider.CreateScope();
+        var contextFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<SemanticoContext>>();
+        using var context = contextFactory.CreateDbContext();
+
+        // Get the schema name from the context
+        var schema = GetSchemaFromContext(context);
+
+        // Ensure the schema exists before running migrations
+        if (!string.IsNullOrEmpty(schema) && schema != "public")
+        {
+            context.Database.ExecuteSqlRaw($"CREATE SCHEMA IF NOT EXISTS \"{schema}\"");
+        }
 
         context.Database.Migrate();
+    }
+
+    private static string GetSchemaFromContext(SemanticoContext context)
+    {
+        // Access the protected DefaultSchema property through reflection
+        var defaultSchemaProperty = typeof(SemanticoContext).GetProperty("DefaultSchema",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        return defaultSchemaProperty?.GetValue(context) as string ?? "semantico";
     }
 }
 

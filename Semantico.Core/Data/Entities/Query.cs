@@ -4,7 +4,7 @@ using Semantico.Core.Data.Enums;
 
 namespace Semantico.Core.Data.Entities;
 
-internal class Query : ArchivableBaseEntity, IMultiStepWorkflow
+public class Query : ArchivableBaseEntity, IMultiStepWorkflow
 {
     public string Name { get; set; } = null!;
 

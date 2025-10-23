@@ -6,7 +6,7 @@ using Semantico.Core.Models.Queries;
 
 namespace Semantico.Core.Data.Entities.DataMigration;
 
-internal class MigrationJob : ArchivableBaseEntity, IScheduledJob, IMultiStepWorkflow
+public class MigrationJob : ArchivableBaseEntity, IScheduledJob, IMultiStepWorkflow
 {
     public required string Name { get; set; }
     public required string Description { get; set; }
