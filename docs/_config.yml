@@ -1,0 +1,49 @@
+# Site settings
+title: "Semantico Documentation"
+description: "Comprehensive documentation for Semantico - semantic database alerting and notification system"
+baseurl: "" # Leave empty for root deployment
+url: "https://moberghr.github.io/semantico"
+
+# Build settings
+markdown: kramdown
+theme: just-the-docs
+
+# Plugins
+plugins:
+  - jekyll-feed
+  - jekyll-seo-tag
+
+# Theme settings (just-the-docs)
+color_scheme: nil  # Use default, or create custom
+logo: "/assets/images/logo.png"
+
+# Navigation
+nav_external_links:
+  - title: GitHub
+    url: https://github.com/moberghr/semantico
+
+# Accessibility
+aux_links:
+  "View on GitHub":
+    - "https://github.com/moberghr/semantico"
+
+# Skip to content for screen readers
+skip_to_content: true
+
+# SEO
+lang: en-US
+author: Semantico Team
+
+# Exclude from build
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - README.md
+  - node_modules/
+  - vendor/
+
+# Collections (optional for future use)
+collections_dir: collections
+
+# Search (disabled per clarification)
+search_enabled: false

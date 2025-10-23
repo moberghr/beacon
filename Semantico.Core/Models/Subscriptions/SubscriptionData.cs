@@ -22,6 +22,11 @@ public class SubscriptionData
     /// Query execution timeout in seconds. If null, no timeout is applied.
     /// </summary>
     public int? TimeoutSeconds { get; set; }
+    
+    /// <summary>
+    /// When true, query results will be stored in the notification record.
+    /// </summary>
+    public bool StoreResults { get; set; } = false;
 
     public List<RecipientData> Recipients { get; set; } = new();
 

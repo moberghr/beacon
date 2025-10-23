@@ -3,7 +3,7 @@ using Semantico.Core.Data.Enums;
 
 namespace Semantico.Core.Data.Entities;
 
-internal class Notification : BaseEntity
+public class Notification : BaseEntity
 {
     public int QueryExecutionHistoryId { get; set; }
     
@@ -12,6 +12,8 @@ internal class Notification : BaseEntity
     public required NotificationType Type { get; set; }
     
     public required DateTime SentAt { get; set; }
+    
+    public string? Results { get; set; }
     
     public QueryExecutionHistory QueryExecutionHistory { get; set; } = null!;
     

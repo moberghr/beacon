@@ -1,6 +1,7 @@
 @using Semantico.Core.Models.Subscriptions
 @using Semantico.Core.Models.Recipients
 @using Semantico.Core.Services
+@using Semantico.UI.Components.Custom
 <MudDialog Class="pb-2">
     <TitleContent>
         <MudText Typo="Typo.h6">
@@ -10,19 +11,10 @@
     </TitleContent>
     <DialogContent>
         <MudForm @ref="@_form" Class="pt-1" @bind-Errors="@errors" @bind-IsValid="_isFormValid">
-            <MudTextField OnlyValidateIfDirty="true"
-            Immediate="true"
-            Margin="Margin.Dense"
-            Variant="Variant.Outlined"
-            Class="mb-2"
-            @bind-Value="@Subscription.CronExpression"
-            Placeholder="* * * * *"
-            Validation="@(new Func<string, Task<string>>(ValidateCron))"
-            T="String"
-            HelperText="@_cronDescription"
-            Label="Cron"
-            Required="true" />
-            
+            <CronExpressionField @bind-Value="@Subscription.CronExpression"
+                                 Label="Cron"
+                                 Required="true" />
+
             <MudNumericField @bind-Value="Subscription.MaxRows" 
                 Label="Max Rows" 
                 Variant="Variant.Outlined" 
@@ -47,6 +39,12 @@
             <MudCheckBox @bind-Value="Subscription.ShowQuery"
                 Label="Show Query in Notification"
                 Color="Color.Primary"
+                Class="mb-2" />
+            
+            <MudCheckBox @bind-Value="Subscription.StoreResults"
+                Label="Store Results in Notification"
+                Color="Color.Primary"
+                HelperText="Store query results in the notification record for later viewing"
                 Class="mb-2" />
                 
             <MudSelect T="string" Label="Recipient" MultiSelection="true" @bind-SelectedValues="_selectedRecipientIds" Required="true" Variant="Variant.Outlined" Margin="Margin.Dense">
@@ -75,7 +73,6 @@
 @inject ISnackbar Snackbar
 @inject ISubscriptionService Service
 @inject IRecipientService RecipientService
-@inject IJSRuntime JSRuntime
 
 @code
 {
@@ -86,9 +83,6 @@
     public SubscriptionData Subscription { get; set; } = new SubscriptionData();
 
     private List<RecipientData> _recipients { get; set; } = [];
-
-    private string _cronDescription { get; set; } = "";
-
     private IEnumerable<string> _selectedRecipientIds { get; set; } = [];
 
     private MudForm _form;
@@ -138,23 +132,4 @@
     }
 
     void Cancel() => MudDialog.Cancel();
-
-    private async Task<string> ValidateCron(string cron)
-    {
-        if (!Cronos.CronExpression.TryParse(cron, out Cronos.CronExpression? expression))
-        {
-            _cronDescription = "";
-
-            return "Invalid cron expression";
-        }
-
-        _cronDescription = cron.GetCronDescription();
-
-        var cronNextAt = cron.GetCronNextAt();
-        var localNextAt = await JSRuntime.InvokeAsync<string>("toLocalTime", cronNextAt);
-
-        _cronDescription += $" -> next at: {localNextAt}";
-
-        return string.Empty;
-    }
 }

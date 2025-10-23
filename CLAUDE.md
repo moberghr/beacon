@@ -24,11 +24,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Database Operations
 ```bash
-# Generate migration
+# Generate schema-agnostic migration (ensure Program.cs uses default "semantico" schema)
 dotnet ef migrations add MigrationName --project Semantico.Core --startup-project Semantico.SampleProject
 
-# Update database
+# For PostgreSQL provider specifically
+dotnet ef migrations add MigrationName --project Semantico.Core.PostgreSql --startup-project Semantico.SampleProject
+
+# For SQL Server provider specifically
+dotnet ef migrations add MigrationName --project Semantico.Core.SqlServer --startup-project Semantico.SampleProject
+
+# Update database (uses schema specified in Program.cs)
 dotnet ef database update --project Semantico.Core --startup-project Semantico.SampleProject
+
+# IMPORTANT: Migrations are schema-agnostic. The schema is specified at runtime via:
+# services.AddPostgreSqlSemantico(connectionString, "your_schema_name")
 ```
 
 ### Handler Structure

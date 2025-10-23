@@ -49,6 +49,8 @@ internal class JobService(IDbContextFactory<SemanticoContext> contextFactory, IQ
 
         NotificationStatus status;
 
+        lastExecutedQuery = null;
+
         // Use the explicit TimedOut flag
         if (queryResult.TimedOut)
         {
@@ -96,7 +98,8 @@ internal class JobService(IDbContextFactory<SemanticoContext> contextFactory, IQ
             {
                 RecipientId = recipient.RecipientId.Value,
                 Type = recipient.NotificationType,
-                SentAt = DateTime.UtcNow
+                SentAt = DateTime.UtcNow,
+                Results = queryResult.SaveResults ? queryResult.QueryResults : null
             };
             
             executedQuery.Notifications.Add(notification);

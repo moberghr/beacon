@@ -10,7 +10,7 @@ internal class StatisticsService(IDbContextFactory<SemanticoContext> contextFact
     public async Task<DashboardStatisticsData> GetDashboardStatistics(CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-        
+
         var notifications = await context.QueryExecutionHistory
             .GroupBy(x => 1)
             .Select(x => new NotificationDateStatisticsData()
@@ -26,7 +26,11 @@ internal class StatisticsService(IDbContextFactory<SemanticoContext> contextFact
             TotalQueries = await context.Queries.CountAsync(cancellationToken),
             TotalQueriesExecuted = notifications?.TotalQueries ?? 0,
             TotalNotificationsSent = notifications?.NotificationsSent ?? 0,
-            ActiveSubscriptions = await context.Subscriptions.CountAsync(cancellationToken)
+            ActiveSubscriptions = await context.Subscriptions.CountAsync(cancellationToken),
+            TotalMigrationJobs = await context.MigrationJobs.CountAsync(cancellationToken),
+            EnabledMigrationJobs = await context.MigrationJobs.CountAsync(m => m.IsEnabled, cancellationToken),
+            TotalMigrationExecutions = await context.MigrationExecutions.CountAsync(cancellationToken),
+            SuccessfulMigrationExecutions = await context.MigrationExecutions.CountAsync(m => m.Status == MigrationStatus.Completed, cancellationToken)
         };
     }
 }

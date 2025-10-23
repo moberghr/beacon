@@ -1,0 +1,213 @@
+@page "/notifications/details/{id:int}"
+@inherits BasePageComponent
+@using Semantico.Core.Data.Enums
+@using Semantico.Core.Models.QueryExecutionHistory
+@using Semantico.Core.Services
+@using System.Text.Json
+
+<SemanticoPageTitle Title="Notification Details"/>
+
+<MudContainer Class="my-4 px-4">
+    <SemanticoPageHeader Icon="@Icons.Material.Filled.Notifications" Title="@($"Notification Details: {Model?.Id}")" />
+    
+    @if (_loading)
+    {
+        <MudCard Class="px-2">
+            <MudCardContent>
+                <MudSkeleton Animation="Animation.Wave"/>
+            </MudCardContent>
+        </MudCard>
+    }
+    else if (Model == null)
+    {
+        <MudAlert Severity="Severity.Error">Notification not found.</MudAlert>
+    }
+    else
+    {
+        <MudCard Class="my-4 px-2">
+            <MudCardContent>
+                <MudGrid Justify="Justify.FlexStart" Spacing="3">
+                    <MudItem xs="12" md="4">
+                        <MudStack Spacing="2">
+                            <MudText Typo="Typo.h6">Notification Information</MudText>
+                            <MudText>
+                                <strong>Notification ID:</strong> @Model.Id
+                            </MudText>
+                            <MudText>
+                                <strong>Type:</strong> @Model.Type
+                            </MudText>
+                            <MudText>
+                                <strong>Created:</strong> @Model.CreatedTime.ToString("yyyy-MM-dd HH:mm:ss")
+                            </MudText>
+                            <MudText>
+                                <strong>Sent At:</strong> @Model.SentAt.ToString("yyyy-MM-dd HH:mm:ss")
+                            </MudText>
+                            <MudStack Row="true" AlignItems="AlignItems.Center">
+                                <MudText><strong>Status:</strong></MudText>
+                                @{
+                                    var status = Model.NotificationStatus;
+                                    var color = status switch
+                                    {
+                                        NotificationStatus.NotificationSent => Color.Success,
+                                        NotificationStatus.Timeout => Color.Error,
+                                        NotificationStatus.NoResults => Color.Warning,
+                                        _ => Color.Default
+                                    };
+                                }
+                                <MudChip T="string" Color="@color" Size="Size.Small">@status</MudChip>
+                            </MudStack>
+                        </MudStack>
+                    </MudItem>
+                    <MudItem xs="12" md="4">
+                        <MudStack Spacing="2">
+                            <MudText Typo="Typo.h6">Recipient Information</MudText>
+                            <MudText>
+                                <strong>Name:</strong> @Model.RecipientName
+                            </MudText>
+                        </MudStack>
+                    </MudItem>
+                    <MudItem xs="12" md="4">
+                        <MudStack Spacing="2">
+                            <MudText Typo="Typo.h6">Query Information</MudText>
+                            <MudText>
+                                <strong>Query:</strong> 
+                                <MudLink Href="@($"/semantico/queries/details/{Model.QueryId}")">
+                                    @Model.QueryName
+                                </MudLink>
+                            </MudText>
+                            <MudText>
+                                <strong>Subscription:</strong> 
+                                <MudLink Href="@($"/semantico/subscriptions/details/{Model.SubscriptionId}")">
+                                    ID @Model.SubscriptionId
+                                </MudLink>
+                            </MudText>
+                            <MudText>
+                                <strong>Execution Time:</strong> @Model.ExecutionTimeMs.ToString("N2") ms
+                            </MudText>
+                            <MudText>
+                                <strong>Result Count:</strong> @(Model.ResultCount?.ToString() ?? "N/A")
+                            </MudText>
+                        </MudStack>
+                    </MudItem>
+                </MudGrid>
+            </MudCardContent>
+        </MudCard>
+
+        @if (!string.IsNullOrEmpty(Model.Results))
+        {
+            <MudCard Class="my-4 px-2">
+                <MudCardHeader>
+                    <CardHeaderContent>
+                        <MudText Typo="Typo.h5">
+                            <MudIcon Icon="@Icons.Material.Filled.Storage" Class="mr-2" />
+                            Stored Results
+                        </MudText>
+                    </CardHeaderContent>
+                    <CardHeaderActions>
+                        <MudButton Variant="Variant.Outlined" 
+                                   StartIcon="@Icons.Material.Filled.ContentCopy"
+                                   OnClick="@CopyResults">
+                            Copy Results
+                        </MudButton>
+                    </CardHeaderActions>
+                </MudCardHeader>
+                <MudCardContent>
+                    @if (_formattedResults != null)
+                    {
+                        <MudDataGrid T="Dictionary<string, object?>" Items="@_formattedResults" Dense="true" Hover="true">
+                            <Columns>
+                                @if (_columns != null)
+                                {
+                                    @foreach (var column in _columns)
+                                    {
+                                        <TemplateColumn Title="@column">
+                                            <CellTemplate>
+                                                @(context.Item.GetValueOrDefault(column)?.ToString() ?? "")
+                                            </CellTemplate>
+                                        </TemplateColumn>
+                                    }
+                                }
+                            </Columns>
+                        </MudDataGrid>
+                    }
+                    else
+                    {
+                        <MudText Typo="Typo.subtitle1"><strong>Raw Results:</strong></MudText>
+                        <MudPaper Class="pa-3" Style="background-color: #f8f9fa; max-height: 400px; overflow-y: auto;">
+                            <pre>@Model.Results</pre>
+                        </MudPaper>
+                    }
+                </MudCardContent>
+            </MudCard>
+        }
+        else
+        {
+            <MudAlert Severity="Severity.Info">No results were stored for this notification.</MudAlert>
+        }
+    }
+</MudContainer>
+
+@inject INotificationService Service
+@inject ISnackbar Snackbar
+@inject IJSRuntime JSRuntime
+
+@code
+{
+    [Parameter]
+    public int Id { get; set; }
+
+    public NotificationDetailsData? Model;
+
+    private bool _loading;
+    private List<Dictionary<string, object?>>? _formattedResults;
+    private List<string>? _columns;
+    
+    protected override async Task OnInitializedAsync()
+    {
+        await Load();
+    }
+
+    private async Task Load()
+    {
+        _loading = true;
+
+        Model = await Service.GetNotificationDetails(Id, new CancellationToken());
+
+        if (Model != null && !string.IsNullOrEmpty(Model.Results))
+        {
+            TryParseResults();
+        }
+
+        _loading = false;
+    }
+
+    private void TryParseResults()
+    {
+        if (string.IsNullOrEmpty(Model?.Results)) return;
+        
+        try
+        {
+            var jsonResults = JsonSerializer.Deserialize<List<Dictionary<string, object?>>>(Model.Results);
+            if (jsonResults != null && jsonResults.Any())
+            {
+                _formattedResults = jsonResults;
+                _columns = jsonResults.First().Keys.ToList();
+            }
+        }
+        catch
+        {
+            // If parsing fails, we'll show raw results
+            _formattedResults = null;
+            _columns = null;
+        }
+    }
+
+    private async Task CopyResults()
+    {
+        if (!string.IsNullOrEmpty(Model?.Results))
+        {
+            await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", Model.Results);
+            Snackbar.Add("Results copied to clipboard", Severity.Success);
+        }
+    }
+}

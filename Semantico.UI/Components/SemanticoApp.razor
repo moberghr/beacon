@@ -1,10 +1,13 @@
-﻿<!DOCTYPE html>
+﻿@using Microsoft.AspNetCore.Components
+@inject NavigationManager NavigationManager
+
+<!DOCTYPE html>
 <html lang="en">
 
 <head>
     <meta charset="utf-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-    <base href="/"/>
+    <base href="@(GetBaseHref())"/>
     <link rel="stylesheet" href="_content/Semantico.UI/bootstrap/bootstrap.min.css"/>
     <link rel="stylesheet" href="_content/Semantico.UI/app.css"/>
     <link rel="stylesheet" href="_content/Semantico.UI/styles.css" />
@@ -23,3 +26,12 @@
 </body>
 
 </html>
+
+@code {
+    private string GetBaseHref()
+    {
+        var baseUri = new Uri(NavigationManager.BaseUri);
+        var path = baseUri.AbsolutePath;
+        return path.EndsWith("/") ? path : $"{path}/";
+    }
+}

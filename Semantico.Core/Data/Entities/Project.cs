@@ -3,7 +3,7 @@ using Semantico.Core.Data.Enums;
 
 namespace Semantico.Core.Data.Entities;
 
-internal class Project : ArchivableBaseEntity
+public class Project : ArchivableBaseEntity
 {
     public required string Name { get; set; }
 
@@ -11,5 +11,5 @@ internal class Project : ArchivableBaseEntity
 
     public required DatabaseEngineType DatabaseEngineType { get; set; }
 
-    public List<Query> Queries { get; set; } = new();
+    public List<QueryStep> QuerySteps { get; set; } = new();
 }

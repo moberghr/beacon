@@ -1,4 +1,4 @@
-﻿@page "/semantico/subscriptions/details/{id:int}"
+﻿@page "/subscriptions/details/{id:int}"
 @inherits BasePageComponent
 @using Semantico.Core.Models.QueryExecutionHistory
 @using Semantico.Core.Models.Subscriptions
@@ -173,6 +173,8 @@
         Model = await Service.GetSubscriptionDetails(Id, CancellationToken.None);
 
         isSubscriptionActive = Model?.Status == "Active";
+        
+        await _notificationsDataGrid!.ReloadServerData();
         
         _loading = false;
     }

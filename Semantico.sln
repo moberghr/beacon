@@ -20,6 +20,26 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "SolutionFiles", "SolutionFi
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Semantico.UI.AspNet", "Semantico.UI.AspNet\Semantico.UI.AspNet.csproj", "{372426F2-1305-4321-B879-86B4C9B60760}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "ClaudePlans", "ClaudePlans", "{10F193FC-252E-42D3-8B3C-422D996B6401}"
+	ProjectSection(SolutionItems) = preProject
+		ClaudePlans\QueryChainingFeature.md = ClaudePlans\QueryChainingFeature.md
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Specify", "Specify", "{088B32FA-6DD4-4BB8-8F43-C5ED32A2EC6D}"
+	ProjectSection(SolutionItems) = preProject
+		Specify\memory\constitution.md = Specify\memory\constitution.md
+		Specify\memory\constitution_update_checklist.md = Specify\memory\constitution_update_checklist.md
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Specs", "Specs", "{73FCA82C-8CAB-4423-82A2-F44E3716A911}"
+	ProjectSection(SolutionItems) = preProject
+		specs\001-data-migrator\spec.md = specs\001-data-migrator\spec.md
+	EndProjectSection
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Semantico.Core.PostgreSql", "Semantico.Core.PostgreSql\Semantico.Core.PostgreSql.csproj", "{3DD8C51A-0E31-4D33-AED7-0346144A79F4}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Semantico.Core.SqlServer", "Semantico.Core.SqlServer\Semantico.Core.SqlServer.csproj", "{1406CB3F-D1CE-4E90-968B-76A7D5C41976}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -42,12 +62,23 @@ Global
 		{372426F2-1305-4321-B879-86B4C9B60760}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{372426F2-1305-4321-B879-86B4C9B60760}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{372426F2-1305-4321-B879-86B4C9B60760}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3DD8C51A-0E31-4D33-AED7-0346144A79F4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3DD8C51A-0E31-4D33-AED7-0346144A79F4}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3DD8C51A-0E31-4D33-AED7-0346144A79F4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3DD8C51A-0E31-4D33-AED7-0346144A79F4}.Release|Any CPU.Build.0 = Release|Any CPU
+		{1406CB3F-D1CE-4E90-968B-76A7D5C41976}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1406CB3F-D1CE-4E90-968B-76A7D5C41976}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1406CB3F-D1CE-4E90-968B-76A7D5C41976}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1406CB3F-D1CE-4E90-968B-76A7D5C41976}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{C3BEF32C-0C1B-4348-8D9D-3DAF7A03392C} = {03B08263-40FB-4846-8ECD-21C47B6156D2}
+		{10F193FC-252E-42D3-8B3C-422D996B6401} = {C3B3544D-E68F-4BC6-B3CF-7F4D260174CA}
+		{088B32FA-6DD4-4BB8-8F43-C5ED32A2EC6D} = {C3B3544D-E68F-4BC6-B3CF-7F4D260174CA}
+		{73FCA82C-8CAB-4423-82A2-F44E3716A911} = {C3B3544D-E68F-4BC6-B3CF-7F4D260174CA}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {7E41E827-707B-47AF-ABA6-807C8C7D2470}
