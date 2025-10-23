@@ -36,6 +36,10 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Specs", "Specs", "{73FCA82C
 		specs\001-data-migrator\spec.md = specs\001-data-migrator\spec.md
 	EndProjectSection
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Semantico.Core.PostgreSql", "Semantico.Core.PostgreSql\Semantico.Core.PostgreSql.csproj", "{3DD8C51A-0E31-4D33-AED7-0346144A79F4}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Semantico.Core.SqlServer", "Semantico.Core.SqlServer\Semantico.Core.SqlServer.csproj", "{1406CB3F-D1CE-4E90-968B-76A7D5C41976}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -58,6 +62,14 @@ Global
 		{372426F2-1305-4321-B879-86B4C9B60760}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{372426F2-1305-4321-B879-86B4C9B60760}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{372426F2-1305-4321-B879-86B4C9B60760}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3DD8C51A-0E31-4D33-AED7-0346144A79F4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3DD8C51A-0E31-4D33-AED7-0346144A79F4}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3DD8C51A-0E31-4D33-AED7-0346144A79F4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3DD8C51A-0E31-4D33-AED7-0346144A79F4}.Release|Any CPU.Build.0 = Release|Any CPU
+		{1406CB3F-D1CE-4E90-968B-76A7D5C41976}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1406CB3F-D1CE-4E90-968B-76A7D5C41976}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1406CB3F-D1CE-4E90-968B-76A7D5C41976}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1406CB3F-D1CE-4E90-968B-76A7D5C41976}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
