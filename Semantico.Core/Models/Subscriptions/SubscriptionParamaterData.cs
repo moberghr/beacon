@@ -2,7 +2,7 @@
 
 public class SubscriptionParamaterData
 {
-    public required string QueryPlaceholder { get; init; }
+    public string? QueryPlaceholder { get; init; }
 
-    public required string Value { get; init; }
+    public string? Value { get; init; }
 }

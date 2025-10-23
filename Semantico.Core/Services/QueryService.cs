@@ -3,6 +3,7 @@ using System.Data.SqlClient;
 using System.Text.Json;
 using Dapper;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using MySql.Data.MySqlClient;
 using Npgsql;
 using Semantico.Core.Adapters;
@@ -21,6 +22,7 @@ namespace Semantico.Core.Services;
 
 public interface IQueryService
 {
+    // ===== EXISTING METHODS (unchanged signatures for backward compatibility) =====
     Task<BaseResponse> CreateQuery(QueryData queryData, CancellationToken cancellationToken);
 
     Task<BaseResponse> UpdateQuery(QueryData queryData, CancellationToken cancellationToken);
@@ -32,29 +34,90 @@ public interface IQueryService
     Task<QueryDetailsData> GetQueryDetails(int queryId, CancellationToken cancellationToken);
     
     Task<QueryResult> ExecuteQuery(int subscriptionId, CancellationToken cancellationToken);
+    
+    // ===== ENHANCED METHODS FOR CROSS-PROJECT FUNCTIONALITY =====
+    Task<QueryExecutionResult> ExecuteQueryAdvanced(int queryId, string? finalQuery = null, List<ParameterValue>? parameters = null, CancellationToken cancellationToken = default);
+    
+    Task<QueryStepResult> PreviewQueryStep(int queryId, int stepOrder, CancellationToken cancellationToken);
+    
+    Task<QueryStepResult> PreviewQueryStep(int queryId, int stepOrder, List<ParameterValue>? parameters, CancellationToken cancellationToken);
+    
+    // Step management with project context
+    Task<BaseResponse> AddQueryStep(int queryId, QueryStepData stepData, CancellationToken cancellationToken);
+    
+    Task<BaseResponse> UpdateQueryStep(int queryId, int stepOrder, QueryStepData stepData, CancellationToken cancellationToken);
+    
+    Task DeleteQueryStep(int queryId, int stepOrder, CancellationToken cancellationToken);
 }
 
 public class QueryDetailsData
 {
     public int Id { get; set; }
 
-    public string Name { get; set; }
+    public string Name { get; set; } = null!;
 
     public string? Description { get; set; }
 
     public DateTime CreatedTime { get; set; }
 
-    public string SqlValue { get; set; }
-
-    public string ProjectName { get; set; }
-
     public int TotalExecutions { get; set; }
 
     public int SentNotifications { get; set; }
 
-    public List<QueryParameterData> Parameters { get; set; } = new();
+    public List<QueryStepData> Steps { get; set; } = new();
+    
+    /// <summary>
+    /// Final query to execute against the in-memory SQLite database with all step results loaded
+    /// Uses @result1, @result2, etc. to reference previous step results
+    /// </summary>
+    public string? FinalQuery { get; set; }
 
+    /// <summary>
+    /// Project ID where the final query should be executed (for database engine context)
+    /// If null, defaults to the first step's project
+    /// </summary>
+    public int? FinalQueryProjectId { get; set; }
+    
     public List<SubscriptionListData> Subscriptions { get; set; } = new();
+    
+    public List<NotificationStatisticsEntry> NotificationHistory { get; set; } = new();
+
+    /// <summary>
+    /// Cross-project computed properties
+    /// </summary>
+    public bool IsMultiStep => Steps.Count > 1;
+    
+    public bool IsCrossProject => Steps.Select(s => s.ProjectId).Distinct().Count() > 1;
+    
+    public bool IsCrossDatabase => Steps.Select(s => s.DatabaseEngineType).Distinct().Count() > 1;
+    
+    public List<string> ProjectNames => Steps.Select(s => s.ProjectName).Distinct().ToList();
+    
+    public List<DatabaseEngineType> DatabaseEngines => Steps.Select(s => s.DatabaseEngineType).Distinct().ToList();
+
+    /// <summary>
+    /// Backward compatibility properties (map to first step)
+    /// </summary>
+    public string SqlValue => Steps.OrderBy(s => s.StepOrder).FirstOrDefault()?.SqlValue ?? "";
+    
+    public string ProjectName => Steps.OrderBy(s => s.StepOrder).FirstOrDefault()?.ProjectName ?? "";
+    
+    public List<QueryParameterData> Parameters => Steps.OrderBy(s => s.StepOrder).FirstOrDefault()?.Parameters.Select(p => new QueryParameterData
+    {
+        Name = p.Name,
+        Type = p.Type,
+        Description = p.Description ?? "",
+        Placeholder = p.Placeholder ?? ""
+    }).ToList() ?? new();
+}
+
+public class NotificationStatisticsEntry
+{
+    public DateTime Date { get; set; }
+    public int TotalExecutions { get; set; }
+    public int SuccessfulNotifications { get; set; }
+    public int FailedExecutions { get; set; }
+    public double SuccessRate => TotalExecutions > 0 ? (double)SuccessfulNotifications / TotalExecutions * 100 : 0;
 }
 
 public class SubscriptionListData
@@ -73,47 +136,100 @@ public class GetQueriesRequest : SortedListRequest
 {
     public int? QueryId { get; set; }
     public int? ProjectId { get; set; }
+
+    public string? QueryName { get; set; }
 }
 
-internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory) : IQueryService
+internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, ILogger<QueryService> logger, ILoggerFactory loggerFactory) : IQueryService
 {
     public async Task<BaseResponse> CreateQuery(QueryData queryData, CancellationToken cancellationToken)
     {
-        QueryValidator.CheckForFlaggedWords(queryData.SqlValue);
+        // Ensure backward compatibility - if no steps, create one from the legacy properties
+        if (!queryData.Steps.Any())
+        {
+            QueryValidator.CheckForFlaggedWords(queryData.SqlValue);
+            QueryValidator.CheckForParameters(queryData.SqlValue, queryData.Parameters);
+            
+            queryData.Steps.Add(new QueryStepData
+            {
+                StepOrder = 1,
+                Name = "Step 1",
+                SqlValue = queryData.SqlValue,
+                ProjectId = queryData.ProjectId,
+                ProjectName = queryData.ProjectName ?? "",
+                DatabaseEngineType = DatabaseEngineType.PostgreSQL, // Will be set correctly from database
+                Parameters = queryData.Parameters.Select(p => new QueryStepParameterData
+                {
+                    Name = p.Name,
+                    Type = p.Type,
+                    Description = p.Description,
+                    Placeholder = p.Placeholder
+                }).ToList()
+            });
+        }
 
-        QueryValidator.CheckForParameters(queryData.SqlValue, queryData.Parameters);
+        // Validate all steps
+        foreach (var step in queryData.Steps)
+        {
+            QueryValidator.CheckForFlaggedWords(step.SqlValue);
+            QueryValidator.CheckForParameters(step.SqlValue, step.Parameters.Select(p => new QueryParameterData
+            {
+                Name = p.Name,
+                Type = p.Type,
+                Description = p.Description ?? "",
+                Placeholder = p.Placeholder ?? ""
+            }).ToList());
+        }
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
         
         var query = new Query
         {
-            SqlValue = queryData.SqlValue,
-            ProjectId = queryData.ProjectId,
             Name = queryData.Name,
-            Description = queryData.Description
+            Description = queryData.Description,
+            FinalQuery = queryData.FinalQuery
         };
 
         context.Queries.Add(query);
+        await context.SaveChangesAsync(cancellationToken); // Save to get query ID
 
-        foreach (var queryParameter in queryData.Parameters)
+        // Create query steps
+        foreach (var stepData in queryData.Steps)
         {
-            var parameter = new QueryParameter
+            var queryStep = new QueryStep
             {
                 QueryId = query.Id,
-                Description = queryParameter.Description,
-                Name = queryParameter.Name,
-                Type = queryParameter.Type,
-                Placeholder = queryParameter.Placeholder,
+                ProjectId = stepData.ProjectId,
+                StepOrder = stepData.StepOrder,
+                Name = stepData.Name,
+                Description = stepData.Description,
+                SqlValue = stepData.SqlValue
             };
 
-            context.QueryParameters.Add(parameter);
+            context.QuerySteps.Add(queryStep);
+            await context.SaveChangesAsync(cancellationToken); // Save to get step ID
+
+            // Create step parameters
+            foreach (var parameterData in stepData.Parameters)
+            {
+                var parameter = new QueryStepParameter
+                {
+                    QueryStepId = queryStep.Id,
+                    Name = parameterData.Name,
+                    Type = parameterData.Type,
+                    Description = parameterData.Description,
+                    Placeholder = parameterData.Placeholder
+                };
+
+                context.QueryStepParameters.Add(parameter);
+            }
         }
 
         await context.SaveChangesAsync(cancellationToken);
 
         return new BaseResponse
         {
-            Message = "Saved successfuly",
+            Message = "Saved successfully",
             Success = true
         };
     }
@@ -123,7 +239,9 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory) 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
         
         var query = await context.Queries
-            .Include(x => x.Parameters)
+            .Include(x => x.Steps)
+                .ThenInclude(s => s.Parameters)
+            .Include(x => x.Subscriptions)
             .Where(x => x.Id == queryId)
             .SingleAsync(cancellationToken);
 
@@ -134,9 +252,14 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory) 
 
         query.Archive();
 
-        foreach (var param in query.Parameters)
+        // Archive all steps and their parameters
+        foreach (var step in query.Steps)
         {
-            param.Archive();
+            foreach (var param in step.Parameters)
+            {
+                context.QueryStepParameters.Remove(param);
+            }
+            context.QuerySteps.Remove(step);
         }
 
         await context.SaveChangesAsync(cancellationToken);
@@ -146,37 +269,55 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory) 
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
         
-        return await context.Queries
+        var results = await context.Queries
             .WhereIf(request.QueryId.HasValue, x => x.Id == request.QueryId)
-            .WhereIf(request.ProjectId.HasValue, x => x.ProjectId == request.ProjectId)
+            .WhereIf(request.QueryName != null, x => x.Name == request.QueryName)
+            .WhereIf(request.ProjectId.HasValue, x => x.Steps.Any(s => s.ProjectId == request.ProjectId))
             .Select(x =>
                 new QueryData
                 {
                     QueryId = x.Id,
-                    SqlValue = x.SqlValue,
-                    ProjectId = x.ProjectId,
-                    ProjectName = x.Project.Name,
                     SubscriptionsCount = x.Subscriptions.Count,
                     CreatedTime = x.CreatedTime,
                     Name = x.Name,
                     Description = x.Description,
-                    Parameters = x.Parameters.Select(y =>
-                        new QueryParameterData
+                    Steps = x.Steps.OrderBy(s => s.StepOrder).Select(s => new QueryStepData
+                    {
+                        StepId = s.Id,
+                        StepOrder = s.StepOrder,
+                        Name = s.Name ?? $"Step {s.StepOrder}",
+                        Description = s.Description,
+                        SqlValue = s.SqlValue,
+                        ProjectId = s.ProjectId,
+                        ProjectName = s.Project.Name,
+                        DatabaseEngineType = s.Project.DatabaseEngineType,
+                        Parameters = s.Parameters.Select(p => new QueryStepParameterData
                         {
-                            Name = y.Name,
-                            Type = y.Type,
-                            Description = y.Description,
-                            Placeholder = y.Placeholder
+                            Name = p.Name,
+                            Type = p.Type,
+                            Description = p.Description,
+                            Placeholder = p.Placeholder
                         }).ToList()
+                    }).ToList()
                 })
             .ToPagedListAsync(request, cancellationToken);
+
+        return results;
     }
 
     public async Task<QueryDetailsData> GetQueryDetails(int queryId, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
         
-        return await context.Queries
+        var result = await context.Queries
+            .Include(x => x.Steps)
+                .ThenInclude(s => s.Project)
+            .Include(x => x.Steps)
+                .ThenInclude(s => s.Parameters)
+            .Include(x => x.Subscriptions)
+                .ThenInclude(s => s.Recipients)
+            .Include(x => x.Subscriptions)
+                .ThenInclude(s => s.QueryExecutionHistory)
             .AsSplitQuery()
             .Where(x => x.Id == queryId)
             .Select(x =>
@@ -184,20 +325,29 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory) 
                 {
                     Id = x.Id,
                     CreatedTime = x.CreatedTime,
-                    SqlValue = x.SqlValue,
-                    ProjectName = x.Project.Name,
                     Name = x.Name,
                     Description = x.Description,
+                    FinalQuery = x.FinalQuery,
                     TotalExecutions = x.Subscriptions.Sum(y => y.QueryExecutionHistory.Count),
                     SentNotifications = x.Subscriptions.Sum(y => y.QueryExecutionHistory.Count(z => z.NotificationStatus == NotificationStatus.NotificationSent)),
-                    Parameters = x.Parameters.Select(y =>
-                        new QueryParameterData
+                    Steps = x.Steps.OrderBy(s => s.StepOrder).Select(s => new QueryStepData
+                    {
+                        StepId = s.Id,
+                        StepOrder = s.StepOrder,
+                        Name = s.Name ?? $"Step {s.StepOrder}",
+                        Description = s.Description,
+                        SqlValue = s.SqlValue,
+                        ProjectId = s.ProjectId,
+                        ProjectName = s.Project.Name,
+                        DatabaseEngineType = s.Project.DatabaseEngineType,
+                        Parameters = s.Parameters.Select(p => new QueryStepParameterData
                         {
-                            Name = y.Name,
-                            Type = y.Type,
-                            Description = y.Description,
-                            Placeholder = y.Placeholder
-                        }).ToList(),
+                            Name = p.Name,
+                            Type = p.Type,
+                            Description = p.Description,
+                            Placeholder = p.Placeholder
+                        }).ToList()
+                    }).ToList(),
                     Subscriptions = x.Subscriptions.Select(y =>
                         new SubscriptionListData
                         {
@@ -205,9 +355,28 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory) 
                             Name = y.Query.Name,
                             CronExpression = y.CronExpression,
                             CreatedTime = y.CreatedTime,
-                            Subscribers = y.Recipients.Select(x => x.Name).ToJson()
+                            Subscribers = y.Recipients.Select(r => r.Name).ToJson()
                         }).ToList()
                 }).SingleAsync(cancellationToken);
+        
+        // Get notification history for the last 30 days
+        var cutoffDate = DateTime.UtcNow.AddDays(-30);
+        var notificationHistory = await context.QueryExecutionHistory
+            .Where(x => x.Subscription.QueryId == queryId && x.CreatedTime >= cutoffDate)
+            .GroupBy(x => x.CreatedTime.Date)
+            .Select(x => new NotificationStatisticsEntry
+            {
+                Date = x.Key,
+                TotalExecutions = x.Count(),
+                SuccessfulNotifications = x.Count(y => y.NotificationStatus == NotificationStatus.NotificationSent),
+                FailedExecutions = x.Count(y => y.NotificationStatus != NotificationStatus.NotificationSent)
+            })
+            .OrderBy(x => x.Date)
+            .ToListAsync(cancellationToken);
+        
+        result.NotificationHistory = notificationHistory;
+        
+        return result;
     }
 
     public async Task<QueryResult> ExecuteQuery(int subscriptionId, CancellationToken cancellationToken)
@@ -215,69 +384,92 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory) 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
         
         var subscription = await context.Subscriptions
-            .AsSplitQuery()
+            .Include(x => x.Recipients)
+            .Include(x => x.Query)
+                .ThenInclude(q => q.Steps)
+                    .ThenInclude(s => s.Project)
+            .Include(x => x.Query)
+                .ThenInclude(q => q.Steps)
+                    .ThenInclude(s => s.Parameters)
             .Where(x => x.Id == subscriptionId)
-            .Select(x =>
-                new
-                {
-                    x.Id,
-                    Recipients = x.Recipients.Select(y => new RecipientData
-                    {
-                        RecipientId = y.Id,
-                        Name = y.Name,
-                        Description = y.Description,
-                        Destination = y.Destination,
-                        NotificationType = y.NotificationType,
-                        ResultAttachmentType = y.ResultAttachmentType,
-                    }).ToList(),
-                    x.QueryId,
-                    x.CronExpression,
-                    x.MaxRows,
-                    x.TimeoutSeconds,
-                    x.Query.SqlValue,
-                    x.Query.Name,
-                    Project = new
-                    {
-                        x.Query.Project.Name,
-                        x.Query.Project.ConnectionString,
-                        x.Query.Project.DatabaseEngineType
-                    },
-                    Parameters = x.Parameters.Select(y =>
-                        new SubscriptionParamaterData
-                        {
-                            QueryPlaceholder = y.QueryPlaceholder,
-                            Value = y.Value
-                        }).ToList()
-                })
             .SingleAsync(cancellationToken);
-        
-        var sql = QueryHelper.CompileSql(subscription.SqlValue, subscription.Parameters);
 
-        QueryValidator.CheckForFlaggedWords(sql);
+        // Use the advanced step-based execution with stored final query if available
+        var executionResult = await ExecuteQueryAdvanced(
+            subscription.QueryId, 
+            finalQuery: subscription.Query.FinalQuery, 
+            parameters: null, 
+            cancellationToken);
 
-        var (results, executionTimeMs, timedOut) = await ExecuteQueryAsync(
-            subscription.Project.DatabaseEngineType, 
-            subscription.Project.ConnectionString, 
-            sql,
-            subscription.TimeoutSeconds);
+        // Convert QueryExecutionResult to QueryResult for backward compatibility
+        QueryResult queryResult;
 
-        // We will only send the top 20 rows in a notification.
-        var messageRows = results.Take(20).ToList();
-
-        var queryResult = new QueryResult
+        if (executionResult.FinalResult != null)
         {
-            QueryResults = JsonSerializer.Serialize(messageRows),
-            TopRecords = messageRows,
-            TotalRecords = results.Count,
-            ProjectName = subscription.Project.Name,
-            SqlQuery = sql,
-            Recipients = subscription.Recipients,
-            SubscriptionName = subscription.Name,
-            AllRecords = results,
-            ExecutionTimeMs = executionTimeMs,
-            TimedOut = timedOut
+            // Multi-step query or query with final result
+            queryResult = executionResult.FinalResult;
+        }
+        else if (executionResult.StepResults.Any() && executionResult.StepResults.Last().Success)
+        {
+            // Single-step query - convert the step result to QueryResult
+            var lastStep = executionResult.StepResults.Last();
+            queryResult = new QueryResult
+            {
+                QueryResults = JsonSerializer.Serialize(lastStep.PreviewResults),
+                TotalRecords = lastStep.TotalRows,
+                ProjectName = lastStep.ProjectName,
+                SqlQuery = lastStep.SqlQuery,
+                SubscriptionName = subscription.Query.Name,
+                SubscriptionId = subscriptionId,
+                TopRecords = lastStep.PreviewResults,
+                AllRecords = lastStep.AllResults,
+                ExecutionTimeMs = lastStep.ExecutionTimeMs,
+                TimedOut = !lastStep.Success,
+                Recipients = new List<RecipientData>()
+            };
+        }
+        else
+        {
+            // Execution failed
+            throw new SemanticoException($"Query execution failed: {executionResult.ErrorMessage ?? "Unknown error"}");
+        }
+
+        // Apply subscription-specific settings and recipients
+        queryResult.Recipients = subscription.Recipients.Select(r => new RecipientData
+        {
+            RecipientId = r.Id,
+            Name = r.Name,
+            Description = r.Description,
+            Destination = r.Destination,
+            NotificationType = r.NotificationType,
+            ResultAttachmentType = r.ResultAttachmentType,
+        }).ToList();
+
+        queryResult.MaxRows = subscription.MaxRows ?? 1_000_000;
+        
+        queryResult.TopRecords = queryResult.TopRecords.Take(queryResult.MaxRows.Value).ToList();
+        queryResult.AllRecords = queryResult.AllRecords.Take(queryResult.MaxRows.Value).ToList();
+        
+        // Need to create a new QueryResult with updated QueryResults since it's init-only
+        queryResult = new QueryResult
+        {
+            QueryResults = JsonSerializer.Serialize(queryResult.TopRecords),
+            TotalRecords = queryResult.TotalRecords,
+            ProjectName = queryResult.ProjectName,
+            SqlQuery = queryResult.SqlQuery,
+            SubscriptionName = subscription.Query.Name,
+            SubscriptionId = subscriptionId,
+            ShowQuery = queryResult.ShowQuery,
+            MaxRows = queryResult.MaxRows,
+            Recipients = queryResult.Recipients,
+            TopRecords = queryResult.TopRecords,
+            AllRecords = queryResult.AllRecords,
+            ExecutionTimeMs = queryResult.ExecutionTimeMs,
+            TimedOut = queryResult.TimedOut,
+            SaveResults = subscription.StoreResults
         };
 
+        
         return queryResult;
     }
 
@@ -286,39 +478,92 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory) 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
         
         var query = await context.Queries
-            .Include(query => query.Parameters)
+            .Include(x => x.Steps)
+                .ThenInclude(s => s.Parameters)
             .Where(x => x.Id == queryData.QueryId)
             .SingleAsync(cancellationToken);
 
-        QueryValidator.CheckForFlaggedWords(queryData.SqlValue);
-        QueryValidator.CheckForParameters(queryData.SqlValue, queryData.Parameters);
+        // Update basic query properties
+        query.Name = queryData.Name;
+        query.Description = queryData.Description;
+        query.FinalQuery = queryData.FinalQuery;
 
-        query.SqlValue = queryData.SqlValue;
-
-        foreach (var queryParameter in query.Parameters)
+        // Handle backward compatibility - if no steps provided, update from legacy properties
+        if (!queryData.Steps.Any() && !string.IsNullOrEmpty(queryData.SqlValue))
         {
-            queryParameter.Archive();
-        }
+            QueryValidator.CheckForFlaggedWords(queryData.SqlValue);
+            QueryValidator.CheckForParameters(queryData.SqlValue, queryData.Parameters);
+            
+            // Update the first (and typically only) step for backward compatibility
+            var firstStep = query.Steps.OrderBy(s => s.StepOrder).First();
+            firstStep.SqlValue = queryData.SqlValue;
+            firstStep.ProjectId = queryData.ProjectId;
 
-        foreach (var queryParameter in queryData.Parameters)
-        {
-            var queryParam = new QueryParameter
+            // Remove existing parameters
+            foreach (var param in firstStep.Parameters.ToList())
             {
-                QueryId = query.Id,
-                Type = queryParameter.Type,
-                Name = queryParameter.Name,
-                Placeholder = queryParameter.Placeholder,
-                Description = queryParameter.Description,
-            };
+                context.QueryStepParameters.Remove(param);
+            }
 
-            context.QueryParameters.Add(queryParam);
+            // Add new parameters
+            foreach (var parameterData in queryData.Parameters)
+            {
+                var parameter = new QueryStepParameter
+                {
+                    QueryStepId = firstStep.Id,
+                    Name = parameterData.Name,
+                    Type = parameterData.Type,
+                    Description = parameterData.Description,
+                    Placeholder = parameterData.Placeholder
+                };
+
+                context.QueryStepParameters.Add(parameter);
+            }
+        }
+        else
+        {
+            // Handle multi-step updates
+            foreach (var stepData in queryData.Steps)
+            {
+                QueryValidator.CheckForFlaggedWords(stepData.SqlValue);
+                
+                var step = query.Steps.FirstOrDefault(s => s.Id == stepData.StepId);
+                if (step != null)
+                {
+                    step.ProjectId = stepData.ProjectId;
+                    step.Name = stepData.Name;
+                    step.Description = stepData.Description;
+                    step.SqlValue = stepData.SqlValue;
+
+                    // Remove existing parameters
+                    foreach (var param in step.Parameters.ToList())
+                    {
+                        context.QueryStepParameters.Remove(param);
+                    }
+
+                    // Add new parameters
+                    foreach (var parameterData in stepData.Parameters)
+                    {
+                        var parameter = new QueryStepParameter
+                        {
+                            QueryStepId = step.Id,
+                            Name = parameterData.Name,
+                            Type = parameterData.Type,
+                            Description = parameterData.Description,
+                            Placeholder = parameterData.Placeholder
+                        };
+
+                        context.QueryStepParameters.Add(parameter);
+                    }
+                }
+            }
         }
 
         await context.SaveChangesAsync(cancellationToken);
 
         return new BaseResponse
         {
-            Message = "Saved successfuly",
+            Message = "Saved successfully",
             Success = true
         };
     }
@@ -382,6 +627,308 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory) 
             // Re-throw other exceptions
             throw;
         }
+    }
+
+    // ===== ENHANCED METHODS FOR CROSS-PROJECT FUNCTIONALITY =====
+    
+    public async Task<QueryExecutionResult> ExecuteQueryAdvanced(int queryId, string? finalQuery = null, List<ParameterValue>? parameters = null, CancellationToken cancellationToken = default)
+    {
+        var query = await GetQueryWithSteps(queryId, cancellationToken);
+        
+        // Use provided parameters or fall back to stored values from query
+        var effectiveFinalQuery = finalQuery ?? query.FinalQuery;
+        
+        // All queries use the same execution path - handles single-DB, multi-step, and cross-DB!
+        return await ExecuteQuerySteps(query, effectiveFinalQuery, parameters, cancellationToken);
+    }
+
+    public async Task<QueryStepResult> PreviewQueryStep(int queryId, int stepOrder, CancellationToken cancellationToken)
+    {
+        return await PreviewQueryStep(queryId, stepOrder, null, cancellationToken);
+    }
+    
+    public async Task<QueryStepResult> PreviewQueryStep(int queryId, int stepOrder, List<ParameterValue>? parameters, CancellationToken cancellationToken)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        
+        var step = await context.QuerySteps
+            .Include(s => s.Project)
+            .Include(s => s.Parameters)
+            .Where(s => s.QueryId == queryId && s.StepOrder == stepOrder)
+            .SingleAsync(cancellationToken);
+
+        return await ExecuteStep(step, parameters);
+    }
+
+    public async Task<BaseResponse> AddQueryStep(int queryId, QueryStepData stepData, CancellationToken cancellationToken)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        
+        var queryStep = new QueryStep
+        {
+            QueryId = queryId,
+            ProjectId = stepData.ProjectId,
+            StepOrder = stepData.StepOrder,
+            Name = stepData.Name,
+            Description = stepData.Description,
+            SqlValue = stepData.SqlValue
+        };
+
+        context.QuerySteps.Add(queryStep);
+        await context.SaveChangesAsync(cancellationToken);
+
+        // Create step parameters
+        foreach (var parameterData in stepData.Parameters)
+        {
+            var parameter = new QueryStepParameter
+            {
+                QueryStepId = queryStep.Id,
+                Name = parameterData.Name,
+                Type = parameterData.Type,
+                Description = parameterData.Description,
+                Placeholder = parameterData.Placeholder
+            };
+
+            context.QueryStepParameters.Add(parameter);
+        }
+
+        await context.SaveChangesAsync(cancellationToken);
+
+        return new BaseResponse
+        {
+            Message = "Query step added successfully",
+            Success = true
+        };
+    }
+
+    public async Task<BaseResponse> UpdateQueryStep(int queryId, int stepOrder, QueryStepData stepData, CancellationToken cancellationToken)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        
+        var queryStep = await context.QuerySteps
+            .Include(s => s.Parameters)
+            .Where(s => s.QueryId == queryId && s.StepOrder == stepOrder)
+            .SingleAsync(cancellationToken);
+
+        queryStep.ProjectId = stepData.ProjectId;
+        queryStep.Name = stepData.Name;
+        queryStep.Description = stepData.Description;
+        queryStep.SqlValue = stepData.SqlValue;
+
+        // Archive existing parameters
+        foreach (var parameter in queryStep.Parameters)
+        {
+            context.QueryStepParameters.Remove(parameter);
+        }
+
+        // Create new parameters
+        foreach (var parameterData in stepData.Parameters)
+        {
+            var parameter = new QueryStepParameter
+            {
+                QueryStepId = queryStep.Id,
+                Name = parameterData.Name,
+                Type = parameterData.Type,
+                Description = parameterData.Description,
+                Placeholder = parameterData.Placeholder
+            };
+
+            context.QueryStepParameters.Add(parameter);
+        }
+
+        await context.SaveChangesAsync(cancellationToken);
+
+        return new BaseResponse
+        {
+            Message = "Query step updated successfully",
+            Success = true
+        };
+    }
+
+    public async Task DeleteQueryStep(int queryId, int stepOrder, CancellationToken cancellationToken)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        
+        var queryStep = await context.QuerySteps
+            .Where(s => s.QueryId == queryId && s.StepOrder == stepOrder)
+            .SingleAsync(cancellationToken);
+
+        // Cannot delete if it's the only step
+        var stepCount = await context.QuerySteps.CountAsync(s => s.QueryId == queryId, cancellationToken);
+        if (stepCount <= 1)
+        {
+            throw new SemanticoException("Cannot delete the last remaining query step.");
+        }
+
+        context.QuerySteps.Remove(queryStep);
+        await context.SaveChangesAsync(cancellationToken);
+    }
+
+    // ===== PRIVATE HELPER METHODS FOR CROSS-PROJECT EXECUTION =====
+    
+    private async Task<Query> GetQueryWithSteps(int queryId, CancellationToken cancellationToken)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        
+        return await context.Queries
+            .Include(q => q.Steps)
+                .ThenInclude(s => s.Project)
+            .Include(q => q.Steps)
+                .ThenInclude(s => s.Parameters)
+            .Where(q => q.Id == queryId)
+            .SingleAsync(cancellationToken);
+    }
+
+    private async Task<QueryExecutionResult> ExecuteQuerySteps(Query query, string? finalQuery, List<ParameterValue>? parameters, CancellationToken cancellationToken)
+    {
+        var stepResults = new List<QueryStepResult>();
+        using var virtualTableManager = new VirtualTableManager(loggerFactory.CreateLogger<VirtualTableManager>());
+        var totalExecutionTime = 0.0;
+        var projectExecutionTimes = new Dictionary<string, double>();
+        
+        logger.LogInformation("Executing query chain {QueryId}: {StepCount} steps across {ProjectCount} projects", 
+            query.Id, query.Steps.Count, query.ProjectIds.Count);
+        
+        // Execute each step against its own database
+        foreach (var step in query.Steps.OrderBy(s => s.StepOrder))
+        {
+            logger.LogDebug("Executing step {StepOrder} against project {ProjectName} ({DatabaseEngine})", 
+                step.StepOrder, step.Project.Name, step.Project.DatabaseEngineType);
+            
+            var stepResult = await ExecuteStep(step, parameters);
+            stepResults.Add(stepResult);
+            totalExecutionTime += stepResult.ExecutionTimeMs;
+            
+            // Track execution time by project
+            var projectKey = $"{step.Project.Name} ({step.Project.DatabaseEngineType})";
+            projectExecutionTimes[projectKey] = projectExecutionTimes.GetValueOrDefault(projectKey, 0) + stepResult.ExecutionTimeMs;
+            
+            if (stepResult.Success)
+            {
+                // Add results to virtual table manager with project context
+                var projectInfo = new ProjectInfo
+                {
+                    Name = step.Project.Name,
+                    DatabaseEngine = step.Project.DatabaseEngineType.ToString(),
+                    DatabaseEngineType = step.Project.DatabaseEngineType
+                };
+                
+                virtualTableManager.AddVirtualTable($"@result{step.StepOrder}", stepResult.AllResults, projectInfo);
+            }
+            else
+            {
+                logger.LogError("Step {StepOrder} failed: {ErrorMessage}", step.StepOrder, stepResult.ErrorMessage);
+                break; // Stop execution on first failure
+            }
+        }
+        
+        QueryResult? finalResult = null;
+        bool allStepsSucceeded = stepResults.All(s => s.Success);
+        
+        if (!string.IsNullOrEmpty(finalQuery) && allStepsSucceeded)
+        {
+            finalResult = await ExecuteFinalQuery(finalQuery, virtualTableManager);
+            totalExecutionTime += finalResult.ExecutionTimeMs;
+        }
+        else if (query.Steps.Count == 1 && string.IsNullOrEmpty(finalQuery) && allStepsSucceeded)
+        {
+            // Single-step query - convert step result to QueryResult
+            finalResult = ConvertStepToQueryResult(stepResults[0], query);
+        }
+        
+        return new QueryExecutionResult
+        {
+            StepResults = stepResults,
+            FinalResult = finalResult,
+            Success = allStepsSucceeded,
+            TotalExecutionTimeMs = totalExecutionTime,
+            IsMultiStep = query.IsMultiStep,
+            IsCrossProject = query.IsCrossProject,
+            IsCrossDatabase = query.IsCrossDatabase,
+            ProjectsInvolved = stepResults.Select(s => s.ProjectName).Distinct().ToList(),
+            DatabaseEnginesUsed = stepResults.Select(s => s.DatabaseEngineType).Distinct().ToList(),
+            ExecutionTimeByProject = projectExecutionTimes
+        };
+    }
+
+    private async Task<QueryStepResult> ExecuteStep(QueryStep step, List<ParameterValue>? parameters)
+    {
+        var stepParameters = ExtractStepParameters(step, parameters);
+        var compiledSql = QueryHelper.CompileSql(step.SqlValue, stepParameters);
+        
+        // Each step executes against its own project/database
+        var (results, executionTimeMs, timedOut) = await ExecuteQueryAsync(
+            step.Project.DatabaseEngineType,   // Each step can be different engine type!
+            step.Project.ConnectionString,     // Each step connects to different database
+            compiledSql,
+            null // Use default timeout
+        );
+        
+        return new QueryStepResult
+        {
+            StepOrder = step.StepOrder,
+            StepName = step.Name ?? $"Step {step.StepOrder}",
+            SqlQuery = compiledSql,
+            ProjectName = step.Project.Name,
+            DatabaseEngine = step.Project.DatabaseEngineType.ToString(),
+            DatabaseEngineType = step.Project.DatabaseEngineType,
+            PreviewResults = results.Take(10).ToList(),
+            AllResults = results,
+            TotalRows = results.Count,
+            ExecutionTimeMs = executionTimeMs,
+            Success = !timedOut,
+            ErrorMessage = timedOut ? "Step execution timed out" : null
+        };
+    }
+
+    private async Task<QueryResult> ExecuteFinalQuery(string finalQuery, VirtualTableManager virtualTableManager)
+    {
+            logger.LogInformation("Using in-memory SQLite database for final query execution");
+            var inMemoryDbLogger = loggerFactory.CreateLogger<InMemoryDatabaseManager>();
+            return await virtualTableManager.ExecuteFinalQueryWithInMemoryDatabase(
+                finalQuery, 
+                inMemoryDbLogger, 
+                CancellationToken.None);
+    }
+
+    private QueryResult ConvertStepToQueryResult(QueryStepResult stepResult, Query query)
+    {
+        return new QueryResult
+        {
+            QueryResults = JsonSerializer.Serialize(stepResult.PreviewResults),
+            TotalRecords = stepResult.TotalRows,
+            ProjectName = stepResult.ProjectName,
+            SqlQuery = stepResult.SqlQuery,
+            AllRecords = stepResult.AllResults,
+            TopRecords = stepResult.PreviewResults,
+            SubscriptionName = query.Name,
+            SubscriptionId = null,
+            ExecutionTimeMs = stepResult.ExecutionTimeMs,
+            TimedOut = !stepResult.Success,
+            Recipients = new List<RecipientData>()
+        };
+    }
+
+    private async Task<Project> GetProject(int projectId, CancellationToken cancellationToken)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        return await context.Projects.Where(p => p.Id == projectId).SingleAsync(cancellationToken);
+    }
+
+    private List<SubscriptionParamaterData> ExtractStepParameters(QueryStep step, List<ParameterValue>? parameters)
+    {
+        if (parameters == null || !parameters.Any())
+            return new List<SubscriptionParamaterData>();
+
+        return step.Parameters.Select(p =>
+        {
+            var value = parameters.FirstOrDefault(param => param.Name == p.Name)?.Value ?? "";
+            return new SubscriptionParamaterData
+            {
+                QueryPlaceholder = p.Name,
+                Value = value
+            };
+        }).ToList();
     }
 
     private static DbConnection GetDbConnection(DatabaseEngineType dbEngineType, string connectionString) => dbEngineType switch

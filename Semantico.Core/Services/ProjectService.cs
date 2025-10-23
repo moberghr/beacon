@@ -49,9 +49,9 @@ internal class ProjectService(IDbContextFactory<SemanticoContext> contextFactory
             .Where(x => x.Id == projectId)
             .SingleAsync(cancellationToken);
 
-        if (project.Queries.Count > 0)
+        if (project.QuerySteps.Count > 0)
         {
-            throw new SemanticoException($"Unable to remove project due to existing queries");
+            throw new SemanticoException($"Unable to remove project due to existing query steps");
         }
 
         project.Archive();
@@ -63,29 +63,45 @@ internal class ProjectService(IDbContextFactory<SemanticoContext> contextFactory
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
         
         return await context.Projects
+            .Include(x => x.QuerySteps)
+                .ThenInclude(qs => qs.Query)
+                    .ThenInclude(q => q.Subscriptions)
+            .Include(x => x.QuerySteps)
+                .ThenInclude(qs => qs.Parameters)
             .WhereIf(projectId.HasValue, x => x.Id == projectId)
             .Select(x => new ProjectListData
             {
                 Id = x.Id,
                 Name = x.Name,
                 DatabaseEngineType = x.DatabaseEngineType,
-                Queries = x.Queries.Select(y => new QueryData
-                {
-                    QueryId = y.Id,
-                    SqlValue = y.SqlValue,
-                    ProjectId = y.ProjectId,
-                    ProjectName = x.Name,
-                    SubscriptionsCount = y.Subscriptions.Count,
-                    CreatedTime = y.CreatedTime,
-                    Parameters = y.Parameters.Select(z =>
-                        new QueryParameterData
+                Queries = x.QuerySteps
+                    .GroupBy(qs => qs.QueryId)
+                    .Select(g => new QueryData
+                    {
+                        QueryId = g.Key,
+                        Name = g.First().Query.Name,
+                        Description = g.First().Query.Description,
+                        CreatedTime = g.First().Query.CreatedTime,
+                        SubscriptionsCount = g.First().Query.Subscriptions.Count,
+                        Steps = g.OrderBy(qs => qs.StepOrder).Select(qs => new QueryStepData
                         {
-                            Name = z.Name,
-                            Type = z.Type,
-                            Description = z.Description,
-                            Placeholder = z.Placeholder
+                            StepId = qs.Id,
+                            StepOrder = qs.StepOrder,
+                            Name = qs.Name ?? $"Step {qs.StepOrder}",
+                            Description = qs.Description,
+                            SqlValue = qs.SqlValue,
+                            ProjectId = qs.ProjectId,
+                            ProjectName = x.Name,
+                            DatabaseEngineType = x.DatabaseEngineType,
+                            Parameters = qs.Parameters.Select(p => new QueryStepParameterData
+                            {
+                                Name = p.Name,
+                                Type = p.Type,
+                                Description = p.Description,
+                                Placeholder = p.Placeholder
+                            }).ToList()
                         }).ToList()
-                }).ToList()
+                    }).ToList()
             })
             .ToListAsync(cancellationToken);
     }

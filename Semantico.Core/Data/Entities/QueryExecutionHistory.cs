@@ -1,9 +1,10 @@
-﻿using Semantico.Core.Data.Entities.Base;
+﻿using Semantico.Core.Abstractions;
+using Semantico.Core.Data.Entities.Base;
 using Semantico.Core.Data.Enums;
 
 namespace Semantico.Core.Data.Entities;
 
-internal class QueryExecutionHistory : BaseEntity
+public class QueryExecutionHistory : BaseEntity, IExecutionHistory
 {
     public required int SubscriptionId { get; set; }
 
@@ -18,4 +19,15 @@ internal class QueryExecutionHistory : BaseEntity
     public List<Notification> Notifications { get; set; } = new();
 
     public Subscription Subscription { get; set; } = null!;
+
+    // IExecutionHistory implementation
+    DateTime IExecutionHistory.StartedAt => CreatedTime;
+    DateTime? IExecutionHistory.CompletedAt => CreatedTime.AddMilliseconds(ExecutionTimeMs);
+    TimeSpan IExecutionHistory.ExecutionDuration => TimeSpan.FromMilliseconds(ExecutionTimeMs);
+    bool IExecutionHistory.Success => NotificationStatus == NotificationStatus.NotificationSent;
+    string? IExecutionHistory.ErrorMessage => NotificationStatus == NotificationStatus.Timeout
+        ? "Query execution timed out"
+        : NotificationStatus != NotificationStatus.NotificationSent
+            ? $"Notification status: {NotificationStatus}"
+            : null;
 }

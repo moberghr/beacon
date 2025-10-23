@@ -64,6 +64,7 @@ internal class SubscriptionService(IDbContextFactory<SemanticoContext> contextFa
             IncludeAttachment = subscriptionData.IncludeAttachment,
             ShowQuery = subscriptionData.ShowQuery,
             TimeoutSeconds = subscriptionData.TimeoutSeconds,
+            StoreResults = subscriptionData.StoreResults,
             Recipients = recipients,
             Parameters = subscriptionData.Parameters.Select(x =>
                 new SubscriptionParameter
@@ -134,6 +135,7 @@ internal class SubscriptionService(IDbContextFactory<SemanticoContext> contextFa
                     IncludeAttachment = x.IncludeAttachment,
                     ShowQuery = x.ShowQuery,
                     TimeoutSeconds = x.TimeoutSeconds,
+                    StoreResults = x.StoreResults,
                     Parameters = x.Parameters.Select(y => new SubscriptionParamaterData
                     {
                         QueryPlaceholder = y.QueryPlaceholder,
@@ -179,6 +181,7 @@ internal class SubscriptionService(IDbContextFactory<SemanticoContext> contextFa
         subscription.IncludeAttachment = subscriptionData.IncludeAttachment;
         subscription.ShowQuery = subscriptionData.ShowQuery;
         subscription.TimeoutSeconds = subscriptionData.TimeoutSeconds;
+        subscription.StoreResults = subscriptionData.StoreResults;
         subscription.Recipients = recipients;
 
         foreach (var subscriptionParameter in subscription.Parameters)
@@ -234,6 +237,7 @@ internal class SubscriptionService(IDbContextFactory<SemanticoContext> contextFa
                 IncludeAttachment = x.IncludeAttachment,
                 ShowQuery = x.ShowQuery,
                 TimeoutSeconds = x.TimeoutSeconds,
+                StoreResults = x.StoreResults,
                 Status = x.ArchivedTime.HasValue ? "Archived" : "Active",
                 Parameters = x.Parameters.Select(y => new SubscriptionParamaterData()
                 {

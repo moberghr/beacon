@@ -2,7 +2,7 @@
 
 namespace Semantico.Core.Data.Entities.Base;
 
-internal abstract class ArchivableBaseEntity : BaseEntity
+public abstract class ArchivableBaseEntity : BaseEntity
 {
     public DateTime? ArchivedTime { get; set; } = null!;
 

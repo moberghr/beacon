@@ -1,0 +1,11 @@
+using Semantico.Core.Helpers;
+
+namespace Semantico.Core.Models.DataMigration;
+
+public class GetMigrationJobsRequest : SortedListRequest
+{
+    public int? ProjectId { get; set; }
+    public bool? IsEnabled { get; set; }
+    public bool IncludeArchived { get; set; } = false;
+    public string? SearchTerm { get; set; }
+}

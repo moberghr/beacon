@@ -1,0 +1,132 @@
+@page "/about"
+@inherits BasePageComponent
+
+<SemanticoPageTitle Title="About"/>
+
+<MudContainer Class="my-4 px-4">
+    <SemanticoPageHeader Icon="@Icons.Material.Filled.Info" Title="About Semantico"/>
+    
+    <MudCard Class="my-4">
+        <MudCardContent>
+            <MudStack Spacing="4">
+                
+                <MudStack Spacing="2">
+                    <MudText Typo="Typo.h5">What is Semantico?</MudText>
+                    <MudText Typo="Typo.body1">
+                        Semantico is a powerful query automation and notification platform that enables organizations to monitor their data sources 
+                        and receive intelligent notifications when important changes occur. Built with .NET and Blazor, Semantico provides 
+                        a modern, scalable solution for data-driven decision making.
+                    </MudText>
+                </MudStack>
+
+                <MudStack Spacing="2">
+                    <MudText Typo="Typo.h5">Key Features</MudText>
+                    <MudList  T="string">
+                        <MudListItem T="string">
+                            <div style="display: flex; align-items: center;">
+                                <MudIcon Icon="@Icons.Material.Filled.QueryBuilder" Class="mr-3" />
+                                <MudText><strong>Query Management:</strong> Create, schedule, and manage SQL queries across multiple data sources</MudText>
+                            </div>
+                        </MudListItem>
+                        <MudListItem T="string">
+                            <div style="display: flex; align-items: center;">
+                                <MudIcon Icon="@Icons.Material.Filled.Notifications" Class="mr-3" />
+                                <MudText><strong>Smart Notifications:</strong> Receive notifications via Teams, email, or other channels when query results change</MudText>
+                            </div>
+                        </MudListItem>
+                        <MudListItem T="string">
+                            <div style="display: flex; align-items: center;">
+                                <MudIcon Icon="@Icons.Material.Filled.Subscriptions" Class="mr-3" />
+                                <MudText><strong>Subscription System:</strong> Set up recurring query executions with customizable parameters and schedules</MudText>
+                            </div>
+                        </MudListItem>
+                        <MudListItem T="string">
+                            <div style="display: flex; align-items: center;">
+                                <MudIcon Icon="@Icons.Material.Filled.Analytics" Class="mr-3" />
+                                <MudText><strong>Analytics & Monitoring:</strong> Track query performance, notification delivery, and system health</MudText>
+                            </div>
+                        </MudListItem>
+                    </MudList>
+                </MudStack>
+
+                <MudStack Spacing="2">
+                    <MudText Typo="Typo.h5">How It Works</MudText>
+                    <MudGrid>
+                        <MudItem xs="12" md="4">
+                            <MudPaper Class="pa-4" Style="height: 100%;">
+                                <MudStack AlignItems="AlignItems.Center" Spacing="2">
+                                    <MudAvatar Size="MudBlazor.Size.Large" Color="Color.Primary">
+                                        <MudIcon Icon="@Icons.Material.Filled.Create" />
+                                    </MudAvatar>
+                                    <MudText Typo="Typo.h6" Align="Align.Center">1. Create Queries</MudText>
+                                    <MudText Typo="Typo.body2" Align="Align.Center">
+                                        Define SQL queries that monitor your critical data sources and business metrics.
+                                    </MudText>
+                                </MudStack>
+                            </MudPaper>
+                        </MudItem>
+                        <MudItem xs="12" md="4">
+                            <MudPaper Class="pa-4" Style="height: 100%;">
+                                <MudStack AlignItems="AlignItems.Center" Spacing="2">
+                                    <MudAvatar Size="MudBlazor.Size.Large" Color="Color.Secondary">
+                                        <MudIcon Icon="@Icons.Material.Filled.Schedule" />
+                                    </MudAvatar>
+                                    <MudText Typo="Typo.h6" Align="Align.Center">2. Schedule Execution</MudText>
+                                    <MudText Typo="Typo.body2" Align="Align.Center">
+                                        Set up subscriptions with custom schedules and parameters to automate query execution.
+                                    </MudText>
+                                </MudStack>
+                            </MudPaper>
+                        </MudItem>
+                        <MudItem xs="12" md="4">
+                            <MudPaper Class="pa-4" Style="height: 100%;">
+                                <MudStack AlignItems="AlignItems.Center" Spacing="2">
+                                    <MudAvatar Size="MudBlazor.Size.Large" Color="Color.Success">
+                                        <MudIcon Icon="@Icons.Material.Filled.NotificationImportant" />
+                                    </MudAvatar>
+                                    <MudText Typo="Typo.h6" Align="Align.Center">3. Get Notified</MudText>
+                                    <MudText Typo="Typo.body2" Align="Align.Center">
+                                        Receive intelligent notifications when results change, with duplicate detection and smart filtering.
+                                    </MudText>
+                                </MudStack>
+                            </MudPaper>
+                        </MudItem>
+                    </MudGrid>
+                </MudStack>
+
+                <MudStack Spacing="2">
+                    <MudText Typo="Typo.h5">Architecture</MudText>
+                    <MudText Typo="Typo.body1">
+                        Semantico is built using modern .NET technologies and follows Clean Architecture principles:
+                    </MudText>
+                    <MudList T="string">
+                        <MudListItem T="string">
+                            <MudText><strong>Frontend:</strong> Blazor Server with MudBlazor components for a responsive, modern UI</MudText>
+                        </MudListItem>
+                        <MudListItem T="string">
+                            <MudText><strong>Backend:</strong> .NET Core with Entity Framework for robust data access and business logic</MudText>
+                        </MudListItem>
+                        <MudListItem T="string">
+                            <MudText><strong>Background Processing:</strong> Hosted services for scheduled query execution and notification delivery</MudText>
+                        </MudListItem>
+                    </MudList>
+                </MudStack>
+
+                <MudDivider />
+
+                <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                    <MudStack Row="true" AlignItems="AlignItems.Center">
+                        <MudText Typo="Typo.body1" Class="mud-text-secondary">Semantico v0.8</MudText>
+                    </MudStack>
+                    <MudStack Row="true" Spacing="2">
+                        <MudText Typo="Typo.body2" Class="mud-text-secondary">Built with</MudText>
+                        <MudChip T="string" Size="MudBlazor.Size.Small" Color="Color.Primary">.NET</MudChip>
+                        <MudChip T="string" Size="MudBlazor.Size.Small" Color="Color.Secondary">Blazor</MudChip>
+                        <MudChip T="string" Size="MudBlazor.Size.Small" Color="Color.Tertiary">MudBlazor</MudChip>
+                    </MudStack>
+                </MudStack>
+
+            </MudStack>
+        </MudCardContent>
+    </MudCard>
+</MudContainer>
