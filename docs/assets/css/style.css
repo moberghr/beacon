@@ -1,0 +1,237 @@
+/* WCAG 2.1 Level A Accessibility Styles for Semantico Documentation */
+
+/* Skip to content link for keyboard navigation */
+.skip-to-content {
+  position: absolute;
+  left: -9999px;
+  z-index: 999;
+  padding: 1em;
+  background-color: #000;
+  color: #fff;
+  text-decoration: none;
+}
+
+.skip-to-content:focus {
+  left: 50%;
+  transform: translateX(-50%);
+  top: 0;
+}
+
+/* Focus indicators for keyboard navigation */
+a:focus,
+button:focus,
+input:focus,
+textarea:focus,
+select:focus {
+  outline: 3px solid #0366d6;
+  outline-offset: 2px;
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  :root {
+    --contrast-bg: #000;
+    --contrast-text: #fff;
+    --contrast-link: #4da6ff;
+  }
+
+  body {
+    background-color: var(--contrast-bg);
+    color: var(--contrast-text);
+  }
+
+  a {
+    color: var(--contrast-link);
+    text-decoration: underline;
+  }
+}
+
+/* Ensure sufficient color contrast (4.5:1 minimum) */
+:root {
+  --text-primary: #24292e;
+  --text-secondary: #586069;
+  --bg-primary: #ffffff;
+  --bg-secondary: #f6f8fa;
+  --link-color: #0366d6;
+  --link-hover: #0056b3;
+}
+
+body {
+  color: var(--text-primary);
+  background-color: var(--bg-primary);
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+/* Headings with clear hierarchy */
+h1 {
+  font-size: 2em;
+  margin: 0.67em 0;
+  font-weight: 600;
+}
+
+h2 {
+  font-size: 1.5em;
+  margin: 0.83em 0;
+  font-weight: 600;
+  border-bottom: 1px solid #eaecef;
+  padding-bottom: 0.3em;
+}
+
+h3 {
+  font-size: 1.25em;
+  margin: 1em 0;
+  font-weight: 600;
+}
+
+h4 {
+  font-size: 1em;
+  margin: 1.33em 0;
+  font-weight: 600;
+}
+
+/* Links with sufficient contrast */
+a {
+  color: var(--link-color);
+  text-decoration: underline;
+}
+
+a:hover {
+  color: var(--link-hover);
+}
+
+a:visited {
+  color: #6f42c1;
+}
+
+/* Code blocks with clear distinction */
+code {
+  background-color: rgba(27, 31, 35, 0.05);
+  border-radius: 3px;
+  font-size: 85%;
+  margin: 0;
+  padding: 0.2em 0.4em;
+}
+
+pre {
+  background-color: #f6f8fa;
+  border-radius: 3px;
+  font-size: 85%;
+  line-height: 1.45;
+  overflow: auto;
+  padding: 16px;
+}
+
+pre code {
+  background-color: transparent;
+  padding: 0;
+}
+
+/* Tables with clear borders */
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1em 0;
+}
+
+th,
+td {
+  border: 1px solid #dfe2e5;
+  padding: 6px 13px;
+  text-align: left;
+}
+
+th {
+  background-color: var(--bg-secondary);
+  font-weight: 600;
+}
+
+/* Form elements with clear labels */
+label {
+  display: block;
+  margin-bottom: 0.5em;
+  font-weight: 600;
+}
+
+input,
+textarea,
+select {
+  border: 1px solid #d1d5da;
+  border-radius: 3px;
+  padding: 5px 10px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* Buttons with clear interaction states */
+button,
+.button {
+  background-color: #2ea44f;
+  border: 1px solid rgba(27, 31, 35, 0.15);
+  border-radius: 6px;
+  color: #ffffff;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  padding: 6px 16px;
+  text-align: center;
+  text-decoration: none;
+  vertical-align: middle;
+}
+
+button:hover,
+.button:hover {
+  background-color: #2c974b;
+}
+
+button:focus,
+.button:focus {
+  outline: 3px solid #0366d6;
+  outline-offset: 2px;
+}
+
+/* Responsive images */
+img {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Mobile responsive adjustments */
+@media (max-width: 768px) {
+  body {
+    font-size: 14px;
+  }
+
+  h1 {
+    font-size: 1.75em;
+  }
+
+  h2 {
+    font-size: 1.4em;
+  }
+
+  h3 {
+    font-size: 1.2em;
+  }
+
+  table {
+    font-size: 14px;
+  }
+}
+
+/* Print styles */
+@media print {
+  a {
+    text-decoration: underline;
+  }
+
+  a[href]:after {
+    content: " (" attr(href) ")";
+  }
+
+  pre,
+  blockquote {
+    page-break-inside: avoid;
+  }
+}
