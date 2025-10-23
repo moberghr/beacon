@@ -1,91 +1,181 @@
 # Semantico
 
-## Overview
+[![NuGet](https://img.shields.io/badge/NuGet-available-blue)](https://www.nuget.org/)
+[![Documentation](https://img.shields.io/badge/docs-github.io-blue)](https://moberghr.github.io/semantico)
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![.NET](https://img.shields.io/badge/.NET-9.0-purple)](https://dotnet.microsoft.com/)
 
-Semantico is a powerful dockerized application designed to provide semantic alerts and notifications.
+Semantico is a powerful .NET library designed to provide semantic alerts and notifications for your databases.
 
-With Semantico, you can create projects with their respective connection strings to the database (PostgreSQL, MS SQL, or MySQL), and set up personalized queries.
+With Semantico, you can create projects with their respective connection strings to the database (PostgreSQL, MS SQL, or MySQL), and set up personalized queries with scheduled execution and flexible notification delivery through a Blazor-based admin UI.
 
-Queries have the option to include placeholders for dynamic data.
+## 🚀 Quick Start
 
-Queries can also be used by other users. 
+Add Semantico to your ASP.NET application in under 30 minutes:
 
-## Getting Started
+1. **Install NuGet packages**
+   ```bash
+   dotnet add package Semantico.Core.PostgreSql
+   dotnet add package Semantico.UI.AspNet
+   ```
 
-### Setup - Secrets / Environment Varibles
+2. **Configure in Program.cs**
+   ```csharp
+   builder.Services.AddPostgreSqlSemantico(
+       builder.Configuration.GetConnectionString("SemanticoContext")!,
+       schema: "semantico");
 
-Please define the connection string using the key:
-- ConnectionStrings__SemanticoContext
+   builder.Services.AddSemanticoAdmin(builder.Configuration, options =>
+   {
+       options.AddSemanticoScheduler<YourScheduler>();
+   });
+   ```
 
-<b>Semantico currently only supports a PostgreSQL base database.</b>
+3. **Add UI and run migrations**
+   ```csharp
+   app.UseSemanticoUI()
+       .UseBasicAuthentication("admin", "admin")
+       .AddBlazorUI("/semantico");
 
-If you want to use email notification feature, you will also need to define:
-- SendGridSettings__Apikey
-- SendGridSettings__SenderEmail
-- SendGridSettings__SenderName
+   ServiceConfiguration.UseSemantico(app.Services);
+   ```
 
-Expose the port 80 to have API access.
+4. **Access the UI** at `http://localhost:5000/semantico`
 
-### Example with Docker Compose
+📚 [View detailed quick start guide →](https://moberghr.github.io/semantico/getting-started/quick-start)
 
-You can run Semantico by defining it as such in your compose.yaml
+## ✨ Key Features
+
+- **Multi-Database Support** - Connect to PostgreSQL, SQL Server, and MySQL databases
+- **Flexible Alerting** - Schedule queries with cron expressions for precise timing
+- **Query Chaining** - Build multi-step queries with cross-project and cross-database capabilities
+- **Notification Channels** - Deliver results via Email, Microsoft Teams, or Jira
+- **Full Results as Attachments** - Send complete query results as Excel/CSV attachments for reporting
+- **Query Parameters** - Use dynamic placeholders for flexible query definitions
+- **Data Migration** - Orchestrate and track schema migrations with full audit history
+- **Blazor Admin UI** - Modern, responsive UI built with MudBlazor
+- **Schema-Agnostic** - Support multi-tenant deployments with runtime schema configuration
+
+[Explore all features →](https://moberghr.github.io/semantico/features/)
+
+## 📦 Installation
+
+### NuGet Packages
+
+Semantico is distributed as NuGet packages. Install the database provider package for your needs:
+
+**For PostgreSQL (recommended):**
+```bash
+dotnet add package Semantico.Core.PostgreSql
+dotnet add package Semantico.UI.AspNet
 ```
-services:
-  yourApi:
-    image: 'yourApi:latest'
-    ...
-  
-  semantico:
-    image: 'ghcr.io/moberghr/semantico:latest'
-    # env_file: semantico.env # pass setup values through an env file or using secrets
-    ports:
-      - 8080:80
+
+**For SQL Server:**
+```bash
+dotnet add package Semantico.Core.SqlServer
+dotnet add package Semantico.UI.AspNet
 ```
 
-### Semantico Api-Key
+### Basic Setup
 
-To get started with Semantico, you will need a valid Api-Key. The base Semantico Api-Key is provided below:
+Add to your ASP.NET Core `Program.cs`:
 
+```csharp
+using Semantico.Core.PostgreSql;
+using Semantico.UI.AspNet;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// Configure Semantico with PostgreSQL
+builder.Services.AddPostgreSqlSemantico(
+    builder.Configuration.GetConnectionString("SemanticoContext")!,
+    schema: "semantico");
+
+// Add Semantico admin UI
+builder.Services.AddSemanticoAdmin(builder.Configuration, options =>
+{
+    options.AddSemanticoScheduler<YourHangfireScheduler>();
+});
+
+var app = builder.Build();
+
+// Configure Semantico UI
+app.UseSemanticoUI()
+    .UseBasicAuthentication("admin", "admin")
+    .UseAuthorization()
+    .AddBlazorUI("/semantico");
+
+// Run migrations
+ServiceConfiguration.UseSemantico(app.Services);
+
+app.Run();
 ```
-00000000-0000-0000-0000-000000000000
+
+Add connection string to `appsettings.json`:
+
+```json
+{
+  "ConnectionStrings": {
+    "SemanticoContext": "Host=localhost;Database=semantico;Username=postgres;Password=yourpassword"
+  }
+}
 ```
 
-Please keep this Api-Key secure and avoid sharing it with unauthorized users.
+📚 [View detailed installation guide →](https://moberghr.github.io/semantico/getting-started/installation)
 
-### Frontend
-Currently (v1.0.0), we are still missing FE. You can use all the below mentioned features through Swagger / API calls.
+## 📖 Documentation
 
-### Projects
+- **Getting Started**
+  - [Installation Guide](https://moberghr.github.io/semantico/getting-started/installation) - NuGet package setup
+  - [Quick Start](https://moberghr.github.io/semantico/getting-started/quick-start) - First query in 30 minutes
+  - [Configuration](https://moberghr.github.io/semantico/getting-started/configuration) - Connection strings and options
 
-1. Log in to Semantico using the Api-Key.
-2. Navigate to the "Projects" section.
-3. Click on the "Create New Project" button.
-4. Fill in the project details: name, database connection string and the database engine type.
+- **Features**
+  - [Projects](https://moberghr.github.io/semantico/features/projects) - Database connection management
+  - [Queries](https://moberghr.github.io/semantico/features/queries) - Query creation and parameters
+  - [Multi-Step Queries](https://moberghr.github.io/semantico/features/multi-step-queries) - Advanced query chaining
+  - [Subscriptions](https://moberghr.github.io/semantico/features/subscriptions) - Scheduled execution
+  - [Notifications](https://moberghr.github.io/semantico/features/notifications) - Email, Teams, Jira delivery
 
-Semantico currently supports connections to the following databases:
-- PostgreSQL
-- MS SQL
-- MySQL
+- **Advanced**
+  - [Query Chaining](https://moberghr.github.io/semantico/advanced/query-chaining) - Cross-project queries
+  - [Multi-Tenant Deployments](https://moberghr.github.io/semantico/advanced/multi-tenant) - Schema-agnostic configuration
+  - [Architecture](https://moberghr.github.io/semantico/advanced/architecture) - Clean Architecture deep-dive
 
-### Queries
+- **Reference**
+  - [API Services](https://moberghr.github.io/semantico/api/services) - Service interfaces
+  - [Troubleshooting](https://moberghr.github.io/semantico/troubleshooting/common-issues) - Common issues and solutions
 
-1. Within a project, navigate to the "Queries" section.
-2. Click on the "Create New Query" button.
-3. Define your query using the appropriate SQL syntax, and optionally add placeholders for dynamic data.
+## 🎯 Use Cases
 
-### Subscriptions
+### Data Validation Alerts
+Developers create queries that alert when data doesn't meet expected criteria - invalid states, missing required data, or business rule violations. DBAs can also use this for database health monitoring (table size, connection count, replication lag).
 
-1. Navigate to the "Subscriptions" section within a project.
-2. Click on the "Create New Subscription" button.
-3. Select the query you want to associate with the subscription.
-4. Define a cron expression to regulate the execution frequency.
-5. If there are defined query parameters, make sure you define all of the data per your needs.
-6. Choose the notification method (email, Teams, or Jira) for results delivery.
+### Scheduled Reports with Attachments
+Generate and deliver automated reports with full query results as Excel or CSV attachments. Perfect for daily sales reports, weekly summaries, or monthly analytics delivered directly to stakeholders' inboxes.
 
-## Support and Feedback
+### Cross-Database Reporting
+Aggregate data from PostgreSQL, SQL Server, and MySQL into unified reports with multi-step queries and automated delivery.
 
-Thank you for choosing Semantico! We hope you find it invaluable for managing your alerts and notifications.
+### Data Migration Orchestration
+Track data migrations across environments with execution history and validation checks for compliance audit trails.
 
-If you encounter any issues or have suggestions for improvements, please don't hesitate to open an issue.
+## 🔧 Requirements
 
+- **.NET 9.0** or later
+- **PostgreSQL 12+** or **SQL Server 2019+** for Semantico metadata database
+- **Hangfire** (for job scheduling) - you must configure this in your application
+- **(Optional)** Email provider for email notifications (built-in support for any SMTP-compatible service)
 
+## 🤝 Support and Contributing
+
+- **Issues** - [Report bugs or request features](https://github.com/moberghr/semantico/issues)
+- **Discussions** - [Ask questions and share ideas](https://github.com/moberghr/semantico/discussions)
+- **Contributing** - [Contribution guidelines](https://moberghr.github.io/semantico/contributing/guidelines)
+
+Thank you for choosing Semantico! We hope you find it invaluable for managing your database alerts and notifications.
+
+---
+
+**Documentation**: [https://moberghr.github.io/semantico](https://moberghr.github.io/semantico)
+**Repository**: [https://github.com/moberghr/semantico](https://github.com/moberghr/semantico)
