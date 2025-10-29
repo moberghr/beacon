@@ -18,7 +18,7 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
 #pragma warning disable 612, 618
             modelBuilder
                 .HasDefaultSchema("semantico")
-                .HasAnnotation("ProductVersion", "9.0.6")
+                .HasAnnotation("ProductVersion", "9.0.9")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -42,7 +42,7 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                     b.ToTable("recipient_subscription", "semantico");
                 });
 
-            modelBuilder.Entity("Semantico.Core.Data.Entities.DataMigration.MigrationExecution", b =>
+            modelBuilder.Entity("Semantico.Core.Data.Entities.DataMigration.MigrationExecutionHistory", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
@@ -699,7 +699,7 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                         .HasConstraintName("fk_recipient_subscription_subscriptions_subscriptions_id");
                 });
 
-            modelBuilder.Entity("Semantico.Core.Data.Entities.DataMigration.MigrationExecution", b =>
+            modelBuilder.Entity("Semantico.Core.Data.Entities.DataMigration.MigrationExecutionHistory", b =>
                 {
                     b.HasOne("Semantico.Core.Data.Entities.DataMigration.MigrationJob", "MigrationJob")
                         .WithMany("Executions")
@@ -708,7 +708,7 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                         .IsRequired()
                         .HasConstraintName("fk_migration_executions_migration_jobs_migration_job_id");
 
-                    b.HasOne("Semantico.Core.Data.Entities.DataMigration.MigrationExecution", "ParentExecution")
+                    b.HasOne("Semantico.Core.Data.Entities.DataMigration.MigrationExecutionHistory", "ParentExecution")
                         .WithMany()
                         .HasForeignKey("ParentExecutionId")
                         .OnDelete(DeleteBehavior.SetNull)
