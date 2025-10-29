@@ -4,6 +4,17 @@
 		<TargetFramework>net9.0</TargetFramework>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<Nullable>enable</Nullable>
+
+		<!-- Package Information -->
+		<Version>2.0.1</Version>
+		<Authors>https://github.com/MiBu</Authors>
+		<Description>Semantico core library providing semantic alerts and notifications for databases. Includes domain models, services, and data access abstractions for PostgreSQL, SQL Server, and MySQL support.</Description>
+		<PackageProjectUrl>https://github.com/moberghr/semantico</PackageProjectUrl>
+		<RepositoryUrl>https://github.com/moberghr/semantico</RepositoryUrl>
+		<RepositoryType>git</RepositoryType>
+		<PackageLicenseExpression>MIT</PackageLicenseExpression>
+		<PackageTags>semantico;database;alerts;notifications;postgresql;sqlserver;mysql;blazor</PackageTags>
+		<IsPackable>true</IsPackable>
 	</PropertyGroup>
 
 	<ItemGroup>
