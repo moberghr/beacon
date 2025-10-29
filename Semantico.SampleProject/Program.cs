@@ -32,7 +32,7 @@ builder.Services.AddHangfire((provider, hangfireConfiguration) => hangfireConfig
 
 //SEMANTICO setup - Configure database provider first
 builder.Services.AddPostgreSqlSemantico(
-    builder.Configuration.GetConnectionString("SemanticoContext")!, "test");
+    builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
 
 // Uncomment to use SQL Server instead (requires SQL Server connection string)
 // builder.Services.AddSqlServerSemantico(
@@ -54,7 +54,7 @@ app.UseAuthorization();
 app.UseSemanticoUI()
     .UseBasicAuthentication("admin", "admin")
     .UseAuthorization()
-    .AddBlazorUI("/mirko");
+    .AddBlazorUI("/semantico");
 
 app.UseHangfireDashboard("/hangfire", new DashboardOptions
 {

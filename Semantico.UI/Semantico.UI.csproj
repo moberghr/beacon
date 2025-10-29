@@ -4,6 +4,17 @@
         <TargetFramework>net9.0</TargetFramework>
         <Nullable>enable</Nullable>
         <ImplicitUsings>enable</ImplicitUsings>
+
+        <!-- Package Information -->
+        <Version>2.0.1</Version>
+        <Authors>https://github.com/MiBu</Authors>
+        <Description>Blazor UI components for Semantico. Provides MudBlazor-based admin interface for managing projects, queries, subscriptions, and notifications.</Description>
+        <PackageProjectUrl>https://github.com/moberghr/semantico</PackageProjectUrl>
+        <RepositoryUrl>https://github.com/moberghr/semantico</RepositoryUrl>
+        <RepositoryType>git</RepositoryType>
+        <PackageLicenseExpression>MIT</PackageLicenseExpression>
+        <PackageTags>semantico;blazor;ui;mudblazor;admin;dashboard</PackageTags>
+        <IsPackable>true</IsPackable>
     </PropertyGroup>
 
 
