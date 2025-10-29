@@ -17,46 +17,47 @@ jobs:
       uses: actions/setup-dotnet@v1
       with:
         dotnet-version: '9.0'
-    
+
     - name: Add the GitHub NuGet Source
       run: |
         dotnet nuget add source "https://nuget.pkg.github.com/moberghr/index.json" --name github --username ${{ github.actor }} --password ${{ secrets.GITHUB_TOKEN }} --store-password-in-clear-text
 
-    - name: Semantico.Core - Install dependencies
-      working-directory: Semantico.Core
+    - name: Restore dependencies
       run: dotnet restore
 
-    - name: "Semantico.Core - Create a NuGet package"
-      working-directory: Semantico.Core
-      run: dotnet pack -p:PackageVersion=${{github.ref_name}} --configuration Release
+    - name: Find and publish packable projects
+      run: |
+        # Find all .csproj files with IsPackable=true
+        PACKABLE_PROJECTS=$(find . -name "*.csproj" -not -path "*/bin/*" -not -path "*/obj/*" -exec grep -l "<IsPackable>true</IsPackable>" {} \;)
 
-    - name: "Semantico.Core - Push NuGet package"
-      working-directory: Semantico.Core
-      run: dotnet nuget push "bin/Release/Semantico.Core.${{github.ref_name}}.nupkg" --source "github"
+        echo "Found packable projects:"
+        echo "$PACKABLE_PROJECTS"
 
-    - name: Semantico.UI - Install dependencies
-      working-directory: Semantico.UI
-      run: dotnet restore
+        # Pack and push each project
+        for PROJECT in $PACKABLE_PROJECTS; do
+          PROJECT_DIR=$(dirname "$PROJECT")
+          PROJECT_NAME=$(basename "$PROJECT_DIR")
 
-    - name: "Semantico.UI - Create a NuGet package"
-      working-directory: Semantico.UI
-      run: dotnet pack -p:PackageVersion=${{github.ref_name}} --configuration Release
+          echo "Processing: $PROJECT_NAME"
 
-    - name: "Semantico.UI - Push NuGet package"
-      working-directory: Semantico.UI
-      run: dotnet nuget push "bin/Release/Semantico.UI.${{github.ref_name}}.nupkg" --source "github"
+          # Create NuGet package
+          dotnet pack "$PROJECT" \
+            -p:PackageVersion=${{github.ref_name}} \
+            --configuration Release \
+            --no-restore
 
-    - name: Semantico.UI.AspNet - Install dependencies
-      working-directory: Semantico.UI.AspNet
-      run: dotnet restore
+          # Find and push the package
+          PACKAGE_PATH=$(find "$PROJECT_DIR/bin/Release" -name "$PROJECT_NAME.${{github.ref_name}}.nupkg" | head -n 1)
 
-    - name: "Semantico.UI.AspNet - Create a NuGet package"
-      working-directory: Semantico.UI.AspNet
-      run: dotnet pack -p:PackageVersion=${{github.ref_name}} --configuration Release
-
-    - name: "Semantico.UI.AspNet - Push NuGet package"
-      working-directory: Semantico.UI.AspNet
-      run: dotnet nuget push "bin/Release/Semantico.UI.AspNet.${{github.ref_name}}.nupkg" --source "github"
+          if [ -f "$PACKAGE_PATH" ]; then
+            echo "Pushing package: $PACKAGE_PATH"
+            dotnet nuget push "$PACKAGE_PATH" --source "github"
+          else
+            echo "Error: Package not found for $PROJECT_NAME"
+            exit 1
+          fi
+        done
 
     - name: "Cleanup - Remove NuGet Source"
+      if: always()
       run: dotnet nuget remove source github
