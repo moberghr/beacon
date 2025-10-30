@@ -352,9 +352,7 @@ Use this to verify cron expressions are correct.
 4. Hangfire background job service is running
 
 **Verify Hangfire:**
-```bash
-docker compose logs semantico | grep -i hangfire
-```
+Check application logs for Hangfire service status and any errors.
 
 ### Execution Timeout
 

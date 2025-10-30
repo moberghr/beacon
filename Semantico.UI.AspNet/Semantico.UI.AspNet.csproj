@@ -10,8 +10,8 @@
         <Version>2.0.1</Version>
         <Authors>https://github.com/MiBu</Authors>
         <Description>ASP.NET Core integration for Semantico UI. Provides middleware and service extensions for hosting the Semantico Blazor admin interface in ASP.NET Core applications.</Description>
-        <PackageProjectUrl>https://github.com/moberghr/semantico</PackageProjectUrl>
-        <RepositoryUrl>https://github.com/moberghr/semantico</RepositoryUrl>
+        <PackageProjectUrl>https://github.com/MiBu/semantico</PackageProjectUrl>
+        <RepositoryUrl>https://github.com/MiBu/semantico</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
         <PackageLicenseExpression>MIT</PackageLicenseExpression>
         <PackageTags>semantico;aspnet;blazor;ui;middleware;admin</PackageTags>
