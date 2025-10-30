@@ -1,29 +1,87 @@
-/* WCAG 2.1 Level A Accessibility Styles for Semantico Documentation */
+---
+---
+@import "{{ site.theme }}";
 
-/* Skip to content link for keyboard navigation */
+/* ========================================
+   Semantico Documentation - Modern Design
+   Based on logo color palette
+   ======================================== */
+
+/* Brand Colors from Logo */
+:root {
+  /* Primary brand colors */
+  --brand-cyan: #00d4ff;
+  --brand-light-blue: #4da6ff;
+  --brand-blue: #0066ff;
+  --brand-purple: #8b5cf6;
+  --brand-magenta: #e946ff;
+  --brand-dark-blue: #0d1b3e;
+  --brand-deep-blue: #1a2b5c;
+
+  /* Semantic colors */
+  --text-primary: #24292e;
+  --text-secondary: #586069;
+  --bg-primary: #ffffff;
+  --bg-secondary: #f8f9fb;
+  --bg-code: #f5f7fa;
+  --link-color: var(--brand-blue);
+  --link-hover: var(--brand-cyan);
+  --border-color: #e8ecf1;
+
+  /* Gradients */
+  --gradient-primary: linear-gradient(135deg, var(--brand-cyan) 0%, var(--brand-blue) 50%, var(--brand-purple) 100%);
+  --gradient-accent: linear-gradient(135deg, var(--brand-blue) 0%, var(--brand-magenta) 100%);
+  --gradient-subtle: linear-gradient(135deg, rgba(0, 212, 255, 0.1) 0%, rgba(139, 92, 246, 0.1) 100%);
+
+  /* Shadows */
+  --shadow-sm: 0 1px 3px rgba(13, 27, 62, 0.08);
+  --shadow-md: 0 4px 12px rgba(13, 27, 62, 0.12);
+  --shadow-lg: 0 8px 24px rgba(13, 27, 62, 0.16);
+  --shadow-glow: 0 0 20px rgba(0, 212, 255, 0.3);
+}
+
+/* Dark mode colors */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-primary: #0d1117;
+    --bg-secondary: #161b22;
+    --bg-code: #1a1f28;
+    --text-primary: #e6edf3;
+    --text-secondary: #8b949e;
+    --border-color: #30363d;
+  }
+}
+
+/* ========================================
+   WCAG 2.1 Level A Accessibility
+   ======================================== */
+
+/* Skip to content link */
 .skip-to-content {
   position: absolute;
   left: -9999px;
   z-index: 999;
   padding: 1em;
-  background-color: #000;
+  background: var(--brand-dark-blue);
   color: #fff;
   text-decoration: none;
+  border-radius: 4px;
 }
 
 .skip-to-content:focus {
   left: 50%;
   transform: translateX(-50%);
-  top: 0;
+  top: 10px;
+  box-shadow: var(--shadow-lg);
 }
 
-/* Focus indicators for keyboard navigation */
+/* Focus indicators */
 a:focus,
 button:focus,
 input:focus,
 textarea:focus,
 select:focus {
-  outline: 3px solid #0366d6;
+  outline: 3px solid var(--brand-cyan);
   outline-offset: 2px;
 }
 
@@ -32,68 +90,77 @@ select:focus {
   :root {
     --contrast-bg: #000;
     --contrast-text: #fff;
-    --contrast-link: #4da6ff;
+    --contrast-link: var(--brand-cyan);
   }
-
   body {
     background-color: var(--contrast-bg);
     color: var(--contrast-text);
   }
-
   a {
     color: var(--contrast-link);
     text-decoration: underline;
   }
 }
 
-/* Ensure sufficient color contrast (4.5:1 minimum) */
-:root {
-  --text-primary: #24292e;
-  --text-secondary: #586069;
-  --bg-primary: #ffffff;
-  --bg-secondary: #f6f8fa;
-  --link-color: #0366d6;
-  --link-hover: #0056b3;
-}
+/* ========================================
+   Typography
+   ======================================== */
 
 body {
   color: var(--text-primary);
   background-color: var(--bg-primary);
   font-size: 16px;
-  line-height: 1.6;
+  line-height: 1.7;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
-/* Headings with clear hierarchy */
+/* Headings with modern style */
+h1, h2, h3, h4, h5, h6 {
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: -0.02em;
+}
+
 h1 {
-  font-size: 2em;
+  font-size: 2.5em;
   margin: 0.67em 0;
-  font-weight: 600;
+  background: var(--gradient-primary);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 h2 {
-  font-size: 1.5em;
-  margin: 0.83em 0;
-  font-weight: 600;
-  border-bottom: 1px solid #eaecef;
+  font-size: 2em;
+  margin: 1.5em 0 0.75em;
+  color: var(--brand-dark-blue);
+  border-bottom: 2px solid transparent;
+  border-image: var(--gradient-primary);
+  border-image-slice: 1;
   padding-bottom: 0.3em;
 }
 
 h3 {
-  font-size: 1.25em;
-  margin: 1em 0;
-  font-weight: 600;
+  font-size: 1.5em;
+  margin: 1.2em 0 0.6em;
+  color: var(--brand-deep-blue);
 }
 
 h4 {
-  font-size: 1em;
-  margin: 1.33em 0;
-  font-weight: 600;
+  font-size: 1.25em;
+  margin: 1em 0 0.5em;
+  color: var(--brand-deep-blue);
 }
 
-/* Links with sufficient contrast */
+/* ========================================
+   Links
+   ======================================== */
+
 a {
   color: var(--link-color);
-  text-decoration: underline;
+  text-decoration: none;
+  transition: all 0.2s ease;
+  position: relative;
 }
 
 a:hover {
@@ -101,126 +168,247 @@ a:hover {
 }
 
 a:visited {
-  color: #6f42c1;
+  color: var(--brand-purple);
 }
 
-/* Code blocks with clear distinction */
+/* Fancy link underline animation */
+.main-content a:not(.btn) {
+  background-image: linear-gradient(var(--brand-cyan), var(--brand-cyan));
+  background-position: 0% 100%;
+  background-repeat: no-repeat;
+  background-size: 0% 2px;
+  transition: background-size 0.3s ease;
+}
+
+.main-content a:not(.btn):hover {
+  background-size: 100% 2px;
+}
+
+/* ========================================
+   Code Blocks
+   ======================================== */
+
 code {
-  background-color: rgba(27, 31, 35, 0.05);
-  border-radius: 3px;
-  font-size: 85%;
-  margin: 0;
-  padding: 0.2em 0.4em;
+  background-color: var(--bg-code);
+  border-radius: 4px;
+  font-size: 0.9em;
+  padding: 0.2em 0.5em;
+  border: 1px solid var(--border-color);
+  font-family: "SF Mono", Monaco, "Cascadia Code", "Roboto Mono", Consolas, monospace;
 }
 
 pre {
-  background-color: #f6f8fa;
-  border-radius: 3px;
-  font-size: 85%;
-  line-height: 1.45;
+  background-color: var(--bg-code);
+  border-radius: 8px;
+  font-size: 0.9em;
+  line-height: 1.5;
   overflow: auto;
-  padding: 16px;
+  padding: 1.25rem;
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-sm);
 }
 
 pre code {
   background-color: transparent;
   padding: 0;
+  border: none;
 }
 
-/* Tables with clear borders */
+/* ========================================
+   Tables
+   ======================================== */
+
 table {
   border-collapse: collapse;
   width: 100%;
-  margin: 1em 0;
+  margin: 1.5em 0;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
 }
 
 th,
 td {
-  border: 1px solid #dfe2e5;
-  padding: 6px 13px;
+  border: 1px solid var(--border-color);
+  padding: 12px 16px;
   text-align: left;
 }
 
 th {
-  background-color: var(--bg-secondary);
+  background: var(--gradient-subtle);
   font-weight: 600;
+  color: var(--brand-dark-blue);
+  border-bottom: 2px solid var(--brand-cyan);
 }
 
-/* Form elements with clear labels */
+tr:hover {
+  background-color: var(--bg-secondary);
+  transition: background-color 0.2s ease;
+}
+
+/* ========================================
+   Buttons
+   ======================================== */
+
+.btn,
+button,
+.button {
+  background: var(--gradient-primary);
+  border: none;
+  border-radius: 8px;
+  color: #ffffff;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+  padding: 12px 24px;
+  text-align: center;
+  text-decoration: none;
+  display: inline-block;
+  transition: all 0.3s ease;
+  box-shadow: var(--shadow-sm);
+}
+
+.btn:hover,
+button:hover,
+.button:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+  color: #ffffff;
+}
+
+.btn:active,
+button:active,
+.button:active {
+  transform: translateY(0);
+}
+
+.btn-primary {
+  background: var(--gradient-primary);
+}
+
+.btn-outline {
+  background: transparent;
+  border: 2px solid var(--brand-cyan);
+  color: var(--brand-blue);
+}
+
+.btn-outline:hover {
+  background: var(--gradient-primary);
+  color: #ffffff;
+  border-color: transparent;
+}
+
+/* ========================================
+   Cards & Sections
+   ======================================== */
+
+.code-example {
+  background: var(--gradient-subtle);
+  border-left: 4px solid var(--brand-cyan);
+  border-radius: 8px;
+  padding: 1.5rem;
+  margin: 1.5rem 0;
+  box-shadow: var(--shadow-sm);
+}
+
+/* ========================================
+   Logo & Branding
+   ======================================== */
+
+.site-title {
+  font-weight: 700;
+  background: var(--gradient-primary);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.site-logo {
+  max-height: 48px;
+  margin-right: 12px;
+}
+
+/* ========================================
+   Form Elements
+   ======================================== */
+
 label {
   display: block;
   margin-bottom: 0.5em;
   font-weight: 600;
+  color: var(--text-primary);
 }
 
 input,
 textarea,
 select {
-  border: 1px solid #d1d5da;
-  border-radius: 3px;
-  padding: 5px 10px;
+  border: 2px solid var(--border-color);
+  border-radius: 6px;
+  padding: 8px 12px;
   font-size: 14px;
   line-height: 1.5;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
 }
 
-/* Buttons with clear interaction states */
-button,
-.button {
-  background-color: #2ea44f;
-  border: 1px solid rgba(27, 31, 35, 0.15);
-  border-radius: 6px;
-  color: #ffffff;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 500;
-  line-height: 20px;
-  padding: 6px 16px;
-  text-align: center;
-  text-decoration: none;
-  vertical-align: middle;
+input:focus,
+textarea:focus,
+select:focus {
+  border-color: var(--brand-cyan);
+  box-shadow: 0 0 0 3px rgba(0, 212, 255, 0.1);
 }
 
-button:hover,
-.button:hover {
-  background-color: #2c974b;
-}
+/* ========================================
+   Responsive Images
+   ======================================== */
 
-button:focus,
-.button:focus {
-  outline: 3px solid #0366d6;
-  outline-offset: 2px;
-}
-
-/* Responsive images */
 img {
   max-width: 100%;
   height: auto;
+  border-radius: 8px;
 }
 
-/* Mobile responsive adjustments */
+/* ========================================
+   Mobile Responsive
+   ======================================== */
+
 @media (max-width: 768px) {
   body {
     font-size: 14px;
   }
 
   h1 {
-    font-size: 1.75em;
+    font-size: 2em;
   }
 
   h2 {
-    font-size: 1.4em;
+    font-size: 1.6em;
   }
 
   h3 {
-    font-size: 1.2em;
+    font-size: 1.3em;
+  }
+
+  .btn, button, .button {
+    padding: 10px 20px;
+    font-size: 13px;
   }
 
   table {
-    font-size: 14px;
+    font-size: 13px;
+  }
+
+  th, td {
+    padding: 8px 10px;
   }
 }
 
-/* Print styles */
+/* ========================================
+   Print Styles
+   ======================================== */
+
 @media print {
   a {
     text-decoration: underline;
@@ -231,7 +419,12 @@ img {
   }
 
   pre,
-  blockquote {
+  blockquote,
+  table {
     page-break-inside: avoid;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    page-break-after: avoid;
   }
 }

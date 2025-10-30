@@ -1,0 +1,45 @@
+<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Stylized S logo with flowing lines for favicon -->
+  <g transform="translate(6, 4)">
+    <!-- Outer flowing lines (cyan to blue) -->
+    <path d="M 12 0 Q 18 0, 19 4" stroke="url(#g1)" stroke-width="2" stroke-linecap="round" fill="none"/>
+    <path d="M 10 3 Q 16 3, 17 7" stroke="url(#g1)" stroke-width="2" stroke-linecap="round" fill="none"/>
+    <path d="M 8 6 Q 14 6, 15 10" stroke="url(#g2)" stroke-width="2" stroke-linecap="round" fill="none"/>
+
+    <!-- Middle S curve -->
+    <path d="M 6 9 Q 12 9, 13 13 Q 14 17, 8 17" stroke="url(#g2)" stroke-width="2" stroke-linecap="round" fill="none"/>
+
+    <!-- Inner flowing lines (purple to magenta) -->
+    <path d="M 8 12 Q 11 12, 11 16 Q 11 20, 9 20" stroke="url(#g3)" stroke-width="2" stroke-linecap="round" fill="none"/>
+    <path d="M 10 15 Q 10 15, 9 19 Q 8 23, 10 23" stroke="url(#g4)" stroke-width="2" stroke-linecap="round" fill="none"/>
+
+    <!-- Dots on lines -->
+    <circle cx="19" cy="4" r="1.5" fill="#00d4ff"/>
+    <circle cx="17" cy="7" r="1.5" fill="#4da6ff"/>
+    <circle cx="15" cy="10" r="1.5" fill="#0066ff"/>
+    <circle cx="13" cy="13" r="1.5" fill="#0066ff"/>
+    <circle cx="8" cy="17" r="1.5" fill="#8b5cf6"/>
+    <circle cx="9" cy="20" r="1.5" fill="#c946ff"/>
+    <circle cx="10" cy="23" r="1.5" fill="#e946ff"/>
+  </g>
+
+  <!-- Gradient definitions -->
+  <defs>
+    <linearGradient id="g1" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#00d4ff;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#4da6ff;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="g2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#4da6ff;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#0066ff;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="g3" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0066ff;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#8b5cf6;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="g4" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#8b5cf6;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#e946ff;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+</svg>

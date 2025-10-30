@@ -72,7 +72,7 @@ public static class ServiceConfiguration
         // Ensure the schema exists before running migrations
         if (!string.IsNullOrEmpty(schema) && schema != "public")
         {
-            context.Database.ExecuteSqlRaw($"CREATE SCHEMA IF NOT EXISTS \"{schema}\"");
+            context.Database.ExecuteSqlRaw($"CREATE SCHEMA IF NOT EXISTS [{schema}];");
         }
 
         context.Database.Migrate();
