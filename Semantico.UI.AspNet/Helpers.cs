@@ -91,8 +91,11 @@ public class SemanticoUIBuilder
 
         if (_useAuthorization)
         {
-            var authorizationProvider = _app.Services.GetRequiredService<ISemanticoAuthorizationProvider>();
-            _app.UseMiddleware<SemanticoAuthorizationMiddleware>(authorizationProvider);
+            var authorizationProvider = _app.Services.GetService<ISemanticoAuthorizationProvider>();
+            if (authorizationProvider != null)
+            {
+                _app.UseMiddleware<SemanticoAuthorizationMiddleware>(authorizationProvider);
+            }
         }
 
         ServiceConfiguration.UseSemantico(_app.Services);

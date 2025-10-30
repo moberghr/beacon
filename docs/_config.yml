@@ -15,8 +15,9 @@ plugins:
   - jekyll-remote-theme
 
 # Theme settings (just-the-docs)
-color_scheme: nil  # Use default, or create custom
-logo: "/assets/images/logo.png"
+color_scheme: semantico  # Custom color scheme based on logo
+logo: "assets/images/logo.svg"
+favicon_ico: "/favicon.svg"
 
 # Navigation
 nav_external_links:
@@ -45,6 +46,9 @@ exclude:
 
 # Collections (optional for future use)
 collections_dir: collections
+
+# Server port
+port: 4001
 
 # Search (disabled per clarification)
 search_enabled: false
