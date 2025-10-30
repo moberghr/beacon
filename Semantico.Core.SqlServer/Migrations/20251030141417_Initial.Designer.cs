@@ -12,7 +12,7 @@ using Semantico.Core.SqlServer.Data;
 namespace Semantico.Core.SqlServer.Migrations
 {
     [DbContext(typeof(SqlServerSemanticoContext))]
-    [Migration("20251015081755_Initial")]
+    [Migration("20251030141417_Initial")]
     partial class Initial
     {
         /// <inheritdoc />
@@ -564,7 +564,7 @@ namespace Semantico.Core.SqlServer.Migrations
                     b.HasOne("Semantico.Core.Data.Entities.DataMigration.MigrationJob", "MigrationJob")
                         .WithMany("Executions")
                         .HasForeignKey("MigrationJobId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.HasOne("Semantico.Core.Data.Entities.DataMigration.MigrationExecutionHistory", "ParentExecution")

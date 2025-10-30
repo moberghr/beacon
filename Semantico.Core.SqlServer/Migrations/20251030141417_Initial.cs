@@ -245,7 +245,7 @@ namespace Semantico.Core.SqlServer.Migrations
                         principalSchema: "semantico",
                         principalTable: "MigrationJobs",
                         principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
+                        onDelete: ReferentialAction.Restrict);
                 });
 
             migrationBuilder.CreateTable(
