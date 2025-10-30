@@ -561,7 +561,7 @@ namespace Semantico.Core.SqlServer.Migrations
                     b.HasOne("Semantico.Core.Data.Entities.DataMigration.MigrationJob", "MigrationJob")
                         .WithMany("Executions")
                         .HasForeignKey("MigrationJobId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.HasOne("Semantico.Core.Data.Entities.DataMigration.MigrationExecutionHistory", "ParentExecution")
