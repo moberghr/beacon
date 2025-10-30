@@ -1,4 +1,5 @@
 using Blazored.LocalStorage;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Components;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using MudBlazor.Services;
@@ -82,30 +83,34 @@ public class SemanticoUIBuilder
     {
         basePath = basePath ?? "/semantico";
 
-        _app.UsePathBase(basePath);
-
-        if (_basicAuthConfiguration.Enabled)
-        {
-            _app.UseMiddleware<BasicAuthMiddleware>(_basicAuthConfiguration);
-        }
-
-        if (_useAuthorization)
-        {
-            var authorizationProvider = _app.Services.GetService<ISemanticoAuthorizationProvider>();
-            if (authorizationProvider != null)
-            {
-                _app.UseMiddleware<SemanticoAuthorizationMiddleware>(authorizationProvider);
-            }
-        }
-
         ServiceConfiguration.UseSemantico(_app.Services);
 
-        _app.UseStaticFiles();
+        // Create a separate pipeline branch for Semantico UI
+        _app.Map(basePath, semanticoApp =>
+        {
+            if (_basicAuthConfiguration.Enabled)
+            {
+                semanticoApp.UseMiddleware<BasicAuthMiddleware>(_basicAuthConfiguration);
+            }
 
-        _app.UseRouting();
-        _app.UseAntiforgery();
+            if (_useAuthorization)
+            {
+                var authorizationProvider = _app.Services.GetService<ISemanticoAuthorizationProvider>();
+                if (authorizationProvider != null)
+                {
+                    semanticoApp.UseMiddleware<SemanticoAuthorizationMiddleware>(authorizationProvider);
+                }
+            }
 
-        _app.MapRazorComponents<SemanticoApp>()
-            .AddInteractiveServerRenderMode();
+            semanticoApp.UseStaticFiles();
+            semanticoApp.UseRouting();
+            semanticoApp.UseAntiforgery();
+
+            semanticoApp.UseEndpoints(endpoints =>
+            {
+                endpoints.MapRazorComponents<SemanticoApp>()
+                    .AddInteractiveServerRenderMode();
+            });
+        });
     }
 }
