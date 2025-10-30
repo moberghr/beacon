@@ -129,7 +129,7 @@ public abstract partial class SemanticoContext : DbContext
             entity.HasOne(e => e.ParentExecution)
                   .WithMany()
                   .HasForeignKey(e => e.ParentExecutionId)
-                  .OnDelete(DeleteBehavior.SetNull);
+                  .OnDelete(DeleteBehavior.NoAction);
 
             // Indexes for performance
             entity.HasIndex(e => e.MigrationJobId);

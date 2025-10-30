@@ -237,8 +237,7 @@ namespace Semantico.Core.SqlServer.Migrations
                         column: x => x.ParentExecutionId,
                         principalSchema: "semantico",
                         principalTable: "MigrationExecutions",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.SetNull);
+                        principalColumn: "Id");
                     table.ForeignKey(
                         name: "FK_MigrationExecutions_MigrationJobs_MigrationJobId",
                         column: x => x.MigrationJobId,
