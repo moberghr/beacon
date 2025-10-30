@@ -60,7 +60,7 @@ public static class ServiceConfiguration
         return services;
     }
 
-    public static void UseSemantico(IServiceProvider serviceProvider)
+    public static void UseSemantico(IServiceProvider serviceProvider, bool createSchema = false)
     {
         using var scope = serviceProvider.CreateScope();
         var contextFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<SemanticoContext>>();
@@ -70,9 +70,9 @@ public static class ServiceConfiguration
         var schema = GetSchemaFromContext(context);
 
         // Ensure the schema exists before running migrations
-        if (!string.IsNullOrEmpty(schema) && schema != "public")
+        if (createSchema)
         {
-            context.Database.ExecuteSqlRaw($"CREATE SCHEMA IF NOT EXISTS [{schema}];");
+            context.Database.ExecuteSqlRaw($"CREATE SCHEMA {schema};");
         }
 
         context.Database.Migrate();

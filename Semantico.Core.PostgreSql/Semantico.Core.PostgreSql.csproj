@@ -19,7 +19,7 @@
     <Nullable>enable</Nullable>
 
     <!-- Package Information -->
-    <Version>2.0.2</Version>
+    <Version>2.0.2.2</Version>
     <Authors>https://github.com/MiBu</Authors>
     <Description>PostgreSQL database provider for Semantico. Provides Entity Framework Core configuration and migrations for PostgreSQL databases with snake_case naming conventions.</Description>
     <PackageProjectUrl>https://github.com/moberghr/semantico</PackageProjectUrl>
