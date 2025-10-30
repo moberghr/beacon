@@ -6,12 +6,13 @@ url: "https://mibu.github.io"
 
 # Build settings
 markdown: kramdown
-theme: just-the-docs
+remote_theme: just-the-docs/just-the-docs
 
 # Plugins
 plugins:
   - jekyll-feed
   - jekyll-seo-tag
+  - jekyll-remote-theme
 
 # Theme settings (just-the-docs)
 color_scheme: nil  # Use default, or create custom
