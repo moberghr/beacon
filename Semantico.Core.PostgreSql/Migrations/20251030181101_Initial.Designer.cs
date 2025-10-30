@@ -9,11 +9,11 @@ using Semantico.Core.PostgreSql.Data;
 
 #nullable disable
 
-namespace Semantico.Core.PostgreSql.Data.Migrations
+namespace Semantico.Core.PostgreSql.Migrations
 {
     [DbContext(typeof(PostgreSqlSemanticoContext))]
-    [Migration("20250819075549_EnableCrossProjectQueryChains")]
-    partial class EnableCrossProjectQueryChains
+    [Migration("20251030181101_Initial")]
+    partial class Initial
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -21,7 +21,7 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
 #pragma warning disable 612, 618
             modelBuilder
                 .HasDefaultSchema("semantico")
-                .HasAnnotation("ProductVersion", "9.0.6")
+                .HasAnnotation("ProductVersion", "9.0.9")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -45,6 +45,203 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                     b.ToTable("recipient_subscription", "semantico");
                 });
 
+            modelBuilder.Entity("Semantico.Core.Data.Entities.DataMigration.MigrationExecutionHistory", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("completed_at");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_time");
+
+                    b.Property<int>("DestinationRowsWritten")
+                        .HasColumnType("integer")
+                        .HasColumnName("destination_rows_written");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)")
+                        .HasColumnName("error_message");
+
+                    b.Property<int?>("EstimatedTotalRows")
+                        .HasColumnType("integer")
+                        .HasColumnName("estimated_total_rows");
+
+                    b.Property<string>("ExecutedQuery")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("executed_query");
+
+                    b.Property<int>("MigrationJobId")
+                        .HasColumnType("integer")
+                        .HasColumnName("migration_job_id");
+
+                    b.Property<int?>("ParentExecutionId")
+                        .HasColumnType("integer")
+                        .HasColumnName("parent_execution_id");
+
+                    b.Property<int>("ProcessedRows")
+                        .HasColumnType("integer")
+                        .HasColumnName("processed_rows");
+
+                    b.Property<string>("QueryParameters")
+                        .HasColumnType("text")
+                        .HasColumnName("query_parameters");
+
+                    b.Property<int>("RetryAttempt")
+                        .HasColumnType("integer")
+                        .HasColumnName("retry_attempt");
+
+                    b.Property<int>("RowsFailed")
+                        .HasColumnType("integer")
+                        .HasColumnName("rows_failed");
+
+                    b.Property<int>("RowsSkipped")
+                        .HasColumnType("integer")
+                        .HasColumnName("rows_skipped");
+
+                    b.Property<int>("SourceRowsRead")
+                        .HasColumnType("integer")
+                        .HasColumnName("source_rows_read");
+
+                    b.Property<DateTime>("StartedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("started_at");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
+                    b.Property<string>("TransformationApplied")
+                        .HasColumnType("text")
+                        .HasColumnName("transformation_applied");
+
+                    b.HasKey("Id")
+                        .HasName("pk_migration_executions");
+
+                    b.HasIndex("MigrationJobId")
+                        .HasDatabaseName("ix_migration_executions_migration_job_id");
+
+                    b.HasIndex("ParentExecutionId")
+                        .HasDatabaseName("ix_migration_executions_parent_execution_id");
+
+                    b.HasIndex("StartedAt")
+                        .HasDatabaseName("ix_migration_executions_started_at");
+
+                    b.HasIndex("Status", "StartedAt")
+                        .HasDatabaseName("ix_migration_executions_status_started_at");
+
+                    b.ToTable("migration_executions", "semantico");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.DataMigration.MigrationJob", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime?>("ArchivedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("archived_time");
+
+                    b.Property<string>("ChangedBy")
+                        .HasColumnType("text")
+                        .HasColumnName("changed_by");
+
+                    b.Property<DateTime?>("ChangedOn")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("changed_on");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_time");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("description");
+
+                    b.Property<int>("DestinationProjectId")
+                        .HasColumnType("integer")
+                        .HasColumnName("destination_project_id");
+
+                    b.Property<string>("DestinationTable")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("destination_table");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_enabled");
+
+                    b.Property<int>("MaxRetries")
+                        .HasColumnType("integer")
+                        .HasColumnName("max_retries");
+
+                    b.Property<int>("Mode")
+                        .HasColumnType("integer")
+                        .HasColumnName("mode");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("name");
+
+                    b.Property<int>("ProjectId")
+                        .HasColumnType("integer")
+                        .HasColumnName("project_id");
+
+                    b.Property<string>("QueryText")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("query_text");
+
+                    b.Property<string>("Schedule")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("schedule");
+
+                    b.Property<int>("TimeoutMinutes")
+                        .HasColumnType("integer")
+                        .HasColumnName("timeout_minutes");
+
+                    b.Property<string>("TransformationScript")
+                        .HasColumnType("text")
+                        .HasColumnName("transformation_script");
+
+                    b.Property<bool>("ValidateBeforeExecution")
+                        .HasColumnType("boolean")
+                        .HasColumnName("validate_before_execution");
+
+                    b.HasKey("Id")
+                        .HasName("pk_migration_jobs");
+
+                    b.HasIndex("DestinationProjectId")
+                        .HasDatabaseName("ix_migration_jobs_destination_project_id");
+
+                    b.HasIndex("ProjectId")
+                        .HasDatabaseName("ix_migration_jobs_project_id");
+
+                    b.HasIndex("IsEnabled", "ArchivedTime")
+                        .HasDatabaseName("ix_migration_jobs_is_enabled_archived_time");
+
+                    b.ToTable("migration_jobs", "semantico");
+                });
+
             modelBuilder.Entity("Semantico.Core.Data.Entities.Notification", b =>
                 {
                     b.Property<int>("Id")
@@ -65,6 +262,10 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                     b.Property<int>("RecipientId")
                         .HasColumnType("integer")
                         .HasColumnName("recipient_id");
+
+                    b.Property<string>("Results")
+                        .HasColumnType("text")
+                        .HasColumnName("results");
 
                     b.Property<DateTime>("SentAt")
                         .HasColumnType("timestamp with time zone")
@@ -143,6 +344,10 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                     b.Property<string>("Description")
                         .HasColumnType("text")
                         .HasColumnName("description");
+
+                    b.Property<string>("FinalQuery")
+                        .HasColumnType("text")
+                        .HasColumnName("final_query");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -423,6 +628,10 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("show_query");
 
+                    b.Property<bool>("StoreResults")
+                        .HasColumnType("boolean")
+                        .HasColumnName("store_results");
+
                     b.Property<int?>("TimeoutSeconds")
                         .HasColumnType("integer")
                         .HasColumnName("timeout_seconds");
@@ -491,6 +700,47 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_recipient_subscription_subscriptions_subscriptions_id");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.DataMigration.MigrationExecutionHistory", b =>
+                {
+                    b.HasOne("Semantico.Core.Data.Entities.DataMigration.MigrationJob", "MigrationJob")
+                        .WithMany("Executions")
+                        .HasForeignKey("MigrationJobId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_migration_executions_migration_jobs_migration_job_id");
+
+                    b.HasOne("Semantico.Core.Data.Entities.DataMigration.MigrationExecutionHistory", "ParentExecution")
+                        .WithMany()
+                        .HasForeignKey("ParentExecutionId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .HasConstraintName("fk_migration_executions_migration_executions_parent_execution_");
+
+                    b.Navigation("MigrationJob");
+
+                    b.Navigation("ParentExecution");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.DataMigration.MigrationJob", b =>
+                {
+                    b.HasOne("Semantico.Core.Data.Entities.Project", "DestinationProject")
+                        .WithMany()
+                        .HasForeignKey("DestinationProjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_migration_jobs_projects_destination_project_id");
+
+                    b.HasOne("Semantico.Core.Data.Entities.Project", "Project")
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_migration_jobs_projects_project_id");
+
+                    b.Navigation("DestinationProject");
+
+                    b.Navigation("Project");
                 });
 
             modelBuilder.Entity("Semantico.Core.Data.Entities.Notification", b =>
@@ -593,6 +843,11 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                         .HasConstraintName("fk_subscription_parameters_subscriptions_subscription_id");
 
                     b.Navigation("Subscription");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.DataMigration.MigrationJob", b =>
+                {
+                    b.Navigation("Executions");
                 });
 
             modelBuilder.Entity("Semantico.Core.Data.Entities.Project", b =>
