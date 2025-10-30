@@ -18,10 +18,6 @@ jobs:
       with:
         dotnet-version: '9.0'
 
-    - name: Add the GitHub NuGet Source
-      run: |
-        dotnet nuget add source "https://nuget.pkg.github.com/moberghr/index.json" --name github --username ${{ github.actor }} --password ${{ secrets.GITHUB_TOKEN }} --store-password-in-clear-text
-
     - name: Restore dependencies
       run: dotnet restore
 
@@ -51,13 +47,12 @@ jobs:
 
           if [ -f "$PACKAGE_PATH" ]; then
             echo "Pushing package: $PACKAGE_PATH"
-            dotnet nuget push "$PACKAGE_PATH" --source "github"
+            dotnet nuget push "$PACKAGE_PATH" \
+              --source https://api.nuget.org/v3/index.json \
+              --api-key ${{ secrets.NUGET_API_KEY }} \
+              --skip-duplicate
           else
             echo "Error: Package not found for $PROJECT_NAME"
             exit 1
           fi
         done
-
-    - name: "Cleanup - Remove NuGet Source"
-      if: always()
-      run: dotnet nuget remove source github
