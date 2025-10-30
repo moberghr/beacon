@@ -23,6 +23,9 @@ Schedule query execution with cron expressions. Control when and how often your 
 ### [Notifications](notifications)
 Deliver query results via Email, Microsoft Teams, or Jira. Configure recipients and notification formats.
 
+### [Data Migration](data-migration)
+Extract, transform, and load data between databases using multi-step ETL pipelines. Support for cross-database migrations with scheduling and retry capabilities.
+
 ## Advanced Features
 
 ### [Multi-Step Queries](multi-step-queries)
@@ -33,9 +36,6 @@ Use dynamic placeholders in your queries for flexible monitoring and reporting.
 
 ### [Recipients](recipients)
 Manage notification targets for email, Teams, and Jira delivery channels.
-
-### [Data Migration](data-migration)
-Orchestrate schema migrations with execution tracking and audit history.
 
 ## Quick Links
 

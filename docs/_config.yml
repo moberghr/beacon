@@ -2,7 +2,7 @@
 title: "Semantico Documentation"
 description: "Comprehensive documentation for Semantico - semantic database alerting and notification system"
 baseurl: "" # Leave empty for root deployment
-url: "https://moberghr.github.io/semantico"
+url: "https://mibu.github.io/semantico"
 
 # Build settings
 markdown: kramdown
@@ -20,12 +20,12 @@ logo: "/assets/images/logo.png"
 # Navigation
 nav_external_links:
   - title: GitHub
-    url: https://github.com/moberghr/semantico
+    url: https://github.com/MiBu/semantico
 
 # Accessibility
 aux_links:
   "View on GitHub":
-    - "https://github.com/moberghr/semantico"
+    - "https://github.com/MiBu/semantico"
 
 # Skip to content for screen readers
 skip_to_content: true

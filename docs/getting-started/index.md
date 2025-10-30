@@ -11,7 +11,7 @@ Welcome to Semantico! This section will guide you through deploying Semantico an
 
 ## What You'll Learn
 
-- **Installation** - Deploy Semantico with Docker Compose
+- **Installation** - Deploy Semantico to your environment
 - **Quick Start** - Create your first query and notification
 - **Configuration** - Customize Semantico for your environment
 
@@ -19,8 +19,8 @@ Welcome to Semantico! This section will guide you through deploying Semantico an
 
 Before you begin, ensure you have:
 
-- Docker 20.10+ and Docker Compose 2.0+
-- PostgreSQL 12+ database for Semantico metadata storage
+- .NET 8.0+ runtime
+- PostgreSQL 12+ or SQL Server database for Semantico metadata storage
 - Basic SQL knowledge
 - (Optional) SendGrid API key for email notifications
 
@@ -32,6 +32,7 @@ Semantico enables you to:
 2. **Define** SQL queries to monitor your data
 3. **Schedule** execution with cron expressions
 4. **Deliver** results via Email, Teams, or Jira
+5. **Migrate** data between databases with multi-step ETL pipelines
 
 Let's get started!
 
@@ -40,7 +41,7 @@ Let's get started!
 <div class="code-example" markdown="1">
 📦 **[Installation Guide →](installation)**
 
-Deploy Semantico with Docker Compose in under 10 minutes
+Deploy Semantico to your environment in under 10 minutes
 </div>
 
 <div class="code-example" markdown="1">

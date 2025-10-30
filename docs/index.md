@@ -13,7 +13,7 @@ Powerful semantic alerts and notifications for your databases
 {: .fs-6 .fw-300 }
 
 [Get Started](getting-started/quick-start){: .btn .btn-primary .fs-5 .mb-4 .mb-md-0 .mr-2 }
-[View on GitHub](https://github.com/moberghr/semantico){: .btn .fs-5 .mb-4 .mb-md-0 }
+[View on GitHub](https://github.com/MiBu/semantico){: .btn .fs-5 .mb-4 .mb-md-0 }
 
 ---
 
@@ -190,7 +190,7 @@ Power user scenarios and extensibility patterns.
 Get help and contribute to the project.
 
 - [Troubleshooting](troubleshooting/common-issues)
-- [GitHub Issues](https://github.com/moberghr/semantico/issues)
+- [GitHub Issues](https://github.com/MiBu/semantico/issues)
 - [Contributing Guidelines](contributing/guidelines)
 </div>
 
@@ -226,9 +226,9 @@ Get help and contribute to the project.
 
 ## Community and Support
 
-- **GitHub Repository**: [moberghr/semantico](https://github.com/moberghr/semantico)
-- **Report Issues**: [GitHub Issues](https://github.com/moberghr/semantico/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/moberghr/semantico/discussions)
+- **GitHub Repository**: [MiBu/semantico](https://github.com/MiBu/semantico)
+- **Report Issues**: [GitHub Issues](https://github.com/MiBu/semantico/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/MiBu/semantico/discussions)
 - **Contribute**: [Contribution Guidelines](contributing/guidelines)
 
 ---

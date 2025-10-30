@@ -67,7 +67,7 @@ Server=mysql-server.company.com;Database=myapp;Uid=readonly;Pwd=secretpass
 
 {: .warning }
 > If connection fails, check:
-> - Database server is accessible from Semantico container
+> - Database server is accessible from Semantico application
 > - Credentials are correct
 > - Database name exists
 > - User has at least SELECT permissions
@@ -198,8 +198,7 @@ Connection String: Server=mysql.company.com;Database=tenant_a;Uid=readonly;Pwd=s
 
 **Check network connectivity:**
 ```bash
-# From Semantico container
-docker compose exec semantico bash
+# Test database host connectivity
 ping your-database-host
 ```
 

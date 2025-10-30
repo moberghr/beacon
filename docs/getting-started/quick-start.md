@@ -378,7 +378,7 @@ Solutions for common problems
 </div>
 
 <div class="code-example" markdown="1">
-💬 **[GitHub Discussions](https://github.com/moberghr/semantico/discussions)**
+💬 **[GitHub Discussions](https://github.com/MiBu/semantico/discussions)**
 
 Ask questions and share ideas
 </div>
