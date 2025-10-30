@@ -1,8 +1,8 @@
 # Site settings
 title: "Semantico Documentation"
 description: "Comprehensive documentation for Semantico - semantic database alerting and notification system"
-baseurl: "" # Leave empty for root deployment
-url: "https://mibu.github.io/semantico"
+baseurl: "/semantico" # Project path for GitHub Pages
+url: "https://mibu.github.io"
 
 # Build settings
 markdown: kramdown
