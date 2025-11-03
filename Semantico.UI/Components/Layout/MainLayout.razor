@@ -16,6 +16,7 @@
 <link href="https://fonts.googleapis.com/css?family=Roboto:300,400,500,700&display=swap" rel="stylesheet" />
 <link href="_content/MudBlazor/MudBlazor.min.css" rel="stylesheet" />
 <link href="css/semantico-styles.css" rel="stylesheet" />
+<link rel="stylesheet" href="_content/BlazorMonaco/lib/monaco-editor/min/vs/editor/editor.main.css" />
 
 <MudLayout>
     <MudAppBar Elevation="1" Dense="true" ToolBarClass="px-3">
@@ -51,6 +52,15 @@
 
 
 <script src="_content/MudBlazor/MudBlazor.min.js"></script>
+<script src="_content/BlazorMonaco/lib/monaco-editor/min/vs/loader.js"></script>
+<script>require.config({ paths: { 'vs': '_content/BlazorMonaco/lib/monaco-editor/min/vs' } });</script>
+<script src="_content/BlazorMonaco/lib/monaco-editor/min/vs/editor/editor.main.js"></script>
+<script src="_content/BlazorMonaco/jsInterop.js"></script>
+<script type="module">
+    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+    window.mermaid = mermaid;
+    mermaid.initialize({ startOnLoad: false });
+</script>
 <div id="blazor-error-ui">
     An unhandled error has occurred.
     <a href="" class="reload">Reload</a>

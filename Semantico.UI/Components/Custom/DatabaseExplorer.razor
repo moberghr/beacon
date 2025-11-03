@@ -1,0 +1,161 @@
+@using Semantico.Core.Models.Metadata
+
+<style>
+    .database-explorer {
+        height: 100%;
+        overflow-y: auto;
+        border-right: 1px solid #ddd;
+        background-color: #f8f9fa;
+    }
+
+    .explorer-header {
+        padding: 16px;
+        border-bottom: 1px solid #ddd;
+        background-color: white;
+    }
+
+    .explorer-content {
+        padding: 8px;
+        min-height: 400px;
+    }
+
+</style>
+
+<div class="database-explorer">
+    <div class="explorer-header">
+        <MudText Typo="Typo.h6">
+            <MudIcon Icon="@Icons.Material.Filled.Storage" Class="mr-2" Size="Size.Small" />
+            Database Explorer
+        </MudText>
+        @if (Metadata != null)
+        {
+            <MudText Typo="Typo.caption" Color="Color.Secondary">
+                @Metadata.Tables.Count table(s)
+            </MudText>
+        }
+    </div>
+
+    <div class="explorer-content">
+        @if (Metadata == null)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true">
+                No metadata available. Select a project to load database structure.
+            </MudAlert>
+        }
+        else
+        {
+            <MudText Typo="Typo.caption" Class="mb-2">
+                Debug: Found @Metadata.Tables.Count table(s) in @Metadata.Tables.GroupBy(t => t.SchemaName).Count() schema(s)
+            </MudText>
+
+            <MudList T="string" Clickable="false" Dense="true">
+                @* Group tables by schema *@
+                @foreach (var schemaGroup in Metadata.Tables.GroupBy(t => t.SchemaName).OrderBy(g => g.Key))
+                {
+                    <MudListItem T="string" InitiallyExpanded="false">
+                        <ChildContent>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <MudIcon Icon="@Icons.Material.Filled.Folder" Color="Color.Primary" Size="Size.Small" />
+                                <MudText Typo="Typo.subtitle2">Schema: @schemaGroup.Key</MudText>
+                                <MudChip T="string" Size="Size.Small" Variant="Variant.Text">@schemaGroup.Count() tables</MudChip>
+                            </div>
+                        </ChildContent>
+                        <NestedList>
+                            @foreach (var table in schemaGroup.OrderBy(t => t.TableName))
+                            {
+                                <MudListItem T="string" InitiallyExpanded="false">
+                                    <ChildContent>
+                                        <div style="display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 8px;">
+                                            <div style="display: flex; align-items: center; gap: 8px; flex: 1;">
+                                                <MudIcon Icon="@Icons.Material.Filled.TableChart" Color="Color.Secondary" Size="Size.Small" />
+                                                <div>
+                                                    <MudText Typo="Typo.body2">@table.TableName</MudText>
+                                                    <MudText Typo="Typo.caption" Color="Color.Secondary">@table.Columns.Count columns</MudText>
+                                                </div>
+                                            </div>
+                                            <MudIconButton Icon="@Icons.Material.Filled.Add"
+                                                          Size="Size.Small"
+                                                          Color="Color.Primary"
+                                                          OnClick="@(() => OnTableClick(table.TableName))"
+                                                          Title="Insert table name" />
+                                        </div>
+                                    </ChildContent>
+                                    <NestedList>
+                                        @foreach (var column in table.Columns.OrderBy(c => c.ColumnName))
+                                        {
+                                            <MudListItem T="string">
+                                                <div style="display: flex; align-items: center; justify-content: space-between; width: 100%; padding-left: 16px;">
+                                                    <div style="display: flex; align-items: center; gap: 8px; flex: 1;">
+                                                        <MudIcon Icon="@GetColumnIcon(column)" Size="Size.Small" />
+                                                        <div>
+                                                            <div style="display: flex; align-items: center; gap: 4px;">
+                                                                <MudText Typo="Typo.body2">@column.ColumnName</MudText>
+                                                                @if (column.IsPrimaryKey)
+                                                                {
+                                                                    <MudIcon Icon="@Icons.Material.Filled.Key" Size="Size.Small" Color="Color.Warning" Title="Primary Key" />
+                                                                }
+                                                                @if (column.IsForeignKey)
+                                                                {
+                                                                    <MudIcon Icon="@Icons.Material.Filled.Link" Size="Size.Small" Color="Color.Info" Title="Foreign Key" />
+                                                                }
+                                                            </div>
+                                                            <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                                                @column.DataType@(column.IsNullable ? "?" : "")
+                                                            </MudText>
+                                                        </div>
+                                                    </div>
+                                                    <MudIconButton Icon="@Icons.Material.Filled.Add"
+                                                                  Size="Size.Small"
+                                                                  Color="Color.Success"
+                                                                  OnClick="@(() => OnColumnClick(table.TableName, column.ColumnName))"
+                                                                  Title="Insert column" />
+                                                </div>
+                                            </MudListItem>
+                                        }
+                                    </NestedList>
+                                </MudListItem>
+                            }
+                        </NestedList>
+                    </MudListItem>
+                }
+            </MudList>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public DatabaseMetadataSnapshot? Metadata { get; set; }
+    [Parameter] public EventCallback<string> OnTableSelected { get; set; }
+    [Parameter] public EventCallback<(string TableName, string ColumnName)> OnColumnSelected { get; set; }
+
+    private void OnTableClick(string tableName)
+    {
+        Console.WriteLine($"DatabaseExplorer: Table clicked: {tableName}");
+        OnTableSelected.InvokeAsync(tableName);
+    }
+
+    private void OnColumnClick(string tableName, string columnName)
+    {
+        Console.WriteLine($"DatabaseExplorer: Column clicked: {tableName}.{columnName}");
+        OnColumnSelected.InvokeAsync((tableName, columnName));
+    }
+
+    private string GetColumnIcon(ColumnMetadataDto column)
+    {
+        if (column.IsPrimaryKey) return Icons.Material.Filled.Key;
+        if (column.IsForeignKey) return Icons.Material.Filled.Link;
+
+        // Return icon based on data type
+        var dataType = column.DataType.ToLower();
+        if (dataType.Contains("int") || dataType.Contains("decimal") || dataType.Contains("numeric") || dataType.Contains("float") || dataType.Contains("double"))
+            return Icons.Material.Filled.Numbers;
+        if (dataType.Contains("date") || dataType.Contains("time"))
+            return Icons.Material.Filled.CalendarToday;
+        if (dataType.Contains("bool"))
+            return Icons.Material.Filled.CheckBox;
+        if (dataType.Contains("text") || dataType.Contains("char") || dataType.Contains("varchar"))
+            return Icons.Material.Filled.TextFields;
+
+        return Icons.Material.Filled.DataObject;
+    }
+}

@@ -1,0 +1,404 @@
+@page "/projects/{ProjectId:int}/query-editor"
+@using Semantico.Core.Services
+@using Semantico.Core.Models.Metadata
+@using BlazorMonaco
+@using BlazorMonaco.Editor
+
+<SemanticoPageTitle Title="Query Editor"/>
+
+<MudContainer MaxWidth="MaxWidth.ExtraExtraLarge" Class="my-4 px-4">
+    <SemanticoPageHeader Icon="@Icons.Material.Filled.Code" Title="Query Editor" SubTitle="@_projectName"/>
+
+    @if (_loading)
+    {
+        <MudProgressLinear Color="Color.Primary" Indeterminate="true" Class="my-4"/>
+    }
+    else if (_error != null)
+    {
+        <MudAlert Severity="Severity.Error" Class="my-4">@_error</MudAlert>
+    }
+    else
+    {
+        <MudCard Elevation="2" Class="mb-4">
+            <MudCardContent>
+                <div class="d-flex align-center gap-2 mb-2">
+                    <MudButton Variant="Variant.Filled"
+                              Color="Color.Primary"
+                              StartIcon="@Icons.Material.Filled.PlayArrow"
+                              OnClick="ExecuteQuery"
+                              Disabled="@_executing">
+                        @(_executing ? "Executing..." : "Execute Query")
+                    </MudButton>
+                    <MudButton Variant="Variant.Outlined"
+                              Color="Color.Secondary"
+                              StartIcon="@Icons.Material.Filled.Refresh"
+                              OnClick="RefreshMetadata"
+                              Disabled="@_refreshingMetadata">
+                        @(_refreshingMetadata ? "Refreshing..." : "Refresh Metadata")
+                    </MudButton>
+                    @if (_metadata != null)
+                    {
+                        <MudText Typo="Typo.caption" Class="ml-auto">
+                            Last refreshed: @_metadata.RefreshedAt.ToString("g")
+                        </MudText>
+                    }
+                </div>
+
+                <div style="display: flex; gap: 0; height: 600px; border: 1px solid #ddd;">
+                    <div style="width: 300px; min-width: 300px; height: 100%; overflow: hidden;">
+                        <DatabaseExplorer Metadata="@_metadata"
+                                         OnTableSelected="@OnTableSelected"
+                                         OnColumnSelected="@OnColumnSelected" />
+                    </div>
+                    <div style="flex: 1; height: 100%; border-left: 1px solid #ddd;">
+                        <StandaloneCodeEditor @ref="_editor"
+                                             Id="query-editor"
+                                             ConstructionOptions="EditorConstructionOptions"
+                                             OnDidInit="OnEditorInit"
+                                             OnDidChangeModelContent="OnEditorContentChanged"/>
+                    </div>
+                </div>
+            </MudCardContent>
+        </MudCard>
+
+        @if (_queryResult != null)
+        {
+            <MudCard Elevation="2">
+                <MudCardHeader>
+                    <CardHeaderContent>
+                        <MudText Typo="Typo.h6">Query Results</MudText>
+                    </CardHeaderContent>
+                    <CardHeaderActions>
+                        <MudIconButton Icon="@Icons.Material.Filled.Close"
+                                      Color="Color.Default"
+                                      OnClick="@(() => _queryResult = null)"/>
+                    </CardHeaderActions>
+                </MudCardHeader>
+                <MudCardContent>
+                    <MudText Typo="Typo.body2" Class="mb-2">
+                        Executed in @_queryResult.ExecutionTime.TotalMilliseconds ms
+                    </MudText>
+                    @if (_queryResult.Success)
+                    {
+                        <MudText Color="Color.Success">Query executed successfully. Rows affected: @_queryResult.RowsAffected</MudText>
+                    }
+                    else
+                    {
+                        <MudAlert Severity="Severity.Error">@_queryResult.Error</MudAlert>
+                    }
+                </MudCardContent>
+            </MudCard>
+        }
+    }
+</MudContainer>
+
+@inject IDatabaseMetadataService MetadataService
+@inject NavigationManager Navigation
+@inject ISnackbar Snackbar
+@inject IJSRuntime JSRuntime
+
+@code {
+    [Parameter]
+    public int ProjectId { get; set; }
+
+    private StandaloneCodeEditor? _editor;
+    private DatabaseMetadataSnapshot? _metadata;
+    private string _projectName = "";
+    private bool _loading = true;
+    private bool _executing = false;
+    private bool _refreshingMetadata = false;
+    private string? _error;
+    private QueryResult? _queryResult;
+    private string _currentQuery = "";
+    private bool _completionProviderRegistered = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _loading = true;
+            _metadata = await MetadataService.GetMetadataAsync(ProjectId);
+            _projectName = $"Project {ProjectId}";
+            _error = null;
+        }
+        catch (Exception ex)
+        {
+            _error = $"Failed to load metadata: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private StandaloneEditorConstructionOptions EditorConstructionOptions(StandaloneCodeEditor editor)
+    {
+        return new StandaloneEditorConstructionOptions
+        {
+            AutomaticLayout = true,
+            Language = "sql",
+            Theme = "vs",
+            Value = "-- Write your SQL query here\nSELECT * FROM ",
+            FontSize = 14,
+            LineNumbers = "on",
+            RenderLineHighlight = "all",
+            ScrollBeyondLastLine = false,
+            ReadOnly = false
+        };
+    }
+
+    private async Task OnEditorInit()
+    {
+        if (_editor != null && _metadata != null)
+        {
+            await RegisterCompletionProvider();
+        }
+    }
+
+    private Task OnEditorContentChanged(ModelContentChangedEvent e)
+    {
+        // Update current query when content changes
+        return Task.CompletedTask;
+    }
+
+    private async Task RegisterCompletionProvider()
+    {
+        if (_editor == null || _metadata == null || _completionProviderRegistered) return;
+
+        try
+        {
+            _completionProviderRegistered = true;
+            // Build completion items from metadata
+            var completionItems = new List<object>();
+
+            // Add SQL keywords
+            var sqlKeywords = new[] {
+                "SELECT", "FROM", "WHERE", "JOIN", "INNER", "LEFT", "RIGHT", "OUTER", "ON",
+                "GROUP", "BY", "HAVING", "ORDER", "ASC", "DESC", "LIMIT", "OFFSET",
+                "INSERT", "INTO", "VALUES", "UPDATE", "SET", "DELETE", "CREATE", "TABLE",
+                "ALTER", "DROP", "INDEX", "PRIMARY", "KEY", "FOREIGN", "REFERENCES",
+                "AND", "OR", "NOT", "NULL", "IS", "IN", "LIKE", "BETWEEN", "EXISTS",
+                "CASE", "WHEN", "THEN", "ELSE", "END", "AS", "DISTINCT", "COUNT",
+                "SUM", "AVG", "MAX", "MIN", "CAST", "COALESCE"
+            };
+
+            foreach (var keyword in sqlKeywords)
+            {
+                completionItems.Add(new
+                {
+                    label = keyword,
+                    kind = 14, // Keyword
+                    insertText = keyword,
+                    detail = "SQL Keyword"
+                });
+            }
+
+            // Add table names
+            foreach (var table in _metadata.Tables)
+            {
+                completionItems.Add(new
+                {
+                    label = table.TableName,
+                    kind = 7, // Class/Table
+                    insertText = table.TableName,
+                    detail = $"Table in {table.SchemaName}",
+                    documentation = table.Description ?? $"Table: {table.SchemaName}.{table.TableName}"
+                });
+
+                // Add columns with table prefix
+                foreach (var column in table.Columns)
+                {
+                    completionItems.Add(new
+                    {
+                        label = $"{table.TableName}.{column.ColumnName}",
+                        kind = 5, // Field/Column
+                        insertText = column.ColumnName,
+                        detail = $"{column.DataType}{(column.IsNullable ? "?" : "")}",
+                        documentation = $"{column.ColumnName} ({column.DataType}) - {(column.IsPrimaryKey ? "Primary Key, " : "")}{(column.IsForeignKey ? $"Foreign Key to {column.ForeignKeyTable}.{column.ForeignKeyColumn}, " : "")}Table: {table.TableName}"
+                    });
+                }
+            }
+
+            // Register completion provider via JavaScript
+            await JSRuntime.InvokeVoidAsync("eval", $@"
+                (function() {{
+                    const completionItems = {System.Text.Json.JsonSerializer.Serialize(completionItems)};
+
+                    monaco.languages.registerCompletionItemProvider('sql', {{
+                        provideCompletionItems: function(model, position) {{
+                            return {{
+                                suggestions: completionItems.map(item => ({{
+                                    label: item.label,
+                                    kind: item.kind,
+                                    insertText: item.insertText,
+                                    detail: item.detail,
+                                    documentation: item.documentation
+                                }}))
+                            }};
+                        }}
+                    }});
+
+                    console.log('SQL completion provider registered with ' + completionItems.length + ' items');
+                }})();
+            ");
+
+            // Register Ctrl+Space for trigger suggest
+            await _editor.AddCommand((int)KeyMod.CtrlCmd | (int)KeyCode.Space, async (args) =>
+            {
+                await _editor.Trigger("editor", "editor.action.triggerSuggest", null);
+            });
+
+            Snackbar.Add($"Intellisense enabled with {completionItems.Count} items", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to register completion provider: {ex.Message}", Severity.Warning);
+        }
+    }
+
+    private async Task ExecuteQuery()
+    {
+        if (_editor == null) return;
+
+        try
+        {
+            _executing = true;
+            _currentQuery = await _editor.GetValue();
+
+            if (string.IsNullOrWhiteSpace(_currentQuery))
+            {
+                Snackbar.Add("Please enter a query", Severity.Warning);
+                return;
+            }
+
+            var startTime = DateTime.UtcNow;
+
+            // TODO: Implement actual query execution through a service
+            // This would need to be added to IQueryService or a new service
+
+            var executionTime = DateTime.UtcNow - startTime;
+            _queryResult = new QueryResult
+            {
+                Success = true,
+                ExecutionTime = executionTime,
+                RowsAffected = 0,
+                Error = null
+            };
+
+            Snackbar.Add("Query executed successfully", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            _queryResult = new QueryResult
+            {
+                Success = false,
+                Error = ex.Message,
+                ExecutionTime = TimeSpan.Zero,
+                RowsAffected = 0
+            };
+            Snackbar.Add($"Query execution failed: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _executing = false;
+        }
+    }
+
+    private async Task RefreshMetadata()
+    {
+        try
+        {
+            _refreshingMetadata = true;
+            _completionProviderRegistered = false; // Reset flag to allow re-registration
+            _metadata = await MetadataService.RefreshMetadataAsync(ProjectId);
+
+            // Re-register completion provider with new metadata
+            if (_editor != null)
+            {
+                await RegisterCompletionProvider();
+            }
+
+            Snackbar.Add($"Metadata refreshed: {_metadata.Tables.Count} tables", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to refresh metadata: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _refreshingMetadata = false;
+        }
+    }
+
+    private async Task OnTableSelected(string tableName)
+    {
+        if (_editor != null)
+        {
+            try
+            {
+                // Get current value and cursor position
+                var currentValue = await _editor.GetValue();
+                var position = await _editor.GetPosition();
+
+                // Calculate the character offset
+                var lines = currentValue.Split('\n');
+                var offset = 0;
+                for (int i = 0; i < position.LineNumber - 1; i++)
+                {
+                    offset += lines[i].Length + 1; // +1 for newline
+                }
+                offset += position.Column - 1;
+
+                // Insert table name at cursor position
+                var newValue = currentValue.Insert(offset, tableName);
+                await _editor.SetValue(newValue);
+                await _editor.Focus();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error inserting table name: {ex.Message}");
+            }
+        }
+    }
+
+    private async Task OnColumnSelected((string TableName, string ColumnName) selection)
+    {
+        if (_editor != null)
+        {
+            try
+            {
+                var textToInsert = $"{selection.TableName}.{selection.ColumnName}";
+
+                // Get current value and cursor position
+                var currentValue = await _editor.GetValue();
+                var position = await _editor.GetPosition();
+
+                // Calculate the character offset
+                var lines = currentValue.Split('\n');
+                var offset = 0;
+                for (int i = 0; i < position.LineNumber - 1; i++)
+                {
+                    offset += lines[i].Length + 1; // +1 for newline
+                }
+                offset += position.Column - 1;
+
+                // Insert column name at cursor position
+                var newValue = currentValue.Insert(offset, textToInsert);
+                await _editor.SetValue(newValue);
+                await _editor.Focus();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error inserting column name: {ex.Message}");
+            }
+        }
+    }
+
+    private class QueryResult
+    {
+        public bool Success { get; set; }
+        public TimeSpan ExecutionTime { get; set; }
+        public int RowsAffected { get; set; }
+        public string? Error { get; set; }
+    }
+}

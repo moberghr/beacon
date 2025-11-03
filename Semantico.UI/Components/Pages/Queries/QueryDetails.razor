@@ -252,10 +252,29 @@
                                                 @step.Description
                                             </MudText>
                                         }
-                                        <MudText Typo="Typo.subtitle2">SQL Query:</MudText>
-                                        <MudPaper Class="pa-2" Style="background-color: #f5f5f5;">
-                                            <CodeHiglight Code="@step.SqlValue" />
-                                        </MudPaper>
+                                        <MudStack Row Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                                            <MudText Typo="Typo.subtitle2">SQL Query:</MudText>
+                                            <MudButton Size="Size.Small"
+                                                      Variant="Variant.Text"
+                                                      StartIcon="@(_editingStepId == step.StepId ? Icons.Material.Filled.Visibility : Icons.Material.Filled.Edit)"
+                                                      OnClick="@(() => ToggleStepEdit(step.StepId))">
+                                                @(_editingStepId == step.StepId ? "View Only" : "Edit")
+                                            </MudButton>
+                                        </MudStack>
+                                        @if (_editingStepId == step.StepId)
+                                        {
+                                            <SqlEditor Value="@step.SqlValue"
+                                                      ValueChanged="@((newValue) => { step.SqlValue = newValue; })"
+                                                      ProjectId="@step.ProjectId"
+                                                      Height="300px"
+                                                      EditorId="@($"sql-editor-step-{step.StepId}")" />
+                                        }
+                                        else
+                                        {
+                                            <MudPaper Class="pa-2" Style="background-color: #f5f5f5;">
+                                                <CodeHiglight Code="@step.SqlValue" />
+                                            </MudPaper>
+                                        }
                                         @if (step.Parameters?.Any() == true)
                                         {
                                             <MudText Typo="Typo.subtitle2">Parameters:</MudText>
@@ -357,10 +376,29 @@
                         </MudAlert>
                     }
                     
-                    <MudText Typo="Typo.subtitle1"><strong>SQL Query:</strong></MudText>
-                    <MudPaper Class="pa-3" Style="background-color: #f8f9fa; border-left: 4px solid #007acc;">
-                        <CodeHiglight Code="@Model.FinalQuery" />
-                    </MudPaper>
+                    <MudStack Row Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                        <MudText Typo="Typo.subtitle1"><strong>SQL Query:</strong></MudText>
+                        <MudButton Size="Size.Small"
+                                  Variant="Variant.Text"
+                                  StartIcon="@(_editingFinalQuery ? Icons.Material.Filled.Visibility : Icons.Material.Filled.Edit)"
+                                  OnClick="@(() => _editingFinalQuery = !_editingFinalQuery)">
+                            @(_editingFinalQuery ? "View Only" : "Edit")
+                        </MudButton>
+                    </MudStack>
+                    @if (_editingFinalQuery)
+                    {
+                        <SqlEditor Value="@Model.FinalQuery"
+                                  ValueChanged="@((newValue) => { Model.FinalQuery = newValue; })"
+                                  ProjectId="@Model.FinalQueryProjectId"
+                                  Height="300px"
+                                  EditorId="sql-editor-final-query" />
+                    }
+                    else
+                    {
+                        <MudPaper Class="pa-3" Style="background-color: #f8f9fa; border-left: 4px solid #007acc;">
+                            <CodeHiglight Code="@Model.FinalQuery" />
+                        </MudPaper>
+                    }
                 </MudStack>
             </MudCardContent>
         </MudCard>
@@ -434,6 +472,8 @@
     private Dictionary<int, bool> _showParametersDetails = new();
     private QueryExecutionResult? _currentQueryResult;
     private QueryStepResult? _currentStepResult;
+    private int? _editingStepId;
+    private bool _editingFinalQuery;
     
     // Chart data
     private List<ChartSeries> _successRateSeriesData = new();
@@ -513,6 +553,11 @@
     private void ToggleParameterDetails(int stepId)
     {
         _showParametersDetails[stepId] = !_showParametersDetails.GetValueOrDefault(stepId, false);
+    }
+
+    private void ToggleStepEdit(int stepId)
+    {
+        _editingStepId = _editingStepId == stepId ? null : stepId;
     }
 
     private async Task ExecuteQuery()

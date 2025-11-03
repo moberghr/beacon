@@ -2,6 +2,7 @@
 using Semantico.Core.Data.Entities;
 using Semantico.Core.Data.Entities.Base;
 using Semantico.Core.Data.Entities.DataMigration;
+using Semantico.Core.Data.Entities.Metadata;
 using System.Linq.Expressions;
 
 namespace Semantico.Core.Data;
@@ -40,11 +41,18 @@ public abstract partial class SemanticoContext : DbContext
 
     public DbSet<MigrationExecutionHistory> MigrationExecutions => Set<MigrationExecutionHistory>();
 
+    public DbSet<DatabaseMetadata> DatabaseMetadata => Set<DatabaseMetadata>();
+
+    public DbSet<ColumnMetadata> ColumnMetadata => Set<ColumnMetadata>();
+
+    public DbSet<IndexMetadata> IndexMetadata => Set<IndexMetadata>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         // Derived classes can use DefaultSchema
         SetSoftDeleteQueryFilter(modelBuilder);
         ConfigureMigrationEntities(modelBuilder);
+        ConfigureMetadataEntities(modelBuilder);
         base.OnModelCreating(modelBuilder);
     }
 
@@ -135,6 +143,66 @@ public abstract partial class SemanticoContext : DbContext
             entity.HasIndex(e => e.MigrationJobId);
             entity.HasIndex(e => new { e.Status, e.StartedAt });
             entity.HasIndex(e => e.StartedAt);
+        });
+    }
+
+    protected static void ConfigureMetadataEntities(ModelBuilder modelBuilder)
+    {
+        // DatabaseMetadata configuration
+        modelBuilder.Entity<DatabaseMetadata>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.SchemaName).HasMaxLength(100).IsRequired();
+            entity.Property(e => e.TableName).HasMaxLength(200).IsRequired();
+            entity.Property(e => e.TableDescription).HasMaxLength(1000);
+
+            // Relationships
+            entity.HasOne(e => e.Project)
+                  .WithMany()
+                  .HasForeignKey(e => e.ProjectId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasMany(e => e.Columns)
+                  .WithOne(e => e.DatabaseMetadata)
+                  .HasForeignKey(e => e.DatabaseMetadataId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasMany(e => e.Indexes)
+                  .WithOne(e => e.DatabaseMetadata)
+                  .HasForeignKey(e => e.DatabaseMetadataId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            // Indexes for performance
+            entity.HasIndex(e => e.ProjectId);
+            entity.HasIndex(e => new { e.ProjectId, e.SchemaName, e.TableName }).IsUnique();
+            entity.HasIndex(e => e.LastRefreshed);
+        });
+
+        // ColumnMetadata configuration
+        modelBuilder.Entity<ColumnMetadata>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.ColumnName).HasMaxLength(200).IsRequired();
+            entity.Property(e => e.DataType).HasMaxLength(100).IsRequired();
+            entity.Property(e => e.ForeignKeyTable).HasMaxLength(200);
+            entity.Property(e => e.ForeignKeyColumn).HasMaxLength(200);
+            entity.Property(e => e.DefaultValue).HasMaxLength(500);
+            entity.Property(e => e.Description).HasMaxLength(1000);
+
+            // Indexes for performance
+            entity.HasIndex(e => e.DatabaseMetadataId);
+            entity.HasIndex(e => new { e.DatabaseMetadataId, e.ColumnName });
+        });
+
+        // IndexMetadata configuration
+        modelBuilder.Entity<IndexMetadata>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.IndexName).HasMaxLength(200).IsRequired();
+            entity.Property(e => e.Columns).IsRequired();
+
+            // Indexes for performance
+            entity.HasIndex(e => e.DatabaseMetadataId);
         });
     }
 }

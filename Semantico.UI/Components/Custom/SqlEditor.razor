@@ -1,0 +1,351 @@
+@using Semantico.Core.Services
+@using Semantico.Core.Models.Metadata
+@using BlazorMonaco
+@using BlazorMonaco.Editor
+
+<style>
+    .sql-editor-container {
+        height: 100% !important;
+    }
+
+    .sql-editor-container > div {
+        height: 100% !important;
+    }
+</style>
+
+<div style="height: @Height; border: 1px solid #ddd;">
+    <StandaloneCodeEditor @ref="_editor"
+                         Id="@EditorId"
+                         ConstructionOptions="EditorConstructionOptions"
+                         OnDidInit="OnEditorInit"
+                         OnDidChangeModelContent="OnEditorContentChanged"
+                         CssClass="sql-editor-container" />
+</div>
+
+@inject IDatabaseMetadataService MetadataService
+@inject ISnackbar Snackbar
+@inject IJSRuntime JSRuntime
+
+@code {
+    [Parameter] public string Value { get; set; } = "";
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    [Parameter] public int? ProjectId { get; set; }
+    [Parameter] public string Height { get; set; } = "200px";
+    [Parameter] public bool ReadOnly { get; set; } = false;
+    [Parameter] public string EditorId { get; set; } = $"sql-editor-{Guid.NewGuid()}";
+    [Parameter] public string Placeholder { get; set; } = "-- Write your SQL query here\nSELECT * FROM ";
+
+    private StandaloneCodeEditor? _editor;
+    private DatabaseMetadataSnapshot? _metadata;
+    private bool _initialized = false;
+    private string _lastValue = "";
+    private bool _layoutTriggered = false;
+    private bool _completionProviderRegistered = false;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Load metadata if ProjectId is provided, valid (not 0), and changed
+        if (ProjectId.HasValue && ProjectId.Value > 0 && _metadata == null)
+        {
+            await LoadMetadata();
+
+            // Register completion provider if editor is already initialized
+            if (_initialized && _editor != null && !ReadOnly && _metadata != null)
+            {
+                await RegisterCompletionProvider();
+            }
+        }
+        else if (ProjectId.HasValue && ProjectId.Value > 0 && _metadata != null && _metadata.ProjectId != ProjectId.Value)
+        {
+            // Project changed, reload metadata
+            _metadata = null;
+            _completionProviderRegistered = false; // Reset flag to allow re-registration
+            await LoadMetadata();
+
+            // Re-register completion provider with new metadata if editor is initialized
+            if (_initialized && _editor != null && !ReadOnly)
+            {
+                await RegisterCompletionProvider();
+            }
+        }
+
+        // Update editor value if it changed externally
+        if (_initialized && _editor != null && Value != _lastValue)
+        {
+            await _editor.SetValue(Value ?? "");
+            _lastValue = Value ?? "";
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Trigger layout after first render and a few subsequent renders to ensure Monaco has calculated dimensions
+        if (_initialized && _editor != null && !_layoutTriggered)
+        {
+            try
+            {
+                // Trigger multiple layouts with delays to ensure Monaco picks up container size
+                await Task.Delay(50);
+                await _editor.Layout();
+                await Task.Delay(50);
+                await _editor.Layout();
+                await Task.Delay(100);
+                await _editor.Layout();
+
+                _layoutTriggered = true;
+                Console.WriteLine($"SqlEditor {EditorId}: Post-render layout completed");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"SqlEditor {EditorId}: Layout error: {ex.Message}");
+            }
+        }
+    }
+
+    private async Task LoadMetadata()
+    {
+        if (!ProjectId.HasValue || ProjectId.Value <= 0) return;
+
+        try
+        {
+            _metadata = await MetadataService.GetMetadataAsync(ProjectId.Value);
+        }
+        catch (Exception ex)
+        {
+            // Silently fail - editor will work without intellisense
+            Console.WriteLine($"Failed to load metadata: {ex.Message}");
+        }
+    }
+
+    private StandaloneEditorConstructionOptions EditorConstructionOptions(StandaloneCodeEditor editor)
+    {
+        // Start with actual value or empty string (not placeholder)
+        // We'll set placeholder-like text as a comment if value is empty
+        var initialValue = Value;
+        if (string.IsNullOrEmpty(initialValue))
+        {
+            initialValue = ""; // Start completely empty, user can start typing immediately
+        }
+        _lastValue = Value ?? "";
+
+        Console.WriteLine($"SqlEditor {EditorId}: Constructing with ReadOnly={ReadOnly}, Value length={Value?.Length ?? 0}, Initial='{initialValue?.Substring(0, Math.Min(20, initialValue?.Length ?? 0))}'");
+
+        return new StandaloneEditorConstructionOptions
+        {
+            AutomaticLayout = true,
+            Language = "sql",
+            Theme = "vs",
+            Value = initialValue,
+            FontSize = 14,
+            LineNumbers = "on",
+            RenderLineHighlight = "all",
+            ScrollBeyondLastLine = false,
+            ReadOnly = false, // Always start as editable
+            Minimap = new EditorMinimapOptions { Enabled = false },
+            WordWrap = "on",
+            DomReadOnly = false
+        };
+    }
+
+    private async Task OnEditorInit()
+    {
+        Console.WriteLine($"SqlEditor {EditorId}: OnEditorInit called, ReadOnly={ReadOnly}");
+        _initialized = true;
+
+        if (_editor != null)
+        {
+            try
+            {
+                // First, trigger a layout recalculation to ensure Monaco fills the container
+                await _editor.Layout();
+                Console.WriteLine($"SqlEditor {EditorId}: Layout triggered");
+
+                if (!ReadOnly)
+                {
+                    Console.WriteLine($"SqlEditor {EditorId}: Setting ReadOnly=false via UpdateOptions");
+                    await _editor.UpdateOptions(new EditorUpdateOptions
+                    {
+                        ReadOnly = false,
+                        DomReadOnly = false
+                    });
+
+                    // Give Monaco a moment to update
+                    await Task.Delay(100);
+
+                    // Try to focus the editor to ensure it's interactive
+                    try
+                    {
+                        await _editor.Focus();
+                        Console.WriteLine($"SqlEditor {EditorId}: Editor focused successfully");
+                    }
+                    catch (Exception focusEx)
+                    {
+                        Console.WriteLine($"SqlEditor {EditorId}: Failed to focus editor: {focusEx.Message}");
+                    }
+                }
+
+                // If we have metadata, register completion provider
+                if (_metadata != null && !ReadOnly)
+                {
+                    await RegisterCompletionProvider();
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"SqlEditor {EditorId}: Failed during init: {ex.Message}");
+            }
+        }
+
+        Console.WriteLine($"SqlEditor {EditorId}: OnEditorInit completed");
+    }
+
+    private async Task OnEditorContentChanged(ModelContentChangedEvent e)
+    {
+        if (_editor != null)
+        {
+            var newValue = await _editor.GetValue();
+
+            // Don't send placeholder text as actual value
+            if (newValue == Placeholder)
+            {
+                newValue = "";
+            }
+
+            _lastValue = newValue;
+            await ValueChanged.InvokeAsync(newValue);
+        }
+    }
+
+    private async Task RegisterCompletionProvider()
+    {
+        if (_editor == null || _metadata == null || _completionProviderRegistered) return;
+
+        try
+        {
+            _completionProviderRegistered = true;
+            // Build completion items from metadata
+            var completionItems = new List<object>();
+
+            // Add SQL keywords
+            var sqlKeywords = new[] {
+                "SELECT", "FROM", "WHERE", "JOIN", "INNER", "LEFT", "RIGHT", "OUTER", "ON",
+                "GROUP", "BY", "HAVING", "ORDER", "ASC", "DESC", "LIMIT", "OFFSET",
+                "INSERT", "INTO", "VALUES", "UPDATE", "SET", "DELETE", "CREATE", "TABLE",
+                "ALTER", "DROP", "INDEX", "PRIMARY", "KEY", "FOREIGN", "REFERENCES",
+                "AND", "OR", "NOT", "NULL", "IS", "IN", "LIKE", "BETWEEN", "EXISTS",
+                "CASE", "WHEN", "THEN", "ELSE", "END", "AS", "DISTINCT", "COUNT",
+                "SUM", "AVG", "MAX", "MIN", "CAST", "COALESCE"
+            };
+
+            foreach (var keyword in sqlKeywords)
+            {
+                completionItems.Add(new
+                {
+                    label = keyword,
+                    kind = 14, // Keyword
+                    insertText = keyword,
+                    detail = "SQL Keyword"
+                });
+            }
+
+            // Add table names
+            foreach (var table in _metadata.Tables)
+            {
+                completionItems.Add(new
+                {
+                    label = table.TableName,
+                    kind = 7, // Class/Table
+                    insertText = table.TableName,
+                    detail = $"Table in {table.SchemaName}",
+                    documentation = table.Description ?? $"Table: {table.SchemaName}.{table.TableName}"
+                });
+
+                // Add columns with table prefix
+                foreach (var column in table.Columns)
+                {
+                    completionItems.Add(new
+                    {
+                        label = $"{table.TableName}.{column.ColumnName}",
+                        kind = 5, // Field/Column
+                        insertText = column.ColumnName,
+                        detail = $"{column.DataType}{(column.IsNullable ? "?" : "")}",
+                        documentation = $"{column.ColumnName} ({column.DataType}) - {(column.IsPrimaryKey ? "Primary Key, " : "")}{(column.IsForeignKey ? $"Foreign Key to {column.ForeignKeyTable}.{column.ForeignKeyColumn}, " : "")}Table: {table.TableName}"
+                    });
+                }
+            }
+
+            // Register completion provider via JavaScript
+            await JSRuntime.InvokeVoidAsync("eval", $@"
+                (function() {{
+                    const completionItems = {System.Text.Json.JsonSerializer.Serialize(completionItems)};
+
+                    monaco.languages.registerCompletionItemProvider('sql', {{
+                        provideCompletionItems: function(model, position) {{
+                            return {{
+                                suggestions: completionItems.map(item => ({{
+                                    label: item.label,
+                                    kind: item.kind,
+                                    insertText: item.insertText,
+                                    detail: item.detail,
+                                    documentation: item.documentation
+                                }}))
+                            }};
+                        }}
+                    }});
+
+                    console.log('SQL completion provider registered with ' + completionItems.length + ' items');
+                }})();
+            ");
+
+            // Register Ctrl+Space for trigger suggest
+            await _editor.AddCommand((int)KeyMod.CtrlCmd | (int)KeyCode.Space, async (args) =>
+            {
+                await _editor.Trigger("editor", "editor.action.triggerSuggest", null);
+            });
+
+            Console.WriteLine($"SqlEditor {EditorId}: Registered {completionItems.Count} completion items");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"SqlEditor {EditorId}: Failed to register completion provider: {ex.Message}");
+        }
+    }
+
+    public async Task<string> GetValue()
+    {
+        if (_editor != null)
+        {
+            return await _editor.GetValue();
+        }
+        return Value ?? "";
+    }
+
+    public async Task SetValue(string value)
+    {
+        if (_editor != null)
+        {
+            await _editor.SetValue(value ?? "");
+            _lastValue = value ?? "";
+        }
+    }
+
+    public async Task RefreshMetadata()
+    {
+        if (!ProjectId.HasValue) return;
+
+        try
+        {
+            _completionProviderRegistered = false; // Reset flag to allow re-registration
+            _metadata = await MetadataService.RefreshMetadataAsync(ProjectId.Value);
+
+            if (_editor != null && !ReadOnly)
+            {
+                await RegisterCompletionProvider();
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to refresh metadata: {ex.Message}", Severity.Error);
+        }
+    }
+}

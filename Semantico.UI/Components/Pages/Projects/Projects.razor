@@ -15,6 +15,17 @@
             <PropertyColumn Property="x => x.Name" Title="Name"/>
             <PropertyColumn Property="x => x.DatabaseEngineType" Title="Database engine"/>
             <PropertyColumn Property="x => x.Queries.Count" Title="Queries count"/>
+            <TemplateColumn Title="Actions" Sortable="false">
+                <CellTemplate>
+                    <MudButton Size="Size.Small"
+                               Variant="Variant.Filled"
+                               Color="Color.Primary"
+                               Href="@($"/semantico/projects/{context.Item.Id}/query-editor")"
+                               StartIcon="@Icons.Material.Filled.Code">
+                        Query Editor
+                    </MudButton>
+                </CellTemplate>
+            </TemplateColumn>
         </Columns>
             <PagerContent>
                 <MudDataGridPager T="ProjectListData"/>

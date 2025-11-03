@@ -28,6 +28,7 @@
 		<PackageReference Include="MessageCardModel" Version="1.1.5" />
 		<PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.9" />
 		<PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="9.0.9" />
+		<PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="9.0.9" />
 		<PackageReference Include="Microsoft.Extensions.Http" Version="9.0.6" />
 		<PackageReference Include="MySql.Data" Version="9.4.0" />
 		<PackageReference Include="Npgsql" Version="9.0.4" />

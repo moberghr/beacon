@@ -1,9 +1,12 @@
 @using Semantico.Core.Models.Queries
+@using Semantico.Core.Models.Metadata
 @using Semantico.Core.Data.Enums
 @using System.Text.RegularExpressions
 @using QueryParameterValue = Semantico.Core.Models.Queries.ParameterValue
+@using Semantico.Core.Services
 
 @inject IDialogService DialogService
+@inject IDatabaseMetadataService MetadataService
 
 <MudCard Class="mb-4">
     <MudCardHeader>
@@ -56,7 +59,8 @@
                                                       Margin="Margin.Dense" />
                                     </MudItem>
                                     <MudItem xs="12" sm="6">
-                                        <MudSelect @bind-Value="step.ProjectId" 
+                                        <MudSelect Value="@step.ProjectId"
+                                                   ValueChanged="@((int newProjectId) => OnProjectChanged(step, newProjectId))"
                                                    Label="Target Database"
                                                    Variant="Variant.Outlined"
                                                    Margin="Margin.Dense">
@@ -69,13 +73,26 @@
                                         </MudSelect>
                                     </MudItem>
                                     <MudItem xs="12">
-                                        <MudTextField @bind-Value="step.SqlValue"
-                                                      @onblur="() => DetectParameters(step)"
-                                                      Label="SQL Query"
-                                                      Lines="4"
-                                                      Variant="Variant.Outlined"
-                                                      Margin="Margin.Dense"
-                                                      HelperText="@($"{GetStepHelperText(step)} | Use {{parameter_name}} for parameters")" />
+                                        <MudText Typo="Typo.body2" Class="mb-1">
+                                            <strong>SQL Query</strong>
+                                        </MudText>
+                                        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-2">
+                                            @GetStepHelperText(step) | Use {parameter_name} for parameters
+                                        </MudText>
+                                        <div style="display: flex; gap: 0; height: 400px; border: 1px solid #ddd;">
+                                            <div style="width: 250px; min-width: 250px; height: 100%; overflow: hidden;">
+                                                <DatabaseExplorer Metadata="@GetMetadataForStep(step)"
+                                                                 OnTableSelected="@((tableName) => OnTableSelectedForStep(step, tableName))"
+                                                                 OnColumnSelected="@((selection) => OnColumnSelectedForStep(step, selection))" />
+                                            </div>
+                                            <div style="flex: 1; height: 100%;">
+                                                <SqlEditor Value="@step.SqlValue"
+                                                           ValueChanged="@(async (newValue) => await OnSqlValueChanged(step, newValue))"
+                                                           ProjectId="@step.ProjectId"
+                                                           Height="100%"
+                                                           EditorId="@($"sql-editor-step-{step.StepOrder}")" />
+                                            </div>
+                                        </div>
                                     </MudItem>
                                     <MudItem xs="12">
                                         <MudStack Row Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
@@ -181,13 +198,13 @@
             <MudText Typo="Typo.body2" Class="mb-3">
                 Combine results from previous steps using virtual table references (@@result1, @@result2, etc.)
             </MudText>
-            <MudTextField @bind-Value="FinalQuery"
-                          Label="Final Query"
-                          Lines="6"
-                          Variant="Variant.Outlined"
-                          Margin="Margin.Dense"
-                          HelperText="Use parameter_name for parameters and result1, result2, etc. for previous step results" 
-                          />
+            <div style="width: 100%; height: 200px;">
+                <SqlEditor Value="@(FinalQuery ?? "")"
+                          ValueChanged="@((newValue) => { FinalQuery = newValue; return Task.CompletedTask; })"
+                          Height="100%"
+                          EditorId="sql-editor-final-query"
+                          Placeholder="-- Optional: Combine results from previous steps" />
+            </div>
         }
     </MudCardContent>
     <MudCardActions>
@@ -218,16 +235,37 @@
 
     public string? FinalQuery { get; set; }
 
-    protected override void OnParametersSet()
+    private Dictionary<int, DatabaseMetadataSnapshot?> _metadataCache = new();
+
+    protected override async Task OnParametersSetAsync()
     {
         Query ??= new QueryData { Name = "New Cross-Project Query" };
-        
+
         // Initialize FinalQuery from Query object
         FinalQuery ??= Query.FinalQuery;
-        
+
         if (!Query.Steps.Any())
         {
             AddStep();
+        }
+
+        // Load metadata for all steps' projects
+        if (Query.Steps.Any())
+        {
+            foreach (var step in Query.Steps)
+            {
+                if (step.ProjectId > 0 && !_metadataCache.ContainsKey(step.ProjectId))
+                {
+                    try
+                    {
+                        _metadataCache[step.ProjectId] = await MetadataService.GetMetadataAsync(step.ProjectId);
+                    }
+                    catch
+                    {
+                        _metadataCache[step.ProjectId] = null;
+                    }
+                }
+            }
         }
     }
 
@@ -355,9 +393,44 @@
         return "This is the first step - no previous results available";
     }
 
+    private async Task OnSqlValueChanged(QueryStepData step, string newValue)
+    {
+        step.SqlValue = newValue;
+        await DetectParameters(step);
+        await OnQueryChanged.InvokeAsync(Query!);
+    }
+
+    private async Task OnProjectChanged(QueryStepData step, int newProjectId)
+    {
+        step.ProjectId = newProjectId;
+
+        // Update project info
+        if (AvailableProjects.TryGetValue(newProjectId, out var projectInfo))
+        {
+            step.ProjectName = projectInfo.Name;
+            step.DatabaseEngineType = projectInfo.DatabaseEngineType;
+        }
+
+        // Load metadata for the new project
+        if (newProjectId > 0 && !_metadataCache.ContainsKey(newProjectId))
+        {
+            try
+            {
+                _metadataCache[newProjectId] = await MetadataService.GetMetadataAsync(newProjectId);
+                StateHasChanged(); // Force re-render to show new metadata
+            }
+            catch
+            {
+                _metadataCache[newProjectId] = null;
+            }
+        }
+
+        await OnQueryChanged.InvokeAsync(Query!);
+    }
+
     private async Task DetectParameters(QueryStepData step)
     {
-        if (string.IsNullOrWhiteSpace(step.SqlValue)) 
+        if (string.IsNullOrWhiteSpace(step.SqlValue))
             return;
 
         // Use regex to find parameters in the format {parameter_name}
@@ -410,6 +483,51 @@
             await OnQueryChanged.InvokeAsync(Query!);
             StateHasChanged();
         }
+    }
+
+    private DatabaseMetadataSnapshot? GetMetadataForStep(QueryStepData step)
+    {
+        if (step.ProjectId > 0 && _metadataCache.TryGetValue(step.ProjectId, out var metadata))
+        {
+            return metadata;
+        }
+        return null;
+    }
+
+    private async Task OnTableSelectedForStep(QueryStepData step, string tableName)
+    {
+        Console.WriteLine($"QueryStepBuilder: OnTableSelectedForStep called - Step {step.StepOrder}, Table: {tableName}");
+
+        // Append table name to the end of the SQL with a space
+        if (!string.IsNullOrWhiteSpace(step.SqlValue) && !step.SqlValue.EndsWith(" ") && !step.SqlValue.EndsWith("\n"))
+        {
+            step.SqlValue += " ";
+        }
+        step.SqlValue += tableName;
+
+        Console.WriteLine($"QueryStepBuilder: New SQL value: {step.SqlValue}");
+
+        await OnQueryChanged.InvokeAsync(Query!);
+        StateHasChanged();
+    }
+
+    private async Task OnColumnSelectedForStep(QueryStepData step, (string TableName, string ColumnName) selection)
+    {
+        Console.WriteLine($"QueryStepBuilder: OnColumnSelectedForStep called - Step {step.StepOrder}, Column: {selection.TableName}.{selection.ColumnName}");
+
+        var textToInsert = $"{selection.TableName}.{selection.ColumnName}";
+
+        // Append column name to the end of the SQL with a space
+        if (!string.IsNullOrWhiteSpace(step.SqlValue) && !step.SqlValue.EndsWith(" ") && !step.SqlValue.EndsWith("\n"))
+        {
+            step.SqlValue += " ";
+        }
+        step.SqlValue += textToInsert;
+
+        Console.WriteLine($"QueryStepBuilder: New SQL value: {step.SqlValue}");
+
+        await OnQueryChanged.InvokeAsync(Query!);
+        StateHasChanged();
     }
 
     public class ProjectInfo

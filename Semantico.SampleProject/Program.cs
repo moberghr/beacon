@@ -31,12 +31,12 @@ builder.Services.AddHangfire((provider, hangfireConfiguration) => hangfireConfig
 //builder.Services.AddHangfireServer();
 
 //SEMANTICO setup - Configure database provider first
-builder.Services.AddPostgreSqlSemantico(
-    builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
+ builder.Services.AddPostgreSqlSemantico(
+     builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
 
 // Uncomment to use SQL Server instead (requires SQL Server connection string)
-// builder.Services.AddSqlServerSemantico(
-//     builder.Configuration.GetConnectionString("SemanticoContext")!);
+//builder.Services.AddSqlServerSemantico(
+//    builder.Configuration.GetConnectionString("SemanticoContext")!);
 
 builder.Services.AddSemanticoAdmin(builder.Configuration, options =>
 {
