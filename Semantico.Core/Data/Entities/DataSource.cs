@@ -1,9 +1,9 @@
-﻿using Semantico.Core.Data.Entities.Base;
+using Semantico.Core.Data.Entities.Base;
 using Semantico.Core.Data.Enums;
 
 namespace Semantico.Core.Data.Entities;
 
-public class Project : ArchivableBaseEntity
+public class DataSource : ArchivableBaseEntity
 {
     public required string Name { get; set; }
 

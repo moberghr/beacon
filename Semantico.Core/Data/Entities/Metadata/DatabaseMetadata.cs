@@ -4,8 +4,8 @@ namespace Semantico.Core.Data.Entities.Metadata;
 
 public class DatabaseMetadata : ArchivableBaseEntity
 {
-    public int ProjectId { get; set; }
-    public Project Project { get; set; } = null!;
+    public int DataSourceId { get; set; }
+    public DataSource DataSource { get; set; } = null!;
 
     public required string SchemaName { get; set; }
     public required string TableName { get; set; }

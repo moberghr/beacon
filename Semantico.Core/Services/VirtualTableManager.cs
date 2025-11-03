@@ -26,7 +26,7 @@ public class VirtualTableManager : IDisposable
         _virtualTables[name] = data;
         _tableProjectInfo[name] = projectInfo;
         
-        _logger.LogDebug("Added virtual table {VirtualTableName} with {RowCount} rows from project {ProjectName} ({DatabaseEngine})", 
+        _logger.LogDebug("Added virtual table {VirtualTableName} with {RowCount} rows from project {DataSourceName} ({DatabaseEngine})", 
             name, data.Count, projectInfo.Name, projectInfo.DatabaseEngine);
     }
     
@@ -354,7 +354,7 @@ public class VirtualTableManager : IDisposable
         {
             QueryResults = System.Text.Json.JsonSerializer.Serialize(results.Take(20)),
             TotalRecords = results.Count,
-            ProjectName = "In-Memory SQLite Database",
+            DataSourceName = "In-Memory SQLite Database",
             SqlQuery = finalQuery, // Show original query with virtual table references
             AllRecords = results,
             TopRecords = results.Take(20).ToList(),

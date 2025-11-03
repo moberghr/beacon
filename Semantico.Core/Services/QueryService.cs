@@ -35,14 +35,14 @@ public interface IQueryService
     
     Task<QueryResult> ExecuteQuery(int subscriptionId, CancellationToken cancellationToken);
     
-    // ===== ENHANCED METHODS FOR CROSS-PROJECT FUNCTIONALITY =====
+    // ===== ENHANCED METHODS FOR CROSS-DATA-SOURCE FUNCTIONALITY =====
     Task<QueryExecutionResult> ExecuteQueryAdvanced(int queryId, string? finalQuery = null, List<ParameterValue>? parameters = null, CancellationToken cancellationToken = default);
     
     Task<QueryStepResult> PreviewQueryStep(int queryId, int stepOrder, CancellationToken cancellationToken);
     
     Task<QueryStepResult> PreviewQueryStep(int queryId, int stepOrder, List<ParameterValue>? parameters, CancellationToken cancellationToken);
     
-    // Step management with project context
+    // Step management with data source context
     Task<BaseResponse> AddQueryStep(int queryId, QueryStepData stepData, CancellationToken cancellationToken);
     
     Task<BaseResponse> UpdateQueryStep(int queryId, int stepOrder, QueryStepData stepData, CancellationToken cancellationToken);
@@ -73,25 +73,25 @@ public class QueryDetailsData
     public string? FinalQuery { get; set; }
 
     /// <summary>
-    /// Project ID where the final query should be executed (for database engine context)
-    /// If null, defaults to the first step's project
+    /// Data Source ID where the final query should be executed (for database engine context)
+    /// If null, defaults to the first step's data source
     /// </summary>
-    public int? FinalQueryProjectId { get; set; }
+    public int? FinalQueryDataSourceId { get; set; }
     
     public List<SubscriptionListData> Subscriptions { get; set; } = new();
     
     public List<NotificationStatisticsEntry> NotificationHistory { get; set; } = new();
 
     /// <summary>
-    /// Cross-project computed properties
+    /// Cross-data-source computed properties
     /// </summary>
     public bool IsMultiStep => Steps.Count > 1;
-    
-    public bool IsCrossProject => Steps.Select(s => s.ProjectId).Distinct().Count() > 1;
-    
+
+    public bool IsCrossDataSource => Steps.Select(s => s.DataSourceId).Distinct().Count() > 1;
+
     public bool IsCrossDatabase => Steps.Select(s => s.DatabaseEngineType).Distinct().Count() > 1;
-    
-    public List<string> ProjectNames => Steps.Select(s => s.ProjectName).Distinct().ToList();
+
+    public List<string> DataSourceNames => Steps.Select(s => s.DataSourceName).Distinct().ToList();
     
     public List<DatabaseEngineType> DatabaseEngines => Steps.Select(s => s.DatabaseEngineType).Distinct().ToList();
 
@@ -99,8 +99,8 @@ public class QueryDetailsData
     /// Backward compatibility properties (map to first step)
     /// </summary>
     public string SqlValue => Steps.OrderBy(s => s.StepOrder).FirstOrDefault()?.SqlValue ?? "";
-    
-    public string ProjectName => Steps.OrderBy(s => s.StepOrder).FirstOrDefault()?.ProjectName ?? "";
+
+    public string DataSourceName => Steps.OrderBy(s => s.StepOrder).FirstOrDefault()?.DataSourceName ?? "";
     
     public List<QueryParameterData> Parameters => Steps.OrderBy(s => s.StepOrder).FirstOrDefault()?.Parameters.Select(p => new QueryParameterData
     {
@@ -135,7 +135,7 @@ public class SubscriptionListData
 public class GetQueriesRequest : SortedListRequest
 {
     public int? QueryId { get; set; }
-    public int? ProjectId { get; set; }
+    public int? DataSourceId { get; set; }
 
     public string? QueryName { get; set; }
 }
@@ -155,8 +155,8 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
                 StepOrder = 1,
                 Name = "Step 1",
                 SqlValue = queryData.SqlValue,
-                ProjectId = queryData.ProjectId,
-                ProjectName = queryData.ProjectName ?? "",
+                DataSourceId = queryData.DataSourceId,
+                DataSourceName = queryData.DataSourceName ?? "",
                 DatabaseEngineType = DatabaseEngineType.PostgreSQL, // Will be set correctly from database
                 Parameters = queryData.Parameters.Select(p => new QueryStepParameterData
                 {
@@ -199,7 +199,7 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
             var queryStep = new QueryStep
             {
                 QueryId = query.Id,
-                ProjectId = stepData.ProjectId,
+                DataSourceId = stepData.DataSourceId,
                 StepOrder = stepData.StepOrder,
                 Name = stepData.Name,
                 Description = stepData.Description,
@@ -272,7 +272,7 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
         var results = await context.Queries
             .WhereIf(request.QueryId.HasValue, x => x.Id == request.QueryId)
             .WhereIf(request.QueryName != null, x => x.Name == request.QueryName)
-            .WhereIf(request.ProjectId.HasValue, x => x.Steps.Any(s => s.ProjectId == request.ProjectId))
+            .WhereIf(request.DataSourceId.HasValue, x => x.Steps.Any(s => s.DataSourceId == request.DataSourceId))
             .Select(x =>
                 new QueryData
                 {
@@ -288,9 +288,9 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
                         Name = s.Name ?? $"Step {s.StepOrder}",
                         Description = s.Description,
                         SqlValue = s.SqlValue,
-                        ProjectId = s.ProjectId,
-                        ProjectName = s.Project.Name,
-                        DatabaseEngineType = s.Project.DatabaseEngineType,
+                        DataSourceId = s.DataSourceId,
+                        DataSourceName = s.DataSource.Name,
+                        DatabaseEngineType = s.DataSource.DatabaseEngineType,
                         Parameters = s.Parameters.Select(p => new QueryStepParameterData
                         {
                             Name = p.Name,
@@ -311,7 +311,7 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
         
         var result = await context.Queries
             .Include(x => x.Steps)
-                .ThenInclude(s => s.Project)
+                .ThenInclude(s => s.DataSource)
             .Include(x => x.Steps)
                 .ThenInclude(s => s.Parameters)
             .Include(x => x.Subscriptions)
@@ -337,9 +337,9 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
                         Name = s.Name ?? $"Step {s.StepOrder}",
                         Description = s.Description,
                         SqlValue = s.SqlValue,
-                        ProjectId = s.ProjectId,
-                        ProjectName = s.Project.Name,
-                        DatabaseEngineType = s.Project.DatabaseEngineType,
+                        DataSourceId = s.DataSourceId,
+                        DataSourceName = s.DataSource.Name,
+                        DatabaseEngineType = s.DataSource.DatabaseEngineType,
                         Parameters = s.Parameters.Select(p => new QueryStepParameterData
                         {
                             Name = p.Name,
@@ -387,7 +387,7 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
             .Include(x => x.Recipients)
             .Include(x => x.Query)
                 .ThenInclude(q => q.Steps)
-                    .ThenInclude(s => s.Project)
+                    .ThenInclude(s => s.DataSource)
             .Include(x => x.Query)
                 .ThenInclude(q => q.Steps)
                     .ThenInclude(s => s.Parameters)
@@ -417,7 +417,7 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
             {
                 QueryResults = JsonSerializer.Serialize(lastStep.PreviewResults),
                 TotalRecords = lastStep.TotalRows,
-                ProjectName = lastStep.ProjectName,
+                DataSourceName = lastStep.DataSourceName,
                 SqlQuery = lastStep.SqlQuery,
                 SubscriptionName = subscription.Query.Name,
                 SubscriptionId = subscriptionId,
@@ -455,7 +455,7 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
         {
             QueryResults = JsonSerializer.Serialize(queryResult.TopRecords),
             TotalRecords = queryResult.TotalRecords,
-            ProjectName = queryResult.ProjectName,
+            DataSourceName = queryResult.DataSourceName,
             SqlQuery = queryResult.SqlQuery,
             SubscriptionName = subscription.Query.Name,
             SubscriptionId = subscriptionId,
@@ -497,7 +497,7 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
             // Update the first (and typically only) step for backward compatibility
             var firstStep = query.Steps.OrderBy(s => s.StepOrder).First();
             firstStep.SqlValue = queryData.SqlValue;
-            firstStep.ProjectId = queryData.ProjectId;
+            firstStep.DataSourceId = queryData.DataSourceId;
 
             // Remove existing parameters
             foreach (var param in firstStep.Parameters.ToList())
@@ -530,7 +530,7 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
                 var step = query.Steps.FirstOrDefault(s => s.Id == stepData.StepId);
                 if (step != null)
                 {
-                    step.ProjectId = stepData.ProjectId;
+                    step.DataSourceId = stepData.DataSourceId;
                     step.Name = stepData.Name;
                     step.Description = stepData.Description;
                     step.SqlValue = stepData.SqlValue;
@@ -637,7 +637,7 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
         
         // Use provided parameters or fall back to stored values from query
         var effectiveFinalQuery = finalQuery ?? query.FinalQuery;
-        
+
         // All queries use the same execution path - handles single-DB, multi-step, and cross-DB!
         return await ExecuteQuerySteps(query, effectiveFinalQuery, parameters, cancellationToken);
     }
@@ -650,9 +650,9 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
     public async Task<QueryStepResult> PreviewQueryStep(int queryId, int stepOrder, List<ParameterValue>? parameters, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-        
+
         var step = await context.QuerySteps
-            .Include(s => s.Project)
+            .Include(s => s.DataSource)
             .Include(s => s.Parameters)
             .Where(s => s.QueryId == queryId && s.StepOrder == stepOrder)
             .SingleAsync(cancellationToken);
@@ -667,7 +667,7 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
         var queryStep = new QueryStep
         {
             QueryId = queryId,
-            ProjectId = stepData.ProjectId,
+            DataSourceId = stepData.DataSourceId,
             StepOrder = stepData.StepOrder,
             Name = stepData.Name,
             Description = stepData.Description,
@@ -710,7 +710,7 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
             .Where(s => s.QueryId == queryId && s.StepOrder == stepOrder)
             .SingleAsync(cancellationToken);
 
-        queryStep.ProjectId = stepData.ProjectId;
+        queryStep.DataSourceId = stepData.DataSourceId;
         queryStep.Name = stepData.Name;
         queryStep.Description = stepData.Description;
         queryStep.SqlValue = stepData.SqlValue;
@@ -764,7 +764,7 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
         await context.SaveChangesAsync(cancellationToken);
     }
 
-    // ===== PRIVATE HELPER METHODS FOR CROSS-PROJECT EXECUTION =====
+    // ===== PRIVATE HELPER METHODS FOR CROSS-DATA-SOURCE EXECUTION =====
     
     private async Task<Query> GetQueryWithSteps(int queryId, CancellationToken cancellationToken)
     {
@@ -772,7 +772,7 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
         
         return await context.Queries
             .Include(q => q.Steps)
-                .ThenInclude(s => s.Project)
+                .ThenInclude(s => s.DataSource)
             .Include(q => q.Steps)
                 .ThenInclude(s => s.Parameters)
             .Where(q => q.Id == queryId)
@@ -784,36 +784,36 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
         var stepResults = new List<QueryStepResult>();
         using var virtualTableManager = new VirtualTableManager(loggerFactory.CreateLogger<VirtualTableManager>());
         var totalExecutionTime = 0.0;
-        var projectExecutionTimes = new Dictionary<string, double>();
-        
-        logger.LogInformation("Executing query chain {QueryId}: {StepCount} steps across {ProjectCount} projects", 
-            query.Id, query.Steps.Count, query.ProjectIds.Count);
+        var dataSourceExecutionTimes = new Dictionary<string, double>();
+
+        logger.LogInformation("Executing query chain {QueryId}: {StepCount} steps across {DataSourceCount} data sources",
+            query.Id, query.Steps.Count, query.DataSourceIds.Count);
         
         // Execute each step against its own database
         foreach (var step in query.Steps.OrderBy(s => s.StepOrder))
         {
-            logger.LogDebug("Executing step {StepOrder} against project {ProjectName} ({DatabaseEngine})", 
-                step.StepOrder, step.Project.Name, step.Project.DatabaseEngineType);
+            logger.LogDebug("Executing step {StepOrder} against data source {DataSourceName} ({DatabaseEngine})",
+                step.StepOrder, step.DataSource.Name, step.DataSource.DatabaseEngineType);
             
             var stepResult = await ExecuteStep(step, parameters);
             stepResults.Add(stepResult);
             totalExecutionTime += stepResult.ExecutionTimeMs;
-            
-            // Track execution time by project
-            var projectKey = $"{step.Project.Name} ({step.Project.DatabaseEngineType})";
-            projectExecutionTimes[projectKey] = projectExecutionTimes.GetValueOrDefault(projectKey, 0) + stepResult.ExecutionTimeMs;
+
+            // Track execution time by data source
+            var dataSourceKey = $"{step.DataSource.Name} ({step.DataSource.DatabaseEngineType})";
+            dataSourceExecutionTimes[dataSourceKey] = dataSourceExecutionTimes.GetValueOrDefault(dataSourceKey, 0) + stepResult.ExecutionTimeMs;
             
             if (stepResult.Success)
             {
-                // Add results to virtual table manager with project context
-                var projectInfo = new ProjectInfo
+                // Add results to virtual table manager with data source context
+                var dataSourceInfo = new ProjectInfo
                 {
-                    Name = step.Project.Name,
-                    DatabaseEngine = step.Project.DatabaseEngineType.ToString(),
-                    DatabaseEngineType = step.Project.DatabaseEngineType
+                    Name = step.DataSource.Name,
+                    DatabaseEngine = step.DataSource.DatabaseEngineType.ToString(),
+                    DatabaseEngineType = step.DataSource.DatabaseEngineType
                 };
-                
-                virtualTableManager.AddVirtualTable($"@result{step.StepOrder}", stepResult.AllResults, projectInfo);
+
+                virtualTableManager.AddVirtualTable($"@result{step.StepOrder}", stepResult.AllResults, dataSourceInfo);
             }
             else
             {
@@ -843,11 +843,11 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
             Success = allStepsSucceeded,
             TotalExecutionTimeMs = totalExecutionTime,
             IsMultiStep = query.IsMultiStep,
-            IsCrossProject = query.IsCrossProject,
+            IsCrossDataSource = query.IsCrossDataSource,
             IsCrossDatabase = query.IsCrossDatabase,
-            ProjectsInvolved = stepResults.Select(s => s.ProjectName).Distinct().ToList(),
+            DataSourcesInvolved = stepResults.Select(s => s.DataSourceName).Distinct().ToList(),
             DatabaseEnginesUsed = stepResults.Select(s => s.DatabaseEngineType).Distinct().ToList(),
-            ExecutionTimeByProject = projectExecutionTimes
+            ExecutionTimeByDataSource = dataSourceExecutionTimes
         };
     }
 
@@ -855,11 +855,11 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
     {
         var stepParameters = ExtractStepParameters(step, parameters);
         var compiledSql = QueryHelper.CompileSql(step.SqlValue, stepParameters);
-        
-        // Each step executes against its own project/database
+
+        // Each step executes against its own data source/database
         var (results, executionTimeMs, timedOut) = await ExecuteQueryAsync(
-            step.Project.DatabaseEngineType,   // Each step can be different engine type!
-            step.Project.ConnectionString,     // Each step connects to different database
+            step.DataSource.DatabaseEngineType,   // Each step can be different engine type!
+            step.DataSource.ConnectionString,     // Each step connects to different database
             compiledSql,
             null // Use default timeout
         );
@@ -869,9 +869,9 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
             StepOrder = step.StepOrder,
             StepName = step.Name ?? $"Step {step.StepOrder}",
             SqlQuery = compiledSql,
-            ProjectName = step.Project.Name,
-            DatabaseEngine = step.Project.DatabaseEngineType.ToString(),
-            DatabaseEngineType = step.Project.DatabaseEngineType,
+            DataSourceName = step.DataSource.Name,
+            DatabaseEngine = step.DataSource.DatabaseEngineType.ToString(),
+            DatabaseEngineType = step.DataSource.DatabaseEngineType,
             PreviewResults = results.Take(10).ToList(),
             AllResults = results,
             TotalRows = results.Count,
@@ -897,7 +897,7 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
         {
             QueryResults = JsonSerializer.Serialize(stepResult.PreviewResults),
             TotalRecords = stepResult.TotalRows,
-            ProjectName = stepResult.ProjectName,
+            DataSourceName = stepResult.DataSourceName,
             SqlQuery = stepResult.SqlQuery,
             AllRecords = stepResult.AllResults,
             TopRecords = stepResult.PreviewResults,
@@ -909,10 +909,10 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
         };
     }
 
-    private async Task<Project> GetProject(int projectId, CancellationToken cancellationToken)
+    private async Task<DataSource> GetDataSource(int dataSourceId, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-        return await context.Projects.Where(p => p.Id == projectId).SingleAsync(cancellationToken);
+        return await context.DataSources.Where(ds => ds.Id == dataSourceId).SingleAsync(cancellationToken);
     }
 
     private List<SubscriptionParamaterData> ExtractStepParameters(QueryStep step, List<ParameterValue>? parameters)

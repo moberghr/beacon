@@ -2,7 +2,7 @@
 @page "/data-migration/edit/{JobId:int}"
 @inherits BasePageComponent
 @using Semantico.Core.Models.DataMigration
-@using Semantico.Core.Models.Projects
+@using Semantico.Core.Models.DataSources
 @using Semantico.Core.Models.Queries
 @using Semantico.Core.Services
 @using Semantico.Core.Data.Enums
@@ -40,7 +40,7 @@
                     
                     <MudItem xs="12">
                         <MudText Typo="Typo.h6" Class="mb-2">Source Query Configuration</MudText>
-                        <MudText Typo="Typo.body2" Class="mb-4">Build your data extraction query using multiple steps across different projects if needed.</MudText>
+                        <MudText Typo="Typo.body2" Class="mb-4">Build your data extraction query using multiple steps across different data sources if needed.</MudText>
                         
                         <QueryStepBuilder Query="@_queryModel"
                                           AvailableProjects="@_availableProjects"
@@ -60,15 +60,15 @@
                     
                     <!-- Destination Configuration -->
                     <MudItem xs="12" md="6">
-                        <MudSelect @bind-Value="_model.DestinationProjectId" 
-                                  Label="Destination Project" 
+                        <MudSelect @bind-Value="_model.DestinationDataSourceId"
+                                  Label="Destination Data Source"
                                   Required="true"
                                   >
-                            @if (_projects != null)
+                            @if (_dataSources != null)
                             {
-                                @foreach (var project in _projects)
+                                @foreach (var dataSource in _dataSources)
                                 {
-                                    <MudSelectItem Value="project.Id">@project.Name (@project.DatabaseEngineType)</MudSelectItem>
+                                    <MudSelectItem Value="dataSource.Id">@dataSource.Name (@dataSource.DatabaseEngineType)</MudSelectItem>
                                 }
                             }
                         </MudSelect>
@@ -169,7 +169,7 @@
 </MudContainer>
 
 @inject IMigrationService _migrationService
-@inject IProjectService _projectService
+@inject IDataSourceService _dataSourceService
 @inject IQueryExecutionPreviewService _previewService
 @inject ISnackbar Snackbar
 
@@ -179,7 +179,7 @@
     private bool IsEdit => JobId.HasValue;
     private CreateMigrationJobRequest _model = new();
     private QueryData _queryModel = new() { Name = "", Description = "", Steps = new() };
-    private List<ProjectListData>? _projects;
+    private List<DataSourceListData>? _dataSources;
     private Dictionary<int, QueryStepBuilder.ProjectInfo> _availableProjects = new();
     private bool _loading;
     private MudForm? _form;
@@ -187,7 +187,7 @@
 
     protected override async Task OnInitializedAsync()
     {
-        await LoadProjects();
+        await LoadDataSources();
         
         if (IsEdit && JobId.HasValue)
         {
@@ -195,23 +195,23 @@
         }
     }
 
-    private async Task LoadProjects()
+    private async Task LoadDataSources()
     {
         try
         {
-            _projects = await _projectService.GetProjects(null, CancellationToken.None);
-            
-            // Build available projects dictionary for QueryStepBuilder
-            _availableProjects = _projects?.ToDictionary(x => x.Id, x => new QueryStepBuilder.ProjectInfo 
-            { 
-                Name = x.Name, 
+            _dataSources = await _dataSourceService.GetDataSources(null, CancellationToken.None);
+
+            // Build available data sources dictionary for QueryStepBuilder
+            _availableProjects = _dataSources?.ToDictionary(x => x.Id, x => new QueryStepBuilder.ProjectInfo
+            {
+                Name = x.Name,
                 DatabaseEngine = x.DatabaseEngineType.ToString(),
                 DatabaseEngineType = x.DatabaseEngineType
             }) ?? new();
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Error loading projects: {ex.Message}", Severity.Error);
+            Snackbar.Add($"Error loading data sources: {ex.Message}", Severity.Error);
         }
     }
 
@@ -230,9 +230,9 @@
             // Populate the model
             _model.Name = job.Name;
             _model.Description = job.Description;
-            _model.ProjectId = job.ProjectId;
+            _model.DataSourceId = job.DataSourceId;
             _model.QueryText = job.QueryText;
-            _model.DestinationProjectId = job.DestinationProjectId;
+            _model.DestinationDataSourceId = job.DestinationDataSourceId;
             _model.DestinationTable = job.DestinationTable;
             _model.Mode = job.Mode;
             _model.IsEnabled = job.IsEnabled;
@@ -252,8 +252,8 @@
                     {
                         _queryModel.Steps = steps.Select((step, index) =>
                         {
-                            var projectId = step.TryGetProperty("ProjectId", out var projId) ? projId.GetInt32() : 0;
-                            var projectInfo = _availableProjects.ContainsKey(projectId) ? _availableProjects[projectId] : null;
+                            var dataSourceId = step.TryGetProperty("DataSourceId", out var dsId) ? dsId.GetInt32() : 0;
+                            var dataSourceInfo = _availableProjects.ContainsKey(dataSourceId) ? _availableProjects[dataSourceId] : null;
 
                             return new QueryStepData
                             {
@@ -262,9 +262,9 @@
                                 Name = step.TryGetProperty("Name", out var name) ? name.GetString() ?? $"Step {index + 1}" : $"Step {index + 1}",
                                 Description = step.TryGetProperty("Description", out var desc) ? desc.GetString() : null,
                                 SqlValue = step.TryGetProperty("SqlValue", out var sql) ? sql.GetString() ?? "" : "",
-                                ProjectId = projectId,
-                                ProjectName = projectInfo?.Name ?? "Unknown Project",
-                                DatabaseEngineType = projectInfo?.DatabaseEngineType ?? DatabaseEngineType.PostgreSQL,
+                                DataSourceId = dataSourceId,
+                                DataSourceName = dataSourceInfo?.Name ?? "Unknown Data Source",
+                                DatabaseEngineType = dataSourceInfo?.DatabaseEngineType ?? DatabaseEngineType.PostgreSQL,
                                 Parameters = new List<QueryStepParameterData>()
                             };
                         }).ToList();
@@ -282,9 +282,9 @@
                             Name = "Migration Query",
                             Description = "Data extraction query",
                             SqlValue = job.QueryText,
-                            ProjectId = job.ProjectId,
-                            ProjectName = _availableProjects.ContainsKey(job.ProjectId) ? _availableProjects[job.ProjectId].Name : "Unknown Project",
-                            DatabaseEngineType = _availableProjects.ContainsKey(job.ProjectId) ? _availableProjects[job.ProjectId].DatabaseEngineType : DatabaseEngineType.PostgreSQL,
+                            DataSourceId = job.DataSourceId,
+                            DataSourceName = _availableProjects.ContainsKey(job.DataSourceId) ? _availableProjects[job.DataSourceId].Name : "Unknown Data Source",
+                            DatabaseEngineType = _availableProjects.ContainsKey(job.DataSourceId) ? _availableProjects[job.DataSourceId].DatabaseEngineType : DatabaseEngineType.PostgreSQL,
                             Parameters = new List<QueryStepParameterData>()
                         }
                     };
@@ -321,15 +321,15 @@
         }
 
         // Additional validation
-        if (string.IsNullOrWhiteSpace(_model.QueryText) || _model.ProjectId == 0)
+        if (string.IsNullOrWhiteSpace(_model.QueryText) || _model.DataSourceId == 0)
         {
             Snackbar.Add("Please add at least one query step", Severity.Warning);
             return;
         }
 
-        if (_model.DestinationProjectId == 0)
+        if (_model.DestinationDataSourceId == 0)
         {
-            Snackbar.Add("Please select a destination project", Severity.Warning);
+            Snackbar.Add("Please select a destination data source", Severity.Warning);
             return;
         }
 
@@ -381,7 +381,7 @@
                      !string.IsNullOrWhiteSpace(_model.Description) &&
                      _queryModel?.Steps?.Any() == true &&
                      !string.IsNullOrWhiteSpace(_model.DestinationTable) &&
-                     _model.DestinationProjectId > 0;
+                     _model.DestinationDataSourceId > 0;
 
         if (isValid)
         {
@@ -414,20 +414,20 @@
                 Name = s.Name,
                 Description = s.Description,
                 SqlValue = s.SqlValue,
-                ProjectId = s.ProjectId,
-                ProjectName = s.ProjectName,
+                DataSourceId = s.DataSourceId,
+                DataSourceName = s.DataSourceName,
                 Parameters = s.Parameters
             }));
 
             _model.QueryText = queryStepsJson;
 
-            // Always set the primary project ID from the first step
-            _model.ProjectId = _queryModel.Steps.OrderBy(s => s.StepOrder).First().ProjectId;
+            // Always set the primary data source ID from the first step
+            _model.DataSourceId = _queryModel.Steps.OrderBy(s => s.StepOrder).First().DataSourceId;
         }
         else
         {
             _model.QueryText = "";
-            _model.ProjectId = 0;
+            _model.DataSourceId = 0;
         }
     }
 
@@ -452,10 +452,10 @@
             return;
         }
 
-        // Validate project is selected
-        if (step.ProjectId <= 0)
+        // Validate data source is selected
+        if (step.DataSourceId <= 0)
         {
-            Snackbar.Add($"Please select a project for step {args.stepOrder}", Severity.Warning);
+            Snackbar.Add($"Please select a data source for step {args.stepOrder}", Severity.Warning);
             return;
         }
 

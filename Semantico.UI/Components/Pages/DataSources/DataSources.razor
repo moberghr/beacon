@@ -1,16 +1,16 @@
-﻿@page "/projects"
+﻿@page "/data-sources"
 @inherits BasePageComponent
-@using Semantico.Core.Models.Projects
+@using Semantico.Core.Models.DataSources
 @using Semantico.Core.Services
 
 
-<SemanticoPageTitle Title="Projects"/>
+<SemanticoPageTitle Title="Data Sources"/>
 
 <MudContainer MaxWidth="MaxWidth.ExtraExtraLarge" Class="my-4 px-4">
-    <SemanticoPageHeader Icon="@Icons.Material.Filled.Folder" Title="Projects" ButtonText="New Project" OnClick="@AddProject"/>
-    <SemanticoPageAlert Text="Manage your database projects and connections."/>
+    <SemanticoPageHeader Icon="@Icons.Material.Filled.Folder" Title="Data Sources" ButtonText="New Data Source" OnClick="@AddDataSource"/>
+    <SemanticoPageAlert Text="Manage your database data sources and connections."/>
     <MudCard Elevation="2">
-        <MudDataGrid @ref="_dataGrid" ServerData="ServerReload" T="ProjectListData" Hover="true" Filterable="false" SortMode="SortMode.None" Bordered="false">
+        <MudDataGrid @ref="_dataGrid" ServerData="ServerReload" T="DataSourceListData" Hover="true" Filterable="false" SortMode="SortMode.None" Bordered="false">
         <Columns>
             <PropertyColumn Property="x => x.Name" Title="Name"/>
             <PropertyColumn Property="x => x.DatabaseEngineType" Title="Database engine"/>
@@ -20,7 +20,7 @@
                     <MudButton Size="Size.Small"
                                Variant="Variant.Filled"
                                Color="Color.Primary"
-                               Href="@($"/semantico/projects/{context.Item.Id}/query-editor")"
+                               Href="@($"/semantico/data-sources/{context.Item.Id}/query-editor")"
                                StartIcon="@Icons.Material.Filled.Code">
                         Query Editor
                     </MudButton>
@@ -28,32 +28,32 @@
             </TemplateColumn>
         </Columns>
             <PagerContent>
-                <MudDataGridPager T="ProjectListData"/>
+                <MudDataGridPager T="DataSourceListData"/>
             </PagerContent>
         </MudDataGrid>
     </MudCard>
 </MudContainer>
 
-@inject IProjectService _service
+@inject IDataSourceService _service
 @inject IDialogService DialogService
 
 @code {
-    private List<ProjectListData> _list;
-    MudDataGrid<ProjectListData>? _dataGrid;
+    private List<DataSourceListData> _list;
+    MudDataGrid<DataSourceListData>? _dataGrid;
     private bool _loading;
 
-    private async Task<GridData<ProjectListData>> ServerReload(GridState<ProjectListData> state)
+    private async Task<GridData<DataSourceListData>> ServerReload(GridState<DataSourceListData> state)
     {
-        _list = await _service.GetProjects(null, CancellationToken.None);
+        _list = await _service.GetDataSources(null, CancellationToken.None);
 
-        return new GridData<ProjectListData>
+        return new GridData<DataSourceListData>
         {
             TotalItems = _list.Count(),
             Items = _list
         };
     }
-    
-    private async Task AddProject()
+
+    private async Task AddDataSource()
     {
         var breakpoint = await BrowserViewport.GetCurrentBreakpointAsync();
         var options = new DialogOptions {
@@ -62,11 +62,11 @@
             FullScreen = breakpoint == Breakpoint.Xs,
         };
 
-        var project = new ProjectData();
-        
-        var parameters = new DialogParameters<AddProjectDialog> { { x => x.Project, project } };
+        var dataSource = new DataSourceData();
 
-        var dialog = await DialogService.ShowAsync<AddProjectDialog>("", parameters, options);
+        var parameters = new DialogParameters<AddDataSourceDialog> { { x => x.DataSource, dataSource } };
+
+        var dialog = await DialogService.ShowAsync<AddDataSourceDialog>("", parameters, options);
 
         var result = await dialog.Result;
 

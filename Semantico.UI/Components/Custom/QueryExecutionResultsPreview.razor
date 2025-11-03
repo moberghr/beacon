@@ -61,9 +61,9 @@
                                     {
                                         <MudChip T="string" Size="Size.Small" Color="Color.Info">Multi-Step</MudChip>
                                     }
-                                    @if (ExecutionResult.IsCrossProject)
+                                    @if (ExecutionResult.IsCrossDataSource)
                                     {
-                                        <MudChip T="string" Size="Size.Small" Color="Color.Warning">Cross-Project</MudChip>
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Warning">Cross-Data-Source</MudChip>
                                     }
                                     @if (ExecutionResult.IsCrossDatabase)
                                     {
@@ -74,8 +74,8 @@
                         </MudItem>
                         <MudItem xs="12" sm="6" md="3">
                             <MudStack Spacing="1">
-                                <MudText Typo="Typo.caption" Color="Color.Tertiary">PROJECTS INVOLVED</MudText>
-                                <MudText Typo="Typo.body2">@string.Join(", ", ExecutionResult.ProjectsInvolved)</MudText>
+                                <MudText Typo="Typo.caption" Color="Color.Tertiary">DATA SOURCES INVOLVED</MudText>
+                                <MudText Typo="Typo.body2">@string.Join(", ", ExecutionResult.DataSourcesInvolved)</MudText>
                             </MudStack>
                         </MudItem>
                         <MudItem xs="12" sm="6" md="3">
@@ -111,7 +111,7 @@
                                     Step @stepResult.StepOrder
                                 </MudText>
                                 <MudText Typo="Typo.caption">
-                                    @stepResult.ProjectName
+                                    @stepResult.DataSourceName
                                 </MudText>
                                 <MudChip T="string" Size="Size.Small" Color="Color.Secondary">
                                     @stepResult.DatabaseEngine

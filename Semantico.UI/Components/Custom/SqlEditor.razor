@@ -11,9 +11,21 @@
     .sql-editor-container > div {
         height: 100% !important;
     }
+
+    .drop-zone-active {
+        border: 2px dashed #2196F3 !important;
+        background-color: rgba(33, 150, 243, 0.05);
+    }
 </style>
 
-<div style="height: @Height; border: 1px solid #ddd;">
+<div style="height: @Height; border: 1px solid #ddd;"
+     class="@(_isDragOver ? "drop-zone-active" : "")"
+     id="@($"drop-zone-{EditorId}")"
+     @ondrop="OnDrop"
+     @ondragover="OnDragOver"
+     @ondragover:preventDefault="true"
+     @ondragenter="OnDragEnter"
+     @ondragleave="OnDragLeave">
     <StandaloneCodeEditor @ref="_editor"
                          Id="@EditorId"
                          ConstructionOptions="EditorConstructionOptions"
@@ -29,7 +41,7 @@
 @code {
     [Parameter] public string Value { get; set; } = "";
     [Parameter] public EventCallback<string> ValueChanged { get; set; }
-    [Parameter] public int? ProjectId { get; set; }
+    [Parameter] public int? DataSourceId { get; set; }
     [Parameter] public string Height { get; set; } = "200px";
     [Parameter] public bool ReadOnly { get; set; } = false;
     [Parameter] public string EditorId { get; set; } = $"sql-editor-{Guid.NewGuid()}";
@@ -41,11 +53,13 @@
     private string _lastValue = "";
     private bool _layoutTriggered = false;
     private bool _completionProviderRegistered = false;
+    private string? _dragData;
+    private bool _isDragOver = false;
 
     protected override async Task OnParametersSetAsync()
     {
-        // Load metadata if ProjectId is provided, valid (not 0), and changed
-        if (ProjectId.HasValue && ProjectId.Value > 0 && _metadata == null)
+        // Load metadata if DataSourceId is provided, valid (not 0), and changed
+        if (DataSourceId.HasValue && DataSourceId.Value > 0 && _metadata == null)
         {
             await LoadMetadata();
 
@@ -55,7 +69,7 @@
                 await RegisterCompletionProvider();
             }
         }
-        else if (ProjectId.HasValue && ProjectId.Value > 0 && _metadata != null && _metadata.ProjectId != ProjectId.Value)
+        else if (DataSourceId.HasValue && DataSourceId.Value > 0 && _metadata != null && _metadata.DataSourceId != DataSourceId.Value)
         {
             // Project changed, reload metadata
             _metadata = null;
@@ -104,11 +118,11 @@
 
     private async Task LoadMetadata()
     {
-        if (!ProjectId.HasValue || ProjectId.Value <= 0) return;
+        if (!DataSourceId.HasValue || DataSourceId.Value <= 0) return;
 
         try
         {
-            _metadata = await MetadataService.GetMetadataAsync(ProjectId.Value);
+            _metadata = await MetadataService.GetMetadataAsync(DataSourceId.Value);
         }
         catch (Exception ex)
         {
@@ -331,12 +345,12 @@
 
     public async Task RefreshMetadata()
     {
-        if (!ProjectId.HasValue) return;
+        if (!DataSourceId.HasValue) return;
 
         try
         {
             _completionProviderRegistered = false; // Reset flag to allow re-registration
-            _metadata = await MetadataService.RefreshMetadataAsync(ProjectId.Value);
+            _metadata = await MetadataService.RefreshMetadataAsync(DataSourceId.Value);
 
             if (_editor != null && !ReadOnly)
             {
@@ -347,5 +361,86 @@
         {
             Snackbar.Add($"Failed to refresh metadata: {ex.Message}", Severity.Error);
         }
+    }
+
+    public void SetDragData(string dragData)
+    {
+        _dragData = dragData;
+    }
+
+    private void OnDragOver(Microsoft.AspNetCore.Components.Web.DragEventArgs e)
+    {
+        // Allow drop
+        e.DataTransfer.DropEffect = "copy";
+    }
+
+    private void OnDragEnter(Microsoft.AspNetCore.Components.Web.DragEventArgs e)
+    {
+        _isDragOver = true;
+    }
+
+    private void OnDragLeave(Microsoft.AspNetCore.Components.Web.DragEventArgs e)
+    {
+        _isDragOver = false;
+    }
+
+    private async Task OnDrop(Microsoft.AspNetCore.Components.Web.DragEventArgs e)
+    {
+        _isDragOver = false;
+
+        if (_editor == null || string.IsNullOrEmpty(_dragData)) return;
+
+        try
+        {
+            Console.WriteLine($"SqlEditor {EditorId}: Drop received with data: {_dragData}");
+
+            // Get current cursor position using JavaScript
+            var position = await JSRuntime.InvokeAsync<EditorPosition>("eval", $@"
+                (function() {{
+                    const editor = window.blazorMonaco.editors['{EditorId}'];
+                    if (editor) {{
+                        const pos = editor.getPosition();
+                        return {{ lineNumber: pos.lineNumber, column: pos.column }};
+                    }}
+                    return {{ lineNumber: 1, column: 1 }};
+                }})()
+            ");
+
+            // Get current value
+            var currentValue = await _editor.GetValue();
+            var lines = currentValue.Split('\n');
+
+            // Calculate character offset
+            var offset = 0;
+            for (int i = 0; i < position.LineNumber - 1; i++)
+            {
+                offset += lines[i].Length + 1; // +1 for newline
+            }
+            offset += position.Column - 1;
+
+            // Insert drag data at cursor position
+            var newValue = currentValue.Insert(offset, _dragData);
+            await _editor.SetValue(newValue);
+
+            // Update the bound value
+            _lastValue = newValue;
+            await ValueChanged.InvokeAsync(newValue);
+
+            Console.WriteLine($"SqlEditor {EditorId}: Inserted text at position {position.LineNumber}:{position.Column}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"SqlEditor {EditorId}: Drop error: {ex.Message}");
+        }
+        finally
+        {
+            _dragData = null;
+        }
+    }
+
+    private class EditorPosition
+    {
+        public int LineNumber { get; set; }
+        public int Column { get; set; }
     }
 }

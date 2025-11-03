@@ -15,12 +15,12 @@ internal class TeamsAdapter(IHttpClientFactory httpClientFactory) : IAdapter
         var card = new AdaptiveCards.AdaptiveCard("1.5")
         {
             Type = "AdaptiveCard",
-            Speak = $"{recipientQueryResult.QueryResult.ProjectName} - {recipientQueryResult.QueryResult.SubscriptionName}",
+            Speak = $"{recipientQueryResult.QueryResult.DataSourceName} - {recipientQueryResult.QueryResult.SubscriptionName}",
             Body = new List<AdaptiveCards.AdaptiveElement>
             {
                 new AdaptiveCards.AdaptiveTextBlock()
                 {
-                    Text = $"[Semantico] {recipientQueryResult.QueryResult.ProjectName} - {recipientQueryResult.QueryResult.SubscriptionName}",
+                    Text = $"[Semantico] {recipientQueryResult.QueryResult.DataSourceName} - {recipientQueryResult.QueryResult.SubscriptionName}",
                     Size = AdaptiveCards.AdaptiveTextSize.Large,
                     Weight = AdaptiveCards.AdaptiveTextWeight.Bolder,
                     Id = "title",

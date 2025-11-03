@@ -50,9 +50,9 @@ internal class MigrationService(
             {
                 Name = request.Name,
                 Description = request.Description,
-                ProjectId = request.ProjectId,
+                DataSourceId = request.DataSourceId,
                 QueryText = request.QueryText,
-                DestinationProjectId = request.DestinationProjectId,
+                DestinationDataSourceId = request.DestinationDataSourceId,
                 DestinationTable = request.DestinationTable,
                 Mode = request.Mode,
                 IsEnabled = request.IsEnabled,
@@ -86,8 +86,8 @@ internal class MigrationService(
             await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
             var migrationJob = await context.MigrationJobs
-                .Include(m => m.Project)
-                .Include(m => m.DestinationProject)
+                .Include(m => m.DataSource)
+                .Include(m => m.DestinationDataSource)
                 .FirstOrDefaultAsync(m => m.Id == request.MigrationJobId, cancellationToken);
 
             if (migrationJob == null)
@@ -168,15 +168,15 @@ internal class MigrationService(
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         var query = context.MigrationJobs
-            .Include(m => m.Project)
-            .Include(m => m.DestinationProject)
+            .Include(m => m.DataSource)
+            .Include(m => m.DestinationDataSource)
             .Include(m => m.Executions)
             .AsQueryable();
 
         // Apply filters
-        if (request.ProjectId.HasValue)
+        if (request.DataSourceId.HasValue)
         {
-            query = query.Where(m => m.ProjectId == request.ProjectId.Value || m.DestinationProjectId == request.ProjectId.Value);
+            query = query.Where(m => m.DataSourceId == request.DataSourceId.Value || m.DestinationDataSourceId == request.DataSourceId.Value);
         }
 
         if (request.IsEnabled.HasValue)
@@ -202,10 +202,10 @@ internal class MigrationService(
                 m.Id,
                 m.Name,
                 m.Description,
-                m.ProjectId,
-                m.Project != null ? m.Project.Name : "Unknown",
-                m.DestinationProjectId,
-                m.DestinationProject != null ? m.DestinationProject.Name : "Unknown",
+                m.DataSourceId,
+                m.DataSource != null ? m.DataSource.Name : "Unknown",
+                m.DestinationDataSourceId,
+                m.DestinationDataSource != null ? m.DestinationDataSource.Name : "Unknown",
                 m.DestinationTable,
                 m.Mode,
                 m.IsEnabled,
@@ -233,9 +233,9 @@ internal class MigrationService(
                 m.Id,
                 m.Name,
                 m.Description,
-                m.ProjectId,
+                m.DataSourceId,
                 m.QueryText,
-                m.DestinationProjectId,
+                m.DestinationDataSourceId,
                 m.DestinationTable,
                 m.Mode,
                 m.IsEnabled,
@@ -335,9 +335,9 @@ internal class MigrationService(
             // Update properties
             migrationJob.Name = request.Name;
             migrationJob.Description = request.Description;
-            migrationJob.ProjectId = request.ProjectId;
+            migrationJob.DataSourceId = request.DataSourceId;
             migrationJob.QueryText = request.QueryText;
-            migrationJob.DestinationProjectId = request.DestinationProjectId;
+            migrationJob.DestinationDataSourceId = request.DestinationDataSourceId;
             migrationJob.DestinationTable = request.DestinationTable;
             migrationJob.Mode = request.Mode;
             migrationJob.IsEnabled = request.IsEnabled;
@@ -465,14 +465,14 @@ internal class MigrationService(
             var sourceData = queryResult.FinalResult.AllRecords;
             var sourceRowsRead = sourceData.Count;
 
-            // Get destination project for data insertion
+            // Get destination data source for data insertion
             await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-            var destinationProject = await context.Projects
-                .FirstOrDefaultAsync(p => p.Id == migrationJob.DestinationProjectId, cancellationToken);
+            var destinationDataSource = await context.DataSources
+                .FirstOrDefaultAsync(ds => ds.Id == migrationJob.DestinationDataSourceId, cancellationToken);
 
-            if (destinationProject == null)
+            if (destinationDataSource == null)
             {
-                throw new InvalidOperationException("Destination project not found");
+                throw new InvalidOperationException("Destination data source not found");
             }
 
             // Convert to concrete Dictionary type and apply transformation if specified
@@ -481,7 +481,7 @@ internal class MigrationService(
 
             // Execute destination insert based on migration mode
             var (rowsWritten, rowsSkipped, rowsFailed, errorDetails) = await ExecuteDestinationOperation(
-                destinationProject,
+                destinationDataSource,
                 migrationJob.DestinationTable,
                 transformedData,
                 migrationJob.Mode,
@@ -544,8 +544,8 @@ internal class MigrationService(
                 Name = step.TryGetProperty("Name", out var name) ? name.GetString() : $"Step {index + 1}",
                 Description = step.TryGetProperty("Description", out var desc) ? desc.GetString() : null,
                 SqlValue = step.TryGetProperty("SqlValue", out var sql) ? sql.GetString() ?? "" : "",
-                ProjectId = step.TryGetProperty("ProjectId", out var projectId) ? projectId.GetInt32() : 0,
-                ProjectName = step.TryGetProperty("ProjectName", out var projectName) ? projectName.GetString() : "",
+                DataSourceId = step.TryGetProperty("DataSourceId", out var dataSourceId) ? dataSourceId.GetInt32() : 0,
+                DataSourceName = step.TryGetProperty("DataSourceName", out var dataSourceName) ? dataSourceName.GetString() : "",
                 DatabaseEngineType = DatabaseEngineType.PostgreSQL, // Default
                 Parameters = new List<QueryStepParameterData>()
             }).ToList() ?? new List<QueryStepData>();
@@ -562,8 +562,8 @@ internal class MigrationService(
                     Name = "Migration Query",
                     Description = "Data extraction query",
                     SqlValue = queryTextJson,
-                    ProjectId = 0, // Will need to be resolved
-                    ProjectName = "Unknown",
+                    DataSourceId = 0, // Will need to be resolved
+                    DataSourceName = "Unknown",
                     DatabaseEngineType = DatabaseEngineType.PostgreSQL,
                     Parameters = new List<QueryStepParameterData>()
                 }
@@ -582,7 +582,7 @@ internal class MigrationService(
     }
 
     private async Task<(int rowsWritten, int rowsSkipped, int rowsFailed, List<string> errorDetails)> ExecuteDestinationOperation(
-        Data.Entities.Project destinationProject,
+        Data.Entities.DataSource destinationDataSource,
         string destinationTable,
         List<Dictionary<string, object?>> data,
         MigrationMode mode,
@@ -594,11 +594,11 @@ internal class MigrationService(
         try
         {
             // Create database connection based on engine type
-            connection = CreateDatabaseConnection(destinationProject);
+            connection = CreateDatabaseConnection(destinationDataSource);
             await connection.OpenAsync(cancellationToken);
 
             // Validate destination table exists
-            await ValidateDestinationTable(connection, destinationTable, destinationProject.DatabaseEngineType);
+            await ValidateDestinationTable(connection, destinationTable, destinationDataSource.DatabaseEngineType);
 
             // Start transaction for data consistency
             transaction = await connection.BeginTransactionAsync(cancellationToken);
@@ -614,20 +614,20 @@ internal class MigrationService(
                 switch (mode)
                 {
                     case MigrationMode.Truncate:
-                        await ExecuteTruncate(connection, transaction, destinationTable, destinationProject.DatabaseEngineType);
-                        (rowsWritten, rowsFailed, errorDetails) = await ExecuteInserts(connection, transaction, destinationTable, data, destinationProject.DatabaseEngineType);
+                        await ExecuteTruncate(connection, transaction, destinationTable, destinationDataSource.DatabaseEngineType);
+                        (rowsWritten, rowsFailed, errorDetails) = await ExecuteInserts(connection, transaction, destinationTable, data, destinationDataSource.DatabaseEngineType);
                         break;
 
                     case MigrationMode.Insert:
-                        (rowsWritten, rowsFailed, errorDetails) = await ExecuteInserts(connection, transaction, destinationTable, data, destinationProject.DatabaseEngineType);
+                        (rowsWritten, rowsFailed, errorDetails) = await ExecuteInserts(connection, transaction, destinationTable, data, destinationDataSource.DatabaseEngineType);
                         break;
 
                     case MigrationMode.Upsert:
-                        (rowsWritten, rowsFailed, errorDetails) = await ExecuteUpserts(connection, transaction, destinationTable, data, destinationProject.DatabaseEngineType);
+                        (rowsWritten, rowsFailed, errorDetails) = await ExecuteUpserts(connection, transaction, destinationTable, data, destinationDataSource.DatabaseEngineType);
                         break;
 
                     case MigrationMode.SyncDelete:
-                        (rowsWritten, rowsSkipped, rowsFailed, errorDetails) = await ExecuteSyncDelete(connection, transaction, destinationTable, data, destinationProject.DatabaseEngineType);
+                        (rowsWritten, rowsSkipped, rowsFailed, errorDetails) = await ExecuteSyncDelete(connection, transaction, destinationTable, data, destinationDataSource.DatabaseEngineType);
                         break;
                 }
 
@@ -651,11 +651,11 @@ internal class MigrationService(
         }
         catch (Exception ex) when (ex.Message.Contains("does not exist"))
         {
-            throw new InvalidOperationException($"Destination table '{destinationTable}' does not exist in database '{destinationProject.Name}'", ex);
+            throw new InvalidOperationException($"Destination table '{destinationTable}' does not exist in database '{destinationDataSource.Name}'", ex);
         }
         catch (Exception ex) when (ex.Message.Contains("connect") || ex.Message.Contains("connection"))
         {
-            throw new InvalidOperationException($"Unable to connect to destination database '{destinationProject.Name}': {ex.Message}", ex);
+            throw new InvalidOperationException($"Unable to connect to destination database '{destinationDataSource.Name}': {ex.Message}", ex);
         }
         catch (Exception ex) when (ex is not InvalidOperationException)
         {
@@ -672,21 +672,21 @@ internal class MigrationService(
         }
     }
 
-    private DbConnection CreateDatabaseConnection(Data.Entities.Project project)
+    private DbConnection CreateDatabaseConnection(Data.Entities.DataSource dataSource)
     {
         try
         {
-            return project.DatabaseEngineType switch
+            return dataSource.DatabaseEngineType switch
             {
-                DatabaseEngineType.PostgreSQL => new NpgsqlConnection(project.ConnectionString),
-                DatabaseEngineType.MySQL => new MySqlConnection(project.ConnectionString),
-                DatabaseEngineType.MSSQL => new SqlConnection(project.ConnectionString),
-                _ => throw new NotSupportedException($"Database engine type '{project.DatabaseEngineType}' is not supported")
+                DatabaseEngineType.PostgreSQL => new NpgsqlConnection(dataSource.ConnectionString),
+                DatabaseEngineType.MySQL => new MySqlConnection(dataSource.ConnectionString),
+                DatabaseEngineType.MSSQL => new SqlConnection(dataSource.ConnectionString),
+                _ => throw new NotSupportedException($"Database engine type '{dataSource.DatabaseEngineType}' is not supported")
             };
         }
         catch (Exception ex)
         {
-            throw new InvalidOperationException($"Failed to create database connection for project '{project.Name}': {ex.Message}", ex);
+            throw new InvalidOperationException($"Failed to create database connection for data source '{dataSource.Name}': {ex.Message}", ex);
         }
     }
 

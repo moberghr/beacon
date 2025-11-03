@@ -13,15 +13,15 @@
         <CardHeaderContent>
             <MudText Typo="Typo.h6">
                 <MudIcon Icon="@Icons.Material.Filled.AccountTree" Class="mr-2" />
-                Cross-Project Query Builder
+                Cross-Data-Source Query Builder
             </MudText>
             @if (Query?.IsMultiStep == true)
             {
                 <MudChip T="string" Size="Size.Small" Color="Color.Info">Multi-Step</MudChip>
             }
-            @if (Query?.IsCrossProject == true)
+            @if (Query?.IsCrossDataSource == true)
             {
-                <MudChip T="string" Size="Size.Small" Color="Color.Warning">Cross-Project</MudChip>
+                <MudChip T="string" Size="Size.Small" Color="Color.Warning">Cross-Data-Source</MudChip>
             }
             @if (Query?.IsCrossDatabase == true)
             {
@@ -46,7 +46,7 @@
                                 Step @step.StepOrder
                             </MudText>
                             <MudText Typo="Typo.caption">
-                                @step.ProjectName (@step.DatabaseEngineDescription)
+                                @step.DataSourceName (@step.DatabaseEngineDescription)
                             </MudText>
                         </ItemOpposite>
                         <ItemContent>
@@ -59,15 +59,15 @@
                                                       Margin="Margin.Dense" />
                                     </MudItem>
                                     <MudItem xs="12" sm="6">
-                                        <MudSelect Value="@step.ProjectId"
-                                                   ValueChanged="@((int newProjectId) => OnProjectChanged(step, newProjectId))"
+                                        <MudSelect Value="@step.DataSourceId"
+                                                   ValueChanged="@((int newDataSourceId) => OnDataSourceChanged(step, newDataSourceId))"
                                                    Label="Target Database"
                                                    Variant="Variant.Outlined"
                                                    Margin="Margin.Dense">
-                                            @foreach (var project in AvailableProjects)
+                                            @foreach (var dataSource in AvailableProjects)
                                             {
-                                                <MudSelectItem Value="project.Key">
-                                                    @project.Value.Name (@project.Value.DatabaseEngine)
+                                                <MudSelectItem Value="dataSource.Key">
+                                                    @dataSource.Value.Name (@dataSource.Value.DatabaseEngine)
                                                 </MudSelectItem>
                                             }
                                         </MudSelect>
@@ -80,15 +80,19 @@
                                             @GetStepHelperText(step) | Use {parameter_name} for parameters
                                         </MudText>
                                         <div style="display: flex; gap: 0; height: 400px; border: 1px solid #ddd;">
+                                            @{
+                                                var currentStepOrder = step.StepOrder;
+                                            }
                                             <div style="width: 250px; min-width: 250px; height: 100%; overflow: hidden;">
                                                 <DatabaseExplorer Metadata="@GetMetadataForStep(step)"
                                                                  OnTableSelected="@((tableName) => OnTableSelectedForStep(step, tableName))"
-                                                                 OnColumnSelected="@((selection) => OnColumnSelectedForStep(step, selection))" />
+                                                                 OnColumnSelected="@((selection) => OnColumnSelectedForStep(step, selection))"
+                                                                 OnDragData="@((dragData) => OnDragDataReceived(step, dragData))" />
                                             </div>
                                             <div style="flex: 1; height: 100%;">
                                                 <SqlEditor Value="@step.SqlValue"
                                                            ValueChanged="@(async (newValue) => await OnSqlValueChanged(step, newValue))"
-                                                           ProjectId="@step.ProjectId"
+                                                           DataSourceId="@step.DataSourceId"
                                                            Height="100%"
                                                            EditorId="@($"sql-editor-step-{step.StepOrder}")" />
                                             </div>
@@ -236,10 +240,11 @@
     public string? FinalQuery { get; set; }
 
     private Dictionary<int, DatabaseMetadataSnapshot?> _metadataCache = new();
+    private Dictionary<int, SqlEditor?> _editorRefs = new();
 
     protected override async Task OnParametersSetAsync()
     {
-        Query ??= new QueryData { Name = "New Cross-Project Query" };
+        Query ??= new QueryData { Name = "New Cross-Data-Source Query" };
 
         // Initialize FinalQuery from Query object
         FinalQuery ??= Query.FinalQuery;
@@ -249,20 +254,20 @@
             AddStep();
         }
 
-        // Load metadata for all steps' projects
+        // Load metadata for all steps' data sources
         if (Query.Steps.Any())
         {
             foreach (var step in Query.Steps)
             {
-                if (step.ProjectId > 0 && !_metadataCache.ContainsKey(step.ProjectId))
+                if (step.DataSourceId > 0 && !_metadataCache.ContainsKey(step.DataSourceId))
                 {
                     try
                     {
-                        _metadataCache[step.ProjectId] = await MetadataService.GetMetadataAsync(step.ProjectId);
+                        _metadataCache[step.DataSourceId] = await MetadataService.GetMetadataAsync(step.DataSourceId);
                     }
                     catch
                     {
-                        _metadataCache[step.ProjectId] = null;
+                        _metadataCache[step.DataSourceId] = null;
                     }
                 }
             }
@@ -272,20 +277,20 @@
     private void AddStep()
     {
         var newStepOrder = Query!.Steps.Any() ? Query.Steps.Max(s => s.StepOrder) + 1 : 1;
-        var defaultProjectId = AvailableProjects.Keys.FirstOrDefault();
-        var defaultProject = AvailableProjects.GetValueOrDefault(defaultProjectId);
-        
+        var defaultDataSourceId = AvailableProjects.Keys.FirstOrDefault();
+        var defaultDataSource = AvailableProjects.GetValueOrDefault(defaultDataSourceId);
+
         var newStep = new QueryStepData
         {
             StepOrder = newStepOrder,
             Name = $"Step {newStepOrder}",
             SqlValue = "",
-            ProjectId = defaultProjectId,
-            ProjectName = defaultProject?.Name ?? "",
-            DatabaseEngineType = defaultProject?.DatabaseEngineType ?? DatabaseEngineType.PostgreSQL,
+            DataSourceId = defaultDataSourceId,
+            DataSourceName = defaultDataSource?.Name ?? "",
+            DatabaseEngineType = defaultDataSource?.DatabaseEngineType ?? DatabaseEngineType.PostgreSQL,
             Parameters = new()
         };
-        
+
         Query.Steps.Add(newStep);
         OnQueryChanged.InvokeAsync(Query);
     }
@@ -400,28 +405,28 @@
         await OnQueryChanged.InvokeAsync(Query!);
     }
 
-    private async Task OnProjectChanged(QueryStepData step, int newProjectId)
+    private async Task OnDataSourceChanged(QueryStepData step, int newDataSourceId)
     {
-        step.ProjectId = newProjectId;
+        step.DataSourceId = newDataSourceId;
 
-        // Update project info
-        if (AvailableProjects.TryGetValue(newProjectId, out var projectInfo))
+        // Update data source info
+        if (AvailableProjects.TryGetValue(newDataSourceId, out var dataSourceInfo))
         {
-            step.ProjectName = projectInfo.Name;
-            step.DatabaseEngineType = projectInfo.DatabaseEngineType;
+            step.DataSourceName = dataSourceInfo.Name;
+            step.DatabaseEngineType = dataSourceInfo.DatabaseEngineType;
         }
 
-        // Load metadata for the new project
-        if (newProjectId > 0 && !_metadataCache.ContainsKey(newProjectId))
+        // Load metadata for the new data source
+        if (newDataSourceId > 0 && !_metadataCache.ContainsKey(newDataSourceId))
         {
             try
             {
-                _metadataCache[newProjectId] = await MetadataService.GetMetadataAsync(newProjectId);
+                _metadataCache[newDataSourceId] = await MetadataService.GetMetadataAsync(newDataSourceId);
                 StateHasChanged(); // Force re-render to show new metadata
             }
             catch
             {
-                _metadataCache[newProjectId] = null;
+                _metadataCache[newDataSourceId] = null;
             }
         }
 
@@ -487,11 +492,34 @@
 
     private DatabaseMetadataSnapshot? GetMetadataForStep(QueryStepData step)
     {
-        if (step.ProjectId > 0 && _metadataCache.TryGetValue(step.ProjectId, out var metadata))
+        if (step.DataSourceId > 0 && _metadataCache.TryGetValue(step.DataSourceId, out var metadata))
         {
             return metadata;
         }
         return null;
+    }
+
+    private void StoreEditorRef(int stepOrder, SqlEditor? editor)
+    {
+        if (editor != null)
+        {
+            _editorRefs[stepOrder] = editor;
+        }
+    }
+
+    private void OnDragDataReceived(QueryStepData step, string dragData)
+    {
+        Console.WriteLine($"QueryStepBuilder: Drag data received for step {step.StepOrder}: {dragData}");
+
+        // Store drag data in the corresponding editor
+        if (_editorRefs.TryGetValue(step.StepOrder, out var editor) && editor != null)
+        {
+            editor.SetDragData(dragData);
+        }
+        else
+        {
+            Console.WriteLine($"QueryStepBuilder: Warning - Editor not found for step {step.StepOrder}");
+        }
     }
 
     private async Task OnTableSelectedForStep(QueryStepData step, string tableName)

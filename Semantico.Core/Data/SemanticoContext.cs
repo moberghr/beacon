@@ -29,7 +29,7 @@ public abstract partial class SemanticoContext : DbContext
 
     public DbSet<QueryStepParameter> QueryStepParameters => Set<QueryStepParameter>();
 
-    public DbSet<Project> Projects => Set<Project>();
+    public DbSet<DataSource> DataSources => Set<DataSource>();
 
     public DbSet<QueryExecutionHistory> QueryExecutionHistory => Set<QueryExecutionHistory>();
 
@@ -105,14 +105,14 @@ public abstract partial class SemanticoContext : DbContext
             entity.Property(e => e.Schedule).HasMaxLength(50);
             
             // Relationships
-            entity.HasOne(e => e.Project)
+            entity.HasOne(e => e.DataSource)
                   .WithMany()
-                  .HasForeignKey(e => e.ProjectId)
+                  .HasForeignKey(e => e.DataSourceId)
                   .OnDelete(DeleteBehavior.Restrict);
-                  
-            entity.HasOne(e => e.DestinationProject)
+
+            entity.HasOne(e => e.DestinationDataSource)
                   .WithMany()
-                  .HasForeignKey(e => e.DestinationProjectId)
+                  .HasForeignKey(e => e.DestinationDataSourceId)
                   .OnDelete(DeleteBehavior.Restrict);
                   
             entity.HasMany(e => e.Executions)
@@ -121,8 +121,8 @@ public abstract partial class SemanticoContext : DbContext
                   .OnDelete(DeleteBehavior.Restrict);
 
             // Indexes for performance
-            entity.HasIndex(e => e.ProjectId);
-            entity.HasIndex(e => e.DestinationProjectId);
+            entity.HasIndex(e => e.DataSourceId);
+            entity.HasIndex(e => e.DestinationDataSourceId);
             entity.HasIndex(e => new { e.IsEnabled, e.ArchivedTime });
         });
 
@@ -157,9 +157,9 @@ public abstract partial class SemanticoContext : DbContext
             entity.Property(e => e.TableDescription).HasMaxLength(1000);
 
             // Relationships
-            entity.HasOne(e => e.Project)
+            entity.HasOne(e => e.DataSource)
                   .WithMany()
-                  .HasForeignKey(e => e.ProjectId)
+                  .HasForeignKey(e => e.DataSourceId)
                   .OnDelete(DeleteBehavior.Cascade);
 
             entity.HasMany(e => e.Columns)
@@ -173,8 +173,8 @@ public abstract partial class SemanticoContext : DbContext
                   .OnDelete(DeleteBehavior.Cascade);
 
             // Indexes for performance
-            entity.HasIndex(e => e.ProjectId);
-            entity.HasIndex(e => new { e.ProjectId, e.SchemaName, e.TableName }).IsUnique();
+            entity.HasIndex(e => e.DataSourceId);
+            entity.HasIndex(e => new { e.DataSourceId, e.SchemaName, e.TableName }).IsUnique();
             entity.HasIndex(e => e.LastRefreshed);
         });
 

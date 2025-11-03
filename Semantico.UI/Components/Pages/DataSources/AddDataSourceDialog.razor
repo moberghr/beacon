@@ -1,11 +1,11 @@
 @using Semantico.Core.Data.Enums
-@using Semantico.Core.Models.Projects
+@using Semantico.Core.Models.DataSources
 @using Semantico.Core.Services
 <MudDialog Class="pb-2">
     <TitleContent>
         <MudText Typo="Typo.h6">
             <MudIcon Icon="@Icons.Material.Filled.Add" Class="mr-1 mb-n1" />
-            Add project
+            Add data source
         </MudText>
     </TitleContent>
     <DialogContent>
@@ -15,7 +15,7 @@
                 Margin="Margin.Normal"
                 Variant="Variant.Text"
                 Class="mb-2"
-                @bind-Value="@Project.Name"
+                @bind-Value="@DataSource.Name"
                 T="String"
                 Label="Name"
                 Required="true"
@@ -26,12 +26,12 @@
                 Margin="Margin.Dense"
                 Variant="Variant.Outlined"
                 Class="mb-2"
-                @bind-Value="@Project.ConnectionString"
+                @bind-Value="@DataSource.ConnectionString"
                 T="string"
                 Label="Connection string"
                 Required="true"
             />
-            <MudSelect T="DatabaseEngineType" Label="Database Engine Type" @bind-Value="@Project.DatabaseEngineType" Required="true">
+            <MudSelect T="DatabaseEngineType" Label="Database Engine Type" @bind-Value="@DataSource.DatabaseEngineType" Required="true">
     <MudSelectItem Value="DatabaseEngineType.PostgreSQL">PostgreSQL</MudSelectItem>
     <MudSelectItem Value="DatabaseEngineType.MSSQL">MSSQL</MudSelectItem>
     <MudSelectItem Value="DatabaseEngineType.MySQL">MySQL</MudSelectItem>
@@ -52,7 +52,7 @@
 </MudDialog>
 
 @inject ISnackbar Snackbar
-@inject IProjectService Service
+@inject IDataSourceService Service
 
 @code
 {
@@ -60,7 +60,7 @@
     IMudDialogInstance MudDialog { get; set; }
 
     [Parameter]
-    public ProjectData Project { get; set; }
+    public DataSourceData DataSource { get; set; }
 
     private MudForm _form;
     private bool _loading;
@@ -82,8 +82,8 @@
         }
 
         _loading = true;
-        var response = await Service.CreateProject(Project, CancellationToken.None);
-        
+        var response = await Service.CreateDataSource(DataSource, CancellationToken.None);
+
         if (response.Success)
         {
             MudDialog.Close(DialogResult.Ok(true));

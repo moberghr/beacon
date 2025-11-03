@@ -9,12 +9,12 @@ public class QueryStep : BaseEntity
     public Query Query { get; set; } = null!;
     
     /// <summary>
-    /// The project this step will execute against - KEY ARCHITECTURAL CHANGE
-    /// Each step can target a different database/project
+    /// The data source this step will execute against - KEY ARCHITECTURAL CHANGE
+    /// Each step can target a different database/data source
     /// </summary>
-    public required int ProjectId { get; set; }
-    
-    public Project Project { get; set; } = null!;
+    public required int DataSourceId { get; set; }
+
+    public DataSource DataSource { get; set; } = null!;
     
     public required int StepOrder { get; set; }
     

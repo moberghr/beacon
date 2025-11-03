@@ -6,9 +6,9 @@ public class CreateMigrationJobRequest
 {
     public string Name { get; set; } = "";
     public string Description { get; set; } = "";
-    public int ProjectId { get; set; }
+    public int DataSourceId { get; set; }
     public string QueryText { get; set; } = "";
-    public int DestinationProjectId { get; set; }
+    public int DestinationDataSourceId { get; set; }
     public string DestinationTable { get; set; } = "";
     public MigrationMode Mode { get; set; } = MigrationMode.Insert;
     public bool IsEnabled { get; set; } = true;

@@ -32,42 +32,42 @@ public class DatabaseMetadataService : IDatabaseMetadataService
         _logger = logger;
     }
 
-    public async Task<DatabaseMetadataSnapshot> RefreshMetadataAsync(int projectId, CancellationToken cancellationToken = default)
+    public async Task<DatabaseMetadataSnapshot> RefreshMetadataAsync(int dataSourceId, CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("Refreshing metadata for project {ProjectId}", projectId);
+        _logger.LogInformation("Refreshing metadata for data source {DataSourceId}", dataSourceId);
 
         await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
 
-        var project = await context.Projects.FindAsync(new object[] { projectId }, cancellationToken);
-        if (project == null)
-            throw new SemanticoException($"Project {projectId} not found");
+        var dataSource = await context.DataSources.FindAsync(new object[] { dataSourceId }, cancellationToken);
+        if (dataSource == null)
+            throw new SemanticoException($"Data source {dataSourceId} not found");
 
         // Extract metadata based on database type
-        var tables = project.DatabaseEngineType switch
+        var tables = dataSource.DatabaseEngineType switch
         {
-            DatabaseEngineType.PostgreSQL => await GetPostgreSqlMetadataAsync(project.ConnectionString, cancellationToken),
-            DatabaseEngineType.MSSQL => await GetSqlServerMetadataAsync(project.ConnectionString, cancellationToken),
-            _ => throw new NotSupportedException($"Database type {project.DatabaseEngineType} not supported for metadata extraction")
+            DatabaseEngineType.PostgreSQL => await GetPostgreSqlMetadataAsync(dataSource.ConnectionString, cancellationToken),
+            DatabaseEngineType.MSSQL => await GetSqlServerMetadataAsync(dataSource.ConnectionString, cancellationToken),
+            _ => throw new NotSupportedException($"Database type {dataSource.DatabaseEngineType} not supported for metadata extraction")
         };
 
         // Store in database
-        await StoreMetadataAsync(projectId, tables, cancellationToken);
+        await StoreMetadataAsync(dataSourceId, tables, cancellationToken);
 
         // Update cache
-        var snapshot = new DatabaseMetadataSnapshot(projectId, tables, DateTime.UtcNow);
-        _cache.Set(GetCacheKey(projectId), snapshot, CacheExpiration);
+        var snapshot = new DatabaseMetadataSnapshot(dataSourceId, tables, DateTime.UtcNow);
+        _cache.Set(GetCacheKey(dataSourceId), snapshot, CacheExpiration);
 
-        _logger.LogInformation("Refreshed metadata for project {ProjectId}: {TableCount} tables", projectId, tables.Count);
+        _logger.LogInformation("Refreshed metadata for data source {DataSourceId}: {TableCount} tables", dataSourceId, tables.Count);
 
         return snapshot;
     }
 
-    public async Task<DatabaseMetadataSnapshot> GetMetadataAsync(int projectId, CancellationToken cancellationToken = default)
+    public async Task<DatabaseMetadataSnapshot> GetMetadataAsync(int dataSourceId, CancellationToken cancellationToken = default)
     {
         // Try to get from cache first
-        if (_cache.TryGetValue(GetCacheKey(projectId), out DatabaseMetadataSnapshot? cachedSnapshot) && cachedSnapshot != null)
+        if (_cache.TryGetValue(GetCacheKey(dataSourceId), out DatabaseMetadataSnapshot? cachedSnapshot) && cachedSnapshot != null)
         {
-            _logger.LogDebug("Returning cached metadata for project {ProjectId}", projectId);
+            _logger.LogDebug("Returning cached metadata for data source {DataSourceId}", dataSourceId);
             return cachedSnapshot;
         }
 
@@ -77,7 +77,7 @@ public class DatabaseMetadataService : IDatabaseMetadataService
         var metadata = await context.DatabaseMetadata
             .Include(m => m.Columns)
             .Include(m => m.Indexes)
-            .Where(m => m.ProjectId == projectId)
+            .Where(m => m.DataSourceId == dataSourceId)
             .ToListAsync(cancellationToken);
 
         if (metadata.Any())
@@ -107,19 +107,19 @@ public class DatabaseMetadataService : IDatabaseMetadataService
                 m.TableDescription
             )).ToList();
 
-            var snapshot = new DatabaseMetadataSnapshot(projectId, tables, metadata.Max(m => m.LastRefreshed));
-            _cache.Set(GetCacheKey(projectId), snapshot, CacheExpiration);
+            var snapshot = new DatabaseMetadataSnapshot(dataSourceId, tables, metadata.Max(m => m.LastRefreshed));
+            _cache.Set(GetCacheKey(dataSourceId), snapshot, CacheExpiration);
 
             return snapshot;
         }
 
         // If no data in database, refresh from source
-        return await RefreshMetadataAsync(projectId, cancellationToken);
+        return await RefreshMetadataAsync(dataSourceId, cancellationToken);
     }
 
-    public async Task<IEnumerable<string>> GetTableNamesAsync(int projectId, string? schemaName = null, CancellationToken cancellationToken = default)
+    public async Task<IEnumerable<string>> GetTableNamesAsync(int dataSourceId, string? schemaName = null, CancellationToken cancellationToken = default)
     {
-        var metadata = await GetMetadataAsync(projectId, cancellationToken);
+        var metadata = await GetMetadataAsync(dataSourceId, cancellationToken);
 
         var tables = metadata.Tables.AsEnumerable();
         if (!string.IsNullOrEmpty(schemaName))
@@ -130,9 +130,9 @@ public class DatabaseMetadataService : IDatabaseMetadataService
         return tables.Select(t => t.TableName).OrderBy(t => t);
     }
 
-    public async Task<IEnumerable<ColumnMetadataDto>> GetColumnsAsync(int projectId, string tableName, string? schemaName = null, CancellationToken cancellationToken = default)
+    public async Task<IEnumerable<ColumnMetadataDto>> GetColumnsAsync(int dataSourceId, string tableName, string? schemaName = null, CancellationToken cancellationToken = default)
     {
-        var metadata = await GetMetadataAsync(projectId, cancellationToken);
+        var metadata = await GetMetadataAsync(dataSourceId, cancellationToken);
 
         var table = metadata.Tables.FirstOrDefault(t =>
             t.TableName.Equals(tableName, StringComparison.OrdinalIgnoreCase) &&
@@ -389,13 +389,13 @@ public class DatabaseMetadataService : IDatabaseMetadataService
         return tables;
     }
 
-    private async Task StoreMetadataAsync(int projectId, IReadOnlyList<TableMetadataDto> tables, CancellationToken cancellationToken)
+    private async Task StoreMetadataAsync(int dataSourceId, IReadOnlyList<TableMetadataDto> tables, CancellationToken cancellationToken)
     {
         await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
 
-        // Remove existing metadata for this project
+        // Remove existing metadata for this data source
         var existingMetadata = await context.DatabaseMetadata
-            .Where(m => m.ProjectId == projectId)
+            .Where(m => m.DataSourceId == dataSourceId)
             .ToListAsync(cancellationToken);
 
         context.DatabaseMetadata.RemoveRange(existingMetadata);
@@ -405,7 +405,7 @@ public class DatabaseMetadataService : IDatabaseMetadataService
         {
             var metadata = new DatabaseMetadata
             {
-                ProjectId = projectId,
+                DataSourceId = dataSourceId,
                 SchemaName = table.SchemaName,
                 TableName = table.TableName,
                 TableDescription = table.Description,
@@ -447,5 +447,5 @@ public class DatabaseMetadataService : IDatabaseMetadataService
         await context.SaveChangesAsync(cancellationToken);
     }
 
-    private static string GetCacheKey(int projectId) => $"{CacheKeyPrefix}{projectId}";
+    private static string GetCacheKey(int dataSourceId) => $"{CacheKeyPrefix}{dataSourceId}";
 }

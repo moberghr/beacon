@@ -35,11 +35,13 @@
             </div>
             <MudDivider Class="my-2"/>
             <MudNavLink Href="/semantico/" Icon="@Icons.Material.Filled.Home" IconColor="Color.Primary">Home</MudNavLink>
-            <MudNavLink Href="/semantico/projects" Icon="@Icons.Material.Filled.Folder" IconColor="Color.Secondary">Projects</MudNavLink>
-            <MudNavLink Href="/semantico/recipients" Icon="@Icons.Material.Filled.People" IconColor="Color.Tertiary">Recipients</MudNavLink>
-            <MudNavLink Href="/semantico/queries" Icon="@Icons.Material.Filled.Search" IconColor="Color.Info">Queries</MudNavLink>
-            <MudNavLink Href="/semantico/subscriptions" Icon="@Icons.Material.Filled.Subscriptions" IconColor="Color.Success">Subscriptions</MudNavLink>
-            <MudNavLink Href="/semantico/notifications" Icon="@Icons.Material.Filled.Notifications" IconColor="Color.Warning">Notifications</MudNavLink>
+            <MudNavLink Href="/semantico/data-sources" Icon="@Icons.Material.Filled.Folder" IconColor="Color.Secondary">Data Sources</MudNavLink>
+            <MudNavGroup Title="Alerts" Icon="@Icons.Material.Filled.NotificationsActive" IconColor="Color.Info" Expanded="false">
+                <MudNavLink Href="/semantico/recipients" Icon="@Icons.Material.Filled.People" IconColor="Color.Tertiary">Recipients</MudNavLink>
+                <MudNavLink Href="/semantico/queries" Icon="@Icons.Material.Filled.Search" IconColor="Color.Info">Queries</MudNavLink>
+                <MudNavLink Href="/semantico/subscriptions" Icon="@Icons.Material.Filled.Subscriptions" IconColor="Color.Success">Subscriptions</MudNavLink>
+                <MudNavLink Href="/semantico/notifications" Icon="@Icons.Material.Filled.Notifications" IconColor="Color.Warning">Notifications</MudNavLink>
+            </MudNavGroup>
             <MudNavLink Href="/semantico/data-migration" Icon="@Icons.Material.Filled.SwapHoriz" IconColor="Color.Error">Data Migration</MudNavLink>
             <MudDivider Class="my-2"/>
             <MudNavLink Href="/about" Icon="@Icons.Material.Filled.Info" IconColor="Color.Default">About</MudNavLink>

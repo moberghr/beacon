@@ -1,17 +1,17 @@
 ---
 layout: default
-title: Projects
+title: Data Sources
 parent: Features
 nav_order: 1
 ---
 
-# Projects
+# Data Sources
 
-Projects represent database connections that you want to monitor with Semantico.
+Data Sources represent database connections that you want to monitor with Semantico.
 
 ## Purpose
 
-Projects allow you to:
+Data Sources allow you to:
 - Connect to multiple databases across different servers
 - Organize queries by database or application
 - Support PostgreSQL, SQL Server, and MySQL
@@ -20,25 +20,25 @@ Projects allow you to:
 
 ## Use Cases
 
-- **Application Database Monitoring**: Create a project for each application's database
+- **Application Database Monitoring**: Create a data source for each application's database
 - **Multi-Database Reporting**: Connect to different databases for consolidated reporting
-- **Environment Separation**: Separate projects for dev, staging, and production
-- **Multi-Tenant Monitoring**: One project per tenant database
+- **Environment Separation**: Separate data sources for dev, staging, and production
+- **Multi-Tenant Monitoring**: One data source per tenant database
 
-## Creating a Project
+## Creating a Data Source
 
-### Step 1: Navigate to Projects
+### Step 1: Navigate to Data Sources
 
 1. Log in to Semantico
-2. Click **Projects** in the left navigation menu
-3. Click **Create New Project**
+2. Click **Data Sources** in the left navigation menu
+3. Click **Create New Data Source**
 
-### Step 2: Fill Project Details
+### Step 2: Fill Data Source Details
 
 | Field | Description | Required | Example |
 |-------|-------------|----------|---------|
-| **Name** | Descriptive project name | Yes | `Production Database` |
-| **Description** | Purpose of this project | No | `Main application database monitoring` |
+| **Name** | Descriptive data source name | Yes | `Production Database` |
+| **Description** | Purpose of this data source | No | `Main application database monitoring` |
 | **Database Type** | Database engine | Yes | PostgreSQL, SQL Server, or MySQL |
 | **Connection String** | Database connection | Yes | See examples below |
 
@@ -72,36 +72,36 @@ Server=mysql-server.company.com;Database=myapp;Uid=readonly;Pwd=secretpass
 > - Database name exists
 > - User has at least SELECT permissions
 
-### Step 5: Save Project
+### Step 5: Save Data Source
 
-Click **Save** to create the project.
+Click **Save** to create the data source.
 
-## Managing Projects
+## Managing Data Sources
 
-### View Projects
+### View Data Sources
 
-The Projects page shows all configured projects with:
-- Project name and description
+The Data Sources page shows all configured data sources with:
+- Data source name and description
 - Database type
-- Number of queries using this project
+- Number of queries using this data source
 - Last query execution time
 - Actions (Edit, Delete, View Queries)
 
-### Edit Project
+### Edit Data Source
 
-1. Click **Edit** (pencil icon) on the project row
+1. Click **Edit** (pencil icon) on the data source row
 2. Modify details or connection string
 3. Click **Test Connection** to verify changes
 4. Click **Save**
 
-### Delete Project
+### Delete Data Source
 
 {: .warning }
-> **Careful**: Deleting a project will NOT delete associated queries, but queries will be unable to execute.
+> **Careful**: Deleting a data source will NOT delete associated queries, but queries will be unable to execute.
 
-1. Click **Delete** (trash icon) on the project row
+1. Click **Delete** (trash icon) on the data source row
 2. Confirm deletion in the dialog
-3. Project is archived (soft delete)
+3. Data source is archived (soft delete)
 
 ## Connection Best Practices
 
@@ -249,7 +249,7 @@ Server=sqlserver;Database=db;User Id=user;Password=pass;TrustServerCertificate=T
 
 ## Related Documentation
 
-- [Queries](queries) - Create queries using this project
+- [Queries](queries) - Create queries using this data source
 - [Configuration](../getting-started/configuration) - Connection string reference
 - [Troubleshooting](../troubleshooting/common-issues) - Common connection issues
 - [Multi-Tenant Deployments](../advanced/multi-tenant) - Schema-agnostic patterns

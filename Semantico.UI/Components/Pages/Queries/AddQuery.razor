@@ -59,9 +59,9 @@
                             {
                                 <MudChip T="string" Size="Size.Small" Color="Color.Info">Multi-Step</MudChip>
                             }
-                            @if (Query?.IsCrossProject == true)
+                            @if (Query?.IsCrossDataSource == true)
                             {
-                                <MudChip T="string" Size="Size.Small" Color="Color.Warning">Cross-Project</MudChip>
+                                <MudChip T="string" Size="Size.Small" Color="Color.Warning">Cross-Data-Source</MudChip>
                             }
                             @if (Query?.IsCrossDatabase == true)
                             {
@@ -97,7 +97,7 @@
 @inject ISnackbar Snackbar
 @inject IQueryService QueryService
 @inject IQueryExecutionPreviewService PreviewService
-@inject IProjectService ProjectService
+@inject IDataSourceService DataSourceService
 @inject NavigationManager NavigationManager
 
 @code
@@ -110,9 +110,9 @@
 
     protected override async Task OnInitializedAsync()
     {
-        var projects = await ProjectService.GetProjects(null, default);
+        var dataSources = await DataSourceService.GetDataSources(null, default);
 
-        _availableProjects = projects.ToDictionary(x => x.Id, x => new QueryStepBuilder.ProjectInfo 
+        _availableProjects = dataSources.ToDictionary(x => x.Id, x => new QueryStepBuilder.ProjectInfo 
         { 
             Name = x.Name, 
             DatabaseEngine = x.DatabaseEngineType.ToString(),
@@ -159,11 +159,11 @@
         NavigationManager.NavigateTo("/semantico/queries");
     }
 
-    private bool IsFormValid => 
-        !string.IsNullOrWhiteSpace(Query?.Name) && 
-        !string.IsNullOrWhiteSpace(Query?.Description) && 
-        Query?.Steps?.Any() == true && 
-        Query.Steps.All(s => !string.IsNullOrWhiteSpace(s.SqlValue) && s.ProjectId > 0);
+    private bool IsFormValid =>
+        !string.IsNullOrWhiteSpace(Query?.Name) &&
+        !string.IsNullOrWhiteSpace(Query?.Description) &&
+        Query?.Steps?.Any() == true &&
+        Query.Steps.All(s => !string.IsNullOrWhiteSpace(s.SqlValue) && s.DataSourceId > 0);
 
     private void OnQueryChanged(QueryData updatedQuery)
     {
@@ -201,16 +201,16 @@
                     ErrorMessage = executionResult.ErrorMessage,
                     TotalExecutionTimeMs = executionResult.ExecutionTimeMs,
                     IsMultiStep = Query.Steps.Count > 1,
-                    IsCrossProject = Query.Steps.Select(s => s.ProjectId).Distinct().Count() > 1,
+                    IsCrossDataSource = Query.Steps.Select(s => s.DataSourceId).Distinct().Count() > 1,
                     IsCrossDatabase = Query.Steps.Select(s => s.DatabaseEngineType).Distinct().Count() > 1,
-                    ProjectsInvolved = Query.Steps.Select(s => s.ProjectName).Distinct().ToList(),
+                    DataSourcesInvolved = Query.Steps.Select(s => s.DataSourceName).Distinct().ToList(),
                     DatabaseEnginesUsed = Query.Steps.Select(s => s.DatabaseEngineType).Distinct().ToList(),
                     StepResults = new List<QueryStepResult> { executionResult },
                     FinalResult = executionResult.Success && executionResult.PreviewResults != null ? new QueryResult
                     {
                         QueryResults = "Step preview results",
                         TotalRecords = executionResult.TotalRows,
-                        ProjectName = executionResult.ProjectName,
+                        DataSourceName = executionResult.DataSourceName,
                         SqlQuery = executionResult.StepName,
                         SubscriptionName = "Step Preview",
                         SubscriptionId = null,

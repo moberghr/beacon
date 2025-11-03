@@ -37,8 +37,8 @@ internal class QueryExecutionOrchestrator
 
         foreach (var step in steps.OrderBy(s => s.StepOrder))
         {
-            _logger.LogDebug("Executing step {StepOrder} against project {ProjectName} ({DatabaseEngine})",
-                step.StepOrder, step.ProjectName, step.DatabaseEngineType);
+            _logger.LogDebug("Executing step {StepOrder} against project {DataSourceName} ({DatabaseEngine})",
+                step.StepOrder, step.DataSourceName, step.DatabaseEngineType);
 
             var result = await ExecuteSingleStep(step, parameters, cancellationToken);
             results.Add(result);
@@ -88,7 +88,7 @@ internal class QueryExecutionOrchestrator
             StepOrder = step.StepOrder,
             StepName = step.Name ?? $"Step {step.StepOrder}",
             SqlQuery = compiledSql,
-            ProjectName = step.ProjectName,
+            DataSourceName = step.DataSourceName,
             DatabaseEngineType = step.DatabaseEngineType,
             Results = results,
             TotalRows = results.Count,
@@ -145,7 +145,7 @@ public class StepExecutionResult
     public int StepOrder { get; set; }
     public string StepName { get; set; } = null!;
     public string SqlQuery { get; set; } = null!;
-    public string ProjectName { get; set; } = null!;
+    public string DataSourceName { get; set; } = null!;
     public DatabaseEngineType DatabaseEngineType { get; set; }
     public List<Dictionary<string, object?>> Results { get; set; } = new();
     public int TotalRows { get; set; }
