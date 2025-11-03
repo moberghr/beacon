@@ -1,9 +1,9 @@
-﻿using Semantico.Core.Data.Enums;
+using Semantico.Core.Data.Enums;
 using Semantico.Core.Models.Queries;
 
-namespace Semantico.Core.Models.Projects;
+namespace Semantico.Core.Models.DataSources;
 
-public class ProjectListData
+public class DataSourceListData
 {
     public required int Id { get; init; }
 

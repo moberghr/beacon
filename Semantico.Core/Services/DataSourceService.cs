@@ -1,38 +1,38 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Semantico.Core.Data;
 using Semantico.Core.Data.Entities;
 using Semantico.Core.Helpers;
 using Semantico.Core.Models;
-using Semantico.Core.Models.Projects;
+using Semantico.Core.Models.DataSources;
 using Semantico.Core.Models.Queries;
 
 namespace Semantico.Core.Services;
 
-public interface IProjectService
+public interface IDataSourceService
 {
-    Task <BaseResponse>CreateProject(ProjectData projectData, CancellationToken cancellationToken);
+    Task<BaseResponse> CreateDataSource(DataSourceData dataSourceData, CancellationToken cancellationToken);
 
-    Task UpdateProject(ProjectData projectData, CancellationToken cancellationToken);
+    Task UpdateDataSource(DataSourceData dataSourceData, CancellationToken cancellationToken);
 
-    Task DeleteProject(int projectId, CancellationToken cancellationToken);
+    Task DeleteDataSource(int dataSourceId, CancellationToken cancellationToken);
 
-    Task<List<ProjectListData>> GetProjects(int? projectId, CancellationToken cancellationToken);
+    Task<List<DataSourceListData>> GetDataSources(int? dataSourceId, CancellationToken cancellationToken);
 }
 
-internal class ProjectService(IDbContextFactory<SemanticoContext> contextFactory) : IProjectService
+internal class DataSourceService(IDbContextFactory<SemanticoContext> contextFactory) : IDataSourceService
 {
-    public async Task<BaseResponse> CreateProject(ProjectData projectData, CancellationToken cancellationToken)
+    public async Task<BaseResponse> CreateDataSource(DataSourceData dataSourceData, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-        
-        var project = new Project
+
+        var dataSource = new DataSource
         {
-            Name = projectData.Name,
-            ConnectionString = projectData.ConnectionString,
-            DatabaseEngineType = projectData.DatabaseEngineType
+            Name = dataSourceData.Name,
+            ConnectionString = dataSourceData.ConnectionString,
+            DatabaseEngineType = dataSourceData.DatabaseEngineType
         };
 
-        context.Projects.Add(project);
+        context.DataSources.Add(dataSource);
         await context.SaveChangesAsync(cancellationToken);
 
         return new BaseResponse
@@ -41,35 +41,35 @@ internal class ProjectService(IDbContextFactory<SemanticoContext> contextFactory
         };
     }
 
-    public async Task DeleteProject(int projectId, CancellationToken cancellationToken)
+    public async Task DeleteDataSource(int dataSourceId, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-        
-        var project = await context.Projects
-            .Where(x => x.Id == projectId)
+
+        var dataSource = await context.DataSources
+            .Where(x => x.Id == dataSourceId)
             .SingleAsync(cancellationToken);
 
-        if (project.QuerySteps.Count > 0)
+        if (dataSource.QuerySteps.Count > 0)
         {
-            throw new SemanticoException($"Unable to remove project due to existing query steps");
+            throw new SemanticoException($"Unable to remove data source due to existing query steps");
         }
 
-        project.Archive();
+        dataSource.Archive();
         await context.SaveChangesAsync(cancellationToken);
     }
 
-    public async Task<List<ProjectListData>> GetProjects(int? projectId, CancellationToken cancellationToken)
+    public async Task<List<DataSourceListData>> GetDataSources(int? dataSourceId, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-        
-        return await context.Projects
+
+        return await context.DataSources
             .Include(x => x.QuerySteps)
                 .ThenInclude(qs => qs.Query)
                     .ThenInclude(q => q.Subscriptions)
             .Include(x => x.QuerySteps)
                 .ThenInclude(qs => qs.Parameters)
-            .WhereIf(projectId.HasValue, x => x.Id == projectId)
-            .Select(x => new ProjectListData
+            .WhereIf(dataSourceId.HasValue, x => x.Id == dataSourceId)
+            .Select(x => new DataSourceListData
             {
                 Id = x.Id,
                 Name = x.Name,
@@ -90,8 +90,8 @@ internal class ProjectService(IDbContextFactory<SemanticoContext> contextFactory
                             Name = qs.Name ?? $"Step {qs.StepOrder}",
                             Description = qs.Description,
                             SqlValue = qs.SqlValue,
-                            ProjectId = qs.ProjectId,
-                            ProjectName = x.Name,
+                            DataSourceId = qs.DataSourceId,
+                            DataSourceName = x.Name,
                             DatabaseEngineType = x.DatabaseEngineType,
                             Parameters = qs.Parameters.Select(p => new QueryStepParameterData
                             {
@@ -106,17 +106,17 @@ internal class ProjectService(IDbContextFactory<SemanticoContext> contextFactory
             .ToListAsync(cancellationToken);
     }
 
-    public async Task UpdateProject(ProjectData projectData, CancellationToken cancellationToken)
+    public async Task UpdateDataSource(DataSourceData dataSourceData, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-        
-        var project = await context.Projects
-            .Where(x => x.Id == projectData.ProjectId)
+
+        var dataSource = await context.DataSources
+            .Where(x => x.Id == dataSourceData.DataSourceId)
             .SingleAsync(cancellationToken);
 
-        project.Name = projectData.Name;
-        project.ConnectionString = projectData.ConnectionString;
-        project.DatabaseEngineType = projectData.DatabaseEngineType;
+        dataSource.Name = dataSourceData.Name;
+        dataSource.ConnectionString = dataSourceData.ConnectionString;
+        dataSource.DatabaseEngineType = dataSourceData.DatabaseEngineType;
 
         await context.SaveChangesAsync(cancellationToken);
     }

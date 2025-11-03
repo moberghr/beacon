@@ -73,7 +73,7 @@
                                 {
                                     <MudChip T="string" Size="Size.Small" Color="Color.Default">Single-Step</MudChip>
                                 }
-                                @if (Model?.IsCrossProject == true)
+                                @if (Model?.IsCrossDataSource == true)
                                 {
                                     <MudChip T="string" Size="Size.Small" Color="Color.Warning">Cross-Project</MudChip>
                                 }
@@ -87,10 +87,10 @@
                     <MudItem xs="12" md="4">
                         <MudStack Spacing="2">
                             <MudText Typo="Typo.h6">Projects & Databases</MudText>
-                            @if (Model?.ProjectNames?.Any() == true)
+                            @if (Model?.DataSourceNames?.Any() == true)
                             {
                                 <MudText><strong>Projects:</strong></MudText>
-                                @foreach (var projectName in Model.ProjectNames)
+                                @foreach (var projectName in Model.DataSourceNames)
                                 {
                                     <MudText Style="margin-left: 16px;">• @projectName</MudText>
                                 }
@@ -236,7 +236,7 @@
                                     Step @step.StepOrder
                                 </MudText>
                                 <MudText Typo="Typo.caption">
-                                    @step.ProjectName
+                                    @step.DataSourceName
                                 </MudText>
                                 <MudChip T="string" Size="Size.Small" Color="Color.Secondary">
                                     @step.DatabaseEngineDescription
@@ -265,7 +265,7 @@
                                         {
                                             <SqlEditor Value="@step.SqlValue"
                                                       ValueChanged="@((newValue) => { step.SqlValue = newValue; })"
-                                                      ProjectId="@step.ProjectId"
+                                                      DataSourceId="@step.DataSourceId"
                                                       Height="300px"
                                                       EditorId="@($"sql-editor-step-{step.StepId}")" />
                                         }
@@ -349,7 +349,7 @@
                             <MudIcon Icon="@Icons.Material.Filled.LibraryBooks" Size="Size.Small" />
                             Uses @@result references
                         </MudChip>
-                        @if (Model?.FinalQueryProjectId.HasValue == true)
+                        @if (Model?.FinalQueryDataSourceId.HasValue == true)
                         {
                             <MudChip T="string" Size="Size.Small" Color="Color.Secondary">
                                 <MudIcon Icon="@Icons.Material.Filled.Storage" Size="Size.Small" />
@@ -366,12 +366,12 @@
                         Use <code>@@result1</code>, <code>@@result2</code>, etc. to reference data from previous steps.
                     </MudText>
                     
-                    @if (Model?.FinalQueryProjectId.HasValue == true)
+                    @if (Model?.FinalQueryDataSourceId.HasValue == true)
                     {
                         <MudAlert Severity="Severity.Info" Dense="true">
                             <MudText Typo="Typo.body2">
                                 <strong>Target Project:</strong> The final query will be executed using the database engine context 
-                                from project ID @Model.FinalQueryProjectId (for SQL dialect compatibility).
+                                from project ID @Model.FinalQueryDataSourceId (for SQL dialect compatibility).
                             </MudText>
                         </MudAlert>
                     }
@@ -389,7 +389,7 @@
                     {
                         <SqlEditor Value="@Model.FinalQuery"
                                   ValueChanged="@((newValue) => { Model.FinalQuery = newValue; })"
-                                  ProjectId="@Model.FinalQueryProjectId"
+                                  DataSourceId="@Model.FinalQueryDataSourceId"
                                   Height="300px"
                                   EditorId="sql-editor-final-query" />
                     }
@@ -719,7 +719,7 @@
             CreatedTime = Model.CreatedTime,
             Steps = Model.Steps,
             FinalQuery = Model.FinalQuery,
-            FinalQueryProjectId = Model.FinalQueryProjectId
+            FinalQueryDataSourceId = Model.FinalQueryDataSourceId
         };
     }
 }

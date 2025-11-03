@@ -24,12 +24,12 @@ public class Query : ArchivableBaseEntity, IMultiStepWorkflow
     /// Computed properties for backward compatibility and query analysis
     /// </summary>
     public bool IsMultiStep => Steps.Count > 1;
-    
-    public bool IsCrossProject => Steps.Select(s => s.ProjectId).Distinct().Count() > 1;
-    
-    public bool IsCrossDatabase => Steps.Select(s => s.Project.DatabaseEngineType).Distinct().Count() > 1;
-    
-    public List<int> ProjectIds => Steps.Select(s => s.ProjectId).Distinct().ToList();
-    
-    public List<DatabaseEngineType> DatabaseEngines => Steps.Select(s => s.Project.DatabaseEngineType).Distinct().ToList();
+
+    public bool IsCrossDataSource => Steps.Select(s => s.DataSourceId).Distinct().Count() > 1;
+
+    public bool IsCrossDatabase => Steps.Select(s => s.DataSource.DatabaseEngineType).Distinct().Count() > 1;
+
+    public List<int> DataSourceIds => Steps.Select(s => s.DataSourceId).Distinct().ToList();
+
+    public List<DatabaseEngineType> DatabaseEngines => Steps.Select(s => s.DataSource.DatabaseEngineType).Distinct().ToList();
 }

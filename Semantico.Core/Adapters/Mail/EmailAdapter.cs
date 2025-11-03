@@ -10,7 +10,7 @@ internal class EmailAdapter(IEmailAdapter emailAdapter) : IAdapter
     public async Task SendNotificationAsync(RecipientQueryResult recipientQueryResult, int? lastNotificationResultCount)
     {
         var to = recipientQueryResult.RecipientDestination;
-        var subject = $"[semantico] {recipientQueryResult.QueryResult.ProjectName} - {recipientQueryResult.QueryResult.SubscriptionName}";
+        var subject = $"[semantico] {recipientQueryResult.QueryResult.DataSourceName} - {recipientQueryResult.QueryResult.SubscriptionName}";
         
         var htmlBody = Helpers.GenerateEmailContent(recipientQueryResult.QueryResult);
 

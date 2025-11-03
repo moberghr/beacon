@@ -9,7 +9,7 @@ public class QueryResult
 
     public required int TotalRecords { get; init; }
 
-    public required string ProjectName { get; init; }
+    public required string DataSourceName { get; init; }
 
     public required string SqlQuery { get; init; }
     

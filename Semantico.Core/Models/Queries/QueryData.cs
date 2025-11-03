@@ -23,21 +23,21 @@ public class QueryData
     public string? FinalQuery { get; set; }
 
     /// <summary>
-    /// Project ID where the final query should be executed (for database engine context)
-    /// If null, defaults to the first step's project
+    /// Data Source ID where the final query should be executed (for database engine context)
+    /// If null, defaults to the first step's data source
     /// </summary>
-    public int? FinalQueryProjectId { get; set; }
+    public int? FinalQueryDataSourceId { get; set; }
 
     /// <summary>
-    /// Cross-project computed properties
+    /// Cross-data-source computed properties
     /// </summary>
     public bool IsMultiStep => Steps.Count > 1;
-    
-    public bool IsCrossProject => Steps.Select(s => s.ProjectId).Distinct().Count() > 1;
-    
+
+    public bool IsCrossDataSource => Steps.Select(s => s.DataSourceId).Distinct().Count() > 1;
+
     public bool IsCrossDatabase => Steps.Select(s => s.DatabaseEngineType).Distinct().Count() > 1;
-    
-    public List<string> ProjectNames => Steps.Select(s => s.ProjectName).Distinct().ToList();
+
+    public List<string> DataSourceNames => Steps.Select(s => s.DataSourceName).Distinct().ToList();
     
     public List<DatabaseEngineType> DatabaseEngines => Steps.Select(s => s.DatabaseEngineType).Distinct().ToList();
 
@@ -54,23 +54,23 @@ public class QueryData
         }
     }
     
-    public int ProjectId
+    public int DataSourceId
     {
-        get => Steps.OrderBy(s => s.StepOrder).FirstOrDefault()?.ProjectId ?? 0;
+        get => Steps.OrderBy(s => s.StepOrder).FirstOrDefault()?.DataSourceId ?? 0;
         set
         {
             EnsureSingleStep();
-            Steps[0].ProjectId = value;
+            Steps[0].DataSourceId = value;
         }
     }
-    
-    public string ProjectName
+
+    public string DataSourceName
     {
-        get => Steps.OrderBy(s => s.StepOrder).FirstOrDefault()?.ProjectName ?? "";
+        get => Steps.OrderBy(s => s.StepOrder).FirstOrDefault()?.DataSourceName ?? "";
         set
         {
             EnsureSingleStep();
-            Steps[0].ProjectName = value;
+            Steps[0].DataSourceName = value;
         }
     }
     
@@ -96,8 +96,8 @@ public class QueryData
                 StepOrder = 1,
                 Name = "Step 1",
                 SqlValue = "",
-                ProjectId = 0,
-                ProjectName = "",
+                DataSourceId = 0,
+                DataSourceName = "",
                 DatabaseEngineType = DatabaseEngineType.PostgreSQL,
                 Parameters = new()
             });

@@ -1,4 +1,4 @@
-@page "/projects/{ProjectId:int}/query-editor"
+@page "/data-sources/{DataSourceId:int}/query-editor"
 @using Semantico.Core.Services
 @using Semantico.Core.Models.Metadata
 @using BlazorMonaco
@@ -7,7 +7,7 @@
 <SemanticoPageTitle Title="Query Editor"/>
 
 <MudContainer MaxWidth="MaxWidth.ExtraExtraLarge" Class="my-4 px-4">
-    <SemanticoPageHeader Icon="@Icons.Material.Filled.Code" Title="Query Editor" SubTitle="@_projectName"/>
+    <SemanticoPageHeader Icon="@Icons.Material.Filled.Code" Title="Query Editor" SubTitle="@_dataSourceName"/>
 
     @if (_loading)
     {
@@ -99,11 +99,11 @@
 
 @code {
     [Parameter]
-    public int ProjectId { get; set; }
+    public int DataSourceId { get; set; }
 
     private StandaloneCodeEditor? _editor;
     private DatabaseMetadataSnapshot? _metadata;
-    private string _projectName = "";
+    private string _dataSourceName = "";
     private bool _loading = true;
     private bool _executing = false;
     private bool _refreshingMetadata = false;
@@ -117,8 +117,8 @@
         try
         {
             _loading = true;
-            _metadata = await MetadataService.GetMetadataAsync(ProjectId);
-            _projectName = $"Project {ProjectId}";
+            _metadata = await MetadataService.GetMetadataAsync(DataSourceId);
+            _dataSourceName = $"Data Source {DataSourceId}";
             _error = null;
         }
         catch (Exception ex)
@@ -310,7 +310,7 @@
         {
             _refreshingMetadata = true;
             _completionProviderRegistered = false; // Reset flag to allow re-registration
-            _metadata = await MetadataService.RefreshMetadataAsync(ProjectId);
+            _metadata = await MetadataService.RefreshMetadataAsync(DataSourceId);
 
             // Re-register completion provider with new metadata
             if (_editor != null)

@@ -3,7 +3,7 @@ using Semantico.Core.Data.Enums;
 namespace Semantico.Core.Abstractions;
 
 /// <summary>
-/// Represents a workflow that executes multiple steps, potentially across different projects and databases
+/// Represents a workflow that executes multiple steps, potentially across different data sources and databases
 /// </summary>
 public interface IMultiStepWorkflow
 {
@@ -13,9 +13,9 @@ public interface IMultiStepWorkflow
     bool IsMultiStep { get; }
 
     /// <summary>
-    /// Whether this workflow executes across multiple projects
+    /// Whether this workflow executes across multiple data sources
     /// </summary>
-    bool IsCrossProject { get; }
+    bool IsCrossDataSource { get; }
 
     /// <summary>
     /// Whether this workflow executes across multiple database engines
@@ -23,9 +23,9 @@ public interface IMultiStepWorkflow
     bool IsCrossDatabase { get; }
 
     /// <summary>
-    /// List of project IDs involved in this workflow
+    /// List of data source IDs involved in this workflow
     /// </summary>
-    List<int> ProjectIds { get; }
+    List<int> DataSourceIds { get; }
 
     /// <summary>
     /// List of database engine types involved in this workflow

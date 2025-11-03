@@ -13,14 +13,14 @@ public class QueryStepData
     public string? Description { get; set; }
     
     public string SqlValue { get; set; } = null!;
-    
+
     /// <summary>
-    /// Project information for this step
+    /// Data source information for this step
     /// </summary>
-    public int ProjectId { get; set; }
-    
-    public string ProjectName { get; set; } = null!;
-    
+    public int DataSourceId { get; set; }
+
+    public string DataSourceName { get; set; } = null!;
+
     public DatabaseEngineType DatabaseEngineType { get; set; }
     
     public string DatabaseEngineDescription => DatabaseEngineType.ToString();

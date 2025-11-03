@@ -91,7 +91,7 @@
             }
             
             // Step node with more details
-            var stepLabel = $"{step.Name}<br/>({step.ProjectName})<br/>{step.DatabaseEngineDescription}";
+            var stepLabel = $"{step.Name}<br/>({step.DataSourceName})<br/>{step.DatabaseEngineDescription}";
             if (sourceTables.Any())
             {
                 stepLabel += $"<br/>Tables: {string.Join(", ", sourceTables)}";

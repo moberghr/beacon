@@ -1,10 +1,10 @@
-﻿using Semantico.Core.Data.Enums;
+using Semantico.Core.Data.Enums;
 
-namespace Semantico.Core.Models.Projects;
+namespace Semantico.Core.Models.DataSources;
 
-public class ProjectData
+public class DataSourceData
 {
-    public int? ProjectId { get; init; }
+    public int? DataSourceId { get; init; }
 
     public string Name { get; set; }
 

@@ -12,13 +12,13 @@ public class MigrationJob : ArchivableBaseEntity, IScheduledJob, IMultiStepWorkf
     public required string Description { get; set; }
     
     // Query Configuration
-    public int ProjectId { get; set; }
-    public Project Project { get; set; } = null!;
+    public int DataSourceId { get; set; }
+    public DataSource DataSource { get; set; } = null!;
     public required string QueryText { get; set; }
-    
-    // Destination Configuration  
-    public int DestinationProjectId { get; set; }
-    public Project DestinationProject { get; set; } = null!;
+
+    // Destination Configuration
+    public int DestinationDataSourceId { get; set; }
+    public DataSource DestinationDataSource { get; set; } = null!;
     public required string DestinationTable { get; set; }
     public MigrationMode Mode { get; set; } = MigrationMode.Insert;
     
@@ -61,8 +61,8 @@ public class MigrationJob : ArchivableBaseEntity, IScheduledJob, IMultiStepWorkf
     }
 
     public bool IsMultiStep => ParsedSteps.Count > 1;
-    public bool IsCrossProject => ParsedSteps.Select(s => s.ProjectId).Distinct().Count() > 1;
+    public bool IsCrossDataSource => ParsedSteps.Select(s => s.DataSourceId).Distinct().Count() > 1;
     public bool IsCrossDatabase => ParsedSteps.Select(s => s.DatabaseEngineType).Distinct().Count() > 1;
-    public List<int> ProjectIds => ParsedSteps.Select(s => s.ProjectId).Distinct().ToList();
+    public List<int> DataSourceIds => ParsedSteps.Select(s => s.DataSourceId).Distinct().ToList();
     public List<DatabaseEngineType> DatabaseEngines => ParsedSteps.Select(s => s.DatabaseEngineType).Distinct().ToList();
 }

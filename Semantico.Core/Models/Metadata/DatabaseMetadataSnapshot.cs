@@ -1,7 +1,7 @@
 namespace Semantico.Core.Models.Metadata;
 
 public record DatabaseMetadataSnapshot(
-    int ProjectId,
+    int DataSourceId,
     IReadOnlyList<TableMetadataDto> Tables,
     DateTime RefreshedAt
 );

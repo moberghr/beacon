@@ -16,7 +16,7 @@ namespace Semantico.Core.PostgreSql.Migrations
                 name: "semantico");
 
             migrationBuilder.CreateTable(
-                name: "projects",
+                name: "data_sources",
                 schema: "semantico",
                 columns: table => new
                 {
@@ -30,7 +30,7 @@ namespace Semantico.Core.PostgreSql.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("pk_projects", x => x.id);
+                    table.PrimaryKey("pk_data_sources", x => x.id);
                 });
 
             migrationBuilder.CreateTable(
@@ -72,6 +72,33 @@ namespace Semantico.Core.PostgreSql.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "database_metadata",
+                schema: "semantico",
+                columns: table => new
+                {
+                    id = table.Column<int>(type: "integer", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    data_source_id = table.Column<int>(type: "integer", nullable: false),
+                    schema_name = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: false),
+                    table_name = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
+                    table_description = table.Column<string>(type: "character varying(1000)", maxLength: 1000, nullable: true),
+                    last_refreshed = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    created_time = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    archived_time = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("pk_database_metadata", x => x.id);
+                    table.ForeignKey(
+                        name: "fk_database_metadata_data_sources_data_source_id",
+                        column: x => x.data_source_id,
+                        principalSchema: "semantico",
+                        principalTable: "data_sources",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "migration_jobs",
                 schema: "semantico",
                 columns: table => new
@@ -80,9 +107,9 @@ namespace Semantico.Core.PostgreSql.Migrations
                         .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
                     name = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
                     description = table.Column<string>(type: "character varying(1000)", maxLength: 1000, nullable: false),
-                    project_id = table.Column<int>(type: "integer", nullable: false),
+                    data_source_id = table.Column<int>(type: "integer", nullable: false),
                     query_text = table.Column<string>(type: "text", nullable: false),
-                    destination_project_id = table.Column<int>(type: "integer", nullable: false),
+                    destination_data_source_id = table.Column<int>(type: "integer", nullable: false),
                     destination_table = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: false),
                     mode = table.Column<int>(type: "integer", nullable: false),
                     is_enabled = table.Column<bool>(type: "boolean", nullable: false),
@@ -100,17 +127,17 @@ namespace Semantico.Core.PostgreSql.Migrations
                 {
                     table.PrimaryKey("pk_migration_jobs", x => x.id);
                     table.ForeignKey(
-                        name: "fk_migration_jobs_projects_destination_project_id",
-                        column: x => x.destination_project_id,
+                        name: "fk_migration_jobs_data_sources_data_source_id",
+                        column: x => x.data_source_id,
                         principalSchema: "semantico",
-                        principalTable: "projects",
+                        principalTable: "data_sources",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
-                        name: "fk_migration_jobs_projects_project_id",
-                        column: x => x.project_id,
+                        name: "fk_migration_jobs_data_sources_destination_data_source_id",
+                        column: x => x.destination_data_source_id,
                         principalSchema: "semantico",
-                        principalTable: "projects",
+                        principalTable: "data_sources",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Restrict);
                 });
@@ -150,7 +177,7 @@ namespace Semantico.Core.PostgreSql.Migrations
                     id = table.Column<int>(type: "integer", nullable: false)
                         .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
                     query_id = table.Column<int>(type: "integer", nullable: false),
-                    project_id = table.Column<int>(type: "integer", nullable: false),
+                    data_source_id = table.Column<int>(type: "integer", nullable: false),
                     step_order = table.Column<int>(type: "integer", nullable: false),
                     sql_value = table.Column<string>(type: "text", nullable: false),
                     name = table.Column<string>(type: "text", nullable: true),
@@ -161,10 +188,10 @@ namespace Semantico.Core.PostgreSql.Migrations
                 {
                     table.PrimaryKey("pk_query_steps", x => x.id);
                     table.ForeignKey(
-                        name: "fk_query_steps_projects_project_id",
-                        column: x => x.project_id,
+                        name: "fk_query_steps_data_sources_data_source_id",
+                        column: x => x.data_source_id,
                         principalSchema: "semantico",
-                        principalTable: "projects",
+                        principalTable: "data_sources",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
                     table.ForeignKey(
@@ -201,6 +228,65 @@ namespace Semantico.Core.PostgreSql.Migrations
                         column: x => x.query_id,
                         principalSchema: "semantico",
                         principalTable: "queries",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "column_metadata",
+                schema: "semantico",
+                columns: table => new
+                {
+                    id = table.Column<int>(type: "integer", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    database_metadata_id = table.Column<int>(type: "integer", nullable: false),
+                    column_name = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
+                    data_type = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: false),
+                    is_nullable = table.Column<bool>(type: "boolean", nullable: false),
+                    is_primary_key = table.Column<bool>(type: "boolean", nullable: false),
+                    is_foreign_key = table.Column<bool>(type: "boolean", nullable: false),
+                    ordinal_position = table.Column<int>(type: "integer", nullable: false),
+                    foreign_key_table = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: true),
+                    foreign_key_column = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: true),
+                    default_value = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: true),
+                    max_length = table.Column<int>(type: "integer", nullable: true),
+                    description = table.Column<string>(type: "character varying(1000)", maxLength: 1000, nullable: true),
+                    created_time = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("pk_column_metadata", x => x.id);
+                    table.ForeignKey(
+                        name: "fk_column_metadata_database_metadata_database_metadata_id",
+                        column: x => x.database_metadata_id,
+                        principalSchema: "semantico",
+                        principalTable: "database_metadata",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "index_metadata",
+                schema: "semantico",
+                columns: table => new
+                {
+                    id = table.Column<int>(type: "integer", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    database_metadata_id = table.Column<int>(type: "integer", nullable: false),
+                    index_name = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
+                    is_unique = table.Column<bool>(type: "boolean", nullable: false),
+                    is_primary_key = table.Column<bool>(type: "boolean", nullable: false),
+                    columns = table.Column<string[]>(type: "text[]", nullable: false),
+                    created_time = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("pk_index_metadata", x => x.id);
+                    table.ForeignKey(
+                        name: "fk_index_metadata_database_metadata_database_metadata_id",
+                        column: x => x.database_metadata_id,
+                        principalSchema: "semantico",
+                        principalTable: "database_metadata",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
                 });
@@ -386,6 +472,43 @@ namespace Semantico.Core.PostgreSql.Migrations
                 });
 
             migrationBuilder.CreateIndex(
+                name: "ix_column_metadata_database_metadata_id",
+                schema: "semantico",
+                table: "column_metadata",
+                column: "database_metadata_id");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_column_metadata_database_metadata_id_column_name",
+                schema: "semantico",
+                table: "column_metadata",
+                columns: new[] { "database_metadata_id", "column_name" });
+
+            migrationBuilder.CreateIndex(
+                name: "ix_database_metadata_data_source_id",
+                schema: "semantico",
+                table: "database_metadata",
+                column: "data_source_id");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_database_metadata_data_source_id_schema_name_table_name",
+                schema: "semantico",
+                table: "database_metadata",
+                columns: new[] { "data_source_id", "schema_name", "table_name" },
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "ix_database_metadata_last_refreshed",
+                schema: "semantico",
+                table: "database_metadata",
+                column: "last_refreshed");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_index_metadata_database_metadata_id",
+                schema: "semantico",
+                table: "index_metadata",
+                column: "database_metadata_id");
+
+            migrationBuilder.CreateIndex(
                 name: "ix_migration_executions_migration_job_id",
                 schema: "semantico",
                 table: "migration_executions",
@@ -410,22 +533,22 @@ namespace Semantico.Core.PostgreSql.Migrations
                 columns: new[] { "status", "started_at" });
 
             migrationBuilder.CreateIndex(
-                name: "ix_migration_jobs_destination_project_id",
+                name: "ix_migration_jobs_data_source_id",
                 schema: "semantico",
                 table: "migration_jobs",
-                column: "destination_project_id");
+                column: "data_source_id");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_migration_jobs_destination_data_source_id",
+                schema: "semantico",
+                table: "migration_jobs",
+                column: "destination_data_source_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_migration_jobs_is_enabled_archived_time",
                 schema: "semantico",
                 table: "migration_jobs",
                 columns: new[] { "is_enabled", "archived_time" });
-
-            migrationBuilder.CreateIndex(
-                name: "ix_migration_jobs_project_id",
-                schema: "semantico",
-                table: "migration_jobs",
-                column: "project_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_notifications_query_execution_history_id",
@@ -458,10 +581,10 @@ namespace Semantico.Core.PostgreSql.Migrations
                 column: "query_step_id");
 
             migrationBuilder.CreateIndex(
-                name: "ix_query_steps_project_id",
+                name: "ix_query_steps_data_source_id",
                 schema: "semantico",
                 table: "query_steps",
-                column: "project_id");
+                column: "data_source_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_query_steps_query_id",
@@ -492,6 +615,14 @@ namespace Semantico.Core.PostgreSql.Migrations
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropTable(
+                name: "column_metadata",
+                schema: "semantico");
+
+            migrationBuilder.DropTable(
+                name: "index_metadata",
+                schema: "semantico");
+
+            migrationBuilder.DropTable(
                 name: "migration_executions",
                 schema: "semantico");
 
@@ -516,6 +647,10 @@ namespace Semantico.Core.PostgreSql.Migrations
                 schema: "semantico");
 
             migrationBuilder.DropTable(
+                name: "database_metadata",
+                schema: "semantico");
+
+            migrationBuilder.DropTable(
                 name: "migration_jobs",
                 schema: "semantico");
 
@@ -536,7 +671,7 @@ namespace Semantico.Core.PostgreSql.Migrations
                 schema: "semantico");
 
             migrationBuilder.DropTable(
-                name: "projects",
+                name: "data_sources",
                 schema: "semantico");
 
             migrationBuilder.DropTable(

@@ -69,7 +69,7 @@ internal sealed class QueryExecutionPreviewService : IQueryExecutionPreviewServi
                 Description = "Temporary query for preview",
                 Steps = queryData.Steps,
                 FinalQuery = queryData.FinalQuery,
-                FinalQueryProjectId = queryData.FinalQueryProjectId
+                FinalQueryDataSourceId = queryData.FinalQueryDataSourceId
             };
 
             var createResponse = await _queryService.CreateQuery(tempQuery, cancellationToken);

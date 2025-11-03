@@ -10,14 +10,14 @@ public class QueryExecutionResult
     public bool Success { get; set; }
     public string? ErrorMessage { get; set; }
     public double TotalExecutionTimeMs { get; set; }
-    
-    // Cross-project analysis
+
+    // Cross-data-source analysis
     public bool IsMultiStep { get; set; }
-    public bool IsCrossProject { get; set; }
+    public bool IsCrossDataSource { get; set; }
     public bool IsCrossDatabase { get; set; }
-    public List<string> ProjectsInvolved { get; set; } = new();
+    public List<string> DataSourcesInvolved { get; set; } = new();
     public List<DatabaseEngineType> DatabaseEnginesUsed { get; set; } = new();
-    public Dictionary<string, double> ExecutionTimeByProject { get; set; } = new();
+    public Dictionary<string, double> ExecutionTimeByDataSource { get; set; } = new();
 }
 
 public class QueryStepResult
@@ -25,9 +25,9 @@ public class QueryStepResult
     public int StepOrder { get; set; }
     public string StepName { get; set; } = null!;
     public string SqlQuery { get; set; } = null!;
-    
-    // Project context for this step
-    public string ProjectName { get; set; } = null!;
+
+    // Data source context for this step
+    public string DataSourceName { get; set; } = null!;
     public string DatabaseEngine { get; set; } = null!;
     public DatabaseEngineType DatabaseEngineType { get; set; }
     
