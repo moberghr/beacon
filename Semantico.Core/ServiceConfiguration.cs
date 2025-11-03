@@ -28,7 +28,8 @@ public static class ServiceConfiguration
         // (e.g., AddPostgreSqlSemantico or AddSqlServerSemantico)
 
         services.AddHttpClient();
-        
+        services.AddMemoryCache();
+
         services.AddSingleton<IAdapter, TeamsAdapter>();
         if (configurationOptions.EmailAdapter != null)
         {
@@ -54,6 +55,7 @@ public static class ServiceConfiguration
         services.TryAddTransient<IRecipientService, RecipientService>();
         services.TryAddTransient<IStatisticsService, StatisticsService>();
         services.TryAddTransient<IMigrationService, MigrationService>();
+        services.TryAddTransient<IDatabaseMetadataService, DatabaseMetadataService>();
 
         services.TryAddTransient(typeof(ISemanticoScheduler), configurationOptions.SemanticoScheduler!);
 

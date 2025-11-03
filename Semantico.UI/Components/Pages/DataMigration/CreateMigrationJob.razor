@@ -439,16 +439,30 @@
     private async Task OnPreviewStepWithParameters((int stepOrder, List<QueryParameterValue> parameters) args)
     {
         var step = _queryModel.Steps.FirstOrDefault(s => s.StepOrder == args.stepOrder);
-        if (step == null) 
+        if (step == null)
         {
             Snackbar.Add($"Step {args.stepOrder} not found", Severity.Error);
+            return;
+        }
+
+        // Validate SQL is not empty
+        if (string.IsNullOrWhiteSpace(step.SqlValue))
+        {
+            Snackbar.Add($"Please enter SQL query for step {args.stepOrder}", Severity.Warning);
+            return;
+        }
+
+        // Validate project is selected
+        if (step.ProjectId <= 0)
+        {
+            Snackbar.Add($"Please select a project for step {args.stepOrder}", Severity.Warning);
             return;
         }
 
         try
         {
             Snackbar.Add($"Executing step {args.stepOrder}...", Severity.Info);
-            
+
             // Use the preview service to execute the temporary step
             var executionResult = await _previewService.ExecuteTemporaryStepPreview(_queryModel, args.stepOrder, args.parameters, CancellationToken.None);
 
