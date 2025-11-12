@@ -27,6 +27,7 @@ builder.Services.AddPostgreSqlSemantico(
 builder.Services.AddSemanticoAdmin(builder.Configuration, options =>
 {
     options.AddSemanticoScheduler<YourScheduler>();
+    options.BaseUrl = "https://your-domain.com/semantico"; // For notification links
 });
 
 // Configure UI
@@ -38,6 +39,74 @@ app.UseSemanticoUI()
 // Run migrations
 ServiceConfiguration.UseSemantico(app.Services);
 ```
+
+## Base URL Configuration
+
+The `BaseUrl` setting specifies where your Semantico admin UI is hosted. This URL is used to generate clickable links in notifications (especially Teams messages) that take users directly to notification details.
+
+### Setting Base URL
+
+```csharp
+builder.Services.AddSemanticoAdmin(builder.Configuration, options =>
+{
+    options.AddSemanticoScheduler<YourScheduler>();
+    // Set the URL where Semantico UI is accessible
+    options.BaseUrl = "https://your-domain.com/semantico";
+});
+```
+
+### Base URL Examples
+
+**Development (localhost):**
+```csharp
+options.BaseUrl = "https://localhost:7187/semantico";
+```
+
+**Staging:**
+```csharp
+options.BaseUrl = "https://staging.yourdomain.com/semantico";
+```
+
+**Production:**
+```csharp
+options.BaseUrl = "https://yourdomain.com/semantico";
+```
+
+**From configuration:**
+```csharp
+options.BaseUrl = builder.Configuration["Semantico:BaseUrl"];
+```
+
+### appsettings.json Configuration
+
+```json
+{
+  "Semantico": {
+    "BaseUrl": "https://yourdomain.com/semantico"
+  }
+}
+```
+
+### How It's Used
+
+When `BaseUrl` is configured, Teams notifications include a **"View Query Results"** button that links to:
+```
+{BaseUrl}/notifications/details/{notificationId}
+```
+
+For example:
+```
+https://yourdomain.com/semantico/notifications/details/12345
+```
+
+This allows recipients to click through from Teams to view:
+- Complete query results
+- Execution metrics
+- Query execution history
+- All notification details
+
+{: .note }
+> If `BaseUrl` is not configured, Teams notifications will still be sent but without the clickable link to view details in the Semantico UI.
 
 ## Database Provider Configuration
 
@@ -757,6 +826,7 @@ builder.Services.AddSemanticoAdmin(builder.Configuration, options =>
     options.AddSemanticoScheduler<SemanticoScheduler>();
     options.AddAuthorizationProvider<CustomAuthorizationProvider>();
     options.AddEmailAdapter<SmtpEmailAdapter>();
+    options.BaseUrl = builder.Configuration["Semantico:BaseUrl"];
 });
 
 var app = builder.Build();
@@ -790,7 +860,8 @@ app.Run();
   "Semantico": {
     "Schema": "semantico",
     "AdminUsername": "admin",
-    "AdminPassword": "secretpassword"
+    "AdminPassword": "secretpassword",
+    "BaseUrl": "https://yourdomain.com/semantico"
   },
   "Email": {
     "SmtpHost": "smtp.gmail.com",

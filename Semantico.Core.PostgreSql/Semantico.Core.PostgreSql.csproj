@@ -23,7 +23,7 @@
     <Nullable>enable</Nullable>
 
     <!-- Package Information -->
-    <Version>2.0.3.0</Version>
+    <Version>2.0.3.1</Version>
     <Authors>https://github.com/MiBu</Authors>
     <Description>PostgreSQL database provider for Semantico. Provides Entity Framework Core configuration and migrations for PostgreSQL databases with snake_case naming conventions.</Description>
     <PackageProjectUrl>https://github.com/moberghr/semantico</PackageProjectUrl>
@@ -31,7 +31,12 @@
     <RepositoryType>git</RepositoryType>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageTags>semantico;database;postgresql;efcore;alerts;notifications</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
     <IsPackable>true</IsPackable>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
 
 </Project>
