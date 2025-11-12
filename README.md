@@ -44,6 +44,7 @@ Add Semantico to your ASP.NET application in under 30 minutes:
    builder.Services.AddSemanticoAdmin(builder.Configuration, options =>
    {
        options.AddSemanticoScheduler<YourScheduler>();
+       options.BaseUrl = "https://your-domain.com/semantico"; // For notification links
    });
    ```
 
@@ -262,6 +263,7 @@ builder.Services.AddPostgreSqlSemantico(
 builder.Services.AddSemanticoAdmin(builder.Configuration, options =>
 {
     options.AddSemanticoScheduler<YourHangfireScheduler>();
+    options.BaseUrl = "https://your-domain.com/semantico"; // For notification links
 });
 
 var app = builder.Build();

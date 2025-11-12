@@ -144,7 +144,7 @@ Teams notifications use Adaptive Cards with:
 - **Header**: Query name and icon
 - **Summary**: Execution details
 - **Results Table**: Formatted data (up to 20 rows)
-- **Actions**: Link to execution history
+- **Actions**: "View Query Results" button linking to notification details (when BaseUrl is configured)
 
 **Example Teams card:**
 
@@ -176,6 +176,53 @@ Teams notifications use Adaptive Cards with:
    - **Webhook URL**: Paste your webhook URL
 3. Click **Test Webhook** to verify
 4. Click **Save**
+
+### Configuring Clickable Links in Teams Notifications
+
+To enable the **"View Query Results"** button in Teams notifications, configure the `BaseUrl` setting in your application:
+
+```csharp
+builder.Services.AddSemanticoAdmin(builder.Configuration, options =>
+{
+    options.AddSemanticoScheduler<YourScheduler>();
+    // Set your Semantico UI base URL
+    options.BaseUrl = "https://yourdomain.com/semantico";
+});
+```
+
+**Or from appsettings.json:**
+
+```json
+{
+  "Semantico": {
+    "BaseUrl": "https://yourdomain.com/semantico"
+  }
+}
+```
+
+```csharp
+builder.Services.AddSemanticoAdmin(builder.Configuration, options =>
+{
+    options.AddSemanticoScheduler<YourScheduler>();
+    options.BaseUrl = builder.Configuration["Semantico:BaseUrl"];
+});
+```
+
+When configured, Teams notifications will include a button that links to:
+```
+https://yourdomain.com/semantico/notifications/details/{notificationId}
+```
+
+This allows recipients to:
+- View complete query results (not just first 20 rows)
+- See execution metrics and history
+- Access full notification details
+- Explore related query executions
+
+{: .note }
+> If `BaseUrl` is not configured, Teams notifications are still sent but without the clickable button. The notification will contain the results table as usual.
+
+📚 [Learn more about BaseUrl configuration →](../getting-started/configuration#base-url-configuration)
 
 ### Testing Teams Webhook
 
