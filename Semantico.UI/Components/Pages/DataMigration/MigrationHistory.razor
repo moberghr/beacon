@@ -9,10 +9,14 @@
 <SemanticoPageTitle Title="Migration History"/>
 
 <MudContainer Class="my-4 px-4">
-    <SemanticoPageHeader Icon="@Icons.Material.Filled.History" 
-                        Title="Migration History" 
-                        ButtonText="Back to Jobs" 
+    <SemanticoPageHeader Icon="@Icons.Material.Filled.History"
+                        Title="Migration History"
+                        ButtonText="Back to Jobs"
                         OnClick="@NavigateBack"/>
+
+    <MudAlert Severity="Severity.Warning" Class="mb-4" Variant="Variant.Filled">
+        <strong>Experimental Feature:</strong> Data Migration is currently in experimental phase. Please test thoroughly before using in production environments.
+    </MudAlert>
 
     @if (JobId.HasValue)
     {

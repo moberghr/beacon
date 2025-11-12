@@ -4,7 +4,7 @@ using System.Text;
 
 namespace Semantico.Core.Adapters.Teams;
 
-internal class TeamsAdapter(IHttpClientFactory httpClientFactory) : IAdapter
+internal class TeamsAdapter(IHttpClientFactory httpClientFactory, SemanticoConfiguration configuration) : IAdapter
 {
     public NotificationType NotificationType => NotificationType.Teams;
 
@@ -40,14 +40,16 @@ internal class TeamsAdapter(IHttpClientFactory httpClientFactory) : IAdapter
                 },
                 GenerateAdaptiveTableFromQueryResults(recipientQueryResult.QueryResult.TopRecords)
             },
-            Actions = new List<AdaptiveCards.AdaptiveAction>
-            {
-                new AdaptiveCards.AdaptiveOpenUrlAction()
+            Actions = string.IsNullOrEmpty(configuration.BaseUrl) || !recipientQueryResult.NotificationId.HasValue
+                ? new List<AdaptiveCards.AdaptiveAction>()
+                : new List<AdaptiveCards.AdaptiveAction>
                 {
-                    Title = "View Query Results",
-                    Url = new Uri($"https://api.servicedesk.aur.is/semantico/subscriptions/details/{recipientQueryResult.QueryResult.SubscriptionId}"),
+                    new AdaptiveCards.AdaptiveOpenUrlAction()
+                    {
+                        Title = "View Query Results",
+                        Url = new Uri($"{configuration.BaseUrl.TrimEnd('/')}/notifications/details/{recipientQueryResult.NotificationId}"),
+                    }
                 }
-            }
         };
 
         var jsonPayload = card.ToJson();

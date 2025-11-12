@@ -86,8 +86,7 @@
                                             <div style="width: 250px; min-width: 250px; height: 100%; overflow: hidden;">
                                                 <DatabaseExplorer Metadata="@GetMetadataForStep(step)"
                                                                  OnTableSelected="@((tableName) => OnTableSelectedForStep(step, tableName))"
-                                                                 OnColumnSelected="@((selection) => OnColumnSelectedForStep(step, selection))"
-                                                                 OnDragData="@((dragData) => OnDragDataReceived(step, dragData))" />
+                                                                 OnColumnSelected="@((selection) => OnColumnSelectedForStep(step, selection))" />
                                             </div>
                                             <div style="flex: 1; height: 100%;">
                                                 <SqlEditor Value="@step.SqlValue"
@@ -202,12 +201,12 @@
             <MudText Typo="Typo.body2" Class="mb-3">
                 Combine results from previous steps using virtual table references (@@result1, @@result2, etc.)
             </MudText>
-            <div style="width: 100%; height: 200px;">
-                <SqlEditor Value="@(FinalQuery ?? "")"
-                          ValueChanged="@((newValue) => { FinalQuery = newValue; return Task.CompletedTask; })"
-                          Height="100%"
-                          EditorId="sql-editor-final-query"
-                          Placeholder="-- Optional: Combine results from previous steps" />
+            <div style="width: 100%; height: 300px;">
+                <FinalQueryEditor Value="@(FinalQuery ?? "")"
+                                 ValueChanged="@((newValue) => { FinalQuery = newValue; return Task.CompletedTask; })"
+                                 Query="@Query"
+                                 Height="100%"
+                                 EditorId="final-query-editor" />
             </div>
         }
     </MudCardContent>
@@ -507,25 +506,8 @@
         }
     }
 
-    private void OnDragDataReceived(QueryStepData step, string dragData)
-    {
-        Console.WriteLine($"QueryStepBuilder: Drag data received for step {step.StepOrder}: {dragData}");
-
-        // Store drag data in the corresponding editor
-        if (_editorRefs.TryGetValue(step.StepOrder, out var editor) && editor != null)
-        {
-            editor.SetDragData(dragData);
-        }
-        else
-        {
-            Console.WriteLine($"QueryStepBuilder: Warning - Editor not found for step {step.StepOrder}");
-        }
-    }
-
     private async Task OnTableSelectedForStep(QueryStepData step, string tableName)
     {
-        Console.WriteLine($"QueryStepBuilder: OnTableSelectedForStep called - Step {step.StepOrder}, Table: {tableName}");
-
         // Append table name to the end of the SQL with a space
         if (!string.IsNullOrWhiteSpace(step.SqlValue) && !step.SqlValue.EndsWith(" ") && !step.SqlValue.EndsWith("\n"))
         {
@@ -533,16 +515,12 @@
         }
         step.SqlValue += tableName;
 
-        Console.WriteLine($"QueryStepBuilder: New SQL value: {step.SqlValue}");
-
         await OnQueryChanged.InvokeAsync(Query!);
         StateHasChanged();
     }
 
     private async Task OnColumnSelectedForStep(QueryStepData step, (string TableName, string ColumnName) selection)
     {
-        Console.WriteLine($"QueryStepBuilder: OnColumnSelectedForStep called - Step {step.StepOrder}, Column: {selection.TableName}.{selection.ColumnName}");
-
         var textToInsert = $"{selection.TableName}.{selection.ColumnName}";
 
         // Append column name to the end of the SQL with a space
@@ -551,8 +529,6 @@
             step.SqlValue += " ";
         }
         step.SqlValue += textToInsert;
-
-        Console.WriteLine($"QueryStepBuilder: New SQL value: {step.SqlValue}");
 
         await OnQueryChanged.InvokeAsync(Query!);
         StateHasChanged();

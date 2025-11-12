@@ -1,7 +1,10 @@
+using Semantico.Core.Data.Enums;
+
 namespace Semantico.Core.Models.Metadata;
 
 public record DatabaseMetadataSnapshot(
     int DataSourceId,
+    DatabaseEngineType DatabaseEngineType,
     IReadOnlyList<TableMetadataDto> Tables,
     DateTime RefreshedAt
 );

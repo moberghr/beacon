@@ -485,3 +485,248 @@ html, body {
 .mud-link:hover {
     text-decoration: underline !important;
 }
+
+/* ============================================
+   About Page Specific Styles
+   ============================================ */
+
+/* Mermaid diagram container */
+.mermaid-container {
+    background: linear-gradient(135deg, rgba(var(--mud-palette-primary-rgb, 33, 150, 243), 0.02) 0%, rgba(var(--mud-palette-secondary-rgb, 156, 39, 176), 0.02) 100%);
+    border-radius: 12px;
+    padding: 24px;
+    overflow-x: auto;
+    border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.mud-theme-dark .mermaid-container {
+    background: linear-gradient(135deg, rgba(var(--mud-palette-primary-rgb, 33, 150, 243), 0.05) 0%, rgba(var(--mud-palette-secondary-rgb, 156, 39, 176), 0.05) 100%);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* Mermaid diagram styling */
+.mermaid {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 300px;
+    font-family: 'Inter', 'Segoe UI', Roboto, sans-serif !important;
+}
+
+.mermaid svg {
+    max-width: 100%;
+    height: auto;
+}
+
+/* Mermaid node styling */
+.mermaid .node rect,
+.mermaid .node circle,
+.mermaid .node ellipse,
+.mermaid .node polygon {
+    fill: rgba(var(--mud-palette-primary-rgb, 33, 150, 243), 0.1) !important;
+    stroke: var(--mud-palette-primary) !important;
+    stroke-width: 2px !important;
+}
+
+.mud-theme-dark .mermaid .node rect,
+.mud-theme-dark .mermaid .node circle,
+.mud-theme-dark .mermaid .node ellipse,
+.mud-theme-dark .mermaid .node polygon {
+    fill: rgba(var(--mud-palette-primary-rgb, 33, 150, 243), 0.2) !important;
+}
+
+/* Mermaid text styling */
+.mermaid .nodeLabel,
+.mermaid .edgeLabel {
+    color: var(--mud-palette-text-primary) !important;
+    font-weight: 500 !important;
+}
+
+/* About page gradient cards */
+.about-gradient-card {
+    position: relative;
+    overflow: hidden;
+    border-radius: 12px !important;
+}
+
+.about-gradient-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: linear-gradient(90deg, var(--mud-palette-primary), var(--mud-palette-secondary), var(--mud-palette-tertiary));
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.about-gradient-card:hover::before {
+    opacity: 1;
+}
+
+/* Feature cards hover effect */
+.feature-card {
+    transition: all 0.3s ease;
+    position: relative;
+}
+
+.feature-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12) !important;
+}
+
+.mud-theme-dark .feature-card:hover {
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4) !important;
+}
+
+/* Use case cards with border accent */
+.use-case-card {
+    transition: all 0.3s ease;
+    border-left-width: 4px !important;
+}
+
+.use-case-card:hover {
+    transform: translateX(4px);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12) !important;
+}
+
+/* Gradient backgrounds for getting started cards */
+.gradient-primary {
+    background: linear-gradient(135deg, var(--mud-palette-primary-lighten) 0%, var(--mud-palette-primary) 100%) !important;
+}
+
+.gradient-secondary {
+    background: linear-gradient(135deg, var(--mud-palette-secondary-lighten) 0%, var(--mud-palette-secondary) 100%) !important;
+}
+
+.gradient-tertiary {
+    background: linear-gradient(135deg, var(--mud-palette-tertiary-lighten) 0%, var(--mud-palette-tertiary) 100%) !important;
+}
+
+/* Animated icons */
+@keyframes float {
+    0%, 100% {
+        transform: translateY(0px);
+    }
+    50% {
+        transform: translateY(-10px);
+    }
+}
+
+.about-avatar-icon {
+    animation: float 3s ease-in-out infinite;
+}
+
+/* Service expansion panels */
+.mud-expand-panel-header:hover {
+    background: rgba(var(--mud-palette-primary-rgb, 33, 150, 243), 0.04) !important;
+}
+
+.mud-theme-dark .mud-expand-panel-header:hover {
+    background: rgba(var(--mud-palette-primary-rgb, 33, 150, 243), 0.08) !important;
+}
+
+/* Technology stack chips */
+.tech-stack-chip {
+    margin: 4px;
+    transition: transform 0.2s ease;
+}
+
+.tech-stack-chip:hover {
+    transform: scale(1.05);
+}
+
+/* Alert info box enhancement */
+.mud-alert-info {
+    background: linear-gradient(135deg, rgba(var(--mud-palette-info-rgb, 2, 136, 209), 0.08) 0%, rgba(var(--mud-palette-info-rgb, 2, 136, 209), 0.04) 100%) !important;
+}
+
+/* Section headers */
+.about-section-header {
+    position: relative;
+    padding-bottom: 12px;
+    margin-bottom: 24px;
+}
+
+.about-section-header::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 60px;
+    height: 3px;
+    background: linear-gradient(90deg, var(--mud-palette-primary), var(--mud-palette-secondary));
+    border-radius: 2px;
+}
+
+/* Capability cards grid */
+.capability-card {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    transition: all 0.3s ease;
+}
+
+.capability-card:hover {
+    transform: translateY(-6px) scale(1.02);
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.15) !important;
+}
+
+.mud-theme-dark .capability-card:hover {
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.5) !important;
+}
+
+/* List items with icons */
+.mud-list-item-icon {
+    min-width: 40px !important;
+}
+
+/* Responsive diagram adjustments */
+@media (max-width: 768px) {
+    .mermaid-container {
+        padding: 16px;
+    }
+
+    .mermaid svg {
+        font-size: 12px;
+    }
+}
+
+/* Footer card styling */
+.about-footer {
+    background: linear-gradient(135deg, rgba(var(--mud-palette-primary-rgb, 33, 150, 243), 0.04) 0%, rgba(var(--mud-palette-secondary-rgb, 156, 39, 176), 0.04) 100%);
+    border-top: 2px solid var(--mud-palette-primary);
+}
+
+.mud-theme-dark .about-footer {
+    background: linear-gradient(135deg, rgba(var(--mud-palette-primary-rgb, 33, 150, 243), 0.08) 0%, rgba(var(--mud-palette-secondary-rgb, 156, 39, 176), 0.08) 100%);
+}
+
+/* Smooth scroll behavior */
+html {
+    scroll-behavior: smooth;
+}
+
+/* Content fade-in animation */
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.about-content-section {
+    animation: fadeInUp 0.6s ease-out;
+}
+
+/* Stagger animation for cards */
+.about-content-section:nth-child(1) { animation-delay: 0.1s; }
+.about-content-section:nth-child(2) { animation-delay: 0.2s; }
+.about-content-section:nth-child(3) { animation-delay: 0.3s; }
+.about-content-section:nth-child(4) { animation-delay: 0.4s; }
+.about-content-section:nth-child(5) { animation-delay: 0.5s; }

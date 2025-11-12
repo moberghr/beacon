@@ -46,6 +46,8 @@ public class RecipientQueryResult
     public required QueryResult QueryResult { get; init; }
 
     public QueryResultFile? QueryResultFile { get; init; }
+
+    public int? NotificationId { get; init; }
 }
 
 public class QueryResultFile

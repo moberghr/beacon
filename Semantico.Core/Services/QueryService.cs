@@ -140,7 +140,7 @@ public class GetQueriesRequest : SortedListRequest
     public string? QueryName { get; set; }
 }
 
-internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, ILogger<QueryService> logger, ILoggerFactory loggerFactory) : IQueryService
+internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, IEncryptionService encryptionService, ILogger<QueryService> logger, ILoggerFactory loggerFactory) : IQueryService
 {
     public async Task<BaseResponse> CreateQuery(QueryData queryData, CancellationToken cancellationToken)
     {
@@ -441,8 +441,7 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
             Name = r.Name,
             Description = r.Description,
             Destination = r.Destination,
-            NotificationType = r.NotificationType,
-            ResultAttachmentType = r.ResultAttachmentType,
+            NotificationType = r.NotificationType
         }).ToList();
 
         queryResult.MaxRows = subscription.MaxRows ?? 1_000_000;
@@ -574,7 +573,7 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
         string sqlQuery, 
         int? timeoutSeconds = null)
     {
-        await using var connection = GetDbConnection(dbEngineType, connectionString);
+        await using var connection = DbConnectionFactory.CreateConnection(dbEngineType, connectionString);
         await connection.OpenAsync();
 
         // Replace newline, carriage return, and tab characters with a space
@@ -859,7 +858,7 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
         // Each step executes against its own data source/database
         var (results, executionTimeMs, timedOut) = await ExecuteQueryAsync(
             step.DataSource.DatabaseEngineType,   // Each step can be different engine type!
-            step.DataSource.ConnectionString,     // Each step connects to different database
+            encryptionService.Decrypt(step.DataSource.ConnectionString),     // Each step connects to different database
             compiledSql,
             null // Use default timeout
         );
@@ -931,11 +930,4 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
         }).ToList();
     }
 
-    private static DbConnection GetDbConnection(DatabaseEngineType dbEngineType, string connectionString) => dbEngineType switch
-    {
-        DatabaseEngineType.PostgreSQL => new NpgsqlConnection(connectionString),
-        DatabaseEngineType.MSSQL => new SqlConnection(connectionString),
-        DatabaseEngineType.MySQL => new MySqlConnection(connectionString),
-        _ => throw new SemanticoException($"Unsupported database engine.")
-    };
 }

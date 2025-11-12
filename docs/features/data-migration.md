@@ -532,7 +532,6 @@ Each execution records:
 - **Source Rows Read**: Total rows extracted from source
 - **Destination Rows Written**: Rows successfully inserted/updated
 - **Rows Failed**: Rows that failed to write
-- **Rows Skipped**: Rows skipped (in SyncDelete mode)
 - **Throughput**: Rows per second
 
 ### Performance Optimization Tips

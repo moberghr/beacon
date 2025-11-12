@@ -1,92 +1,13 @@
-﻿@using System.Text
-@inject IJSRuntime JS
-
-
-<pre><code class="@CodeLanguage" id="@DisplayId">@FinalCode</code></pre>
-
-<div style="display:none" id="@HideId">@ChildContent</div>
+﻿@* Code Highlight Component - Read-only code display with syntax highlighting *@
+<div class="code-highlight-container" style="background-color: #f5f5f5; border: 1px solid #ddd; border-radius: 4px; padding: 12px; overflow-x: auto;">
+    <pre style="margin: 0; font-family: 'Courier New', monospace; font-size: 14px; white-space: pre-wrap; word-wrap: break-word;"><code class="language-sql">@Code</code></pre>
+</div>
 
 @code {
-
-
-    string HideId { get; set; } = Guid.NewGuid().ToString();
-    string DisplayId { get; set; } = Guid.NewGuid().ToString();
-    string FinalCode { get; set; }
+    [Parameter]
+    public string Code { get; set; } = string.Empty;
 
     [Parameter]
-    public RenderFragment ChildContent { get; set; }
-
-    [Parameter]
-    public string CodeLanguage { get; set; }
-
-    [Parameter]
-    public bool Indent { get; set; } = true;
-
-    [Parameter]
-    public string Code { get; set; }
-
-    private bool _isFirstRenderDone = false;
-
-
-    protected override async Task OnParametersSetAsync()
-    {
-        if (_isFirstRenderDone)
-        {
-            if (!string.IsNullOrEmpty(Code))
-            {
-                FinalCode = ProcessCode(Code);
-                await JS.InvokeVoidAsync("setInnerHtml", DisplayId, FinalCode);
-                await JS.InvokeVoidAsync("highlightElementById", DisplayId);
-            }
-        }
-    }
-
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        if (firstRender)
-        {
-            if (!string.IsNullOrEmpty(Code))
-            {
-                FinalCode = ProcessCode(Code);
-            }
-            else
-            {
-                string innerText = await JS.InvokeAsync<string>("getInnterText", HideId);
-                FinalCode = ProcessCode(innerText);
-            }
-            await JS.InvokeVoidAsync("setInnerHtml", DisplayId, FinalCode);
-            await JS.InvokeVoidAsync("highlightElementById", DisplayId);
-            _isFirstRenderDone = true;
-        }
-    }
-
-    public string ProcessCode(string originCode)
-    {
-        if (Indent)
-        {
-            if (!string.IsNullOrWhiteSpace(originCode))
-            {
-                originCode = originCode.Trim('\n');
-                var lines = originCode.Split('\n').ToArray();
-                int spaceCount = lines[0].Length - lines[0].TrimStart().Length;
-                StringBuilder sb = new StringBuilder();
-                foreach (var line in lines)
-                {
-                    string temp = line;
-                    if (line.Length > spaceCount)
-                    {
-                        temp = line.Substring(spaceCount);
-                    }
-                    sb.AppendLine(temp);
-                }
-                return sb.ToString();
-            }
-            return string.Empty;
-        }
-        else
-        {
-            return originCode;
-        }
-
-    }
+    public string Language { get; set; } = "sql";
 }
+

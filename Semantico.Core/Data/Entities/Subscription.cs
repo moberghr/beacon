@@ -1,4 +1,5 @@
 ﻿using Semantico.Core.Data.Entities.Base;
+using Semantico.Core.Data.Enums;
 
 namespace Semantico.Core.Data.Entities;
 
@@ -9,9 +10,11 @@ public class Subscription : ArchivableBaseEntity
     public required string CronExpression { get; set; }
     
     public int? MaxRows { get; set; }
-    
+
     public bool IncludeAttachment { get; set; } = true;
-    
+
+    public FileType? ResultAttachmentType { get; set; }
+
     public bool ShowQuery { get; set; } = true;
     
     /// <summary>

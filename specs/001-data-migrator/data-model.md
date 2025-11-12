@@ -91,8 +91,7 @@ public enum MigrationMode
 {
     Insert = 1,        // Insert new rows only
     Upsert = 2,        // Insert or update based on key
-    Truncate = 3,      // Truncate destination before insert
-    SyncDelete = 4     // Delete rows not in source
+    Truncate = 3       // Truncate destination before insert
 }
 ```
 

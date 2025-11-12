@@ -6,7 +6,7 @@
 
   <ItemGroup>
     <PackageReference Include="EFCore.NamingConventions" Version="9.0.0" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.9">
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.10">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
@@ -15,7 +15,6 @@
 
   <ItemGroup>
     <Folder Include="Data\Migrations\" />
-    <Folder Include="Migrations\" />
   </ItemGroup>
 
   <PropertyGroup>
@@ -24,7 +23,7 @@
     <Nullable>enable</Nullable>
 
     <!-- Package Information -->
-    <Version>2.0.2.2</Version>
+    <Version>2.0.3.0</Version>
     <Authors>https://github.com/MiBu</Authors>
     <Description>PostgreSQL database provider for Semantico. Provides Entity Framework Core configuration and migrations for PostgreSQL databases with snake_case naming conventions.</Description>
     <PackageProjectUrl>https://github.com/moberghr/semantico</PackageProjectUrl>

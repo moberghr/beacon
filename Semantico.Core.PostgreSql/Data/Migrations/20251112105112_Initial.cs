@@ -4,7 +4,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
 #nullable disable
 
-namespace Semantico.Core.PostgreSql.Migrations
+namespace Semantico.Core.PostgreSql.Data.Migrations
 {
     /// <inheritdoc />
     public partial class Initial : Migration
@@ -61,7 +61,6 @@ namespace Semantico.Core.PostgreSql.Migrations
                     name = table.Column<string>(type: "text", nullable: false),
                     description = table.Column<string>(type: "text", nullable: true),
                     destination = table.Column<string>(type: "text", nullable: false),
-                    result_attachment_type = table.Column<int>(type: "integer", nullable: true),
                     notification_type = table.Column<int>(type: "integer", nullable: false),
                     created_time = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
                     archived_time = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
@@ -214,6 +213,7 @@ namespace Semantico.Core.PostgreSql.Migrations
                     cron_expression = table.Column<string>(type: "text", nullable: false),
                     max_rows = table.Column<int>(type: "integer", nullable: true),
                     include_attachment = table.Column<bool>(type: "boolean", nullable: false),
+                    result_attachment_type = table.Column<int>(type: "integer", nullable: true),
                     show_query = table.Column<bool>(type: "boolean", nullable: false),
                     timeout_seconds = table.Column<int>(type: "integer", nullable: true),
                     store_results = table.Column<bool>(type: "boolean", nullable: false),

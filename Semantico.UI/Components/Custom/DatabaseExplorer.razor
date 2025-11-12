@@ -1,4 +1,5 @@
 @using Semantico.Core.Models.Metadata
+@inject IJSRuntime JSRuntime
 
 <style>
     .database-explorer {
@@ -57,10 +58,6 @@
         }
         else
         {
-            <MudText Typo="Typo.caption" Class="mb-2">
-                Debug: Found @Metadata.Tables.Count table(s) in @Metadata.Tables.GroupBy(t => t.SchemaName).Count() schema(s)
-            </MudText>
-
             <MudList T="string" Clickable="false" Dense="true">
                 @* Group tables by schema *@
                 @foreach (var schemaGroup in Metadata.Tables.GroupBy(t => t.SchemaName).OrderBy(g => g.Key))
@@ -68,9 +65,10 @@
                     <MudListItem T="string" InitiallyExpanded="false">
                         <ChildContent>
                             <div draggable="true"
-                                 @ondragstart="@(e => OnDragStart(e, "schema", schemaGroup.Key, GetSchemaColumns(schemaGroup)))"
+                                 data-drag-data="@string.Join(", ", GetSchemaColumns(schemaGroup))"
+                                 @ondragstart="@OnDragStartHandler"
                                  style="display: flex; align-items: center; gap: 8px; cursor: move; padding: 4px; border-radius: 4px;"
-                                 class="draggable-item">
+                                 class="draggable-item db-draggable">
                                 <MudIcon Icon="@Icons.Material.Filled.Folder" Color="Color.Primary" Size="Size.Small" />
                                 <MudText Typo="Typo.subtitle2">@schemaGroup.Key</MudText>
                                 <MudChip T="string" Size="Size.Small" Variant="Variant.Text">@schemaGroup.Count() tables</MudChip>
@@ -82,9 +80,10 @@
                                 <MudListItem T="string" InitiallyExpanded="false">
                                     <ChildContent>
                                         <div draggable="true"
-                                             @ondragstart="@(e => OnDragStart(e, "table", table.TableName, GetTableColumns(table)))"
+                                             data-drag-data="@string.Join(", ", GetTableColumns(table))"
+                                             @ondragstart="@OnDragStartHandler"
                                              style="display: flex; align-items: center; gap: 8px; cursor: move; padding: 4px; border-radius: 4px;"
-                                             class="draggable-item">
+                                             class="draggable-item db-draggable">
                                             <MudIcon Icon="@Icons.Material.Filled.TableChart" Color="Color.Secondary" Size="Size.Small" />
                                             <div>
                                                 <MudText Typo="Typo.body2">@table.TableName</MudText>
@@ -97,9 +96,10 @@
                                         {
                                             <MudListItem T="string">
                                                 <div draggable="true"
-                                                     @ondragstart="@(e => OnDragStart(e, "column", column.ColumnName, null))"
+                                                     data-drag-data="@column.ColumnName"
+                                                     @ondragstart="@OnDragStartHandler"
                                                      style="display: flex; align-items: center; gap: 8px; padding: 4px 4px 4px 20px; cursor: move; border-radius: 4px;"
-                                                     class="draggable-item">
+                                                     class="draggable-item db-draggable">
                                                     <MudIcon Icon="@GetColumnIcon(column)" Size="Size.Small" />
                                                     <div style="flex: 1;">
                                                         <div style="display: flex; align-items: center; gap: 4px;">
@@ -135,36 +135,57 @@
     [Parameter] public DatabaseMetadataSnapshot? Metadata { get; set; }
     [Parameter] public EventCallback<string> OnTableSelected { get; set; }
     [Parameter] public EventCallback<(string TableName, string ColumnName)> OnColumnSelected { get; set; }
-    [Parameter] public EventCallback<string> OnDragData { get; set; }
 
-    private void OnDragStart(Microsoft.AspNetCore.Components.Web.DragEventArgs e, string type, string name, List<string>? columns)
+    private bool _needsDragHandlerInit = true;
+    private DatabaseMetadataSnapshot? _previousMetadata;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        string dragData;
+        // Re-initialize drag handlers if metadata changed or on first render
+        if (_needsDragHandlerInit && Metadata != null)
+        {
+            await InitializeDragHandlers();
+            _needsDragHandlerInit = false;
+            _previousMetadata = Metadata;
+        }
+    }
 
-        if (type == "column")
+    protected override void OnParametersSet()
+    {
+        // Check if metadata changed
+        if (_previousMetadata != Metadata && Metadata != null)
         {
-            // Just the column name
-            dragData = name;
+            _needsDragHandlerInit = true;
         }
-        else if (type == "table" && columns != null)
-        {
-            // All columns from the table, comma-separated
-            dragData = string.Join(", ", columns);
-        }
-        else if (type == "schema" && columns != null)
-        {
-            // All columns from all tables in the schema, comma-separated
-            dragData = string.Join(", ", columns);
-        }
-        else
-        {
-            dragData = name;
-        }
+    }
 
-        Console.WriteLine($"DatabaseExplorer: Drag started - Type: {type}, Data: {dragData.Substring(0, Math.Min(50, dragData.Length))}...");
+    private async Task InitializeDragHandlers()
+    {
+        try
+        {
+            // Add event listeners via JavaScript to handle drag data properly
+            await JSRuntime.InvokeVoidAsync("eval", @"
+                document.querySelectorAll('.db-draggable').forEach(el => {
+                    el.addEventListener('dragstart', function(e) {
+                        const dragData = this.getAttribute('data-drag-data');
+                        if (dragData) {
+                            e.dataTransfer.effectAllowed = 'copy';
+                            e.dataTransfer.setData('text/plain', dragData);
+                            console.log('[Drag] Started with data:', dragData);
+                        }
+                    });
+                });
+            ");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to initialize drag handlers: {ex.Message}");
+        }
+    }
 
-        // Store drag data to be accessed by drop handler
-        OnDragData.InvokeAsync(dragData);
+    private void OnDragStartHandler(Microsoft.AspNetCore.Components.Web.DragEventArgs e)
+    {
+        // This is just a placeholder - actual drag data is set via JavaScript
     }
 
     private List<string> GetTableColumns(TableMetadataDto table)
@@ -184,13 +205,11 @@
 
     private void OnTableClick(string tableName)
     {
-        Console.WriteLine($"DatabaseExplorer: Table clicked: {tableName}");
         OnTableSelected.InvokeAsync(tableName);
     }
 
     private void OnColumnClick(string tableName, string columnName)
     {
-        Console.WriteLine($"DatabaseExplorer: Column clicked: {tableName}.{columnName}");
         OnColumnSelected.InvokeAsync((tableName, columnName));
     }
 

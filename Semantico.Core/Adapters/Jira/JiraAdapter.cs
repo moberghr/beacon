@@ -42,10 +42,7 @@ internal class JiraAdapter : IAdapter
             return;
         }
 
-        //if (lastNotificationResultCount != recipientQueryResult.QueryResult.TotalRecords)
-        {
-            await CreateJiraCommentAsync(credentials.Email, existingIssue, recipientQueryResult);
-        }
+        await CreateJiraCommentAsync(credentials.Email, existingIssue, recipientQueryResult);
     }
 
     private async Task<Issue> CreateIssueAndCommentAsync(JiraCredentials credentials, Atlassian.Jira.Jira jiraClient, RecipientQueryResult recipientQueryResult)

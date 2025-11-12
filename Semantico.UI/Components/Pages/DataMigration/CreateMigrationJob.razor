@@ -12,10 +12,14 @@
 <SemanticoPageTitle Title="@(IsEdit ? "Edit Migration Job" : "Create Migration Job")"/>
 
 <MudContainer Class="my-4 px-4">
-    <SemanticoPageHeader Icon="@Icons.Material.Filled.SwapHoriz" 
-                        Title="@(IsEdit ? "Edit Migration Job" : "Create Migration Job")" 
-                        ButtonText="Back to List" 
+    <SemanticoPageHeader Icon="@Icons.Material.Filled.SwapHoriz"
+                        Title="@(IsEdit ? "Edit Migration Job" : "Create Migration Job")"
+                        ButtonText="Back to List"
                         OnClick="@NavigateBack"/>
+
+    <MudAlert Severity="Severity.Warning" Class="mb-4" Variant="Variant.Filled">
+        <strong>Experimental Feature:</strong> Data Migration is currently in experimental phase. Please test thoroughly before using in production environments.
+    </MudAlert>
 
     <MudForm @ref="_form" Model="_model" @onsubmit="SaveJob">
         <MudCard>
@@ -86,7 +90,6 @@
                             <MudSelectItem Value="MigrationMode.Insert">Insert Only</MudSelectItem>
                             <MudSelectItem Value="MigrationMode.Upsert">Insert or Update</MudSelectItem>
                             <MudSelectItem Value="MigrationMode.Truncate">Truncate & Insert</MudSelectItem>
-                            <MudSelectItem Value="MigrationMode.SyncDelete">Sync with Delete</MudSelectItem>
                         </MudSelect>
                     </MudItem>
                     

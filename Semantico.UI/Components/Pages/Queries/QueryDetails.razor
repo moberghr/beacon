@@ -18,14 +18,6 @@
             {
                 <MudSkeleton Animation="Animation.Wave"/>
             }
-            else
-            {
-                @* <MudGrid Class="align-center"> *@
-                @*     <MudItem xs="12" sm="9" md="9" lg="9"> *@
-                @*         <MudText Typo="Typo.h5" Style="font-weight: bold">Query: @Model?.Id</MudText> *@
-                @*     </MudItem> *@
-                @* </MudGrid> *@
-            }
         </MudCardContent>
     </MudCard>
 
@@ -370,8 +362,8 @@
                     {
                         <MudAlert Severity="Severity.Info" Dense="true">
                             <MudText Typo="Typo.body2">
-                                <strong>Target Project:</strong> The final query will be executed using the database engine context 
-                                from project ID @Model.FinalQueryDataSourceId (for SQL dialect compatibility).
+                                <strong>Target Data Source:</strong> The final query will be executed using the database engine context
+                                from data source ID @Model.FinalQueryDataSourceId (for SQL dialect compatibility).
                             </MudText>
                         </MudAlert>
                     }
@@ -387,11 +379,11 @@
                     </MudStack>
                     @if (_editingFinalQuery)
                     {
-                        <SqlEditor Value="@Model.FinalQuery"
-                                  ValueChanged="@((newValue) => { Model.FinalQuery = newValue; })"
-                                  DataSourceId="@Model.FinalQueryDataSourceId"
-                                  Height="300px"
-                                  EditorId="sql-editor-final-query" />
+                        <FinalQueryEditor Value="@Model.FinalQuery"
+                                         ValueChanged="@((newValue) => { Model.FinalQuery = newValue; })"
+                                         Query="@ConvertToQueryData()"
+                                         Height="300px"
+                                         EditorId="final-query-editor-details" />
                     }
                     else
                     {
