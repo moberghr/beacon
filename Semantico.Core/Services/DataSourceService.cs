@@ -1,3 +1,5 @@
+using System.Data;
+using Dapper;
 using Microsoft.EntityFrameworkCore;
 using Semantico.Core.Data;
 using Semantico.Core.Data.Entities;
@@ -17,9 +19,13 @@ public interface IDataSourceService
     Task DeleteDataSource(int dataSourceId, CancellationToken cancellationToken);
 
     Task<List<DataSourceListData>> GetDataSources(int? dataSourceId, CancellationToken cancellationToken);
+
+    Task<AdHocQueryResult> ExecuteAdHocQuery(int dataSourceId, string query, CancellationToken cancellationToken);
 }
 
-internal class DataSourceService(IDbContextFactory<SemanticoContext> contextFactory) : IDataSourceService
+internal class DataSourceService(
+    IDbContextFactory<SemanticoContext> contextFactory,
+    IEncryptionService encryptionService) : IDataSourceService
 {
     public async Task<BaseResponse> CreateDataSource(DataSourceData dataSourceData, CancellationToken cancellationToken)
     {
@@ -28,7 +34,7 @@ internal class DataSourceService(IDbContextFactory<SemanticoContext> contextFact
         var dataSource = new DataSource
         {
             Name = dataSourceData.Name,
-            ConnectionString = dataSourceData.ConnectionString,
+            ConnectionString = encryptionService.Encrypt(dataSourceData.ConnectionString),
             DatabaseEngineType = dataSourceData.DatabaseEngineType
         };
 
@@ -46,12 +52,34 @@ internal class DataSourceService(IDbContextFactory<SemanticoContext> contextFact
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         var dataSource = await context.DataSources
+            .Include(x => x.QuerySteps)
+                .ThenInclude(qs => qs.Query)
             .Where(x => x.Id == dataSourceId)
             .SingleAsync(cancellationToken);
 
-        if (dataSource.QuerySteps.Count > 0)
+        // Check for non-archived queries using this data source
+        var unarchivedQueries = dataSource.QuerySteps
+            .Where(qs => qs.Query.ArchivedTime == null)
+            .Select(qs => qs.Query)
+            .DistinctBy(q => q.Id)
+            .ToList();
+
+        if (unarchivedQueries.Count > 0)
         {
-            throw new SemanticoException($"Unable to remove data source due to existing query steps");
+            var queryNames = string.Join(", ", unarchivedQueries.Select(q => q.Name));
+            throw new SemanticoException($"Unable to archive data source. The following queries must be archived first: {queryNames}");
+        }
+
+        // Check for non-archived migration jobs using this data source (as source or destination)
+        var unarchivedMigrationJobs = await context.MigrationJobs
+            .Where(mj => (mj.DataSourceId == dataSourceId || mj.DestinationDataSourceId == dataSourceId)
+                         && mj.ArchivedTime == null)
+            .ToListAsync(cancellationToken);
+
+        if (unarchivedMigrationJobs.Count > 0)
+        {
+            var migrationJobNames = string.Join(", ", unarchivedMigrationJobs.Select(mj => mj.Name));
+            throw new SemanticoException($"Unable to archive data source. The following migration jobs must be archived first: {migrationJobNames}");
         }
 
         dataSource.Archive();
@@ -69,11 +97,15 @@ internal class DataSourceService(IDbContextFactory<SemanticoContext> contextFact
             .Include(x => x.QuerySteps)
                 .ThenInclude(qs => qs.Parameters)
             .WhereIf(dataSourceId.HasValue, x => x.Id == dataSourceId)
+//            .Where(x => x.ArchivedTime == null)
             .Select(x => new DataSourceListData
             {
                 Id = x.Id,
                 Name = x.Name,
                 DatabaseEngineType = x.DatabaseEngineType,
+                MigrationJobsCount = context.MigrationJobs
+                    .Count(mj => (mj.DataSourceId == x.Id || mj.DestinationDataSourceId == x.Id)
+                                 && mj.ArchivedTime == null),
                 Queries = x.QuerySteps
                     .GroupBy(qs => qs.QueryId)
                     .Select(g => new QueryData
@@ -115,9 +147,79 @@ internal class DataSourceService(IDbContextFactory<SemanticoContext> contextFact
             .SingleAsync(cancellationToken);
 
         dataSource.Name = dataSourceData.Name;
-        dataSource.ConnectionString = dataSourceData.ConnectionString;
+        dataSource.ConnectionString = encryptionService.Encrypt(dataSourceData.ConnectionString);
         dataSource.DatabaseEngineType = dataSourceData.DatabaseEngineType;
 
         await context.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task<AdHocQueryResult> ExecuteAdHocQuery(int dataSourceId, string query, CancellationToken cancellationToken)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        var dataSource = await context.DataSources
+            .Where(x => x.Id == dataSourceId)
+            .SingleOrDefaultAsync(cancellationToken);
+
+        if (dataSource == null)
+        {
+            throw new SemanticoException($"Data source with ID {dataSourceId} not found");
+        }
+
+        var startTime = DateTime.UtcNow;
+
+        try
+        {
+            var decryptedConnectionString = encryptionService.Decrypt(dataSource.ConnectionString);
+            await using var connection = DbConnectionFactory.CreateConnection(dataSource.DatabaseEngineType, decryptedConnectionString);
+            await connection.OpenAsync(cancellationToken);
+
+            var result = await connection.QueryAsync(new CommandDefinition(
+                query,
+                cancellationToken: cancellationToken,
+                commandTimeout: 120
+            ));
+
+            var executionTime = DateTime.UtcNow - startTime;
+            var resultList = result.AsList();
+
+            // Convert dynamic results to column/row structure
+            var columns = new List<string>();
+            var rows = new List<Dictionary<string, object?>>();
+
+            if (resultList.Count > 0)
+            {
+                var firstRow = (IDictionary<string, object?>)resultList[0];
+                columns = firstRow.Keys.ToList();
+
+                foreach (var item in resultList)
+                {
+                    var rowDict = (IDictionary<string, object?>)item;
+                    rows.Add(rowDict.ToDictionary(kvp => kvp.Key, kvp => kvp.Value));
+                }
+            }
+
+            return new AdHocQueryResult
+            {
+                Success = true,
+                Columns = columns,
+                Rows = rows,
+                RowCount = rows.Count,
+                ExecutionTime = executionTime
+            };
+        }
+        catch (Exception ex)
+        {
+            var executionTime = DateTime.UtcNow - startTime;
+            return new AdHocQueryResult
+            {
+                Success = false,
+                Error = ex.Message,
+                ExecutionTime = executionTime,
+                Columns = new List<string>(),
+                Rows = new List<Dictionary<string, object?>>(),
+                RowCount = 0
+            };
+        }
     }
 }

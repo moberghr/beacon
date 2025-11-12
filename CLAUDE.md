@@ -23,6 +23,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Add appropriate indexes in context's OnModelCreating method for properties that will be queried frequently
 
 ### Database Operations
+
+**IMPORTANT: Database migrations will be created by the user manually. When entity changes are made, Claude should only mention that a migration is needed - DO NOT attempt to create or run migrations.**
+
 ```bash
 # Generate schema-agnostic migration (ensure Program.cs uses default "semantico" schema)
 dotnet ef migrations add MigrationName --project Semantico.Core --startup-project Semantico.SampleProject

@@ -56,9 +56,9 @@
             var mermaidCode = GetMermaidDiagram();
             await JS.InvokeVoidAsync("renderMermaid", _mermaidId, mermaidCode);
         }
-        catch (Exception ex)
+        catch
         {
-            Console.WriteLine($"Error rendering Mermaid diagram: {ex.Message}");
+            // Silently ignore Mermaid rendering errors
         }
     }
 

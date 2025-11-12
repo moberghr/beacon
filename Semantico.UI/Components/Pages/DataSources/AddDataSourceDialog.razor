@@ -30,6 +30,9 @@
                 T="string"
                 Label="Connection string"
                 Required="true"
+                InputType="InputType.Password"
+                Adornment="Adornment.End"
+                AdornmentIcon="@Icons.Material.Filled.Lock"
             />
             <MudSelect T="DatabaseEngineType" Label="Database Engine Type" @bind-Value="@DataSource.DatabaseEngineType" Required="true">
     <MudSelectItem Value="DatabaseEngineType.PostgreSQL">PostgreSQL</MudSelectItem>

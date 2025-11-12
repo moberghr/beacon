@@ -62,6 +62,7 @@ internal class SubscriptionService(IDbContextFactory<SemanticoContext> contextFa
             QueryId = subscriptionData.QueryId,
             MaxRows = subscriptionData.MaxRows,
             IncludeAttachment = subscriptionData.IncludeAttachment,
+            ResultAttachmentType = subscriptionData.ResultAttachmentType,
             ShowQuery = subscriptionData.ShowQuery,
             TimeoutSeconds = subscriptionData.TimeoutSeconds,
             StoreResults = subscriptionData.StoreResults,
@@ -127,12 +128,12 @@ internal class SubscriptionService(IDbContextFactory<SemanticoContext> contextFa
                         Name = y.Name,
                         Description = y.Description,
                         Destination = y.Destination,
-                        NotificationType = y.NotificationType,
-                        ResultAttachmentType = y.ResultAttachmentType
+                        NotificationType = y.NotificationType
                     }).ToList(),
                     CronExpression = x.CronExpression,
                     MaxRows = x.MaxRows,
                     IncludeAttachment = x.IncludeAttachment,
+                    ResultAttachmentType = x.ResultAttachmentType,
                     ShowQuery = x.ShowQuery,
                     TimeoutSeconds = x.TimeoutSeconds,
                     StoreResults = x.StoreResults,
@@ -179,6 +180,7 @@ internal class SubscriptionService(IDbContextFactory<SemanticoContext> contextFa
         subscription.CronExpression = subscriptionData.CronExpression;
         subscription.MaxRows = subscriptionData.MaxRows;
         subscription.IncludeAttachment = subscriptionData.IncludeAttachment;
+        subscription.ResultAttachmentType = subscriptionData.ResultAttachmentType;
         subscription.ShowQuery = subscriptionData.ShowQuery;
         subscription.TimeoutSeconds = subscriptionData.TimeoutSeconds;
         subscription.StoreResults = subscriptionData.StoreResults;
@@ -228,13 +230,13 @@ internal class SubscriptionService(IDbContextFactory<SemanticoContext> contextFa
                     Name = y.Name,
                     Description = y.Description,
                     Destination = y.Destination,
-                    NotificationType = y.NotificationType,
-                    ResultAttachmentType = y.ResultAttachmentType
+                    NotificationType = y.NotificationType
                 }).ToList(),
                 QueryName = x.Query.Name,
                 CronExpression = x.CronExpression,
                 MaxRows = x.MaxRows,
                 IncludeAttachment = x.IncludeAttachment,
+                ResultAttachmentType = x.ResultAttachmentType,
                 ShowQuery = x.ShowQuery,
                 TimeoutSeconds = x.TimeoutSeconds,
                 StoreResults = x.StoreResults,

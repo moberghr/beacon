@@ -1,4 +1,5 @@
-﻿using Semantico.Core.Models.Recipients;
+﻿using Semantico.Core.Data.Enums;
+using Semantico.Core.Models.Recipients;
 
 namespace Semantico.Core.Models.Subscriptions;
 
@@ -13,9 +14,11 @@ public class SubscriptionData
     public string CronExpression { get; set; }
     
     public int? MaxRows { get; set; }
-    
+
     public bool IncludeAttachment { get; set; } = true;
-    
+
+    public FileType? ResultAttachmentType { get; set; }
+
     public bool ShowQuery { get; set; } = true;
     
     /// <summary>

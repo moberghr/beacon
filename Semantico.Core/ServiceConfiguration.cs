@@ -24,11 +24,18 @@ public static class ServiceConfiguration
         semanticoConfiguration(configurationOptions);
         configurationOptions.Validate();
 
+        // Register configuration for access by adapters and other services
+        services.AddSingleton(configurationOptions);
+
         // Note: DbContext registration is now handled by the database provider-specific extension methods
         // (e.g., AddPostgreSqlSemantico or AddSqlServerSemantico)
 
         services.AddHttpClient();
         services.AddMemoryCache();
+
+        // Encryption service for sensitive data (e.g., connection strings)
+        var encryptionKey = configuration["Semantico:EncryptionKey"] ?? "DefaultKey_ChangeInProduction_MustBe32CharsLong!";
+        services.AddSingleton<IEncryptionService>(new EncryptionService(encryptionKey));
 
         services.AddSingleton<IAdapter, TeamsAdapter>();
         if (configurationOptions.EmailAdapter != null)
@@ -92,6 +99,12 @@ public static class ServiceConfiguration
 public class SemanticoConfiguration
 {
     public string ConnectionStringName { get; set; } = nameof(SemanticoContext);
+
+    /// <summary>
+    /// Base URL of the Semantico admin UI (e.g., https://your-domain.com/semantico)
+    /// Used for generating links in notifications.
+    /// </summary>
+    public string? BaseUrl { get; set; }
 
     public void AddSemanticoScheduler<T>() where T : class, ISemanticoScheduler
     {

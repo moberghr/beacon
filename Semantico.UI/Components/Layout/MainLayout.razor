@@ -16,7 +16,6 @@
 <link href="https://fonts.googleapis.com/css?family=Roboto:300,400,500,700&display=swap" rel="stylesheet" />
 <link href="_content/MudBlazor/MudBlazor.min.css" rel="stylesheet" />
 <link href="css/semantico-styles.css" rel="stylesheet" />
-<link rel="stylesheet" href="_content/BlazorMonaco/lib/monaco-editor/min/vs/editor/editor.main.css" />
 
 <MudLayout>
     <MudAppBar Elevation="1" Dense="true" ToolBarClass="px-3">
@@ -34,17 +33,17 @@
                 <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Text" Class="mt-1">v0.8</MudChip>
             </div>
             <MudDivider Class="my-2"/>
-            <MudNavLink Href="/semantico/" Icon="@Icons.Material.Filled.Home" IconColor="Color.Primary">Home</MudNavLink>
-            <MudNavLink Href="/semantico/data-sources" Icon="@Icons.Material.Filled.Folder" IconColor="Color.Secondary">Data Sources</MudNavLink>
+            <MudNavLink Href="@GetBaseHref()" Icon="@Icons.Material.Filled.Home" IconColor="Color.Primary">Home</MudNavLink>
+            <MudNavLink Href="@($"{GetBaseHref()}data-sources")" Icon="@Icons.Material.Filled.Folder" IconColor="Color.Secondary">Data Sources</MudNavLink>
             <MudNavGroup Title="Alerts" Icon="@Icons.Material.Filled.NotificationsActive" IconColor="Color.Info" Expanded="false">
-                <MudNavLink Href="/semantico/recipients" Icon="@Icons.Material.Filled.People" IconColor="Color.Tertiary">Recipients</MudNavLink>
-                <MudNavLink Href="/semantico/queries" Icon="@Icons.Material.Filled.Search" IconColor="Color.Info">Queries</MudNavLink>
-                <MudNavLink Href="/semantico/subscriptions" Icon="@Icons.Material.Filled.Subscriptions" IconColor="Color.Success">Subscriptions</MudNavLink>
-                <MudNavLink Href="/semantico/notifications" Icon="@Icons.Material.Filled.Notifications" IconColor="Color.Warning">Notifications</MudNavLink>
+                <MudNavLink Href="@($"{GetBaseHref()}recipients")" Icon="@Icons.Material.Filled.People" IconColor="Color.Tertiary">Recipients</MudNavLink>
+                <MudNavLink Href="@($"{GetBaseHref()}queries")" Icon="@Icons.Material.Filled.Search" IconColor="Color.Info">Queries</MudNavLink>
+                <MudNavLink Href="@($"{GetBaseHref()}subscriptions")" Icon="@Icons.Material.Filled.Subscriptions" IconColor="Color.Success">Subscriptions</MudNavLink>
+                <MudNavLink Href="@($"{GetBaseHref()}notifications")" Icon="@Icons.Material.Filled.Notifications" IconColor="Color.Warning">Notifications</MudNavLink>
             </MudNavGroup>
-            <MudNavLink Href="/semantico/data-migration" Icon="@Icons.Material.Filled.SwapHoriz" IconColor="Color.Error">Data Migration</MudNavLink>
+            <MudNavLink Href="@($"{GetBaseHref()}data-migration")" Icon="@Icons.Material.Filled.SwapHoriz" IconColor="Color.Error">Data Migration</MudNavLink>
             <MudDivider Class="my-2"/>
-            <MudNavLink Href="/about" Icon="@Icons.Material.Filled.Info" IconColor="Color.Default">About</MudNavLink>
+            <MudNavLink Href="@($"{GetBaseHref()}about")" Icon="@Icons.Material.Filled.Info" IconColor="Color.Default">About</MudNavLink>
         </MudNavMenu>
     </MudDrawer>
     <MudMainContent Class="pb-12">
@@ -54,10 +53,6 @@
 
 
 <script src="_content/MudBlazor/MudBlazor.min.js"></script>
-<script src="_content/BlazorMonaco/lib/monaco-editor/min/vs/loader.js"></script>
-<script>require.config({ paths: { 'vs': '_content/BlazorMonaco/lib/monaco-editor/min/vs' } });</script>
-<script src="_content/BlazorMonaco/lib/monaco-editor/min/vs/editor/editor.main.js"></script>
-<script src="_content/BlazorMonaco/jsInterop.js"></script>
 <script type="module">
     import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
     window.mermaid = mermaid;
@@ -72,11 +67,19 @@
 @inject IBrowserViewportService BrowserViewportService
 @inject ILocalStorageService LocalStorage
 @inject IJSRuntime JS
+@inject NavigationManager NavigationManager
 
 @code
 {
     private static bool _isDark = true;
     private Breakpoint _breakpoint;
+
+    private string GetBaseHref()
+    {
+        var baseUri = new Uri(NavigationManager.BaseUri);
+        var path = baseUri.AbsolutePath;
+        return path.EndsWith("/") ? path : $"{path}/";
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {

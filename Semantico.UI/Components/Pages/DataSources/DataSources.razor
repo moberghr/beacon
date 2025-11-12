@@ -14,15 +14,16 @@
         <Columns>
             <PropertyColumn Property="x => x.Name" Title="Name"/>
             <PropertyColumn Property="x => x.DatabaseEngineType" Title="Database engine"/>
-            <PropertyColumn Property="x => x.Queries.Count" Title="Queries count"/>
+            <PropertyColumn Property="x => x.Queries.Count" Title="Queries"/>
+            <PropertyColumn Property="x => x.MigrationJobsCount" Title="Migrations"/>
             <TemplateColumn Title="Actions" Sortable="false">
                 <CellTemplate>
                     <MudButton Size="Size.Small"
                                Variant="Variant.Filled"
                                Color="Color.Primary"
-                               Href="@($"/semantico/data-sources/{context.Item.Id}/query-editor")"
-                               StartIcon="@Icons.Material.Filled.Code">
-                        Query Editor
+                               Href="@($"/semantico/data-sources/{context.Item.Id}")"
+                               StartIcon="@Icons.Material.Filled.Info">
+                        Details
                     </MudButton>
                 </CellTemplate>
             </TemplateColumn>

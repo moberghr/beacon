@@ -12,7 +12,6 @@
     <SemanticoPageAlert Text="List of sent notifications." />
     <MudDataGrid @ref="_dataGrid" ServerData="ServerReload" T="QueryExecutionHistoryData" Hover="true" Filterable="false">
         <ToolBarContent>
-            @* TODO: fix the filters on all grids <MudSelect T="bool?" Text="Only sent notifications?" ValueChanged="c => OnNotificationSent(c)"></MudSelect> *@
         </ToolBarContent>
         <Columns>
             <PropertyColumn Property="x => x.QueryExecutionHistoryId" Title="Id"/>

@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
-namespace Semantico.Core.SqlServer.Migrations
+namespace Semantico.Core.SqlServer.Data.Migrations
 {
     /// <inheritdoc />
     public partial class Initial : Migration
@@ -15,7 +15,7 @@ namespace Semantico.Core.SqlServer.Migrations
                 name: "semantico");
 
             migrationBuilder.CreateTable(
-                name: "Projects",
+                name: "DataSources",
                 schema: "semantico",
                 columns: table => new
                 {
@@ -29,7 +29,7 @@ namespace Semantico.Core.SqlServer.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_Projects", x => x.Id);
+                    table.PrimaryKey("PK_DataSources", x => x.Id);
                 });
 
             migrationBuilder.CreateTable(
@@ -60,7 +60,6 @@ namespace Semantico.Core.SqlServer.Migrations
                     Name = table.Column<string>(type: "nvarchar(max)", nullable: false),
                     Description = table.Column<string>(type: "nvarchar(max)", nullable: true),
                     Destination = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    ResultAttachmentType = table.Column<int>(type: "int", nullable: true),
                     NotificationType = table.Column<int>(type: "int", nullable: false),
                     CreatedTime = table.Column<DateTime>(type: "datetime2", nullable: false),
                     ArchivedTime = table.Column<DateTime>(type: "datetime2", nullable: true)
@@ -68,6 +67,33 @@ namespace Semantico.Core.SqlServer.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_Recipients", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "DatabaseMetadata",
+                schema: "semantico",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "int", nullable: false)
+                        .Annotation("SqlServer:Identity", "1, 1"),
+                    DataSourceId = table.Column<int>(type: "int", nullable: false),
+                    SchemaName = table.Column<string>(type: "nvarchar(100)", maxLength: 100, nullable: false),
+                    TableName = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: false),
+                    TableDescription = table.Column<string>(type: "nvarchar(1000)", maxLength: 1000, nullable: true),
+                    LastRefreshed = table.Column<DateTime>(type: "datetime2", nullable: false),
+                    CreatedTime = table.Column<DateTime>(type: "datetime2", nullable: false),
+                    ArchivedTime = table.Column<DateTime>(type: "datetime2", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_DatabaseMetadata", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_DatabaseMetadata_DataSources_DataSourceId",
+                        column: x => x.DataSourceId,
+                        principalSchema: "semantico",
+                        principalTable: "DataSources",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
                 });
 
             migrationBuilder.CreateTable(
@@ -79,9 +105,9 @@ namespace Semantico.Core.SqlServer.Migrations
                         .Annotation("SqlServer:Identity", "1, 1"),
                     Name = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: false),
                     Description = table.Column<string>(type: "nvarchar(1000)", maxLength: 1000, nullable: false),
-                    ProjectId = table.Column<int>(type: "int", nullable: false),
+                    DataSourceId = table.Column<int>(type: "int", nullable: false),
                     QueryText = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    DestinationProjectId = table.Column<int>(type: "int", nullable: false),
+                    DestinationDataSourceId = table.Column<int>(type: "int", nullable: false),
                     DestinationTable = table.Column<string>(type: "nvarchar(100)", maxLength: 100, nullable: false),
                     Mode = table.Column<int>(type: "int", nullable: false),
                     IsEnabled = table.Column<bool>(type: "bit", nullable: false),
@@ -99,17 +125,17 @@ namespace Semantico.Core.SqlServer.Migrations
                 {
                     table.PrimaryKey("PK_MigrationJobs", x => x.Id);
                     table.ForeignKey(
-                        name: "FK_MigrationJobs_Projects_DestinationProjectId",
-                        column: x => x.DestinationProjectId,
+                        name: "FK_MigrationJobs_DataSources_DataSourceId",
+                        column: x => x.DataSourceId,
                         principalSchema: "semantico",
-                        principalTable: "Projects",
+                        principalTable: "DataSources",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
-                        name: "FK_MigrationJobs_Projects_ProjectId",
-                        column: x => x.ProjectId,
+                        name: "FK_MigrationJobs_DataSources_DestinationDataSourceId",
+                        column: x => x.DestinationDataSourceId,
                         principalSchema: "semantico",
-                        principalTable: "Projects",
+                        principalTable: "DataSources",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Restrict);
                 });
@@ -149,7 +175,7 @@ namespace Semantico.Core.SqlServer.Migrations
                     Id = table.Column<int>(type: "int", nullable: false)
                         .Annotation("SqlServer:Identity", "1, 1"),
                     QueryId = table.Column<int>(type: "int", nullable: false),
-                    ProjectId = table.Column<int>(type: "int", nullable: false),
+                    DataSourceId = table.Column<int>(type: "int", nullable: false),
                     StepOrder = table.Column<int>(type: "int", nullable: false),
                     SqlValue = table.Column<string>(type: "nvarchar(max)", nullable: false),
                     Name = table.Column<string>(type: "nvarchar(max)", nullable: true),
@@ -160,10 +186,10 @@ namespace Semantico.Core.SqlServer.Migrations
                 {
                     table.PrimaryKey("PK_QuerySteps", x => x.Id);
                     table.ForeignKey(
-                        name: "FK_QuerySteps_Projects_ProjectId",
-                        column: x => x.ProjectId,
+                        name: "FK_QuerySteps_DataSources_DataSourceId",
+                        column: x => x.DataSourceId,
                         principalSchema: "semantico",
-                        principalTable: "Projects",
+                        principalTable: "DataSources",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
                     table.ForeignKey(
@@ -186,6 +212,7 @@ namespace Semantico.Core.SqlServer.Migrations
                     CronExpression = table.Column<string>(type: "nvarchar(max)", nullable: false),
                     MaxRows = table.Column<int>(type: "int", nullable: true),
                     IncludeAttachment = table.Column<bool>(type: "bit", nullable: false),
+                    ResultAttachmentType = table.Column<int>(type: "int", nullable: true),
                     ShowQuery = table.Column<bool>(type: "bit", nullable: false),
                     TimeoutSeconds = table.Column<int>(type: "int", nullable: true),
                     StoreResults = table.Column<bool>(type: "bit", nullable: false),
@@ -200,6 +227,65 @@ namespace Semantico.Core.SqlServer.Migrations
                         column: x => x.QueryId,
                         principalSchema: "semantico",
                         principalTable: "Queries",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "ColumnMetadata",
+                schema: "semantico",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "int", nullable: false)
+                        .Annotation("SqlServer:Identity", "1, 1"),
+                    DatabaseMetadataId = table.Column<int>(type: "int", nullable: false),
+                    ColumnName = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: false),
+                    DataType = table.Column<string>(type: "nvarchar(100)", maxLength: 100, nullable: false),
+                    IsNullable = table.Column<bool>(type: "bit", nullable: false),
+                    IsPrimaryKey = table.Column<bool>(type: "bit", nullable: false),
+                    IsForeignKey = table.Column<bool>(type: "bit", nullable: false),
+                    OrdinalPosition = table.Column<int>(type: "int", nullable: false),
+                    ForeignKeyTable = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: true),
+                    ForeignKeyColumn = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: true),
+                    DefaultValue = table.Column<string>(type: "nvarchar(500)", maxLength: 500, nullable: true),
+                    MaxLength = table.Column<int>(type: "int", nullable: true),
+                    Description = table.Column<string>(type: "nvarchar(1000)", maxLength: 1000, nullable: true),
+                    CreatedTime = table.Column<DateTime>(type: "datetime2", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_ColumnMetadata", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_ColumnMetadata_DatabaseMetadata_DatabaseMetadataId",
+                        column: x => x.DatabaseMetadataId,
+                        principalSchema: "semantico",
+                        principalTable: "DatabaseMetadata",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "IndexMetadata",
+                schema: "semantico",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "int", nullable: false)
+                        .Annotation("SqlServer:Identity", "1, 1"),
+                    DatabaseMetadataId = table.Column<int>(type: "int", nullable: false),
+                    IndexName = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: false),
+                    IsUnique = table.Column<bool>(type: "bit", nullable: false),
+                    IsPrimaryKey = table.Column<bool>(type: "bit", nullable: false),
+                    Columns = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    CreatedTime = table.Column<DateTime>(type: "datetime2", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_IndexMetadata", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_IndexMetadata_DatabaseMetadata_DatabaseMetadataId",
+                        column: x => x.DatabaseMetadataId,
+                        principalSchema: "semantico",
+                        principalTable: "DatabaseMetadata",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
                 });
@@ -385,6 +471,43 @@ namespace Semantico.Core.SqlServer.Migrations
                 });
 
             migrationBuilder.CreateIndex(
+                name: "IX_ColumnMetadata_DatabaseMetadataId",
+                schema: "semantico",
+                table: "ColumnMetadata",
+                column: "DatabaseMetadataId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_ColumnMetadata_DatabaseMetadataId_ColumnName",
+                schema: "semantico",
+                table: "ColumnMetadata",
+                columns: new[] { "DatabaseMetadataId", "ColumnName" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_DatabaseMetadata_DataSourceId",
+                schema: "semantico",
+                table: "DatabaseMetadata",
+                column: "DataSourceId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_DatabaseMetadata_DataSourceId_SchemaName_TableName",
+                schema: "semantico",
+                table: "DatabaseMetadata",
+                columns: new[] { "DataSourceId", "SchemaName", "TableName" },
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_DatabaseMetadata_LastRefreshed",
+                schema: "semantico",
+                table: "DatabaseMetadata",
+                column: "LastRefreshed");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_IndexMetadata_DatabaseMetadataId",
+                schema: "semantico",
+                table: "IndexMetadata",
+                column: "DatabaseMetadataId");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_MigrationExecutions_MigrationJobId",
                 schema: "semantico",
                 table: "MigrationExecutions",
@@ -409,22 +532,22 @@ namespace Semantico.Core.SqlServer.Migrations
                 columns: new[] { "Status", "StartedAt" });
 
             migrationBuilder.CreateIndex(
-                name: "IX_MigrationJobs_DestinationProjectId",
+                name: "IX_MigrationJobs_DataSourceId",
                 schema: "semantico",
                 table: "MigrationJobs",
-                column: "DestinationProjectId");
+                column: "DataSourceId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_MigrationJobs_DestinationDataSourceId",
+                schema: "semantico",
+                table: "MigrationJobs",
+                column: "DestinationDataSourceId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_MigrationJobs_IsEnabled_ArchivedTime",
                 schema: "semantico",
                 table: "MigrationJobs",
                 columns: new[] { "IsEnabled", "ArchivedTime" });
-
-            migrationBuilder.CreateIndex(
-                name: "IX_MigrationJobs_ProjectId",
-                schema: "semantico",
-                table: "MigrationJobs",
-                column: "ProjectId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_Notifications_QueryExecutionHistoryId",
@@ -457,10 +580,10 @@ namespace Semantico.Core.SqlServer.Migrations
                 column: "QueryStepId");
 
             migrationBuilder.CreateIndex(
-                name: "IX_QuerySteps_ProjectId",
+                name: "IX_QuerySteps_DataSourceId",
                 schema: "semantico",
                 table: "QuerySteps",
-                column: "ProjectId");
+                column: "DataSourceId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_QuerySteps_QueryId",
@@ -491,6 +614,14 @@ namespace Semantico.Core.SqlServer.Migrations
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropTable(
+                name: "ColumnMetadata",
+                schema: "semantico");
+
+            migrationBuilder.DropTable(
+                name: "IndexMetadata",
+                schema: "semantico");
+
+            migrationBuilder.DropTable(
                 name: "MigrationExecutions",
                 schema: "semantico");
 
@@ -515,6 +646,10 @@ namespace Semantico.Core.SqlServer.Migrations
                 schema: "semantico");
 
             migrationBuilder.DropTable(
+                name: "DatabaseMetadata",
+                schema: "semantico");
+
+            migrationBuilder.DropTable(
                 name: "MigrationJobs",
                 schema: "semantico");
 
@@ -535,7 +670,7 @@ namespace Semantico.Core.SqlServer.Migrations
                 schema: "semantico");
 
             migrationBuilder.DropTable(
-                name: "Projects",
+                name: "DataSources",
                 schema: "semantico");
 
             migrationBuilder.DropTable(

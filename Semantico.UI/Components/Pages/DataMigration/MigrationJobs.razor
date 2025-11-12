@@ -9,6 +9,11 @@
 
 <MudContainer Class="my-4 px-4">
     <SemanticoPageHeader Icon="@Icons.Material.Filled.SwapHoriz" Title="Data Migration" ButtonText="New Migration Job" OnClick="@AddMigrationJob"/>
+
+    <MudAlert Severity="Severity.Warning" Class="mb-4" Variant="Variant.Filled">
+        <strong>Experimental Feature:</strong> Data Migration is currently in experimental phase. Please test thoroughly before using in production environments.
+    </MudAlert>
+
     <SemanticoPageAlert Text="Manage data migration jobs and view execution history."/>
 
     <MudDataGrid @ref="_dataGrid" ServerData="@ServerReload" T="MigrationJobDto" Hover="true" Filterable="false" SortMode="SortMode.None">
@@ -23,6 +28,13 @@
             <PropertyColumn Property="x => x.DataSourceName" Title="Source Data Source"/>
             <PropertyColumn Property="x => x.DestinationDataSourceName" Title="Destination Data Source"/>
             <PropertyColumn Property="x => x.DestinationTable" Title="Destination Table"/>
+            <PropertyColumn Property="x => x.Mode" Title="Migration Mode">
+                <CellTemplate>
+                    <MudChip Size="Size.Small" Color="@GetModeColor(context.Item.Mode)">
+                        @context.Item.Mode
+                    </MudChip>
+                </CellTemplate>
+            </PropertyColumn>
             <PropertyColumn Property="x => x.Schedule" Title="Schedule">
                 <CellTemplate>
                     @if (string.IsNullOrEmpty(context.Item.Schedule))
@@ -112,12 +124,8 @@
     {
         try
         {
-            Console.WriteLine($"ServerReload called - Page: {state.Page}, PageSize: {state.PageSize}");
-
             var request = DataGridHelper.BuildSortedRequest<GetMigrationJobsRequest, MigrationJobDto>(state);
             _list = await _service.GetMigrationJobs(request, CancellationToken.None);
-
-            Console.WriteLine($"ServerReload completed - Total: {_list.TotalCount}, Jobs: {_list.Items.Count}");
 
             return new GridData<MigrationJobDto>
             {
@@ -127,7 +135,6 @@
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"ServerReload error: {ex.Message}");
             Snackbar.Add($"Error loading migration jobs: {ex.Message}", Severity.Error);
             return new GridData<MigrationJobDto>
             {
@@ -135,6 +142,17 @@
                 Items = new List<MigrationJobDto>()
             };
         }
+    }
+
+    private Color GetModeColor(MigrationMode mode)
+    {
+        return mode switch
+        {
+            MigrationMode.Insert => Color.Info,
+            MigrationMode.Upsert => Color.Primary,
+            MigrationMode.Truncate => Color.Warning,
+            _ => Color.Default
+        };
     }
     
     private async Task AddMigrationJob()

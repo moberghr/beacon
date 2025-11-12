@@ -3,25 +3,22 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
-using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Semantico.Core.SqlServer.Data;
 
 #nullable disable
 
-namespace Semantico.Core.SqlServer.Migrations
+namespace Semantico.Core.SqlServer.Data.Migrations
 {
     [DbContext(typeof(SqlServerSemanticoContext))]
-    [Migration("20251030144428_Initial")]
-    partial class Initial
+    partial class SqlServerSemanticoContextModelSnapshot : ModelSnapshot
     {
-        /// <inheritdoc />
-        protected override void BuildTargetModel(ModelBuilder modelBuilder)
+        protected override void BuildModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
                 .HasDefaultSchema("semantico")
-                .HasAnnotation("ProductVersion", "9.0.9")
+                .HasAnnotation("ProductVersion", "9.0.10")
                 .HasAnnotation("Relational:MaxIdentifierLength", 128);
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
@@ -135,12 +132,15 @@ namespace Semantico.Core.SqlServer.Migrations
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("datetime2");
 
+                    b.Property<int>("DataSourceId")
+                        .HasColumnType("int");
+
                     b.Property<string>("Description")
                         .IsRequired()
                         .HasMaxLength(1000)
                         .HasColumnType("nvarchar(1000)");
 
-                    b.Property<int>("DestinationProjectId")
+                    b.Property<int>("DestinationDataSourceId")
                         .HasColumnType("int");
 
                     b.Property<string>("DestinationTable")
@@ -162,9 +162,6 @@ namespace Semantico.Core.SqlServer.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
 
-                    b.Property<int>("ProjectId")
-                        .HasColumnType("int");
-
                     b.Property<string>("QueryText")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
@@ -184,13 +181,189 @@ namespace Semantico.Core.SqlServer.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("DestinationProjectId");
+                    b.HasIndex("DataSourceId");
 
-                    b.HasIndex("ProjectId");
+                    b.HasIndex("DestinationDataSourceId");
 
                     b.HasIndex("IsEnabled", "ArchivedTime");
 
                     b.ToTable("MigrationJobs", "semantico");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.DataSource", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime?>("ArchivedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("ConnectionString")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("DatabaseEngineType")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("DataSources", "semantico");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.Metadata.ColumnMetadata", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ColumnName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("DataType")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<int>("DatabaseMetadataId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("DefaultValue")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<string>("ForeignKeyColumn")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("ForeignKeyTable")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<bool>("IsForeignKey")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsNullable")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsPrimaryKey")
+                        .HasColumnType("bit");
+
+                    b.Property<int?>("MaxLength")
+                        .HasColumnType("int");
+
+                    b.Property<int>("OrdinalPosition")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DatabaseMetadataId");
+
+                    b.HasIndex("DatabaseMetadataId", "ColumnName");
+
+                    b.ToTable("ColumnMetadata", "semantico");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.Metadata.DatabaseMetadata", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime?>("ArchivedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("DataSourceId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("LastRefreshed")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("SchemaName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("TableDescription")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<string>("TableName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DataSourceId");
+
+                    b.HasIndex("LastRefreshed");
+
+                    b.HasIndex("DataSourceId", "SchemaName", "TableName")
+                        .IsUnique();
+
+                    b.ToTable("DatabaseMetadata", "semantico");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.Metadata.IndexMetadata", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.PrimitiveCollection<string>("Columns")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("DatabaseMetadataId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("IndexName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<bool>("IsPrimaryKey")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsUnique")
+                        .HasColumnType("bit");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DatabaseMetadataId");
+
+                    b.ToTable("IndexMetadata", "semantico");
                 });
 
             modelBuilder.Entity("Semantico.Core.Data.Entities.Notification", b =>
@@ -226,36 +399,6 @@ namespace Semantico.Core.SqlServer.Migrations
                     b.HasIndex("RecipientId");
 
                     b.ToTable("Notifications", "semantico");
-                });
-
-            modelBuilder.Entity("Semantico.Core.Data.Entities.Project", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime?>("ArchivedTime")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("ConnectionString")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<DateTime>("CreatedTime")
-                        .HasColumnType("datetime2");
-
-                    b.Property<int>("DatabaseEngineType")
-                        .HasColumnType("int");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("Projects", "semantico");
                 });
 
             modelBuilder.Entity("Semantico.Core.Data.Entities.Query", b =>
@@ -371,14 +514,14 @@ namespace Semantico.Core.SqlServer.Migrations
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("datetime2");
 
+                    b.Property<int>("DataSourceId")
+                        .HasColumnType("int");
+
                     b.Property<string>("Description")
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("Name")
                         .HasColumnType("nvarchar(max)");
-
-                    b.Property<int>("ProjectId")
-                        .HasColumnType("int");
 
                     b.Property<int>("QueryId")
                         .HasColumnType("int");
@@ -392,7 +535,7 @@ namespace Semantico.Core.SqlServer.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ProjectId");
+                    b.HasIndex("DataSourceId");
 
                     b.HasIndex("QueryId");
 
@@ -461,9 +604,6 @@ namespace Semantico.Core.SqlServer.Migrations
                     b.Property<int>("NotificationType")
                         .HasColumnType("int");
 
-                    b.Property<int?>("ResultAttachmentType")
-                        .HasColumnType("int");
-
                     b.HasKey("Id");
 
                     b.ToTable("Recipients", "semantico");
@@ -494,6 +634,9 @@ namespace Semantico.Core.SqlServer.Migrations
                         .HasColumnType("int");
 
                     b.Property<int>("QueryId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("ResultAttachmentType")
                         .HasColumnType("int");
 
                     b.Property<bool>("ShowQuery")
@@ -579,21 +722,54 @@ namespace Semantico.Core.SqlServer.Migrations
 
             modelBuilder.Entity("Semantico.Core.Data.Entities.DataMigration.MigrationJob", b =>
                 {
-                    b.HasOne("Semantico.Core.Data.Entities.Project", "DestinationProject")
+                    b.HasOne("Semantico.Core.Data.Entities.DataSource", "DataSource")
                         .WithMany()
-                        .HasForeignKey("DestinationProjectId")
+                        .HasForeignKey("DataSourceId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("Semantico.Core.Data.Entities.Project", "Project")
+                    b.HasOne("Semantico.Core.Data.Entities.DataSource", "DestinationDataSource")
                         .WithMany()
-                        .HasForeignKey("ProjectId")
+                        .HasForeignKey("DestinationDataSourceId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.Navigation("DestinationProject");
+                    b.Navigation("DataSource");
 
-                    b.Navigation("Project");
+                    b.Navigation("DestinationDataSource");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.Metadata.ColumnMetadata", b =>
+                {
+                    b.HasOne("Semantico.Core.Data.Entities.Metadata.DatabaseMetadata", "DatabaseMetadata")
+                        .WithMany("Columns")
+                        .HasForeignKey("DatabaseMetadataId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("DatabaseMetadata");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.Metadata.DatabaseMetadata", b =>
+                {
+                    b.HasOne("Semantico.Core.Data.Entities.DataSource", "DataSource")
+                        .WithMany()
+                        .HasForeignKey("DataSourceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("DataSource");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.Metadata.IndexMetadata", b =>
+                {
+                    b.HasOne("Semantico.Core.Data.Entities.Metadata.DatabaseMetadata", "DatabaseMetadata")
+                        .WithMany("Indexes")
+                        .HasForeignKey("DatabaseMetadataId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("DatabaseMetadata");
                 });
 
             modelBuilder.Entity("Semantico.Core.Data.Entities.Notification", b =>
@@ -639,9 +815,9 @@ namespace Semantico.Core.SqlServer.Migrations
 
             modelBuilder.Entity("Semantico.Core.Data.Entities.QueryStep", b =>
                 {
-                    b.HasOne("Semantico.Core.Data.Entities.Project", "Project")
+                    b.HasOne("Semantico.Core.Data.Entities.DataSource", "DataSource")
                         .WithMany("QuerySteps")
-                        .HasForeignKey("ProjectId")
+                        .HasForeignKey("DataSourceId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
@@ -651,7 +827,7 @@ namespace Semantico.Core.SqlServer.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.Navigation("Project");
+                    b.Navigation("DataSource");
 
                     b.Navigation("Query");
                 });
@@ -694,9 +870,16 @@ namespace Semantico.Core.SqlServer.Migrations
                     b.Navigation("Executions");
                 });
 
-            modelBuilder.Entity("Semantico.Core.Data.Entities.Project", b =>
+            modelBuilder.Entity("Semantico.Core.Data.Entities.DataSource", b =>
                 {
                     b.Navigation("QuerySteps");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.Metadata.DatabaseMetadata", b =>
+                {
+                    b.Navigation("Columns");
+
+                    b.Navigation("Indexes");
                 });
 
             modelBuilder.Entity("Semantico.Core.Data.Entities.Query", b =>

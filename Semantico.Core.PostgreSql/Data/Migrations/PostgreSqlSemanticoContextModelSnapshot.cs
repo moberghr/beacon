@@ -8,7 +8,7 @@ using Semantico.Core.PostgreSql.Data;
 
 #nullable disable
 
-namespace Semantico.Core.PostgreSql.Migrations
+namespace Semantico.Core.PostgreSql.Data.Migrations
 {
     [DbContext(typeof(PostgreSqlSemanticoContext))]
     partial class PostgreSqlSemanticoContextModelSnapshot : ModelSnapshot
@@ -18,7 +18,7 @@ namespace Semantico.Core.PostgreSql.Migrations
 #pragma warning disable 612, 618
             modelBuilder
                 .HasDefaultSchema("semantico")
-                .HasAnnotation("ProductVersion", "9.0.9")
+                .HasAnnotation("ProductVersion", "9.0.10")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -761,10 +761,6 @@ namespace Semantico.Core.PostgreSql.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("notification_type");
 
-                    b.Property<int?>("ResultAttachmentType")
-                        .HasColumnType("integer")
-                        .HasColumnName("result_attachment_type");
-
                     b.HasKey("Id")
                         .HasName("pk_recipients");
 
@@ -804,6 +800,10 @@ namespace Semantico.Core.PostgreSql.Migrations
                     b.Property<int>("QueryId")
                         .HasColumnType("integer")
                         .HasColumnName("query_id");
+
+                    b.Property<int?>("ResultAttachmentType")
+                        .HasColumnType("integer")
+                        .HasColumnName("result_attachment_type");
 
                     b.Property<bool>("ShowQuery")
                         .HasColumnType("boolean")

@@ -16,6 +16,7 @@ namespace Semantico.Core.Services;
 public class DatabaseMetadataService : IDatabaseMetadataService
 {
     private readonly IDbContextFactory<SemanticoContext> _contextFactory;
+    private readonly IEncryptionService _encryptionService;
     private readonly IMemoryCache _cache;
     private readonly ILogger<DatabaseMetadataService> _logger;
 
@@ -24,10 +25,12 @@ public class DatabaseMetadataService : IDatabaseMetadataService
 
     public DatabaseMetadataService(
         IDbContextFactory<SemanticoContext> contextFactory,
+        IEncryptionService encryptionService,
         IMemoryCache cache,
         ILogger<DatabaseMetadataService> logger)
     {
         _contextFactory = contextFactory;
+        _encryptionService = encryptionService;
         _cache = cache;
         _logger = logger;
     }
@@ -43,10 +46,11 @@ public class DatabaseMetadataService : IDatabaseMetadataService
             throw new SemanticoException($"Data source {dataSourceId} not found");
 
         // Extract metadata based on database type
+        var connectionString = _encryptionService.Decrypt(dataSource.ConnectionString);
         var tables = dataSource.DatabaseEngineType switch
         {
-            DatabaseEngineType.PostgreSQL => await GetPostgreSqlMetadataAsync(dataSource.ConnectionString, cancellationToken),
-            DatabaseEngineType.MSSQL => await GetSqlServerMetadataAsync(dataSource.ConnectionString, cancellationToken),
+            DatabaseEngineType.PostgreSQL => await GetPostgreSqlMetadataAsync(connectionString, cancellationToken),
+            DatabaseEngineType.MSSQL => await GetSqlServerMetadataAsync(connectionString, cancellationToken),
             _ => throw new NotSupportedException($"Database type {dataSource.DatabaseEngineType} not supported for metadata extraction")
         };
 
@@ -54,7 +58,7 @@ public class DatabaseMetadataService : IDatabaseMetadataService
         await StoreMetadataAsync(dataSourceId, tables, cancellationToken);
 
         // Update cache
-        var snapshot = new DatabaseMetadataSnapshot(dataSourceId, tables, DateTime.UtcNow);
+        var snapshot = new DatabaseMetadataSnapshot(dataSourceId, dataSource.DatabaseEngineType, tables, DateTime.UtcNow);
         _cache.Set(GetCacheKey(dataSourceId), snapshot, CacheExpiration);
 
         _logger.LogInformation("Refreshed metadata for data source {DataSourceId}: {TableCount} tables", dataSourceId, tables.Count);
@@ -72,6 +76,11 @@ public class DatabaseMetadataService : IDatabaseMetadataService
         }
 
         await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
+
+        // Get the data source to know the database type
+        var dataSource = await context.DataSources.FindAsync(new object[] { dataSourceId }, cancellationToken);
+        if (dataSource == null)
+            throw new SemanticoException($"Data source {dataSourceId} not found");
 
         // Try to get from database
         var metadata = await context.DatabaseMetadata
@@ -107,7 +116,7 @@ public class DatabaseMetadataService : IDatabaseMetadataService
                 m.TableDescription
             )).ToList();
 
-            var snapshot = new DatabaseMetadataSnapshot(dataSourceId, tables, metadata.Max(m => m.LastRefreshed));
+            var snapshot = new DatabaseMetadataSnapshot(dataSourceId, dataSource.DatabaseEngineType, tables, metadata.Max(m => m.LastRefreshed));
             _cache.Set(GetCacheKey(dataSourceId), snapshot, CacheExpiration);
 
             return snapshot;
@@ -399,6 +408,10 @@ public class DatabaseMetadataService : IDatabaseMetadataService
             .ToListAsync(cancellationToken);
 
         context.DatabaseMetadata.RemoveRange(existingMetadata);
+
+        // Save changes to commit the deletions before adding new records
+        // This prevents unique constraint violations on (DataSourceId, SchemaName, TableName)
+        await context.SaveChangesAsync(cancellationToken);
 
         // Add new metadata
         foreach (var table in tables)

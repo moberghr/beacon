@@ -42,6 +42,9 @@ builder.Services.AddSemanticoAdmin(builder.Configuration, options =>
 {
     options.AddSemanticoScheduler<SemanticoScheduler>();
     options.AddAuthorizationProvider<SampleAuthorizationProvider>();
+    // Set the base URL for generating links in notifications (e.g., Teams messages)
+    // This should match where your Semantico admin UI is hosted
+    options.BaseUrl = "https://localhost:7187/semantico"; // Update with your actual URL
 });
 
 var app = builder.Build();

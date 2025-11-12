@@ -12,4 +12,6 @@ public class DataSourceListData
     public required DatabaseEngineType DatabaseEngineType { get; init; }
 
     public List<QueryData> Queries { get; init; } = new();
+
+    public int MigrationJobsCount { get; init; }
 }

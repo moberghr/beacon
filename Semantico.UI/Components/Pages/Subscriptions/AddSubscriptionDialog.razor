@@ -1,3 +1,4 @@
+@using Semantico.Core.Data.Enums
 @using Semantico.Core.Models.Subscriptions
 @using Semantico.Core.Models.Recipients
 @using Semantico.Core.Services
@@ -35,7 +36,12 @@
                 Label="Include Attachment"
                 Color="Color.Primary"
                 Class="mb-2" />
-            
+
+            <MudSelect T="string" Label="Result Attachment Type" @bind-Value="FileAttachmentType" Clearable Required="false" Margin="Margin.Dense" Variant="Variant.Outlined" Class="mb-2">
+                <MudSelectItem Value="FileType.Csv.ToString()">Csv</MudSelectItem>
+                <MudSelectItem Value="FileType.Xlsx.ToString()">Xlsx</MudSelectItem>
+            </MudSelect>
+
             <MudCheckBox @bind-Value="Subscription.ShowQuery"
                 Label="Show Query in Notification"
                 Color="Color.Primary"
@@ -84,6 +90,7 @@
 
     private List<RecipientData> _recipients { get; set; } = [];
     private IEnumerable<string> _selectedRecipientIds { get; set; } = [];
+    private string FileAttachmentType { get; set; } = string.Empty;
 
     private MudForm _form;
     private bool _loading;
@@ -116,6 +123,11 @@
         _loading = true;
 
         Subscription.Recipients = _recipients.Where(x => _selectedRecipientIds.Contains(x.RecipientId.ToString())).ToList();
+
+        if (!string.IsNullOrWhiteSpace(FileAttachmentType))
+        {
+            Subscription.ResultAttachmentType = Enum.Parse<FileType>(FileAttachmentType, ignoreCase: true);
+        }
 
         var response = await Service.CreateSubscription(Subscription, CancellationToken.None);
 

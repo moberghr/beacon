@@ -92,6 +92,7 @@ internal class JobService(IDbContextFactory<SemanticoContext> contextFactory, IQ
         }
 
         // Create Notification records for each recipient that was notified
+        var notifications = new List<Notification>();
         foreach (var recipient in queryResult.Recipients)
         {
             var notification = new Notification
@@ -101,41 +102,34 @@ internal class JobService(IDbContextFactory<SemanticoContext> contextFactory, IQ
                 SentAt = DateTime.UtcNow,
                 Results = queryResult.SaveResults ? queryResult.QueryResults : null
             };
-            
+
             executedQuery.Notifications.Add(notification);
+            notifications.Add(notification);
         }
-        
+
         await context.SaveChangesAsync();
 
         var recipientsQueryResults = new List<RecipientQueryResult>();
-        var resultFiles = new Dictionary<FileType, QueryResultFile>();
+        QueryResultFile? resultFile = null;
 
-        // Only create attachments if subscription has attachments enabled
-        if (subscription.IncludeAttachment)
+        // Only create attachment if subscription has attachments enabled and a file type is specified
+        if (subscription.IncludeAttachment && subscription.ResultAttachmentType.HasValue)
         {
-            var fileTypes = queryResult.Recipients
-                .Where(x => x.ResultAttachmentType.HasValue)
-                .Select(x => x.ResultAttachmentType!.Value)
-                .Distinct();
-
-            foreach (var fileType in fileTypes)
-            {
-                resultFiles.Add(fileType, await ExportProvider.GetReport(fileType, queryResult.AllRecords));
-            }
+            resultFile = await ExportProvider.GetReport(subscription.ResultAttachmentType.Value, queryResult.AllRecords);
         }
-        
+
         // TODO: refactor this to use sending Notifications table
 
-        foreach (var recipient in queryResult.Recipients)
+        for (int i = 0; i < queryResult.Recipients.Count; i++)
         {
+            var recipient = queryResult.Recipients[i];
             recipientsQueryResults.Add(new RecipientQueryResult
             {
                 RecipientDestination = recipient.Destination,
                 RecipientNotificationType = recipient.NotificationType,
                 QueryResult = queryResult,
-                QueryResultFile = subscription.IncludeAttachment && recipient.ResultAttachmentType.HasValue
-                    ? resultFiles.GetValueOrDefault(recipient.ResultAttachmentType.Value)
-                    : null
+                QueryResultFile = resultFile,
+                NotificationId = notifications[i].Id
             });
         }
 

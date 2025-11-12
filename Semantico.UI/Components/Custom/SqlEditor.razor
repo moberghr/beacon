@@ -11,27 +11,17 @@
     .sql-editor-container > div {
         height: 100% !important;
     }
-
-    .drop-zone-active {
-        border: 2px dashed #2196F3 !important;
-        background-color: rgba(33, 150, 243, 0.05);
-    }
 </style>
 
-<div style="height: @Height; border: 1px solid #ddd;"
-     class="@(_isDragOver ? "drop-zone-active" : "")"
-     id="@($"drop-zone-{EditorId}")"
-     @ondrop="OnDrop"
-     @ondragover="OnDragOver"
-     @ondragover:preventDefault="true"
-     @ondragenter="OnDragEnter"
-     @ondragleave="OnDragLeave">
+<div style="height: @Height; border: 1px solid #ddd;">
+
     <StandaloneCodeEditor @ref="_editor"
                          Id="@EditorId"
                          ConstructionOptions="EditorConstructionOptions"
                          OnDidInit="OnEditorInit"
                          OnDidChangeModelContent="OnEditorContentChanged"
                          CssClass="sql-editor-container" />
+
 </div>
 
 @inject IDatabaseMetadataService MetadataService
@@ -53,8 +43,11 @@
     private string _lastValue = "";
     private bool _layoutTriggered = false;
     private bool _completionProviderRegistered = false;
-    private string? _dragData;
-    private bool _isDragOver = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+
+    }
 
     protected override async Task OnParametersSetAsync()
     {
@@ -203,6 +196,9 @@
                 {
                     await RegisterCompletionProvider();
                 }
+
+                // Enable drop on editor for drag and drop from DatabaseExplorer
+                await EnableDropOnEditor();
             }
             catch (Exception ex)
             {
@@ -211,6 +207,30 @@
         }
 
         Console.WriteLine($"SqlEditor {EditorId}: OnEditorInit completed");
+    }
+
+    private async Task EnableDropOnEditor()
+    {
+        try
+        {
+            var success = await JSRuntime.InvokeAsync<bool>(
+                "semanticoSqlEditor.enableDropOnEditor",
+                EditorId
+            );
+
+            if (success)
+            {
+                Console.WriteLine($"SqlEditor {EditorId}: Drop enabled on Monaco editor");
+            }
+            else
+            {
+                Console.WriteLine($"SqlEditor {EditorId}: Failed to enable drop on Monaco editor");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"SqlEditor {EditorId}: Error enabling drop on editor: {ex.Message}");
+        }
     }
 
     private async Task OnEditorContentChanged(ModelContentChangedEvent e)
@@ -363,84 +383,4 @@
         }
     }
 
-    public void SetDragData(string dragData)
-    {
-        _dragData = dragData;
-    }
-
-    private void OnDragOver(Microsoft.AspNetCore.Components.Web.DragEventArgs e)
-    {
-        // Allow drop
-        e.DataTransfer.DropEffect = "copy";
-    }
-
-    private void OnDragEnter(Microsoft.AspNetCore.Components.Web.DragEventArgs e)
-    {
-        _isDragOver = true;
-    }
-
-    private void OnDragLeave(Microsoft.AspNetCore.Components.Web.DragEventArgs e)
-    {
-        _isDragOver = false;
-    }
-
-    private async Task OnDrop(Microsoft.AspNetCore.Components.Web.DragEventArgs e)
-    {
-        _isDragOver = false;
-
-        if (_editor == null || string.IsNullOrEmpty(_dragData)) return;
-
-        try
-        {
-            Console.WriteLine($"SqlEditor {EditorId}: Drop received with data: {_dragData}");
-
-            // Get current cursor position using JavaScript
-            var position = await JSRuntime.InvokeAsync<EditorPosition>("eval", $@"
-                (function() {{
-                    const editor = window.blazorMonaco.editors['{EditorId}'];
-                    if (editor) {{
-                        const pos = editor.getPosition();
-                        return {{ lineNumber: pos.lineNumber, column: pos.column }};
-                    }}
-                    return {{ lineNumber: 1, column: 1 }};
-                }})()
-            ");
-
-            // Get current value
-            var currentValue = await _editor.GetValue();
-            var lines = currentValue.Split('\n');
-
-            // Calculate character offset
-            var offset = 0;
-            for (int i = 0; i < position.LineNumber - 1; i++)
-            {
-                offset += lines[i].Length + 1; // +1 for newline
-            }
-            offset += position.Column - 1;
-
-            // Insert drag data at cursor position
-            var newValue = currentValue.Insert(offset, _dragData);
-            await _editor.SetValue(newValue);
-
-            // Update the bound value
-            _lastValue = newValue;
-            await ValueChanged.InvokeAsync(newValue);
-
-            Console.WriteLine($"SqlEditor {EditorId}: Inserted text at position {position.LineNumber}:{position.Column}");
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"SqlEditor {EditorId}: Drop error: {ex.Message}");
-        }
-        finally
-        {
-            _dragData = null;
-        }
-    }
-
-    private class EditorPosition
-    {
-        public int LineNumber { get; set; }
-        public int Column { get; set; }
-    }
 }

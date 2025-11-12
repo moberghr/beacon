@@ -188,7 +188,6 @@
                         <MudSelectItem Value="MigrationMode.Insert">Insert Only</MudSelectItem>
                         <MudSelectItem Value="MigrationMode.Upsert">Insert or Update</MudSelectItem>
                         <MudSelectItem Value="MigrationMode.Truncate">Truncate & Insert</MudSelectItem>
-                        <MudSelectItem Value="MigrationMode.SyncDelete">Sync with Delete</MudSelectItem>
                     </MudSelect>
                 </MudItem>
                 
