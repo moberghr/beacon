@@ -52,3 +52,30 @@ port: 4001
 
 # Search (disabled per clarification)
 search_enabled: false
+
+# Mermaid diagrams support
+mermaid:
+  version: "10.6.1"
+
+# Centralized URLs - define URLs once, reference throughout documentation
+urls:
+  # Repository
+  github_repo: "https://github.com/MiBu/semantico"
+  github_issues: "https://github.com/MiBu/semantico/issues"
+  github_discussions: "https://github.com/MiBu/semantico/discussions"
+
+  # Documentation
+  docs_base: "https://mibu.github.io/semantico"
+  docs_installation: "https://mibu.github.io/semantico/getting-started/installation"
+  docs_quick_start: "https://mibu.github.io/semantico/getting-started/quick-start"
+  docs_configuration: "https://mibu.github.io/semantico/getting-started/configuration"
+  docs_features: "https://mibu.github.io/semantico/features/"
+  docs_architecture: "https://mibu.github.io/semantico/advanced/architecture"
+  docs_contributing: "https://mibu.github.io/semantico/contributing/guidelines"
+  docs_troubleshooting: "https://mibu.github.io/semantico/troubleshooting/common-issues"
+
+  # NuGet packages
+  nuget: "https://www.nuget.org/"
+
+  # External
+  dotnet: "https://dotnet.microsoft.com/"
