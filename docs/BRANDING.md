@@ -1,3 +1,7 @@
+---
+nav_exclude: true
+---
+
 # Semantico Documentation Branding
 
 This document describes the visual design system for Semantico documentation.

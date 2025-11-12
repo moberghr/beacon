@@ -13,7 +13,7 @@ Powerful semantic alerts and notifications for your databases
 {: .fs-6 .fw-300 }
 
 [Get Started](getting-started/quick-start){: .btn .btn-primary .fs-5 .mb-4 .mb-md-0 .mr-2 }
-[View on GitHub](https://github.com/MiBu/semantico){: .btn .fs-5 .mb-4 .mb-md-0 }
+[View on GitHub]({{ site.urls.github_repo }}){: .btn .fs-5 .mb-4 .mb-md-0 }
 
 ---
 
@@ -28,6 +28,133 @@ Semantico is a .NET library that transforms database monitoring with semantic qu
 - **NuGet Integration**: Add to your ASP.NET Core application in minutes
 - **Blazor Admin UI**: Modern, responsive UI for managing queries and subscriptions
 - **Schema-Agnostic**: Multi-tenant support with runtime schema configuration
+
+---
+
+## 🏗️ System Architecture
+
+Semantico follows Clean Architecture principles with clear separation of concerns:
+
+```mermaid
+graph TB
+    subgraph UI["Presentation Layer"]
+        BlazorUI[Blazor UI Components<br/>MudBlazor]
+    end
+
+    subgraph Core["Application Services Layer"]
+        QuerySvc[Query Service] ~~~ SubSvc[Subscription Service] ~~~ MigSvc[Migration Service]
+        NotifSvc[Notification Service] ~~~ DataSrcSvc[DataSource Service] ~~~ MetaSvc[Metadata Service]
+    end
+
+    subgraph Adapters["Notification Adapters"]
+        EmailAdapter[Email Adapter] ~~~ TeamsAdapter[Teams Adapter] ~~~ JiraAdapter[Jira Adapter]
+    end
+
+    subgraph Data["Data Access Layer"]
+        EFCore[Entity Framework Core<br/>SemanticoContext] ~~~ Dapper[Dapper<br/>Metadata Queries]
+    end
+
+    subgraph Infrastructure["Infrastructure Layer"]
+        PgSQL[(PostgreSQL)] ~~~ MSSQL[(SQL Server)] ~~~ MySQL[(MySQL)]
+        Hangfire[Hangfire<br/>Job Scheduler] ~~~ SQLiteVM[SQLite Virtual Tables<br/>Cross-DB Joins]
+    end
+
+    BlazorUI --> Core
+    Core --> Adapters
+    Core --> Data
+    Data --> Infrastructure
+    Core --> Infrastructure
+    Adapters --> Infrastructure
+
+    style UI fill:#e3f2fd
+    style Core fill:#f3e5f5
+    style Adapters fill:#fff3e0
+    style Data fill:#e8f5e9
+    style Infrastructure fill:#fce4ec
+```
+
+### Query Execution Flow
+
+Multi-step queries with cross-database capabilities:
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Scheduler
+    participant QueryOrchestrator
+    participant VirtualTableManager
+    participant PostgreSQL
+    participant SQLServer
+    participant MySQL
+    participant NotificationService
+    participant Adapter
+
+    User->>Scheduler: Create Subscription (Cron)
+    Scheduler->>QueryOrchestrator: Execute Query (Scheduled)
+
+    QueryOrchestrator->>PostgreSQL: Execute Step 1
+    PostgreSQL-->>QueryOrchestrator: Result Set 1
+    QueryOrchestrator->>VirtualTableManager: Store @@result1
+
+    QueryOrchestrator->>SQLServer: Execute Step 2 (with @@result1)
+    SQLServer-->>QueryOrchestrator: Result Set 2
+    QueryOrchestrator->>VirtualTableManager: Store @@result2
+
+    QueryOrchestrator->>VirtualTableManager: Execute Final Query<br/>(JOIN @@result1 and @@result2)
+    VirtualTableManager->>VirtualTableManager: Create SQLite Virtual Tables
+    VirtualTableManager-->>QueryOrchestrator: Combined Results
+
+    QueryOrchestrator->>NotificationService: Send Results
+    NotificationService->>Adapter: Dispatch (Email/Teams/Jira)
+    Adapter-->>User: Notification Delivered
+```
+
+### Data Migration Flow
+
+ETL orchestration with multiple migration modes:
+
+```mermaid
+flowchart LR
+    subgraph Source["Source Extraction"]
+        Q1[Query Step 1<br/>PostgreSQL]
+        Q2[Query Step 2<br/>SQL Server]
+        Q3[Query Step 3<br/>MySQL]
+    end
+
+    subgraph Transform["Transformation"]
+        VT[Virtual Tables<br/>Cross-DB Join]
+        Enrich[Data Enrichment<br/>Business Logic]
+    end
+
+    subgraph Load["Load Operations"]
+        Insert[Insert Only<br/>New Records]
+        Upsert[Upsert<br/>Insert + Update]
+        Truncate[Truncate Load<br/>Full Refresh]
+        Sync[Sync Delete<br/>Perfect Mirror]
+    end
+
+    subgraph Destination["Destination"]
+        Target[(Target Database<br/>Any Engine)]
+    end
+
+    Q1 --> VT
+    Q2 --> VT
+    Q3 --> VT
+    VT --> Enrich
+    Enrich --> Insert
+    Enrich --> Upsert
+    Enrich --> Truncate
+    Enrich --> Sync
+    Insert --> Target
+    Upsert --> Target
+    Truncate --> Target
+    Sync --> Target
+
+    style Source fill:#e3f2fd
+    style Transform fill:#f3e5f5
+    style Load fill:#fff3e0
+    style Destination fill:#e8f5e9
+```
 
 ---
 
@@ -226,10 +353,10 @@ Get help and contribute to the project.
 
 ## Community and Support
 
-- **GitHub Repository**: [MiBu/semantico](https://github.com/MiBu/semantico)
-- **Report Issues**: [GitHub Issues](https://github.com/MiBu/semantico/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/MiBu/semantico/discussions)
-- **Contribute**: [Contribution Guidelines](contributing/guidelines)
+- **GitHub Repository**: [MiBu/semantico]({{ site.urls.github_repo }})
+- **Report Issues**: [GitHub Issues]({{ site.urls.github_issues }})
+- **Discussions**: [GitHub Discussions]({{ site.urls.github_discussions }})
+- **Contribute**: [Contribution Guidelines]({{ site.urls.docs_contributing }})
 
 ---
 
