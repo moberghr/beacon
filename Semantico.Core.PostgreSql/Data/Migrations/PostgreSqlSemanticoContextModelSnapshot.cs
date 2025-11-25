@@ -8,7 +8,7 @@ using Semantico.Core.PostgreSql.Data;
 
 #nullable disable
 
-namespace Semantico.Core.PostgreSql.Migrations
+namespace Semantico.Core.PostgreSql.Data.Migrations
 {
     [DbContext(typeof(PostgreSqlSemanticoContext))]
     partial class PostgreSqlSemanticoContextModelSnapshot : ModelSnapshot
