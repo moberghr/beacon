@@ -60,6 +60,7 @@ public static class ServiceConfiguration
         services.TryAddTransient<IQueryExecutionPreviewService, QueryExecutionPreviewService>();
         services.TryAddTransient<ISubscriptionService, SubscriptionService>();
         services.TryAddTransient<IRecipientService, RecipientService>();
+        services.TryAddTransient<ITaskService, TaskService>();
         services.TryAddTransient<IStatisticsService, StatisticsService>();
         services.TryAddTransient<IMigrationService, MigrationService>();
         services.TryAddTransient<IDatabaseMetadataService, DatabaseMetadataService>();

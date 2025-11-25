@@ -1,0 +1,108 @@
+@page "/tasks"
+@inherits BasePageComponent
+@using Semantico.Core.DTOs
+@using Semantico.Core.Services
+@using Semantico.Core.Models.Tasks
+@using SortDirection = MudBlazor.SortDirection
+
+<SemanticoPageTitle Title="Tasks"/>
+
+<MudContainer Class="my-4 px-4">
+    <SemanticoPageHeader Icon="@Icons.Material.Filled.Task" Title="Tasks" />
+    <SemanticoPageAlert Text="List of tasks generated from subscriptions with 'Create Tasks' enabled. One task is created per subscription and updated with each execution. Tasks auto-resolve when query returns 0 results."/>
+
+    <MudStack Row="true" Class="mb-4">
+        <MudSelect T="string" Label="Filter by Status" @bind-Value="_statusFilter" Variant="Variant.Outlined" AnchorOrigin="Origin.BottomCenter">
+            <MudSelectItem T="string" Value="@("all")">All</MudSelectItem>
+            <MudSelectItem T="string" Value="@("unresolved")">Unresolved</MudSelectItem>
+            <MudSelectItem T="string" Value="@("resolved")">Resolved</MudSelectItem>
+        </MudSelect>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@LoadTasks">Refresh</MudButton>
+    </MudStack>
+
+    <MudDataGrid @ref="_dataGrid" ServerData="ServerReload" T="TaskData" Hover="false" Filterable="false" >
+        <Columns>
+            <PropertyColumn Property="x => x.Id" Title="Id"/>
+            <PropertyColumn InitialDirection="SortDirection.Descending" Property="x => x.CreatedAt" Title="Created" />
+            <PropertyColumn Property="x => x.SubscriptionName" Title="Subscription"/>
+            <PropertyColumn Property="x => x.LatestResultCount" Title="Latest Results" />
+            <PropertyColumn Property="x => x.ExecutionCount" Title="Executions" />
+            <PropertyColumn Property="x => x.UniqueResultCounts" Title="Unique Results" />
+            <TemplateColumn Title="Status">
+                <CellTemplate>
+                    @if (context.Item.Resolved)
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Success">Resolved</MudChip>
+                    }
+                    else
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Warning">Unresolved</MudChip>
+                    }
+                </CellTemplate>
+            </TemplateColumn>
+            <TemplateColumn Title="Resolved At">
+                <CellTemplate>
+                    @if (context.Item.ResolvedAt.HasValue)
+                    {
+                        @context.Item.ResolvedAt.Value.ToString("g")
+                    }
+                    else
+                    {
+                        <span>-</span>
+                    }
+                </CellTemplate>
+            </TemplateColumn>
+        </Columns>
+        <PagerContent>
+            <MudDataGridPager T="TaskData"/>
+        </PagerContent>
+    </MudDataGrid>
+</MudContainer>
+
+@inject ITaskService TaskService
+
+@code {
+    private List<TaskData> TaskList { get; set; } = new();
+    private int? _totalCount;
+    MudDataGrid<TaskData>? _dataGrid;
+    private string _statusFilter = "unresolved";
+
+    private async Task<GridData<TaskData>> ServerReload(GridState<TaskData> state)
+    {
+        bool? resolvedFilter = _statusFilter switch
+        {
+            "resolved" => true,
+            "unresolved" => false,
+            _ => null
+        };
+
+        var request = new GetTasksRequest
+        {
+            SubscriptionId = null,
+            Resolved = resolvedFilter,
+            Page = state.Page,
+            PageSize = state.PageSize,
+            SortCriteria = state.SortDefinitions
+                .Select(s => new SortCriterion(
+                    s.SortBy,
+                    s.Descending ? Semantico.Core.Helpers.SortDirection.Descending : Semantico.Core.Helpers.SortDirection.Ascending
+                ))
+                .ToList()
+        };
+
+        var result = await TaskService.GetTasks(request, CancellationToken.None);
+        TaskList = result.Data;
+        _totalCount = result.TotalCount;
+
+        return new GridData<TaskData>
+        {
+            TotalItems = _totalCount ?? 0,
+            Items = TaskList
+        };
+    }
+
+    private async Task LoadTasks()
+    {
+        await _dataGrid?.ReloadServerData()!;
+    }
+}

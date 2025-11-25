@@ -37,6 +37,8 @@ public abstract partial class SemanticoContext : DbContext
 
     public DbSet<Notification> Notifications => Set<Notification>();
 
+    public DbSet<AlertingTask> Tasks => Set<AlertingTask>();
+
     public DbSet<MigrationJob> MigrationJobs => Set<MigrationJob>();
 
     public DbSet<MigrationExecutionHistory> MigrationExecutions => Set<MigrationExecutionHistory>();
@@ -53,6 +55,7 @@ public abstract partial class SemanticoContext : DbContext
         SetSoftDeleteQueryFilter(modelBuilder);
         ConfigureMigrationEntities(modelBuilder);
         ConfigureMetadataEntities(modelBuilder);
+        ConfigureTaskEntity(modelBuilder);
         base.OnModelCreating(modelBuilder);
     }
 
@@ -203,6 +206,44 @@ public abstract partial class SemanticoContext : DbContext
 
             // Indexes for performance
             entity.HasIndex(e => e.DatabaseMetadataId);
+        });
+    }
+
+    protected static void ConfigureTaskEntity(ModelBuilder modelBuilder)
+    {
+        // AlertingTask entity configuration
+        modelBuilder.Entity<AlertingTask>(entity =>
+        {
+            entity.ToTable("Tasks");
+
+            // Unique index for subscription (one task per subscription)
+            entity.HasIndex(t => t.SubscriptionId)
+                  .IsUnique()
+                  .HasDatabaseName("IX_Task_SubscriptionId_Unique");
+
+            // Composite index for filtering by resolution status
+            entity.HasIndex(t => new { t.Resolved, t.CreatedTime })
+                  .HasDatabaseName("IX_Task_Resolved_CreatedTime");
+
+            // Global ordering index
+            entity.HasIndex(t => t.CreatedTime)
+                  .HasDatabaseName("IX_Task_CreatedTime");
+
+            // Field constraints
+            entity.Property(t => t.ResolutionNotes)
+                  .HasMaxLength(2000)
+                  .IsUnicode(true);
+
+            // One-to-many: Task has many Notifications
+            entity.HasMany(t => t.Notifications)
+                  .WithOne(n => n.Task)
+                  .HasForeignKey(n => n.TaskId)
+                  .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(t => t.Subscription)
+                  .WithMany()
+                  .HasForeignKey(t => t.SubscriptionId)
+                  .OnDelete(DeleteBehavior.Restrict);
         });
     }
 }

@@ -4,6 +4,7 @@ using Semantico.Core.Data;
 using Semantico.Core.Data.Entities;
 using Semantico.Core.Data.Enums;
 using Semantico.Core.Helpers;
+using Semantico.Core.Models;
 using Semantico.Core.Models.Queries;
 using Semantico.Core.Models.Recipients;
 using Semantico.Core.Models.Subscriptions;
@@ -52,6 +53,12 @@ internal class SubscriptionService(IDbContextFactory<SemanticoContext> contextFa
 
         SubscriptionValidator.ValidateParameters(subscriptionData.Parameters, queryParams);
 
+        // Validate recipients: required unless CreateTasks is enabled
+        if (!subscriptionData.CreateTasks && (subscriptionData.Recipients == null || !subscriptionData.Recipients.Any()))
+        {
+            throw new SemanticoException("At least one recipient is required when 'Create Tasks' is not enabled");
+        }
+
         var recipients = await context.Recipients
             .Where(x => subscriptionData.Recipients.Select(y => y.RecipientId).Contains(x.Id))
             .ToListAsync(cancellationToken);
@@ -66,6 +73,7 @@ internal class SubscriptionService(IDbContextFactory<SemanticoContext> contextFa
             ShowQuery = subscriptionData.ShowQuery,
             TimeoutSeconds = subscriptionData.TimeoutSeconds,
             StoreResults = subscriptionData.StoreResults,
+            CreateTasks = subscriptionData.CreateTasks,
             Recipients = recipients,
             Parameters = subscriptionData.Parameters.Select(x =>
                 new SubscriptionParameter
@@ -137,6 +145,7 @@ internal class SubscriptionService(IDbContextFactory<SemanticoContext> contextFa
                     ShowQuery = x.ShowQuery,
                     TimeoutSeconds = x.TimeoutSeconds,
                     StoreResults = x.StoreResults,
+                    CreateTasks = x.CreateTasks,
                     Parameters = x.Parameters.Select(y => new SubscriptionParamaterData
                     {
                         QueryPlaceholder = y.QueryPlaceholder,
@@ -169,12 +178,18 @@ internal class SubscriptionService(IDbContextFactory<SemanticoContext> contextFa
                 })
             .ToListAsync(cancellationToken);
 
+        SubscriptionValidator.ValidateParameters(subscriptionData.Parameters, queryParams);
+
+        // Validate recipients: required unless CreateTasks is enabled
+        if (!subscriptionData.CreateTasks && (subscriptionData.Recipients == null || !subscriptionData.Recipients.Any()))
+        {
+            throw new SemanticoException("At least one recipient is required when 'Create Tasks' is not enabled");
+        }
+
         var recipients = await context.Recipients
             .Where(x => subscriptionData.Recipients.Select(y => y.RecipientId).Contains(x.Id))
             .ToListAsync(cancellationToken);
 
-        SubscriptionValidator.ValidateParameters(subscriptionData.Parameters, queryParams);
-       
         var shouldUpdateHangfire = subscription.CronExpression != subscriptionData.CronExpression;
 
         subscription.CronExpression = subscriptionData.CronExpression;
@@ -184,6 +199,7 @@ internal class SubscriptionService(IDbContextFactory<SemanticoContext> contextFa
         subscription.ShowQuery = subscriptionData.ShowQuery;
         subscription.TimeoutSeconds = subscriptionData.TimeoutSeconds;
         subscription.StoreResults = subscriptionData.StoreResults;
+        subscription.CreateTasks = subscriptionData.CreateTasks;
         subscription.Recipients = recipients;
 
         foreach (var subscriptionParameter in subscription.Parameters)
@@ -240,6 +256,7 @@ internal class SubscriptionService(IDbContextFactory<SemanticoContext> contextFa
                 ShowQuery = x.ShowQuery,
                 TimeoutSeconds = x.TimeoutSeconds,
                 StoreResults = x.StoreResults,
+                CreateTasks = x.CreateTasks,
                 Status = x.ArchivedTime.HasValue ? "Archived" : "Active",
                 Parameters = x.Parameters.Select(y => new SubscriptionParamaterData()
                 {

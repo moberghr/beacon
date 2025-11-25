@@ -27,19 +27,20 @@
         </MudStack>
     </MudAppBar>
     <MudDrawer Open="true" ClipMode="DrawerClipMode.Always" Elevation="2" Width="250px">
-        <MudNavMenu Class="pa-2">
+        <MudNavMenu Class="pa-2" Bordered="true">
             <div class="d-flex flex-column align-center pa-4">
                 <MudText Typo="Typo.h5" Class="fw-bold">Moberg</MudText>
                 <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Text" Class="mt-1">v0.8</MudChip>
             </div>
             <MudDivider Class="my-2"/>
-            <MudNavLink Href="@GetBaseHref()" Icon="@Icons.Material.Filled.Home" IconColor="Color.Primary">Home</MudNavLink>
+            <MudNavLink Href="@($"{GetBaseHref()}dashboard")" Icon="@Icons.Material.Filled.Home" IconColor="Color.Primary">Home</MudNavLink>
             <MudNavLink Href="@($"{GetBaseHref()}data-sources")" Icon="@Icons.Material.Filled.Folder" IconColor="Color.Secondary">Data Sources</MudNavLink>
-            <MudNavGroup Title="Alerts" Icon="@Icons.Material.Filled.NotificationsActive" IconColor="Color.Info" Expanded="false">
+            <MudNavGroup Title="Alerts" Icon="@Icons.Material.Filled.NotificationsActive" IconColor="Color.Info" Expanded="true" HideExpandIcon="true">
                 <MudNavLink Href="@($"{GetBaseHref()}recipients")" Icon="@Icons.Material.Filled.People" IconColor="Color.Tertiary">Recipients</MudNavLink>
                 <MudNavLink Href="@($"{GetBaseHref()}queries")" Icon="@Icons.Material.Filled.Search" IconColor="Color.Info">Queries</MudNavLink>
                 <MudNavLink Href="@($"{GetBaseHref()}subscriptions")" Icon="@Icons.Material.Filled.Subscriptions" IconColor="Color.Success">Subscriptions</MudNavLink>
                 <MudNavLink Href="@($"{GetBaseHref()}notifications")" Icon="@Icons.Material.Filled.Notifications" IconColor="Color.Warning">Notifications</MudNavLink>
+                <MudNavLink Href="@($"{GetBaseHref()}tasks")" Icon="@Icons.Material.Filled.Task" IconColor="Color.Primary">Tasks</MudNavLink>
             </MudNavGroup>
             <MudNavLink Href="@($"{GetBaseHref()}data-migration")" Icon="@Icons.Material.Filled.SwapHoriz" IconColor="Color.Error">Data Migration</MudNavLink>
             <MudDivider Class="my-2"/>

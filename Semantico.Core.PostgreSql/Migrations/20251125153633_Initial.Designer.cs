@@ -2,18 +2,21 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Semantico.Core.PostgreSql.Data;
 
 #nullable disable
 
-namespace Semantico.Core.PostgreSql.Data.Migrations
+namespace Semantico.Core.PostgreSql.Migrations
 {
     [DbContext(typeof(PostgreSqlSemanticoContext))]
-    partial class PostgreSqlSemanticoContextModelSnapshot : ModelSnapshot
+    [Migration("20251125153633_Initial")]
+    partial class Initial
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -40,6 +43,69 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                         .HasDatabaseName("ix_recipient_subscription_subscriptions_id");
 
                     b.ToTable("recipient_subscription", "semantico");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.AlertingTask", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime?>("ArchivedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("archived_time");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_time");
+
+                    b.Property<DateTime?>("LastNotificationAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_notification_at");
+
+                    b.Property<int>("LatestResultCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("latest_result_count");
+
+                    b.Property<string>("ResolutionNotes")
+                        .HasMaxLength(2000)
+                        .IsUnicode(true)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("resolution_notes");
+
+                    b.Property<bool>("Resolved")
+                        .HasColumnType("boolean")
+                        .HasColumnName("resolved");
+
+                    b.Property<DateTime?>("ResolvedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("resolved_at");
+
+                    b.Property<string>("ResolvedByUserId")
+                        .HasColumnType("text")
+                        .HasColumnName("resolved_by_user_id");
+
+                    b.Property<int>("SubscriptionId")
+                        .HasColumnType("integer")
+                        .HasColumnName("subscription_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_tasks");
+
+                    b.HasIndex("CreatedTime")
+                        .HasDatabaseName("IX_Task_CreatedTime");
+
+                    b.HasIndex("SubscriptionId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_Task_SubscriptionId_Unique");
+
+                    b.HasIndex("Resolved", "CreatedTime")
+                        .HasDatabaseName("IX_Task_Resolved_CreatedTime");
+
+                    b.ToTable("Tasks", "semantico");
                 });
 
             modelBuilder.Entity("Semantico.Core.Data.Entities.DataMigration.MigrationExecutionHistory", b =>
@@ -489,6 +555,10 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("sent_at");
 
+                    b.Property<int?>("TaskId")
+                        .HasColumnType("integer")
+                        .HasColumnName("task_id");
+
                     b.Property<int>("Type")
                         .HasColumnType("integer")
                         .HasColumnName("type");
@@ -501,6 +571,9 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
 
                     b.HasIndex("RecipientId")
                         .HasDatabaseName("ix_notifications_recipient_id");
+
+                    b.HasIndex("TaskId")
+                        .HasDatabaseName("ix_notifications_task_id");
 
                     b.ToTable("notifications", "semantico");
                 });
@@ -570,6 +643,10 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                     b.Property<int>("ResultCount")
                         .HasColumnType("integer")
                         .HasColumnName("result_count");
+
+                    b.Property<string>("Results")
+                        .HasColumnType("text")
+                        .HasColumnName("results");
 
                     b.Property<int>("SubscriptionId")
                         .HasColumnType("integer")
@@ -780,6 +857,10 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("archived_time");
 
+                    b.Property<bool>("CreateTasks")
+                        .HasColumnType("boolean")
+                        .HasColumnName("create_tasks");
+
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_time");
@@ -883,6 +964,18 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                         .HasConstraintName("fk_recipient_subscription_subscriptions_subscriptions_id");
                 });
 
+            modelBuilder.Entity("Semantico.Core.Data.Entities.AlertingTask", b =>
+                {
+                    b.HasOne("Semantico.Core.Data.Entities.Subscription", "Subscription")
+                        .WithMany()
+                        .HasForeignKey("SubscriptionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_tasks_subscriptions_subscription_id");
+
+                    b.Navigation("Subscription");
+                });
+
             modelBuilder.Entity("Semantico.Core.Data.Entities.DataMigration.MigrationExecutionHistory", b =>
                 {
                     b.HasOne("Semantico.Core.Data.Entities.DataMigration.MigrationJob", "MigrationJob")
@@ -976,9 +1069,17 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                         .IsRequired()
                         .HasConstraintName("fk_notifications_recipients_recipient_id");
 
+                    b.HasOne("Semantico.Core.Data.Entities.AlertingTask", "Task")
+                        .WithMany("Notifications")
+                        .HasForeignKey("TaskId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_notifications_tasks_task_id");
+
                     b.Navigation("QueryExecutionHistory");
 
                     b.Navigation("Recipient");
+
+                    b.Navigation("Task");
                 });
 
             modelBuilder.Entity("Semantico.Core.Data.Entities.QueryExecutionHistory", b =>
@@ -1060,6 +1161,11 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                         .HasConstraintName("fk_subscription_parameters_subscriptions_subscription_id");
 
                     b.Navigation("Subscription");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.AlertingTask", b =>
+                {
+                    b.Navigation("Notifications");
                 });
 
             modelBuilder.Entity("Semantico.Core.Data.Entities.DataMigration.MigrationJob", b =>

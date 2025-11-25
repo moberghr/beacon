@@ -40,6 +40,8 @@
                                 <strong>Include Attachment:</strong> @(Model?.IncludeAttachment == true ? "Yes" : "No") <br />
                                 <strong>Attachment Type:</strong> @(Model?.ResultAttachmentType?.ToString() ?? "None") <br />
                                 <strong>Show Query in Notification:</strong> @(Model?.ShowQuery == true ? "Yes" : "No") <br />
+                                <strong>Store Results:</strong> @(Model?.StoreResults == true ? "Yes" : "No") <br />
+                                <strong>Create Tasks:</strong> @(Model?.CreateTasks == true ? "Yes" : "No") <br />
                                 <strong>Query timeout:</strong> @Model?.TimeoutSeconds
                             </MudText>
                             <MudText>

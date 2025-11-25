@@ -8,7 +8,7 @@ using Semantico.Core.Services;
 
 namespace Semantico.Core.Worker.Services;
 
-internal class JobService(IDbContextFactory<SemanticoContext> contextFactory, IQueryService queryService, INotificationService notificationService)
+internal class JobService(IDbContextFactory<SemanticoContext> contextFactory, IQueryService queryService, INotificationService notificationService, ITaskService taskService)
     : IJobService
 {
     public async Task ExecuteQuery(int subscriptionId)
@@ -79,15 +79,33 @@ internal class JobService(IDbContextFactory<SemanticoContext> contextFactory, IQ
             ResultCount = queryResult.TotalRecords,
             CompiledSql = queryResult.SqlQuery,
             NotificationStatus = status,
-            ExecutionTimeMs = queryResult.ExecutionTimeMs
+            ExecutionTimeMs = queryResult.ExecutionTimeMs,
+            Results = subscription.StoreResults ? queryResult.QueryResults : null
         };
 
         await context.QueryExecutionHistory.AddAsync(executedQuery);
 
+        // Handle tasks for subscriptions with CreateTasks enabled (even if no notifications to send)
+        // This runs regardless of NotificationStatus to handle auto-resolve on 0 results
+        if (subscription.CreateTasks)
+        {
+            await context.SaveChangesAsync(); // Save QueryExecutionHistory first
+
+            Console.WriteLine($"JobService: Creating/updating task for subscription {subscriptionId}, result count {queryResult.TotalRecords}");
+            await taskService.CreateOrUpdateTask(
+                subscriptionId,
+                queryResult.TotalRecords,
+                CancellationToken.None
+            );
+        }
+
         // Only send notification if the status is NotificationSent
         if (executedQuery.NotificationStatus != NotificationStatus.NotificationSent)
         {
-            await context.SaveChangesAsync();
+            if (!subscription.CreateTasks) // Only save if we didn't already save above
+            {
+                await context.SaveChangesAsync();
+            }
             return;
         }
 

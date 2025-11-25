@@ -257,87 +257,29 @@
         try
         {
             _completionProviderRegistered = true;
-            // Build completion items from metadata
-            var completionItems = new List<object>();
 
-            // Add SQL keywords
-            var sqlKeywords = new[] {
-                "SELECT", "FROM", "WHERE", "JOIN", "INNER", "LEFT", "RIGHT", "OUTER", "ON",
-                "GROUP", "BY", "HAVING", "ORDER", "ASC", "DESC", "LIMIT", "OFFSET",
-                "INSERT", "INTO", "VALUES", "UPDATE", "SET", "DELETE", "CREATE", "TABLE",
-                "ALTER", "DROP", "INDEX", "PRIMARY", "KEY", "FOREIGN", "REFERENCES",
-                "AND", "OR", "NOT", "NULL", "IS", "IN", "LIKE", "BETWEEN", "EXISTS",
-                "CASE", "WHEN", "THEN", "ELSE", "END", "AS", "DISTINCT", "COUNT",
-                "SUM", "AVG", "MAX", "MIN", "CAST", "COALESCE"
-            };
+            // Use the JS helper to register context-aware completion
+            var success = await JSRuntime.InvokeAsync<bool>(
+                "semanticoSqlEditor.registerSqlCompletionProvider",
+                EditorId,
+                "sql",
+                _metadata
+            );
 
-            foreach (var keyword in sqlKeywords)
+            if (success)
             {
-                completionItems.Add(new
+                // Register Ctrl+Space for trigger suggest
+                await _editor.AddCommand((int)KeyMod.CtrlCmd | (int)KeyCode.Space, async (args) =>
                 {
-                    label = keyword,
-                    kind = 14, // Keyword
-                    insertText = keyword,
-                    detail = "SQL Keyword"
-                });
-            }
-
-            // Add table names
-            foreach (var table in _metadata.Tables)
-            {
-                completionItems.Add(new
-                {
-                    label = table.TableName,
-                    kind = 7, // Class/Table
-                    insertText = table.TableName,
-                    detail = $"Table in {table.SchemaName}",
-                    documentation = table.Description ?? $"Table: {table.SchemaName}.{table.TableName}"
+                    await _editor.Trigger("editor", "editor.action.triggerSuggest", null);
                 });
 
-                // Add columns with table prefix
-                foreach (var column in table.Columns)
-                {
-                    completionItems.Add(new
-                    {
-                        label = $"{table.TableName}.{column.ColumnName}",
-                        kind = 5, // Field/Column
-                        insertText = column.ColumnName,
-                        detail = $"{column.DataType}{(column.IsNullable ? "?" : "")}",
-                        documentation = $"{column.ColumnName} ({column.DataType}) - {(column.IsPrimaryKey ? "Primary Key, " : "")}{(column.IsForeignKey ? $"Foreign Key to {column.ForeignKeyTable}.{column.ForeignKeyColumn}, " : "")}Table: {table.TableName}"
-                    });
-                }
+                Console.WriteLine($"SqlEditor {EditorId}: Registered completion provider via helper");
             }
-
-            // Register completion provider via JavaScript
-            await JSRuntime.InvokeVoidAsync("eval", $@"
-                (function() {{
-                    const completionItems = {System.Text.Json.JsonSerializer.Serialize(completionItems)};
-
-                    monaco.languages.registerCompletionItemProvider('sql', {{
-                        provideCompletionItems: function(model, position) {{
-                            return {{
-                                suggestions: completionItems.map(item => ({{
-                                    label: item.label,
-                                    kind: item.kind,
-                                    insertText: item.insertText,
-                                    detail: item.detail,
-                                    documentation: item.documentation
-                                }}))
-                            }};
-                        }}
-                    }});
-
-                    console.log('SQL completion provider registered with ' + completionItems.length + ' items');
-                }})();
-            ");
-
-            // Register Ctrl+Space for trigger suggest
-            await _editor.AddCommand((int)KeyMod.CtrlCmd | (int)KeyCode.Space, async (args) =>
+            else
             {
-                await _editor.Trigger("editor", "editor.action.triggerSuggest", null);
-            });
-
-            Console.WriteLine($"SqlEditor {EditorId}: Registered {completionItems.Count} completion items");
+                Console.WriteLine($"SqlEditor {EditorId}: Failed to register completion provider via helper");
+            }
         }
         catch (Exception ex)
         {
