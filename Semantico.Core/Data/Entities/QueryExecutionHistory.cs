@@ -13,8 +13,13 @@ public class QueryExecutionHistory : BaseEntity, IExecutionHistory
     public required string CompiledSql { get; set; }
 
     public required NotificationStatus NotificationStatus { get; set; }
-    
+
     public required double ExecutionTimeMs { get; set; }
+
+    /// <summary>
+    /// JSON serialized query results (stored when subscription.StoreResults is enabled)
+    /// </summary>
+    public string? Results { get; set; }
 
     public List<Notification> Notifications { get; set; } = new();
 

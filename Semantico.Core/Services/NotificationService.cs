@@ -11,8 +11,9 @@ internal class NotificationService(IDbContextFactory<SemanticoContext> contextFa
 {
     public async Task SendNotification(RecipientQueryResult recipientQueryResult, int? lastExecutedQueryResultCount)
     {
+        // Handle external notifications via adapters
+        // Task creation is now handled directly in JobService.ExecuteQuery
         var adapter = adapterFactory.GetAdapterService(recipientQueryResult.RecipientNotificationType);
-        
         await adapter.SendNotificationAsync(recipientQueryResult, lastExecutedQueryResultCount);
     }
 
@@ -126,6 +127,103 @@ internal class NotificationService(IDbContextFactory<SemanticoContext> contextFa
             })
             .FirstOrDefaultAsync(cancellationToken);
     }
+
+    public async Task<QueryExecutionHistoryDetailsData?> GetQueryExecutionHistoryDetails(int queryExecutionHistoryId, CancellationToken cancellationToken)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        var result = await context.QueryExecutionHistory
+            .Where(x => x.Id == queryExecutionHistoryId)
+            .Select(x => new
+            {
+                Id = x.Id,
+                CreatedTime = x.CreatedTime,
+                NotificationStatus = x.NotificationStatus,
+                ExecutionTimeMs = x.ExecutionTimeMs,
+                ResultCount = x.ResultCount,
+                CompiledSql = x.CompiledSql,
+                Results = x.Results,
+                QueryName = x.Subscription.Query.Name,
+                QueryId = x.Subscription.QueryId,
+                SubscriptionId = x.SubscriptionId,
+                CreateTasks = x.Subscription.CreateTasks,
+                StoreResults = x.Subscription.StoreResults,
+                NotificationList = x.Notifications.Select(n => new
+                {
+                    n.Id,
+                    RecipientName = n.Recipient.Name,
+                    n.Type,
+                    n.SentAt,
+                    n.Results,
+                    n.TaskId
+                }).ToList(),
+                TaskIds = x.Notifications.Where(n => n.TaskId != null).Select(n => n.TaskId!.Value).Distinct().ToList()
+            })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (result == null)
+            return null;
+
+        var tasks = new List<TaskSummaryData>();
+
+        // If subscription has CreateTasks enabled, look up task by subscriptionId
+        if (result.CreateTasks)
+        {
+            tasks = await context.Tasks
+                .Where(t => t.SubscriptionId == result.SubscriptionId)
+                .OrderByDescending(t => t.CreatedTime)
+                .Take(1) // Get the most recent task for this subscription
+                .Select(t => new TaskSummaryData
+                {
+                    Id = t.Id,
+                    LatestResultCount = t.LatestResultCount,
+                    CreatedAt = t.CreatedTime,
+                    Resolved = t.Resolved,
+                    ResolvedAt = t.ResolvedAt
+                })
+                .ToListAsync(cancellationToken);
+        }
+        else if (result.TaskIds.Any())
+        {
+            // Fallback: look up by notification TaskId links (legacy)
+            tasks = await context.Tasks
+                .Where(t => result.TaskIds.Contains(t.Id))
+                .Select(t => new TaskSummaryData
+                {
+                    Id = t.Id,
+                    LatestResultCount = t.LatestResultCount,
+                    CreatedAt = t.CreatedTime,
+                    Resolved = t.Resolved,
+                    ResolvedAt = t.ResolvedAt
+                })
+                .ToListAsync(cancellationToken);
+        }
+
+        // Get results from QueryExecutionHistory first, fallback to notification results (legacy)
+        var resultsJson = result.Results ?? result.NotificationList.FirstOrDefault()?.Results;
+
+        return new QueryExecutionHistoryDetailsData
+        {
+            Id = result.Id,
+            CreatedTime = result.CreatedTime,
+            NotificationStatus = result.NotificationStatus,
+            ExecutionTimeMs = result.ExecutionTimeMs,
+            ResultCount = result.ResultCount,
+            CompiledSql = result.CompiledSql,
+            Results = resultsJson,
+            QueryName = result.QueryName,
+            QueryId = result.QueryId,
+            SubscriptionId = result.SubscriptionId,
+            Notifications = result.NotificationList.Select(n => new NotificationSummaryData
+            {
+                Id = n.Id,
+                RecipientName = n.RecipientName,
+                Type = n.Type,
+                SentAt = n.SentAt
+            }).ToList(),
+            Tasks = tasks
+        };
+    }
 }
 
 public interface INotificationService
@@ -137,6 +235,8 @@ public interface INotificationService
     Task<NotificationStatisticsData> GetNotificationStatistics(CancellationToken cancellationToken);
 
     Task<NotificationDetailsData?> GetNotificationDetails(int notificationId, CancellationToken cancellationToken);
+
+    Task<QueryExecutionHistoryDetailsData?> GetQueryExecutionHistoryDetails(int queryExecutionHistoryId, CancellationToken cancellationToken);
 }
 
 public class GetQueryExecutionHistoryRequest : SortedListRequest

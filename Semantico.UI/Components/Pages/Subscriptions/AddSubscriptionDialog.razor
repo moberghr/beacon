@@ -52,8 +52,21 @@
                 Color="Color.Primary"
                 HelperText="Store query results in the notification record for later viewing"
                 Class="mb-2" />
-                
-            <MudSelect T="string" Label="Recipient" MultiSelection="true" @bind-SelectedValues="_selectedRecipientIds" Required="true" Variant="Variant.Outlined" Margin="Margin.Dense">
+
+            <MudCheckBox @bind-Value="Subscription.CreateTasks"
+                Label="Create Tasks"
+                Color="Color.Primary"
+                HelperText="Automatically create and update a task for this subscription on each execution"
+                Class="mb-2" />
+
+            <MudSelect T="string"
+                Label="Recipient"
+                MultiSelection="true"
+                @bind-SelectedValues="_selectedRecipientIds"
+                Required="@(!Subscription.CreateTasks)"
+                Variant="Variant.Outlined"
+                Margin="Margin.Dense"
+                HelperText="@(Subscription.CreateTasks ? "Optional when 'Create Tasks' is enabled" : "Required - select at least one recipient")">
                 @{
                     foreach (var recipient in _recipients)
                     {
