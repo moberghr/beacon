@@ -4,7 +4,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
 #nullable disable
 
-namespace Semantico.Core.PostgreSql.Migrations
+namespace Semantico.Core.PostgreSql.Data.Migrations
 {
     /// <inheritdoc />
     public partial class Initial : Migration

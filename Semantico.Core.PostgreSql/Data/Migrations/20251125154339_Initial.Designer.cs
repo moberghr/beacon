@@ -9,10 +9,10 @@ using Semantico.Core.PostgreSql.Data;
 
 #nullable disable
 
-namespace Semantico.Core.PostgreSql.Migrations
+namespace Semantico.Core.PostgreSql.Data.Migrations
 {
     [DbContext(typeof(PostgreSqlSemanticoContext))]
-    [Migration("20251125153633_Initial")]
+    [Migration("20251125154339_Initial")]
     partial class Initial
     {
         /// <inheritdoc />
