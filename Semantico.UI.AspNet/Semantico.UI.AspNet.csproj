@@ -7,7 +7,7 @@
         <IsPackable>true</IsPackable>
 
         <!-- Package Information -->
-        <Version>2.0.3.1</Version>
+        <Version>2.0.4.1</Version>
         <Authors>https://github.com/MiBu</Authors>
         <Description>ASP.NET Core integration for Semantico UI. Provides middleware and service extensions for hosting the Semantico Blazor admin interface in ASP.NET Core applications.</Description>
         <PackageProjectUrl>https://github.com/MiBu/semantico</PackageProjectUrl>
