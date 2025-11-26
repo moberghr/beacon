@@ -216,6 +216,7 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                     ShowQuery = table.Column<bool>(type: "bit", nullable: false),
                     TimeoutSeconds = table.Column<int>(type: "int", nullable: true),
                     StoreResults = table.Column<bool>(type: "bit", nullable: false),
+                    CreateTasks = table.Column<bool>(type: "bit", nullable: false),
                     CreatedTime = table.Column<DateTime>(type: "datetime2", nullable: false),
                     ArchivedTime = table.Column<DateTime>(type: "datetime2", nullable: true)
                 },
@@ -371,6 +372,7 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                     CompiledSql = table.Column<string>(type: "nvarchar(max)", nullable: false),
                     NotificationStatus = table.Column<int>(type: "int", nullable: false),
                     ExecutionTimeMs = table.Column<double>(type: "float", nullable: false),
+                    Results = table.Column<string>(type: "nvarchar(max)", nullable: true),
                     CreatedTime = table.Column<DateTime>(type: "datetime2", nullable: false)
                 },
                 constraints: table =>
@@ -438,6 +440,35 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "Tasks",
+                schema: "semantico",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "int", nullable: false)
+                        .Annotation("SqlServer:Identity", "1, 1"),
+                    SubscriptionId = table.Column<int>(type: "int", nullable: false),
+                    LatestResultCount = table.Column<int>(type: "int", nullable: false),
+                    LastNotificationAt = table.Column<DateTime>(type: "datetime2", nullable: true),
+                    Resolved = table.Column<bool>(type: "bit", nullable: false),
+                    ResolvedAt = table.Column<DateTime>(type: "datetime2", nullable: true),
+                    ResolvedByUserId = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    ResolutionNotes = table.Column<string>(type: "nvarchar(2000)", maxLength: 2000, nullable: true),
+                    CreatedTime = table.Column<DateTime>(type: "datetime2", nullable: false),
+                    ArchivedTime = table.Column<DateTime>(type: "datetime2", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_Tasks", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_Tasks_Subscriptions_SubscriptionId",
+                        column: x => x.SubscriptionId,
+                        principalSchema: "semantico",
+                        principalTable: "Subscriptions",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "Notifications",
                 schema: "semantico",
                 columns: table => new
@@ -449,6 +480,7 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                     Type = table.Column<int>(type: "int", nullable: false),
                     SentAt = table.Column<DateTime>(type: "datetime2", nullable: false),
                     Results = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    TaskId = table.Column<int>(type: "int", nullable: true),
                     CreatedTime = table.Column<DateTime>(type: "datetime2", nullable: false)
                 },
                 constraints: table =>
@@ -468,6 +500,13 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                         principalTable: "Recipients",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
+                    table.ForeignKey(
+                        name: "FK_Notifications_Tasks_TaskId",
+                        column: x => x.TaskId,
+                        principalSchema: "semantico",
+                        principalTable: "Tasks",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
                 });
 
             migrationBuilder.CreateIndex(
@@ -562,6 +601,12 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                 column: "RecipientId");
 
             migrationBuilder.CreateIndex(
+                name: "IX_Notifications_TaskId",
+                schema: "semantico",
+                table: "Notifications",
+                column: "TaskId");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_QueryExecutionHistory_SubscriptionId",
                 schema: "semantico",
                 table: "QueryExecutionHistory",
@@ -608,6 +653,25 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                 schema: "semantico",
                 table: "Subscriptions",
                 column: "QueryId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Task_CreatedTime",
+                schema: "semantico",
+                table: "Tasks",
+                column: "CreatedTime");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Task_Resolved_CreatedTime",
+                schema: "semantico",
+                table: "Tasks",
+                columns: new[] { "Resolved", "CreatedTime" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Task_SubscriptionId_Unique",
+                schema: "semantico",
+                table: "Tasks",
+                column: "SubscriptionId",
+                unique: true);
         }
 
         /// <inheritdoc />
@@ -655,6 +719,10 @@ namespace Semantico.Core.SqlServer.Data.Migrations
 
             migrationBuilder.DropTable(
                 name: "QueryExecutionHistory",
+                schema: "semantico");
+
+            migrationBuilder.DropTable(
+                name: "Tasks",
                 schema: "semantico");
 
             migrationBuilder.DropTable(

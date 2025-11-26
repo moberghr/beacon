@@ -15,6 +15,18 @@
         </ToolBarContent>
         <Columns>
             <PropertyColumn Property="x => x.QueryExecutionHistoryId" Title="Id"/>
+            
+            <TemplateColumn Title="Details">
+                <CellTemplate>
+                    <MudStack Spacing="1">
+
+                            <MudLink Href="@($"/semantico/queryexecutionhistory/details/{context.Item.QueryExecutionHistoryId}")">
+                                View Details
+                            </MudLink>
+
+                    </MudStack>
+                </CellTemplate>
+            </TemplateColumn>
             <PropertyColumn InitialDirection="SortDirection.Descending" Property="x => x.CreatedTime"/>
             <TemplateColumn Title="Subscription">
                 <CellTemplate>
@@ -26,9 +38,7 @@
                     <MudStack Spacing="1">
                         @foreach (var notification in context.Item.Notifications.Take(3))
                         {
-                            <MudLink Href="@($"/semantico/notifications/details/{notification.Id}")">
-                                @notification.RecipientName
-                            </MudLink>
+                            <MudText>@notification.RecipientName</MudText>
                         }
                         @if (context.Item.Notifications.Count > 3)
                         {

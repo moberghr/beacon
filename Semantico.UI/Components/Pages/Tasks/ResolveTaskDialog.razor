@@ -1,0 +1,95 @@
+@using Semantico.Core.Services
+
+<MudDialog Class="pb-2">
+    <TitleContent>
+        <MudText Typo="Typo.h6">
+            <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Class="mr-1 mb-n1" />
+            Resolve Task
+        </MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudForm @ref="@_form" Class="pt-1">
+            <MudText Typo="Typo.body1" Class="mb-2">
+                Mark this task as resolved. Optionally add notes documenting the resolution.
+            </MudText>
+            <MudTextField
+                @bind-Value="@ResolutionNotes"
+                Label="Resolution Notes (Optional)"
+                Variant="Variant.Outlined"
+                Lines="5"
+                MaxLength="2000"
+                Counter="2000"
+                Immediate="true"
+                Placeholder="Describe how this issue was resolved..."
+            />
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton
+            Class="ml-4"
+            OnClick="@Cancel"
+            Variant="Variant.Filled"
+        >
+            Cancel
+        </MudButton>
+
+        <MudButton
+            Color="Color.Success"
+            Variant="Variant.Filled"
+            OnClick="@Submit"
+            Disabled="@_loading"
+        >
+            @if (_loading)
+            {
+                <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+            }
+            else
+            {
+                <span>Resolve Task</span>
+            }
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@inject ISnackbar Snackbar
+@inject ITaskService TaskService
+
+@code
+{
+    [CascadingParameter]
+    IMudDialogInstance MudDialog { get; set; }
+
+    [Parameter]
+    public int TaskId { get; set; }
+
+    private string? ResolutionNotes { get; set; }
+    private MudForm _form;
+    private bool _loading;
+
+    async Task Submit()
+    {
+        if (_loading)
+        {
+            return;
+        }
+
+        _loading = true;
+
+        try
+        {
+            await TaskService.ResolveTask(TaskId, ResolutionNotes, null, CancellationToken.None);
+            MudDialog.Close(DialogResult.Ok(true));
+            Snackbar.Add("Task resolved successfully", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error resolving task: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    void Cancel() => MudDialog.Cancel();
+}
