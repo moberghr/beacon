@@ -27,6 +27,11 @@ public class Subscription : ArchivableBaseEntity
     /// </summary>
     public bool StoreResults { get; set; } = false;
 
+    /// <summary>
+    /// When true, a task will be created/updated for this subscription on each execution.
+    /// </summary>
+    public bool CreateTasks { get; set; } = false;
+
     public Query Query { get; set; } = null!;
 
     public List<Recipient> Recipients { get; set; } = new();

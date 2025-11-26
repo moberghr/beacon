@@ -255,30 +255,43 @@
             await JSRuntime.InvokeVoidAsync("eval", $@"
                 (function() {{
                     const completionItems = {System.Text.Json.JsonSerializer.Serialize(completionItems)};
+                    const targetEditorId = '{EditorId}';
 
                     monaco.languages.registerCompletionItemProvider('sql', {{
                         provideCompletionItems: function(model, position) {{
-                            // Only provide completions for this specific editor
-                            if (model.uri.path !== '/query-editor') {{
-                                // Filter to only show virtual tables and SQLite-specific items
-                                const virtualTableItems = completionItems.filter(item =>
-                                    item.label.startsWith('@result') ||
-                                    item.detail === 'SQLite Keyword' ||
-                                    item.detail === 'SQLite Function'
-                                );
-
-                                return {{
-                                    suggestions: virtualTableItems.map(item => ({{
-                                        label: item.label,
-                                        kind: item.kind,
-                                        insertText: item.insertText,
-                                        detail: item.detail,
-                                        documentation: item.documentation
-                                    }}))
-                                }};
+                            // Find the editor for this specific FinalQueryEditor instance
+                            let editor = null;
+                            if (window.monaco && window.monaco.editor) {{
+                                 const editors = window.monaco.editor.getEditors();
+                                 editor = editors.find(e => {{
+                                     const domNode = e.getContainerDomNode();
+                                     return domNode && domNode.id === targetEditorId;
+                                 }});
+                            }}
+                            
+                            // Only provide completions if the model belongs to this editor
+                            if (!editor || editor.getModel() !== model) {{
+                                return {{ suggestions: [] }};
                             }}
 
-                            return {{ suggestions: [] }};
+                            // Filter to only show virtual tables and SQLite-specific items
+                            const virtualTableItems = completionItems.filter(item =>
+                                item.label.startsWith('@result') ||
+                                item.detail === 'SQLite Keyword' ||
+                                item.detail === 'SQLite Function' ||
+                                item.detail.startsWith('Step ') ||
+                                item.detail.startsWith('Virtual Table')
+                            );
+
+                            return {{
+                                suggestions: virtualTableItems.map(item => ({{
+                                    label: item.label,
+                                    kind: item.kind,
+                                    insertText: item.insertText,
+                                    detail: item.detail,
+                                    documentation: item.documentation
+                                }}))
+                            }};
                         }}
                     }});
                 }})();

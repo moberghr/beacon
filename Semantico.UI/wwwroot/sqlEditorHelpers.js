@@ -10,7 +10,6 @@ window.semanticoSqlEditor = {
         try {
             console.log('[SQL Autocomplete] Registering completion provider');
             console.log('[SQL Autocomplete] Editor ID:', editorId);
-            console.log('[SQL Autocomplete] SQL Dialect:', sqlDialect);
             console.log('[SQL Autocomplete] Tables available:', metadata?.tables?.length || 0);
 
             // Dispose of any existing completion provider for this editor
@@ -31,9 +30,30 @@ window.semanticoSqlEditor = {
 
             // Register the completion provider with Monaco
             const disposable = monaco.languages.registerCompletionItemProvider('sql', {
+                triggerCharacters: ['.', ' '],
                 provideCompletionItems: (model, position) => {
                     try {
-                        // Get text before cursor
+                        // Validate that this model belongs to the target editor
+                        let editor = window.semanticoSqlEditor.editorInstances[editorId];
+                        
+                        // Attempt to find editor if not stored
+                        if (!editor && window.monaco && window.monaco.editor) {
+                             const editors = window.monaco.editor.getEditors();
+                             editor = editors.find(e => {
+                                 const domNode = e.getContainerDomNode();
+                                 return domNode && domNode.id === editorId;
+                             });
+                             if (editor) {
+                                 window.semanticoSqlEditor.editorInstances[editorId] = editor;
+                             }
+                        }
+
+                        // If we found an editor and the model doesn't match, this provider shouldn't return results
+                        if (!editor || editor.getModel() !== model) {
+                            return { suggestions: [] };
+                        }
+
+                        // Get text up to cursor
                         const textUntilPosition = model.getValueInRange({
                             startLineNumber: 1,
                             startColumn: 1,
@@ -41,78 +61,81 @@ window.semanticoSqlEditor = {
                             endColumn: position.column
                         });
 
-                        // Get the word being typed
-                        const word = model.getWordUntilPosition(position);
+                        // Get full text for alias analysis
+                        const fullText = model.getValue();
+
+                        // Analyze context
+                        const context = window.semanticoSqlEditor.analyzeContext(textUntilPosition, fullText, metadata);
+                        console.log('[SQL Autocomplete] Context:', context);
+
+                        const suggestions = [];
                         const range = {
                             startLineNumber: position.lineNumber,
                             endLineNumber: position.lineNumber,
-                            startColumn: word.startColumn,
-                            endColumn: word.endColumn
+                            startColumn: position.column, // default to current pos
+                            endColumn: position.column
                         };
+                        
+                        // Get word info for replacement range
+                        const wordInfo = model.getWordUntilPosition(position);
+                        if (wordInfo) {
+                            range.startColumn = wordInfo.startColumn;
+                            range.endColumn = wordInfo.endColumn;
+                        }
 
-                        // Analyze context to determine what to suggest
-                        const context = window.semanticoSqlEditor.analyzeContext(textUntilPosition);
-                        console.log('[SQL Autocomplete] Context:', {
-                            expectsTable: context.expectsTable,
-                            expectsColumn: context.expectsColumn,
-                            tableContext: context.tableContext
-                        });
-
-                        const suggestions = [];
-
-                        // Add SQL keywords (always available but lower priority)
-                        const keywords = [
-                        'SELECT', 'FROM', 'WHERE', 'JOIN', 'INNER', 'LEFT', 'RIGHT', 'OUTER', 'ON',
-                        'GROUP', 'BY', 'HAVING', 'ORDER', 'ASC', 'DESC', 'LIMIT', 'OFFSET',
-                        'INSERT', 'INTO', 'VALUES', 'UPDATE', 'SET', 'DELETE', 'CREATE', 'TABLE',
-                        'ALTER', 'DROP', 'INDEX', 'PRIMARY', 'KEY', 'FOREIGN', 'REFERENCES',
-                        'AND', 'OR', 'NOT', 'NULL', 'IS', 'IN', 'LIKE', 'BETWEEN', 'EXISTS',
-                        'CASE', 'WHEN', 'THEN', 'ELSE', 'END', 'AS', 'DISTINCT', 'COUNT',
-                        'SUM', 'AVG', 'MAX', 'MIN', 'CAST', 'COALESCE', 'UNION', 'ALL'
-                    ];
-
-                    keywords.forEach(keyword => {
-                        suggestions.push({
-                            label: keyword,
-                            kind: monaco.languages.CompletionItemKind.Keyword,
-                            insertText: keyword,
-                            detail: 'SQL Keyword',
-                            sortText: '3_' + keyword, // Lower priority
-                            range: range
-                        });
-                    });
-
-                    // Add context-aware suggestions based on what we're expecting
-                    if (context.expectsTable) {
-                        // Suggest table names
-                        metadata.tables.forEach(table => {
-                            suggestions.push({
-                                label: table.tableName,
-                                kind: monaco.languages.CompletionItemKind.Class,
-                                insertText: table.tableName,
-                                detail: `Table in ${table.schemaName}`,
-                                documentation: table.description || `${table.schemaName}.${table.tableName}`,
-                                sortText: '0_' + table.tableName, // Highest priority
-                                range: range
+                        // 1. Handle specific schema context (e.g. "schema.")
+                        if (context.schemaContext) {
+                            const schemaName = context.schemaContext.toLowerCase();
+                            // Suggest tables in this schema
+                            metadata.tables.forEach(table => {
+                                if (table.schemaName.toLowerCase() === schemaName) {
+                                    suggestions.push({
+                                        label: table.tableName,
+                                        kind: monaco.languages.CompletionItemKind.Class,
+                                        insertText: table.tableName,
+                                        detail: `Table in ${table.schemaName}`,
+                                        documentation: table.description || `${table.schemaName}.${table.tableName}`,
+                                        sortText: '0_' + table.tableName,
+                                        range: range
+                                    });
+                                }
                             });
-                        });
-                    }
+                            return { suggestions: suggestions };
+                        }
 
-                    if (context.expectsColumn) {
-                        if (context.tableContext) {
-                            // Suggest columns from specific table
-                            const table = metadata.tables.find(t =>
-                                t.tableName.toLowerCase() === context.tableContext.toLowerCase()
-                            );
+                        // 2. Handle specific table/alias context (e.g. "t." or "mytable.")
+                        if (context.tableOrAliasContext) {
+                            const contextName = context.tableOrAliasContext.toLowerCase();
+                            let targetTable = null;
 
-                            if (table) {
-                                table.columns.forEach(column => {
+                            // Check if it's a known alias
+                            if (context.aliases[contextName]) {
+                                const fullTableName = context.aliases[contextName]; // schema.table or just table
+                                
+                                // Find table by name (and optionally schema)
+                                targetTable = metadata.tables.find(t => {
+                                    if (fullTableName.includes('.')) {
+                                        const [s, n] = fullTableName.split('.');
+                                        return t.schemaName.toLowerCase() === s.toLowerCase() && 
+                                               t.tableName.toLowerCase() === n.toLowerCase();
+                                    } else {
+                                        return t.tableName.toLowerCase() === fullTableName.toLowerCase();
+                                    }
+                                });
+                            } 
+                            // Check if it's a direct table name (without schema or with schema included in check)
+                            else {
+                                targetTable = metadata.tables.find(t => 
+                                    t.tableName.toLowerCase() === contextName
+                                );
+                            }
+
+                            if (targetTable) {
+                                targetTable.columns.forEach(column => {
                                     const docs = [];
                                     docs.push(`Type: ${column.dataType}${column.isNullable ? ' (nullable)' : ''}`);
                                     if (column.isPrimaryKey) docs.push('Primary Key');
-                                    if (column.isForeignKey) {
-                                        docs.push(`Foreign Key → ${column.foreignKeyTable}.${column.foreignKeyColumn}`);
-                                    }
+                                    if (column.isForeignKey) docs.push(`FK → ${column.foreignKeyTable}.${column.foreignKeyColumn}`);
 
                                     suggestions.push({
                                         label: column.columnName,
@@ -120,38 +143,97 @@ window.semanticoSqlEditor = {
                                         insertText: column.columnName,
                                         detail: column.dataType,
                                         documentation: docs.join(' | '),
-                                        sortText: '0_' + column.columnName, // Highest priority
+                                        sortText: '0_' + column.columnName,
                                         range: range
                                     });
                                 });
                             }
-                        } else {
-                            // Suggest all columns with table prefix
+                            return { suggestions: suggestions };
+                        }
+
+                        // 3. Handle expectation of a table (after FROM, JOIN, etc.)
+                        if (context.expectsTable) {
+                            // Suggest Schemas first
+                            const schemas = [...new Set(metadata.tables.map(t => t.schemaName))];
+                            schemas.forEach(schema => {
+                                suggestions.push({
+                                    label: schema,
+                                    kind: monaco.languages.CompletionItemKind.Module,
+                                    insertText: schema,
+                                    detail: 'Schema',
+                                    sortText: '0_' + schema, // High priority
+                                    range: range
+                                });
+                            });
+
+                            // Also suggest tables directly (but lower priority than schemas if they exist)
+                            metadata.tables.forEach(table => {
+                                suggestions.push({
+                                    label: table.tableName,
+                                    kind: monaco.languages.CompletionItemKind.Class,
+                                    insertText: table.tableName,
+                                    detail: `Table (${table.schemaName})`,
+                                    documentation: table.description,
+                                    sortText: '1_' + table.tableName,
+                                    range: range
+                                });
+                            });
+                        }
+
+                        // 4. Handle expectation of a column (SELECT list, WHERE, etc.)
+                        if (context.expectsColumn) {
+                            // Suggest aliases defined in the query
+                            Object.keys(context.aliases).forEach(alias => {
+                                suggestions.push({
+                                    label: alias,
+                                    kind: monaco.languages.CompletionItemKind.Reference,
+                                    insertText: alias,
+                                    detail: `Alias for ${context.aliases[alias]}`,
+                                    sortText: '0_' + alias,
+                                    range: range
+                                });
+                            });
+
+                            // Suggest all columns (qualified with table name for clarity)
                             metadata.tables.forEach(table => {
                                 table.columns.forEach(column => {
-                                    const docs = [];
-                                    docs.push(`Table: ${table.tableName}`);
-                                    docs.push(`Type: ${column.dataType}${column.isNullable ? ' (nullable)' : ''}`);
-                                    if (column.isPrimaryKey) docs.push('Primary Key');
-                                    if (column.isForeignKey) {
-                                        docs.push(`FK → ${column.foreignKeyTable}.${column.foreignKeyColumn}`);
-                                    }
-
                                     suggestions.push({
-                                        label: `${table.tableName}.${column.columnName}`,
+                                        label: column.columnName, // Simple label
                                         kind: monaco.languages.CompletionItemKind.Field,
                                         insertText: column.columnName,
-                                        detail: column.dataType,
-                                        documentation: docs.join(' | '),
-                                        sortText: '1_' + table.tableName + '_' + column.columnName,
+                                        detail: `${table.tableName}.${column.columnName}`, // Detailed info
+                                        documentation: `Table: ${table.schemaName}.${table.tableName}\nType: ${column.dataType}`,
+                                        sortText: '2_' + column.columnName, // Lower priority than aliases
                                         range: range
                                     });
                                 });
                             });
                         }
-                    }
+
+                        // Always add keywords if not in a specific dot context
+                        if (!context.schemaContext && !context.tableOrAliasContext) {
+                             const keywords = [
+                                'SELECT', 'FROM', 'WHERE', 'JOIN', 'INNER', 'LEFT', 'RIGHT', 'OUTER', 'ON',
+                                'GROUP', 'BY', 'HAVING', 'ORDER', 'ASC', 'DESC', 'LIMIT', 'OFFSET',
+                                'INSERT', 'INTO', 'VALUES', 'UPDATE', 'SET', 'DELETE', 'CREATE', 'TABLE',
+                                'AND', 'OR', 'NOT', 'NULL', 'IS', 'IN', 'LIKE', 'BETWEEN', 'EXISTS',
+                                'CASE', 'WHEN', 'THEN', 'ELSE', 'END', 'AS', 'DISTINCT', 'COUNT'
+                            ];
+                            
+                            keywords.forEach(keyword => {
+                                suggestions.push({
+                                    label: keyword,
+                                    kind: monaco.languages.CompletionItemKind.Keyword,
+                                    insertText: keyword,
+                                    detail: 'Keyword',
+                                    sortText: '9_' + keyword, // Lowest priority
+                                    range: range
+                                });
+                            });
+                        }
 
                         return { suggestions: suggestions };
+
                     } catch (error) {
                         console.error('[SQL Autocomplete] Error in provideCompletionItems:', error);
                         return { suggestions: [] };
@@ -169,90 +251,79 @@ window.semanticoSqlEditor = {
         }
     },
 
-    // Analyze SQL context to determine what suggestions are appropriate
-    analyzeContext: function(textBeforeCursor) {
-        const upperText = textBeforeCursor.toUpperCase().trim();
-
-        // Remove comments and strings for better parsing
-        const cleanText = upperText
-            .replace(/--[^\n]*/g, '') // Remove single-line comments
-            .replace(/'[^']*'/g, "''"); // Remove string literals
-
-        const tokens = cleanText.split(/\s+/).filter(t => t.length > 0);
-        const lastToken = tokens[tokens.length - 1] || '';
-        const secondLastToken = tokens[tokens.length - 2] || '';
-
+    // Analyze SQL context with alias support
+    analyzeContext: function(textBeforeCursor, fullText, metadata) {
         const context = {
             expectsTable: false,
             expectsColumn: false,
-            tableContext: null
+            schemaContext: null,        // "schema."
+            tableOrAliasContext: null,  // "table." or "alias."
+            aliases: {}                 // map of alias -> full_table_name (e.g. "t" -> "schema.table")
         };
 
-        // Check for table.column pattern
-        const dotMatch = textBeforeCursor.match(/(\w+)\.$/);
+        // 1. Extract aliases from full text
+        // Simple regex to find "FROM/JOIN schema.table [AS] alias"
+        // Matches: FROM table t, JOIN schema.table AS st, etc.
+        const aliasRegex = /(?:FROM|JOIN)\s+([a-zA-Z0-9_."]+)(?:\s+(?:AS\s+)?([a-zA-Z0-9_]+))?/gmi;
+        let match;
+        while ((match = aliasRegex.exec(fullText)) !== null) {
+            const fullTableName = match[1];
+            const alias = match[2];
+            if (alias && alias.toUpperCase() !== 'ON' && alias.toUpperCase() !== 'WHERE' && alias.toUpperCase() !== 'JOIN') {
+                context.aliases[alias.toLowerCase()] = fullTableName;
+            }
+        }
+
+        // 2. Analyze immediate context before cursor
+        const cleanText = textBeforeCursor.replace(/--[^\n]*/g, '').replace(/'[^']*'/g, "''");
+        const tokens = cleanText.split(/\s+/).filter(t => t.length > 0);
+        
+        // Check for dot context (schema. or table. or alias.)
+        // We look at the very last part of the text, ignoring whitespace
+        const dotMatch = textBeforeCursor.match(/([a-zA-Z0-9_]+)\.\s*$/);
         if (dotMatch) {
-            context.expectsColumn = true;
-            context.tableContext = dotMatch[1];
+            const identifier = dotMatch[1];
+            
+            // Is this identifier a known schema?
+            const isSchema = metadata.tables.some(t => t.schemaName.toLowerCase() === identifier.toLowerCase());
+            
+            if (isSchema) {
+                context.schemaContext = identifier;
+            } else {
+                context.tableOrAliasContext = identifier;
+            }
             return context;
         }
 
-        // Check if we expect a table name (after FROM, JOIN, INTO, UPDATE, TABLE)
-        if (lastToken === 'FROM' || lastToken === 'JOIN' ||
-            lastToken === 'INTO' || lastToken === 'TABLE' ||
-            (lastToken === 'UPDATE' && tokens.length === 1)) {
+        // Standard token-based context
+        const lastToken = (tokens[tokens.length - 1] || '').toUpperCase();
+        const secondLastToken = (tokens[tokens.length - 2] || '').toUpperCase();
+
+        // Expect Table
+        if (['FROM', 'JOIN', 'UPDATE', 'INTO'].includes(lastToken) ||
+            (['INNER', 'LEFT', 'RIGHT', 'OUTER', 'FULL', 'CROSS'].includes(lastToken) && secondLastToken === 'JOIN')) {
             context.expectsTable = true;
-            context.expectsColumn = false;
             return context;
         }
 
-        // After JOIN types, we expect a table
-        if ((lastToken === 'INNER' || lastToken === 'LEFT' ||
-             lastToken === 'RIGHT' || lastToken === 'OUTER' ||
-             lastToken === 'CROSS' || lastToken === 'FULL') &&
-            secondLastToken === 'JOIN') {
-            context.expectsTable = true;
-            context.expectsColumn = false;
-            return context;
-        }
-
-        // Check if we expect columns (after SELECT, WHERE, ON, SET, etc.)
-        if (lastToken === 'SELECT' || lastToken === 'WHERE' ||
-            lastToken === 'AND' || lastToken === 'OR' ||
-            lastToken === 'ON' || lastToken === 'SET' ||
-            lastToken === 'BY' || lastToken === 'HAVING') {
+        // Expect Column
+        if (['SELECT', 'WHERE', 'ON', 'HAVING', 'GROUP', 'BY', 'ORDER', 'SET', 'AND', 'OR'].includes(lastToken) ||
+            lastToken === ',') {
             context.expectsColumn = true;
             return context;
         }
-
-        // After comma in SELECT or WHERE context
-        if (lastToken === ',') {
-            // Check if we're in SELECT context (before FROM) or WHERE context
-            const fromIndex = cleanText.lastIndexOf('FROM');
-            const selectIndex = cleanText.lastIndexOf('SELECT');
-            const whereIndex = cleanText.lastIndexOf('WHERE');
-
-            if ((selectIndex > fromIndex && fromIndex !== -1) ||
-                whereIndex > Math.max(selectIndex, fromIndex)) {
-                context.expectsColumn = true;
-                return context;
-            }
+        
+        // Fallback for SELECT list (between SELECT and FROM)
+        const upperClean = cleanText.toUpperCase();
+        const lastSelect = upperClean.lastIndexOf('SELECT');
+        const lastFrom = upperClean.lastIndexOf('FROM');
+        if (lastSelect > lastFrom) {
+            context.expectsColumn = true;
+            return context;
         }
 
-        // In SELECT clause (between SELECT and FROM)
-        if (cleanText.includes('SELECT')) {
-            const lastFrom = cleanText.lastIndexOf('FROM');
-            const lastSelect = cleanText.lastIndexOf('SELECT');
-
-            if (lastSelect > lastFrom || lastFrom === -1) {
-                // We're in the SELECT column list
-                context.expectsColumn = true;
-                return context;
-            }
-        }
-
-        // Default: show both tables and columns
+        // Default
         context.expectsColumn = true;
-        context.expectsTable = true;
         return context;
     },
 
@@ -261,6 +332,10 @@ window.semanticoSqlEditor = {
         if (this.completionDisposables[editorId]) {
             this.completionDisposables[editorId].dispose();
             delete this.completionDisposables[editorId];
+            // Also clean up editor instance reference
+            if (this.editorInstances[editorId]) {
+                delete this.editorInstances[editorId];
+            }
             return true;
         }
         return false;
@@ -271,7 +346,6 @@ window.semanticoSqlEditor = {
         try {
             event.dataTransfer.effectAllowed = 'copy';
             event.dataTransfer.setData('text/plain', dragData);
-            console.log('[Drag/Drop] Drag started with data:', dragData);
             return true;
         } catch (error) {
             console.error('[Drag/Drop] Error setting drag data:', error);
@@ -285,115 +359,60 @@ window.semanticoSqlEditor = {
     // Store editor instance for later use
     storeEditorInstance: function(editorId, editor) {
         this.editorInstances[editorId] = editor;
-        console.log('[Drag/Drop] Stored editor instance for:', editorId);
     },
 
     // Enable drop on Monaco editor
     enableDropOnEditor: function(editorId) {
         try {
-            // Find the Monaco editor DOM element
             const editorElement = document.getElementById(editorId);
-            if (!editorElement) {
-                console.error('[Drag/Drop] Editor element not found:', editorId);
-                return false;
-            }
+            if (!editorElement) return false;
 
-            // Find the actual editor content area
             const editorContent = editorElement.querySelector('.monaco-editor');
-            if (!editorContent) {
-                console.error('[Drag/Drop] Monaco editor content not found');
-                return false;
-            }
+            if (!editorContent) return false;
 
-            // Get Monaco editor instance - try multiple approaches
-            let editorInstance = this.editorInstances[editorId];
+            const self = this;
 
-            // If not stored, try to get it from the global monaco object
-            if (!editorInstance && window.monaco && window.monaco.editor) {
-                const allEditors = window.monaco.editor.getEditors();
-                if (allEditors && allEditors.length > 0) {
-                    // Use the first editor (assuming single editor on page)
-                    editorInstance = allEditors[0];
-                    this.editorInstances[editorId] = editorInstance;
-                    console.log('[Drag/Drop] Found editor instance from monaco.editor.getEditors()');
-                }
-            }
-
-            if (!editorInstance) {
-                console.error('[Drag/Drop] Could not find editor instance. Will use fallback insertion method.');
-            }
-
-            // Allow drop by preventing default on dragover
+            // Allow drop
             editorContent.addEventListener('dragover', function(e) {
                 e.preventDefault();
                 e.stopPropagation();
                 e.dataTransfer.dropEffect = 'copy';
             });
 
-            // Handle the drop event
-            const self = this;
+            // Handle drop
             editorContent.addEventListener('drop', function(e) {
                 e.preventDefault();
                 e.stopPropagation();
 
                 const dragData = e.dataTransfer.getData('text/plain');
-                if (!dragData) {
-                    console.warn('[Drag/Drop] No drag data found');
-                    return;
-                }
+                if (!dragData) return;
 
-                console.log('[Drag/Drop] Drop received with data:', dragData);
-
-                // Get latest editor instance reference
+                // Try to find editor instance
                 let editor = self.editorInstances[editorId];
                 if (!editor && window.monaco && window.monaco.editor) {
-                    const allEditors = window.monaco.editor.getEditors();
-                    if (allEditors && allEditors.length > 0) {
-                        editor = allEditors[0];
-                    }
+                    const editors = window.monaco.editor.getEditors();
+                     editor = editors.find(e => {
+                         const domNode = e.getContainerDomNode();
+                         return domNode && domNode.id === editorId;
+                     });
                 }
 
-                if (!editor) {
-                    console.error('[Drag/Drop] Editor instance not available');
-                    return;
-                }
-
-                try {
-                    // Get current cursor position
+                if (editor) {
                     const position = editor.getPosition();
-                    if (!position) {
-                        console.error('[Drag/Drop] Could not get editor position');
-                        return;
+                    if (position) {
+                        editor.executeEdits('drag-drop', [{
+                            range: {
+                                startLineNumber: position.lineNumber,
+                                startColumn: position.column,
+                                endLineNumber: position.lineNumber,
+                                endColumn: position.column
+                            },
+                            text: dragData
+                        }]);
+                        editor.focus();
                     }
-
-                    // Insert the text at cursor position
-                    editor.executeEdits('drag-drop', [{
-                        range: {
-                            startLineNumber: position.lineNumber,
-                            startColumn: position.column,
-                            endLineNumber: position.lineNumber,
-                            endColumn: position.column
-                        },
-                        text: dragData
-                    }]);
-
-                    // Move cursor to end of inserted text
-                    const lines = dragData.split('\n');
-                    const lastLine = lines[lines.length - 1];
-                    const newPosition = {
-                        lineNumber: position.lineNumber + lines.length - 1,
-                        column: lines.length > 1 ? lastLine.length + 1 : position.column + dragData.length
-                    };
-                    editor.setPosition(newPosition);
-                    editor.focus();
-
-                    console.log('[Drag/Drop] Text inserted successfully');
-                } catch (error) {
-                    console.error('[Drag/Drop] Error inserting text:', error);
                 }
             });
-
-            console.log('[Drag/Drop] Drop handlers enabled for editor:', editorId);
             return true;
         } catch (error) {
             console.error('[Drag/Drop] Error enabling drop:', error);

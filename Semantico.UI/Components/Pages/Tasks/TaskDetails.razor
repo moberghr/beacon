@@ -1,0 +1,231 @@
+@page "/tasks/{id:int}"
+@inherits BasePageComponent
+@using Semantico.Core.DTOs
+@using Semantico.Core.Data.Enums
+@using Semantico.Core.Services
+@using System.Text.Json
+
+<SemanticoPageTitle Title="Task Details"/>
+
+<MudContainer Class="my-4 px-4">
+    <SemanticoPageHeader Icon="@Icons.Material.Filled.Task" Title="@($"Task Details: {Model?.Id}")" />
+
+    @if (_loading)
+    {
+        <MudCard Class="px-2">
+            <MudCardContent>
+                <MudSkeleton Animation="Animation.Wave"/>
+            </MudCardContent>
+        </MudCard>
+    }
+    else if (Model == null)
+    {
+        <MudAlert Severity="Severity.Error">Task not found.</MudAlert>
+    }
+    else
+    {
+        <MudCard Class="my-4 px-2">
+            <MudCardContent>
+                <MudGrid Justify="Justify.FlexStart" Spacing="3">
+                    <MudItem xs="12" md="4">
+                        <MudStack Spacing="2">
+                            <MudText Typo="Typo.h6">Task Information</MudText>
+                            <MudText>
+                                <strong>Task ID:</strong> @Model.Id
+                            </MudText>
+                            <MudText>
+                                <strong>Created:</strong> @Model.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss")
+                            </MudText>
+                            <MudText>
+                                <strong>Latest Result Count:</strong> @Model.LatestResultCount
+                            </MudText>
+                            <MudText>
+                                <strong>Total Notifications:</strong> @Model.NotificationCount
+                            </MudText>
+                            @if (Model.LastNotificationAt.HasValue)
+                            {
+                                <MudText>
+                                    <strong>Last Notification:</strong> @Model.LastNotificationAt.Value.ToString("yyyy-MM-dd HH:mm:ss")
+                                </MudText>
+                            }
+                            <MudStack Row="true" AlignItems="AlignItems.Center">
+                                <MudText><strong>Status:</strong></MudText>
+                                @if (Model.Resolved)
+                                {
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Success">Resolved</MudChip>
+                                }
+                                else
+                                {
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Warning">Unresolved</MudChip>
+                                }
+                            </MudStack>
+                        </MudStack>
+                    </MudItem>
+                    <MudItem xs="12" md="4">
+                        <MudStack Spacing="2">
+                            <MudText Typo="Typo.h6">Subscription Information</MudText>
+                            <MudText>
+                                <strong>Subscription:</strong>
+                                <MudLink Href="@($"/semantico/subscriptions/details/{Model.Subscription.Id}")">
+                                    @Model.Subscription.Name
+                                </MudLink>
+                            </MudText>
+                        </MudStack>
+                    </MudItem>
+                    <MudItem xs="12" md="4">
+                        <MudStack Spacing="2">
+                            <MudText Typo="Typo.h6">Resolution Information</MudText>
+                            @if (Model.Resolved && Model.ResolvedAt.HasValue)
+                            {
+                                <MudText>
+                                    <strong>Resolved At:</strong> @Model.ResolvedAt.Value.ToString("yyyy-MM-dd HH:mm:ss")
+                                </MudText>
+                                @if (!string.IsNullOrEmpty(Model.ResolutionNotes))
+                                {
+                                    <MudText>
+                                        <strong>Notes:</strong> @Model.ResolutionNotes
+                                    </MudText>
+                                }
+                            }
+                            else
+                            {
+                                <MudText Color="Color.Secondary">
+                                    <em>Not yet resolved</em>
+                                </MudText>
+                            }
+                        </MudStack>
+                    </MudItem>
+                </MudGrid>
+            </MudCardContent>
+        </MudCard>
+
+        <MudCard Class="my-4 px-2">
+            <MudCardHeader>
+                <CardHeaderContent>
+                    <MudText Typo="Typo.h6">Notification History (@Model.NotificationCount notifications)</MudText>
+                </CardHeaderContent>
+            </MudCardHeader>
+            <MudCardContent>
+                @if (Model.Notifications.Any())
+                {
+                    <MudTable Items="@Model.Notifications" Dense="true" Hover="true" Bordered="true" Striped="true">
+                        <HeaderContent>
+                            <MudTh>Notification ID</MudTh>
+                            <MudTh>Sent At</MudTh>
+                            <MudTh>Result Count</MudTh>
+                            <MudTh>Actions</MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd DataLabel="Notification ID">
+                                <MudLink Href="@($"/notifications/details/{context.Id}")">@context.Id</MudLink>
+                            </MudTd>
+                            <MudTd DataLabel="Sent At">@context.SentAt.ToString("yyyy-MM-dd HH:mm:ss")</MudTd>
+                            <MudTd DataLabel="Result Count">@context.ResultCount</MudTd>
+                            <MudTd DataLabel="Actions">
+                                @if (!string.IsNullOrEmpty(context.StoredResults))
+                                {
+                                    <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Primary" Href="@($"/notifications/details/{context.Id}")">
+                                        View Results
+                                    </MudButton>
+                                }
+                                else
+                                {
+                                    <MudText Color="Color.Secondary" Typo="Typo.caption">No stored results</MudText>
+                                }
+                            </MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                }
+                else
+                {
+                    <MudText Color="Color.Secondary">No notifications yet</MudText>
+                }
+            </MudCardContent>
+        </MudCard>
+
+        <MudCard Class="my-4 px-2">
+            <MudCardContent>
+                <MudStack Row="true" Spacing="2">
+                    @if (!Model.Resolved)
+                    {
+                        <MudButton Variant="Variant.Filled" Color="Color.Success" OnClick="@ShowResolveDialog">
+                            <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Class="mr-2"/>
+                            Resolve Task
+                        </MudButton>
+                    }
+                    else
+                    {
+                        <MudButton Variant="Variant.Filled" Color="Color.Warning" OnClick="@ReopenTask">
+                            <MudIcon Icon="@Icons.Material.Filled.Refresh" Class="mr-2"/>
+                            Reopen Task
+                        </MudButton>
+                    }
+                    <MudButton Variant="Variant.Outlined" Href="@($"/tasks")">
+                        <MudIcon Icon="@Icons.Material.Filled.ArrowBack" Class="mr-2"/>
+                        Back to List
+                    </MudButton>
+                </MudStack>
+            </MudCardContent>
+        </MudCard>
+    }
+</MudContainer>
+
+@inject ITaskService TaskService;
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+
+@code {
+    [Parameter]
+    public int Id { get; set; }
+
+    private TaskDetailsData? Model { get; set; }
+    private bool _loading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadTaskDetails();
+    }
+
+    private async Task LoadTaskDetails()
+    {
+        _loading = true;
+        Model = await TaskService.GetTaskDetails(Id, CancellationToken.None);
+        _loading = false;
+    }
+
+    private async Task ShowResolveDialog()
+    {
+        var parameters = new DialogParameters<ResolveTaskDialog>
+        {
+            { x => x.TaskId, Id }
+        };
+
+        var options = new DialogOptions
+        {
+            MaxWidth = MaxWidth.Small,
+            FullWidth = true
+        };
+
+        var dialog = await DialogService.ShowAsync<ResolveTaskDialog>("", parameters, options);
+        var result = await dialog.Result;
+
+        if (!result!.Canceled)
+        {
+            await LoadTaskDetails(); // Reload to show updated status
+        }
+    }
+
+    private async Task ReopenTask()
+    {
+        try
+        {
+            await TaskService.ReopenTask(Id, CancellationToken.None);
+            await LoadTaskDetails(); // Reload to show updated status
+            Snackbar.Add("Task reopened successfully", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error reopening task: {ex.Message}", Severity.Error);
+        }
+    }
+}

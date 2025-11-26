@@ -217,6 +217,7 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                     show_query = table.Column<bool>(type: "boolean", nullable: false),
                     timeout_seconds = table.Column<int>(type: "integer", nullable: true),
                     store_results = table.Column<bool>(type: "boolean", nullable: false),
+                    create_tasks = table.Column<bool>(type: "boolean", nullable: false),
                     created_time = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
                     archived_time = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
                 },
@@ -372,6 +373,7 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                     compiled_sql = table.Column<string>(type: "text", nullable: false),
                     notification_status = table.Column<int>(type: "integer", nullable: false),
                     execution_time_ms = table.Column<double>(type: "double precision", nullable: false),
+                    results = table.Column<string>(type: "text", nullable: true),
                     created_time = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
                 },
                 constraints: table =>
@@ -439,6 +441,35 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "Tasks",
+                schema: "semantico",
+                columns: table => new
+                {
+                    id = table.Column<int>(type: "integer", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    subscription_id = table.Column<int>(type: "integer", nullable: false),
+                    latest_result_count = table.Column<int>(type: "integer", nullable: false),
+                    last_notification_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    resolved = table.Column<bool>(type: "boolean", nullable: false),
+                    resolved_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    resolved_by_user_id = table.Column<string>(type: "text", nullable: true),
+                    resolution_notes = table.Column<string>(type: "character varying(2000)", maxLength: 2000, nullable: true),
+                    created_time = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    archived_time = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("pk_tasks", x => x.id);
+                    table.ForeignKey(
+                        name: "fk_tasks_subscriptions_subscription_id",
+                        column: x => x.subscription_id,
+                        principalSchema: "semantico",
+                        principalTable: "subscriptions",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Restrict);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "notifications",
                 schema: "semantico",
                 columns: table => new
@@ -450,6 +481,7 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                     type = table.Column<int>(type: "integer", nullable: false),
                     sent_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
                     results = table.Column<string>(type: "text", nullable: true),
+                    task_id = table.Column<int>(type: "integer", nullable: true),
                     created_time = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
                 },
                 constraints: table =>
@@ -469,6 +501,13 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                         principalTable: "recipients",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
+                    table.ForeignKey(
+                        name: "fk_notifications_tasks_task_id",
+                        column: x => x.task_id,
+                        principalSchema: "semantico",
+                        principalTable: "Tasks",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Restrict);
                 });
 
             migrationBuilder.CreateIndex(
@@ -563,6 +602,12 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                 column: "recipient_id");
 
             migrationBuilder.CreateIndex(
+                name: "ix_notifications_task_id",
+                schema: "semantico",
+                table: "notifications",
+                column: "task_id");
+
+            migrationBuilder.CreateIndex(
                 name: "ix_query_execution_history_subscription_id",
                 schema: "semantico",
                 table: "query_execution_history",
@@ -609,6 +654,25 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                 schema: "semantico",
                 table: "subscriptions",
                 column: "query_id");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Task_CreatedTime",
+                schema: "semantico",
+                table: "Tasks",
+                column: "created_time");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Task_Resolved_CreatedTime",
+                schema: "semantico",
+                table: "Tasks",
+                columns: new[] { "resolved", "created_time" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Task_SubscriptionId_Unique",
+                schema: "semantico",
+                table: "Tasks",
+                column: "subscription_id",
+                unique: true);
         }
 
         /// <inheritdoc />
@@ -656,6 +720,10 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.DropTable(
                 name: "query_execution_history",
+                schema: "semantico");
+
+            migrationBuilder.DropTable(
+                name: "Tasks",
                 schema: "semantico");
 
             migrationBuilder.DropTable(
