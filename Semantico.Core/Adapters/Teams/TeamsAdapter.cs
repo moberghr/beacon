@@ -11,35 +11,55 @@ internal class TeamsAdapter(IHttpClientFactory httpClientFactory, SemanticoConfi
     public async Task SendNotificationAsync(RecipientQueryResult recipientQueryResult, int? lastNotificationResultCount)
     {
         var client = httpClientFactory.CreateClient();
+        var queryResult = recipientQueryResult.QueryResult;
+
+        var bodyElements = new List<AdaptiveCards.AdaptiveElement>
+        {
+            new AdaptiveCards.AdaptiveTextBlock()
+            {
+                Text = $"[Semantico] {queryResult.DataSourceName} - {queryResult.SubscriptionName}",
+                Size = AdaptiveCards.AdaptiveTextSize.Large,
+                Weight = AdaptiveCards.AdaptiveTextWeight.Bolder,
+                Id = "title",
+            }
+        };
+
+        if (queryResult.ShowQuery)
+        {
+            bodyElements.Add(new AdaptiveCards.AdaptiveTextBlock
+            {
+                Text = $"Query = {queryResult.SqlQuery}",
+                Wrap = true,
+                Id = "queryText"
+            });
+        }
+
+        if (queryResult.TopRecords.Count > 0)
+        {
+            bodyElements.Add(new AdaptiveCards.AdaptiveTextBlock()
+            {
+                Text = queryResult.TotalRecords > 10 ? "First 10 records" : "Query Results",
+                Weight = AdaptiveCards.AdaptiveTextWeight.Bolder,
+                Spacing = AdaptiveCards.AdaptiveSpacing.Medium,
+                Id = "first10RecordsTitle"
+            });
+            bodyElements.Add(GenerateAdaptiveTableFromQueryResults(queryResult.TopRecords));
+        }
+        else
+        {
+            bodyElements.Add(new AdaptiveCards.AdaptiveTextBlock()
+            {
+                Text = $"Query executed successfully. Total records: {queryResult.TotalRecords}",
+                Spacing = AdaptiveCards.AdaptiveSpacing.Medium,
+                Id = "noResultsText"
+            });
+        }
 
         var card = new AdaptiveCards.AdaptiveCard("1.5")
         {
             Type = "AdaptiveCard",
-            Speak = $"{recipientQueryResult.QueryResult.DataSourceName} - {recipientQueryResult.QueryResult.SubscriptionName}",
-            Body = new List<AdaptiveCards.AdaptiveElement>
-            {
-                new AdaptiveCards.AdaptiveTextBlock()
-                {
-                    Text = $"[Semantico] {recipientQueryResult.QueryResult.DataSourceName} - {recipientQueryResult.QueryResult.SubscriptionName}",
-                    Size = AdaptiveCards.AdaptiveTextSize.Large,
-                    Weight = AdaptiveCards.AdaptiveTextWeight.Bolder,
-                    Id = "title",
-                },
-                new AdaptiveCards.AdaptiveTextBlock
-                {
-                    Text = $"Query = {recipientQueryResult.QueryResult.SqlQuery}",
-                    Wrap = true,
-                    Id = "queryText"
-                },
-                new AdaptiveCards.AdaptiveTextBlock()
-                {
-                    Text = recipientQueryResult.QueryResult.TotalRecords > 10 ? "First 10 records" : "Query Results",
-                    Weight = AdaptiveCards.AdaptiveTextWeight.Bolder,
-                    Spacing = AdaptiveCards.AdaptiveSpacing.Medium,
-                    Id = "first10RecordsTitle"
-                },
-                GenerateAdaptiveTableFromQueryResults(recipientQueryResult.QueryResult.TopRecords)
-            },
+            Speak = $"{queryResult.DataSourceName} - {queryResult.SubscriptionName}",
+            Body = bodyElements,
             Actions = string.IsNullOrEmpty(configuration.BaseUrl) || !recipientQueryResult.NotificationId.HasValue
                 ? new List<AdaptiveCards.AdaptiveAction>()
                 : new List<AdaptiveCards.AdaptiveAction>
