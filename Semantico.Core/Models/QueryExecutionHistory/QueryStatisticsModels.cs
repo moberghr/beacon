@@ -37,4 +37,11 @@ public class DashboardStatisticsData
     public int TotalMigrationExecutions { get; set; }
 
     public int SuccessfulMigrationExecutions { get; set; }
+
+    // Task Statistics
+    public int TotalTasks { get; set; }
+
+    public int UnresolvedTasks { get; set; }
+
+    public int ResolvedTasks { get; set; }
 }

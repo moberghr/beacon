@@ -3,17 +3,9 @@ using Semantico.Core.Data;
 
 namespace Semantico.Core.SqlServer.Data;
 
-internal partial class SqlServerSemanticoContext : SemanticoContext
+internal sealed class SqlServerSemanticoContext(
+    DbContextOptions<SqlServerSemanticoContext> options,
+    string defaultSchema = "semantico")
+    : SemanticoContext(options, defaultSchema)
 {
-    public SqlServerSemanticoContext(DbContextOptions<SqlServerSemanticoContext> options, string defaultSchema = "semantico")
-        : base(options, defaultSchema)
-    {
-    }
-
-    protected override void OnModelCreating(ModelBuilder modelBuilder)
-    {
-        modelBuilder.HasDefaultSchema(DefaultSchema);
-
-        base.OnModelCreating(modelBuilder);
-    }
 }

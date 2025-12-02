@@ -1,6 +1,6 @@
-﻿namespace Semantico.Core.Models.Subscriptions;
+namespace Semantico.Core.Models.Subscriptions;
 
-public class SubscriptionParamaterData
+public class SubscriptionParameterData
 {
     public string? QueryPlaceholder { get; init; }
 

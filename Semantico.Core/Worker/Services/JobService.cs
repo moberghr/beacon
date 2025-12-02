@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Semantico.Core.Adapters;
 using Semantico.Core.Data;
 using Semantico.Core.Data.Entities;
@@ -8,7 +9,12 @@ using Semantico.Core.Services;
 
 namespace Semantico.Core.Worker.Services;
 
-internal class JobService(IDbContextFactory<SemanticoContext> contextFactory, IQueryService queryService, INotificationService notificationService, ITaskService taskService)
+internal class JobService(
+    IDbContextFactory<SemanticoContext> contextFactory,
+    IQueryService queryService,
+    INotificationService notificationService,
+    ITaskService taskService,
+    ILogger<JobService> logger)
     : IJobService
 {
     public async Task ExecuteQuery(int subscriptionId)
@@ -91,7 +97,8 @@ internal class JobService(IDbContextFactory<SemanticoContext> contextFactory, IQ
         {
             await context.SaveChangesAsync(); // Save QueryExecutionHistory first
 
-            Console.WriteLine($"JobService: Creating/updating task for subscription {subscriptionId}, result count {queryResult.TotalRecords}");
+            logger.LogDebug("Creating/updating task for subscription {SubscriptionId}, result count {ResultCount}",
+                subscriptionId, queryResult.TotalRecords);
             await taskService.CreateOrUpdateTask(
                 subscriptionId,
                 queryResult.TotalRecords,

@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Semantico.Core.Data;
 using Semantico.Core.Data.Entities;
 using Semantico.Core.Data.Enums;
@@ -9,148 +10,150 @@ using Semantico.Core.Models.Tasks;
 
 namespace Semantico.Core.Services;
 
-public class TaskService(IDbContextFactory<SemanticoContext> contextFactory) : ITaskService
+public class TaskService(IDbContextFactory<SemanticoContext> contextFactory, ILogger<TaskService> logger) : ITaskService
 {
-    private readonly IDbContextFactory<SemanticoContext> _contextFactory = contextFactory;
+    private const string AutoResolveMessage = "Auto-resolved: Query returned 0 results";
 
     public async Task<int> CreateTask(int notificationId, int subscriptionId, int resultCount, CancellationToken cancellationToken)
     {
-        Console.WriteLine($"TaskService.CreateTask called - NotificationId: {notificationId}, SubscriptionId: {subscriptionId}, ResultCount: {resultCount}");
-        await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        logger.LogDebug("CreateTask called - NotificationId: {NotificationId}, SubscriptionId: {SubscriptionId}, ResultCount: {ResultCount}",
+            notificationId, subscriptionId, resultCount);
 
-        // Find existing unresolved task for this subscription
-        var existingTask = await context.Tasks
-            .Where(t => t.SubscriptionId == subscriptionId && !t.Resolved)
-            .FirstOrDefaultAsync(cancellationToken);
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        var existingTask = await FindUnresolvedTaskAsync(context, subscriptionId, cancellationToken);
 
         if (existingTask != null)
         {
-            Console.WriteLine($"Updating existing task {existingTask.Id} for subscription {subscriptionId}");
-            // Update existing task with latest result count and notification time
-            existingTask.LatestResultCount = resultCount;
-            existingTask.LastNotificationAt = DateTime.UtcNow;
-
-            // Auto-resolve if query returns 0 results
-            if (resultCount == 0)
-            {
-                existingTask.Resolved = true;
-                existingTask.ResolvedAt = DateTime.UtcNow;
-                existingTask.ResolutionNotes = "Auto-resolved: Query returned 0 results";
-            }
-
-            // Link notification to existing task
-            var notification = await context.Notifications.FindAsync(new object[] { notificationId }, cancellationToken);
-            if (notification != null)
-            {
-                Console.WriteLine($"Linking notification {notificationId} to existing task {existingTask.Id}");
-                notification.TaskId = existingTask.Id;
-            }
-            else
-            {
-                Console.WriteLine($"WARNING: Notification {notificationId} not found!");
-            }
-
+            logger.LogDebug("Updating existing task {TaskId} for subscription {SubscriptionId}", existingTask.Id, subscriptionId);
+            UpdateTaskWithResultCount(existingTask, resultCount);
+            await LinkNotificationToTaskAsync(context, notificationId, existingTask.Id, cancellationToken);
             await context.SaveChangesAsync(cancellationToken);
-            Console.WriteLine($"Task {existingTask.Id} updated successfully");
             return existingTask.Id;
         }
-        else
-        {
-            Console.WriteLine($"Creating new task for subscription {subscriptionId}");
-            // Create new task
-            var task = new AlertingTask
-            {
-                SubscriptionId = subscriptionId,
-                LatestResultCount = resultCount,
-                LastNotificationAt = DateTime.UtcNow,
-                Resolved = resultCount == 0 // Auto-resolve if 0 results
-            };
 
-            // Auto-resolve if query returns 0 results
-            if (resultCount == 0)
-            {
-                task.ResolvedAt = DateTime.UtcNow;
-                task.ResolutionNotes = "Auto-resolved: Query returned 0 results";
-            }
+        // Create new task
+        var task = CreateNewTask(subscriptionId, resultCount, autoResolveIfZero: true);
+        context.Tasks.Add(task);
+        await context.SaveChangesAsync(cancellationToken);
+        logger.LogDebug("Created new task {TaskId} for subscription {SubscriptionId}", task.Id, subscriptionId);
 
-            context.Tasks.Add(task);
-            await context.SaveChangesAsync(cancellationToken);
-            Console.WriteLine($"New task {task.Id} created");
+        await LinkNotificationToTaskAsync(context, notificationId, task.Id, cancellationToken);
+        await context.SaveChangesAsync(cancellationToken);
 
-            // Link notification to new task
-            var notification = await context.Notifications.FindAsync(new object[] { notificationId }, cancellationToken);
-            if (notification != null)
-            {
-                Console.WriteLine($"Linking notification {notificationId} to new task {task.Id}");
-                notification.TaskId = task.Id;
-                await context.SaveChangesAsync(cancellationToken);
-            }
-            else
-            {
-                Console.WriteLine($"WARNING: Notification {notificationId} not found!");
-            }
-
-            Console.WriteLine($"Task {task.Id} created and linked successfully");
-            return task.Id;
-        }
+        return task.Id;
     }
 
     public async Task<int> CreateOrUpdateTask(int subscriptionId, int resultCount, CancellationToken cancellationToken)
     {
-        Console.WriteLine($"TaskService.CreateOrUpdateTask called - SubscriptionId: {subscriptionId}, ResultCount: {resultCount}");
-        await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        logger.LogDebug("CreateOrUpdateTask called - SubscriptionId: {SubscriptionId}, ResultCount: {ResultCount}",
+            subscriptionId, resultCount);
 
-        // Find existing unresolved task for this subscription
-        var existingTask = await context.Tasks
-            .Where(t => t.SubscriptionId == subscriptionId && !t.Resolved)
-            .FirstOrDefaultAsync(cancellationToken);
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        var existingTask = await FindUnresolvedTaskAsync(context, subscriptionId, cancellationToken);
 
         if (existingTask != null)
         {
-            Console.WriteLine($"Updating existing task {existingTask.Id} for subscription {subscriptionId}");
-            // Update existing task with latest result count
-            existingTask.LatestResultCount = resultCount;
-            existingTask.LastNotificationAt = DateTime.UtcNow;
-
-            // Auto-resolve if query returns 0 results
+            UpdateTaskWithResultCount(existingTask, resultCount);
             if (resultCount == 0)
             {
-                existingTask.Resolved = true;
-                existingTask.ResolvedAt = DateTime.UtcNow;
-                existingTask.ResolutionNotes = "Auto-resolved: Query returned 0 results";
+                logger.LogDebug("Auto-resolved task {TaskId} for subscription {SubscriptionId}", existingTask.Id, subscriptionId);
             }
-
             await context.SaveChangesAsync(cancellationToken);
-            Console.WriteLine($"Task {existingTask.Id} updated successfully");
             return existingTask.Id;
         }
 
         // Don't create a new task if result count is 0 (nothing to alert on)
         if (resultCount == 0)
         {
-            Console.WriteLine($"No existing task and result count is 0 - no task created");
+            logger.LogDebug("No existing task and result count is 0 for subscription {SubscriptionId} - no task created", subscriptionId);
             return 0;
         }
 
-        Console.WriteLine($"Creating new task for subscription {subscriptionId}");
-        // Create new task
+        // Create new task (never auto-resolve new tasks in this flow)
+        var task = CreateNewTask(subscriptionId, resultCount, autoResolveIfZero: false);
+        context.Tasks.Add(task);
+        await context.SaveChangesAsync(cancellationToken);
+        logger.LogDebug("Created new task {TaskId} for subscription {SubscriptionId}", task.Id, subscriptionId);
+        return task.Id;
+    }
+
+    /// <summary>
+    /// Finds an existing unresolved task for the given subscription.
+    /// </summary>
+    private static async Task<AlertingTask?> FindUnresolvedTaskAsync(
+        SemanticoContext context,
+        int subscriptionId,
+        CancellationToken cancellationToken)
+    {
+        return await context.Tasks
+            .Where(t => t.SubscriptionId == subscriptionId && !t.Resolved)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Updates a task with the latest result count and applies auto-resolution if result count is 0.
+    /// </summary>
+    private static void UpdateTaskWithResultCount(AlertingTask task, int resultCount)
+    {
+        task.LatestResultCount = resultCount;
+        task.LastNotificationAt = DateTime.UtcNow;
+
+        if (resultCount == 0)
+        {
+            task.Resolved = true;
+            task.ResolvedAt = DateTime.UtcNow;
+            task.ResolutionNotes = AutoResolveMessage;
+        }
+    }
+
+    /// <summary>
+    /// Creates a new task with the given parameters.
+    /// </summary>
+    private static AlertingTask CreateNewTask(int subscriptionId, int resultCount, bool autoResolveIfZero)
+    {
+        var shouldAutoResolve = autoResolveIfZero && resultCount == 0;
         var task = new AlertingTask
         {
             SubscriptionId = subscriptionId,
             LatestResultCount = resultCount,
             LastNotificationAt = DateTime.UtcNow,
-            Resolved = false
+            Resolved = shouldAutoResolve
         };
 
-        context.Tasks.Add(task);
-        await context.SaveChangesAsync(cancellationToken);
-        Console.WriteLine($"New task {task.Id} created successfully");
-        return task.Id;
+        if (shouldAutoResolve)
+        {
+            task.ResolvedAt = DateTime.UtcNow;
+            task.ResolutionNotes = AutoResolveMessage;
+        }
+
+        return task;
+    }
+
+    /// <summary>
+    /// Links a notification to a task.
+    /// </summary>
+    private async Task LinkNotificationToTaskAsync(
+        SemanticoContext context,
+        int notificationId,
+        int taskId,
+        CancellationToken cancellationToken)
+    {
+        var notification = await context.Notifications.FindAsync(new object[] { notificationId }, cancellationToken);
+        if (notification != null)
+        {
+            notification.TaskId = taskId;
+        }
+        else
+        {
+            logger.LogWarning("Notification {NotificationId} not found when linking to task {TaskId}", notificationId, taskId);
+        }
     }
 
     public async Task ResolveTask(int taskId, string? resolutionNotes, string? userId, CancellationToken cancellationToken)
     {
-        await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         var task = await context.Tasks
             .FindAsync(new object[] { taskId }, cancellationToken)
@@ -167,7 +170,7 @@ public class TaskService(IDbContextFactory<SemanticoContext> contextFactory) : I
 
     public async Task ReopenTask(int taskId, CancellationToken cancellationToken)
     {
-        await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         var task = await context.Tasks
             .FindAsync(new object[] { taskId }, cancellationToken)
@@ -190,7 +193,7 @@ public class TaskService(IDbContextFactory<SemanticoContext> contextFactory) : I
 
     public async Task<TaskListData> GetTasks(GetTasksRequest request, CancellationToken cancellationToken)
     {
-        await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         var query = context.Tasks.AsQueryable();
 
@@ -236,7 +239,7 @@ public class TaskService(IDbContextFactory<SemanticoContext> contextFactory) : I
 
     public async Task<TaskDetailsData?> GetTaskDetails(int taskId, CancellationToken cancellationToken)
     {
-        await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         var details = await context.Tasks
             .Where(t => t.Id == taskId)
@@ -265,7 +268,9 @@ public class TaskService(IDbContextFactory<SemanticoContext> contextFactory) : I
                 ResolvedAt = t.ResolvedAt,
                 ResolvedByUserId = t.ResolvedByUserId,
                 ResolvedByUserName = null, // TODO: lookup when auth integrated
-                ResolutionNotes = t.ResolutionNotes
+                ResolutionNotes = t.ResolutionNotes,
+                QueryId = t.Subscription.QueryId,
+                QueryName = t.Subscription.Query.Name
             })
             .FirstOrDefaultAsync(cancellationToken);
 
@@ -274,7 +279,7 @@ public class TaskService(IDbContextFactory<SemanticoContext> contextFactory) : I
 
     public async Task<TaskStatisticsData> GetTaskStatistics(CancellationToken cancellationToken)
     {
-        await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         var totalTasks = await context.Tasks.CountAsync(cancellationToken);
         var unresolvedCount = await context.Tasks.Where(t => !t.Resolved).CountAsync(cancellationToken);
@@ -301,5 +306,125 @@ public class TaskService(IDbContextFactory<SemanticoContext> contextFactory) : I
             ResolvedCount = resolvedCount,
             AverageResolutionTimeHours = averageResolutionTimeHours
         };
+    }
+
+    public async Task<List<QueryExecutionSummary>> GetTaskExecutionHistory(int taskId, CancellationToken cancellationToken)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        // Get the subscription ID for this task
+        var subscriptionId = await context.Tasks
+            .Where(t => t.Id == taskId)
+            .Select(t => t.SubscriptionId)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (subscriptionId == 0)
+            return new List<QueryExecutionSummary>();
+
+        var executions = await context.QueryExecutionHistory
+            .Where(qeh => qeh.SubscriptionId == subscriptionId)
+            .OrderByDescending(qeh => qeh.CreatedTime)
+            .Take(50) // Limit to last 50 executions
+            .Select(qeh => new QueryExecutionSummary(
+                qeh.Id,
+                qeh.CreatedTime,
+                qeh.ExecutionTimeMs,
+                qeh.NotificationStatus,
+                qeh.ResultCount
+            ))
+            .ToListAsync(cancellationToken);
+
+        return executions;
+    }
+
+    public async Task<List<RelatedTaskSummary>> GetRelatedTasks(int taskId, CancellationToken cancellationToken)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        // Get the query ID for this task's subscription
+        var queryId = await context.Tasks
+            .Where(t => t.Id == taskId)
+            .Select(t => t.Subscription.QueryId)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (queryId == 0)
+            return new List<RelatedTaskSummary>();
+
+        // Find all tasks from subscriptions using the same query, excluding the current task
+        var relatedTasks = await context.Tasks
+            .IgnoreQueryFilters() // Include archived tasks
+            .Where(t => t.Subscription.QueryId == queryId && t.Id != taskId)
+            .OrderByDescending(t => t.CreatedTime)
+            .Take(20) // Limit to last 20 related tasks
+            .Select(t => new RelatedTaskSummary(
+                t.Id,
+                t.CreatedTime,
+                t.LatestResultCount,
+                t.Resolved,
+                t.ResolvedAt
+            ))
+            .ToListAsync(cancellationToken);
+
+        return relatedTasks;
+    }
+
+    public async Task<List<ResultCountDataPoint>> GetResultCountHistory(int taskId, CancellationToken cancellationToken)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        // Get the subscription ID for this task
+        var subscriptionId = await context.Tasks
+            .Where(t => t.Id == taskId)
+            .Select(t => t.SubscriptionId)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (subscriptionId == 0)
+            return new List<ResultCountDataPoint>();
+
+        // Get result counts from execution history for charting
+        var resultHistory = await context.QueryExecutionHistory
+            .Where(qeh => qeh.SubscriptionId == subscriptionId)
+            .OrderBy(qeh => qeh.CreatedTime)
+            .Select(qeh => new ResultCountDataPoint(qeh.CreatedTime, qeh.ResultCount))
+            .ToListAsync(cancellationToken);
+
+        return resultHistory;
+    }
+
+    public async Task<List<CommentData>> GetTaskComments(int taskId, CancellationToken cancellationToken)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        var comments = await context.Comments
+            .Where(c => c.EntityType == Data.Enums.EntityType.Task && c.EntityId == taskId)
+            .OrderByDescending(c => c.CreatedTime)
+            .Select(c => new CommentData(c.Id, c.Content, c.UserName, c.CreatedTime))
+            .ToListAsync(cancellationToken);
+
+        return comments;
+    }
+
+    public async Task<int> AddTaskComment(int taskId, string content, string? userId, string? userName, CancellationToken cancellationToken)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        // Verify task exists
+        var taskExists = await context.Tasks.AnyAsync(t => t.Id == taskId, cancellationToken);
+        if (!taskExists)
+            throw new SemanticoException($"Task {taskId} not found");
+
+        var comment = new Comment
+        {
+            EntityType = Data.Enums.EntityType.Task,
+            EntityId = taskId,
+            Content = content,
+            UserId = userId,
+            UserName = userName
+        };
+
+        context.Comments.Add(comment);
+        await context.SaveChangesAsync(cancellationToken);
+
+        return comment.Id;
     }
 }

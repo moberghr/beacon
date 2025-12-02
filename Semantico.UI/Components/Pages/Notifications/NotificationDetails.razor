@@ -1,4 +1,4 @@
-@page "/notifications/details/{id:int}"
+@page "/notifications/{id:int}"
 @inherits BasePageComponent
 @using Semantico.Core.Data.Enums
 @using Semantico.Core.Models.QueryExecutionHistory
@@ -71,13 +71,13 @@
                             <MudText Typo="Typo.h6">Query Information</MudText>
                             <MudText>
                                 <strong>Query:</strong> 
-                                <MudLink Href="@($"/semantico/queries/details/{Model.QueryId}")">
+                                <MudLink Href="@($"queries/{Model.QueryId}")">
                                     @Model.QueryName
                                 </MudLink>
                             </MudText>
                             <MudText>
                                 <strong>Subscription:</strong> 
-                                <MudLink Href="@($"/semantico/subscriptions/details/{Model.SubscriptionId}")">
+                                <MudLink Href="@($"subscriptions/{Model.SubscriptionId}")">
                                     ID @Model.SubscriptionId
                                 </MudLink>
                             </MudText>

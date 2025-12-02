@@ -25,6 +25,9 @@ Orchestrate ETL workflows with Insert, Upsert, Truncate, and Sync modes across d
 ### 🔗 Cross-Database Joins
 Query across PostgreSQL, SQL Server, and MySQL simultaneously with virtual table abstractions
 
+### 📋 Task Management
+Automatic alerting tasks from subscriptions with lifecycle tracking, auto-resolution when issues are fixed, and team collaboration
+
 ## 🚀 Quick Start
 
 Add Semantico to your ASP.NET application in under 30 minutes:
@@ -73,7 +76,7 @@ graph TB
 
     subgraph Core["Application Services Layer"]
         QuerySvc[Query Service] ~~~ SubSvc[Subscription Service] ~~~ MigSvc[Migration Service]
-        NotifSvc[Notification Service] ~~~ DataSrcSvc[DataSource Service] ~~~ MetaSvc[Metadata Service]
+        NotifSvc[Notification Service] ~~~ DataSrcSvc[DataSource Service] ~~~ TaskSvc[Task Service]
     end
 
     subgraph Adapters["Notification Adapters"]
@@ -224,6 +227,14 @@ flowchart LR
 - Parameter validation and autocomplete
 - Query flow visualization
 
+### 📋 Task Management
+- Automatic task creation from subscriptions with `CreateTasks` enabled
+- Auto-resolution when query returns 0 results (issue fixed)
+- Result count trend visualization and history charts
+- Task comments for team collaboration
+- Related tasks discovery from same query
+- Manual resolution with notes and user tracking
+
 [Explore all features →](https://moberghr.github.io/semantico/features/)
 
 ## 📦 Installation
@@ -305,6 +316,7 @@ Add connection string to `appsettings.json`:
   - [Multi-Step Queries](https://moberghr.github.io/semantico/features/multi-step-queries) - Advanced query chaining
   - [Subscriptions](https://moberghr.github.io/semantico/features/subscriptions) - Scheduled execution
   - [Notifications](https://moberghr.github.io/semantico/features/notifications) - Email, Teams, Jira delivery
+  - [Tasks](https://moberghr.github.io/semantico/features/tasks) - Alerting task management
 
 - **Advanced**
   - [Query Chaining](https://moberghr.github.io/semantico/advanced/query-chaining) - Cross-project queries
@@ -334,6 +346,9 @@ Monitor SLA violations, inventory thresholds, payment delays, and compliance rul
 
 ### 🎫 Incident Management
 Create Jira issues on first detection, add comments on follow-ups, automatically close when resolved. Full incident lifecycle tracking.
+
+### 📋 Alert Lifecycle Management
+Create alerting tasks from subscriptions, track result count trends over time, collaborate with comments, and auto-resolve when issues are fixed.
 
 ## 🛠️ Technology Stack
 
@@ -385,6 +400,9 @@ Write SQL queries to monitor data quality, business rules, or extract data for m
 ### Step 3: Schedule & Automate
 Create subscriptions with cron schedules and configure notification recipients
 
+### Step 4: Track & Resolve
+Enable task creation to track issues, add comments, and manage the resolution lifecycle
+
 ## 🤝 Support and Contributing
 
 - **Issues** - [Report bugs or request features](https://github.com/moberghr/semantico/issues)
@@ -397,7 +415,7 @@ Create subscriptions with cron schedules and configure notification recipients
 
 **Documentation**: [https://moberghr.github.io/semantico](https://moberghr.github.io/semantico)
 **Repository**: [https://github.com/moberghr/semantico](https://github.com/moberghr/semantico)
-**Version**: 0.8
+**Version**: 1.0
 **Copyright**: © 2025
 
 Thank you for choosing Semantico! We hope you find it invaluable for managing your database monitoring, alerting, and orchestration needs.

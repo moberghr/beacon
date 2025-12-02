@@ -21,19 +21,7 @@
 
 <body>
 <Routes @rendermode="InteractiveServer" />
-    <script src="_framework/blazor.web.js" autostart="false"></script>
-    <script>
-        Blazor.start({
-            circuit: {
-                configureSignalR: function (builder) {
-                    builder.withUrl("_blazor", {
-                        skipNegotiation: true,
-                        transport: signalR.HttpTransportType.WebSockets
-                    });
-                }
-            }
-        });
-    </script>
+    <script src="_framework/blazor.web.js"></script>
     <script src="_content/BlazorMonaco/lib/monaco-editor/min/vs/loader.js"></script>
     <script>require.config({ paths: { 'vs': '_content/BlazorMonaco/lib/monaco-editor/min/vs' } });</script>
     <script src="_content/BlazorMonaco/lib/monaco-editor/min/vs/editor/editor.main.js"></script>

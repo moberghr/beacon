@@ -1,26 +1,27 @@
-﻿using Atlassian.Jira;
+﻿using Microsoft.Extensions.Logging;
 using Semantico.Core.Data.Enums;
 
 namespace Semantico.Core.Adapters.Jira;
 
-internal class JiraAdapter : IAdapter
+internal class JiraAdapter(
+    IJiraApiAdapter jiraApiAdapter,
+    ILogger<JiraAdapter> logger) : IAdapter
 {
     public NotificationType NotificationType => NotificationType.Jira;
-    
+
     public async Task SendNotificationAsync(RecipientQueryResult recipientQueryResult, int? lastNotificationResultCount)
     {
         var credentials = new JiraCredentials(recipientQueryResult.RecipientDestination);
-
-        var jiraClient = Atlassian.Jira.Jira.CreateRestClient(credentials.DomainUrl, credentials.Email, credentials.ApiKey);
+        var cancellationToken = CancellationToken.None;
 
         if (lastNotificationResultCount == null)
         {
-            await CreateIssueAndCommentAsync(credentials, jiraClient, recipientQueryResult);
+            await CreateIssueAndCommentAsync(credentials, recipientQueryResult, cancellationToken);
             return;
         }
 
         var jqlQuery = $"text ~ \"{recipientQueryResult.QueryResult.SubscriptionName}\" AND reporter = \"{credentials.Email}\" order by created DESC";
-        var issues = (await jiraClient.Issues.GetIssuesFromJqlAsync(jqlQuery)).ToList();
+        var issues = await jiraApiAdapter.SearchTickets(credentials, jqlQuery, 50, cancellationToken);
 
         var existingIssue = issues
             .Where(x => x.Summary == recipientQueryResult.QueryResult.SubscriptionName)
@@ -30,7 +31,7 @@ internal class JiraAdapter : IAdapter
         {
             if (existingIssue != null)
             {
-                await existingIssue.WorkflowTransitionAsync("Done");
+                await jiraApiAdapter.TransitionIssue(credentials, existingIssue.Key, "Done", cancellationToken);
             }
 
             return;
@@ -38,53 +39,40 @@ internal class JiraAdapter : IAdapter
 
         if (existingIssue == null)
         {
-            await CreateIssueAndCommentAsync(credentials, jiraClient, recipientQueryResult);
+            await CreateIssueAndCommentAsync(credentials, recipientQueryResult, cancellationToken);
             return;
         }
 
-        await CreateJiraCommentAsync(credentials.Email, existingIssue, recipientQueryResult);
+        await AddCommentToIssueAsync(credentials, existingIssue.Key, recipientQueryResult, cancellationToken);
     }
 
-    private async Task<Issue> CreateIssueAndCommentAsync(JiraCredentials credentials, Atlassian.Jira.Jira jiraClient, RecipientQueryResult recipientQueryResult)
+    private async Task CreateIssueAndCommentAsync(JiraCredentials credentials, RecipientQueryResult recipientQueryResult, CancellationToken cancellationToken)
     {
-        var description = Helpers.GenerateJiraContent(recipientQueryResult.QueryResult);
-        
-        var issue = await CreateNewIssueAsync(jiraClient, credentials.Project, "", recipientQueryResult.QueryResult.SubscriptionName, description);
+        var description = Helpers.GenerateJiraAdf(recipientQueryResult.QueryResult);
 
-        await CreateJiraCommentAsync(credentials.Email, issue, recipientQueryResult);
+        var result = await jiraApiAdapter.CreateWorkItem(
+            credentials: credentials,
+            sessionId: recipientQueryResult.QueryResult.SubscriptionName,
+            title: $"SEMANTICO: {recipientQueryResult.QueryResult.SubscriptionName}",
+            description: description,
+            issueType: "Task",
+            label:"Semantico",
+            cancellationToken: cancellationToken);
 
-        return issue;
+        await AddCommentToIssueAsync(credentials, result.TicketKey, recipientQueryResult, cancellationToken);
     }
 
-    private async Task<Comment> CreateJiraCommentAsync(string currentUser, Issue issue, RecipientQueryResult recipientQueryResult)
+    private async Task AddCommentToIssueAsync(JiraCredentials credentials, string issueKey, RecipientQueryResult recipientQueryResult, CancellationToken cancellationToken)
     {
-        var description = Helpers.GenerateJiraContent(recipientQueryResult.QueryResult);
-
-        var comment = new Comment
-        {
-            Author = currentUser,
-            Body = description
-        };
+        var description = Helpers.GenerateJiraAdf(recipientQueryResult.QueryResult);
 
         if (recipientQueryResult.QueryResultFile != null)
         {
-            var attachment = new UploadAttachmentInfo(recipientQueryResult.QueryResultFile.Name, recipientQueryResult.QueryResultFile.Data);
-
-            await issue.AddAttachmentAsync([attachment]);
+            // TODO: Attachment upload is not yet supported in the new REST API
+            logger.LogWarning("Attachment upload for Jira issue {IssueKey} is not supported. File: {FileName}",
+                issueKey, recipientQueryResult.QueryResultFile.Name);
         }
 
-        return await issue.AddCommentAsync(comment);
-    }
-
-    private async Task<Issue> CreateNewIssueAsync(Atlassian.Jira.Jira jiraClient, string project, string assignee, string summary, string description)
-    {
-        var issue = jiraClient.CreateIssue(project);
-        issue.Type = "Task";
-        issue.Assignee = assignee;
-        issue.Summary = summary;
-        issue.Description = description;
-
-        await issue.SaveChangesAsync();
-        return issue;
+        await jiraApiAdapter.AddCommentToTicket(credentials, issueKey, description, cancellationToken);
     }
 }

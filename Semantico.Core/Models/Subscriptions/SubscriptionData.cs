@@ -38,5 +38,5 @@ public class SubscriptionData
 
     public List<RecipientData> Recipients { get; set; } = new();
 
-    public List<SubscriptionParamaterData> Parameters { get; set; } = new();
+    public List<SubscriptionParameterData> Parameters { get; set; } = new();
 }

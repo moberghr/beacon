@@ -7,7 +7,7 @@
 
 <MudContainer MaxWidth="MaxWidth.ExtraExtraLarge" Class="my-4 px-4">
     <SemanticoPageHeader Icon="@Icons.Material.Filled.Dashboard" Title="Dashboard"/>
-    <SemanticoPageAlert Text="Welcome to Semantico! Check out documentation https://mibu.github.io/semantico/getting-started/quick-start on how to use the product."/>
+    <SemanticoPageAlert Text="Welcome to Semantico! Check out documentation <a>https://mibu.github.io/semantico/getting-started/quick-start</a> on how to use the product."/>
     
     
     <MudText Typo="Typo.h6" Class="my-4">
@@ -65,6 +65,54 @@
                         </MudStack>
                         <MudText Typo="Typo.h4">@(dashboardStatistics?.TotalNotificationsSent ?? 0)</MudText>
                         <MudText Typo="Typo.body2" Color="Color.Secondary">Notifications Sent</MudText>
+                    </MudStack>
+                </MudCard>
+            </MudItem>
+        </MudGrid>
+    </MudCard>
+
+    <MudText Typo="Typo.h6" Class="my-4">
+        <MudIcon Icon="@Icons.Material.Filled.Task" Class="mr-2" />
+        Task Statistics
+    </MudText>
+
+    <MudCard Elevation="2">
+        <MudGrid Spacing="3" Class="pa-4">
+            <MudItem xs="12" sm="6" md="4">
+                <MudCard Elevation="1" Class="pa-4 statistics-card">
+                    <MudStack Spacing="2">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                            <MudIcon Icon="@Icons.Material.Filled.Assignment" Color="Color.Primary" Size="Size.Large" />
+                            <MudChip T="string" Color="Color.Primary" Variant="Variant.Text" Size="Size.Small">Total</MudChip>
+                        </MudStack>
+                        <MudText Typo="Typo.h4">@(dashboardStatistics?.TotalTasks ?? 0)</MudText>
+                        <MudText Typo="Typo.body2" Color="Color.Secondary">Total Tasks</MudText>
+                    </MudStack>
+                </MudCard>
+            </MudItem>
+
+            <MudItem xs="12" sm="6" md="4">
+                <MudCard Elevation="1" Class="pa-4 statistics-card">
+                    <MudStack Spacing="2">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                            <MudIcon Icon="@Icons.Material.Filled.Warning" Color="Color.Warning" Size="Size.Large" />
+                            <MudChip T="string" Color="Color.Warning" Variant="Variant.Text" Size="Size.Small">Open</MudChip>
+                        </MudStack>
+                        <MudText Typo="Typo.h4">@(dashboardStatistics?.UnresolvedTasks ?? 0)</MudText>
+                        <MudText Typo="Typo.body2" Color="Color.Secondary">Unresolved Tasks</MudText>
+                    </MudStack>
+                </MudCard>
+            </MudItem>
+
+            <MudItem xs="12" sm="6" md="4">
+                <MudCard Elevation="1" Class="pa-4 statistics-card">
+                    <MudStack Spacing="2">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                            <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Color="Color.Success" Size="Size.Large" />
+                            <MudChip T="string" Color="Color.Success" Variant="Variant.Text" Size="Size.Small">Resolved</MudChip>
+                        </MudStack>
+                        <MudText Typo="Typo.h4">@(dashboardStatistics?.ResolvedTasks ?? 0)</MudText>
+                        <MudText Typo="Typo.body2" Color="Color.Secondary">Resolved Tasks</MudText>
                     </MudStack>
                 </MudCard>
             </MudItem>

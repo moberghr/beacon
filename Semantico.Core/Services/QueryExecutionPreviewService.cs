@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Semantico.Core.Models.Queries;
 
 namespace Semantico.Core.Services;
@@ -14,10 +15,12 @@ public interface IQueryExecutionPreviewService
 internal sealed class QueryExecutionPreviewService : IQueryExecutionPreviewService
 {
     private readonly IQueryService _queryService;
-    
-    public QueryExecutionPreviewService(IQueryService queryService)
+    private readonly ILogger<QueryExecutionPreviewService> _logger;
+
+    public QueryExecutionPreviewService(IQueryService queryService, ILogger<QueryExecutionPreviewService> logger)
     {
         _queryService = queryService;
+        _logger = logger;
     }
 
     public async Task<QueryExecutionResult?> ExecuteQueryPreview(int queryId, CancellationToken cancellationToken)
@@ -26,8 +29,14 @@ internal sealed class QueryExecutionPreviewService : IQueryExecutionPreviewServi
         {
             return await _queryService.ExecuteQueryAdvanced(queryId, cancellationToken: cancellationToken);
         }
-        catch
+        catch (OperationCanceledException)
         {
+            _logger.LogDebug("Query preview for query {QueryId} was cancelled", queryId);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error executing query preview for query {QueryId}", queryId);
             return null;
         }
     }
@@ -38,8 +47,14 @@ internal sealed class QueryExecutionPreviewService : IQueryExecutionPreviewServi
         {
             return await _queryService.PreviewQueryStep(queryId, stepOrder, cancellationToken);
         }
-        catch
+        catch (OperationCanceledException)
         {
+            _logger.LogDebug("Step preview for query {QueryId} step {StepOrder} was cancelled", queryId, stepOrder);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error executing step preview for query {QueryId} step {StepOrder}", queryId, stepOrder);
             return null;
         }
     }
@@ -50,8 +65,14 @@ internal sealed class QueryExecutionPreviewService : IQueryExecutionPreviewServi
         {
             return await _queryService.PreviewQueryStep(queryId, stepOrder, parameters, cancellationToken);
         }
-        catch
+        catch (OperationCanceledException)
         {
+            _logger.LogDebug("Step preview with parameters for query {QueryId} step {StepOrder} was cancelled", queryId, stepOrder);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error executing step preview with parameters for query {QueryId} step {StepOrder}", queryId, stepOrder);
             return null;
         }
     }

@@ -1,5 +1,5 @@
-using System.Text.Encodings.Web;
 using System.Text.RegularExpressions;
+using Semantico.Core.Adapters.Jira;
 
 namespace Semantico.Core.Adapters;
 
@@ -7,12 +7,21 @@ public static class Helpers
 {
     public static string GenerateEmailContent(QueryResult queryResult)
     {
-        var querySection = queryResult.ShowQuery 
+        var querySection = queryResult.ShowQuery
             ? $@"
             <p>Sql Query:</p>
             <pre>{queryResult.SqlQuery}</pre>"
             : "";
-            
+
+        var firstRecord = queryResult.TopRecords.FirstOrDefault();
+        var tableHeaders = firstRecord != null
+            ? string.Join("", firstRecord.Select(property => $"<th>{property.Key}</th>"))
+            : "<th>No data</th>";
+
+        var tableRows = queryResult.TopRecords.Any()
+            ? string.Join("", queryResult.TopRecords.Select(record => $"<tr>{string.Join("", record.Select(property => $"<td>{property.Value}</td>"))}</tr>"))
+            : "<tr><td>No records found</td></tr>";
+
         return $@"
         <html>
         <head>
@@ -40,11 +49,11 @@ public static class Helpers
             <table>
                 <thead>
                     <tr>
-                    {string.Join("", queryResult.TopRecords.FirstOrDefault().SelectMany(property => $"<th>{property.Key}</th>"))}
+                    {tableHeaders}
                     </tr>
                 </thead>
                 <tbody>
-                    {string.Join("", queryResult.TopRecords.Select(record => $"<tr>{string.Join("", record.Select(property => $"<td>{property.Value}</td>"))}</tr>"))}
+                    {tableRows}
                 </tbody>
             </table>
         </body>
@@ -53,7 +62,7 @@ public static class Helpers
 
     public static string GenerateJiraContent(QueryResult queryResult)
     {
-        var querySection = queryResult.ShowQuery 
+        var querySection = queryResult.ShowQuery
             ? $@"
         h3. Sql Query:
         {{code:sql}}
@@ -62,13 +71,90 @@ public static class Helpers
 
         ----"
             : "";
-            
+
+        var firstRecord = queryResult.TopRecords.FirstOrDefault();
+        if (firstRecord == null)
+        {
+            return $@"
+        {querySection}
+
+        Total records: *{queryResult.TotalRecords}*
+
+        No records to display.";
+        }
+
+        var headers = string.Join("|", firstRecord.Select(property => property.Key));
+        var rows = string.Join("\n", queryResult.TopRecords.Select(record =>
+            $"|{string.Join("|", record.Select(property => Regex.Replace(property.Value?.ToString() ?? "-", @"\t|\n|\r", "")))}|"));
+
         return $@"
         {querySection}
 
         Total records: *{queryResult.TotalRecords}*
 
-        |{string.Join("|", queryResult.TopRecords.FirstOrDefault().Select(property => property.Key))}|
-        {string.Join("\n", queryResult.TopRecords.Select(record => $"|{string.Join("|", record.Select(property =>  Regex.Replace(property.Value?.ToString() ?? "-", @"\t|\n|\r", "")))}|"))}|";
+        |{headers}|
+        {rows}";
+    }
+
+    /// <summary>
+    /// Generates Atlassian Document Format (ADF) for Jira Cloud API v3.
+    /// This produces properly formatted rich text with tables, code blocks, etc.
+    /// </summary>
+    public static AdfDocument GenerateJiraAdf(QueryResult queryResult)
+    {
+        var builder = new AdfBuilder();
+
+        // Add SQL query section if enabled
+        if (queryResult.ShowQuery && !string.IsNullOrEmpty(queryResult.SqlQuery))
+        {
+            builder
+                .AddHeading(3, "SQL Query")
+                .AddCodeBlock(queryResult.SqlQuery, "sql")
+                .AddRule();
+        }
+
+        // Add summary
+        builder.AddParagraph(p => p
+            .Text("Total records: ")
+            .Bold(queryResult.TotalRecords.ToString()));
+
+        // Add results table
+        var firstRecord = queryResult.TopRecords.FirstOrDefault();
+        if (firstRecord != null && queryResult.TopRecords.Count != 0)
+        {
+            builder.AddHeading(4, $"First {queryResult.TopRecords.Count} records:");
+
+            var headers = firstRecord.Select(p => p.Key).ToList();
+            var rows = queryResult.TopRecords.Select(record =>
+                record.Select(p => SanitizeTableCell(p.Value?.ToString())).ToList()
+            ).ToList();
+
+            builder.AddTable(headers, rows);
+        }
+        else
+        {
+            builder.AddParagraph("No records to display.");
+        }
+
+        return builder.Build();
+    }
+
+    /// <summary>
+    /// Generates ADF for a simple text comment.
+    /// </summary>
+    public static AdfDocument GenerateJiraCommentAdf(string comment)
+    {
+        return new AdfBuilder()
+            .AddParagraph(comment)
+            .Build();
+    }
+
+    private static string SanitizeTableCell(string? value)
+    {
+        if (string.IsNullOrEmpty(value))
+            return "-";
+
+        // Remove newlines and tabs that would break table formatting
+        return Regex.Replace(value, @"\t|\n|\r", " ").Trim();
     }
 }

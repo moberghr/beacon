@@ -843,8 +843,8 @@ internal class MigrationService(
                 var bulkConfig = new BulkConfig
                 {
                     SetOutputIdentity = false,
-                    BulkCopyTimeout = 300,
-                    BatchSize = 1000,
+                    BulkCopyTimeout = Constants.Migration.BulkCopyTimeoutSeconds,
+                    BatchSize = Constants.Migration.UpsertBatchSize,
                     CustomDestinationTableName = tempTableName,
                     UseTempDB = false
                 };
@@ -1077,8 +1077,8 @@ DO UPDATE SET {updateSet}";
             var bulkConfig = new BulkConfig
             {
                 SetOutputIdentity = false,
-                BulkCopyTimeout = 300,
-                BatchSize = 10000,
+                BulkCopyTimeout = Constants.Migration.BulkCopyTimeoutSeconds,
+                BatchSize = Constants.Migration.BulkInsertBatchSize,
                 CustomDestinationTableName = tableName,
                 UseTempDB = false
             };
@@ -1114,9 +1114,9 @@ DO UPDATE SET {updateSet}";
                     errorDetails.Add(errorMsg);
                     logger.LogWarning("Failed to insert row into {Table}: {Error}", tableName, rowEx.Message);
 
-                    if (rowsFailed > 100)
+                    if (rowsFailed > Constants.Migration.MaxFailedRowsBeforeStop)
                     {
-                        errorDetails.Add("Too many errors, stopping insertion");
+                        errorDetails.Add($"Too many errors (>{Constants.Migration.MaxFailedRowsBeforeStop}), stopping insertion");
                         break;
                     }
                 }

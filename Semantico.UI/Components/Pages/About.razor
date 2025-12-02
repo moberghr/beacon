@@ -81,6 +81,19 @@
                         </MudStack>
                     </MudPaper>
                 </MudItem>
+                <MudItem xs="12" md="6" lg="3">
+                    <MudPaper Class="pa-4" Elevation="0" Style="height: 100%; border: 1px solid var(--mud-palette-divider);">
+                        <MudStack AlignItems="AlignItems.Center" Spacing="2">
+                            <MudAvatar Size="Size.Large" Color="Color.Warning">
+                                <MudIcon Icon="@Icons.Material.Filled.Task" Size="Size.Large" />
+                            </MudAvatar>
+                            <MudText Typo="Typo.h6" Align="Align.Center" Class="fw-bold">Task Management</MudText>
+                            <MudText Typo="Typo.body2" Align="Align.Center">
+                                Automatic alerting tasks from subscriptions with lifecycle tracking, auto-resolution, and collaboration
+                            </MudText>
+                        </MudStack>
+                    </MudPaper>
+                </MudItem>
             </MudGrid>
         </MudCardContent>
     </MudCard>
@@ -101,7 +114,7 @@ graph TB
 
     subgraph Core["Application Services Layer"]
         QuerySvc[Query Service] ~~~ SubSvc[Subscription Service] ~~~ MigSvc[Migration Service]
-        NotifSvc[Notification Service] ~~~ DataSrcSvc[DataSource Service] ~~~ MetaSvc[Metadata Service]
+        NotifSvc[Notification Service] ~~~ DataSrcSvc[DataSource Service] ~~~ TaskSvc[Task Service]
     end
 
     subgraph Adapters["Notification Adapters"]
@@ -231,6 +244,45 @@ flowchart LR
         </MudCardContent>
     </MudCard>
 
+    @* Task Management Flow *@
+    <MudCard Class="my-4">
+        <MudCardContent>
+            <MudText Typo="Typo.h5" Class="mb-4 fw-bold">Task Management Flow</MudText>
+            <MudText Typo="Typo.body2" Class="mb-4">
+                Automatic alerting with task lifecycle management:
+            </MudText>
+            <div class="mermaid-container mb-4">
+                <pre class="mermaid">
+stateDiagram-v2
+    [*] --> Created: Subscription executes<br/>with CreateTasks=true
+
+    Created --> Open: Query returns results
+    Open --> Updated: Subsequent executions<br/>update result count
+    Updated --> Open: Still has results
+    Open --> AutoResolved: Query returns 0 results
+    Open --> ManualResolved: User resolves<br/>with notes
+
+    AutoResolved --> Reopened: Query returns results again
+    ManualResolved --> Reopened: User reopens task
+
+    Reopened --> Open: Continue tracking
+
+    note right of Open
+        - Track latest result count
+        - Show result trend chart
+        - Add comments
+        - Link related tasks
+    end note
+
+    note right of AutoResolved
+        Automatically resolved
+        when no issues detected
+    end note
+                </pre>
+            </div>
+        </MudCardContent>
+    </MudCard>
+
     @* Key Features *@
     <MudCard Class="my-4">
         <MudCardContent>
@@ -328,6 +380,22 @@ flowchart LR
                                 <MudListItem T="string" Icon="@Icons.Material.Filled.Check">Database explorer with schema introspection</MudListItem>
                                 <MudListItem T="string" Icon="@Icons.Material.Filled.Check">Parameter validation and autocomplete</MudListItem>
                                 <MudListItem T="string" Icon="@Icons.Material.Filled.Check">Query flow visualization</MudListItem>
+                            </MudList>
+                        </MudStack>
+                    </MudPaper>
+                </MudItem>
+                <MudItem xs="12" md="6">
+                    <MudPaper Class="pa-3" Elevation="0" Style="height: 100%;">
+                        <MudStack Spacing="2">
+                            <MudText Typo="Typo.h6" Color="Color.Error">
+                                <MudIcon Icon="@Icons.Material.Filled.Task" Class="mr-2" />
+                                Task Management
+                            </MudText>
+                            <MudList T="string" Dense="true">
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.Check">Automatic task creation from subscriptions</MudListItem>
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.Check">Auto-resolution when issues are fixed (0 results)</MudListItem>
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.Check">Result count trend visualization</MudListItem>
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.Check">Task comments and collaboration</MudListItem>
                             </MudList>
                         </MudStack>
                     </MudPaper>
@@ -584,7 +652,7 @@ flowchart LR
         <MudCardContent>
             <MudText Typo="Typo.h5" Class="mb-4 fw-bold">Getting Started</MudText>
             <MudGrid>
-                <MudItem xs="12" md="4">
+                <MudItem xs="12" md="3">
                     <MudPaper Class="pa-4" Style="height: 100%; background: linear-gradient(135deg, var(--mud-palette-primary-lighten) 0%, var(--mud-palette-primary) 100%);">
                         <MudStack AlignItems="AlignItems.Center" Spacing="2">
                             <MudAvatar Size="Size.Large" Style="background: white; color: var(--mud-palette-primary);">
@@ -597,7 +665,7 @@ flowchart LR
                         </MudStack>
                     </MudPaper>
                 </MudItem>
-                <MudItem xs="12" md="4">
+                <MudItem xs="12" md="3">
                     <MudPaper Class="pa-4" Style="height: 100%; background: linear-gradient(135deg, var(--mud-palette-secondary-lighten) 0%, var(--mud-palette-secondary) 100%);">
                         <MudStack AlignItems="AlignItems.Center" Spacing="2">
                             <MudAvatar Size="Size.Large" Style="background: white; color: var(--mud-palette-secondary);">
@@ -610,7 +678,7 @@ flowchart LR
                         </MudStack>
                     </MudPaper>
                 </MudItem>
-                <MudItem xs="12" md="4">
+                <MudItem xs="12" md="3">
                     <MudPaper Class="pa-4" Style="height: 100%; background: linear-gradient(135deg, var(--mud-palette-tertiary-lighten) 0%, var(--mud-palette-tertiary) 100%);">
                         <MudStack AlignItems="AlignItems.Center" Spacing="2">
                             <MudAvatar Size="Size.Large" Style="background: white; color: var(--mud-palette-tertiary);">
@@ -619,6 +687,19 @@ flowchart LR
                             <MudText Typo="Typo.h6" Align="Align.Center" Style="color: white;">Schedule & Automate</MudText>
                             <MudText Typo="Typo.body2" Align="Align.Center" Style="color: white;">
                                 Create subscriptions with cron schedules and configure notification recipients
+                            </MudText>
+                        </MudStack>
+                    </MudPaper>
+                </MudItem>
+                <MudItem xs="12" md="3">
+                    <MudPaper Class="pa-4" Style="height: 100%; background: linear-gradient(135deg, var(--mud-palette-warning-lighten) 0%, var(--mud-palette-warning) 100%);">
+                        <MudStack AlignItems="AlignItems.Center" Spacing="2">
+                            <MudAvatar Size="Size.Large" Style="background: white; color: var(--mud-palette-warning);">
+                                <MudText Typo="Typo.h5">4</MudText>
+                            </MudAvatar>
+                            <MudText Typo="Typo.h6" Align="Align.Center" Style="color: white;">Track & Resolve</MudText>
+                            <MudText Typo="Typo.body2" Align="Align.Center" Style="color: white;">
+                                Enable task creation to track issues, add comments, and manage resolution lifecycle
                             </MudText>
                         </MudStack>
                     </MudPaper>
@@ -638,7 +719,7 @@ flowchart LR
                     </MudText>
                 </MudStack>
                 <MudStack AlignItems="AlignItems.End" Spacing="1">
-                    <MudText Typo="Typo.body1" Class="mud-text-secondary">Version 0.8</MudText>
+                    <MudText Typo="Typo.body1" Class="mud-text-secondary">Version 1.0</MudText>
                     <MudStack Row="true" Spacing="1">
                         <MudChip T="string" Size="Size.Small" Color="Color.Primary" Icon="@Icons.Material.Filled.Copyright">2025</MudChip>
                     </MudStack>

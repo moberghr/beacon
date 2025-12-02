@@ -16,9 +16,14 @@ public record TaskDetailsData
     public string? ResolvedByUserId { get; init; }
     public string? ResolvedByUserName { get; init; }
     public string? ResolutionNotes { get; init; }
+    public required int QueryId { get; init; }
+    public required string QueryName { get; init; }
 }
 
 public record SubscriptionSummary(int Id, string Name, string? Description);
 public record RecipientSummary(int Id, string Name, NotificationType Type);
-public record QueryExecutionSummary(int Id, DateTime ExecutedAt, double ExecutionTimeMs, NotificationStatus Status);
+public record QueryExecutionSummary(int Id, DateTime ExecutedAt, double ExecutionTimeMs, NotificationStatus Status, int ResultCount);
 public record NotificationSummary(int Id, DateTime SentAt, int ResultCount, string? StoredResults);
+public record CommentData(int Id, string Content, string? UserName, DateTime CreatedAt);
+public record RelatedTaskSummary(int Id, DateTime CreatedAt, int LatestResultCount, bool Resolved, DateTime? ResolvedAt);
+public record ResultCountDataPoint(DateTime Date, int ResultCount);

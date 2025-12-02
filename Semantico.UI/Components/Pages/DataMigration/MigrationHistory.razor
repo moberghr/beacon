@@ -79,7 +79,7 @@
                 <Columns>
                     <PropertyColumn Property="x => x.MigrationJobName" Title="Migration Job">
                         <CellTemplate>
-                            <MudLink Href="@($"/semantico/data-migration/edit/{context.Item.MigrationJobId}")">
+                            <MudLink Href="@($"data-migration/edit/{context.Item.MigrationJobId}")">
                                 @context.Item.MigrationJobName
                             </MudLink>
                         </CellTemplate>
@@ -224,7 +224,7 @@
     
     private void NavigateBack()
     {
-        NavManager.NavigateTo("/semantico/data-migration");
+        NavManager.NavigateTo("data-migration");
     }
     
     private async Task ShowErrorDetails(MigrationExecutionDto execution)
