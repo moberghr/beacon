@@ -118,17 +118,17 @@ internal class QueryExecutionOrchestrator
     /// <summary>
     /// Extracts parameters relevant to a specific step
     /// </summary>
-    private List<SubscriptionParamaterData> ExtractStepParameters(
+    private List<SubscriptionParameterData> ExtractStepParameters(
         QueryStepData step,
         List<ParameterValue>? parameters)
     {
         if (parameters == null || !parameters.Any())
-            return new List<SubscriptionParamaterData>();
+            return new List<SubscriptionParameterData>();
 
         return step.Parameters.Select(p =>
         {
             var value = parameters.FirstOrDefault(param => param.Name == p.Name)?.Value ?? "";
-            return new SubscriptionParamaterData
+            return new SubscriptionParameterData
             {
                 QueryPlaceholder = p.Name,
                 Value = value

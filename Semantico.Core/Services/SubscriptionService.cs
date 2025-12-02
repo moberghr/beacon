@@ -75,12 +75,7 @@ internal class SubscriptionService(IDbContextFactory<SemanticoContext> contextFa
             StoreResults = subscriptionData.StoreResults,
             CreateTasks = subscriptionData.CreateTasks,
             Recipients = recipients,
-            Parameters = subscriptionData.Parameters.Select(x =>
-                new SubscriptionParameter
-                {
-                    QueryPlaceholder = x.QueryPlaceholder,
-                    Value = x.Value,
-                }).ToList()
+            Parameters = ParameterEntityFactory.CreateSubscriptionParameters(subscriptionData.Parameters)
         };
 
         context.Subscriptions.Add(subscription);
@@ -146,7 +141,7 @@ internal class SubscriptionService(IDbContextFactory<SemanticoContext> contextFa
                     TimeoutSeconds = x.TimeoutSeconds,
                     StoreResults = x.StoreResults,
                     CreateTasks = x.CreateTasks,
-                    Parameters = x.Parameters.Select(y => new SubscriptionParamaterData
+                    Parameters = x.Parameters.Select(y => new SubscriptionParameterData
                     {
                         QueryPlaceholder = y.QueryPlaceholder,
                         Value = y.Value
@@ -207,17 +202,8 @@ internal class SubscriptionService(IDbContextFactory<SemanticoContext> contextFa
             subscriptionParameter.Archive();
         }
 
-        foreach (var subscriptionParameter in subscriptionData.Parameters)
-        {
-            var subscriptionParam = new SubscriptionParameter
-            {
-                SubscriptionId = subscription.Id,
-                QueryPlaceholder = subscriptionParameter.QueryPlaceholder,
-                Value = subscriptionParameter.Value
-            };
-
-            context.SubscriptionParameters.Add(subscriptionParam);
-        }
+        var newParams = ParameterEntityFactory.CreateSubscriptionParameters(subscriptionData.Parameters, subscription.Id);
+        context.SubscriptionParameters.AddRange(newParams);
 
         await context.SaveChangesAsync(cancellationToken);
 
@@ -258,7 +244,7 @@ internal class SubscriptionService(IDbContextFactory<SemanticoContext> contextFa
                 StoreResults = x.StoreResults,
                 CreateTasks = x.CreateTasks,
                 Status = x.ArchivedTime.HasValue ? "Archived" : "Active",
-                Parameters = x.Parameters.Select(y => new SubscriptionParamaterData()
+                Parameters = x.Parameters.Select(y => new SubscriptionParameterData()
                 {
                     QueryPlaceholder = y.QueryPlaceholder,
                     Value = y.Value

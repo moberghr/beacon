@@ -43,6 +43,8 @@ public static class ServiceConfiguration
             services.TryAddSingleton(typeof(IEmailAdapter), configurationOptions.EmailAdapter);
             services.AddSingleton<IAdapter, EmailAdapter>();
         }
+        services.TryAddSingleton<IJiraRestClientFactory, JiraRestClientFactory>();
+        services.TryAddSingleton<IJiraApiAdapter, JiraApiAdapter>();
         services.AddSingleton<IAdapter, JiraAdapter>();
         services.TryAddSingleton<AdapterFactory>();
 

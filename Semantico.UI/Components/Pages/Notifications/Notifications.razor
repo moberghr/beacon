@@ -20,7 +20,7 @@
                 <CellTemplate>
                     <MudStack Spacing="1">
 
-                            <MudLink Href="@($"/semantico/queryexecutionhistory/details/{context.Item.QueryExecutionHistoryId}")">
+                            <MudLink Href="@($"query-execution-history/{context.Item.QueryExecutionHistoryId}")">
                                 View Details
                             </MudLink>
 
@@ -30,7 +30,7 @@
             <PropertyColumn InitialDirection="SortDirection.Descending" Property="x => x.CreatedTime"/>
             <TemplateColumn Title="Subscription">
                 <CellTemplate>
-                    <MudLink Href="@($"/semantico/subscriptions/details/{context.Item?.SubscriptionId ?? 0}")">@context.Item?.QueryName</MudLink>
+                    <MudLink Href="@($"subscriptions/{context.Item?.SubscriptionId ?? 0}")">@context.Item?.QueryName</MudLink>
                 </CellTemplate>
             </TemplateColumn>
             <TemplateColumn Title="Recipients">

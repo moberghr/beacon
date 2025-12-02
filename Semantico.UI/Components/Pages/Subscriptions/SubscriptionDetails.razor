@@ -1,4 +1,4 @@
-﻿@page "/subscriptions/details/{id:int}"
+﻿@page "/subscriptions/{id:int}"
 @inherits BasePageComponent
 @using Semantico.Core.Models.QueryExecutionHistory
 @using Semantico.Core.Models.Subscriptions
@@ -94,7 +94,11 @@
                         </ToolBarContent>
                         <Columns>
                             <PropertyColumn InitialDirection="SortDirection.Descending" Property="x => x.CreatedTime" Title="Created"/>
-                            <PropertyColumn Property="x => x.QueryExecutionHistoryId" Title="Id"/>
+                            <TemplateColumn Title="Id">
+                                <CellTemplate>
+                                    <MudLink Href="@($"query-execution-history/{context.Item.QueryExecutionHistoryId}")">@context.Item.QueryExecutionHistoryId</MudLink>
+                                </CellTemplate>
+                            </TemplateColumn>
                             <TemplateColumn Title="Recipients">
                                 <CellTemplate>
                                     @($"[{context.Item.Notifications.Count}] {string.Join(", ", context.Item.Notifications.Select(x => x.RecipientName).ToList()).GetSubstring(50)}")

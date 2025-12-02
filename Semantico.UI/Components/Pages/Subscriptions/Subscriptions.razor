@@ -62,12 +62,12 @@
 
     private async Task OnRowClick(DataGridRowClickEventArgs<SubscriptionData> args)
     {
-        NavManager.NavigateTo($"/semantico/subscriptions/details/{args.Item.SubscriptionId}");
+        NavManager.NavigateTo($"subscriptions/{args.Item.SubscriptionId}");
     }
 
     private void NewSubscription()
     {
-        NavManager.NavigateTo("/semantico/subscriptions/create");
+        NavManager.NavigateTo("subscriptions/create");
     }
 
 }

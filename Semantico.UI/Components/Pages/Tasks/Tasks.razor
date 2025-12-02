@@ -20,9 +20,13 @@
         <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@LoadTasks">Refresh</MudButton>
     </MudStack>
 
-    <MudDataGrid @ref="_dataGrid" ServerData="ServerReload" T="TaskData" Hover="false" Filterable="false" >
+    <MudDataGrid @ref="_dataGrid" ServerData="ServerReload" T="TaskData" Hover="true" Filterable="false" >
         <Columns>
-            <PropertyColumn Property="x => x.Id" Title="Id"/>
+            <TemplateColumn Title="Id" SortBy="x => x.Id">
+                <CellTemplate>
+                    <MudLink Href="@($"tasks/{context.Item.Id}")">@context.Item.Id</MudLink>
+                </CellTemplate>
+            </TemplateColumn>
             <PropertyColumn InitialDirection="SortDirection.Descending" Property="x => x.CreatedAt" Title="Created" />
             <PropertyColumn Property="x => x.SubscriptionName" Title="Subscription"/>
             <PropertyColumn Property="x => x.LatestResultCount" Title="Latest Results" />
@@ -50,6 +54,11 @@
                     {
                         <span>-</span>
                     }
+                </CellTemplate>
+            </TemplateColumn>
+            <TemplateColumn Title="Actions" Sortable="false">
+                <CellTemplate>
+                    <MudIconButton Icon="@Icons.Material.Filled.Visibility" Size="Size.Small" Color="Color.Primary" Href="@($"tasks/{context.Item.Id}")" Title="View Details"/>
                 </CellTemplate>
             </TemplateColumn>
         </Columns>

@@ -210,19 +210,8 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
             await context.SaveChangesAsync(cancellationToken); // Save to get step ID
 
             // Create step parameters
-            foreach (var parameterData in stepData.Parameters)
-            {
-                var parameter = new QueryStepParameter
-                {
-                    QueryStepId = queryStep.Id,
-                    Name = parameterData.Name,
-                    Type = parameterData.Type,
-                    Description = parameterData.Description,
-                    Placeholder = parameterData.Placeholder
-                };
-
-                context.QueryStepParameters.Add(parameter);
-            }
+            var parameters = ParameterEntityFactory.CreateQueryStepParameters(stepData.Parameters, queryStep.Id);
+            context.QueryStepParameters.AddRange(parameters);
         }
 
         await context.SaveChangesAsync(cancellationToken);
@@ -444,7 +433,7 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
             NotificationType = r.NotificationType
         }).ToList();
 
-        queryResult.MaxRows = subscription.MaxRows ?? 1_000_000;
+        queryResult.MaxRows = subscription.MaxRows ?? Constants.Query.DefaultMaxRows;
         
         queryResult.TopRecords = queryResult.TopRecords.Take(queryResult.MaxRows.Value).ToList();
         queryResult.AllRecords = queryResult.AllRecords.Take(queryResult.MaxRows.Value).ToList();
@@ -505,19 +494,8 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
             }
 
             // Add new parameters
-            foreach (var parameterData in queryData.Parameters)
-            {
-                var parameter = new QueryStepParameter
-                {
-                    QueryStepId = firstStep.Id,
-                    Name = parameterData.Name,
-                    Type = parameterData.Type,
-                    Description = parameterData.Description,
-                    Placeholder = parameterData.Placeholder
-                };
-
-                context.QueryStepParameters.Add(parameter);
-            }
+            var newParams = ParameterEntityFactory.CreateQueryStepParameters(queryData.Parameters, firstStep.Id);
+            context.QueryStepParameters.AddRange(newParams);
         }
         else
         {
@@ -541,19 +519,8 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
                     }
 
                     // Add new parameters
-                    foreach (var parameterData in stepData.Parameters)
-                    {
-                        var parameter = new QueryStepParameter
-                        {
-                            QueryStepId = step.Id,
-                            Name = parameterData.Name,
-                            Type = parameterData.Type,
-                            Description = parameterData.Description,
-                            Placeholder = parameterData.Placeholder
-                        };
-
-                        context.QueryStepParameters.Add(parameter);
-                    }
+                    var stepParams = ParameterEntityFactory.CreateQueryStepParameters(stepData.Parameters, step.Id);
+                    context.QueryStepParameters.AddRange(stepParams);
                 }
             }
         }
@@ -677,19 +644,8 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
         await context.SaveChangesAsync(cancellationToken);
 
         // Create step parameters
-        foreach (var parameterData in stepData.Parameters)
-        {
-            var parameter = new QueryStepParameter
-            {
-                QueryStepId = queryStep.Id,
-                Name = parameterData.Name,
-                Type = parameterData.Type,
-                Description = parameterData.Description,
-                Placeholder = parameterData.Placeholder
-            };
-
-            context.QueryStepParameters.Add(parameter);
-        }
+        var parameters = ParameterEntityFactory.CreateQueryStepParameters(stepData.Parameters, queryStep.Id);
+        context.QueryStepParameters.AddRange(parameters);
 
         await context.SaveChangesAsync(cancellationToken);
 
@@ -721,19 +677,8 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
         }
 
         // Create new parameters
-        foreach (var parameterData in stepData.Parameters)
-        {
-            var parameter = new QueryStepParameter
-            {
-                QueryStepId = queryStep.Id,
-                Name = parameterData.Name,
-                Type = parameterData.Type,
-                Description = parameterData.Description,
-                Placeholder = parameterData.Placeholder
-            };
-
-            context.QueryStepParameters.Add(parameter);
-        }
+        var newParams = ParameterEntityFactory.CreateQueryStepParameters(stepData.Parameters, queryStep.Id);
+        context.QueryStepParameters.AddRange(newParams);
 
         await context.SaveChangesAsync(cancellationToken);
 
@@ -914,15 +859,15 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
         return await context.DataSources.Where(ds => ds.Id == dataSourceId).SingleAsync(cancellationToken);
     }
 
-    private List<SubscriptionParamaterData> ExtractStepParameters(QueryStep step, List<ParameterValue>? parameters)
+    private List<SubscriptionParameterData> ExtractStepParameters(QueryStep step, List<ParameterValue>? parameters)
     {
         if (parameters == null || !parameters.Any())
-            return new List<SubscriptionParamaterData>();
+            return new List<SubscriptionParameterData>();
 
         return step.Parameters.Select(p =>
         {
             var value = parameters.FirstOrDefault(param => param.Name == p.Name)?.Value ?? "";
-            return new SubscriptionParamaterData
+            return new SubscriptionParameterData
             {
                 QueryPlaceholder = p.Name,
                 Value = value

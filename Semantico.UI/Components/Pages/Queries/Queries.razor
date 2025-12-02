@@ -58,11 +58,11 @@
 
     private async Task OnRowClick(DataGridRowClickEventArgs<QueryData> args)
     {
-        NavManager.NavigateTo($"/semantico/queries/details/{args.Item.QueryId}");
+        NavManager.NavigateTo($"queries/{args.Item.QueryId}");
     }
 
     private void NewQuery()
     {
-        NavManager.NavigateTo("/semantico/queries/add");
+        NavManager.NavigateTo("queries/add");
     }
 }

@@ -11,6 +11,22 @@
     </TitleContent>
     <DialogContent>
         <MudForm @ref="@_form" Class="pt-1" @bind-Errors="@errors" @bind-IsValid="_isFormValid">
+            <MudSelect T="NotificationType" Label="Notification Type" @bind-Value="@Recipient.NotificationType" Required="true" Margin="Margin.Dense" Variant="Variant.Outlined" Class="mb-2">
+                <MudSelectItem Value="NotificationType.Email">Email</MudSelectItem>
+                <MudSelectItem Value="NotificationType.Teams">Teams</MudSelectItem>
+                <MudSelectItem Value="NotificationType.Jira">Jira</MudSelectItem>
+            </MudSelect>
+
+            @if (Recipient.NotificationType == NotificationType.Jira)
+            {
+                <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">
+                    <MudText Typo="Typo.body2"><strong>Jira Destination Format:</strong></MudText>
+                    <MudText Typo="Typo.caption" Style="font-family: monospace;">domain;project-key;email;api-key</MudText>
+                    <MudText Typo="Typo.caption" Class="mt-1">Example: <code>your-domain;PROJ;user@example.com;your-api-key</code></MudText>
+                    <MudText Typo="Typo.caption">Or full URL: <code>https://api.atlassian.com/ex/jira/cloudId;PROJ;email;key</code></MudText>
+                </MudAlert>
+            }
+
             <MudTextField OnlyValidateIfDirty="true"
             Margin="Margin.Dense"
             Variant="Variant.Outlined"
@@ -25,7 +41,8 @@
             Class="mb-2"
             @bind-Value="@Recipient.Destination"
             T="String"
-            Label="Destination"
+            Label="@GetDestinationLabel()"
+            HelperText="@GetDestinationHelperText()"
             Required="true" />
             <MudTextField OnlyValidateIfDirty="true"
             Immediate="true"
@@ -37,11 +54,6 @@
             T="String"
             Label="Description"
             Required="false" />
-            <MudSelect T="NotificationType" Label="Notification Type" @bind-Value="@Recipient.NotificationType" Required="true" Margin="Margin.Dense" Variant="Variant.Outlined">
-                <MudSelectItem Value="NotificationType.Email">Email</MudSelectItem>
-                <MudSelectItem Value="NotificationType.Teams">Teams</MudSelectItem>
-                <MudSelectItem Value="NotificationType.Jira">Jira</MudSelectItem>
-            </MudSelect>
         </MudForm>
     </DialogContent>
     <DialogActions>
@@ -104,4 +116,20 @@
     }
 
     void Cancel() => MudDialog.Cancel();
+
+    private string GetDestinationLabel() => Recipient.NotificationType switch
+    {
+        NotificationType.Email => "Email Address",
+        NotificationType.Teams => "Teams Webhook URL",
+        NotificationType.Jira => "Jira Connection String",
+        _ => "Destination"
+    };
+
+    private string GetDestinationHelperText() => Recipient.NotificationType switch
+    {
+        NotificationType.Email => "Enter the email address",
+        NotificationType.Teams => "Enter the Teams incoming webhook URL",
+        NotificationType.Jira => "Format: domain;project;email;api-key",
+        _ => ""
+    };
 }

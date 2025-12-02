@@ -6,7 +6,7 @@
 		<Nullable>enable</Nullable>
 
 		<!-- Package Information -->
-		<Version>2.0.4.1</Version>
+		<Version>2.0.5.0</Version>
 		<Authors>https://github.com/MiBu</Authors>
 		<Description>Semantico core library providing semantic alerts and notifications for databases. Includes domain models, services, and data access abstractions for PostgreSQL, SQL Server, and MySQL support.</Description>
 		<PackageProjectUrl>https://github.com/moberghr/semantico</PackageProjectUrl>
@@ -38,6 +38,7 @@
 		<PackageReference Include="Microsoft.Extensions.Http" Version="9.0.10" />
 		<PackageReference Include="MySql.Data" Version="9.5.0" />
 		<PackageReference Include="Npgsql" Version="9.0.4" />
+		<PackageReference Include="Refit" Version="9.0.2" />
 		<PackageReference Include="System.Data.SqlClient" Version="4.9.0" />
 		<PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.10" />
 	</ItemGroup>

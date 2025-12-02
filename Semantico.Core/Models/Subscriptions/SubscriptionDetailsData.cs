@@ -38,7 +38,7 @@ public class SubscriptionDetailsData
     /// </summary>
     public bool CreateTasks { get; set; } = false;
 
-    public List<SubscriptionParamaterData> Parameters { get; set; } = new();
+    public List<SubscriptionParameterData> Parameters { get; set; } = new();
 
     public List<RecipientData> Recipients { get; set; } = new();
 }

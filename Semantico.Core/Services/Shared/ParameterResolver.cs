@@ -13,7 +13,7 @@ internal class ParameterResolver
     /// <summary>
     /// Compiles SQL by substituting parameter placeholders with actual values
     /// </summary>
-    public string CompileSql(string sqlTemplate, List<SubscriptionParamaterData>? parameters)
+    public string CompileSql(string sqlTemplate, List<SubscriptionParameterData>? parameters)
     {
         return QueryHelper.CompileSql(sqlTemplate, parameters);
     }
@@ -21,17 +21,17 @@ internal class ParameterResolver
     /// <summary>
     /// Extracts parameter values from a request by matching parameter names
     /// </summary>
-    public List<SubscriptionParamaterData> ExtractParameters(
+    public List<SubscriptionParameterData> ExtractParameters(
         List<QueryStepParameterData> stepParameters,
         List<ParameterValue>? providedValues)
     {
         if (providedValues == null || !providedValues.Any())
-            return new List<SubscriptionParamaterData>();
+            return new List<SubscriptionParameterData>();
 
         return stepParameters.Select(p =>
         {
             var value = providedValues.FirstOrDefault(param => param.Name == p.Name)?.Value ?? "";
-            return new SubscriptionParamaterData
+            return new SubscriptionParameterData
             {
                 QueryPlaceholder = p.Name,
                 Value = value

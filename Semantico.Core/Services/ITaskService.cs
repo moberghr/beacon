@@ -13,4 +13,17 @@ public interface ITaskService
     Task<TaskListData> GetTasks(GetTasksRequest request, CancellationToken cancellationToken);
     Task<TaskDetailsData?> GetTaskDetails(int taskId, CancellationToken cancellationToken);
     Task<TaskStatisticsData> GetTaskStatistics(CancellationToken cancellationToken);
+
+    // Execution history for task
+    Task<List<QueryExecutionSummary>> GetTaskExecutionHistory(int taskId, CancellationToken cancellationToken);
+
+    // Related tasks (tasks from same query)
+    Task<List<RelatedTaskSummary>> GetRelatedTasks(int taskId, CancellationToken cancellationToken);
+
+    // Result count chart data
+    Task<List<ResultCountDataPoint>> GetResultCountHistory(int taskId, CancellationToken cancellationToken);
+
+    // Comments
+    Task<List<CommentData>> GetTaskComments(int taskId, CancellationToken cancellationToken);
+    Task<int> AddTaskComment(int taskId, string content, string? userId, string? userName, CancellationToken cancellationToken);
 }

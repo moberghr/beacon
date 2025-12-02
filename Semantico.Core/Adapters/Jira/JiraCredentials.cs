@@ -2,10 +2,12 @@
 
 namespace Semantico.Core.Adapters.Jira;
 
-internal class JiraCredentials
+public class JiraCredentials
 {
     /// <summary>
-    /// "your-domain-here;jira-project-key-here;your-email-here;your-cloud-api-key-here"
+    /// Supported formats:
+    /// - "your-domain-here;jira-project-key-here;your-email-here;your-cloud-api-key-here"
+    /// - "https://api.atlassian.com/ex/jira/{cloudId};jira-project-key-here;your-email-here;your-cloud-api-key-here"
     /// </summary>
     public JiraCredentials(string recipient)
     {
@@ -16,7 +18,10 @@ internal class JiraCredentials
             throw new SemanticoException($"Jira recipient format is not correct.");
         }
 
-        DomainUrl = $"https://{data[0]}.atlassian.net";
+        // Support both full URL and simple domain name formats
+        DomainUrl = data[0].StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+            ? data[0]
+            : $"https://{data[0]}.atlassian.net";
         Project = data[1];
         Email = data[2];
         ApiKey = data[3];

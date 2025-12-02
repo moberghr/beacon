@@ -1,3 +1,4 @@
+using Cronos;
 using Microsoft.Extensions.Logging;
 using Semantico.Core.Abstractions;
 
@@ -47,16 +48,7 @@ internal class SchedulingService
         if (string.IsNullOrWhiteSpace(cronExpression))
             return false;
 
-        try
-        {
-            // Basic validation - real implementation would use Cronos or similar library
-            var parts = cronExpression.Split(' ');
-            return parts.Length >= 5 && parts.Length <= 7;
-        }
-        catch
-        {
-            return false;
-        }
+        return CronExpression.TryParse(cronExpression, out _);
     }
 
     /// <summary>
@@ -64,12 +56,13 @@ internal class SchedulingService
     /// </summary>
     public DateTime? GetNextExecutionTime(string? cronExpression, DateTime fromTime)
     {
-        if (!IsValidCronExpression(cronExpression))
+        if (string.IsNullOrWhiteSpace(cronExpression))
             return null;
 
-        // Placeholder - real implementation would use Cronos or similar library
-        _logger.LogWarning("GetNextExecutionTime not fully implemented, returning 1 hour from now");
-        return fromTime.AddHours(1);
+        if (!CronExpression.TryParse(cronExpression, out var expression))
+            return null;
+
+        return expression.GetNextOccurrence(fromTime, inclusive: true);
     }
 
     /// <summary>

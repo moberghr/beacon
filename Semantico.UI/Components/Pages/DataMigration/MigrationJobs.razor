@@ -20,7 +20,7 @@
         <Columns>
             <PropertyColumn Property="x => x.Name" Title="Name">
                 <CellTemplate>
-                    <MudLink Href="@($"/semantico/data-migration/edit/{context.Item.Id}")">
+                    <MudLink Href="@($"data-migration/edit/{context.Item.Id}")">
                         @context.Item.Name
                     </MudLink>
                 </CellTemplate>
@@ -88,12 +88,12 @@
                         </MudButton>
                         <MudButton StartIcon="@Icons.Material.Filled.Edit" 
                                   Color="Color.Info" 
-                                  Href="@($"/semantico/data-migration/edit/{context.Item.Id}")">
+                                  Href="@($"data-migration/edit/{context.Item.Id}")">
                             Edit
                         </MudButton>
                         <MudButton StartIcon="@Icons.Material.Filled.History" 
                                   Color="Color.Info" 
-                                  Href="@($"/semantico/data-migration/history/{context.Item.Id}")">
+                                  Href="@($"data-migration/history/{context.Item.Id}")">
                             History
                         </MudButton>
                         <MudButton StartIcon="@Icons.Material.Filled.Delete" 
@@ -157,7 +157,7 @@
     
     private async Task AddMigrationJob()
     {
-        NavManager.NavigateTo("/semantico/data-migration/create");
+        NavManager.NavigateTo("data-migration/create");
     }
     
     private async Task ExecuteJob(MigrationJobDto job)

@@ -139,7 +139,7 @@
             if (response.Success)
             {
                 Snackbar.Add(response.Message, Severity.Success);
-                NavigationManager.NavigateTo("/semantico/queries");
+                NavigationManager.NavigateTo("queries");
             }
             else
             {
@@ -156,7 +156,7 @@
 
     private void GoBack()
     {
-        NavigationManager.NavigateTo("/semantico/queries");
+        NavigationManager.NavigateTo("queries");
     }
 
     private bool IsFormValid =>

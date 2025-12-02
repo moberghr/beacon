@@ -1,4 +1,4 @@
-﻿@page "/queries/details/{id:int}"
+﻿@page "/queries/{id:int}"
 @inherits BasePageComponent
 @using Semantico.Core.Models.Subscriptions
 @using Semantico.Core.Services
@@ -660,7 +660,7 @@
 
     private async Task OnRowClick(TableRowClickEventArgs<SubscriptionListData> args)
     {
-        NavManager.NavigateTo($"/semantico/subscriptions/details/{args.Item.SubscriptionId}");
+        NavManager.NavigateTo($"subscriptions/{args.Item.SubscriptionId}");
     }
 
     private List<IDictionary<string, object?>>? GetResultsForPreview(QueryExecutionResult result)

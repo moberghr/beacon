@@ -3,12 +3,12 @@
 @using Semantico.Core.DTOs
 @using Semantico.Core.Data.Enums
 @using Semantico.Core.Services
-@using System.Text.Json
+@using Semantico.Core.Helpers
 
 <SemanticoPageTitle Title="Task Details"/>
 
 <MudContainer Class="my-4 px-4">
-    <SemanticoPageHeader Icon="@Icons.Material.Filled.Task" Title="@($"Task Details: {Model?.Id}")" />
+    <SemanticoPageHeader Icon="@Icons.Material.Filled.Task" Title="@($"Task Details: #{Model?.Id}")" />
 
     @if (_loading)
     {
@@ -24,7 +24,93 @@
     }
     else
     {
-        <MudCard Class="my-4 px-2">
+        <!-- Dashboard Statistics -->
+        <MudCard Elevation="2" Class="mb-4">
+            <MudGrid Spacing="3" Class="pa-4">
+                <MudItem xs="12" sm="6" md="3">
+                    <MudCard Elevation="1" Class="pa-4 statistics-card">
+                        <MudStack Spacing="2">
+                            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                                <MudIcon Icon="@Icons.Material.Filled.Analytics" Color="Color.Primary" Size="Size.Large" />
+                                <MudChip T="string" Color="Color.Primary" Variant="Variant.Text" Size="Size.Small">Latest</MudChip>
+                            </MudStack>
+                            <MudText Typo="Typo.h4">@Model.LatestResultCount</MudText>
+                            <MudText Typo="Typo.body2" Color="Color.Secondary">Latest Result Count</MudText>
+                        </MudStack>
+                    </MudCard>
+                </MudItem>
+
+                <MudItem xs="12" sm="6" md="3">
+                    <MudCard Elevation="1" Class="pa-4 statistics-card">
+                        <MudStack Spacing="2">
+                            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                                <MudIcon Icon="@Icons.Material.Filled.Notifications" Color="Color.Warning" Size="Size.Large" />
+                                <MudChip T="string" Color="Color.Warning" Variant="Variant.Text" Size="Size.Small">Total</MudChip>
+                            </MudStack>
+                            <MudText Typo="Typo.h4">@Model.NotificationCount</MudText>
+                            <MudText Typo="Typo.body2" Color="Color.Secondary">Notifications Sent</MudText>
+                        </MudStack>
+                    </MudCard>
+                </MudItem>
+
+                <MudItem xs="12" sm="6" md="3">
+                    <MudCard Elevation="1" Class="pa-4 statistics-card">
+                        <MudStack Spacing="2">
+                            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                                <MudIcon Icon="@Icons.Material.Filled.PlayArrow" Color="Color.Info" Size="Size.Large" />
+                                <MudChip T="string" Color="Color.Info" Variant="Variant.Text" Size="Size.Small">Executions</MudChip>
+                            </MudStack>
+                            <MudText Typo="Typo.h4">@_executionHistory.Count</MudText>
+                            <MudText Typo="Typo.body2" Color="Color.Secondary">Query Executions</MudText>
+                        </MudStack>
+                    </MudCard>
+                </MudItem>
+
+                <MudItem xs="12" sm="6" md="3">
+                    <MudCard Elevation="1" Class="pa-4 statistics-card">
+                        <MudStack Spacing="2">
+                            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                                @if (Model.Resolved)
+                                {
+                                    <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Color="Color.Success" Size="Size.Large" />
+                                    <MudChip T="string" Color="Color.Success" Variant="Variant.Text" Size="Size.Small">Resolved</MudChip>
+                                }
+                                else
+                                {
+                                    <MudIcon Icon="@Icons.Material.Filled.Warning" Color="Color.Warning" Size="Size.Large" />
+                                    <MudChip T="string" Color="Color.Warning" Variant="Variant.Text" Size="Size.Small">Open</MudChip>
+                                }
+                            </MudStack>
+                            <MudText Typo="Typo.h4">@GetTaskAge()</MudText>
+                            <MudText Typo="Typo.body2" Color="Color.Secondary">Task Age</MudText>
+                        </MudStack>
+                    </MudCard>
+                </MudItem>
+            </MudGrid>
+        </MudCard>
+
+        <!-- Result Count Chart -->
+        @if (_resultCountHistory.Any())
+        {
+            <MudCard Elevation="2" Class="mb-4">
+                <MudCardContent>
+                    <MudText Typo="Typo.h6" Class="mb-2">
+                        <MudIcon Icon="@Icons.Material.Filled.ShowChart" Class="mr-2" />
+                        Result Count Progression
+                    </MudText>
+                    <MudChart ChartType="ChartType.Line"
+                              ChartSeries="@_chartSeries"
+                              XAxisLabels="@_xAxisLabels"
+                              Width="100%"
+                              Height="250px"
+                              ChartOptions="@_chartOptions"
+                              AxisChartOptions="@_axisChartOptions"/>
+                </MudCardContent>
+            </MudCard>
+        }
+
+        <!-- Task Information -->
+        <MudCard Class="mb-4 px-2">
             <MudCardContent>
                 <MudGrid Justify="Justify.FlexStart" Spacing="3">
                     <MudItem xs="12" md="4">
@@ -36,38 +122,27 @@
                             <MudText>
                                 <strong>Created:</strong> @Model.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss")
                             </MudText>
-                            <MudText>
-                                <strong>Latest Result Count:</strong> @Model.LatestResultCount
-                            </MudText>
-                            <MudText>
-                                <strong>Total Notifications:</strong> @Model.NotificationCount
-                            </MudText>
                             @if (Model.LastNotificationAt.HasValue)
                             {
                                 <MudText>
                                     <strong>Last Notification:</strong> @Model.LastNotificationAt.Value.ToString("yyyy-MM-dd HH:mm:ss")
                                 </MudText>
                             }
-                            <MudStack Row="true" AlignItems="AlignItems.Center">
-                                <MudText><strong>Status:</strong></MudText>
-                                @if (Model.Resolved)
-                                {
-                                    <MudChip T="string" Size="Size.Small" Color="Color.Success">Resolved</MudChip>
-                                }
-                                else
-                                {
-                                    <MudChip T="string" Size="Size.Small" Color="Color.Warning">Unresolved</MudChip>
-                                }
-                            </MudStack>
                         </MudStack>
                     </MudItem>
                     <MudItem xs="12" md="4">
                         <MudStack Spacing="2">
-                            <MudText Typo="Typo.h6">Subscription Information</MudText>
+                            <MudText Typo="Typo.h6">Related Information</MudText>
                             <MudText>
                                 <strong>Subscription:</strong>
-                                <MudLink Href="@($"/semantico/subscriptions/details/{Model.Subscription.Id}")">
+                                <MudLink Href="@($"subscriptions/{Model.Subscription.Id}")">
                                     @Model.Subscription.Name
+                                </MudLink>
+                            </MudText>
+                            <MudText>
+                                <strong>Query:</strong>
+                                <MudLink Href="@($"queries/{Model.QueryId}")">
+                                    @Model.QueryName
                                 </MudLink>
                             </MudText>
                         </MudStack>
@@ -99,51 +174,169 @@
             </MudCardContent>
         </MudCard>
 
-        <MudCard Class="my-4 px-2">
+        <!-- Tabs for History -->
+        <MudCard Class="mb-4">
+            <MudTabs Elevation="0" Rounded="true" ApplyEffectsToContainer="true" PanelClass="pa-4" Class="px-4 pt-2">
+                <MudTabPanel Text="Notifications" Icon="@Icons.Material.Filled.Notifications" BadgeData="@Model.NotificationCount" BadgeColor="Color.Primary">
+                    @if (Model.Notifications.Any())
+                    {
+                        <MudTable Items="@Model.Notifications" Dense="true" Hover="true" Bordered="true" Striped="true">
+                            <HeaderContent>
+                                <MudTh>ID</MudTh>
+                                <MudTh>Sent At</MudTh>
+                                <MudTh>Result Count</MudTh>
+                                <MudTh>Actions</MudTh>
+                            </HeaderContent>
+                            <RowTemplate>
+                                <MudTd DataLabel="ID">
+                                    <MudLink Href="@($"notifications/{context.Id}")">@context.Id</MudLink>
+                                </MudTd>
+                                <MudTd DataLabel="Sent At">@context.SentAt.ToString("yyyy-MM-dd HH:mm:ss")</MudTd>
+                                <MudTd DataLabel="Result Count">@context.ResultCount</MudTd>
+                                <MudTd DataLabel="Actions">
+                                    @if (!string.IsNullOrEmpty(context.StoredResults))
+                                    {
+                                        <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Primary" Href="@($"notifications/{context.Id}")">
+                                            View Results
+                                        </MudButton>
+                                    }
+                                    else
+                                    {
+                                        <MudText Color="Color.Secondary" Typo="Typo.caption">No stored results</MudText>
+                                    }
+                                </MudTd>
+                            </RowTemplate>
+                        </MudTable>
+                    }
+                    else
+                    {
+                        <MudText Color="Color.Secondary">No notifications yet</MudText>
+                    }
+                </MudTabPanel>
+
+                <MudTabPanel Text="Execution History" Icon="@Icons.Material.Filled.History" BadgeData="@_executionHistory.Count" BadgeColor="Color.Info">
+                    @if (_executionHistory.Any())
+                    {
+                        <MudTable Items="@_executionHistory" Dense="true" Hover="true" Bordered="true" Striped="true">
+                            <HeaderContent>
+                                <MudTh>ID</MudTh>
+                                <MudTh>Executed At</MudTh>
+                                <MudTh>Duration (ms)</MudTh>
+                                <MudTh>Result Count</MudTh>
+                                <MudTh>Status</MudTh>
+                            </HeaderContent>
+                            <RowTemplate>
+                                <MudTd DataLabel="ID">
+                                    <MudLink Href="@($"query-execution-history/{context.Id}")">@context.Id</MudLink>
+                                </MudTd>
+                                <MudTd DataLabel="Executed At">@context.ExecutedAt.ToString("yyyy-MM-dd HH:mm:ss")</MudTd>
+                                <MudTd DataLabel="Duration">@context.ExecutionTimeMs.ToString("F2")</MudTd>
+                                <MudTd DataLabel="Result Count">@context.ResultCount</MudTd>
+                                <MudTd DataLabel="Status">
+                                    <MudChip T="string" Size="Size.Small" Color="@GetStatusColor(context.Status)">@context.Status</MudChip>
+                                </MudTd>
+                            </RowTemplate>
+                        </MudTable>
+                    }
+                    else
+                    {
+                        <MudText Color="Color.Secondary">No execution history</MudText>
+                    }
+                </MudTabPanel>
+
+                <MudTabPanel Text="Related Tasks" Icon="@Icons.Material.Filled.AccountTree" BadgeData="@_relatedTasks.Count" BadgeColor="Color.Secondary">
+                    @if (_relatedTasks.Any())
+                    {
+                        <MudAlert Severity="Severity.Info" Class="mb-3">
+                            These are other tasks created from subscriptions using the same query.
+                        </MudAlert>
+                        <MudTable Items="@_relatedTasks" Dense="true" Hover="true" Bordered="true" Striped="true">
+                            <HeaderContent>
+                                <MudTh>Task ID</MudTh>
+                                <MudTh>Created At</MudTh>
+                                <MudTh>Latest Result Count</MudTh>
+                                <MudTh>Status</MudTh>
+                                <MudTh>Resolved At</MudTh>
+                            </HeaderContent>
+                            <RowTemplate>
+                                <MudTd DataLabel="Task ID">
+                                    <MudLink Href="@($"tasks/{context.Id}")">@context.Id</MudLink>
+                                </MudTd>
+                                <MudTd DataLabel="Created At">@context.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss")</MudTd>
+                                <MudTd DataLabel="Latest Result Count">@context.LatestResultCount</MudTd>
+                                <MudTd DataLabel="Status">
+                                    @if (context.Resolved)
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Success">Resolved</MudChip>
+                                    }
+                                    else
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Warning">Unresolved</MudChip>
+                                    }
+                                </MudTd>
+                                <MudTd DataLabel="Resolved At">
+                                    @(context.ResolvedAt?.ToString("yyyy-MM-dd HH:mm:ss") ?? "-")
+                                </MudTd>
+                            </RowTemplate>
+                        </MudTable>
+                    }
+                    else
+                    {
+                        <MudText Color="Color.Secondary">No related tasks found</MudText>
+                    }
+                </MudTabPanel>
+            </MudTabs>
+        </MudCard>
+
+        <!-- Comments Section -->
+        <MudCard Class="mb-4">
             <MudCardHeader>
                 <CardHeaderContent>
-                    <MudText Typo="Typo.h6">Notification History (@Model.NotificationCount notifications)</MudText>
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                        <MudText Typo="Typo.h6">
+                            <MudIcon Icon="@Icons.Material.Filled.Comment" Class="mr-2" />
+                            Comments (@_comments.Count)
+                        </MudText>
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" OnClick="@ShowAddCommentDialog">
+                            <MudIcon Icon="@Icons.Material.Filled.Add" Class="mr-1" />
+                            Add Comment
+                        </MudButton>
+                    </MudStack>
                 </CardHeaderContent>
             </MudCardHeader>
             <MudCardContent>
-                @if (Model.Notifications.Any())
+                @if (_comments.Any())
                 {
-                    <MudTable Items="@Model.Notifications" Dense="true" Hover="true" Bordered="true" Striped="true">
-                        <HeaderContent>
-                            <MudTh>Notification ID</MudTh>
-                            <MudTh>Sent At</MudTh>
-                            <MudTh>Result Count</MudTh>
-                            <MudTh>Actions</MudTh>
-                        </HeaderContent>
-                        <RowTemplate>
-                            <MudTd DataLabel="Notification ID">
-                                <MudLink Href="@($"/notifications/details/{context.Id}")">@context.Id</MudLink>
-                            </MudTd>
-                            <MudTd DataLabel="Sent At">@context.SentAt.ToString("yyyy-MM-dd HH:mm:ss")</MudTd>
-                            <MudTd DataLabel="Result Count">@context.ResultCount</MudTd>
-                            <MudTd DataLabel="Actions">
-                                @if (!string.IsNullOrEmpty(context.StoredResults))
-                                {
-                                    <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Primary" Href="@($"/notifications/details/{context.Id}")">
-                                        View Results
-                                    </MudButton>
-                                }
-                                else
-                                {
-                                    <MudText Color="Color.Secondary" Typo="Typo.caption">No stored results</MudText>
-                                }
-                            </MudTd>
-                        </RowTemplate>
-                    </MudTable>
+                    <MudStack Spacing="3">
+                        @foreach (var comment in _comments)
+                        {
+                            <MudPaper Elevation="1" Class="pa-3">
+                                <MudStack Spacing="1">
+                                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                                        <MudText Typo="Typo.subtitle2" Color="Color.Primary">
+                                            @(comment.UserName ?? "Anonymous")
+                                        </MudText>
+                                        <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                            @comment.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss")
+                                        </MudText>
+                                    </MudStack>
+                                    <MudText Typo="Typo.body2" Style="white-space: pre-wrap;">@comment.Content</MudText>
+                                </MudStack>
+                            </MudPaper>
+                        }
+                    </MudStack>
                 }
                 else
                 {
-                    <MudText Color="Color.Secondary">No notifications yet</MudText>
+                    <MudText Color="Color.Secondary" Align="Align.Center" Class="py-4">
+                        No comments yet. Be the first to add a comment!
+                    </MudText>
                 }
             </MudCardContent>
         </MudCard>
 
-        <MudCard Class="my-4 px-2">
+        <!-- Actions -->
+        <MudCard Class="mb-4 px-2">
             <MudCardContent>
                 <MudStack Row="true" Spacing="2">
                     @if (!Model.Resolved)
@@ -160,7 +353,7 @@
                             Reopen Task
                         </MudButton>
                     }
-                    <MudButton Variant="Variant.Outlined" Href="@($"/tasks")">
+                    <MudButton Variant="Variant.Outlined" Href="tasks">
                         <MudIcon Icon="@Icons.Material.Filled.ArrowBack" Class="mr-2"/>
                         Back to List
                     </MudButton>
@@ -181,16 +374,101 @@
     private TaskDetailsData? Model { get; set; }
     private bool _loading = true;
 
+    private List<QueryExecutionSummary> _executionHistory = new();
+    private List<RelatedTaskSummary> _relatedTasks = new();
+    private List<ResultCountDataPoint> _resultCountHistory = new();
+    private List<CommentData> _comments = new();
+
+    // Chart data
+    private List<ChartSeries> _chartSeries = new();
+    private string[] _xAxisLabels = Array.Empty<string>();
+    private ChartOptions _chartOptions = new();
+    private AxisChartOptions _axisChartOptions = new();
+
     protected override async Task OnInitializedAsync()
     {
-        await LoadTaskDetails();
+        await LoadAllData();
     }
 
-    private async Task LoadTaskDetails()
+    private async Task LoadAllData()
     {
         _loading = true;
+
         Model = await TaskService.GetTaskDetails(Id, CancellationToken.None);
+
+        if (Model != null)
+        {
+            // Load all related data in parallel
+            var executionTask = TaskService.GetTaskExecutionHistory(Id, CancellationToken.None);
+            var relatedTask = TaskService.GetRelatedTasks(Id, CancellationToken.None);
+            var chartTask = TaskService.GetResultCountHistory(Id, CancellationToken.None);
+            var commentsTask = TaskService.GetTaskComments(Id, CancellationToken.None);
+
+            await Task.WhenAll(executionTask, relatedTask, chartTask, commentsTask);
+
+            _executionHistory = await executionTask;
+            _relatedTasks = await relatedTask;
+            _resultCountHistory = await chartTask;
+            _comments = await commentsTask;
+
+            PrepareChartData();
+        }
+
         _loading = false;
+    }
+
+    private void PrepareChartData()
+    {
+        if (!_resultCountHistory.Any())
+            return;
+
+        var data = _resultCountHistory.OrderBy(x => x.Date).ToList();
+
+        _xAxisLabels = data.Select(x => x.Date.ToShortDateWithoutYear()).ToArray();
+
+        _chartSeries = new List<ChartSeries>
+        {
+            new()
+            {
+                Name = "Result Count",
+                Data = data.Select(x => (double)x.ResultCount).ToArray()
+            }
+        };
+
+        _chartOptions.YAxisTicks = 5;
+        _chartOptions.ChartPalette = new[] { "#1f77b4" };
+        _chartOptions.YAxisLines = true;
+        _chartOptions.XAxisLines = true;
+        _chartOptions.InterpolationOption = InterpolationOption.Straight;
+
+        _axisChartOptions.XAxisLabelRotation = 45;
+    }
+
+    private string GetTaskAge()
+    {
+        var referenceTime = Model!.Resolved && Model.ResolvedAt.HasValue
+            ? Model.ResolvedAt.Value
+            : DateTime.UtcNow;
+
+        var age = referenceTime - Model.CreatedAt;
+
+        if (age.TotalDays >= 1)
+            return $"{(int)age.TotalDays}d";
+        if (age.TotalHours >= 1)
+            return $"{(int)age.TotalHours}h";
+        return $"{(int)age.TotalMinutes}m";
+    }
+
+    private Color GetStatusColor(NotificationStatus status)
+    {
+        return status switch
+        {
+            NotificationStatus.NotificationSent => Color.Success,
+            NotificationStatus.NoResults => Color.Info,
+            NotificationStatus.Timeout => Color.Error,
+            NotificationStatus.NotificationSilenced => Color.Warning,
+            _ => Color.Default
+        };
     }
 
     private async Task ShowResolveDialog()
@@ -211,7 +489,30 @@
 
         if (!result!.Canceled)
         {
-            await LoadTaskDetails(); // Reload to show updated status
+            await LoadAllData();
+        }
+    }
+
+    private async Task ShowAddCommentDialog()
+    {
+        var parameters = new DialogParameters<AddCommentDialog>
+        {
+            { x => x.TaskId, Id }
+        };
+
+        var options = new DialogOptions
+        {
+            MaxWidth = MaxWidth.Small,
+            FullWidth = true
+        };
+
+        var dialog = await DialogService.ShowAsync<AddCommentDialog>("", parameters, options);
+        var result = await dialog.Result;
+
+        if (!result!.Canceled)
+        {
+            _comments = await TaskService.GetTaskComments(Id, CancellationToken.None);
+            StateHasChanged();
         }
     }
 
@@ -220,7 +521,7 @@
         try
         {
             await TaskService.ReopenTask(Id, CancellationToken.None);
-            await LoadTaskDetails(); // Reload to show updated status
+            await LoadAllData();
             Snackbar.Add("Task reopened successfully", Severity.Success);
         }
         catch (Exception ex)

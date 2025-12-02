@@ -49,13 +49,18 @@ public abstract partial class SemanticoContext : DbContext
 
     public DbSet<IndexMetadata> IndexMetadata => Set<IndexMetadata>();
 
+    public DbSet<Comment> Comments => Set<Comment>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        // Derived classes can use DefaultSchema
+        // Set default schema for all entities
+        modelBuilder.HasDefaultSchema(DefaultSchema);
+
         SetSoftDeleteQueryFilter(modelBuilder);
         ConfigureMigrationEntities(modelBuilder);
         ConfigureMetadataEntities(modelBuilder);
         ConfigureTaskEntity(modelBuilder);
+        ConfigureCommentEntity(modelBuilder);
         base.OnModelCreating(modelBuilder);
     }
 
@@ -244,6 +249,32 @@ public abstract partial class SemanticoContext : DbContext
                   .WithMany()
                   .HasForeignKey(t => t.SubscriptionId)
                   .OnDelete(DeleteBehavior.Restrict);
+        });
+    }
+
+    protected static void ConfigureCommentEntity(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<Comment>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Content)
+                  .HasMaxLength(4000)
+                  .IsRequired();
+
+            entity.Property(e => e.UserId)
+                  .HasMaxLength(100);
+
+            entity.Property(e => e.UserName)
+                  .HasMaxLength(200);
+
+            // Composite index for efficient lookup by entity
+            entity.HasIndex(e => new { e.EntityType, e.EntityId })
+                  .HasDatabaseName("IX_Comment_EntityType_EntityId");
+
+            // Index for ordering by creation time
+            entity.HasIndex(e => e.CreatedTime)
+                  .HasDatabaseName("IX_Comment_CreatedTime");
         });
     }
 }
