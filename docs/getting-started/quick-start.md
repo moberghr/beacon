@@ -353,8 +353,8 @@ Run queries across multiple databases
 
 - Verify cron expression is valid (use crontab.guru)
 - Check that subscription is enabled
-- Verify Hangfire server is running
-- Check Hangfire dashboard at `/hangfire`
+- Verify your job scheduler is running (e.g., Hangfire server)
+- Check scheduler dashboard/logs for errors
 
 ### UI Not Accessible
 

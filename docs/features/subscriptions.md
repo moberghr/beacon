@@ -250,11 +250,10 @@ GROUP BY DATE(created_at)
 
 ### When Subscriptions Run
 
-Semantico uses Hangfire for job scheduling:
-- Cron expressions are evaluated in UTC timezone
-- Jobs queue 1-2 minutes before scheduled time
-- Execution starts within 5 seconds of schedule time
-- Multiple subscriptions can execute concurrently
+Semantico uses your configured `ISemanticoScheduler` implementation for job scheduling:
+- Cron expressions are evaluated according to your scheduler configuration
+- Execution timing depends on your scheduler implementation
+- Multiple subscriptions can execute concurrently (depending on scheduler worker configuration)
 
 ### Execution Order
 
@@ -349,10 +348,10 @@ Use this to verify cron expressions are correct.
 1. Subscription is enabled (not paused)
 2. Cron expression is valid
 3. Next execution time shows correct schedule
-4. Hangfire background job service is running
+4. Your job scheduler service is running
 
-**Verify Hangfire:**
-Check application logs for Hangfire service status and any errors.
+**Verify Scheduler:**
+Check application logs for your scheduler service status and any errors.
 
 ### Execution Timeout
 

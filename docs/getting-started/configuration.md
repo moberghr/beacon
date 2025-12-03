@@ -226,9 +226,9 @@ Server=hostname;Database=dbname;Uid=user;Pwd=pass;SslMode=Required
 
 ## Scheduler Configuration
 
-Semantico requires an `ISemanticoScheduler` implementation for job scheduling.
+Semantico requires an `ISemanticoScheduler` implementation for job scheduling. You can use any job scheduler library (Hangfire, Quartz.NET, etc.) or create a custom implementation.
 
-### Hangfire Scheduler Implementation
+### Example: Hangfire Scheduler Implementation
 
 ```csharp
 using Hangfire;
@@ -459,11 +459,11 @@ builder.Services.AddPostgreSqlSemantico(
 
 📚 [Learn more about multi-tenant deployments →](../advanced/multi-tenant)
 
-## Hangfire Configuration
+## Job Scheduler Configuration
 
-### Storage Provider
+Semantico works with any job scheduler that implements `ISemanticoScheduler`. The examples below use Hangfire, but you can adapt them to Quartz.NET or other schedulers.
 
-Semantico works with any Hangfire storage provider:
+### Hangfire Storage Provider (Example)
 
 **PostgreSQL (recommended):**
 ```csharp

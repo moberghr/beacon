@@ -67,7 +67,7 @@ internal class TeamsAdapter(IHttpClientFactory httpClientFactory, SemanticoConfi
                     new AdaptiveCards.AdaptiveOpenUrlAction()
                     {
                         Title = "View Query Results",
-                        Url = new Uri($"{configuration.BaseUrl.TrimEnd('/')}/notifications/details/{recipientQueryResult.NotificationId}"),
+                        Url = new Uri($"{configuration.BaseUrl.TrimEnd('/')}/notifications/{recipientQueryResult.NotificationId}"),
                     }
                 }
         };

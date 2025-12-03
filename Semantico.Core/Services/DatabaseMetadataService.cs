@@ -13,40 +13,28 @@ using System.Data.SqlClient;
 
 namespace Semantico.Core.Services;
 
-public class DatabaseMetadataService : IDatabaseMetadataService
+public class DatabaseMetadataService(
+    IDbContextFactory<SemanticoContext> contextFactory,
+    IEncryptionService encryptionService,
+    IMemoryCache cache,
+    ILogger<DatabaseMetadataService> logger)
+    : IDatabaseMetadataService
 {
-    private readonly IDbContextFactory<SemanticoContext> _contextFactory;
-    private readonly IEncryptionService _encryptionService;
-    private readonly IMemoryCache _cache;
-    private readonly ILogger<DatabaseMetadataService> _logger;
-
     private const string CacheKeyPrefix = "DbMetadata_";
     private static readonly TimeSpan CacheExpiration = TimeSpan.FromHours(1);
 
-    public DatabaseMetadataService(
-        IDbContextFactory<SemanticoContext> contextFactory,
-        IEncryptionService encryptionService,
-        IMemoryCache cache,
-        ILogger<DatabaseMetadataService> logger)
-    {
-        _contextFactory = contextFactory;
-        _encryptionService = encryptionService;
-        _cache = cache;
-        _logger = logger;
-    }
-
     public async Task<DatabaseMetadataSnapshot> RefreshMetadataAsync(int dataSourceId, CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("Refreshing metadata for data source {DataSourceId}", dataSourceId);
+        logger.LogInformation("Refreshing metadata for data source {DataSourceId}", dataSourceId);
 
-        await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         var dataSource = await context.DataSources.FindAsync(new object[] { dataSourceId }, cancellationToken);
         if (dataSource == null)
             throw new SemanticoException($"Data source {dataSourceId} not found");
 
         // Extract metadata based on database type
-        var connectionString = _encryptionService.Decrypt(dataSource.ConnectionString);
+        var connectionString = encryptionService.Decrypt(dataSource.ConnectionString);
         var tables = dataSource.DatabaseEngineType switch
         {
             DatabaseEngineType.PostgreSQL => await GetPostgreSqlMetadataAsync(connectionString, cancellationToken),
@@ -59,9 +47,9 @@ public class DatabaseMetadataService : IDatabaseMetadataService
 
         // Update cache
         var snapshot = new DatabaseMetadataSnapshot(dataSourceId, dataSource.DatabaseEngineType, tables, DateTime.UtcNow);
-        _cache.Set(GetCacheKey(dataSourceId), snapshot, CacheExpiration);
+        cache.Set(GetCacheKey(dataSourceId), snapshot, CacheExpiration);
 
-        _logger.LogInformation("Refreshed metadata for data source {DataSourceId}: {TableCount} tables", dataSourceId, tables.Count);
+        logger.LogInformation("Refreshed metadata for data source {DataSourceId}: {TableCount} tables", dataSourceId, tables.Count);
 
         return snapshot;
     }
@@ -69,13 +57,13 @@ public class DatabaseMetadataService : IDatabaseMetadataService
     public async Task<DatabaseMetadataSnapshot> GetMetadataAsync(int dataSourceId, CancellationToken cancellationToken = default)
     {
         // Try to get from cache first
-        if (_cache.TryGetValue(GetCacheKey(dataSourceId), out DatabaseMetadataSnapshot? cachedSnapshot) && cachedSnapshot != null)
+        if (cache.TryGetValue(GetCacheKey(dataSourceId), out DatabaseMetadataSnapshot? cachedSnapshot) && cachedSnapshot != null)
         {
-            _logger.LogDebug("Returning cached metadata for data source {DataSourceId}", dataSourceId);
+            logger.LogDebug("Returning cached metadata for data source {DataSourceId}", dataSourceId);
             return cachedSnapshot;
         }
 
-        await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         // Get the data source to know the database type
         var dataSource = await context.DataSources.FindAsync(new object[] { dataSourceId }, cancellationToken);
@@ -117,7 +105,7 @@ public class DatabaseMetadataService : IDatabaseMetadataService
             )).ToList();
 
             var snapshot = new DatabaseMetadataSnapshot(dataSourceId, dataSource.DatabaseEngineType, tables, metadata.Max(m => m.LastRefreshed));
-            _cache.Set(GetCacheKey(dataSourceId), snapshot, CacheExpiration);
+            cache.Set(GetCacheKey(dataSourceId), snapshot, CacheExpiration);
 
             return snapshot;
         }
@@ -153,60 +141,64 @@ public class DatabaseMetadataService : IDatabaseMetadataService
 
     private async Task<IReadOnlyList<TableMetadataDto>> GetPostgreSqlMetadataAsync(string connectionString, CancellationToken cancellationToken)
     {
-        using var connection = new NpgsqlConnection(connectionString);
+        await using var connection = new NpgsqlConnection(connectionString);
         await connection.OpenAsync(cancellationToken);
 
-        // Get tables and columns
+        // Get tables and columns using pg_catalog for better performance
         const string tablesQuery = @"
             SELECT
-                t.table_schema,
-                t.table_name,
-                c.column_name,
-                c.data_type,
-                c.is_nullable,
-                c.column_default,
-                c.character_maximum_length,
-                c.ordinal_position,
-                CASE WHEN pk.column_name IS NOT NULL THEN true ELSE false END as is_primary_key
-            FROM information_schema.tables t
-            JOIN information_schema.columns c
-                ON t.table_schema = c.table_schema
-                AND t.table_name = c.table_name
-            LEFT JOIN (
-                SELECT ku.table_schema, ku.table_name, ku.column_name
-                FROM information_schema.table_constraints tc
-                JOIN information_schema.key_column_usage ku
-                    ON tc.constraint_name = ku.constraint_name
-                    AND tc.table_schema = ku.table_schema
-                WHERE tc.constraint_type = 'PRIMARY KEY'
-            ) pk ON c.table_schema = pk.table_schema
-                AND c.table_name = pk.table_name
-                AND c.column_name = pk.column_name
-            WHERE t.table_schema NOT IN ('pg_catalog', 'information_schema')
-                AND t.table_type = 'BASE TABLE'
-            ORDER BY t.table_schema, t.table_name, c.ordinal_position";
+                n.nspname AS table_schema,
+                c.relname AS table_name,
+                a.attname AS column_name,
+                pg_catalog.format_type(a.atttypid, a.atttypmod) AS data_type,
+                CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END AS is_nullable,
+                pg_get_expr(ad.adbin, ad.adrelid) AS column_default,
+                CASE
+                    WHEN t.typname IN ('varchar', 'char', 'bpchar') THEN
+                        CASE WHEN a.atttypmod > 0 THEN a.atttypmod - 4 ELSE NULL END
+                    ELSE NULL
+                END AS character_maximum_length,
+                a.attnum AS ordinal_position,
+                EXISTS(
+                    SELECT 1
+                    FROM pg_constraint con
+                    WHERE con.conrelid = c.oid
+                    AND con.contype = 'p'
+                    AND a.attnum = ANY(con.conkey)
+                ) AS is_primary_key
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            JOIN pg_attribute a ON a.attrelid = c.oid
+            JOIN pg_type t ON a.atttypid = t.oid
+            LEFT JOIN pg_attrdef ad ON a.attrelid = ad.adrelid AND a.attnum = ad.adnum
+            WHERE c.relkind = 'r'
+                AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+                AND a.attnum > 0
+                AND NOT a.attisdropped";
 
-        var columnsData = await connection.QueryAsync(tablesQuery);
+        var columnsData = await connection.QueryAsync(tablesQuery, commandTimeout:180);
 
-        // Get foreign keys
+        // Get foreign keys using pg_catalog for better performance
         const string foreignKeysQuery = @"
             SELECT
-                tc.table_schema,
-                tc.table_name,
-                kcu.column_name,
-                ccu.table_name AS foreign_table_name,
-                ccu.column_name AS foreign_column_name
-            FROM information_schema.table_constraints tc
-            JOIN information_schema.key_column_usage kcu
-                ON tc.constraint_name = kcu.constraint_name
-                AND tc.table_schema = kcu.table_schema
-            JOIN information_schema.constraint_column_usage ccu
-                ON ccu.constraint_name = tc.constraint_name
-                AND ccu.table_schema = tc.table_schema
-            WHERE tc.constraint_type = 'FOREIGN KEY'
-                AND tc.table_schema NOT IN ('pg_catalog', 'information_schema')";
+                n.nspname AS table_schema,
+                c.relname AS table_name,
+                a.attname AS column_name,
+                fn.nspname AS foreign_schema_name,
+                fc.relname AS foreign_table_name,
+                fa.attname AS foreign_column_name
+            FROM pg_constraint con
+            JOIN pg_class c ON con.conrelid = c.oid
+            JOIN pg_namespace n ON c.relnamespace = n.oid
+            JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = ANY(con.conkey)
+            JOIN pg_class fc ON con.confrelid = fc.oid
+            JOIN pg_namespace fn ON fc.relnamespace = fn.oid
+            JOIN pg_attribute fa ON fa.attrelid = fc.oid AND fa.attnum = ANY(con.confkey)
+            WHERE con.contype = 'f'
+                AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+                AND array_position(con.conkey, a.attnum) = array_position(con.confkey, fa.attnum)";
 
-        var foreignKeys = await connection.QueryAsync(foreignKeysQuery);
+        var foreignKeys = await connection.QueryAsync(foreignKeysQuery, commandTimeout:180);
         var fkLookup = foreignKeys.ToDictionary(
             fk => $"{fk.table_schema}.{fk.table_name}.{fk.column_name}",
             fk => (TableName: (string)fk.foreign_table_name, ColumnName: (string)fk.foreign_column_name)
@@ -220,10 +212,9 @@ public class DatabaseMetadataService : IDatabaseMetadataService
                 indexname AS index_name,
                 indexdef
             FROM pg_indexes
-            WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
-            ORDER BY schemaname, tablename, indexname";
+            WHERE schemaname NOT IN ('pg_catalog', 'information_schema')";
 
-        var indexesData = await connection.QueryAsync(indexesQuery);
+        var indexesData = await connection.QueryAsync(indexesQuery, commandTimeout:180);
 
         // Group by table
         var tables = columnsData
@@ -306,8 +297,7 @@ public class DatabaseMetadataService : IDatabaseMetadataService
             JOIN sys.columns c ON t.object_id = c.object_id
             JOIN sys.types ty ON c.user_type_id = ty.user_type_id
             LEFT JOIN sys.indexes i ON t.object_id = i.object_id AND i.is_primary_key = 1
-            LEFT JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id AND c.column_id = ic.column_id
-            ORDER BY s.name, t.name, c.column_id";
+            LEFT JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id AND c.column_id = ic.column_id";
 
         var columnsData = await connection.QueryAsync(tablesQuery);
 
@@ -400,7 +390,7 @@ public class DatabaseMetadataService : IDatabaseMetadataService
 
     private async Task StoreMetadataAsync(int dataSourceId, IReadOnlyList<TableMetadataDto> tables, CancellationToken cancellationToken)
     {
-        await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         // Remove existing metadata for this data source
         var existingMetadata = await context.DatabaseMetadata

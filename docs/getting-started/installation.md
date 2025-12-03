@@ -16,7 +16,7 @@ Before you begin, ensure you have:
 - **.NET 9.0 SDK** or later installed
 - **ASP.NET Core** web application project
 - **PostgreSQL 12+** or **SQL Server 2019+** database for Semantico metadata
-- **Hangfire** configured in your application (for job scheduling)
+- **Job scheduler** implementing `ISemanticoScheduler` interface (e.g., Hangfire, Quartz.NET, or custom implementation)
 - **(Optional)** Email provider (SMTP) for email notifications
 
 ## Quick Installation
@@ -62,9 +62,11 @@ Add the Semantico connection string to `appsettings.json`:
 "SemanticoContext": "Server=localhost;Database=semantico;User Id=semantico;Password=secretpass;TrustServerCertificate=True"
 ```
 
-### Step 3: Configure Hangfire
+### Step 3: Configure a Job Scheduler
 
-Semantico requires Hangfire for job scheduling. Add to `Program.cs`:
+Semantico requires a job scheduler that implements `ISemanticoScheduler`. The example below uses Hangfire, but you can use any scheduler (Quartz.NET, custom implementation, etc.).
+
+**Example using Hangfire:**
 
 ```csharp
 using Hangfire;
@@ -86,7 +88,7 @@ builder.Services.AddHangfire((provider, hangfireConfiguration) => hangfireConfig
 builder.Services.AddHangfireServer();
 ```
 
-📚 [See Hangfire documentation for other storage providers](https://www.hangfire.io/)
+📚 [See Hangfire documentation](https://www.hangfire.io/) | You can also use Quartz.NET, custom implementations, or any scheduler that can call `IJobService.ExecuteQuery()`
 
 ### Step 4: Configure Semantico Services
 
@@ -123,7 +125,7 @@ builder.Services.AddSqlServerSemantico(
 
 ### Step 5: Implement ISemanticoScheduler
 
-Create a scheduler implementation using Hangfire:
+Create a scheduler implementation. This example uses Hangfire, but you can adapt it to any job scheduler:
 
 ```csharp
 using Hangfire;
@@ -428,12 +430,12 @@ Apply migrations manually:
 dotnet ef database update --project Semantico.Core.PostgreSql --startup-project YourProject
 ```
 
-### Hangfire Not Scheduling
+### Scheduler Not Scheduling
 
-Verify Hangfire is registered:
-1. Check `AddHangfireServer()` is called
-2. Access Hangfire dashboard at `/hangfire`
-3. Verify recurring jobs appear
+Verify your scheduler is registered:
+1. Check your scheduler service is properly registered
+2. Verify your `ISemanticoScheduler` implementation is registered
+3. Check scheduler dashboard/logs (e.g., Hangfire dashboard at `/hangfire`)
 
 ## Package Versions
 
