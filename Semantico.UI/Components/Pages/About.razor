@@ -127,7 +127,7 @@ graph TB
 
     subgraph Infrastructure["Infrastructure Layer"]
         PgSQL[(PostgreSQL)] ~~~ MSSQL[(SQL Server)] ~~~ MySQL[(MySQL)]
-        Hangfire[Hangfire<br/>Job Scheduler] ~~~ SQLiteVM[SQLite Virtual Tables<br/>Cross-DB Joins]
+        Scheduler[Job Scheduler<br/>via ISemanticoScheduler] ~~~ SQLiteVM[SQLite Virtual Tables<br/>Cross-DB Joins]
     end
 
     BlazorUI --> Core
@@ -313,7 +313,7 @@ stateDiagram-v2
                             </MudText>
                             <MudList T="string" Dense="true">
                                 <MudListItem T="string" Icon="@Icons.Material.Filled.Check">Cron expression support (every 5 min to monthly)</MudListItem>
-                                <MudListItem T="string" Icon="@Icons.Material.Filled.Check">Hangfire integration for job orchestration</MudListItem>
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.Check">Pluggable scheduler via ISemanticoScheduler interface</MudListItem>
                                 <MudListItem T="string" Icon="@Icons.Material.Filled.Check">Configurable timeouts and retry policies</MudListItem>
                                 <MudListItem T="string" Icon="@Icons.Material.Filled.Check">Next execution time calculation</MudListItem>
                             </MudList>
@@ -630,7 +630,7 @@ stateDiagram-v2
                 <MudItem xs="12" md="6">
                     <MudText Typo="Typo.subtitle1" Class="mb-2 fw-bold">Job Scheduling</MudText>
                     <MudStack Row="true" Spacing="1" Class="flex-wrap">
-                        <MudChip T="string" Size="Size.Small" Color="Color.Success">Hangfire</MudChip>
+                        <MudChip T="string" Size="Size.Small" Color="Color.Success">ISemanticoScheduler</MudChip>
                         <MudChip T="string" Size="Size.Small" Color="Color.Success">Cronos</MudChip>
                     </MudStack>
                 </MudItem>

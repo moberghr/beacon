@@ -54,8 +54,9 @@ dotnet ef database update --project Semantico.Core --startup-project Semantico.S
 - Semantico.SampleProject: Sample implementation/application
 
 ## Active Technologies
-- C# 12 / .NET 8.0 + EF Core 8.0, MediatR, Hangfire (existing scheduler), Blazor Server (004-alerting-tasks)
+- C# 12 / .NET 8.0 + EF Core 8.0, MediatR, Blazor Server (004-alerting-tasks)
 - PostgreSQL (primary) and SQL Server (secondary) via provider-specific projects (004-alerting-tasks)
+- Scheduled jobs: Core provides interfaces (e.g., `IJobScheduler`); consumers implement with their preferred scheduler (Hangfire used in SampleProject as example)
 
 ## Recent Changes
-- 004-alerting-tasks: Added C# 12 / .NET 8.0 + EF Core 8.0, MediatR, Hangfire (existing scheduler), Blazor Server
+- 004-alerting-tasks: Added C# 12 / .NET 8.0 + EF Core 8.0, MediatR, Blazor Server

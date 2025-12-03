@@ -56,7 +56,7 @@ graph TB
 
     subgraph Infrastructure["Infrastructure Layer"]
         PgSQL[(PostgreSQL)] ~~~ MSSQL[(SQL Server)] ~~~ MySQL[(MySQL)]
-        Hangfire[Hangfire<br/>Job Scheduler] ~~~ SQLiteVM[SQLite Virtual Tables<br/>Cross-DB Joins]
+        Scheduler[Job Scheduler<br/>via ISemanticoScheduler] ~~~ SQLiteVM[SQLite Virtual Tables<br/>Cross-DB Joins]
     end
 
     BlazorUI --> Core
@@ -346,7 +346,7 @@ Get help and contribute to the project.
 - **.NET 9.0** or later
 - **ASP.NET Core** web application
 - **PostgreSQL 12+** or **SQL Server 2019+** for Semantico metadata
-- **Hangfire** for job scheduling (configured in your application)
+- **Job scheduler** implementing `ISemanticoScheduler` (e.g., Hangfire, Quartz.NET, or custom)
 - **(Optional)** Email provider for email notifications (SMTP, etc.)
 
 ---

@@ -89,7 +89,7 @@ graph TB
 
     subgraph Infrastructure["Infrastructure Layer"]
         PgSQL[(PostgreSQL)] ~~~ MSSQL[(SQL Server)] ~~~ MySQL[(MySQL)]
-        Hangfire[Hangfire<br/>Job Scheduler] ~~~ SQLiteVM[SQLite Virtual Tables<br/>Cross-DB Joins]
+        Scheduler[Job Scheduler<br/>via ISemanticoScheduler] ~~~ SQLiteVM[SQLite Virtual Tables<br/>Cross-DB Joins]
     end
 
     BlazorUI --> Core
@@ -199,7 +199,7 @@ flowchart LR
 
 ### ⏱️ Scheduling & Automation
 - Cron expression support (every 5 min to monthly)
-- Hangfire integration for job orchestration
+- Pluggable scheduler via `ISemanticoScheduler` interface
 - Configurable timeouts and retry policies
 - Next execution time calculation
 
@@ -273,7 +273,7 @@ builder.Services.AddPostgreSqlSemantico(
 // Add Semantico admin UI
 builder.Services.AddSemanticoAdmin(builder.Configuration, options =>
 {
-    options.AddSemanticoScheduler<YourHangfireScheduler>();
+    options.AddSemanticoScheduler<YourScheduler>();
     options.BaseUrl = "https://your-domain.com/semantico"; // For notification links
 });
 
@@ -373,8 +373,8 @@ Create alerting tasks from subscriptions, track result count trends over time, c
 - MySql.Data
 
 ### Job Scheduling
-- Hangfire
-- Cronos
+- ISemanticoScheduler interface (implement with Hangfire, Quartz.NET, or custom)
+- Cronos (cron expression parsing)
 
 ### Integrations
 - Atlassian.SDK (Jira)
@@ -386,7 +386,7 @@ Create alerting tasks from subscriptions, track result count trends over time, c
 
 - **.NET 9.0** or later
 - **PostgreSQL 12+** or **SQL Server 2019+** for Semantico metadata database
-- **Hangfire** (for job scheduling) - you must configure this in your application
+- **Job scheduler** implementing `ISemanticoScheduler` (e.g., Hangfire, Quartz.NET, or custom)
 - **(Optional)** Email provider for email notifications (built-in support for any SMTP-compatible service)
 
 ## 🚦 Getting Started
