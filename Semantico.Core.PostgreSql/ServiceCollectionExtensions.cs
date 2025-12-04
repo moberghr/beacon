@@ -20,8 +20,8 @@ public static class ServiceCollectionExtensions
         // Register the base context factory using the PostgreSQL implementation
         services.AddSingleton<IDbContextFactory<SemanticoContext>>(sp =>
         {
-            var options = sp.GetRequiredService<DbContextOptions<PostgreSqlSemanticoContext>>();
-            return new SemanticoContextFactoryAdapter(options, schema);
+            var factory = sp.GetRequiredService<IDbContextFactory<PostgreSqlSemanticoContext>>();
+            return new SemanticoContextFactoryAdapter(factory);
         });
 
         return services;
@@ -29,18 +29,16 @@ public static class ServiceCollectionExtensions
 
     private class SemanticoContextFactoryAdapter : IDbContextFactory<SemanticoContext>
     {
-        private readonly DbContextOptions<PostgreSqlSemanticoContext> _options;
-        private readonly string _schema;
+        private readonly IDbContextFactory<PostgreSqlSemanticoContext> _factory;
 
-        public SemanticoContextFactoryAdapter(DbContextOptions<PostgreSqlSemanticoContext> options, string schema)
+        public SemanticoContextFactoryAdapter(IDbContextFactory<PostgreSqlSemanticoContext> factory)
         {
-            _options = options;
-            _schema = schema;
+            _factory = factory;
         }
 
         public SemanticoContext CreateDbContext()
         {
-            return new PostgreSqlSemanticoContext(_options, _schema);
+            return _factory.CreateDbContext();
         }
     }
 }
