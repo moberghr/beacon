@@ -19,8 +19,8 @@ public static class ServiceCollectionExtensions
         // Register the base context factory using the SQL Server implementation
         services.AddSingleton<IDbContextFactory<SemanticoContext>>(sp =>
         {
-            var options = sp.GetRequiredService<DbContextOptions<SqlServerSemanticoContext>>();
-            return new SemanticoContextFactoryAdapter(options, schema);
+            var factory = sp.GetRequiredService<IDbContextFactory<SqlServerSemanticoContext>>();
+            return new SemanticoContextFactoryAdapter(factory);
         });
 
         return services;
@@ -28,18 +28,16 @@ public static class ServiceCollectionExtensions
 
     private class SemanticoContextFactoryAdapter : IDbContextFactory<SemanticoContext>
     {
-        private readonly DbContextOptions<SqlServerSemanticoContext> _options;
-        private readonly string _schema;
+        private readonly IDbContextFactory<SqlServerSemanticoContext> _factory;
 
-        public SemanticoContextFactoryAdapter(DbContextOptions<SqlServerSemanticoContext> options, string schema)
+        public SemanticoContextFactoryAdapter(IDbContextFactory<SqlServerSemanticoContext> factory)
         {
-            _options = options;
-            _schema = schema;
+            _factory = factory;
         }
 
         public SemanticoContext CreateDbContext()
         {
-            return new SqlServerSemanticoContext(_options, _schema);
+            return _factory.CreateDbContext();
         }
     }
 }
