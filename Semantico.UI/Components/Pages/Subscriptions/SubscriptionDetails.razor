@@ -65,7 +65,7 @@
                                 </HeaderContent>
                                 <RowTemplate>
                                     <MudTd DataLabel="Name">@context.Name</MudTd>
-                                    <MudTd DataLabel="Destination">@(context.Destination.Length <= 30 ? context.Destination : context.Destination.Substring(0, 30) + " ...")</MudTd>
+                                    <MudTd DataLabel="Destination">@UiHelpers.FormatRecipientDestination(context)</MudTd>
                                     <MudTd DataLabel="Notification Type">@context.NotificationType</MudTd>
                                     <MudTd><MudIconButton Size="Size.Small" Disabled="@(Model?.Recipients?.Count <= 1)" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.Delete" Color="Color.Error" OnClick="@(async () => await RemoveRecipientAsync(context))"></MudIconButton></MudTd>
                                 </RowTemplate>

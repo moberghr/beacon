@@ -85,7 +85,7 @@ internal class TeamsAdapter(IHttpClientFactory httpClientFactory, SemanticoConfi
             return new AdaptiveCards.AdaptiveTable();
         }
 
-        var columnNames = queryResults.First().Keys.ToList();
+        var columnNames = queryResults.First().Keys.Take(3).ToList();
         
         // Create columns
         var columns = columnNames.Select(_ => new AdaptiveCards.AdaptiveTableColumnDefinition

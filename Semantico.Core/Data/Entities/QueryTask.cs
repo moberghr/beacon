@@ -2,7 +2,7 @@ using Semantico.Core.Data.Entities.Base;
 
 namespace Semantico.Core.Data.Entities;
 
-public class AlertingTask : ArchivableBaseEntity
+public class QueryTask : ArchivableBaseEntity
 {
     public required int SubscriptionId { get; set; }
     public required int LatestResultCount { get; set; }

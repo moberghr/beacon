@@ -169,7 +169,7 @@ internal class NotificationService(IDbContextFactory<SemanticoContext> contextFa
         // If subscription has CreateTasks enabled, look up task by subscriptionId
         if (result.CreateTasks)
         {
-            tasks = await context.Tasks
+            tasks = await context.QueryTasks
                 .Where(t => t.SubscriptionId == result.SubscriptionId)
                 .OrderByDescending(t => t.CreatedTime)
                 .Take(1) // Get the most recent task for this subscription
@@ -186,7 +186,7 @@ internal class NotificationService(IDbContextFactory<SemanticoContext> contextFa
         else if (result.TaskIds.Any())
         {
             // Fallback: look up by notification TaskId links (legacy)
-            tasks = await context.Tasks
+            tasks = await context.QueryTasks
                 .Where(t => result.TaskIds.Contains(t.Id))
                 .Select(t => new TaskSummaryData
                 {

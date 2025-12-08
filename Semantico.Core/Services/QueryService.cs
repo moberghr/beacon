@@ -234,12 +234,14 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
             .Where(x => x.Id == queryId)
             .SingleAsync(cancellationToken);
 
-        if (query.Subscriptions.Count > 0)
-        {
-            throw new SemanticoException($"Unable to remove query due to active subscriptions.");
-        }
-
+        // Archive the query
         query.Archive();
+
+        // Cascade-archive all subscriptions
+        foreach (var subscription in query.Subscriptions)
+        {
+            subscription.Archive();
+        }
 
         // Archive all steps and their parameters
         foreach (var step in query.Steps)

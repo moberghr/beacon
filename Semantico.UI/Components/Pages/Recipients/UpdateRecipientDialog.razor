@@ -23,9 +23,10 @@
                           Margin="Margin.Dense"
                           Variant="Variant.Outlined"
                           Class="mb-2"
-                          @bind-Value="@Recipient.Destination"
+                          @bind-Value="@_displayedDestination"
                           T="String"
                           Label="Destination"
+                          HelperText="@(_isDestinationMasked ? "Leave as-is to keep current value, or enter new value to update" : "")"
                           Required="true" />
             <MudTextField OnlyValidateIfDirty="true"
                           Immediate="true"
@@ -71,6 +72,17 @@
     bool _isFormValid = false;
     string[] errors = { };
 
+    private string _originalDestination = null!;
+    private string _displayedDestination = null!;
+    private bool _isDestinationMasked;
+
+    protected override void OnInitialized()
+    {
+        _originalDestination = Recipient.Destination;
+        _displayedDestination = Components.UiHelpers.MaskedDestinationValue;
+        _isDestinationMasked = true;
+    }
+
     async Task Submit()
     {
         if (_loading)
@@ -83,6 +95,17 @@
         if (!_form.IsValid)
         {
             return;
+        }
+
+        // If destination is still masked, restore original value (no change)
+        // Otherwise, use the new value entered by the user
+        if (_displayedDestination == Components.UiHelpers.MaskedDestinationValue)
+        {
+            Recipient.Destination = _originalDestination;
+        }
+        else
+        {
+            Recipient.Destination = _displayedDestination;
         }
 
         _loading = true;

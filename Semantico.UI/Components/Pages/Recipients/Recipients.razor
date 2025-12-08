@@ -19,7 +19,11 @@
         <Columns>
             <PropertyColumn Property="x => x.RecipientId" Title="Id"/>
             <PropertyColumn InitialDirection="SortDirection.Ascending"  Property="x => x.Name" Title="Name"/>
-            <PropertyColumn Property="x => x.Destination" Title="Destination" />
+            <TemplateColumn Title="Destination">
+                <CellTemplate>
+                    @UiHelpers.FormatRecipientDestination(context.Item)
+                </CellTemplate>
+            </TemplateColumn>
             <PropertyColumn Property="x => x.NotificationType" Title="Notification Type" />
             <PropertyColumn Property="x => x.Description" Title="Description" />
         </Columns>

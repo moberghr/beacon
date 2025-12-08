@@ -21,5 +21,5 @@ public class Notification : BaseEntity
 
     public Recipient Recipient { get; set; } = null!;
 
-    public AlertingTask? Task { get; set; }
+    public QueryTask? Task { get; set; }
 }
