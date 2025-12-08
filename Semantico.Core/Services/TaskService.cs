@@ -34,7 +34,7 @@ public class TaskService(IDbContextFactory<SemanticoContext> contextFactory, ILo
 
         // Create new task
         var task = CreateNewTask(subscriptionId, resultCount, autoResolveIfZero: true);
-        context.Tasks.Add(task);
+        context.QueryTasks.Add(task);
         await context.SaveChangesAsync(cancellationToken);
         logger.LogDebug("Created new task {TaskId} for subscription {SubscriptionId}", task.Id, subscriptionId);
 
@@ -73,7 +73,7 @@ public class TaskService(IDbContextFactory<SemanticoContext> contextFactory, ILo
 
         // Create new task (never auto-resolve new tasks in this flow)
         var task = CreateNewTask(subscriptionId, resultCount, autoResolveIfZero: false);
-        context.Tasks.Add(task);
+        context.QueryTasks.Add(task);
         await context.SaveChangesAsync(cancellationToken);
         logger.LogDebug("Created new task {TaskId} for subscription {SubscriptionId}", task.Id, subscriptionId);
         return task.Id;
@@ -82,12 +82,12 @@ public class TaskService(IDbContextFactory<SemanticoContext> contextFactory, ILo
     /// <summary>
     /// Finds an existing unresolved task for the given subscription.
     /// </summary>
-    private static async Task<AlertingTask?> FindUnresolvedTaskAsync(
+    private static async Task<QueryTask?> FindUnresolvedTaskAsync(
         SemanticoContext context,
         int subscriptionId,
         CancellationToken cancellationToken)
     {
-        return await context.Tasks
+        return await context.QueryTasks
             .Where(t => t.SubscriptionId == subscriptionId && !t.Resolved)
             .FirstOrDefaultAsync(cancellationToken);
     }
@@ -95,7 +95,7 @@ public class TaskService(IDbContextFactory<SemanticoContext> contextFactory, ILo
     /// <summary>
     /// Updates a task with the latest result count and applies auto-resolution if result count is 0.
     /// </summary>
-    private static void UpdateTaskWithResultCount(AlertingTask task, int resultCount)
+    private static void UpdateTaskWithResultCount(QueryTask task, int resultCount)
     {
         task.LatestResultCount = resultCount;
         task.LastNotificationAt = DateTime.UtcNow;
@@ -111,10 +111,10 @@ public class TaskService(IDbContextFactory<SemanticoContext> contextFactory, ILo
     /// <summary>
     /// Creates a new task with the given parameters.
     /// </summary>
-    private static AlertingTask CreateNewTask(int subscriptionId, int resultCount, bool autoResolveIfZero)
+    private static QueryTask CreateNewTask(int subscriptionId, int resultCount, bool autoResolveIfZero)
     {
         var shouldAutoResolve = autoResolveIfZero && resultCount == 0;
-        var task = new AlertingTask
+        var task = new QueryTask
         {
             SubscriptionId = subscriptionId,
             LatestResultCount = resultCount,
@@ -155,7 +155,7 @@ public class TaskService(IDbContextFactory<SemanticoContext> contextFactory, ILo
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        var task = await context.Tasks
+        var task = await context.QueryTasks
             .FindAsync(new object[] { taskId }, cancellationToken)
             ?? throw new SemanticoException($"Task {taskId} not found");
 
@@ -172,7 +172,7 @@ public class TaskService(IDbContextFactory<SemanticoContext> contextFactory, ILo
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        var task = await context.Tasks
+        var task = await context.QueryTasks
             .FindAsync(new object[] { taskId }, cancellationToken)
             ?? throw new SemanticoException($"Task {taskId} not found");
 
@@ -195,7 +195,7 @@ public class TaskService(IDbContextFactory<SemanticoContext> contextFactory, ILo
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        var query = context.Tasks.AsQueryable();
+        var query = context.QueryTasks.AsQueryable();
 
         // Apply filters
         if (request.SubscriptionId.HasValue)
@@ -241,7 +241,7 @@ public class TaskService(IDbContextFactory<SemanticoContext> contextFactory, ILo
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        var details = await context.Tasks
+        var details = await context.QueryTasks
             .Where(t => t.Id == taskId)
             .Select(t => new TaskDetailsData
             {
@@ -281,11 +281,11 @@ public class TaskService(IDbContextFactory<SemanticoContext> contextFactory, ILo
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        var totalTasks = await context.Tasks.CountAsync(cancellationToken);
-        var unresolvedCount = await context.Tasks.Where(t => !t.Resolved).CountAsync(cancellationToken);
-        var resolvedCount = await context.Tasks.Where(t => t.Resolved).CountAsync(cancellationToken);
+        var totalTasks = await context.QueryTasks.CountAsync(cancellationToken);
+        var unresolvedCount = await context.QueryTasks.Where(t => !t.Resolved).CountAsync(cancellationToken);
+        var resolvedCount = await context.QueryTasks.Where(t => t.Resolved).CountAsync(cancellationToken);
 
-        var resolvedTasks = await context.Tasks
+        var resolvedTasks = await context.QueryTasks
             .Where(t => t.Resolved && t.ResolvedAt.HasValue)
             .Select(t => new { t.CreatedTime, t.ResolvedAt })
             .ToListAsync(cancellationToken);
@@ -313,7 +313,7 @@ public class TaskService(IDbContextFactory<SemanticoContext> contextFactory, ILo
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         // Get the subscription ID for this task
-        var subscriptionId = await context.Tasks
+        var subscriptionId = await context.QueryTasks
             .Where(t => t.Id == taskId)
             .Select(t => t.SubscriptionId)
             .FirstOrDefaultAsync(cancellationToken);
@@ -342,7 +342,7 @@ public class TaskService(IDbContextFactory<SemanticoContext> contextFactory, ILo
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         // Get the query ID for this task's subscription
-        var queryId = await context.Tasks
+        var queryId = await context.QueryTasks
             .Where(t => t.Id == taskId)
             .Select(t => t.Subscription.QueryId)
             .FirstOrDefaultAsync(cancellationToken);
@@ -351,7 +351,7 @@ public class TaskService(IDbContextFactory<SemanticoContext> contextFactory, ILo
             return new List<RelatedTaskSummary>();
 
         // Find all tasks from subscriptions using the same query, excluding the current task
-        var relatedTasks = await context.Tasks
+        var relatedTasks = await context.QueryTasks
             .IgnoreQueryFilters() // Include archived tasks
             .Where(t => t.Subscription.QueryId == queryId && t.Id != taskId)
             .OrderByDescending(t => t.CreatedTime)
@@ -373,7 +373,7 @@ public class TaskService(IDbContextFactory<SemanticoContext> contextFactory, ILo
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         // Get the subscription ID for this task
-        var subscriptionId = await context.Tasks
+        var subscriptionId = await context.QueryTasks
             .Where(t => t.Id == taskId)
             .Select(t => t.SubscriptionId)
             .FirstOrDefaultAsync(cancellationToken);
@@ -396,7 +396,7 @@ public class TaskService(IDbContextFactory<SemanticoContext> contextFactory, ILo
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         var comments = await context.Comments
-            .Where(c => c.EntityType == Data.Enums.EntityType.Task && c.EntityId == taskId)
+            .Where(c => c.EntityType == EntityType.Task && c.EntityId == taskId)
             .OrderByDescending(c => c.CreatedTime)
             .Select(c => new CommentData(c.Id, c.Content, c.UserName, c.CreatedTime))
             .ToListAsync(cancellationToken);
@@ -409,13 +409,13 @@ public class TaskService(IDbContextFactory<SemanticoContext> contextFactory, ILo
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         // Verify task exists
-        var taskExists = await context.Tasks.AnyAsync(t => t.Id == taskId, cancellationToken);
+        var taskExists = await context.QueryTasks.AnyAsync(t => t.Id == taskId, cancellationToken);
         if (!taskExists)
             throw new SemanticoException($"Task {taskId} not found");
 
         var comment = new Comment
         {
-            EntityType = Data.Enums.EntityType.Task,
+            EntityType = EntityType.Task,
             EntityId = taskId,
             Content = content,
             UserId = userId,

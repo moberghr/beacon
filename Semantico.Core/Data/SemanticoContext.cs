@@ -37,7 +37,7 @@ public abstract partial class SemanticoContext : DbContext
 
     public DbSet<Notification> Notifications => Set<Notification>();
 
-    public DbSet<AlertingTask> Tasks => Set<AlertingTask>();
+    public DbSet<QueryTask> QueryTasks => Set<QueryTask>();
 
     public DbSet<MigrationJob> MigrationJobs => Set<MigrationJob>();
 
@@ -216,23 +216,18 @@ public abstract partial class SemanticoContext : DbContext
 
     protected static void ConfigureTaskEntity(ModelBuilder modelBuilder)
     {
-        // AlertingTask entity configuration
-        modelBuilder.Entity<AlertingTask>(entity =>
+        // QueryTask entity configuration
+        modelBuilder.Entity<QueryTask>(entity =>
         {
-            entity.ToTable("Tasks");
-
             // Unique index for subscription (one task per subscription)
             entity.HasIndex(t => t.SubscriptionId)
-                  .IsUnique()
-                  .HasDatabaseName("IX_Task_SubscriptionId_Unique");
+                .IsUnique();
 
             // Composite index for filtering by resolution status
-            entity.HasIndex(t => new { t.Resolved, t.CreatedTime })
-                  .HasDatabaseName("IX_Task_Resolved_CreatedTime");
+            entity.HasIndex(t => new { t.Resolved, t.CreatedTime });
 
             // Global ordering index
-            entity.HasIndex(t => t.CreatedTime)
-                  .HasDatabaseName("IX_Task_CreatedTime");
+            entity.HasIndex(t => t.CreatedTime);
 
             // Field constraints
             entity.Property(t => t.ResolutionNotes)
@@ -269,12 +264,10 @@ public abstract partial class SemanticoContext : DbContext
                   .HasMaxLength(200);
 
             // Composite index for efficient lookup by entity
-            entity.HasIndex(e => new { e.EntityType, e.EntityId })
-                  .HasDatabaseName("IX_Comment_EntityType_EntityId");
+            entity.HasIndex(e => new { e.EntityType, e.EntityId });
 
             // Index for ordering by creation time
-            entity.HasIndex(e => e.CreatedTime)
-                  .HasDatabaseName("IX_Comment_CreatedTime");
+            entity.HasIndex(e => e.CreatedTime);
         });
     }
 }

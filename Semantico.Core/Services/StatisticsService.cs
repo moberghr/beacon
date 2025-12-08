@@ -31,9 +31,9 @@ internal class StatisticsService(IDbContextFactory<SemanticoContext> contextFact
             EnabledMigrationJobs = await context.MigrationJobs.CountAsync(m => m.IsEnabled, cancellationToken),
             TotalMigrationExecutions = await context.MigrationExecutions.CountAsync(cancellationToken),
             SuccessfulMigrationExecutions = await context.MigrationExecutions.CountAsync(m => m.Status == MigrationStatus.Completed, cancellationToken),
-            TotalTasks = await context.Tasks.CountAsync(cancellationToken),
-            UnresolvedTasks = await context.Tasks.CountAsync(t => !t.Resolved, cancellationToken),
-            ResolvedTasks = await context.Tasks.CountAsync(t => t.Resolved, cancellationToken)
+            TotalTasks = await context.QueryTasks.CountAsync(cancellationToken),
+            UnresolvedTasks = await context.QueryTasks.CountAsync(t => !t.Resolved, cancellationToken),
+            ResolvedTasks = await context.QueryTasks.CountAsync(t => t.Resolved, cancellationToken)
         };
     }
 }

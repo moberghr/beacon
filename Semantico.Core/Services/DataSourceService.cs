@@ -107,6 +107,7 @@ internal class DataSourceService(
                     .Count(mj => (mj.DataSourceId == x.Id || mj.DestinationDataSourceId == x.Id)
                                  && mj.ArchivedTime == null),
                 Queries = x.QuerySteps
+                    .Where(qs => qs.Query.ArchivedTime == null)
                     .GroupBy(qs => qs.QueryId)
                     .Select(g => new QueryData
                     {

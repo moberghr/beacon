@@ -55,8 +55,6 @@ internal class JobService(
 
         NotificationStatus status;
 
-        lastExecutedQuery = null;
-
         // Use the explicit TimedOut flag
         if (queryResult.TimedOut)
         {
@@ -70,7 +68,7 @@ internal class JobService(
         {
             status = NotificationStatus.NotificationSent;
         }
-        else if (queryResult.TotalRecords != lastExecutedQuery.ResultCount)
+        else if (queryResult.TotalRecords > lastExecutedQuery.ResultCount)
         {
             status = NotificationStatus.NotificationSent;
         }
