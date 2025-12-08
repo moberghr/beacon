@@ -18,7 +18,7 @@ namespace Semantico.Core.SqlServer.Data.Migrations
 #pragma warning disable 612, 618
             modelBuilder
                 .HasDefaultSchema("semantico")
-                .HasAnnotation("ProductVersion", "9.0.10")
+                .HasAnnotation("ProductVersion", "9.0.11")
                 .HasAnnotation("Relational:MaxIdentifierLength", 128);
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
@@ -36,58 +36,6 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                     b.HasIndex("SubscriptionsId");
 
                     b.ToTable("RecipientSubscription", "semantico");
-                });
-
-            modelBuilder.Entity("Semantico.Core.Data.Entities.AlertingTask", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime?>("ArchivedTime")
-                        .HasColumnType("datetime2");
-
-                    b.Property<DateTime>("CreatedTime")
-                        .HasColumnType("datetime2");
-
-                    b.Property<DateTime?>("LastNotificationAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<int>("LatestResultCount")
-                        .HasColumnType("int");
-
-                    b.Property<string>("ResolutionNotes")
-                        .HasMaxLength(2000)
-                        .IsUnicode(true)
-                        .HasColumnType("nvarchar(2000)");
-
-                    b.Property<bool>("Resolved")
-                        .HasColumnType("bit");
-
-                    b.Property<DateTime?>("ResolvedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("ResolvedByUserId")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<int>("SubscriptionId")
-                        .HasColumnType("int");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CreatedTime")
-                        .HasDatabaseName("IX_Task_CreatedTime");
-
-                    b.HasIndex("SubscriptionId")
-                        .IsUnique()
-                        .HasDatabaseName("IX_Task_SubscriptionId_Unique");
-
-                    b.HasIndex("Resolved", "CreatedTime")
-                        .HasDatabaseName("IX_Task_Resolved_CreatedTime");
-
-                    b.ToTable("Tasks", "semantico");
                 });
 
             modelBuilder.Entity("Semantico.Core.Data.Entities.Comment", b =>
@@ -122,11 +70,9 @@ namespace Semantico.Core.SqlServer.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("CreatedTime")
-                        .HasDatabaseName("IX_Comment_CreatedTime");
+                    b.HasIndex("CreatedTime");
 
-                    b.HasIndex("EntityType", "EntityId")
-                        .HasDatabaseName("IX_Comment_EntityType_EntityId");
+                    b.HasIndex("EntityType", "EntityId");
 
                     b.ToTable("Comments", "semantico");
                 });
@@ -677,6 +623,55 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                     b.ToTable("QueryStepParameters", "semantico");
                 });
 
+            modelBuilder.Entity("Semantico.Core.Data.Entities.QueryTask", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime?>("ArchivedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("LastNotificationAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("LatestResultCount")
+                        .HasColumnType("int");
+
+                    b.Property<string>("ResolutionNotes")
+                        .HasMaxLength(2000)
+                        .IsUnicode(true)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<bool>("Resolved")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTime?>("ResolvedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("ResolvedByUserId")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("SubscriptionId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedTime");
+
+                    b.HasIndex("SubscriptionId")
+                        .IsUnique();
+
+                    b.HasIndex("Resolved", "CreatedTime");
+
+                    b.ToTable("QueryTasks", "semantico");
+                });
+
             modelBuilder.Entity("Semantico.Core.Data.Entities.Recipient", b =>
                 {
                     b.Property<int>("Id")
@@ -806,17 +801,6 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("Semantico.Core.Data.Entities.AlertingTask", b =>
-                {
-                    b.HasOne("Semantico.Core.Data.Entities.Subscription", "Subscription")
-                        .WithMany()
-                        .HasForeignKey("SubscriptionId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("Subscription");
-                });
-
             modelBuilder.Entity("Semantico.Core.Data.Entities.DataMigration.MigrationExecutionHistory", b =>
                 {
                     b.HasOne("Semantico.Core.Data.Entities.DataMigration.MigrationJob", "MigrationJob")
@@ -901,7 +885,7 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("Semantico.Core.Data.Entities.AlertingTask", "Task")
+                    b.HasOne("Semantico.Core.Data.Entities.QueryTask", "Task")
                         .WithMany("Notifications")
                         .HasForeignKey("TaskId")
                         .OnDelete(DeleteBehavior.Restrict);
@@ -965,6 +949,17 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                     b.Navigation("QueryStep");
                 });
 
+            modelBuilder.Entity("Semantico.Core.Data.Entities.QueryTask", b =>
+                {
+                    b.HasOne("Semantico.Core.Data.Entities.Subscription", "Subscription")
+                        .WithMany()
+                        .HasForeignKey("SubscriptionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Subscription");
+                });
+
             modelBuilder.Entity("Semantico.Core.Data.Entities.Subscription", b =>
                 {
                     b.HasOne("Semantico.Core.Data.Entities.Query", "Query")
@@ -985,11 +980,6 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("Subscription");
-                });
-
-            modelBuilder.Entity("Semantico.Core.Data.Entities.AlertingTask", b =>
-                {
-                    b.Navigation("Notifications");
                 });
 
             modelBuilder.Entity("Semantico.Core.Data.Entities.DataMigration.MigrationJob", b =>
@@ -1024,6 +1014,11 @@ namespace Semantico.Core.SqlServer.Data.Migrations
             modelBuilder.Entity("Semantico.Core.Data.Entities.QueryStep", b =>
                 {
                     b.Navigation("Parameters");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.QueryTask", b =>
+                {
+                    b.Navigation("Notifications");
                 });
 
             modelBuilder.Entity("Semantico.Core.Data.Entities.Recipient", b =>
