@@ -37,7 +37,6 @@ public class VirtualTableManager : IDisposable
         
         if (!matches.Any())
         {
-            _logger.LogDebug("No virtual table references found in SQL");
             return sql;
         }
         
@@ -45,9 +44,6 @@ public class VirtualTableManager : IDisposable
             .Select(m => m.Value.ToLower())
             .Distinct()
             .ToList();
-        
-        _logger.LogDebug("Found virtual table references: {VirtualTables}", string.Join(", ", referencedTables));
-        _logger.LogDebug("Target database engine: {TargetEngine}", targetDatabaseEngine);
         
         // Log cross-database scenario
         var sourceDatabases = referencedTables

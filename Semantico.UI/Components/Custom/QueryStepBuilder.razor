@@ -4,6 +4,7 @@
 @using System.Text.RegularExpressions
 @using QueryParameterValue = Semantico.Core.Models.Queries.ParameterValue
 @using Semantico.Core.Services
+@implements IDisposable
 
 @inject IDialogService DialogService
 @inject IDatabaseMetadataService MetadataService
@@ -138,7 +139,9 @@
                                                                 <MudTextField @bind-Value="param.Placeholder"
                                                                               Label="Placeholder"
                                                                               Variant="Variant.Outlined"
-                                                                              Margin="Margin.Dense" />
+                                                                              Margin="Margin.Dense"
+                                                                              ReadOnly="true"
+                                                                              HelperText="Auto-detected from query" />
                                                             </MudStack>
                                                         </MudPaper>
                                                     </MudItem>
@@ -240,34 +243,44 @@
 
     private Dictionary<int, DatabaseMetadataSnapshot?> _metadataCache = new();
     private Dictionary<int, SqlEditor?> _editorRefs = new();
+    private Dictionary<int, CancellationTokenSource> _parameterDetectionCts = new();
 
     protected override async Task OnParametersSetAsync()
     {
         Query ??= new QueryData { Name = "New Cross-Data-Source Query" };
 
-        // Initialize FinalQuery from Query object
         FinalQuery ??= Query.FinalQuery;
 
         if (!Query.Steps.Any())
         {
             AddStep();
         }
+    }
 
-        // Load metadata for all steps' data sources
-        if (Query.Steps.Any())
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && Query?.Steps?.Any() == true)
         {
-            foreach (var step in Query.Steps)
+            _ = LoadMetadataInBackground();
+        }
+    }
+
+    private async Task LoadMetadataInBackground()
+    {
+        if (Query?.Steps == null) return;
+
+        foreach (var step in Query.Steps)
+        {
+            if (step.DataSourceId > 0 && !_metadataCache.ContainsKey(step.DataSourceId))
             {
-                if (step.DataSourceId > 0 && !_metadataCache.ContainsKey(step.DataSourceId))
+                try
                 {
-                    try
-                    {
-                        _metadataCache[step.DataSourceId] = await MetadataService.GetMetadataAsync(step.DataSourceId);
-                    }
-                    catch
-                    {
-                        _metadataCache[step.DataSourceId] = null;
-                    }
+                    _metadataCache[step.DataSourceId] = await MetadataService.GetMetadataAsync(step.DataSourceId);
+                    StateHasChanged();
+                }
+                catch
+                {
+                    _metadataCache[step.DataSourceId] = null;
                 }
             }
         }
@@ -400,33 +413,63 @@
     private async Task OnSqlValueChanged(QueryStepData step, string newValue)
     {
         step.SqlValue = newValue;
-        await DetectParameters(step);
         await OnQueryChanged.InvokeAsync(Query!);
+
+        if (_parameterDetectionCts.TryGetValue(step.StepOrder, out var existingCts))
+        {
+            existingCts.Cancel();
+            existingCts.Dispose();
+        }
+
+        var cts = new CancellationTokenSource();
+        _parameterDetectionCts[step.StepOrder] = cts;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(500, cts.Token);
+                if (!cts.Token.IsCancellationRequested)
+                {
+                    await InvokeAsync(async () => await DetectParameters(step));
+                }
+            }
+            catch (TaskCanceledException)
+            {
+                // Expected when typing quickly
+            }
+            finally
+            {
+                cts.Dispose();
+                _parameterDetectionCts.Remove(step.StepOrder);
+            }
+        });
     }
 
     private async Task OnDataSourceChanged(QueryStepData step, int newDataSourceId)
     {
         step.DataSourceId = newDataSourceId;
 
-        // Update data source info
         if (AvailableProjects.TryGetValue(newDataSourceId, out var dataSourceInfo))
         {
             step.DataSourceName = dataSourceInfo.Name;
             step.DatabaseEngineType = dataSourceInfo.DatabaseEngineType;
         }
 
-        // Load metadata for the new data source
         if (newDataSourceId > 0 && !_metadataCache.ContainsKey(newDataSourceId))
         {
-            try
+            _ = Task.Run(async () =>
             {
-                _metadataCache[newDataSourceId] = await MetadataService.GetMetadataAsync(newDataSourceId);
-                StateHasChanged(); // Force re-render to show new metadata
-            }
-            catch
-            {
-                _metadataCache[newDataSourceId] = null;
-            }
+                try
+                {
+                    _metadataCache[newDataSourceId] = await MetadataService.GetMetadataAsync(newDataSourceId);
+                    await InvokeAsync(StateHasChanged);
+                }
+                catch
+                {
+                    _metadataCache[newDataSourceId] = null;
+                }
+            });
         }
 
         await OnQueryChanged.InvokeAsync(Query!);
@@ -532,6 +575,16 @@
 
         await OnQueryChanged.InvokeAsync(Query!);
         StateHasChanged();
+    }
+
+    public void Dispose()
+    {
+        foreach (var cts in _parameterDetectionCts.Values)
+        {
+            cts?.Cancel();
+            cts?.Dispose();
+        }
+        _parameterDetectionCts.Clear();
     }
 
     public class ProjectInfo

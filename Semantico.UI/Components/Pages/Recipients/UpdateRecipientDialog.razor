@@ -41,6 +41,7 @@
             <MudSelect T="NotificationType" Label="Notification Type" @bind-Value="@Recipient.NotificationType" Required="true" Margin="Margin.Dense" Variant="Variant.Outlined">
                 <MudSelectItem Value="NotificationType.Email">Email</MudSelectItem>
                 <MudSelectItem Value="NotificationType.Teams">Teams</MudSelectItem>
+                <MudSelectItem Value="NotificationType.Slack">Slack</MudSelectItem>
                 <MudSelectItem Value="NotificationType.Jira">Jira</MudSelectItem>
             </MudSelect>
         </MudForm>

@@ -14,14 +14,21 @@
 </style>
 
 <div style="height: @Height; border: 1px solid #ddd;">
-
-    <StandaloneCodeEditor @ref="_editor"
-                         Id="@EditorId"
-                         ConstructionOptions="EditorConstructionOptions"
-                         OnDidInit="OnEditorInit"
-                         OnDidChangeModelContent="OnEditorContentChanged"
-                         CssClass="sql-editor-container" />
-
+    @if (_monacoReady)
+    {
+        <StandaloneCodeEditor @ref="_editor"
+                             Id="@EditorId"
+                             ConstructionOptions="EditorConstructionOptions"
+                             OnDidInit="OnEditorInit"
+                             OnDidChangeModelContent="OnEditorContentChanged"
+                             CssClass="sql-editor-container" />
+    }
+    else
+    {
+        <div style="display: flex; align-items: center; justify-content: center; height: 100%; background-color: #f5f5f5;">
+            <MudProgressCircular Color="Color.Primary" Indeterminate="true" Size="Size.Small" />
+        </div>
+    }
 </div>
 
 @inject IDatabaseMetadataService MetadataService
@@ -41,12 +48,12 @@
     private DatabaseMetadataSnapshot? _metadata;
     private bool _initialized = false;
     private string _lastValue = "";
-    private bool _layoutTriggered = false;
     private bool _completionProviderRegistered = false;
+    private bool _monacoReady = false;
 
     protected override async Task OnInitializedAsync()
     {
-
+        _monacoReady = await WaitForMonacoAsync();
     }
 
     protected override async Task OnParametersSetAsync()
@@ -86,25 +93,15 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        // Trigger layout after first render and a few subsequent renders to ensure Monaco has calculated dimensions
-        if (_initialized && _editor != null && !_layoutTriggered)
+        if (firstRender && _editor != null)
         {
             try
             {
-                // Trigger multiple layouts with delays to ensure Monaco picks up container size
-                await Task.Delay(50);
                 await _editor.Layout();
-                await Task.Delay(50);
-                await _editor.Layout();
-                await Task.Delay(100);
-                await _editor.Layout();
-
-                _layoutTriggered = true;
-                Console.WriteLine($"SqlEditor {EditorId}: Post-render layout completed");
             }
-            catch (Exception ex)
+            catch
             {
-                Console.WriteLine($"SqlEditor {EditorId}: Layout error: {ex.Message}");
+                // Silently ignore layout errors
             }
         }
     }
@@ -156,57 +153,44 @@
 
     private async Task OnEditorInit()
     {
-        Console.WriteLine($"SqlEditor {EditorId}: OnEditorInit called, ReadOnly={ReadOnly}");
         _initialized = true;
 
         if (_editor != null)
         {
             try
             {
-                // First, trigger a layout recalculation to ensure Monaco fills the container
                 await _editor.Layout();
-                Console.WriteLine($"SqlEditor {EditorId}: Layout triggered");
 
                 if (!ReadOnly)
                 {
-                    Console.WriteLine($"SqlEditor {EditorId}: Setting ReadOnly=false via UpdateOptions");
                     await _editor.UpdateOptions(new EditorUpdateOptions
                     {
                         ReadOnly = false,
                         DomReadOnly = false
                     });
 
-                    // Give Monaco a moment to update
-                    await Task.Delay(100);
-
-                    // Try to focus the editor to ensure it's interactive
                     try
                     {
                         await _editor.Focus();
-                        Console.WriteLine($"SqlEditor {EditorId}: Editor focused successfully");
                     }
-                    catch (Exception focusEx)
+                    catch
                     {
-                        Console.WriteLine($"SqlEditor {EditorId}: Failed to focus editor: {focusEx.Message}");
+                        // Silently ignore focus errors
                     }
                 }
 
-                // If we have metadata, register completion provider
                 if (_metadata != null && !ReadOnly)
                 {
                     await RegisterCompletionProvider();
                 }
 
-                // Enable drop on editor for drag and drop from DatabaseExplorer
                 await EnableDropOnEditor();
             }
-            catch (Exception ex)
+            catch
             {
-                Console.WriteLine($"SqlEditor {EditorId}: Failed during init: {ex.Message}");
+                // Silently ignore initialization errors
             }
         }
-
-        Console.WriteLine($"SqlEditor {EditorId}: OnEditorInit completed");
     }
 
     private async Task EnableDropOnEditor()
@@ -323,6 +307,30 @@
         {
             Snackbar.Add($"Failed to refresh metadata: {ex.Message}", Severity.Error);
         }
+    }
+
+    private async Task<bool> WaitForMonacoAsync(int maxAttempts = 50, int delayMs = 100)
+    {
+        for (int i = 0; i < maxAttempts; i++)
+        {
+            try
+            {
+                var isReady = await JSRuntime.InvokeAsync<bool>("eval",
+                    "typeof monaco !== 'undefined' && typeof blazorMonaco !== 'undefined' && typeof blazorMonaco.editor !== 'undefined' && typeof blazorMonaco.editor.create !== 'undefined'");
+                if (isReady)
+                {
+                    return true;
+                }
+            }
+            catch
+            {
+                // Silently continue
+            }
+
+            await Task.Delay(delayMs);
+        }
+
+        return false;
     }
 
 }

@@ -26,6 +26,7 @@ Semantico supports three notification channels:
 |---------|--------|----------|
 | **Email** | HTML table + **CSV attachment with full results** | Scheduled reports, data exports, stakeholder delivery |
 | **Microsoft Teams** | Adaptive card with formatted table | Real-time alerts, team collaboration |
+| **Slack** | Rich Table Blocks with 20 columns, 100 rows | Real-time alerts, team collaboration, superior table formatting |
 | **Jira** | Issue creation with results | Incident tracking, workflow integration |
 
 {: .note }
@@ -239,6 +240,166 @@ curl -X POST 'https://outlook.office.com/webhook/...' \
 
 You should see the message in your Teams channel immediately.
 
+## Slack Notifications
+
+### Prerequisites
+
+Slack notifications require a webhook URL from your Slack workspace.
+
+### Getting Slack Webhook URL
+
+1. Go to [https://api.slack.com/apps](https://api.slack.com/apps)
+2. Click **Create New App** → **From scratch**
+3. Enter app details:
+   - **App Name**: `Semantico Alerts`
+   - **Pick a workspace**: Select your workspace
+4. Click **Create App**
+5. In the app settings, select **Incoming Webhooks** from the left menu
+6. Toggle **Activate Incoming Webhooks** to **On**
+7. Click **Add New Webhook to Workspace**
+8. Select the channel where notifications should be posted
+9. Click **Allow**
+10. **Copy the Webhook URL** (format: `https://hooks.slack.com/services/T00000000/B00000000/XXXX...`)
+
+{: .note }
+> Keep your webhook URL secure. Anyone with this URL can post messages to your Slack channel.
+
+### Slack Message Format
+
+Slack notifications use Block Kit with superior table formatting:
+- **Header**: Query name with professional styling
+- **Query Display** (optional): SQL query in code block with syntax highlighting
+- **Summary**: "Showing X of Y total records"
+- **Results Table**: Rich formatted table with:
+  - Up to **20 columns** (vs Teams' 3-column limit)
+  - Up to **100 rows** (vs Teams' 10-row limit)
+  - **Bold headers** using rich text formatting
+  - **Smart column alignment**: Numbers right-aligned, dates center-aligned, text left-aligned
+  - **Configurable text wrapping**: Enabled for long text, disabled for compact data
+- **Actions**: "View Full Results" button linking to notification details (when BaseUrl is configured)
+
+**Example Slack message:**
+
+```
+┌─────────────────────────────────────────────────────┐
+│ [Semantico] Production DB - Daily Sales Report     │
+├─────────────────────────────────────────────────────┤
+│ Query:                                              │
+│ ```sql                                              │
+│ SELECT product_name, category, quantity,           │
+│        revenue, created_at                          │
+│ FROM sales WHERE date = CURRENT_DATE                │
+│ ORDER BY revenue DESC                               │
+│ ```                                                 │
+├─────────────────────────────────────────────────────┤
+│ Results: Showing 10 of 247 total records           │
+│                                                     │
+│ ┌────────────┬──────────┬────────┬──────────┬──...│
+│ │ Product    │ Category │ Qty    │ Revenue  │ ... │
+│ ├────────────┼──────────┼────────┼──────────┼──...│
+│ │ Widget Pro │ Hardware │    342 │ $12,456  │ ... │
+│ │ Gadget X   │ Hardware │    198 │  $8,234  │ ... │
+│ │ Service Y  │ Software │     89 │  $5,672  │ ... │
+│ └────────────┴──────────┴────────┴──────────┴──...│
+│                                                     │
+│ [View Full Results →]                              │
+└─────────────────────────────────────────────────────┘
+```
+
+### Slack vs Teams Comparison
+
+Slack provides significantly better table formatting than Teams:
+
+| Feature | Microsoft Teams | Slack |
+|---------|----------------|-------|
+| **Max Columns** | 3 (self-imposed limit) | 20 |
+| **Max Rows** | 10 (truncated) | 100 |
+| **Header Formatting** | Basic bold text | Rich text with bold style |
+| **Column Alignment** | Limited | Full control (left/center/right) |
+| **Text Wrapping** | Always enabled | Configurable per column |
+| **Cell Formatting** | Plain text only | Rich text with links, emoji |
+
+{: .note }
+> **Superior Table Display**: Slack's Table Block feature provides much better formatting for query results with wide tables or many rows. Consider using Slack for data-heavy notifications.
+
+### Creating Slack Recipient
+
+1. Navigate to **Recipients** → **Create New Recipient**
+2. Fill in details:
+   - **Name**: `Alerts Channel`
+   - **Type**: Slack
+   - **Webhook URL**: Paste your webhook URL
+3. Click **Save**
+
+### Configuring Clickable Links in Slack Notifications
+
+To enable the **"View Full Results"** button in Slack notifications, configure the `BaseUrl` setting in your application:
+
+```csharp
+builder.Services.AddSemanticoAdmin(builder.Configuration, options =>
+{
+    options.AddSemanticoScheduler<YourScheduler>();
+    // Set your Semantico UI base URL
+    options.BaseUrl = "https://yourdomain.com/semantico";
+});
+```
+
+**Or from appsettings.json:**
+
+```json
+{
+  "Semantico": {
+    "BaseUrl": "https://yourdomain.com/semantico"
+  }
+}
+```
+
+When configured, Slack notifications will include a button that links to:
+```
+https://yourdomain.com/semantico/notifications/{notificationId}
+```
+
+This allows recipients to:
+- View complete query results (not just first 100 rows)
+- See execution metrics and history
+- Access full notification details
+- Explore related query executions
+
+{: .note }
+> If `BaseUrl` is not configured, Slack notifications are still sent but without the clickable button. The notification will contain the results table as usual.
+
+### Testing Slack Webhook
+
+Send a test message:
+
+```bash
+curl -X POST 'https://hooks.slack.com/services/T00000000/B00000000/XXXX...' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "text": "Test from Semantico",
+    "blocks": [
+      {
+        "type": "section",
+        "text": {
+          "type": "mrkdwn",
+          "text": "This is a test notification from *Semantico*"
+        }
+      }
+    ]
+  }'
+```
+
+You should see the message in your Slack channel immediately.
+
+### Advanced Table Features
+
+Slack automatically handles:
+- **Smart data type detection**: Numbers, dates, booleans, and text are detected and formatted appropriately
+- **Automatic alignment**: Numbers right-aligned, dates center-aligned, text left-aligned
+- **Text wrapping**: Long text automatically wraps within cells
+- **Date formatting**: Dates displayed as YYYY-MM-DD HH:mm:ss
+- **Boolean display**: True/False shown as Yes/No
+
 ## Jira Notifications
 
 ### Prerequisites
@@ -306,7 +467,8 @@ Click any notification to see:
 | Channel | Inline Display | Attachment |
 |---------|----------------|------------|
 | **Email** | 20 rows (HTML table) | **CSV with ALL rows** (complete dataset) |
-| **Teams** | 20 rows (adaptive card) | None |
+| **Teams** | 10 rows, 3 columns (adaptive card) | None |
+| **Slack** | 100 rows, 20 columns (table block) | None |
 | **Jira** | 50 rows (issue description) | CSV in description |
 
 {: .note }
@@ -345,15 +507,17 @@ FROM events
 ### Success
 
 Notification delivered successfully:
-- Email: Accepted by SendGrid (may still bounce)
+- Email: Accepted by email provider (may still bounce)
 - Teams: 200 OK response from webhook
+- Slack: 200 OK response from webhook
 - Jira: Issue created successfully
 
 ### Failed
 
 Delivery failed with error:
-- Email: Invalid recipient, SendGrid API error
+- Email: Invalid recipient, email provider API error
 - Teams: Invalid webhook, channel deleted
+- Slack: Invalid webhook, channel deleted, webhook revoked
 - Jira: Authentication failed, project not found
 
 **Common failure reasons:**
