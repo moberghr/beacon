@@ -17,7 +17,7 @@
 Create semantic SQL queries to monitor data quality, business rules, and database health with multi-step execution
 
 ### 🔔 Smart Alerting
-Deliver notifications via Email, Microsoft Teams, or Jira with rich formatting and complete result attachments
+Deliver notifications via Email, Microsoft Teams, Slack, or Jira with rich formatting and complete result attachments
 
 ### 🔄 Data Migration
 Orchestrate ETL workflows with Insert, Upsert, Truncate, and Sync modes across different database engines
@@ -80,7 +80,7 @@ graph TB
     end
 
     subgraph Adapters["Notification Adapters"]
-        EmailAdapter[Email Adapter] ~~~ TeamsAdapter[Teams Adapter] ~~~ JiraAdapter[Jira Adapter]
+        EmailAdapter[Email Adapter] ~~~ TeamsAdapter[Teams Adapter] ~~~ SlackAdapter[Slack Adapter] ~~~ JiraAdapter[Jira Adapter]
     end
 
     subgraph Data["Data Access Layer"]
@@ -206,6 +206,7 @@ flowchart LR
 ### 🔔 Multi-Channel Notifications
 - **Email** with HTML table + CSV/Excel attachment
 - **Microsoft Teams** with Adaptive Cards
+- **Slack** with rich Table Blocks (20 cols, 100 rows)
 - **Jira** issue creation and updates
 - Full result attachments (unlimited rows)
 

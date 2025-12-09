@@ -194,18 +194,46 @@ window.semanticoSqlEditor = {
                                 });
                             });
 
+                            // Track unique column names to avoid duplicates
+                            const seenColumns = new Set();
+
                             // Suggest all columns (qualified with table name for clarity)
                             metadata.tables.forEach(table => {
                                 table.columns.forEach(column => {
-                                    suggestions.push({
-                                        label: column.columnName, // Simple label
-                                        kind: monaco.languages.CompletionItemKind.Field,
-                                        insertText: column.columnName,
-                                        detail: `${table.tableName}.${column.columnName}`, // Detailed info
-                                        documentation: `Table: ${table.schemaName}.${table.tableName}\nType: ${column.dataType}`,
-                                        sortText: '2_' + column.columnName, // Lower priority than aliases
-                                        range: range
-                                    });
+                                    const uniqueKey = `${column.columnName.toLowerCase()}`;
+
+                                    // Only add if we haven't seen this column name before
+                                    if (!seenColumns.has(uniqueKey)) {
+                                        seenColumns.add(uniqueKey);
+
+                                        // Find all tables that have this column
+                                        const tablesWithColumn = metadata.tables.filter(t =>
+                                            t.columns.some(c => c.columnName.toLowerCase() === column.columnName.toLowerCase())
+                                        );
+
+                                        let detail = column.columnName;
+                                        let documentation = `Type: ${column.dataType}`;
+
+                                        // If column exists in multiple tables, show that info
+                                        if (tablesWithColumn.length > 1) {
+                                            const tableNames = tablesWithColumn.map(t => t.tableName).join(', ');
+                                            detail = `${column.columnName} (in ${tablesWithColumn.length} tables)`;
+                                            documentation = `Found in: ${tableNames}\nType: ${column.dataType}`;
+                                        } else {
+                                            detail = `${table.tableName}.${column.columnName}`;
+                                            documentation = `Table: ${table.schemaName}.${table.tableName}\nType: ${column.dataType}`;
+                                        }
+
+                                        suggestions.push({
+                                            label: column.columnName,
+                                            kind: monaco.languages.CompletionItemKind.Field,
+                                            insertText: column.columnName,
+                                            detail: detail,
+                                            documentation: documentation,
+                                            sortText: '2_' + column.columnName,
+                                            range: range
+                                        });
+                                    }
                                 });
                             });
                         }

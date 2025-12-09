@@ -50,7 +50,7 @@
                             </MudAvatar>
                             <MudText Typo="Typo.h6" Align="Align.Center" Class="fw-bold">Smart Alerting</MudText>
                             <MudText Typo="Typo.body2" Align="Align.Center">
-                                Deliver notifications via Email, Microsoft Teams, or Jira with rich formatting and complete result attachments
+                                Deliver notifications via Email, Microsoft Teams, Slack, or Jira with rich formatting and complete result attachments
                             </MudText>
                         </MudStack>
                     </MudPaper>
@@ -118,7 +118,7 @@ graph TB
     end
 
     subgraph Adapters["Notification Adapters"]
-        EmailAdapter[Email Adapter] ~~~ TeamsAdapter[Teams Adapter] ~~~ JiraAdapter[Jira Adapter]
+        EmailAdapter[Email Adapter] ~~~ TeamsAdapter[Teams Adapter] ~~~ SlackAdapter[Slack Adapter] ~~~ JiraAdapter[Jira Adapter]
     end
 
     subgraph Data["Data Access Layer"]
@@ -330,6 +330,7 @@ stateDiagram-v2
                             <MudList T="string" Dense="true">
                                 <MudListItem T="string" Icon="@Icons.Material.Filled.Email">Email with HTML table + CSV/Excel attachment</MudListItem>
                                 <MudListItem T="string" Icon="@Icons.Material.Filled.Group">Microsoft Teams with Adaptive Cards</MudListItem>
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.Chat">Slack with rich Table Blocks (20 cols, 100 rows)</MudListItem>
                                 <MudListItem T="string" Icon="@Icons.Material.Filled.BugReport">Jira issue creation and updates</MudListItem>
                                 <MudListItem T="string" Icon="@Icons.Material.Filled.AttachFile">Full result attachments (unlimited rows)</MudListItem>
                             </MudList>

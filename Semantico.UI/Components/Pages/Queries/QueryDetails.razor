@@ -596,32 +596,63 @@
     private async Task ExecuteStep(int stepOrder)
     {
         if (Model?.Id == null) return;
-        
+
         try
         {
             _currentQueryResult = null;
-            
-            Snackbar.Add($"Executing step {stepOrder}...", Severity.Info);
-            var result = await PreviewService.ExecuteStepPreview(Model.Id, stepOrder, CancellationToken.None);
-            
-            if (result != null)
+
+            // Get the step to check for parameters
+            var step = Model.Steps.FirstOrDefault(s => s.StepOrder == stepOrder);
+            List<Semantico.Core.Models.Queries.ParameterValue>? parameterValues = null;
+
+            // If step has parameters, show dialog to collect values
+            if (step?.Parameters?.Any() == true)
             {
-                _currentStepResult = result;
-                
-                if (result.Success)
+                var breakpoint = await BrowserViewport.GetCurrentBreakpointAsync();
+                var options = new DialogOptions
                 {
-                    Snackbar.Add($"Step {stepOrder} executed successfully! Returned {result.TotalRows} rows in {result.ExecutionTimeMs:F0}ms", Severity.Success);
+                    MaxWidth = MaxWidth.Small,
+                    FullWidth = true,
+                    FullScreen = breakpoint == Breakpoint.Xs,
+                };
+
+                var parameters = new DialogParameters<ExecuteStepParametersDialog>
+                {
+                    { x => x.Parameters, step.Parameters }
+                };
+
+                var dialog = await DialogService.ShowAsync<ExecuteStepParametersDialog>("", parameters, options);
+                var result = await dialog.Result;
+
+                if (result.Canceled)
+                {
+                    return;
+                }
+
+                parameterValues = result.Data as List<Semantico.Core.Models.Queries.ParameterValue>;
+            }
+
+            Snackbar.Add($"Executing step {stepOrder}...", Severity.Info);
+            var executionResult = await PreviewService.ExecuteStepPreview(Model.Id, stepOrder, parameterValues, CancellationToken.None);
+
+            if (executionResult != null)
+            {
+                _currentStepResult = executionResult;
+
+                if (executionResult.Success)
+                {
+                    Snackbar.Add($"Step {stepOrder} executed successfully! Returned {executionResult.TotalRows} rows in {executionResult.ExecutionTimeMs:F0}ms", Severity.Success);
                 }
                 else
                 {
-                    Snackbar.Add($"Step {stepOrder} execution failed: {result.ErrorMessage}", Severity.Error);
+                    Snackbar.Add($"Step {stepOrder} execution failed: {executionResult.ErrorMessage}", Severity.Error);
                 }
             }
             else
             {
                 Snackbar.Add($"Step {stepOrder} execution failed", Severity.Error);
             }
-            
+
             StateHasChanged();
         }
         catch (Exception ex)

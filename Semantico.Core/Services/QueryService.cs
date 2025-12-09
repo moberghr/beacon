@@ -871,7 +871,7 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
             var value = parameters.FirstOrDefault(param => param.Name == p.Name)?.Value ?? "";
             return new SubscriptionParameterData
             {
-                QueryPlaceholder = p.Name,
+                QueryPlaceholder = p.Placeholder,
                 Value = value
             };
         }).ToList();

@@ -59,7 +59,6 @@ public class DatabaseMetadataService(
         // Try to get from cache first
         if (cache.TryGetValue(GetCacheKey(dataSourceId), out DatabaseMetadataSnapshot? cachedSnapshot) && cachedSnapshot != null)
         {
-            logger.LogDebug("Returning cached metadata for data source {DataSourceId}", dataSourceId);
             return cachedSnapshot;
         }
 

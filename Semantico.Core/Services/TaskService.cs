@@ -56,10 +56,7 @@ public class TaskService(IDbContextFactory<SemanticoContext> contextFactory, ILo
         if (existingTask != null)
         {
             UpdateTaskWithResultCount(existingTask, resultCount);
-            if (resultCount == 0)
-            {
-                logger.LogDebug("Auto-resolved task {TaskId} for subscription {SubscriptionId}", existingTask.Id, subscriptionId);
-            }
+            
             await context.SaveChangesAsync(cancellationToken);
             return existingTask.Id;
         }
@@ -67,7 +64,6 @@ public class TaskService(IDbContextFactory<SemanticoContext> contextFactory, ILo
         // Don't create a new task if result count is 0 (nothing to alert on)
         if (resultCount == 0)
         {
-            logger.LogDebug("No existing task and result count is 0 for subscription {SubscriptionId} - no task created", subscriptionId);
             return 0;
         }
 
@@ -75,7 +71,7 @@ public class TaskService(IDbContextFactory<SemanticoContext> contextFactory, ILo
         var task = CreateNewTask(subscriptionId, resultCount, autoResolveIfZero: false);
         context.QueryTasks.Add(task);
         await context.SaveChangesAsync(cancellationToken);
-        logger.LogDebug("Created new task {TaskId} for subscription {SubscriptionId}", task.Id, subscriptionId);
+        
         return task.Id;
     }
 

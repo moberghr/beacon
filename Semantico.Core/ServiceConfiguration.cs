@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Semantico.Core.Adapters;
 using Semantico.Core.Adapters.Jira;
 using Semantico.Core.Adapters.Mail;
+using Semantico.Core.Adapters.Slack;
 using Semantico.Core.Adapters.Teams;
 using Semantico.Core.Data;
 using Semantico.Core.Models;
@@ -38,6 +39,7 @@ public static class ServiceConfiguration
         services.AddSingleton<IEncryptionService>(new EncryptionService(encryptionKey));
 
         services.AddSingleton<IAdapter, TeamsAdapter>();
+        services.AddSingleton<IAdapter, SlackAdapter>();
         if (configurationOptions.EmailAdapter != null)
         {
             services.TryAddSingleton(typeof(IEmailAdapter), configurationOptions.EmailAdapter);

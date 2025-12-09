@@ -39,8 +39,9 @@ internal class SubscriptionService(IDbContextFactory<SemanticoContext> contextFa
         
         CronExpression.Parse(subscriptionData.CronExpression);
 
-        var queryParams = await context.QueryParameters
-            .Where(x => x.QueryId == subscriptionData.QueryId)
+        var queryParams = await context.QuerySteps
+            .Where(qs => qs.QueryId == subscriptionData.QueryId)
+            .SelectMany(qs => qs.Parameters)
             .Select(x =>
                 new QueryParameterData
                 {

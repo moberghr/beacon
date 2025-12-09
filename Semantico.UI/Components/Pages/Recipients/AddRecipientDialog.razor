@@ -14,6 +14,7 @@
             <MudSelect T="NotificationType" Label="Notification Type" @bind-Value="@Recipient.NotificationType" Required="true" Margin="Margin.Dense" Variant="Variant.Outlined" Class="mb-2">
                 <MudSelectItem Value="NotificationType.Email">Email</MudSelectItem>
                 <MudSelectItem Value="NotificationType.Teams">Teams</MudSelectItem>
+                <MudSelectItem Value="NotificationType.Slack">Slack</MudSelectItem>
                 <MudSelectItem Value="NotificationType.Jira">Jira</MudSelectItem>
             </MudSelect>
 
@@ -121,6 +122,7 @@
     {
         NotificationType.Email => "Email Address",
         NotificationType.Teams => "Teams Webhook URL",
+        NotificationType.Slack => "Slack Webhook URL",
         NotificationType.Jira => "Jira Connection String",
         _ => "Destination"
     };
@@ -129,6 +131,7 @@
     {
         NotificationType.Email => "Enter the email address",
         NotificationType.Teams => "Enter the Teams incoming webhook URL",
+        NotificationType.Slack => "Enter the Slack incoming webhook URL",
         NotificationType.Jira => "Format: domain;project;email;api-key",
         _ => ""
     };
