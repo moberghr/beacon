@@ -9,7 +9,7 @@
 
 <SemanticoPageTitle Title="Query"/>
 
-<MudContainer Class="my-4 px-4">
+<MudContainer Class="my-4 px-4"  MaxWidth="MaxWidth.ExtraExtraLarge">
     <SemanticoPageHeader Icon="@Icons.Material.Filled.Subscriptions" Title="Subscription details" Alert="@Model?.Status" AlertSeverity="@(isSubscriptionActive ? Severity.Success : Severity.Error)" ButtonIcon="@Icons.Material.Outlined.Archive" ButtonText="Archive" ButtonDisabled="@(!isSubscriptionActive)" OnClick="@ArchiveSubscription">
         <MudItem xs="6" sm="2" md="2" lg="2" Class="d-flex justify-end">
         <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="@(async () => await TestSubscription())">Test</MudButton>
@@ -87,7 +87,7 @@
         </MudCardContent>
         <MudCardContent>
             <MudItem xs="12">
-                <MudContainer Class="my-4 px-4">
+                <MudContainer Class="my-4 px-4"  MaxWidth="MaxWidth.ExtraExtraLarge">
                     <MudDataGrid @ref="_notificationsDataGrid" ServerData="NotificationsServerReload" T="QueryExecutionHistoryData" Hover="true" Filterable="false">
                         <ToolBarContent>
                             <MudText Typo="Typo.h6">Execution history</MudText>

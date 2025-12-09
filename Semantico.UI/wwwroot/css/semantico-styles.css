@@ -7,23 +7,13 @@ html, body {
     -moz-osx-font-smoothing: grayscale;
 }
 
-/* Content area padding and max-width for better readability */
-.mud-main-content {
-    max-width: 1600px;
-    margin: 0 auto;
-    padding: 1.5rem !important;
-}
-
-/* Smooth transitions */
-* {
-    transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
-}
+/* Smooth transitions - removed global selector to prevent layout shifts */
 
 /* Enhanced cards */
 .mud-card {
     border-radius: 12px !important;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08) !important;
-    transition: box-shadow 0.3s ease, transform 0.2s ease !important;
+    transition: box-shadow 0.3s ease !important;
 }
 
 .mud-card:hover {
@@ -44,9 +34,11 @@ html, body {
     letter-spacing: 0.5px;
 }
 
-.mud-table-row:hover {
-    background: rgba(0, 0, 0, 0.03) !important;
-    cursor: pointer;
+/* Table row hover effect - cursor is handled by MudBlazor based on RowClick property */
+@media (hover: hover) and (pointer: fine) {
+    .mud-table-hover .mud-table-container .mud-table-root .mud-table-body .mud-table-row:hover {
+        cursor: pointer;
+    }
 }
 
 /* Dark mode adjustments */
@@ -81,20 +73,10 @@ html, body {
 
 .mud-button-filled:hover {
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15) !important;
-    transform: translateY(-1px);
 }
 
 /* Icon button improvements */
 .mud-icon-button {
-    border-radius: 8px !important;
-}
-
-/* Input field improvements */
-.mud-input-root {
-    border-radius: 8px !important;
-}
-
-.mud-input-outlined .mud-input-outlined-border {
     border-radius: 8px !important;
 }
 
@@ -112,12 +94,10 @@ html, body {
 .mud-paper {
     border-radius: 10px !important;
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08) !important;
-    transition: box-shadow 0.3s ease, transform 0.2s ease !important;
 }
 
 .mud-paper:hover {
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12) !important;
-    transform: translateY(-2px);
 }
 
 /* Alert improvements */
@@ -142,12 +122,11 @@ html, body {
     border-radius: 8px !important;
     margin: 4px 8px !important;
     font-weight: 500 !important;
-    transition: all 0.2s ease !important;
+    transition: background 0.2s ease !important;
 }
 
 .mud-nav-link:hover {
     background: rgba(0, 0, 0, 0.04) !important;
-    transform: translateX(4px);
 }
 
 .mud-theme-dark .mud-nav-link:hover {
@@ -163,14 +142,9 @@ html, body {
     background: rgba(255, 255, 255, 0.12) !important;
 }
 
-/* AppBar improvements */
+/* AppBar improvements - removed fixed backgrounds to let MudBlazor theme handle it */
 .mud-appbar {
     backdrop-filter: blur(10px);
-    background: rgba(255, 255, 255, 0.95) !important;
-}
-
-.mud-theme-dark .mud-appbar {
-    background: rgba(30, 30, 30, 0.95) !important;
 }
 
 /* Drawer improvements */
@@ -215,11 +189,11 @@ html, body {
 
 /* Statistics card improvements */
 .statistics-card {
-    transition: all 0.3s ease;
+    transition: box-shadow 0.3s ease;
 }
 
 .statistics-card:hover {
-    transform: translateY(-4px);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12) !important;
 }
 
 /* Custom scrollbar */
@@ -266,12 +240,6 @@ html, body {
     }
 }
 
-/* Focus improvements for accessibility */
-*:focus-visible {
-    outline: 2px solid var(--mud-palette-primary) !important;
-    outline-offset: 2px;
-}
-
 /* Snackbar improvements */
 .mud-snackbar {
     border-radius: 8px !important;
@@ -298,12 +266,6 @@ html, body {
 /* Checkbox improvements */
 .mud-checkbox {
     border-radius: 4px !important;
-}
-
-/* Data grid pagination improvements */
-.mud-table-pagination {
-    border-top: 1px solid rgba(0, 0, 0, 0.08);
-    padding: 12px 16px !important;
 }
 
 .mud-theme-dark .mud-table-pagination {
@@ -518,29 +480,8 @@ html, body {
     height: auto;
 }
 
-/* Mermaid node styling */
-.mermaid .node rect,
-.mermaid .node circle,
-.mermaid .node ellipse,
-.mermaid .node polygon {
-    fill: rgba(var(--mud-palette-primary-rgb, 33, 150, 243), 0.1) !important;
-    stroke: var(--mud-palette-primary) !important;
-    stroke-width: 2px !important;
-}
-
-.mud-theme-dark .mermaid .node rect,
-.mud-theme-dark .mermaid .node circle,
-.mud-theme-dark .mermaid .node ellipse,
-.mud-theme-dark .mermaid .node polygon {
-    fill: rgba(var(--mud-palette-primary-rgb, 33, 150, 243), 0.2) !important;
-}
-
-/* Mermaid text styling */
-.mermaid .nodeLabel,
-.mermaid .edgeLabel {
-    color: var(--mud-palette-text-primary) !important;
-    font-weight: 500 !important;
-}
+/* Mermaid styling - Let Mermaid's built-in themes handle colors */
+/* Only add minimal, non-conflicting styles */
 
 /* About page gradient cards */
 .about-gradient-card {
@@ -567,12 +508,11 @@ html, body {
 
 /* Feature cards hover effect */
 .feature-card {
-    transition: all 0.3s ease;
+    transition: box-shadow 0.3s ease;
     position: relative;
 }
 
 .feature-card:hover {
-    transform: translateY(-4px);
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12) !important;
 }
 
@@ -582,12 +522,11 @@ html, body {
 
 /* Use case cards with border accent */
 .use-case-card {
-    transition: all 0.3s ease;
+    transition: box-shadow 0.3s ease;
     border-left-width: 4px !important;
 }
 
 .use-case-card:hover {
-    transform: translateX(4px);
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12) !important;
 }
 

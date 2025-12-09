@@ -8,8 +8,8 @@ namespace Semantico.Core.Adapters.Slack;
 
 internal class SlackAdapter(IHttpClientFactory httpClientFactory, SemanticoConfiguration configuration, ILogger<SlackAdapter> logger) : IAdapter
 {
-    private const int MaxColumns = 8; // Balanced for table readability in code blocks
-    private const int MaxRows = 50; // Code block can display many rows efficiently
+    private const int MaxColumns = 5; // Optimal for table readability in Slack code blocks
+    private const int MaxRows = 25; // Balanced between detail and readability
 
     public NotificationType NotificationType => NotificationType.Slack;
 
@@ -148,15 +148,15 @@ internal class SlackAdapter(IHttpClientFactory httpClientFactory, SemanticoConfi
                 }
             }
 
-            // Cap width at reasonable maximum for readability
-            columnWidths[colName] = Math.Min(maxWidth, 30);
+            // Cap width at reasonable maximum for readability, minimum of 3
+            columnWidths[colName] = Math.Max(3, Math.Min(maxWidth, 20));
         }
 
         // Build table as text
         var tableBuilder = new StringBuilder();
 
-        // Header row
-        var headerParts = columnNames.Select(col => PadOrTruncate(col, columnWidths[col]));
+        // Header row (centered)
+        var headerParts = columnNames.Select(col => PadCenter(col, columnWidths[col]));
         tableBuilder.AppendLine(string.Join(" | ", headerParts));
 
         // Separator row
@@ -181,18 +181,43 @@ internal class SlackAdapter(IHttpClientFactory httpClientFactory, SemanticoConfi
             text = new
             {
                 type = "mrkdwn",
-                text = $"```\n{tableBuilder}```"
+                text = $"```\n{tableBuilder.ToString().TrimEnd()}\n```"
             }
         };
     }
 
     private string PadOrTruncate(string text, int width)
     {
+        if (string.IsNullOrEmpty(text))
+        {
+            return new string(' ', width);
+        }
+
         if (text.Length > width)
         {
-            return text.Substring(0, width - 1) + "…";
+            return text.Substring(0, Math.Max(0, width - 1)) + "…";
         }
+
         return text.PadRight(width);
+    }
+
+    private string PadCenter(string text, int width)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return new string(' ', width);
+        }
+
+        if (text.Length >= width)
+        {
+            return text.Substring(0, width);
+        }
+
+        int totalPadding = width - text.Length;
+        int leftPadding = totalPadding / 2;
+        int rightPadding = totalPadding - leftPadding;
+
+        return new string(' ', leftPadding) + text + new string(' ', rightPadding);
     }
 
     private List<object> GenerateFieldsBlocks_Alternative(List<IDictionary<string, object?>> records)

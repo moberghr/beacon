@@ -98,11 +98,11 @@ Adapters are registered in DI and routed via `AdapterFactory` based on `Notifica
 
 | Feature | Microsoft Teams | Slack |
 |---------|----------------|-------|
-| **Max Columns** | 3 (self-imposed limit) | 8 (balanced for readability) |
-| **Max Rows** | 10 (truncated) | 50 (code block display) |
+| **Max Columns** | 3 (self-imposed limit) | 5 (optimal for readability) |
+| **Max Rows** | 10 (truncated) | 25 (balanced display) |
 | **Display Format** | Adaptive Cards table | ASCII table in code block |
-| **Column Alignment** | Limited | Auto-sized, properly aligned |
-| **Text Formatting** | Plain text only | Monospace with alignment |
+| **Column Alignment** | Limited | Auto-sized, centered headers |
+| **Text Formatting** | Plain text only | Monospace with padding |
 | **Implementation** | JSON Adaptive Card | Fixed-width text formatting |
 
 **Note:** Slack's Table Block API is only available via `chat.postMessage` (OAuth), not incoming webhooks. Semantico uses ASCII-style tables in code blocks for webhook compatibility - this provides proper table layout with column alignment.
@@ -169,10 +169,11 @@ Slack's Table Block API (`type: "table"`) is only available via `chat.postMessag
 - Maximum 3000 characters per field text
 
 **Implementation Limits:**
-- `MaxColumns = 8` - balanced for readability in fixed-width format
-- `MaxRows = 50` - code blocks display many rows efficiently
-- Column width capped at 30 characters (truncated with ellipsis)
-- Takes first N columns/rows from query results
+- `MaxColumns = 5` - optimal for readability in Slack code blocks
+- `MaxRows = 25` - balanced between detail and readability
+- Column width: minimum 3, maximum 20 characters (truncated with ellipsis)
+- Headers are center-aligned, data is left-aligned with padding
+- Empty cells display as spaces (proper alignment maintained)
 - Entire table uses single code block (highly efficient)
 
 ### Configuration

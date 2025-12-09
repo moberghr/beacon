@@ -654,7 +654,7 @@ private async Task<QueryResult> ExecuteFinalQuery(string finalQuery, Project tar
 ```razor
 @page "/semantico/queries/details/{id:int}"
 
-<MudContainer Class="my-4 px-4">
+<MudContainer Class="my-4 px-4"  MaxWidth="MaxWidth.ExtraExtraLarge">
     <SemanticoPageHeader Icon="@GetQueryIcon()" 
                         Title="@GetQueryTitle()" 
                         ButtonText="Add subscription" 

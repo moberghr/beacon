@@ -5,14 +5,24 @@
     .database-explorer {
         height: 100%;
         overflow-y: auto;
-        border-right: 1px solid #ddd;
+        border-right: 1px solid rgba(0, 0, 0, 0.12);
         background-color: #f8f9fa;
+    }
+
+    .mud-theme-dark .database-explorer {
+        border-right: 1px solid rgba(255, 255, 255, 0.12);
+        background-color: rgba(255, 255, 255, 0.02);
     }
 
     .explorer-header {
         padding: 16px;
-        border-bottom: 1px solid #ddd;
+        border-bottom: 1px solid rgba(0, 0, 0, 0.12);
         background-color: white;
+    }
+
+    .mud-theme-dark .explorer-header {
+        border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+        background-color: rgba(255, 255, 255, 0.05);
     }
 
     .explorer-content {
@@ -28,9 +38,17 @@
         background-color: rgba(33, 150, 243, 0.08);
     }
 
+    .mud-theme-dark .draggable-item:hover {
+        background-color: rgba(33, 150, 243, 0.15);
+    }
+
     .draggable-item:active {
         opacity: 0.6;
         background-color: rgba(33, 150, 243, 0.15);
+    }
+
+    .mud-theme-dark .draggable-item:active {
+        background-color: rgba(33, 150, 243, 0.25);
     }
 
 </style>

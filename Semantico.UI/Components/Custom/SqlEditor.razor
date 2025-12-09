@@ -44,12 +44,16 @@
     [Parameter] public string EditorId { get; set; } = $"sql-editor-{Guid.NewGuid()}";
     [Parameter] public string Placeholder { get; set; } = "-- Write your SQL query here\nSELECT * FROM ";
 
+    [CascadingParameter(Name = "IsDarkMode")]
+    public bool IsDarkMode { get; set; }
+
     private StandaloneCodeEditor? _editor;
     private DatabaseMetadataSnapshot? _metadata;
     private bool _initialized = false;
     private string _lastValue = "";
     private bool _completionProviderRegistered = false;
     private bool _monacoReady = false;
+    private bool _lastDarkMode = false;
 
     protected override async Task OnInitializedAsync()
     {
@@ -58,6 +62,13 @@
 
     protected override async Task OnParametersSetAsync()
     {
+        // Update theme if dark mode changed
+        if (_initialized && _editor != null && IsDarkMode != _lastDarkMode)
+        {
+            _lastDarkMode = IsDarkMode;
+            await UpdateEditorTheme();
+        }
+
         // Load metadata if DataSourceId is provided, valid (not 0), and changed
         if (DataSourceId.HasValue && DataSourceId.Value > 0 && _metadata == null)
         {
@@ -138,7 +149,7 @@
         {
             AutomaticLayout = true,
             Language = "sql",
-            Theme = "vs",
+            Theme = IsDarkMode ? "vs-dark" : "vs",
             Value = initialValue,
             FontSize = 14,
             LineNumbers = "on",
@@ -154,6 +165,7 @@
     private async Task OnEditorInit()
     {
         _initialized = true;
+        _lastDarkMode = IsDarkMode;
 
         if (_editor != null)
         {
@@ -331,6 +343,32 @@
         }
 
         return false;
+    }
+
+    private async Task UpdateEditorTheme()
+    {
+        if (_editor == null) return;
+
+        try
+        {
+            var theme = IsDarkMode ? "vs-dark" : "vs";
+            await JSRuntime.InvokeVoidAsync("eval", $@"
+                (function() {{
+                    const editors = monaco.editor.getEditors();
+                    const targetEditor = editors.find(e => {{
+                        const domNode = e.getContainerDomNode();
+                        return domNode && domNode.id === '{EditorId}';
+                    }});
+                    if (targetEditor) {{
+                        monaco.editor.setTheme('{theme}');
+                    }}
+                }})();
+            ");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"SqlEditor {EditorId}: Failed to update theme: {ex.Message}");
+        }
     }
 
 }

@@ -6,7 +6,7 @@
 
 <SemanticoPageTitle Title="Recipients"/>
 
-<MudContainer Class="my-4 px-4">
+<MudContainer Class="my-4 px-4"  MaxWidth="MaxWidth.ExtraExtraLarge">
     <SemanticoPageHeader Icon="@Icons.Material.Filled.QueryBuilder" Title="Recipients" ButtonText="New recipient" OnClick="@NewRecipient" />
     <SemanticoPageAlert Text="List of recipients. recipients need to be defined and then added to a subscription to receive notifications. Create new or click on row and edit recipient."/>
     <MudDataGrid @ref="_dataGrid" ServerData="ServerReload" T="RecipientData" RowClick="OnRowClick" Hover="true" Filterable="false" >

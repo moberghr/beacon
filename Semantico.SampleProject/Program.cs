@@ -34,8 +34,8 @@ builder.Services.AddHangfireServer();
      builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
 
 // Uncomment to use SQL Server instead (requires SQL Server connection string)
-builder.Services.AddSqlServerSemantico(
-    builder.Configuration.GetConnectionString("SemanticoContextSql")!);
+// builder.Services.AddSqlServerSemantico(
+//     builder.Configuration.GetConnectionString("SemanticoContextSql")!);
 
 builder.Services.AddSemanticoAdmin(builder.Configuration, options =>
 {

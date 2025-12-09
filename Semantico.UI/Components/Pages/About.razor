@@ -733,20 +733,95 @@ stateDiagram-v2
 @inject IJSRuntime JS
 
 @code {
+    [CascadingParameter(Name = "IsDarkMode")]
+    public bool IsDarkMode { get; set; }
+
+    private bool _lastDarkMode = false;
+    private bool _needsRerender = false;
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
         {
-            try
-            {
-                await JS.InvokeVoidAsync("mermaid.run", new { querySelector = ".mermaid" });
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error rendering Mermaid diagrams: {ex.Message}");
-            }
+            _lastDarkMode = IsDarkMode;
+        }
+
+        if (firstRender || _needsRerender)
+        {
+            _needsRerender = false;
+            await RenderMermaidDiagrams();
         }
 
         await base.OnAfterRenderAsync(firstRender);
+    }
+
+    protected override void OnParametersSet()
+    {
+        // Detect dark mode change
+        if (IsDarkMode != _lastDarkMode)
+        {
+            _lastDarkMode = IsDarkMode;
+            _needsRerender = true;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RenderMermaidDiagrams()
+    {
+        try
+        {
+            var theme = IsDarkMode ? "dark" : "default";
+
+            // Reinitialize Mermaid with the correct theme
+            await JS.InvokeVoidAsync("eval", $@"
+                (function() {{
+                    if (typeof mermaid !== 'undefined') {{
+                        // Store original diagram code before clearing
+                        var diagramData = [];
+                        document.querySelectorAll('.mermaid').forEach(function(el) {{
+                            // If already processed, get the original code from data attribute
+                            if (el.hasAttribute('data-processed')) {{
+                                var code = el.getAttribute('data-mermaid-code');
+                                if (!code) {{
+                                    // Try to find it in the pre element
+                                    var preEl = el.querySelector('pre');
+                                    code = preEl ? preEl.textContent : el.textContent;
+                                }}
+                                diagramData.push({{ element: el, code: code }});
+                            }} else {{
+                                // Store the original code
+                                var code = el.textContent;
+                                el.setAttribute('data-mermaid-code', code);
+                                diagramData.push({{ element: el, code: code }});
+                            }}
+                        }});
+
+                        // Reinitialize mermaid with new theme
+                        mermaid.initialize({{
+                            startOnLoad: false,
+                            theme: '{theme}'
+                        }});
+
+                        // Clear and restore each diagram
+                        diagramData.forEach(function(item) {{
+                            item.element.removeAttribute('data-processed');
+                            item.element.innerHTML = item.code;
+                        }});
+
+                        // Small delay to ensure initialization completes
+                        setTimeout(function() {{
+                            // Re-render all diagrams
+                            mermaid.run({{ querySelector: '.mermaid' }});
+                        }}, 10);
+
+                        console.log('Mermaid diagrams rendered with theme: {theme}');
+                    }}
+                }})();
+            ");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error rendering Mermaid diagrams: {ex.Message}");
+        }
     }
 }

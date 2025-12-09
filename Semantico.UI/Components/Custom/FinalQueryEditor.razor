@@ -42,16 +42,30 @@
     [Parameter] public string EditorId { get; set; } = $"final-query-editor-{Guid.NewGuid()}";
     [Parameter] public string Placeholder { get; set; } = "-- Optional: Combine results from previous steps using @result1, @result2, etc.";
 
+    [CascadingParameter(Name = "IsDarkMode")]
+    public bool IsDarkMode { get; set; }
+
     private StandaloneCodeEditor? _editor;
     private bool _initialized = false;
     private bool _completionProviderRegistered = false;
     private string _lastValue = "";
     private bool _monacoReady = false;
+    private bool _lastDarkMode = false;
 
     protected override async Task OnInitializedAsync()
     {
         // Wait for Monaco to be ready before rendering the editor
         _monacoReady = await WaitForMonacoAsync();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Update theme if dark mode changed
+        if (_initialized && _editor != null && IsDarkMode != _lastDarkMode)
+        {
+            _lastDarkMode = IsDarkMode;
+            await UpdateEditorTheme();
+        }
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -83,7 +97,7 @@
         {
             AutomaticLayout = true,
             Language = "sql",
-            Theme = "vs",
+            Theme = IsDarkMode ? "vs-dark" : "vs",
             Value = initialValue,
             FontSize = 14,
             LineNumbers = "on",
@@ -98,6 +112,7 @@
     private async Task OnEditorInit()
     {
         _initialized = true;
+        _lastDarkMode = IsDarkMode;
 
         if (_editor != null)
         {
@@ -339,6 +354,32 @@
             {
                 // Silently ignore focus errors
             }
+        }
+    }
+
+    private async Task UpdateEditorTheme()
+    {
+        if (_editor == null) return;
+
+        try
+        {
+            var theme = IsDarkMode ? "vs-dark" : "vs";
+            await JSRuntime.InvokeVoidAsync("eval", $@"
+                (function() {{
+                    const editors = monaco.editor.getEditors();
+                    const targetEditor = editors.find(e => {{
+                        const domNode = e.getContainerDomNode();
+                        return domNode && domNode.id === '{EditorId}';
+                    }});
+                    if (targetEditor) {{
+                        monaco.editor.setTheme('{theme}');
+                    }}
+                }})();
+            ");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"FinalQueryEditor {EditorId}: Failed to update theme: {ex.Message}");
         }
     }
 }
