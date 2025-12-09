@@ -7,10 +7,10 @@
 
 <SemanticoPageTitle Title="Notifications" />
 
-<MudContainer Class="my-4 px-4">
+<MudContainer MaxWidth="MaxWidth.ExtraExtraLarge"  Class="my-4 px-4">
     <SemanticoPageHeader Icon="@Icons.Material.Filled.QueryBuilder" Title="Notifications"/>
     <SemanticoPageAlert Text="List of sent notifications." />
-    <MudDataGrid @ref="_dataGrid" ServerData="ServerReload" T="QueryExecutionHistoryData" Hover="true" Filterable="false">
+    <MudDataGrid @ref="_dataGrid" ServerData="ServerReload" T="QueryExecutionHistoryData" Filterable="false">
         <ToolBarContent>
         </ToolBarContent>
         <Columns>

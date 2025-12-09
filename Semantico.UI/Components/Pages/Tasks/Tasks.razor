@@ -7,7 +7,7 @@
 
 <SemanticoPageTitle Title="Tasks"/>
 
-<MudContainer Class="my-4 px-4">
+<MudContainer Class="my-4 px-4"  MaxWidth="MaxWidth.ExtraExtraLarge">
     <SemanticoPageHeader Icon="@Icons.Material.Filled.Task" Title="Tasks" />
     <SemanticoPageAlert Text="List of tasks generated from subscriptions with 'Create Tasks' enabled. One task is created per subscription and updated with each execution. Tasks auto-resolve when query returns 0 results."/>
 
@@ -20,7 +20,7 @@
         <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@LoadTasks">Refresh</MudButton>
     </MudStack>
 
-    <MudDataGrid @ref="_dataGrid" ServerData="ServerReload" T="TaskData" Hover="true" Filterable="false" >
+    <MudDataGrid @ref="_dataGrid" ServerData="ServerReload" T="TaskData" Filterable="false" >
         <Columns>
             <TemplateColumn Title="Id" SortBy="x => x.Id">
                 <CellTemplate>

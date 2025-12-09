@@ -12,11 +12,6 @@
 @* Needed for snackbars *@
 <MudSnackbarProvider />
 
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
-<link href="https://fonts.googleapis.com/css?family=Roboto:300,400,500,700&display=swap" rel="stylesheet" />
-<link href="_content/MudBlazor/MudBlazor.min.css" rel="stylesheet" />
-<link href="_content/Semantico.UI/css/semantico-styles.css" rel="stylesheet" />
-
 <MudLayout>
     <MudAppBar Elevation="1" Dense="true" ToolBarClass="px-3">
         <HomeButton />
@@ -48,17 +43,12 @@
         </MudNavMenu>
     </MudDrawer>
     <MudMainContent Class="pb-12">
-        @Body
+        <CascadingValue Value="@_isDark" Name="IsDarkMode">
+            @Body
+        </CascadingValue>
     </MudMainContent>
 </MudLayout>
 
-
-<script src="_content/MudBlazor/MudBlazor.min.js"></script>
-<script type="module">
-    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
-    window.mermaid = mermaid;
-    mermaid.initialize({ startOnLoad: false });
-</script>
 <div id="blazor-error-ui">
     An unhandled error has occurred.
     <a href="" class="reload">Reload</a>
@@ -104,6 +94,7 @@
     
     private async Task LoadTheme()
     {
+        // Load code highlighting CSS
         if (_isDark)
         {
             await JS.InvokeVoidAsync("loadCss", "./_content/Semantico.UI/highlight/styles/github-dark.css");
@@ -111,6 +102,27 @@
         else
         {
             await JS.InvokeVoidAsync("loadCss", "./_content/Semantico.UI/highlight/styles/github.css");
+        }
+
+        // Update Mermaid theme
+        try
+        {
+            var theme = _isDark ? "dark" : "default";
+            await JS.InvokeVoidAsync("eval", $@"
+                (function() {{
+                    if (typeof mermaid !== 'undefined') {{
+                        mermaid.initialize({{
+                            startOnLoad: false,
+                            theme: '{theme}'
+                        }});
+                        console.log('Mermaid theme updated to: {theme}');
+                    }}
+                }})();
+            ");
+        }
+        catch
+        {
+            // Silently ignore if mermaid is not yet loaded
         }
     }
 }

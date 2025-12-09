@@ -29,23 +29,37 @@
 
 @code {
     [Parameter] public QueryData? Query { get; set; }
-    
+
+    [CascadingParameter(Name = "IsDarkMode")]
+    public bool IsDarkMode { get; set; }
+
     private readonly string _mermaidId = $"mermaid-{Guid.NewGuid():N}";
-    
+    private bool _lastDarkMode = false;
+    private bool _needsRerender = false;
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender || Query?.Steps?.Any() == true)
+        if (firstRender)
         {
+            _lastDarkMode = IsDarkMode;
+        }
+
+        if ((firstRender || _needsRerender) && Query?.Steps?.Any() == true)
+        {
+            _needsRerender = false;
             await RenderMermaidDiagram();
         }
     }
 
-    protected override async Task OnParametersSetAsync()
+    protected override void OnParametersSet()
     {
-        if (Query?.Steps?.Any() == true)
+        // Detect dark mode change
+        if (IsDarkMode != _lastDarkMode)
         {
-            await Task.Delay(100); // Small delay to ensure DOM is ready
-            await RenderMermaidDiagram();
+            _lastDarkMode = IsDarkMode;
+            _needsRerender = true;
+            // Force re-render on next render cycle
+            StateHasChanged();
         }
     }
 
@@ -54,7 +68,8 @@
         try
         {
             var mermaidCode = GetMermaidDiagram();
-            await JS.InvokeVoidAsync("renderMermaid", _mermaidId, mermaidCode);
+            var theme = IsDarkMode ? "dark" : "default";
+            await JS.InvokeVoidAsync("renderMermaid", _mermaidId, mermaidCode, theme);
         }
         catch
         {
@@ -323,34 +338,43 @@
 }
 
 <script>
-    window.renderMermaid = async (elementId, mermaidCode) => {
+    window.renderMermaid = async function(elementId, mermaidCode, theme) {
+        theme = theme || 'default';
         const element = document.getElementById(elementId);
         if (!element || !mermaidCode.trim()) return;
 
         try {
-            // Initialize mermaid if not already done
+            // Initialize mermaid with the specified theme
             if (typeof mermaid !== 'undefined') {
-                mermaid.initialize({ 
+                // Clear previous content completely
+                element.innerHTML = '';
+                element.removeAttribute('data-processed');
+
+                // Reinitialize Mermaid with the new theme
+                mermaid.initialize({
                     startOnLoad: false,
-                    theme: 'default',
+                    theme: theme,
                     flowchart: {
                         htmlLabels: true,
                         curve: 'basis'
                     }
                 });
-                
-                // Clear previous content
-                element.innerHTML = '';
-                
-                // Render new diagram
-                const { svg } = await mermaid.render(`${elementId}-svg`, mermaidCode);
-                element.innerHTML = svg;
+
+                // Small delay to ensure initialization completes
+                await new Promise(function(resolve) { setTimeout(resolve, 10); });
+
+                // Include theme and timestamp in render ID to force fresh render
+                const renderId = elementId + '-' + theme + '-' + Date.now();
+                const result = await mermaid.render(renderId, mermaidCode);
+                element.innerHTML = result.svg;
+
+                console.log('Mermaid diagram rendered with theme: ' + theme);
             }
         } catch (error) {
             console.error('Mermaid rendering error:', error);
-            element.innerHTML = `<div class="mud-alert mud-alert-outlined mud-alert-outlined-error">
-                <div class="mud-alert-message">Error rendering diagram: ${error.message}</div>
-            </div>`;
+            element.innerHTML = '<div class="mud-alert mud-alert-outlined mud-alert-outlined-error">' +
+                '<div class="mud-alert-message">Error rendering diagram: ' + error.message + '</div>' +
+                '</div>';
         }
     };
 </script>
@@ -360,11 +384,11 @@
         display: flex;
         justify-content: center;
         align-items: center;
-        background-color: #fafafa;
+        background-color: transparent;
         border-radius: 4px;
-        border: 1px solid #e0e0e0;
+        padding: 1rem;
     }
-    
+
     .mermaid-container svg {
         max-width: 100%;
         height: auto;
