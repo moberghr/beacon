@@ -63,7 +63,7 @@ internal class QueryExecutionOrchestrator
     {
         // Extract parameters for this step
         var stepParameters = ExtractStepParameters(step, parameters);
-        var compiledSql = QueryHelper.CompileSql(step.SqlValue, stepParameters);
+        var (parameterizedSql, sqlParameters) = QueryHelper.PrepareParameterizedQuery(step.SqlValue, stepParameters);
 
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         List<Dictionary<string, object?>> results;
@@ -72,7 +72,7 @@ internal class QueryExecutionOrchestrator
 
         try
         {
-            results = await ExecuteQueryAsync(step, compiledSql, cancellationToken);
+            results = await ExecuteQueryAsync(step, parameterizedSql, sqlParameters, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -87,7 +87,7 @@ internal class QueryExecutionOrchestrator
         {
             StepOrder = step.StepOrder,
             StepName = step.Name ?? $"Step {step.StepOrder}",
-            SqlQuery = compiledSql,
+            SqlQuery = parameterizedSql,
             DataSourceName = step.DataSourceName,
             DatabaseEngineType = step.DatabaseEngineType,
             Results = results,
@@ -103,7 +103,8 @@ internal class QueryExecutionOrchestrator
     /// </summary>
     private async Task<List<Dictionary<string, object?>>> ExecuteQueryAsync(
         QueryStepData step,
-        string compiledSql,
+        string parameterizedSql,
+        Dictionary<string, object?> parameters,
         CancellationToken cancellationToken)
     {
         // Note: This method needs to be provided a connection string

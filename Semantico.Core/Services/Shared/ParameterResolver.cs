@@ -11,8 +11,21 @@ namespace Semantico.Core.Services.Shared;
 internal class ParameterResolver
 {
     /// <summary>
-    /// Compiles SQL by substituting parameter placeholders with actual values
+    /// Prepares a parameterized SQL query with proper SQL injection protection.
+    /// Converts custom placeholders to database-compatible parameter names.
     /// </summary>
+    public (string Sql, Dictionary<string, object?> Parameters) PrepareParameterizedQuery(
+        string sqlTemplate,
+        List<SubscriptionParameterData>? parameters)
+    {
+        return QueryHelper.PrepareParameterizedQuery(sqlTemplate, parameters);
+    }
+
+    /// <summary>
+    /// Compiles SQL by substituting parameter placeholders with actual values.
+    /// DEPRECATED: Use PrepareParameterizedQuery instead for better SQL injection protection.
+    /// </summary>
+    [Obsolete("Use PrepareParameterizedQuery instead for better SQL injection protection")]
     public string CompileSql(string sqlTemplate, List<SubscriptionParameterData>? parameters)
     {
         return QueryHelper.CompileSql(sqlTemplate, parameters);
