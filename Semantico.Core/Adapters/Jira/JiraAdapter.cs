@@ -20,7 +20,9 @@ internal class JiraAdapter(
             return;
         }
 
-        var jqlQuery = $"text ~ \"{recipientQueryResult.QueryResult.SubscriptionName}\" AND reporter = \"{credentials.Email}\" order by created DESC";
+        var jqlQuery = JqlHelper.BuildSearchBySubscriptionQuery(
+            recipientQueryResult.QueryResult.SubscriptionName,
+            credentials.Email);
         var issues = await jiraApiAdapter.SearchTickets(credentials, jqlQuery, 50, cancellationToken);
 
         var existingIssue = issues

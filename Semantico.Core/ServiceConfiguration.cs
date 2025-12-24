@@ -35,7 +35,15 @@ public static class ServiceConfiguration
         services.AddMemoryCache();
 
         // Encryption service for sensitive data (e.g., connection strings)
-        var encryptionKey = configuration["Semantico:EncryptionKey"] ?? "DefaultKey_ChangeInProduction_MustBe32CharsLong!";
+        var encryptionKey = configuration["Semantico:EncryptionKey"];
+        if (string.IsNullOrWhiteSpace(encryptionKey))
+        {
+            throw new InvalidOperationException(
+                "Semantico:EncryptionKey must be configured. " +
+                "Generate a secure key with: openssl rand -base64 32" +
+                Environment.NewLine +
+                "Then add to appsettings.json: { \"Semantico\": { \"EncryptionKey\": \"your-generated-key\" } }");
+        }
         services.AddSingleton<IEncryptionService>(new EncryptionService(encryptionKey));
 
         services.AddSingleton<IAdapter, TeamsAdapter>();
