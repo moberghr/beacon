@@ -1,231 +1,494 @@
-﻿@page "/"
+@page "/"
 @page "/dashboard"
 @using Semantico.Core.Models.QueryExecutionHistory
+@using Semantico.Core.Data.Enums
+@using Semantico.UI.Helpers
 @inherits BasePageComponent
 
 <SemanticoPageTitle Title="Dashboard"/>
 
+<style>
+    /* Home-specific styles (not shared across pages) */
+    .activity-item {
+        padding: 12px;
+        border-radius: 8px;
+        transition: background-color 0.2s ease;
+        border-left: 3px solid transparent;
+    }
+
+    .activity-item:hover {
+        background-color: var(--mud-palette-background-grey);
+        border-left-color: var(--mud-palette-primary);
+    }
+
+    .channel-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 16px;
+        border-radius: 20px;
+        font-weight: 500;
+        transition: transform 0.2s ease;
+    }
+
+    .channel-badge:hover {
+        transform: scale(1.05);
+    }
+
+    .top-subscription-item {
+        padding: 12px;
+        border-radius: 8px;
+        border: 1px solid var(--mud-palette-lines-default);
+        transition: all 0.2s ease;
+    }
+
+    .top-subscription-item:hover {
+        border-color: var(--mud-palette-primary);
+        background-color: rgba(var(--mud-palette-primary-rgb), 0.05);
+        transform: translateX(4px);
+    }
+
+    .metric-trend {
+        font-size: 0.85rem;
+        opacity: 0.9;
+        margin-top: 8px;
+    }
+</style>
+
 <MudContainer MaxWidth="MaxWidth.ExtraExtraLarge" Class="my-4 px-4">
-    <SemanticoPageHeader Icon="@Icons.Material.Filled.Dashboard" Title="Dashboard"/>
-    <SemanticoPageAlert Text="Welcome to Semantico! Check out documentation <a>https://mibu.github.io/semantico/getting-started/quick-start</a> on how to use the product."/>
-    
-    
-    <MudText Typo="Typo.h6" Class="my-4">
-        <MudIcon Icon="@Icons.Material.Filled.Notifications" Class="mr-2" />
-        Notification Statistics
-    </MudText>
-    
-    <MudCard Elevation="2">
-        <MudGrid Spacing="3" Class="pa-4">
-            <MudItem xs="12" sm="6" md="3">
-                <MudCard Elevation="1" Class="pa-4 statistics-card">
+    <!-- Page Header -->
+    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-6">
+        <MudStack Spacing="1">
+            <MudText Typo="Typo.h3" Style="font-weight: 600;">
+                <MudIcon Icon="@Icons.Material.Filled.Dashboard" Class="mr-2" />
+                Dashboard
+            </MudText>
+            <MudText Typo="Typo.body2" Color="Color.Secondary">
+                Real-time overview of your monitoring system performance and activity
+            </MudText>
+        </MudStack>
+        <MudIconButton Icon="@Icons.Material.Filled.Refresh" Color="Color.Primary" OnClick="RefreshDashboard" />
+    </MudStack>
+
+    <!-- Hero Metrics -->
+    <MudGrid Spacing="3" Class="mb-4">
+        <MudItem xs="12" sm="6" lg="3">
+            <MudPaper Class="hero-stat-card pa-4" Elevation="4">
+                <MudStack Spacing="2">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                        <MudIcon Icon="@Icons.Material.Filled.Subscriptions" Size="Size.Large" />
+                        <MudChip T="string" Size="Size.Small" Style="background: rgba(255,255,255,0.2); color: white;">Active</MudChip>
+                    </MudStack>
+                    <MudText Class="hero-stat-number">@(dashboardStatistics?.ActiveSubscriptions ?? 0)</MudText>
+                    <MudText Class="hero-stat-label">Active Subscriptions</MudText>
+                    <MudText Typo="Typo.caption" Class="metric-trend">
+                        @(dashboardStatistics?.TotalSubscriptions ?? 0) total configured
+                    </MudText>
+                </MudStack>
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12" sm="6" lg="3">
+            <MudPaper Class="hero-stat-card-success pa-4" Elevation="4">
+                <MudStack Spacing="2">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                        <MudIcon Icon="@Icons.Material.Filled.PlayArrow" Size="Size.Large" />
+                        <MudChip T="string" Size="Size.Small" Style="background: rgba(255,255,255,0.2); color: white;">Executed</MudChip>
+                    </MudStack>
+                    <MudText Class="hero-stat-number">@FormatNumber(dashboardStatistics?.TotalQueriesExecuted ?? 0)</MudText>
+                    <MudText Class="hero-stat-label">Query Executions</MudText>
+                    <MudText Typo="Typo.caption" Class="metric-trend">
+                        @(dashboardStatistics?.TotalQueries ?? 0) queries configured
+                    </MudText>
+                </MudStack>
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12" sm="6" lg="3">
+            <MudPaper Class="hero-stat-card-warning pa-4" Elevation="4">
+                <MudStack Spacing="2">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                        <MudIcon Icon="@Icons.Material.Filled.Notifications" Size="Size.Large" />
+                        <MudChip T="string" Size="Size.Small" Style="background: rgba(255,255,255,0.2); color: white;">Sent</MudChip>
+                    </MudStack>
+                    <MudText Class="hero-stat-number">@FormatNumber(dashboardStatistics?.TotalNotificationsSent ?? 0)</MudText>
+                    <MudText Class="hero-stat-label">Notifications Sent</MudText>
+                    <MudText Typo="Typo.caption" Class="metric-trend">
+                        @(dashboardStatistics?.TotalRecipients ?? 0) recipients configured
+                    </MudText>
+                </MudStack>
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12" sm="6" lg="3">
+            <MudPaper Class="hero-stat-card-warning pa-4" Elevation="4">
+                <MudStack Spacing="2">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                        <MudIcon Icon="@Icons.Material.Filled.Warning" Size="Size.Large" />
+                        <MudChip T="string" Size="Size.Small" Style="background: rgba(255,255,255,0.2); color: white;">24h</MudChip>
+                    </MudStack>
+                    <MudText Class="hero-stat-number">@(dashboardStatistics?.AnomaliesLast24Hours ?? 0)</MudText>
+                    <MudText Class="hero-stat-label">Anomalies Detected</MudText>
+                    <MudText Typo="Typo.caption" Class="metric-trend">
+                        @(dashboardStatistics?.TotalAnomaliesDetected ?? 0) total detected
+                    </MudText>
+                </MudStack>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+
+    <!-- Execution Time Metrics -->
+    <MudGrid Spacing="3" Class="mb-4">
+        <MudItem xs="12" sm="6" lg="4">
+            <MudPaper Class="hero-metric-card-primary pa-4" Elevation="4">
+                <MudStack Spacing="2">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                        <MudIcon Icon="@Icons.Material.Filled.Speed" Size="Size.Large" />
+                        <MudChip T="string" Size="Size.Small" Style="background: rgba(255,255,255,0.2); color: white;">Average</MudChip>
+                    </MudStack>
+                    <MudText Class="hero-stat-number">@FormatExecutionTime(dashboardStatistics?.AvgExecutionTimeMs ?? 0)</MudText>
+                    <MudText Class="hero-stat-label">Avg Execution Time</MudText>
+                    <MudText Typo="Typo.caption" Class="metric-trend">
+                        Across all queries
+                    </MudText>
+                </MudStack>
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12" sm="6" lg="4">
+            <MudPaper Class="hero-metric-card-success pa-4" Elevation="4">
+                <MudStack Spacing="2">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                        <MudIcon Icon="@Icons.Material.Filled.FlashOn" Size="Size.Large" />
+                        <MudChip T="string" Size="Size.Small" Style="background: rgba(255,255,255,0.2); color: white;">Fastest</MudChip>
+                    </MudStack>
+                    <MudText Class="hero-stat-number">@FormatExecutionTime(dashboardStatistics?.MinExecutionTimeMs ?? 0)</MudText>
+                    <MudText Class="hero-stat-label">Fastest Query</MudText>
+                    <MudText Typo="Typo.caption" Class="metric-trend">
+                        Best performance recorded
+                    </MudText>
+                </MudStack>
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12" sm="6" lg="4">
+            <MudPaper Class="hero-metric-card-error pa-4" Elevation="4">
+                <MudStack Spacing="2">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                        <MudIcon Icon="@Icons.Material.Filled.HourglassTop" Size="Size.Large" />
+                        <MudChip T="string" Size="Size.Small" Style="background: rgba(255,255,255,0.2); color: white;">Slowest</MudChip>
+                    </MudStack>
+                    <MudText Class="hero-stat-number">@FormatExecutionTime(dashboardStatistics?.MaxExecutionTimeMs ?? 0)</MudText>
+                    <MudText Class="hero-stat-label">Slowest Query</MudText>
+                    <MudText Typo="Typo.caption" Class="metric-trend">
+                        Needs optimization attention
+                    </MudText>
+                </MudStack>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+
+    <MudGrid Spacing="3">
+        <!-- Main Content Area -->
+        <MudItem xs="12" lg="8">
+            <!-- Activity Trends Chart -->
+            <MudPaper Class="detail-card pa-4 mb-3" Elevation="2">
+                <MudText Typo="Typo.h6" Class="section-title">
+                    <MudIcon Icon="@Icons.Material.Filled.ShowChart" Class="mr-2" />
+                    Activity Trends - Last 30 Days
+                </MudText>
+                <MudChart ChartType="ChartType.Line"
+                          ChartSeries="@chartSeries"
+                          XAxisLabels="@xAxisLabels"
+                          Width="100%"
+                          Height="350px"
+                          ChartOptions="@chartOptions"
+                          AxisChartOptions="@axisChartOptions"/>
+            </MudPaper>
+
+            <!-- Execution Time Chart -->
+            <MudPaper Class="detail-card pa-4 mb-3" Elevation="2">
+                <MudText Typo="Typo.h6" Class="section-title">
+                    <MudIcon Icon="@Icons.Material.Filled.Timer" Class="mr-2" />
+                    Query Execution Performance - Last 30 Days
+                </MudText>
+                <MudChart ChartType="ChartType.Line"
+                          ChartSeries="@executionTimeChartSeries"
+                          XAxisLabels="@executionTimeXAxisLabels"
+                          Width="@ChartHelper.DefaultChartWidth"
+                          Height="@ChartHelper.DefaultChartHeight"
+                          ChartOptions="@executionTimeChartOptions"
+                          AxisChartOptions="@executionTimeAxisChartOptions"/>
+            </MudPaper>
+
+            <!-- Notification Channel Breakdown -->
+            @if (dashboardStatistics?.NotificationsByChannel?.Any() == true)
+            {
+                <MudPaper Class="detail-card pa-4 mb-3" Elevation="2">
+                    <MudText Typo="Typo.h6" Class="section-title">
+                        <MudIcon Icon="@Icons.Material.Filled.PieChart" Class="mr-2" />
+                        Notification Channels
+                    </MudText>
+                    <MudGrid Spacing="2">
+                        @foreach (var channel in dashboardStatistics.NotificationsByChannel)
+                        {
+                            <MudItem xs="12" sm="6" md="3">
+                                <MudPaper Class="pa-3 text-center" Style="@GetChannelStyle(channel.Key)">
+                                    <MudIcon Icon="@GetChannelIcon(channel.Key)" Size="Size.Large" Class="mb-2" />
+                                    <MudText Typo="Typo.h5">@channel.Value</MudText>
+                                    <MudText Typo="Typo.body2">@channel.Key</MudText>
+                                </MudPaper>
+                            </MudItem>
+                        }
+                    </MudGrid>
+                </MudPaper>
+            }
+
+            <!-- Top Subscriptions -->
+            @if (dashboardStatistics?.TopSubscriptions?.Any() == true)
+            {
+                <MudPaper Class="detail-card pa-4" Elevation="2">
+                    <MudText Typo="Typo.h6" Class="section-title">
+                        <MudIcon Icon="@Icons.Material.Filled.TrendingUp" Class="mr-2" />
+                        Top Subscriptions (Last 30 Days)
+                    </MudText>
                     <MudStack Spacing="2">
+                        @foreach (var subscription in dashboardStatistics.TopSubscriptions)
+                        {
+                            <div class="top-subscription-item">
+                                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                                    <MudStack Spacing="1">
+                                        <MudLink Href="@($"/semantico/subscriptions/{subscription.SubscriptionId}")" Typo="Typo.body1" Style="font-weight: 600;">
+                                            @subscription.SubscriptionName
+                                        </MudLink>
+                                        <MudStack Row="true" Spacing="3">
+                                            <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                                <MudIcon Icon="@Icons.Material.Filled.PlayArrow" Size="Size.Small" />
+                                                @subscription.ExecutionCount executions
+                                            </MudText>
+                                            <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                                <MudIcon Icon="@Icons.Material.Filled.Notifications" Size="Size.Small" />
+                                                @subscription.NotificationCount notifications
+                                            </MudText>
+                                        </MudStack>
+                                    </MudStack>
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                        Last: @subscription.LastExecuted?.ToString("g")
+                                    </MudText>
+                                </MudStack>
+                            </div>
+                        }
+                    </MudStack>
+                </MudPaper>
+            }
+        </MudItem>
+
+        <!-- Sidebar -->
+        <MudItem xs="12" lg="4">
+            <!-- System Overview -->
+            <MudPaper Class="detail-card pa-4" Elevation="2" Style="margin-bottom: 1rem;">
+                <MudText Typo="Typo.h6" Class="section-title">
+                    <MudIcon Icon="@Icons.Material.Filled.Assessment" Class="mr-2" />
+                    System Overview
+                </MudText>
+                <MudStack Spacing="2">
+                    <div class="info-row">
                         <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                            <MudIcon Icon="@Icons.Material.Filled.Search" Color="Color.Info" Size="Size.Large" />
-                            <MudChip T="string" Color="Color.Info" Variant="Variant.Text" Size="Size.Small">Total</MudChip>
+                            <MudStack Spacing="0">
+                                <MudText Typo="Typo.caption" Color="Color.Secondary">Data Sources</MudText>
+                                <MudText Typo="Typo.h6">@(dashboardStatistics?.TotalDataSources ?? 0)</MudText>
+                            </MudStack>
+                            <MudIcon Icon="@Icons.Material.Filled.Storage" Color="Color.Primary" />
                         </MudStack>
-                        <MudText Typo="Typo.h4">@(dashboardStatistics?.TotalQueries ?? 0)</MudText>
-                        <MudText Typo="Typo.body2" Color="Color.Secondary">Total Queries</MudText>
-                    </MudStack>
-                </MudCard>
-            </MudItem>
+                    </div>
 
-            <MudItem xs="12" sm="6" md="3">
-                <MudCard Elevation="1" Class="pa-4 statistics-card">
-                    <MudStack Spacing="2">
+                    <div class="info-row" style="border-left-color: var(--mud-palette-success);">
                         <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                            <MudIcon Icon="@Icons.Material.Filled.Subscriptions" Color="Color.Success" Size="Size.Large" />
-                            <MudChip T="string" Color="Color.Success" Variant="Variant.Text" Size="Size.Small">Active</MudChip>
+                            <MudStack Spacing="0">
+                                <MudText Typo="Typo.caption" Color="Color.Secondary">Recipients</MudText>
+                                <MudText Typo="Typo.h6">@(dashboardStatistics?.TotalRecipients ?? 0)</MudText>
+                            </MudStack>
+                            <MudIcon Icon="@Icons.Material.Filled.People" Color="Color.Success" />
                         </MudStack>
-                        <MudText Typo="Typo.h4">@(dashboardStatistics?.ActiveSubscriptions ?? 0) / @(dashboardStatistics?.TotalSubscriptions ?? 0)</MudText>
-                        <MudText Typo="Typo.body2" Color="Color.Secondary">Subscriptions</MudText>
-                    </MudStack>
-                </MudCard>
-            </MudItem>
+                    </div>
 
-            <MudItem xs="12" sm="6" md="3">
-                <MudCard Elevation="1" Class="pa-4 statistics-card">
-                    <MudStack Spacing="2">
+                    <div class="info-row" style="border-left-color: var(--mud-palette-warning);">
                         <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                            <MudIcon Icon="@Icons.Material.Filled.PlayArrow" Color="Color.Primary" Size="Size.Large" />
-                            <MudChip T="string" Color="Color.Primary" Variant="Variant.Text" Size="Size.Small">Executed</MudChip>
+                            <MudStack Spacing="0">
+                                <MudText Typo="Typo.caption" Color="Color.Secondary">Unresolved Tasks</MudText>
+                                <MudText Typo="Typo.h6">@(dashboardStatistics?.UnresolvedTasks ?? 0)</MudText>
+                            </MudStack>
+                            <MudIcon Icon="@Icons.Material.Filled.Task" Color="Color.Warning" />
                         </MudStack>
-                        <MudText Typo="Typo.h4">@(dashboardStatistics?.TotalQueriesExecuted ?? 0)</MudText>
-                        <MudText Typo="Typo.body2" Color="Color.Secondary">Query Executions</MudText>
-                    </MudStack>
-                </MudCard>
-            </MudItem>
+                    </div>
 
-            <MudItem xs="12" sm="6" md="3">
-                <MudCard Elevation="1" Class="pa-4 statistics-card">
-                    <MudStack Spacing="2">
+                    <div class="info-row" style="border-left-color: var(--mud-palette-info);">
                         <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                            <MudIcon Icon="@Icons.Material.Filled.Notifications" Color="Color.Warning" Size="Size.Large" />
-                            <MudChip T="string" Color="Color.Warning" Variant="Variant.Text" Size="Size.Small">Sent</MudChip>
+                            <MudStack Spacing="0">
+                                <MudText Typo="Typo.caption" Color="Color.Secondary">Active Anomaly Detection</MudText>
+                                <MudText Typo="Typo.h6">@(dashboardStatistics?.ActiveAnomalyConfigs ?? 0)</MudText>
+                            </MudStack>
+                            <MudIcon Icon="@Icons.Material.Filled.Security" Color="Color.Info" />
                         </MudStack>
-                        <MudText Typo="Typo.h4">@(dashboardStatistics?.TotalNotificationsSent ?? 0)</MudText>
-                        <MudText Typo="Typo.body2" Color="Color.Secondary">Notifications Sent</MudText>
+                    </div>
+                </MudStack>
+            </MudPaper>
+
+            <!-- Recent Activity -->
+            @if (dashboardStatistics?.RecentActivities?.Any() == true)
+            {
+                <MudPaper Class="detail-card pa-4" Elevation="2">
+                    <MudText Typo="Typo.h6" Class="section-title">
+                        <MudIcon Icon="@Icons.Material.Filled.History" Class="mr-2" />
+                        Recent Activity
+                    </MudText>
+                    <MudStack Spacing="1">
+                        @foreach (var activity in dashboardStatistics.RecentActivities.Take(8))
+                        {
+                            <div class="activity-item">
+                                <MudStack Spacing="1">
+                                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                                            <MudIcon Icon="@GetActivityIcon(activity.Icon)" Size="Size.Small" Color="@GetActivityColor(activity.Type)" />
+                                            <MudText Typo="Typo.body2" Style="font-weight: 500;">@activity.Type</MudText>
+                                        </MudStack>
+                                        @if (!string.IsNullOrEmpty(activity.Status))
+                                        {
+                                            <MudChip T="string" Size="Size.Small" Color="@GetStatusColor(activity.Status)">@activity.Status</MudChip>
+                                        }
+                                    </MudStack>
+                                    @if (!string.IsNullOrEmpty(activity.Link))
+                                    {
+                                        <MudLink Href="@activity.Link" Typo="Typo.caption">
+                                            @activity.Description
+                                        </MudLink>
+                                    }
+                                    else
+                                    {
+                                        <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                            @activity.Description
+                                        </MudText>
+                                    }
+                                    <MudText Typo="Typo.caption" Color="Color.Tertiary">
+                                        @activity.Timestamp.ToString("g")
+                                    </MudText>
+                                </MudStack>
+                            </div>
+                        }
                     </MudStack>
-                </MudCard>
-            </MudItem>
-        </MudGrid>
-    </MudCard>
+                </MudPaper>
+            }
+        </MudItem>
+    </MudGrid>
 
-    <MudText Typo="Typo.h6" Class="my-4">
-        <MudIcon Icon="@Icons.Material.Filled.Task" Class="mr-2" />
-        Task Statistics
-    </MudText>
+    <!-- Additional Statistics Row -->
+    <MudGrid Spacing="3" Class="mt-3">
+        <!-- Migration Statistics -->
+        <MudItem xs="12" md="6">
+            <MudPaper Class="detail-card pa-4" Elevation="2">
+                <MudText Typo="Typo.h6" Class="section-title">
+                    <MudIcon Icon="@Icons.Material.Filled.SwapHoriz" Class="mr-2" />
+                    Data Migration Overview
+                </MudText>
+                <MudGrid Spacing="2">
+                    <MudItem xs="6" sm="3">
+                        <MudPaper Class="pa-3 text-center" Style="background: linear-gradient(135deg, rgba(var(--mud-palette-error-rgb), 0.1), transparent);">
+                            <MudText Typo="Typo.h5" Color="Color.Error">@(dashboardStatistics?.TotalMigrationJobs ?? 0)</MudText>
+                            <MudText Typo="Typo.caption">Total Jobs</MudText>
+                        </MudPaper>
+                    </MudItem>
+                    <MudItem xs="6" sm="3">
+                        <MudPaper Class="pa-3 text-center" Style="background: linear-gradient(135deg, rgba(var(--mud-palette-success-rgb), 0.1), transparent);">
+                            <MudText Typo="Typo.h5" Color="Color.Success">@(dashboardStatistics?.EnabledMigrationJobs ?? 0)</MudText>
+                            <MudText Typo="Typo.caption">Enabled</MudText>
+                        </MudPaper>
+                    </MudItem>
+                    <MudItem xs="6" sm="3">
+                        <MudPaper Class="pa-3 text-center" Style="background: linear-gradient(135deg, rgba(var(--mud-palette-info-rgb), 0.1), transparent);">
+                            <MudText Typo="Typo.h5" Color="Color.Info">@(dashboardStatistics?.TotalMigrationExecutions ?? 0)</MudText>
+                            <MudText Typo="Typo.caption">Executions</MudText>
+                        </MudPaper>
+                    </MudItem>
+                    <MudItem xs="6" sm="3">
+                        <MudPaper Class="pa-3 text-center" Style="background: linear-gradient(135deg, rgba(var(--mud-palette-success-rgb), 0.1), transparent);">
+                            <MudText Typo="Typo.h5" Color="Color.Success">@(dashboardStatistics?.SuccessfulMigrationExecutions ?? 0)</MudText>
+                            <MudText Typo="Typo.caption">Successful</MudText>
+                        </MudPaper>
+                    </MudItem>
+                </MudGrid>
+            </MudPaper>
+        </MudItem>
 
-    <MudCard Elevation="2">
-        <MudGrid Spacing="3" Class="pa-4">
-            <MudItem xs="12" sm="6" md="4">
-                <MudCard Elevation="1" Class="pa-4 statistics-card">
-                    <MudStack Spacing="2">
-                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                            <MudIcon Icon="@Icons.Material.Filled.Assignment" Color="Color.Primary" Size="Size.Large" />
-                            <MudChip T="string" Color="Color.Primary" Variant="Variant.Text" Size="Size.Small">Total</MudChip>
-                        </MudStack>
-                        <MudText Typo="Typo.h4">@(dashboardStatistics?.TotalTasks ?? 0)</MudText>
-                        <MudText Typo="Typo.body2" Color="Color.Secondary">Total Tasks</MudText>
-                    </MudStack>
-                </MudCard>
-            </MudItem>
-
-            <MudItem xs="12" sm="6" md="4">
-                <MudCard Elevation="1" Class="pa-4 statistics-card">
-                    <MudStack Spacing="2">
-                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                            <MudIcon Icon="@Icons.Material.Filled.Warning" Color="Color.Warning" Size="Size.Large" />
-                            <MudChip T="string" Color="Color.Warning" Variant="Variant.Text" Size="Size.Small">Open</MudChip>
-                        </MudStack>
-                        <MudText Typo="Typo.h4">@(dashboardStatistics?.UnresolvedTasks ?? 0)</MudText>
-                        <MudText Typo="Typo.body2" Color="Color.Secondary">Unresolved Tasks</MudText>
-                    </MudStack>
-                </MudCard>
-            </MudItem>
-
-            <MudItem xs="12" sm="6" md="4">
-                <MudCard Elevation="1" Class="pa-4 statistics-card">
-                    <MudStack Spacing="2">
-                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                            <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Color="Color.Success" Size="Size.Large" />
-                            <MudChip T="string" Color="Color.Success" Variant="Variant.Text" Size="Size.Small">Resolved</MudChip>
-                        </MudStack>
-                        <MudText Typo="Typo.h4">@(dashboardStatistics?.ResolvedTasks ?? 0)</MudText>
-                        <MudText Typo="Typo.body2" Color="Color.Secondary">Resolved Tasks</MudText>
-                    </MudStack>
-                </MudCard>
-            </MudItem>
-        </MudGrid>
-    </MudCard>
-
-    <MudText Typo="Typo.h6" Class="my-4">
-        <MudIcon Icon="@Icons.Material.Filled.SwapHoriz" Class="mr-2" />
-        Data Migration Statistics
-    </MudText>
-
-    <MudCard Elevation="2">
-        <MudGrid Spacing="3" Class="pa-4">
-            <MudItem xs="12" sm="6" md="3">
-                <MudCard Elevation="1" Class="pa-4 statistics-card">
-                    <MudStack Spacing="2">
-                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                            <MudIcon Icon="@Icons.Material.Filled.DataObject" Color="Color.Error" Size="Size.Large" />
-                            <MudChip T="string" Color="Color.Error" Variant="Variant.Text" Size="Size.Small">Total</MudChip>
-                        </MudStack>
-                        <MudText Typo="Typo.h4">@(dashboardStatistics?.TotalMigrationJobs ?? 0)</MudText>
-                        <MudText Typo="Typo.body2" Color="Color.Secondary">Migration Jobs</MudText>
-                    </MudStack>
-                </MudCard>
-            </MudItem>
-
-            <MudItem xs="12" sm="6" md="3">
-                <MudCard Elevation="1" Class="pa-4 statistics-card">
-                    <MudStack Spacing="2">
-                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                            <MudIcon Icon="@Icons.Material.Filled.ToggleOn" Color="Color.Success" Size="Size.Large" />
-                            <MudChip T="string" Color="Color.Success" Variant="Variant.Text" Size="Size.Small">Enabled</MudChip>
-                        </MudStack>
-                        <MudText Typo="Typo.h4">@(dashboardStatistics?.EnabledMigrationJobs ?? 0)</MudText>
-                        <MudText Typo="Typo.body2" Color="Color.Secondary">Active Jobs</MudText>
-                    </MudStack>
-                </MudCard>
-            </MudItem>
-
-            <MudItem xs="12" sm="6" md="3">
-                <MudCard Elevation="1" Class="pa-4 statistics-card">
-                    <MudStack Spacing="2">
-                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                            <MudIcon Icon="@Icons.Material.Filled.PlayCircle" Color="Color.Info" Size="Size.Large" />
-                            <MudChip T="string" Color="Color.Info" Variant="Variant.Text" Size="Size.Small">Total</MudChip>
-                        </MudStack>
-                        <MudText Typo="Typo.h4">@(dashboardStatistics?.TotalMigrationExecutions ?? 0)</MudText>
-                        <MudText Typo="Typo.body2" Color="Color.Secondary">Total Executions</MudText>
-                    </MudStack>
-                </MudCard>
-            </MudItem>
-
-            <MudItem xs="12" sm="6" md="3">
-                <MudCard Elevation="1" Class="pa-4 statistics-card">
-                    <MudStack Spacing="2">
-                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                            <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Color="Color.Success" Size="Size.Large" />
-                            <MudChip T="string" Color="Color.Success" Variant="Variant.Text" Size="Size.Small">Success</MudChip>
-                        </MudStack>
-                        <MudText Typo="Typo.h4">@(dashboardStatistics?.SuccessfulMigrationExecutions ?? 0)</MudText>
-                        <MudText Typo="Typo.body2" Color="Color.Secondary">Successful Runs</MudText>
-                    </MudStack>
-                </MudCard>
-            </MudItem>
-        </MudGrid>
-    </MudCard>
-
-    <MudCard Elevation="2" Class="my-4">
-        <MudCardContent>
-            <MudGrid Justify="Justify.FlexStart" Spacing="3">
-                <MudItem xs="12" sm="12" md="12" lg="12">
-                    <MudStack Spacing="2">
-                        <MudText Typo="Typo.h6" Class="mb-2">
-                            <MudIcon Icon="@Icons.Material.Filled.ShowChart" Class="mr-2" />
-                            Activity Trends - Last 30 Days
-                        </MudText>
-                        <MudChart ChartType="ChartType.Line"
-                                  ChartSeries="@chartSeries"
-                                  XAxisLabels="@xAxisLabels"
-                                  Width="100%"
-                                  Height="350px"
-                                  ChartOptions="@chartOptions"
-                                  AxisChartOptions="@axisChartOptions"/>
-                    </MudStack>
-                </MudItem>
-            </MudGrid>
-        </MudCardContent>
-    </MudCard>
-
+        <!-- Task Statistics -->
+        <MudItem xs="12" md="6">
+            <MudPaper Class="detail-card pa-4" Elevation="2">
+                <MudText Typo="Typo.h6" Class="section-title">
+                    <MudIcon Icon="@Icons.Material.Filled.Assignment" Class="mr-2" />
+                    Task Management
+                </MudText>
+                <MudGrid Spacing="2">
+                    <MudItem xs="4">
+                        <MudPaper Class="pa-3 text-center" Style="background: linear-gradient(135deg, rgba(var(--mud-palette-primary-rgb), 0.1), transparent);">
+                            <MudText Typo="Typo.h5" Color="Color.Primary">@(dashboardStatistics?.TotalTasks ?? 0)</MudText>
+                            <MudText Typo="Typo.caption">Total Tasks</MudText>
+                        </MudPaper>
+                    </MudItem>
+                    <MudItem xs="4">
+                        <MudPaper Class="pa-3 text-center" Style="background: linear-gradient(135deg, rgba(var(--mud-palette-warning-rgb), 0.1), transparent);">
+                            <MudText Typo="Typo.h5" Color="Color.Warning">@(dashboardStatistics?.UnresolvedTasks ?? 0)</MudText>
+                            <MudText Typo="Typo.caption">Open</MudText>
+                        </MudPaper>
+                    </MudItem>
+                    <MudItem xs="4">
+                        <MudPaper Class="pa-3 text-center" Style="background: linear-gradient(135deg, rgba(var(--mud-palette-success-rgb), 0.1), transparent);">
+                            <MudText Typo="Typo.h5" Color="Color.Success">@(dashboardStatistics?.ResolvedTasks ?? 0)</MudText>
+                            <MudText Typo="Typo.caption">Resolved</MudText>
+                        </MudPaper>
+                    </MudItem>
+                </MudGrid>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
 </MudContainer>
 
 @inject Semantico.Core.Services.INotificationService notificationService;
 @inject Semantico.Core.Services.IStatisticsService statisticsService;
 
 @code {
-    private int Index = -1; //default value cannot be 0 -> first selectedindex is 0
-    private NotificationStatisticsData? notificationStatisticsData;
     private DashboardStatisticsData? dashboardStatistics;
     private List<ChartSeries> chartSeries = new();
     private string[] xAxisLabels = Array.Empty<string>();
     private ChartOptions chartOptions = new();
     private AxisChartOptions axisChartOptions = new();
 
+    // Execution time chart fields
+    private List<ChartSeries> executionTimeChartSeries = new();
+    private string[] executionTimeXAxisLabels = Array.Empty<string>();
+    private ChartOptions executionTimeChartOptions = new();
+    private AxisChartOptions executionTimeAxisChartOptions = new();
+
     protected override async Task OnInitializedAsync()
     {
-        notificationStatisticsData = await notificationService.GetNotificationStatistics(CancellationToken.None);
-        dashboardStatistics = await statisticsService.GetDashboardStatistics(CancellationToken.None);
-        
-        PrepareChartData();
-        ConfigureChartOptions();
+        await LoadDashboardData();
     }
 
-    private void PrepareChartData()
+    private async Task LoadDashboardData()
+    {
+        var notificationStatisticsData = await notificationService.GetNotificationStatistics(CancellationToken.None);
+        dashboardStatistics = await statisticsService.GetDashboardStatistics(CancellationToken.None);
+
+        PrepareChartData(notificationStatisticsData);
+        ConfigureChartOptions();
+        PrepareExecutionTimeChart();
+    }
+
+    private async Task RefreshDashboard()
+    {
+        await LoadDashboardData();
+        StateHasChanged();
+    }
+
+    private void PrepareChartData(NotificationStatisticsData? notificationStatisticsData)
     {
         if (notificationStatisticsData?.NotificationDateStatistics == null)
             return;
@@ -245,16 +508,6 @@
             {
                 Name = "Notifications sent",
                 Data = data.Select(x => (double)x.NotificationsSent).ToArray()
-            },
-            new()
-            {
-                Name = "Migration executions",
-                Data = data.Select(x => (double)x.MigrationExecutions).ToArray()
-            },
-            new()
-            {
-                Name = "Successful migrations",
-                Data = data.Select(x => (double)x.SuccessfulMigrationExecutions).ToArray()
             }
         };
     }
@@ -262,12 +515,133 @@
     private void ConfigureChartOptions()
     {
         chartOptions.YAxisTicks = 10;
-        chartOptions.ChartPalette = new[] { "#1f77b4", "#ff7f0e", "#d62728", "#2ca02c" };
+        chartOptions.ChartPalette = new[] { "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728" };
         chartOptions.YAxisLines = true;
         chartOptions.XAxisLines = true;
-
         chartOptions.InterpolationOption = InterpolationOption.Straight;
 
-        axisChartOptions.XAxisLabelRotation = 90;
+        axisChartOptions.XAxisLabelRotation = 45;
+    }
+
+    private string FormatNumber(int number)
+    {
+        if (number >= 1000000)
+            return $"{number / 1000000.0:0.#}M";
+        if (number >= 1000)
+            return $"{number / 1000.0:0.#}K";
+        return number.ToString();
+    }
+
+    private string GetChannelIcon(string channel)
+    {
+        return channel switch
+        {
+            "Email" => Icons.Material.Filled.Email,
+            "Teams" => Icons.Material.Filled.Groups,
+            "Slack" => Icons.Material.Filled.Chat,
+            "Jira" => Icons.Material.Filled.BugReport,
+            _ => Icons.Material.Filled.Notifications
+        };
+    }
+
+    private string GetChannelStyle(string channel)
+    {
+        var color = channel switch
+        {
+            "Email" => "var(--mud-palette-primary)",
+            "Teams" => "var(--mud-palette-info)",
+            "Slack" => "var(--mud-palette-success)",
+            "Jira" => "var(--mud-palette-warning)",
+            _ => "var(--mud-palette-secondary)"
+        };
+        return $"background: linear-gradient(135deg, rgba({GetColorRgb(color)}, 0.1), transparent); border-left: 4px solid {color};";
+    }
+
+    private string GetColorRgb(string color)
+    {
+        return color switch
+        {
+            "var(--mud-palette-primary)" => "var(--mud-palette-primary-rgb)",
+            "var(--mud-palette-info)" => "var(--mud-palette-info-rgb)",
+            "var(--mud-palette-success)" => "var(--mud-palette-success-rgb)",
+            "var(--mud-palette-warning)" => "var(--mud-palette-warning-rgb)",
+            _ => "var(--mud-palette-secondary-rgb)"
+        };
+    }
+
+    private string GetActivityIcon(string? icon)
+    {
+        return icon switch
+        {
+            "Search" => Icons.Material.Filled.Search,
+            "Warning" => Icons.Material.Filled.Warning,
+            "Task" => Icons.Material.Filled.Task,
+            "Migration" => Icons.Material.Filled.SwapHoriz,
+            _ => Icons.Material.Filled.Circle
+        };
+    }
+
+    private Color GetActivityColor(string type)
+    {
+        return type switch
+        {
+            "Query Execution" => Color.Primary,
+            "Anomaly Detected" => Color.Error,
+            "Task Created" => Color.Warning,
+            "Migration" => Color.Info,
+            _ => Color.Default
+        };
+    }
+
+    private Color GetStatusColor(string status)
+    {
+        return status switch
+        {
+            "Notification Sent" => Color.Success,
+            "High" => Color.Error,
+            "Medium" => Color.Warning,
+            "Low" => Color.Info,
+            _ => Color.Default
+        };
+    }
+
+    private void PrepareExecutionTimeChart()
+    {
+        if (dashboardStatistics?.ExecutionTimeHistory == null || !dashboardStatistics.ExecutionTimeHistory.Any())
+            return;
+
+        var data = dashboardStatistics.ExecutionTimeHistory.OrderBy(x => x.Date).ToList();
+
+        executionTimeXAxisLabels = data.Select(x => x.Date.ToShortDateWithoutYear()).ToArray();
+
+        executionTimeChartSeries = new List<ChartSeries>
+        {
+            new()
+            {
+                Name = "Average",
+                Data = data.Select(x => x.AvgExecutionTimeMs).ToArray()
+            },
+            new()
+            {
+                Name = "Minimum",
+                Data = data.Select(x => x.MinExecutionTimeMs).ToArray()
+            },
+            new()
+            {
+                Name = "Maximum",
+                Data = data.Select(x => x.MaxExecutionTimeMs).ToArray()
+            }
+        };
+
+        executionTimeChartOptions = ChartHelper.CreateMultiSeriesChartOptions();
+        executionTimeAxisChartOptions = ChartHelper.CreateDefaultAxisChartOptions();
+    }
+
+    private string FormatExecutionTime(double milliseconds)
+    {
+        if (milliseconds < 1000)
+            return $"{milliseconds:0} ms";
+
+        return $"{milliseconds / 1000:0.00} s";
     }
 }

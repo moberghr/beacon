@@ -14,6 +14,7 @@ internal class JobService(
     IQueryService queryService,
     INotificationService notificationService,
     ITaskService taskService,
+    IAnomalyDetectionService anomalyDetectionService,
     ILogger<JobService> logger)
     : IJobService
 {
@@ -53,6 +54,28 @@ internal class JobService(
                 })
             .FirstOrDefault();
 
+        // Check if anomaly detection is enabled for this subscription
+        var hasAnomalyDetection = await context.AnomalyConfigs
+            .AnyAsync(x => x.SubscriptionId == subscriptionId && x.Enabled);
+
+        Models.Anomaly.AnomalyEvaluationResult? anomalyEvaluation = null;
+
+        // Only evaluate anomaly detection if it's enabled
+        if (hasAnomalyDetection)
+        {
+            anomalyEvaluation = await anomalyDetectionService.EvaluateAnomalyAsync(
+                subscriptionId,
+                queryResult.TotalRecords,
+                CancellationToken.None);
+
+            // Store baseline for future anomaly detection
+            await anomalyDetectionService.StoreBaselineAsync(
+                subscriptionId,
+                queryResult.TotalRecords,
+                DateTime.UtcNow,
+                CancellationToken.None);
+        }
+
         NotificationStatus status;
 
         // Use the explicit TimedOut flag
@@ -64,12 +87,31 @@ internal class JobService(
         {
             status = NotificationStatus.NoResults;
         }
+        else if (hasAnomalyDetection)
+        {
+            // If anomaly detection is enabled, ONLY send notification if anomaly is detected
+            // Do not fall through to old logic
+            if (anomalyEvaluation!.IsAnomaly)
+            {
+                status = NotificationStatus.NotificationSent;
+                logger.LogInformation("Anomaly detected for subscription {SubscriptionId}: {Explanation}",
+                    subscriptionId, anomalyEvaluation.Explanation);
+            }
+            else
+            {
+                status = NotificationStatus.NotificationSilenced;
+                logger.LogDebug("No anomaly detected for subscription {SubscriptionId}, notification silenced",
+                    subscriptionId);
+            }
+        }
         else if (lastExecutedQuery == null)
         {
+            // Old logic: first execution always sends
             status = NotificationStatus.NotificationSent;
         }
         else if (queryResult.TotalRecords > lastExecutedQuery.ResultCount)
         {
+            // Old logic: send if result count increased
             status = NotificationStatus.NotificationSent;
         }
         else
@@ -132,6 +174,16 @@ internal class JobService(
 
         await context.SaveChangesAsync();
 
+        // Record anomaly event if anomaly was detected
+        if (anomalyEvaluation?.IsAnomaly == true)
+        {
+            await anomalyDetectionService.RecordAnomalyEventAsync(
+                subscriptionId,
+                anomalyEvaluation,
+                notifications.FirstOrDefault()?.Id,
+                CancellationToken.None);
+        }
+
         var recipientsQueryResults = new List<RecipientQueryResult>();
         QueryResultFile? resultFile = null;
 
@@ -152,7 +204,8 @@ internal class JobService(
                 RecipientNotificationType = recipient.NotificationType,
                 QueryResult = queryResult,
                 QueryResultFile = resultFile,
-                NotificationId = notifications[i].Id
+                NotificationId = notifications[i].Id,
+                AnomalyEvaluation = anomalyEvaluation?.IsAnomaly == true ? anomalyEvaluation : null
             });
         }
 

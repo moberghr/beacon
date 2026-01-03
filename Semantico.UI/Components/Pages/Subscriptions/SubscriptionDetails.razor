@@ -1,127 +1,581 @@
-﻿@page "/subscriptions/{id:int}"
+@page "/subscriptions/{id:int}"
 @inherits BasePageComponent
 @using Semantico.Core.Models.QueryExecutionHistory
 @using Semantico.Core.Models.Subscriptions
 @using Semantico.Core.Models.Recipients
+@using Semantico.Core.Models.Anomaly
+@using Semantico.Core.Data.Enums
 @using Semantico.Core.Services
 @using Semantico.Core.Worker
+@using Semantico.UI.Helpers
 @using SortDirection = MudBlazor.SortDirection
 
-<SemanticoPageTitle Title="Query"/>
+<SemanticoPageTitle Title="Subscription Details"/>
 
-<MudContainer Class="my-4 px-4"  MaxWidth="MaxWidth.ExtraExtraLarge">
-    <SemanticoPageHeader Icon="@Icons.Material.Filled.Subscriptions" Title="Subscription details" Alert="@Model?.Status" AlertSeverity="@(isSubscriptionActive ? Severity.Success : Severity.Error)" ButtonIcon="@Icons.Material.Outlined.Archive" ButtonText="Archive" ButtonDisabled="@(!isSubscriptionActive)" OnClick="@ArchiveSubscription">
-        <MudItem xs="6" sm="2" md="2" lg="2" Class="d-flex justify-end">
-        <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="@(async () => await TestSubscription())">Test</MudButton>
-        </MudItem>
-    </SemanticoPageHeader>
-    <MudCard Class="my-4 px-2">
-        <MudCardContent>
-            @if (_loading)
-            {
-                <MudSkeleton />
-            }
-            else
-            {
-                <MudGrid Justify="Justify.FlexStart" Spacing="1">
-                    <MudItem xs="12" sm="12" md="5" lg="5">
-                        <MudStack Spacing="5">
-                            <MudText>
-                                <strong>Query:</strong> @Model?.QueryName <br />
-                                <strong>Query ID:</strong> @Model?.QueryId
+<MudContainer MaxWidth="MaxWidth.ExtraExtraLarge" Class="mt-4">
+    @if (_loading)
+    {
+        <MudGrid Spacing="3">
+            <MudItem xs="12" md="3">
+                <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="120px" />
+            </MudItem>
+            <MudItem xs="12" md="3">
+                <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="120px" />
+            </MudItem>
+            <MudItem xs="12" md="3">
+                <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="120px" />
+            </MudItem>
+            <MudItem xs="12" md="3">
+                <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="120px" />
+            </MudItem>
+        </MudGrid>
+    }
+    else if (Model != null)
+    {
+        <!-- Page Header with Actions -->
+        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-6">
+            <MudStack Spacing="1">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                    <MudIcon Icon="@Icons.Material.Filled.Subscriptions" Size="Size.Large" Color="Color.Primary" />
+                    <MudText Typo="Typo.h4" Style="font-weight: 700;">@Model.QueryName</MudText>
+                    @if (isSubscriptionActive)
+                    {
+                        <div class="status-badge-large status-badge-success">
+                            <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Small" />
+                            Active
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="status-badge-large status-badge-error">
+                            <MudIcon Icon="@Icons.Material.Filled.Archive" Size="Size.Small" />
+                            Archived
+                        </div>
+                    }
+                </MudStack>
+                <MudText Typo="Typo.body2" Color="Color.Secondary">
+                    <MudIcon Icon="@Icons.Material.Filled.Schedule" Size="Size.Small" Style="vertical-align: middle;" />
+                    @_cronDescription
+                </MudText>
+                <MudText Typo="Typo.body2" Color="Color.Secondary">
+                    Next execution: @_cronNextAt
+                </MudText>
+            </MudStack>
+
+            <MudStack Row="true" Spacing="2">
+                <MudButton Variant="Variant.Filled"
+                           Color="Color.Primary"
+                           StartIcon="@Icons.Material.Filled.PlayArrow"
+                           Size="Size.Large"
+                           OnClick="@TestSubscription">
+                    Test Now
+                </MudButton>
+                <MudButton Variant="Variant.Outlined"
+                           Color="Color.Error"
+                           StartIcon="@Icons.Material.Filled.Archive"
+                           Size="Size.Large"
+                           Disabled="@(!isSubscriptionActive)"
+                           OnClick="@ArchiveSubscription">
+                    Archive
+                </MudButton>
+            </MudStack>
+        </MudStack>
+
+        <!-- Hero Metrics Dashboard -->
+        <MudGrid Spacing="3" Class="mb-6">
+            <MudItem xs="12" sm="6" md="3">
+                <MudPaper Elevation="0" Class="hero-metric-card-blue pa-4">
+                    <MudStack Spacing="2">
+                        <MudIcon Icon="@Icons.Material.Filled.QueryStats" Size="Size.Large" Style="opacity: 0.9;" />
+                        <div class="hero-stat-number">@GetTotalExecutions()</div>
+                        <div class="hero-stat-label">Total Executions</div>
+                    </MudStack>
+                </MudPaper>
+            </MudItem>
+
+            <MudItem xs="12" sm="6" md="3">
+                <MudPaper Elevation="0" Class="hero-metric-card-purple pa-4">
+                    <MudStack Spacing="2">
+                        <MudIcon Icon="@Icons.Material.Filled.Notifications" Size="Size.Large" Style="opacity: 0.9;" />
+                        <div class="hero-stat-number">@GetTotalNotifications()</div>
+                        <div class="hero-stat-label">Notifications Sent</div>
+                    </MudStack>
+                </MudPaper>
+            </MudItem>
+
+            <MudItem xs="12" sm="6" md="3">
+                <MudPaper Elevation="0" Class="hero-metric-card-orange pa-4">
+                    <MudStack Spacing="2">
+                        <MudIcon Icon="@Icons.Material.Filled.Group" Size="Size.Large" Style="opacity: 0.9;" />
+                        <div class="hero-stat-number">@Model.Recipients.Count</div>
+                        <div class="hero-stat-label">Recipients</div>
+                    </MudStack>
+                </MudPaper>
+            </MudItem>
+
+            <MudItem xs="12" sm="6" md="3">
+                <MudPaper Elevation="0" Class="hero-metric-card-red pa-4">
+                    <MudStack Spacing="2">
+                        @if (Model.AnomalyConfig?.Enabled == true)
+                        {
+                            <MudIcon Icon="@Icons.Material.Filled.BubbleChart" Size="Size.Large" Style="opacity: 0.9;" />
+                            <div class="hero-stat-number">ON</div>
+                            <div class="hero-stat-label">Anomaly Detection</div>
+                        }
+                        else
+                        {
+                            <MudIcon Icon="@Icons.Material.Filled.TrendingUp" Size="Size.Large" Style="opacity: 0.9;" />
+                            <div class="hero-stat-number">@GetLatestResultCount()</div>
+                            <div class="hero-stat-label">Latest Results</div>
+                        }
+                    </MudStack>
+                </MudPaper>
+            </MudItem>
+        </MudGrid>
+
+        <!-- Main Content Tabs -->
+        <MudPaper Elevation="2" Class="pa-0" Style="border-radius: 12px; overflow: hidden;">
+            <MudTabs Elevation="0"
+                     Rounded="false"
+                     PanelClass="tab-panel-content"
+                     ApplyEffectsToContainer="true"
+                     Color="Color.Primary"
+                     SliderColor="Color.Primary">
+
+                <!-- Overview Tab -->
+                <MudTabPanel Text="Overview" Icon="@Icons.Material.Filled.Dashboard">
+                    <MudGrid Spacing="4">
+                        <!-- Query Configuration -->
+                        <MudItem xs="12" md="6">
+                            <div class="section-header">
+                                <MudText Typo="Typo.h6" Style="font-weight: 600;">
+                                    <MudIcon Icon="@Icons.Material.Filled.Code" Class="mr-2" Style="vertical-align: middle;" />
+                                    Query Configuration
+                                </MudText>
+                            </div>
+
+                            <MudStack Spacing="3">
+                                <div class="config-item">
+                                    <div class="config-label">Query Name</div>
+                                    <MudLink Href="@($"queries/{Model.QueryId}")" Class="config-value" Style="font-weight: 600;">
+                                        <MudIcon Icon="@Icons.Material.Filled.Link" Size="Size.Small" Style="vertical-align: middle;" />
+                                        @Model.QueryName
+                                    </MudLink>
+                                </div>
+
+                                <div class="config-item">
+                                    <div class="config-label">Schedule Expression</div>
+                                    <div class="config-value">
+                                        <MudChip T="string" Size="Size.Small" Icon="@Icons.Material.Filled.Schedule">
+                                            @Model.CronExpression
+                                        </MudChip>
+                                    </div>
+                                </div>
+
+                                <div class="config-item">
+                                    <div class="config-label">Result Limit</div>
+                                    <div class="config-value">
+                                        @(Model.MaxRows.HasValue ? Model.MaxRows.ToString() + " rows" : "No limit")
+                                    </div>
+                                </div>
+
+                                <div class="config-item">
+                                    <div class="config-label">Query Timeout</div>
+                                    <div class="config-value">@Model.TimeoutSeconds seconds</div>
+                                </div>
+                            </MudStack>
+                        </MudItem>
+
+                        <!-- Notification Settings -->
+                        <MudItem xs="12" md="6">
+                            <div class="section-header">
+                                <MudText Typo="Typo.h6" Style="font-weight: 600;">
+                                    <MudIcon Icon="@Icons.Material.Filled.Settings" Class="mr-2" Style="vertical-align: middle;" />
+                                    Notification Settings
+                                </MudText>
+                            </div>
+
+                            <MudStack Spacing="3">
+                                <MudPaper Elevation="0" Class="pa-3" Style="border: 1px solid var(--mud-palette-divider); border-radius: 8px;">
+                                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                                            <MudIcon Icon="@Icons.Material.Filled.AttachFile" Color="@(Model.IncludeAttachment ? Color.Success : Color.Default)" />
+                                            <div>
+                                                <MudText Typo="Typo.body2" Style="font-weight: 600;">Include Attachment</MudText>
+                                                <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                                    @(Model.IncludeAttachment ? $"Format: {Model.ResultAttachmentType}" : "Disabled")
+                                                </MudText>
+                                            </div>
+                                        </MudStack>
+                                        <MudChip T="string" Size="Size.Small" Color="@(Model.IncludeAttachment ? Color.Success : Color.Default)">
+                                            @(Model.IncludeAttachment ? "Enabled" : "Disabled")
+                                        </MudChip>
+                                    </MudStack>
+                                </MudPaper>
+
+                                <MudPaper Elevation="0" Class="pa-3" Style="border: 1px solid var(--mud-palette-divider); border-radius: 8px;">
+                                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                                            <MudIcon Icon="@Icons.Material.Filled.Code" Color="@(Model.ShowQuery ? Color.Success : Color.Default)" />
+                                            <div>
+                                                <MudText Typo="Typo.body2" Style="font-weight: 600;">Show Query</MudText>
+                                                <MudText Typo="Typo.caption" Color="Color.Secondary">Display SQL in notifications</MudText>
+                                            </div>
+                                        </MudStack>
+                                        <MudChip T="string" Size="Size.Small" Color="@(Model.ShowQuery ? Color.Success : Color.Default)">
+                                            @(Model.ShowQuery ? "Enabled" : "Disabled")
+                                        </MudChip>
+                                    </MudStack>
+                                </MudPaper>
+
+                                <MudPaper Elevation="0" Class="pa-3" Style="border: 1px solid var(--mud-palette-divider); border-radius: 8px;">
+                                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                                            <MudIcon Icon="@Icons.Material.Filled.Storage" Color="@(Model.StoreResults ? Color.Success : Color.Default)" />
+                                            <div>
+                                                <MudText Typo="Typo.body2" Style="font-weight: 600;">Store Results</MudText>
+                                                <MudText Typo="Typo.caption" Color="Color.Secondary">Persist query results</MudText>
+                                            </div>
+                                        </MudStack>
+                                        <MudChip T="string" Size="Size.Small" Color="@(Model.StoreResults ? Color.Success : Color.Default)">
+                                            @(Model.StoreResults ? "Enabled" : "Disabled")
+                                        </MudChip>
+                                    </MudStack>
+                                </MudPaper>
+
+                                <MudPaper Elevation="0" Class="pa-3" Style="border: 1px solid var(--mud-palette-divider); border-radius: 8px;">
+                                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                                            <MudIcon Icon="@Icons.Material.Filled.Task" Color="@(Model.CreateTasks ? Color.Success : Color.Default)" />
+                                            <div>
+                                                <MudText Typo="Typo.body2" Style="font-weight: 600;">Create Tasks</MudText>
+                                                <MudText Typo="Typo.caption" Color="Color.Secondary">Auto-create tracking tasks</MudText>
+                                            </div>
+                                        </MudStack>
+                                        <MudChip T="string" Size="Size.Small" Color="@(Model.CreateTasks ? Color.Success : Color.Default)">
+                                            @(Model.CreateTasks ? "Enabled" : "Disabled")
+                                        </MudChip>
+                                    </MudStack>
+                                </MudPaper>
+                            </MudStack>
+                        </MudItem>
+
+                        <!-- Query Parameters -->
+                        @if (!string.IsNullOrEmpty(Model.Parameters.ToJson()) && Model.Parameters.ToJson() != "{}")
+                        {
+                            <MudItem xs="12">
+                                <div class="section-header">
+                                    <MudText Typo="Typo.h6" Style="font-weight: 600;">
+                                        <MudIcon Icon="@Icons.Material.Filled.DataObject" Class="mr-2" Style="vertical-align: middle;" />
+                                        Query Parameters
+                                    </MudText>
+                                </div>
+                                <MudPaper Elevation="0" Class="pa-4" Style="background: rgba(0,0,0,0.02); border-radius: 8px; font-family: monospace;">
+                                    <pre style="margin: 0;">@Model.Parameters.ToJson()</pre>
+                                </MudPaper>
+                            </MudItem>
+                        }
+                    </MudGrid>
+                </MudTabPanel>
+
+                <!-- Recipients Tab -->
+                <MudTabPanel Text="Recipients" Icon="@Icons.Material.Filled.Group" BadgeData="@Model.Recipients.Count" BadgeColor="Color.Primary">
+                    <MudStack Spacing="3">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                            <MudText Typo="Typo.h6" Style="font-weight: 600;">
+                                Notification Recipients (@Model.Recipients.Count)
                             </MudText>
-                            <MudText>
-                                <strong>Cron:</strong> @Model?.CronExpression <br />
-                                @_cronDescription <br />
-                                @_cronNextAt
-                            </MudText>
-                            <MudText>
-                                <strong>Max Rows:</strong> @(Model?.MaxRows.HasValue == true ? Model.MaxRows.ToString() : "All") <br />
-                                <strong>Include Attachment:</strong> @(Model?.IncludeAttachment == true ? "Yes" : "No") <br />
-                                <strong>Attachment Type:</strong> @(Model?.ResultAttachmentType?.ToString() ?? "None") <br />
-                                <strong>Show Query in Notification:</strong> @(Model?.ShowQuery == true ? "Yes" : "No") <br />
-                                <strong>Store Results:</strong> @(Model?.StoreResults == true ? "Yes" : "No") <br />
-                                <strong>Create Tasks:</strong> @(Model?.CreateTasks == true ? "Yes" : "No") <br />
-                                <strong>Query timeout:</strong> @Model?.TimeoutSeconds
-                            </MudText>
-                            <MudText>
-                                <strong>Parameters:</strong> @Model?.Parameters.ToJson()
-                            </MudText>
+                            <MudButton Variant="Variant.Filled"
+                                       Color="Color.Primary"
+                                       StartIcon="@Icons.Material.Filled.Add"
+                                       OnClick="@AddRecipientsAsync">
+                                Add Recipient
+                            </MudButton>
                         </MudStack>
-                    </MudItem>
-                    <MudItem xs="12" sm="12" md="7" lg="7">
-                        <MudStack Spacing="1">
-                            <MudTable Items="@Model?.Recipients" Hover="true">
-                                <ToolBarContent>
-                                    <MudText Typo="Typo.h6">Recipients</MudText>
-                                    <MudSpacer />
-                                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="@(async () => await AddRecipientsAsync())">Add Recipients</MudButton>
-                                </ToolBarContent>
-                                <HeaderContent>
-                                    <MudTh>Name</MudTh>
-                                    <MudTh>Destination</MudTh>
-                                    <MudTh>Notification Type</MudTh>
-                                    <MudTh></MudTh>
-                                </HeaderContent>
-                                <RowTemplate>
-                                    <MudTd DataLabel="Name">@context.Name</MudTd>
-                                    <MudTd DataLabel="Destination">@UiHelpers.FormatRecipientDestination(context)</MudTd>
-                                    <MudTd DataLabel="Notification Type">@context.NotificationType</MudTd>
-                                    <MudTd><MudIconButton Size="Size.Small" Disabled="@(Model?.Recipients?.Count <= 1)" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.Delete" Color="Color.Error" OnClick="@(async () => await RemoveRecipientAsync(context))"></MudIconButton></MudTd>
-                                </RowTemplate>
-                                <PagerContent>
-                                    <MudTablePager PageSizeOptions="new int[] { 4 }"
-                                    HorizontalAlignment="HorizontalAlignment.Center"
-                                    HideRowsPerPage="true"
-                                    HidePageNumber="true" />
-                                </PagerContent>
-                            </MudTable>
+
+                        <MudGrid Spacing="3">
+                            @foreach (var recipient in Model.Recipients)
+                            {
+                                <MudItem xs="12" sm="6" md="4">
+                                    <MudPaper Elevation="0" Class="recipient-card pa-4">
+                                        <MudStack Spacing="2">
+                                            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                                                <MudChip T="string"
+                                                         Size="Size.Small"
+                                                         Color="Color.Primary"
+                                                         Icon="@GetNotificationIcon(recipient.NotificationType)">
+                                                    @recipient.NotificationType
+                                                </MudChip>
+                                                <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                                              Color="Color.Error"
+                                                              Size="Size.Small"
+                                                              Disabled="@(Model.Recipients.Count <= 1)"
+                                                              OnClick="@(() => RemoveRecipientAsync(recipient))" />
+                                            </MudStack>
+
+                                            <MudText Typo="Typo.h6" Style="font-weight: 600;">@recipient.Name</MudText>
+                                            <MudText Typo="Typo.body2" Color="Color.Secondary" Style="word-break: break-all;">
+                                                @UiHelpers.FormatRecipientDestination(recipient)
+                                            </MudText>
+                                        </MudStack>
+                                    </MudPaper>
+                                </MudItem>
+                            }
+                        </MudGrid>
+                    </MudStack>
+                </MudTabPanel>
+
+                <!-- Anomaly Detection Tab -->
+                @if (Model.AnomalyConfig?.Enabled == true)
+                {
+                    <MudTabPanel Text="Anomaly Detection" Icon="@Icons.Material.Filled.BubbleChart">
+                        <MudStack Spacing="4">
+                            <!-- Configuration Summary -->
+                            <MudAlert Severity="Severity.Success" Variant="Variant.Filled" Icon="@Icons.Material.Filled.BubbleChart">
+                                <MudText Typo="Typo.body1" Style="font-weight: 600;">Anomaly Detection Active</MudText>
+                                <MudText Typo="Typo.body2">
+                                    This subscription monitors result counts using @Model.AnomalyConfig.DetectionMethod with @Model.AnomalyConfig.Sensitivity.ToString().ToLower() sensitivity.
+                                </MudText>
+                            </MudAlert>
+
+                            <MudGrid Spacing="3">
+                                <MudItem xs="12" sm="6" md="3">
+                                    <MudPaper Elevation="0" Class="pa-4" Style="border: 2px solid var(--mud-palette-primary); border-radius: 12px;">
+                                        <MudStack Spacing="1">
+                                            <MudIcon Icon="@Icons.Material.Filled.Science" Color="Color.Primary" />
+                                            <div class="config-label">Detection Method</div>
+                                            <div class="config-value">@Model.AnomalyConfig.DetectionMethod</div>
+                                        </MudStack>
+                                    </MudPaper>
+                                </MudItem>
+
+                                <MudItem xs="12" sm="6" md="3">
+                                    <MudPaper Elevation="0" Class="pa-4" Style="border: 2px solid var(--mud-palette-warning); border-radius: 12px;">
+                                        <MudStack Spacing="1">
+                                            <MudIcon Icon="@Icons.Material.Filled.Tune" Color="Color.Warning" />
+                                            <div class="config-label">Sensitivity</div>
+                                            <div class="config-value">@Model.AnomalyConfig.Sensitivity</div>
+                                        </MudStack>
+                                    </MudPaper>
+                                </MudItem>
+
+                                <MudItem xs="12" sm="6" md="3">
+                                    <MudPaper Elevation="0" Class="pa-4" Style="border: 2px solid var(--mud-palette-info); border-radius: 12px;">
+                                        <MudStack Spacing="1">
+                                            <MudIcon Icon="@Icons.Material.Filled.CalendarMonth" Color="Color.Info" />
+                                            <div class="config-label">Lookback Period</div>
+                                            <div class="config-value">@Model.AnomalyConfig.LookbackDays days</div>
+                                        </MudStack>
+                                    </MudPaper>
+                                </MudItem>
+
+                                <MudItem xs="12" sm="6" md="3">
+                                    <MudPaper Elevation="0" Class="pa-4" Style="border: 2px solid var(--mud-palette-success); border-radius: 12px;">
+                                        <MudStack Spacing="1">
+                                            <MudIcon Icon="@Icons.Material.Filled.DataArray" Color="Color.Success" />
+                                            <div class="config-label">Min Data Points</div>
+                                            <div class="config-value">@Model.AnomalyConfig.MinimumDataPoints</div>
+                                        </MudStack>
+                                    </MudPaper>
+                                </MudItem>
+
+                                <MudItem xs="12" md="6">
+                                    <MudPaper Elevation="0" Class="pa-4" Style="background: rgba(76, 175, 80, 0.1); border-radius: 12px;">
+                                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                                            <MudIcon Icon="@Icons.Material.Filled.TrendingUp" Color="Color.Success" Size="Size.Large" />
+                                            <div>
+                                                <MudText Typo="Typo.subtitle2" Style="font-weight: 600;">Alert on Increase</MudText>
+                                                <MudText Typo="Typo.body2" Color="Color.Secondary">
+                                                    @(Model.AnomalyConfig.AlertOnIncrease ? "Enabled - Alerts when results spike above threshold" : "Disabled")
+                                                </MudText>
+                                            </div>
+                                            <MudSpacer />
+                                            <MudChip T="string" Color="@(Model.AnomalyConfig.AlertOnIncrease ? Color.Success : Color.Default)">
+                                                @(Model.AnomalyConfig.AlertOnIncrease ? "ON" : "OFF")
+                                            </MudChip>
+                                        </MudStack>
+                                    </MudPaper>
+                                </MudItem>
+
+                                <MudItem xs="12" md="6">
+                                    <MudPaper Elevation="0" Class="pa-4" Style="background: rgba(244, 67, 54, 0.1); border-radius: 12px;">
+                                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                                            <MudIcon Icon="@Icons.Material.Filled.TrendingDown" Color="Color.Error" Size="Size.Large" />
+                                            <div>
+                                                <MudText Typo="Typo.subtitle2" Style="font-weight: 600;">Alert on Decrease</MudText>
+                                                <MudText Typo="Typo.body2" Color="Color.Secondary">
+                                                    @(Model.AnomalyConfig.AlertOnDecrease ? "Enabled - Alerts when results drop below threshold" : "Disabled")
+                                                </MudText>
+                                            </div>
+                                            <MudSpacer />
+                                            <MudChip T="string" Color="@(Model.AnomalyConfig.AlertOnDecrease ? Color.Error : Color.Default)">
+                                                @(Model.AnomalyConfig.AlertOnDecrease ? "ON" : "OFF")
+                                            </MudChip>
+                                        </MudStack>
+                                    </MudPaper>
+                                </MudItem>
+                            </MudGrid>
+
+                            <!-- Anomaly Chart -->
+                            @if (_anomalyChartData?.HasAnomalyDetection == true && _anomalyChartData.DataPoints.Any())
+                            {
+                                <div class="chart-container">
+                                    <MudStack Spacing="3">
+                                        <div class="section-header">
+                                            <MudText Typo="Typo.h6" Style="font-weight: 600;">
+                                                <MudIcon Icon="@Icons.Material.Filled.ShowChart" Class="mr-2" Style="vertical-align: middle;" />
+                                                Result Count Trends & Thresholds
+                                            </MudText>
+                                        </div>
+
+                                        @if (_anomalyChartData.BaselineMean.HasValue)
+                                        {
+                                            <MudPaper Elevation="0" Class="pa-3" Style="background: white; border-radius: 8px;">
+                                                <MudStack Row="true" Spacing="4" AlignItems="AlignItems.Center">
+                                                    <div>
+                                                        <MudText Typo="Typo.caption" Color="Color.Secondary">BASELINE</MudText>
+                                                        <MudText Typo="Typo.h6" Style="font-weight: 700;">@_anomalyChartData.BaselineMean.Value.ToString("N0")</MudText>
+                                                    </div>
+
+                                                    @if (_anomalyChartData.LowerThreshold.HasValue)
+                                                    {
+                                                        <MudDivider Vertical="true" FlexItem="true" />
+                                                        <div>
+                                                            <MudText Typo="Typo.caption" Color="Color.Error">LOWER THRESHOLD</MudText>
+                                                            <MudText Typo="Typo.h6" Style="font-weight: 700; color: var(--mud-palette-error);">
+                                                                @_anomalyChartData.LowerThreshold.Value.ToString("N0")
+                                                            </MudText>
+                                                        </div>
+                                                    }
+
+                                                    @if (_anomalyChartData.UpperThreshold.HasValue)
+                                                    {
+                                                        <MudDivider Vertical="true" FlexItem="true" />
+                                                        <div>
+                                                            <MudText Typo="Typo.caption" Color="Color.Warning">UPPER THRESHOLD</MudText>
+                                                            <MudText Typo="Typo.h6" Style="font-weight: 700; color: var(--mud-palette-warning);">
+                                                                @_anomalyChartData.UpperThreshold.Value.ToString("N0")
+                                                            </MudText>
+                                                        </div>
+                                                    }
+                                                </MudStack>
+                                            </MudPaper>
+                                        }
+
+                                        <MudChart ChartType="ChartType.Line"
+                                                  ChartSeries="@_anomalyChartSeries"
+                                                  XAxisLabels="@_anomalyXAxisLabels"
+                                                  Width="@ChartHelper.DefaultChartWidth"
+                                                  Height="@ChartHelper.DefaultChartHeight"
+                                                  ChartOptions="@_anomalyChartOptions"
+                                                  AxisChartOptions="@_anomalyAxisChartOptions" />
+
+                                        @if (_anomalyChartData.DataPoints.Any(x => x.IsAnomaly || x.NotificationSent))
+                                        {
+                                            <div>
+                                                <MudText Typo="Typo.subtitle2" Style="font-weight: 600; margin-bottom: 12px;">Recent Detection Events</MudText>
+                                                <MudStack Row="true" Spacing="2" Style="flex-wrap: wrap;">
+                                                    @foreach (var point in _anomalyChartData.DataPoints.Where(x => x.IsAnomaly || x.NotificationSent).OrderByDescending(x => x.DateTime).Take(10))
+                                                    {
+                                                        <MudPaper Elevation="0" Class="pa-2" Style="border: 1px solid var(--mud-palette-divider); border-radius: 8px;">
+                                                            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                                                                @if (point.IsAnomaly)
+                                                                {
+                                                                    <MudIcon Icon="@Icons.Material.Filled.Warning" Color="Color.Error" Size="Size.Small" />
+                                                                }
+                                                                @if (point.NotificationSent)
+                                                                {
+                                                                    <MudIcon Icon="@Icons.Material.Filled.Notifications" Color="Color.Success" Size="Size.Small" />
+                                                                }
+                                                                <div>
+                                                                    <MudText Typo="Typo.caption" Style="font-weight: 600;">@point.DateTime.ToString("MMM dd HH:mm")</MudText>
+                                                                    <MudText Typo="Typo.caption" Color="Color.Secondary">@point.ResultCount results</MudText>
+                                                                </div>
+                                                                @if (!string.IsNullOrEmpty(point.AnomalySeverity))
+                                                                {
+                                                                    <MudChip T="string" Size="Size.Small" Color="Color.Error">@point.AnomalySeverity</MudChip>
+                                                                }
+                                                            </MudStack>
+                                                        </MudPaper>
+                                                    }
+                                                </MudStack>
+                                            </div>
+                                        }
+                                    </MudStack>
+                                </div>
+                            }
                         </MudStack>
-                    </MudItem>
-                    <MudItem>
-                        <MudStack Spacing="1">
-                        </MudStack>
-                    </MudItem>
-                </MudGrid>
-            }
-        </MudCardContent>
-        <MudCardContent>
-            <MudItem xs="12">
-                <MudContainer Class="my-4 px-4"  MaxWidth="MaxWidth.ExtraExtraLarge">
-                    <MudDataGrid @ref="_notificationsDataGrid" ServerData="NotificationsServerReload" T="QueryExecutionHistoryData" Hover="true" Filterable="false">
-                        <ToolBarContent>
-                            <MudText Typo="Typo.h6">Execution history</MudText>
-                        </ToolBarContent>
+                    </MudTabPanel>
+                }
+
+                <!-- Execution History Tab -->
+                <MudTabPanel Text="Execution History" Icon="@Icons.Material.Filled.History">
+                    <MudDataGrid @ref="_notificationsDataGrid"
+                                 ServerData="NotificationsServerReload"
+                                 T="QueryExecutionHistoryData"
+                                 Hover="true"
+                                 Filterable="false"
+                                 Elevation="0"
+                                 Style="border-radius: 8px;">
                         <Columns>
-                            <PropertyColumn InitialDirection="SortDirection.Descending" Property="x => x.CreatedTime" Title="Created"/>
-                            <TemplateColumn Title="Id">
+                            <TemplateColumn Title="Execution" Sortable="false">
                                 <CellTemplate>
-                                    <MudLink Href="@($"query-execution-history/{context.Item.QueryExecutionHistoryId}")">@context.Item.QueryExecutionHistoryId</MudLink>
+                                    <MudStack Spacing="0">
+                                        <MudText Typo="Typo.body2" Style="font-weight: 600;">
+                                            <MudLink Href="@($"query-execution-history/{context.Item.QueryExecutionHistoryId}")">
+                                                #@context.Item.QueryExecutionHistoryId
+                                            </MudLink>
+                                        </MudText>
+                                        <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                            @context.Item.CreatedTime.ToString("MMM dd, yyyy HH:mm:ss")
+                                        </MudText>
+                                    </MudStack>
                                 </CellTemplate>
                             </TemplateColumn>
-                            <TemplateColumn Title="Recipients">
+
+                            <TemplateColumn Title="Recipients" Sortable="false">
                                 <CellTemplate>
-                                    @($"[{context.Item.Notifications.Count}] {string.Join(", ", context.Item.Notifications.Select(x => x.RecipientName).ToList()).GetSubstring(50)}")
+                                    <MudChip T="string" Size="Size.Small" Icon="@Icons.Material.Filled.Group">
+                                        @context.Item.Notifications.Count recipient(s)
+                                    </MudChip>
                                 </CellTemplate>
                             </TemplateColumn>
-                            <PropertyColumn Property="x => x.ResultCount"/>
-                            <PropertyColumn Property="x => x.NotificationStatus"/>
+
+                            <TemplateColumn Title="Results" Sortable="false">
+                                <CellTemplate>
+                                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                                        <MudIcon Icon="@Icons.Material.Filled.DataArray" Size="Size.Small" Color="Color.Primary" />
+                                        <MudText Typo="Typo.body2" Style="font-weight: 600;">@context.Item.ResultCount</MudText>
+                                    </MudStack>
+                                </CellTemplate>
+                            </TemplateColumn>
+
+                            <TemplateColumn Title="Status" Sortable="false">
+                                <CellTemplate>
+                                    <MudChip T="string"
+                                             Size="Size.Small"
+                                             Color="@GetNotificationStatusColor(context.Item.NotificationStatus)"
+                                             Icon="@GetNotificationStatusIcon(context.Item.NotificationStatus)">
+                                        @context.Item.NotificationStatus
+                                    </MudChip>
+                                </CellTemplate>
+                            </TemplateColumn>
                         </Columns>
                         <PagerContent>
                             <MudDataGridPager T="QueryExecutionHistoryData" />
                         </PagerContent>
                     </MudDataGrid>
-                </MudContainer>
-            </MudItem>
-
-        </MudCardContent>
-    </MudCard>
+                </MudTabPanel>
+            </MudTabs>
+        </MudPaper>
+    }
 </MudContainer>
 
 @inject ISubscriptionService Service
 @inject IQueryService QueryService
 @inject IJobService JobService
 @inject INotificationService NotificationsService
+@inject IAnomalyDetectionService AnomalyDetectionService
 @inject IDialogService DialogService
 @inject IJSRuntime JSRuntime
 
@@ -142,6 +596,13 @@
 
     private string? _cronDescription;
     private string? _cronNextAt;
+
+    // Anomaly chart data
+    private AnomalyChartData? _anomalyChartData;
+    private List<ChartSeries> _anomalyChartSeries = new();
+    private string[] _anomalyXAxisLabels = Array.Empty<string>();
+    private ChartOptions _anomalyChartOptions = new();
+    private AxisChartOptions _anomalyAxisChartOptions = new();
 
     private async Task<GridData<QueryExecutionHistoryData>> NotificationsServerReload(GridState<QueryExecutionHistoryData> state)
     {
@@ -169,7 +630,7 @@
         var cronNextAt = Model?.CronExpression?.GetCronNextAt();
         var localNextAt = await JSRuntime.InvokeAsync<string>("toLocalTime", cronNextAt);
 
-        _cronNextAt = $"next at: {localNextAt}";
+        _cronNextAt = $"{localNextAt}";
 
     }
 
@@ -180,16 +641,106 @@
         Model = await Service.GetSubscriptionDetails(Id, CancellationToken.None);
 
         isSubscriptionActive = Model?.Status == "Active";
-        
-        await _notificationsDataGrid!.ReloadServerData();
-        
+
+        // Load anomaly chart data if anomaly detection is enabled
+        if (Model?.AnomalyConfig?.Enabled == true)
+        {
+            _anomalyChartData = await AnomalyDetectionService.GetAnomalyChartDataAsync(Id, 30, CancellationToken.None);
+            PrepareAnomalyChart();
+        }
+
+        // Only reload grid if it's been initialized
+        if (_notificationsDataGrid != null)
+        {
+            await _notificationsDataGrid.ReloadServerData();
+        }
+
         _loading = false;
+    }
+
+    private void PrepareAnomalyChart()
+    {
+        if (_anomalyChartData == null || !_anomalyChartData.DataPoints.Any())
+            return;
+
+        var orderedPoints = _anomalyChartData.DataPoints.OrderBy(x => x.DateTime).ToList();
+
+        _anomalyXAxisLabels = orderedPoints.Select(x => x.DateTime.ToString("MM/dd HH:mm")).ToArray();
+
+        _anomalyChartSeries = new List<ChartSeries>
+        {
+            new()
+            {
+                Name = "Result Count",
+                Data = orderedPoints.Select(x => (double)x.ResultCount).ToArray()
+            }
+        };
+
+        // Use rolling baseline if available (shows baseline evolution), otherwise use static baseline
+        if (_anomalyChartData.RollingBaseline != null && _anomalyChartData.RollingBaseline.Any())
+        {
+            _anomalyChartSeries.Add(new ChartSeries
+            {
+                Name = "Rolling Baseline",
+                Data = _anomalyChartData.RollingBaseline.Select(x => (double)x).ToArray()
+            });
+        }
+        else if (_anomalyChartData.BaselineMean.HasValue)
+        {
+            var baselineValue = (double)_anomalyChartData.BaselineMean.Value;
+            _anomalyChartSeries.Add(new ChartSeries
+            {
+                Name = "Baseline",
+                Data = Enumerable.Repeat(baselineValue, orderedPoints.Count).ToArray()
+            });
+        }
+
+        // Use rolling upper threshold if available
+        if (_anomalyChartData.RollingUpperThreshold != null && _anomalyChartData.RollingUpperThreshold.Any())
+        {
+            _anomalyChartSeries.Add(new ChartSeries
+            {
+                Name = "Upper Threshold",
+                Data = _anomalyChartData.RollingUpperThreshold.Select(x => (double)x).ToArray()
+            });
+        }
+        else if (_anomalyChartData.UpperThreshold.HasValue)
+        {
+            var upperValue = (double)_anomalyChartData.UpperThreshold.Value;
+            _anomalyChartSeries.Add(new ChartSeries
+            {
+                Name = "Upper Threshold",
+                Data = Enumerable.Repeat(upperValue, orderedPoints.Count).ToArray()
+            });
+        }
+
+        // Use rolling lower threshold if available
+        if (_anomalyChartData.RollingLowerThreshold != null && _anomalyChartData.RollingLowerThreshold.Any())
+        {
+            _anomalyChartSeries.Add(new ChartSeries
+            {
+                Name = "Lower Threshold",
+                Data = _anomalyChartData.RollingLowerThreshold.Select(x => (double)x).ToArray()
+            });
+        }
+        else if (_anomalyChartData.LowerThreshold.HasValue)
+        {
+            var lowerValue = (double)_anomalyChartData.LowerThreshold.Value;
+            _anomalyChartSeries.Add(new ChartSeries
+            {
+                Name = "Lower Threshold",
+                Data = Enumerable.Repeat(lowerValue, orderedPoints.Count).ToArray()
+            });
+        }
+
+        _anomalyChartOptions = ChartHelper.CreateAnomalyChartOptions();
+        _anomalyAxisChartOptions = ChartHelper.CreateDefaultAxisChartOptions();
     }
 
     private async Task ArchiveSubscription()
     {
         bool? result = await DialogService.ShowMessageBox(
-            "Warning", 
+            "Warning",
             "Do you want to archive this subscription?",
             yesText: "Yes",
             cancelText: "No");
@@ -203,7 +754,7 @@
 
         await Load();
     }
-    
+
     private async Task TestSubscription()
     {
         await JobService.ExecuteQuery(Id);
@@ -229,5 +780,57 @@
         await Service.RemoveRecipient(Model!.SubscriptionId, recipientData!.RecipientId!.Value, CancellationToken.None);
 
         await Load();
+    }
+
+    // Helper methods for UI
+    private int GetTotalExecutions()
+    {
+        return List?.Data?.Count ?? 0;
+    }
+
+    private int GetTotalNotifications()
+    {
+        return List?.Data?.Sum(x => x.Notifications.Count) ?? 0;
+    }
+
+    private int GetLatestResultCount()
+    {
+        return List?.Data?.OrderByDescending(x => x.CreatedTime).FirstOrDefault()?.ResultCount ?? 0;
+    }
+
+    private string GetNotificationIcon(NotificationType type)
+    {
+        return type switch
+        {
+            NotificationType.Email => Icons.Material.Filled.Email,
+            NotificationType.Teams => Icons.Material.Filled.Groups,
+            NotificationType.Slack => Icons.Material.Filled.Chat,
+            NotificationType.Jira => Icons.Material.Filled.BugReport,
+            _ => Icons.Material.Filled.Notifications
+        };
+    }
+
+    private Color GetNotificationStatusColor(NotificationStatus status)
+    {
+        return status switch
+        {
+            NotificationStatus.NotificationSent => Color.Success,
+            NotificationStatus.NoResults => Color.Info,
+            NotificationStatus.Timeout => Color.Error,
+            NotificationStatus.NotificationSilenced => Color.Warning,
+            _ => Color.Default
+        };
+    }
+
+    private string GetNotificationStatusIcon(NotificationStatus status)
+    {
+        return status switch
+        {
+            NotificationStatus.NotificationSent => Icons.Material.Filled.CheckCircle,
+            NotificationStatus.NoResults => Icons.Material.Filled.Info,
+            NotificationStatus.Timeout => Icons.Material.Filled.Error,
+            NotificationStatus.NotificationSilenced => Icons.Material.Filled.NotificationsOff,
+            _ => Icons.Material.Filled.Circle
+        };
     }
 }

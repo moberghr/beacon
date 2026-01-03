@@ -76,6 +76,7 @@ public static class ServiceConfiguration
         services.TryAddTransient<IStatisticsService, StatisticsService>();
         services.TryAddTransient<IMigrationService, MigrationService>();
         services.TryAddTransient<IDatabaseMetadataService, DatabaseMetadataService>();
+        services.TryAddTransient<IAnomalyDetectionService, AnomalyDetectionService>();
 
         services.TryAddTransient(typeof(ISemanticoScheduler), configurationOptions.SemanticoScheduler!);
 

@@ -1,4 +1,5 @@
 ﻿using Semantico.Core.Data.Enums;
+using Semantico.Core.Models.Anomaly;
 using Semantico.Core.Models.Recipients;
 
 namespace Semantico.Core.Adapters;
@@ -48,6 +49,8 @@ public class RecipientQueryResult
     public QueryResultFile? QueryResultFile { get; init; }
 
     public int? NotificationId { get; init; }
+
+    public AnomalyEvaluationResult? AnomalyEvaluation { get; init; }
 }
 
 public class QueryResultFile

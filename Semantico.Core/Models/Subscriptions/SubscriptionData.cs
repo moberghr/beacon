@@ -1,4 +1,5 @@
 ﻿using Semantico.Core.Data.Enums;
+using Semantico.Core.Models.Anomaly;
 using Semantico.Core.Models.Recipients;
 
 namespace Semantico.Core.Models.Subscriptions;
@@ -39,4 +40,9 @@ public class SubscriptionData
     public List<RecipientData> Recipients { get; set; } = new();
 
     public List<SubscriptionParameterData> Parameters { get; set; } = new();
+
+    /// <summary>
+    /// Anomaly detection configuration for this subscription
+    /// </summary>
+    public AnomalyConfigData? AnomalyConfig { get; set; }
 }

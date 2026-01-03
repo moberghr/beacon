@@ -14,6 +14,7 @@ using Semantico.Core.Helpers;
 using Semantico.Core.Helpers.File;
 using Semantico.Core.Models;
 using Semantico.Core.Models.Queries;
+using Semantico.Core.Models.QueryExecutionHistory;
 using Semantico.Core.Models.Recipients;
 using Semantico.Core.Models.Subscriptions;
 using Semantico.Core.Validators;
@@ -79,8 +80,17 @@ public class QueryDetailsData
     public int? FinalQueryDataSourceId { get; set; }
     
     public List<SubscriptionListData> Subscriptions { get; set; } = new();
-    
+
     public List<NotificationStatisticsEntry> NotificationHistory { get; set; } = new();
+
+    // Execution Time Statistics
+    public double AvgExecutionTimeMs { get; set; }
+
+    public double MinExecutionTimeMs { get; set; }
+
+    public double MaxExecutionTimeMs { get; set; }
+
+    public List<ExecutionTimeDataPoint> ExecutionTimeHistory { get; set; } = new();
 
     /// <summary>
     /// Cross-data-source computed properties
@@ -364,9 +374,40 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
             })
             .OrderBy(x => x.Date)
             .ToListAsync(cancellationToken);
-        
+
         result.NotificationHistory = notificationHistory;
-        
+
+        // Get execution time statistics for this query (all subscriptions)
+        var executionTimeStats = await context.QueryExecutionHistory
+            .Where(x => x.Subscription.QueryId == queryId)
+            .GroupBy(x => 1)
+            .Select(g => new
+            {
+                AvgExecutionTimeMs = g.Average(h => h.ExecutionTimeMs),
+                MinExecutionTimeMs = g.Min(h => h.ExecutionTimeMs),
+                MaxExecutionTimeMs = g.Max(h => h.ExecutionTimeMs)
+            })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        // Get execution time history (last 30 days, grouped by date)
+        var executionTimeHistory = await context.QueryExecutionHistory
+            .Where(x => x.Subscription.QueryId == queryId && x.CreatedTime >= cutoffDate)
+            .GroupBy(x => x.CreatedTime.Date)
+            .Select(g => new ExecutionTimeDataPoint
+            {
+                Date = g.Key,
+                AvgExecutionTimeMs = g.Average(h => h.ExecutionTimeMs),
+                MinExecutionTimeMs = g.Min(h => h.ExecutionTimeMs),
+                MaxExecutionTimeMs = g.Max(h => h.ExecutionTimeMs)
+            })
+            .OrderBy(x => x.Date)
+            .ToListAsync(cancellationToken);
+
+        result.AvgExecutionTimeMs = executionTimeStats?.AvgExecutionTimeMs ?? 0;
+        result.MinExecutionTimeMs = executionTimeStats?.MinExecutionTimeMs ?? 0;
+        result.MaxExecutionTimeMs = executionTimeStats?.MaxExecutionTimeMs ?? 0;
+        result.ExecutionTimeHistory = executionTimeHistory;
+
         return result;
     }
 

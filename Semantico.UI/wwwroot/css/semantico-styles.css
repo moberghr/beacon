@@ -669,3 +669,266 @@ html {
 .about-content-section:nth-child(3) { animation-delay: 0.3s; }
 .about-content-section:nth-child(4) { animation-delay: 0.4s; }
 .about-content-section:nth-child(5) { animation-delay: 0.5s; }
+
+/* ============================================
+   Enterprise Dashboard Styles (Shared)
+   ============================================ */
+
+/* Hero Statistics Cards */
+.hero-stat-card {
+    background: linear-gradient(135deg, var(--mud-palette-primary) 0%, var(--mud-palette-primary-darken) 100%);
+    color: white;
+    border-radius: 12px;
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.hero-stat-card-success {
+    background: linear-gradient(135deg, var(--mud-palette-success) 0%, var(--mud-palette-success-darken) 100%);
+    color: white;
+    border-radius: 12px;
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.hero-stat-card-info {
+    background: linear-gradient(135deg, var(--mud-palette-info) 0%, var(--mud-palette-info-darken) 100%);
+    color: white;
+    border-radius: 12px;
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.hero-stat-card-warning {
+    background: linear-gradient(135deg, var(--mud-palette-warning) 0%, var(--mud-palette-warning-darken) 100%);
+    color: white;
+    border-radius: 12px;
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.hero-stat-card:hover, .hero-stat-card-success:hover, .hero-stat-card-info:hover, .hero-stat-card-warning:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 12px 24px rgba(0,0,0,0.15);
+}
+
+.hero-stat-number {
+    font-size: 2.5rem;
+    font-weight: 700;
+    line-height: 1;
+    text-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+
+.hero-stat-label {
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    letter-spacing: 0.5px;
+    opacity: 0.95;
+    font-weight: 500;
+}
+
+/* Detail Cards */
+.detail-card {
+    border-radius: 12px;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.detail-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 16px rgba(0,0,0,0.1);
+}
+
+/* Section Titles */
+.section-title {
+    padding-bottom: 12px;
+    margin-bottom: 16px;
+    border-bottom: 2px solid var(--mud-palette-primary);
+    font-weight: 600;
+}
+
+/* Info Rows */
+.info-row {
+    padding: 12px;
+    border-radius: 8px;
+    border-left: 3px solid var(--mud-palette-primary);
+    background: linear-gradient(to right, rgba(var(--mud-palette-primary-rgb), 0.05), transparent);
+    margin-bottom: 8px;
+    transition: all 0.2s ease;
+}
+
+.info-row:hover {
+    background: linear-gradient(to right, rgba(var(--mud-palette-primary-rgb), 0.1), transparent);
+    transform: translateX(4px);
+}
+
+/* ============================================
+   Additional Colorful Styles (Subscription/Detail Pages)
+   ============================================ */
+
+/* Status Badge Large - Colorful badge with gradient */
+.status-badge-large {
+    padding: 8px 20px;
+    border-radius: 20px;
+    font-weight: 600;
+    font-size: 0.875rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: white;
+}
+
+/* Config Item - Similar to info-row but lighter background */
+.config-item {
+    padding: 16px;
+    border-radius: 8px;
+    background: rgba(0,0,0,0.02);
+    border-left: 3px solid var(--mud-palette-primary);
+    transition: all 0.2s ease;
+}
+
+.config-item:hover {
+    background: rgba(0,0,0,0.04);
+    border-left-color: var(--mud-palette-primary-darken);
+}
+
+.mud-theme-dark .config-item {
+    background: rgba(255,255,255,0.02);
+}
+
+.mud-theme-dark .config-item:hover {
+    background: rgba(255,255,255,0.04);
+}
+
+.config-label {
+    color: var(--mud-palette-text-secondary);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.config-value {
+    font-size: 1rem;
+    font-weight: 500;
+    color: var(--mud-palette-text-primary);
+}
+
+/* Section Header - Alternative to section-title with simpler styling */
+.section-header {
+    border-bottom: 2px solid var(--mud-palette-divider);
+    padding-bottom: 12px;
+    margin-bottom: 24px;
+}
+
+/* Chart Container - Background with gradient */
+.chart-container {
+    background: linear-gradient(to bottom, rgba(var(--mud-palette-primary-rgb), 0.02), transparent);
+    border-radius: 12px;
+    padding: 24px;
+}
+
+.mud-theme-dark .chart-container {
+    background: linear-gradient(to bottom, rgba(var(--mud-palette-primary-rgb), 0.05), transparent);
+}
+
+/* Recipient Card - Card with border and hover effect */
+.recipient-card {
+    border-radius: 8px;
+    border: 1px solid var(--mud-palette-divider);
+    transition: all 0.2s ease;
+}
+
+.recipient-card:hover {
+    border-color: var(--mud-palette-primary);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+}
+
+.mud-theme-dark .recipient-card:hover {
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+}
+
+/* Execution Timeline Item - Timeline with dots */
+.execution-timeline-item {
+    border-left: 2px solid var(--mud-palette-divider);
+    padding-left: 24px;
+    position: relative;
+    padding-bottom: 24px;
+}
+
+.execution-timeline-item::before {
+    content: '';
+    position: absolute;
+    left: -6px;
+    top: 8px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--mud-palette-primary);
+    border: 2px solid white;
+    box-shadow: 0 0 0 2px var(--mud-palette-primary);
+}
+
+.mud-theme-dark .execution-timeline-item::before {
+    border: 2px solid var(--mud-palette-dark);
+}
+
+/* Anomaly Badge - Gradient badge for anomalies */
+.anomaly-badge {
+    background: linear-gradient(135deg, #f44336 0%, #d32f2f 100%);
+    color: white;
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+/* Tab Panel Content - Padding for tab panels */
+.tab-panel-content {
+    padding: 32px 24px;
+}
+
+/* Hero Metric Variants - Colorful gradient cards for specific metrics */
+.hero-metric-card-blue {
+    background: linear-gradient(135deg, #1976d2 0%, #1565c0 100%);
+    color: white;
+    border-radius: 12px;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.hero-metric-card-purple {
+    background: linear-gradient(135deg, #7b1fa2 0%, #6a1b9a 100%);
+    color: white;
+    border-radius: 12px;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.hero-metric-card-orange {
+    background: linear-gradient(135deg, #f57c00 0%, #ef6c00 100%);
+    color: white;
+    border-radius: 12px;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.hero-metric-card-red {
+    background: linear-gradient(135deg, #d32f2f 0%, #c62828 100%);
+    color: white;
+    border-radius: 12px;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.hero-metric-card-blue:hover,
+.hero-metric-card-purple:hover,
+.hero-metric-card-orange:hover,
+.hero-metric-card-red:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 12px 24px rgba(0,0,0,0.15);
+}
+
+/* Status Badge Variants - Gradient status badges */
+.status-badge-success {
+    background: linear-gradient(135deg, #4caf50 0%, #388e3c 100%);
+}
+
+.status-badge-error {
+    background: linear-gradient(135deg, #f44336 0%, #d32f2f 100%);
+}

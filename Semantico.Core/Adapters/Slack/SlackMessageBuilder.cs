@@ -1,4 +1,6 @@
+using System.Text;
 using Semantico.Core.Adapters.Shared;
+using Semantico.Core.Models.Anomaly;
 
 namespace Semantico.Core.Adapters.Slack;
 
@@ -19,12 +21,21 @@ internal class SlackMessageBuilder
     /// <summary>
     /// Builds a complete Slack message with blocks for a query result.
     /// </summary>
-    public SlackMessage BuildNotificationMessage(QueryResult queryResult, int? notificationId)
+    public SlackMessage BuildNotificationMessage(
+        QueryResult queryResult,
+        int? notificationId,
+        AnomalyEvaluationResult? anomalyEvaluation = null)
     {
         var blocks = new List<object>();
 
-        // Header block
-        blocks.Add(BuildHeaderBlock(queryResult));
+        // Header block (with anomaly indicator if present)
+        blocks.Add(BuildHeaderBlock(queryResult, anomalyEvaluation));
+
+        // Anomaly alert block (if anomaly detected)
+        if (anomalyEvaluation?.IsAnomaly == true)
+        {
+            blocks.Add(BuildAnomalyAlertBlock(anomalyEvaluation));
+        }
 
         // Query block (if ShowQuery is enabled)
         if (queryResult.ShowQuery)
@@ -58,15 +69,54 @@ internal class SlackMessageBuilder
         };
     }
 
-    private object BuildHeaderBlock(QueryResult queryResult)
+    private object BuildHeaderBlock(QueryResult queryResult, AnomalyEvaluationResult? anomalyEvaluation)
     {
+        var prefix = anomalyEvaluation?.IsAnomaly == true
+            ? "🔴 ANOMALY DETECTED"
+            : AdapterConstants.NotificationPrefix;
+
         return new
         {
             type = "header",
             text = new
             {
                 type = "plain_text",
-                text = $"{AdapterConstants.NotificationPrefix} {queryResult.DataSourceName} - {queryResult.SubscriptionName}"
+                text = $"{prefix} {queryResult.DataSourceName} - {queryResult.SubscriptionName}"
+            }
+        };
+    }
+
+    private object BuildAnomalyAlertBlock(AnomalyEvaluationResult anomalyEvaluation)
+    {
+        var severityEmoji = anomalyEvaluation.Severity switch
+        {
+            "Critical" => "🚨",
+            "High" => "🔴",
+            "Medium" => "🟡",
+            _ => "🔵"
+        };
+
+        var details = new StringBuilder();
+        details.AppendLine($"*{severityEmoji} Anomaly Severity:* {anomalyEvaluation.Severity}");
+        details.AppendLine($"*Explanation:* {anomalyEvaluation.Explanation}");
+
+        if (anomalyEvaluation.BaselineMean.HasValue)
+        {
+            details.AppendLine($"*Baseline:* {anomalyEvaluation.BaselineMean:N0} (from {anomalyEvaluation.HistoricalDataPoints} data points)");
+        }
+
+        if (anomalyEvaluation.ZScore.HasValue)
+        {
+            details.AppendLine($"*Deviation:* {Math.Abs(anomalyEvaluation.ZScore.Value):N2}σ from baseline");
+        }
+
+        return new
+        {
+            type = "section",
+            text = new
+            {
+                type = "mrkdwn",
+                text = details.ToString()
             }
         };
     }
