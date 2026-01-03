@@ -37,8 +37,11 @@ internal class SlackAdapter : IAdapter
         var client = _httpClientFactory.CreateClient();
         var queryResult = recipientQueryResult.QueryResult;
 
-        // Build Slack message with blocks
-        var message = _messageBuilder.BuildNotificationMessage(queryResult, recipientQueryResult.NotificationId);
+        // Build Slack message with blocks (including anomaly context if present)
+        var message = _messageBuilder.BuildNotificationMessage(
+            queryResult,
+            recipientQueryResult.NotificationId,
+            recipientQueryResult.AnomalyEvaluation);
 
         // Serialize to JSON with snake_case naming
         var jsonPayload = JsonSerializer.Serialize(message, new JsonSerializerOptions
