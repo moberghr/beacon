@@ -104,19 +104,18 @@ internal class JobService(
                     subscriptionId);
             }
         }
-        else if (lastExecutedQuery == null)
-        {
-            // Old logic: first execution always sends
-            status = NotificationStatus.NotificationSent;
-        }
-        else if (queryResult.TotalRecords > lastExecutedQuery.ResultCount)
-        {
-            // Old logic: send if result count increased
-            status = NotificationStatus.NotificationSent;
-        }
         else
         {
-            status = NotificationStatus.NotificationSilenced;
+            // Use NotificationTrigger setting to determine if notification should be sent
+            status = subscription.NotificationTrigger switch
+            {
+                NotificationTrigger.Always => NotificationStatus.NotificationSent,
+                NotificationTrigger.OnResultCountChange when lastExecutedQuery == null => NotificationStatus.NotificationSent,
+                NotificationTrigger.OnResultCountChange when queryResult.TotalRecords != lastExecutedQuery.ResultCount => NotificationStatus.NotificationSent,
+                NotificationTrigger.OnResultCountIncrease when lastExecutedQuery == null => NotificationStatus.NotificationSent,
+                NotificationTrigger.OnResultCountIncrease when queryResult.TotalRecords > lastExecutedQuery.ResultCount => NotificationStatus.NotificationSent,
+                _ => NotificationStatus.NotificationSilenced
+            };
         }
 
         var executedQuery = new QueryExecutionHistory

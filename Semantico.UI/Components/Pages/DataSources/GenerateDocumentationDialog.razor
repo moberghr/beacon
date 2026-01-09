@@ -1,0 +1,237 @@
+@using Semantico.Core.Models.Ai
+@using Semantico.Core.Handlers.Ai.GenerateDocumentation
+@using MediatR
+
+<MudDialog Class="pb-2">
+    <TitleContent>
+        <MudText Typo="Typo.h6">
+            <MudIcon Icon="@Icons.Material.Filled.AutoAwesome" Class="mr-1 mb-n1" />
+            Generate AI Documentation
+        </MudText>
+    </TitleContent>
+    <DialogContent>
+        @if (_generating)
+        {
+            <div class="d-flex flex-column align-center py-8">
+                <MudProgressCircular Color="Color.Primary" Size="Size.Large" Indeterminate="true" />
+                <MudText Typo="Typo.body1" Class="mt-4">Generating documentation with AI...</MudText>
+                <MudText Typo="Typo.caption" Color="Color.Secondary">This may take a minute</MudText>
+            </div>
+        }
+        else if (_result != null)
+        {
+            <MudAlert Severity="Severity.Success" Class="mb-4">
+                Documentation generated successfully!
+            </MudAlert>
+
+            <MudGrid>
+                <MudItem xs="12" sm="6">
+                    <MudPaper Elevation="0" Class="pa-3">
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">Tables Analyzed</MudText>
+                        <MudText Typo="Typo.h6">@_result.TablesAnalyzed</MudText>
+                    </MudPaper>
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudPaper Elevation="0" Class="pa-3">
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">Generation Time</MudText>
+                        <MudText Typo="Typo.h6">@_result.GenerationTime.TotalSeconds.ToString("F1")s</MudText>
+                    </MudPaper>
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudPaper Elevation="0" Class="pa-3">
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">Tokens Used</MudText>
+                        <MudText Typo="Typo.h6">@_result.TokensUsed.ToString("N0")</MudText>
+                    </MudPaper>
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudPaper Elevation="0" Class="pa-3">
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">Estimated Cost</MudText>
+                        <MudText Typo="Typo.h6">$@_result.EstimatedCost.ToString("F4")</MudText>
+                    </MudPaper>
+                </MudItem>
+                <MudItem xs="12">
+                    <MudPaper Elevation="0" Class="pa-3">
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">Model</MudText>
+                        <MudText Typo="Typo.body2">@_result.GeneratedByModel</MudText>
+                    </MudPaper>
+                </MudItem>
+            </MudGrid>
+        }
+        else
+        {
+            <MudForm @ref="@_form" Class="pt-1" @bind-IsValid="_isFormValid">
+                <MudTextField
+                    Margin="Margin.Normal"
+                    Variant="Variant.Text"
+                    Class="mb-2"
+                    @bind-Value="@_options.Title"
+                    T="String"
+                    Label="Documentation Title"
+                    Placeholder="Leave empty for auto-generated title"
+                />
+
+                <MudNumericField
+                    Margin="Margin.Normal"
+                    Variant="Variant.Text"
+                    Class="mb-2"
+                    @bind-Value="@_options.MaxTables"
+                    T="int"
+                    Label="Maximum Tables to Analyze"
+                    Min="1"
+                    Max="100"
+                    HelperText="Limit the number of tables to analyze (1-100)"
+                />
+
+                <MudSwitch
+                    @bind-Checked="@_options.IncludeSampleData"
+                    T="bool"
+                    Color="Color.Primary"
+                    Label="Include Sample Data"
+                    Class="mb-2"
+                />
+
+                <MudSwitch
+                    @bind-Checked="@_options.IncludeRelationships"
+                    T="bool"
+                    Color="Color.Primary"
+                    Label="Include Relationships"
+                    Class="mb-2"
+                />
+
+                <MudSwitch
+                    @bind-Checked="@_options.IncludeIndexes"
+                    T="bool"
+                    Color="Color.Primary"
+                    Label="Include Indexes"
+                    Class="mb-2"
+                />
+
+                <MudExpansionPanels Class="mt-4">
+                    <MudExpansionPanel Text="Advanced Options">
+                        <MudSlider
+                            @bind-Value="@_options.Temperature"
+                            Min="0"
+                            Max="1"
+                            Step="0.1m"
+                            TickMarks="true"
+                            TickMarkLabels="@(new string[] { "0", "0.5", "1" })"
+                            Class="mb-4"
+                        >
+                            Temperature: @_options.Temperature.ToString("F1")
+                        </MudSlider>
+
+                        <MudNumericField
+                            Margin="Margin.Normal"
+                            Variant="Variant.Text"
+                            @bind-Value="@_options.MaxTokens"
+                            T="int"
+                            Label="Max Tokens"
+                            Min="1024"
+                            Max="16384"
+                        />
+                    </MudExpansionPanel>
+                </MudExpansionPanels>
+            </MudForm>
+        }
+    </DialogContent>
+    <DialogActions>
+        @if (_result != null)
+        {
+            <MudButton
+                OnClick="@Close"
+                Variant="Variant.Filled"
+                Color="Color.Primary"
+            >
+                Close
+            </MudButton>
+        }
+        else
+        {
+            <MudButton
+                Class="ml-4"
+                OnClick="@Cancel"
+                Variant="Variant.Filled"
+                Disabled="@_generating"
+            >
+                Cancel
+            </MudButton>
+
+            <MudButton
+                OnClick="@Generate"
+                Variant="Variant.Filled"
+                Color="Color.Primary"
+                Disabled="@(!_isFormValid || _generating)"
+                StartIcon="@Icons.Material.Filled.AutoAwesome"
+            >
+                @(_generating ? "Generating..." : "Generate")
+            </MudButton>
+        }
+    </DialogActions>
+</MudDialog>
+
+@inject ISnackbar Snackbar
+@inject IMediator Mediator
+
+@code
+{
+    [CascadingParameter]
+    IMudDialogInstance MudDialog { get; set; }
+
+    [Parameter]
+    public int DataSourceId { get; set; }
+
+    [Parameter]
+    public int UserId { get; set; } = 1; // TODO: Get from auth context
+
+    private MudForm _form;
+    private bool _generating;
+    private bool _isFormValid = true;
+    private GenerationOptions _options = new();
+    private GenerateDocumentationResult? _result;
+
+    async Task Generate()
+    {
+        if (_generating)
+        {
+            return;
+        }
+
+        await _form.Validate();
+
+        if (!_form.IsValid)
+        {
+            return;
+        }
+
+        _generating = true;
+        StateHasChanged();
+
+        try
+        {
+            var command = new GenerateDocumentationCommand
+            {
+                DataSourceId = DataSourceId,
+                UserId = UserId,
+                Options = _options
+            };
+
+            _result = await Mediator.Send(command);
+            
+            Snackbar.Add($"Documentation generated successfully! ({_result.TablesAnalyzed} tables analyzed)", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to generate documentation: {ex.Message}", Severity.Error);
+            // Don't close the dialog on error so user can see the error message
+        }
+        finally
+        {
+            _generating = false;
+            StateHasChanged();
+        }
+    }
+
+    void Cancel() => MudDialog.Cancel();
+
+    void Close() => MudDialog.Close(DialogResult.Ok(_result));
+}

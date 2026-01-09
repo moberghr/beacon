@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Semantico.Core.PostgreSql.Data;
@@ -11,9 +12,11 @@ using Semantico.Core.PostgreSql.Data;
 namespace Semantico.Core.PostgreSql.Data.Migrations
 {
     [DbContext(typeof(PostgreSqlSemanticoContext))]
-    partial class PostgreSqlSemanticoContextModelSnapshot : ModelSnapshot
+    [Migration("20260106070853_AddAiIntegration")]
+    partial class AddAiIntegration
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -990,6 +993,14 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                         .HasColumnType("text")
                         .HasColumnName("ai_generated_content");
 
+                    b.Property<string>("ColumnName")
+                        .HasColumnType("text")
+                        .HasColumnName("column_name");
+
+                    b.Property<decimal?>("ConfidenceScore")
+                        .HasColumnType("numeric")
+                        .HasColumnName("confidence_score");
+
                     b.Property<int>("ContentFormat")
                         .HasColumnType("integer")
                         .HasColumnName("content_format");
@@ -1035,10 +1046,6 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                     b.Property<string>("TableName")
                         .HasColumnType("text")
                         .HasColumnName("table_name");
-
-                    b.Property<string>("Title")
-                        .HasColumnType("text")
-                        .HasColumnName("title");
 
                     b.Property<string>("UserEditedContent")
                         .HasColumnType("text")
@@ -1715,10 +1722,6 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                     b.Property<int?>("MaxRows")
                         .HasColumnType("integer")
                         .HasColumnName("max_rows");
-
-                    b.Property<int>("NotificationTrigger")
-                        .HasColumnType("integer")
-                        .HasColumnName("notification_trigger");
 
                     b.Property<int>("QueryId")
                         .HasColumnType("integer")

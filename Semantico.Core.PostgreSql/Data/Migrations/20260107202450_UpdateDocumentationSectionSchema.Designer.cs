@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Semantico.Core.PostgreSql.Data;
@@ -11,9 +12,11 @@ using Semantico.Core.PostgreSql.Data;
 namespace Semantico.Core.PostgreSql.Data.Migrations
 {
     [DbContext(typeof(PostgreSqlSemanticoContext))]
-    partial class PostgreSqlSemanticoContextModelSnapshot : ModelSnapshot
+    [Migration("20260107202450_UpdateDocumentationSectionSchema")]
+    partial class UpdateDocumentationSectionSchema
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1715,10 +1718,6 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                     b.Property<int?>("MaxRows")
                         .HasColumnType("integer")
                         .HasColumnName("max_rows");
-
-                    b.Property<int>("NotificationTrigger")
-                        .HasColumnType("integer")
-                        .HasColumnName("notification_trigger");
 
                     b.Property<int>("QueryId")
                         .HasColumnType("integer")

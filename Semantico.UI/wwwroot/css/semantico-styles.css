@@ -165,6 +165,12 @@ html, body {
 /* Chart improvements */
 .mud-chart {
     border-radius: 8px !important;
+    padding-bottom: 60px !important;
+}
+
+/* Ensure X-axis labels are always visible (for rotated labels) */
+.mud-chart svg {
+    overflow: visible !important;
 }
 
 /* Divider improvements */
