@@ -181,7 +181,7 @@ public class BedrockProvider : ILlmProvider
                 Content = content,
                 InputTokens = result.Usage?.InputTokens ?? 0,
                 OutputTokens = result.Usage?.OutputTokens ?? 0,
-                EstimatedCost = inputCost ?? 0 + outputCost ?? 0,
+                EstimatedCost = (inputCost ?? 0) + (outputCost ?? 0),
                 Model = _modelId,
                 PromptCacheHit = false
             };
