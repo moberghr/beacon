@@ -14,6 +14,7 @@ using Semantico.Core.Helpers;
 using Semantico.Core.Helpers.File;
 using Semantico.Core.Models;
 using Semantico.Core.Models.Queries;
+using Semantico.Core.Models.QueryExecutionHistory;
 using Semantico.Core.Models.Recipients;
 using Semantico.Core.Models.Subscriptions;
 using Semantico.Core.Validators;
@@ -79,8 +80,17 @@ public class QueryDetailsData
     public int? FinalQueryDataSourceId { get; set; }
     
     public List<SubscriptionListData> Subscriptions { get; set; } = new();
-    
+
     public List<NotificationStatisticsEntry> NotificationHistory { get; set; } = new();
+
+    // Execution Time Statistics
+    public double AvgExecutionTimeMs { get; set; }
+
+    public double MinExecutionTimeMs { get; set; }
+
+    public double MaxExecutionTimeMs { get; set; }
+
+    public List<ExecutionTimeDataPoint> ExecutionTimeHistory { get; set; } = new();
 
     /// <summary>
     /// Cross-data-source computed properties
@@ -364,9 +374,40 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
             })
             .OrderBy(x => x.Date)
             .ToListAsync(cancellationToken);
-        
+
         result.NotificationHistory = notificationHistory;
-        
+
+        // Get execution time statistics for this query (all subscriptions)
+        var executionTimeStats = await context.QueryExecutionHistory
+            .Where(x => x.Subscription.QueryId == queryId)
+            .GroupBy(x => 1)
+            .Select(g => new
+            {
+                AvgExecutionTimeMs = g.Average(h => h.ExecutionTimeMs),
+                MinExecutionTimeMs = g.Min(h => h.ExecutionTimeMs),
+                MaxExecutionTimeMs = g.Max(h => h.ExecutionTimeMs)
+            })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        // Get execution time history (last 30 days, grouped by date)
+        var executionTimeHistory = await context.QueryExecutionHistory
+            .Where(x => x.Subscription.QueryId == queryId && x.CreatedTime >= cutoffDate)
+            .GroupBy(x => x.CreatedTime.Date)
+            .Select(g => new ExecutionTimeDataPoint
+            {
+                Date = g.Key,
+                AvgExecutionTimeMs = g.Average(h => h.ExecutionTimeMs),
+                MinExecutionTimeMs = g.Min(h => h.ExecutionTimeMs),
+                MaxExecutionTimeMs = g.Max(h => h.ExecutionTimeMs)
+            })
+            .OrderBy(x => x.Date)
+            .ToListAsync(cancellationToken);
+
+        result.AvgExecutionTimeMs = executionTimeStats?.AvgExecutionTimeMs ?? 0;
+        result.MinExecutionTimeMs = executionTimeStats?.MinExecutionTimeMs ?? 0;
+        result.MaxExecutionTimeMs = executionTimeStats?.MaxExecutionTimeMs ?? 0;
+        result.ExecutionTimeHistory = executionTimeHistory;
+
         return result;
     }
 
@@ -537,9 +578,10 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
     }
     
     private async Task<(List<IDictionary<string, object?>> Results, double ExecutionTimeMs, bool TimedOut)> ExecuteQueryAsync(
-        DatabaseEngineType dbEngineType, 
-        string connectionString, 
-        string sqlQuery, 
+        DatabaseEngineType dbEngineType,
+        string connectionString,
+        string sqlQuery,
+        Dictionary<string, object?>? parameters = null,
         int? timeoutSeconds = null)
     {
         await using var connection = DbConnectionFactory.CreateConnection(dbEngineType, connectionString);
@@ -553,26 +595,27 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
 
         var stopwatch = new System.Diagnostics.Stopwatch();
         stopwatch.Start();
-        
+
         try
         {
             // Create a cancellation token source with timeout if specified
-            using var timeoutCts = timeoutSeconds.HasValue 
-                ? new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds.Value)) 
+            using var timeoutCts = timeoutSeconds.HasValue
+                ? new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds.Value))
                 : new CancellationTokenSource();
-            
+
             // Combine with the provided cancellation token if needed
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(timeoutCts.Token);
-            
-            // Execute the query with the timeout
+
+            // Execute the query with parameterized values to prevent SQL injection
             var commandDefinition = new CommandDefinition(
                 commandText: cleanedSql,
+                parameters: parameters,  // Dapper handles parameterized queries securely
                 commandTimeout: timeoutSeconds,
                 cancellationToken: linkedCts.Token
             );
-            
+
             var dapperRows = await connection.QueryAsync(commandDefinition);
-            
+
             stopwatch.Stop();
             var executionTimeMs = stopwatch.Elapsed.TotalMilliseconds;
 
@@ -585,7 +628,7 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
             // Query was cancelled due to timeout
             stopwatch.Stop();
             var executionTimeMs = stopwatch.Elapsed.TotalMilliseconds;
-            
+
             // Return empty results with timeout indicator
             return (new List<IDictionary<string, object?>>(), executionTimeMs, true);
         }
@@ -800,21 +843,22 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
     private async Task<QueryStepResult> ExecuteStep(QueryStep step, List<ParameterValue>? parameters)
     {
         var stepParameters = ExtractStepParameters(step, parameters);
-        var compiledSql = QueryHelper.CompileSql(step.SqlValue, stepParameters);
+        var (parameterizedSql, sqlParameters) = QueryHelper.PrepareParameterizedQuery(step.SqlValue, stepParameters);
 
         // Each step executes against its own data source/database
         var (results, executionTimeMs, timedOut) = await ExecuteQueryAsync(
             step.DataSource.DatabaseEngineType,   // Each step can be different engine type!
             encryptionService.Decrypt(step.DataSource.ConnectionString),     // Each step connects to different database
-            compiledSql,
+            parameterizedSql,
+            sqlParameters,
             null // Use default timeout
         );
-        
+
         return new QueryStepResult
         {
             StepOrder = step.StepOrder,
             StepName = step.Name ?? $"Step {step.StepOrder}",
-            SqlQuery = compiledSql,
+            SqlQuery = parameterizedSql,
             DataSourceName = step.DataSource.Name,
             DatabaseEngine = step.DataSource.DatabaseEngineType.ToString(),
             DatabaseEngineType = step.DataSource.DatabaseEngineType,

@@ -8,7 +8,32 @@ using Semantico.UI.AspNet;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Configure Kestrel server limits for long-running AI operations
+builder.WebHost.ConfigureKestrel(serverOptions =>
+{
+    serverOptions.Limits.KeepAliveTimeout = TimeSpan.FromMinutes(5);
+    serverOptions.Limits.RequestHeadersTimeout = TimeSpan.FromMinutes(5);
+});
+
 // Add services to the container.
+// Configure Blazor Server with extended timeouts for long-running AI operations
+builder.Services.AddServerSideBlazor()
+    .AddCircuitOptions(options =>
+    {
+        options.DisconnectedCircuitMaxRetained = 100;
+        options.DisconnectedCircuitRetentionPeriod = TimeSpan.FromMinutes(3);
+        options.JSInteropDefaultCallTimeout = TimeSpan.FromMinutes(5);
+        options.MaxBufferedUnacknowledgedRenderBatches = 10;
+    });
+
+builder.Services.AddHttpClient().ConfigureHttpClientDefaults(http =>
+{
+    // Increase timeout for all HTTP clients (including AWS SDK)
+    http.ConfigureHttpClient(client =>
+    {
+        client.Timeout = TimeSpan.FromMinutes(5);
+    });
+});
 
 builder.Services.AddHangfire((provider, hangfireConfiguration) => hangfireConfiguration
     .SetDataCompatibilityLevel(CompatibilityLevel.Version_170)
@@ -44,6 +69,7 @@ builder.Services.AddSemanticoAdmin(builder.Configuration, options =>
     // Set the base URL for generating links in notifications (e.g., Teams messages)
     // This should match where your Semantico admin UI is hosted
     options.BaseUrl = "https://localhost:7187/semantico"; // Update with your actual URL
+    options.UseAI = true;
 });
 
 var app = builder.Build();

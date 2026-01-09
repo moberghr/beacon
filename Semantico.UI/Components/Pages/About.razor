@@ -94,6 +94,35 @@
                         </MudStack>
                     </MudPaper>
                 </MudItem>
+                <MudItem xs="12" md="6" lg="3">
+                    <MudPaper Class="pa-4" Elevation="0" Style="height: 100%; border: 1px solid var(--mud-palette-divider);">
+                        <MudStack AlignItems="AlignItems.Center" Spacing="2">
+                            <MudAvatar Size="Size.Large" Color="Color.Success">
+                                <MudIcon Icon="@Icons.Material.Filled.Psychology" Size="Size.Large" />
+                            </MudAvatar>
+                            <MudText Typo="Typo.h6" Align="Align.Center" Class="fw-bold">AI-Powered Features (Experimental)</MudText>
+                            <MudText Typo="Typo.body2" Align="Align.Center">
+                                Automatic documentation generation, natural language alert creation, and intelligent data insights
+                            </MudText>
+                            <MudText Typo="Typo.caption" Align="Align.Center" Class="mud-text-secondary">
+                                ⚠️ Experimental - Review AI output before use
+                            </MudText>
+                        </MudStack>
+                    </MudPaper>
+                </MudItem>
+                <MudItem xs="12" md="6" lg="3">
+                    <MudPaper Class="pa-4" Elevation="0" Style="height: 100%; border: 1px solid var(--mud-palette-divider);">
+                        <MudStack AlignItems="AlignItems.Center" Spacing="2">
+                            <MudAvatar Size="Size.Large" Color="Color.Error">
+                                <MudIcon Icon="@Icons.Material.Filled.Analytics" Size="Size.Large" />
+                            </MudAvatar>
+                            <MudText Typo="Typo.h6" Align="Align.Center" Class="fw-bold">Anomaly Detection</MudText>
+                            <MudText Typo="Typo.body2" Align="Align.Center">
+                                Statistical anomaly detection with baseline learning, configurable thresholds, and real-time alerting
+                            </MudText>
+                        </MudStack>
+                    </MudPaper>
+                </MudItem>
             </MudGrid>
         </MudCardContent>
     </MudCard>
@@ -115,6 +144,7 @@ graph TB
     subgraph Core["Application Services Layer"]
         QuerySvc[Query Service] ~~~ SubSvc[Subscription Service] ~~~ MigSvc[Migration Service]
         NotifSvc[Notification Service] ~~~ DataSrcSvc[DataSource Service] ~~~ TaskSvc[Task Service]
+        AiDocSvc[AI Documentation] ~~~ AiAlertSvc[AI Alert Generation] ~~~ AnomalySvc[Anomaly Detection]
     end
 
     subgraph Adapters["Notification Adapters"]
@@ -128,6 +158,7 @@ graph TB
     subgraph Infrastructure["Infrastructure Layer"]
         PgSQL[(PostgreSQL)] ~~~ MSSQL[(SQL Server)] ~~~ MySQL[(MySQL)]
         Scheduler[Job Scheduler<br/>via ISemanticoScheduler] ~~~ SQLiteVM[SQLite Virtual Tables<br/>Cross-DB Joins]
+        LLM[LLM Providers<br/>OpenAI/Claude/Azure] ~~~ Encryption[AES-256 Encryption<br/>Connection Strings]
     end
 
     BlazorUI --> Core
@@ -397,6 +428,39 @@ stateDiagram-v2
                                 <MudListItem T="string" Icon="@Icons.Material.Filled.Check">Auto-resolution when issues are fixed (0 results)</MudListItem>
                                 <MudListItem T="string" Icon="@Icons.Material.Filled.Check">Result count trend visualization</MudListItem>
                                 <MudListItem T="string" Icon="@Icons.Material.Filled.Check">Task comments and collaboration</MudListItem>
+                            </MudList>
+                        </MudStack>
+                    </MudPaper>
+                </MudItem>
+                <MudItem xs="12" md="6">
+                    <MudPaper Class="pa-3" Elevation="0" Style="height: 100%;">
+                        <MudStack Spacing="2">
+                            <MudText Typo="Typo.h6" Color="Color.Success">
+                                <MudIcon Icon="@Icons.Material.Filled.Psychology" Class="mr-2" />
+                                AI-Powered Features (Experimental)
+                            </MudText>
+                            <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">Experimental feature - Review AI output before use</MudAlert>
+                            <MudList T="string" Dense="true">
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.AutoAwesome">AI-generated data source documentation</MudListItem>
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.AutoAwesome">Natural language query/alert generation</MudListItem>
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.AutoAwesome">Export as Markdown, HTML, or PDF</MudListItem>
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.AutoAwesome">Multiple LLM provider support (OpenAI, Claude, Azure)</MudListItem>
+                            </MudList>
+                        </MudStack>
+                    </MudPaper>
+                </MudItem>
+                <MudItem xs="12" md="6">
+                    <MudPaper Class="pa-3" Elevation="0" Style="height: 100%;">
+                        <MudStack Spacing="2">
+                            <MudText Typo="Typo.h6" Color="Color.Primary">
+                                <MudIcon Icon="@Icons.Material.Filled.Analytics" Class="mr-2" />
+                                Anomaly Detection
+                            </MudText>
+                            <MudList T="string" Dense="true">
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.TrendingUp">Statistical methods (Z-score, IQR, % change)</MudListItem>
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.TrendingUp">Automatic baseline learning from history</MudListItem>
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.TrendingUp">Configurable sensitivity and thresholds</MudListItem>
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.TrendingUp">Real-time anomaly alerting</MudListItem>
                             </MudList>
                         </MudStack>
                     </MudPaper>

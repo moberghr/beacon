@@ -2,6 +2,7 @@
 @using Semantico.Core.Models.Subscriptions
 @using Semantico.Core.Models.Recipients
 @using Semantico.Core.Models.Queries
+@using Semantico.Core.Models.Anomaly
 @using Semantico.Core.Services
 @using Semantico.UI.Components.Custom
 <MudDialog Class="pb-2">
@@ -59,6 +60,112 @@
                 Color="Color.Primary"
                 HelperText="Automatically create and update a task for this subscription on each execution"
                 Class="mb-2" />
+
+            <MudSelect T="NotificationTrigger"
+                @bind-Value="Subscription.NotificationTrigger"
+                Label="Send Notification"
+                Variant="Variant.Outlined"
+                Margin="Margin.Dense"
+                HelperText="Controls when notifications should be sent for this subscription"
+                Class="mb-2">
+                <MudSelectItem Value="NotificationTrigger.OnResultCountChange">When result count changes</MudSelectItem>
+                <MudSelectItem Value="NotificationTrigger.Always">Always (every execution)</MudSelectItem>
+                <MudSelectItem Value="NotificationTrigger.OnResultCountIncrease">When result count increases</MudSelectItem>
+            </MudSelect>
+
+            <MudExpansionPanels Class="mb-3">
+                <MudExpansionPanel Text="Anomaly Detection" IsExpanded="@_anomalyDetectionEnabled">
+                    <TitleContent>
+                        <div class="d-flex align-center">
+                            <MudIcon Icon="@Icons.Material.Filled.Analytics" Class="mr-2" />
+                            <MudText>Anomaly Detection</MudText>
+                        </div>
+                    </TitleContent>
+                    <ChildContent>
+                        <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">
+                            Anomaly detection monitors your query result counts over time and alerts you when they deviate significantly from the historical baseline.
+                            The system automatically learns normal patterns from past executions.
+                        </MudAlert>
+
+                        <MudCheckBox @bind-Value="_anomalyDetectionEnabled"
+                            Label="Enable Anomaly Detection"
+                            Color="Color.Primary"
+                            HelperText="Monitor result counts and alert on unusual deviations"
+                            Class="mb-2" />
+
+                        @if (_anomalyDetectionEnabled)
+                        {
+                            <MudSelect T="AnomalyDetectionMethod"
+                                @bind-Value="_anomalyMethod"
+                                Label="Detection Method"
+                                Variant="Variant.Outlined"
+                                Margin="Margin.Dense"
+                                Class="mb-2">
+                                <MudSelectItem Value="AnomalyDetectionMethod.StandardDeviation">Standard Deviation (Z-Score)</MudSelectItem>
+                                <MudSelectItem Value="AnomalyDetectionMethod.IQR">IQR (Interquartile Range)</MudSelectItem>
+                                <MudSelectItem Value="AnomalyDetectionMethod.PercentageChange">Percentage Change</MudSelectItem>
+                            </MudSelect>
+
+                            <MudText Typo="Typo.body2" Class="mb-2 mud-text-secondary">
+                                @GetDetectionMethodDescription()
+                            </MudText>
+
+                            <MudSelect T="AnomalySensitivity"
+                                @bind-Value="_anomalySensitivity"
+                                Label="Sensitivity"
+                                Variant="Variant.Outlined"
+                                Margin="Margin.Dense"
+                                Class="mb-2">
+                                <MudSelectItem Value="AnomalySensitivity.Low">Low (fewer alerts)</MudSelectItem>
+                                <MudSelectItem Value="AnomalySensitivity.Medium">Medium (balanced)</MudSelectItem>
+                                <MudSelectItem Value="AnomalySensitivity.High">High (more alerts)</MudSelectItem>
+                            </MudSelect>
+
+                            <MudText Typo="Typo.body2" Class="mb-2 mud-text-secondary">
+                                @GetSensitivityDescription()
+                            </MudText>
+
+                            <MudNumericField @bind-Value="_anomalyLookbackDays"
+                                Label="Lookback Period (days)"
+                                Variant="Variant.Outlined"
+                                Margin="Margin.Dense"
+                                Min="7"
+                                Max="365"
+                                HelperText="How far back to analyze historical data. Longer periods provide more stable baselines but may miss recent trend changes."
+                                Class="mb-2" />
+
+                            <MudNumericField @bind-Value="_anomalyMinDataPoints"
+                                Label="Minimum Data Points"
+                                Variant="Variant.Outlined"
+                                Margin="Margin.Dense"
+                                Min="3"
+                                Max="100"
+                                HelperText="Number of successful executions needed before anomaly detection starts. During this initial period, the system learns your baseline."
+                                Class="mb-2" />
+
+                            <MudCheckBox @bind-Value="_anomalyAlertOnIncrease"
+                                Label="Alert on Increase"
+                                Color="Color.Primary"
+                                HelperText="Send notification when result count is significantly higher than expected (e.g., sudden spike in errors)"
+                                Class="mb-1" />
+
+                            <MudCheckBox @bind-Value="_anomalyAlertOnDecrease"
+                                Label="Alert on Decrease"
+                                Color="Color.Primary"
+                                HelperText="Send notification when result count is significantly lower than expected (e.g., drop in activity)"
+                                Class="mb-2" />
+
+                            @if (_anomalyAlertOnIncrease || _anomalyAlertOnDecrease)
+                            {
+                                <MudAlert Severity="Severity.Normal" Dense="true" Class="mb-2">
+                                    <strong>Example:</strong> With your current settings (@_anomalySensitivity sensitivity, @_anomalyMethod method),
+                                    @GetExampleScenario()
+                                </MudAlert>
+                            }
+                        }
+                    </ChildContent>
+                </MudExpansionPanel>
+            </MudExpansionPanels>
 
             <MudSelect T="string"
                 Label="Recipient"
@@ -157,6 +264,15 @@
     private List<QueryStepParameterData> _queryParameters { get; set; } = [];
     private Dictionary<string, string> _parameterValues { get; set; } = new();
 
+    // Anomaly detection fields
+    private bool _anomalyDetectionEnabled = false;
+    private AnomalyDetectionMethod _anomalyMethod = AnomalyDetectionMethod.StandardDeviation;
+    private AnomalySensitivity _anomalySensitivity = AnomalySensitivity.Medium;
+    private int _anomalyLookbackDays = 30;
+    private int _anomalyMinDataPoints = 7;
+    private bool _anomalyAlertOnIncrease = true;
+    private bool _anomalyAlertOnDecrease = true;
+
     private MudForm _form;
     private bool _loading;
     bool _isFormValid = false;
@@ -233,6 +349,22 @@
             })
             .ToList();
 
+        // Populate anomaly configuration if enabled
+        if (_anomalyDetectionEnabled)
+        {
+            Subscription.AnomalyConfig = new AnomalyConfigData
+            {
+                SubscriptionId = Subscription.SubscriptionId ?? 0,
+                Enabled = true,
+                DetectionMethod = _anomalyMethod,
+                Sensitivity = _anomalySensitivity,
+                LookbackDays = _anomalyLookbackDays,
+                AlertOnIncrease = _anomalyAlertOnIncrease,
+                AlertOnDecrease = _anomalyAlertOnDecrease,
+                MinimumDataPoints = _anomalyMinDataPoints
+            };
+        }
+
         var response = await Service.CreateSubscription(Subscription, CancellationToken.None);
 
         if (response.Success)
@@ -248,6 +380,89 @@
     }
 
     void Cancel() => MudDialog.Cancel();
+
+    string GetDetectionMethodDescription()
+    {
+        return _anomalyMethod switch
+        {
+            AnomalyDetectionMethod.StandardDeviation =>
+                "Standard Deviation (Z-Score): Measures how many standard deviations the current value is from the historical average. " +
+                "Best for data with normal distribution and consistent variance. Detects outliers based on statistical deviation.",
+
+            AnomalyDetectionMethod.IQR =>
+                "IQR (Interquartile Range): Uses the middle 50% of historical data to define normal range. " +
+                "More robust against extreme outliers. Best for data with occasional spikes that should be excluded from baseline.",
+
+            AnomalyDetectionMethod.PercentageChange =>
+                "Percentage Change: Compares current value to historical average as a percentage. " +
+                "Simple and intuitive. Best for data where relative change matters more than absolute deviation.",
+
+            _ => "Statistical method for detecting anomalies in your data."
+        };
+    }
+
+    string GetSensitivityDescription()
+    {
+        return _anomalySensitivity switch
+        {
+            AnomalySensitivity.High when _anomalyMethod == AnomalyDetectionMethod.StandardDeviation =>
+                "High sensitivity (1.5σ threshold): Alerts on deviations ≥1.5 standard deviations. ~13% of normal data may trigger alerts. Use for critical queries where early detection is important.",
+
+            AnomalySensitivity.Medium when _anomalyMethod == AnomalyDetectionMethod.StandardDeviation =>
+                "Medium sensitivity (2.0σ threshold): Alerts on deviations ≥2 standard deviations. ~5% of normal data may trigger alerts. Recommended for most use cases.",
+
+            AnomalySensitivity.Low when _anomalyMethod == AnomalyDetectionMethod.StandardDeviation =>
+                "Low sensitivity (3.0σ threshold): Alerts on deviations ≥3 standard deviations. ~0.3% of normal data may trigger alerts. Use to minimize false positives.",
+
+            AnomalySensitivity.High when _anomalyMethod == AnomalyDetectionMethod.PercentageChange =>
+                "High sensitivity (15% change): Alerts when value changes by ≥15% from baseline. More frequent alerts, catches smaller changes.",
+
+            AnomalySensitivity.Medium when _anomalyMethod == AnomalyDetectionMethod.PercentageChange =>
+                "Medium sensitivity (25% change): Alerts when value changes by ≥25% from baseline. Balanced between detection and noise.",
+
+            AnomalySensitivity.Low when _anomalyMethod == AnomalyDetectionMethod.PercentageChange =>
+                "Low sensitivity (40% change): Alerts when value changes by ≥40% from baseline. Only major changes trigger alerts.",
+
+            _ => "Determines how much deviation is required to trigger an alert. Higher sensitivity means more alerts but may include false positives."
+        };
+    }
+
+    string GetExampleScenario()
+    {
+        var direction = (_anomalyAlertOnIncrease, _anomalyAlertOnDecrease) switch
+        {
+            (true, true) => "increases or decreases significantly",
+            (true, false) => "increases significantly",
+            (false, true) => "decreases significantly",
+            _ => "changes significantly"
+        };
+
+        return _anomalyMethod switch
+        {
+            AnomalyDetectionMethod.StandardDeviation when _anomalySensitivity == AnomalySensitivity.High =>
+                $"if your query typically returns 100 rows (±20), an alert will trigger when results {direction} (e.g., 130+ or 70- rows).",
+
+            AnomalyDetectionMethod.StandardDeviation when _anomalySensitivity == AnomalySensitivity.Medium =>
+                $"if your query typically returns 100 rows (±20), an alert will trigger when results {direction} (e.g., 140+ or 60- rows).",
+
+            AnomalyDetectionMethod.StandardDeviation when _anomalySensitivity == AnomalySensitivity.Low =>
+                $"if your query typically returns 100 rows (±20), an alert will trigger when results {direction} (e.g., 160+ or 40- rows).",
+
+            AnomalyDetectionMethod.PercentageChange when _anomalySensitivity == AnomalySensitivity.High =>
+                $"if your query typically returns 100 rows, an alert will trigger when results {direction} (e.g., 115+ or 85- rows).",
+
+            AnomalyDetectionMethod.PercentageChange when _anomalySensitivity == AnomalySensitivity.Medium =>
+                $"if your query typically returns 100 rows, an alert will trigger when results {direction} (e.g., 125+ or 75- rows).",
+
+            AnomalyDetectionMethod.PercentageChange when _anomalySensitivity == AnomalySensitivity.Low =>
+                $"if your query typically returns 100 rows, an alert will trigger when results {direction} (e.g., 140+ or 60- rows).",
+
+            AnomalyDetectionMethod.IQR =>
+                $"alerts will trigger when results fall outside the typical range based on your historical data distribution.",
+
+            _ => $"the system will alert you when results {direction} from the learned baseline."
+        };
+    }
 
     string? ValidateNumber(string value)
     {

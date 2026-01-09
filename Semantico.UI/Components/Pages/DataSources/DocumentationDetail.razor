@@ -1,0 +1,575 @@
+@page "/data-sources/{DataSourceId:int}/documentation/{DocumentationId:int}"
+@inherits BasePageComponent
+@using Semantico.Core.Services.Ai
+@using Semantico.Core.Services
+@using Semantico.Core.Data.Entities
+@using Semantico.Core.Data.Enums
+@using Semantico.Core.Data
+@using Semantico.Core.Models.Metadata
+@using Microsoft.EntityFrameworkCore
+@using Markdig
+@using Semantico.UI.Components.Shared
+
+<SemanticoPageTitle Title="@_documentation?.Title"/>
+
+<MudContainer MaxWidth="MaxWidth.ExtraExtraLarge" Class="my-4 px-4">
+    @if (_loading)
+    {
+        <MudProgressLinear Color="Color.Primary" Indeterminate="true" Class="my-4"/>
+    }
+    else if (_error != null)
+    {
+        <MudAlert Severity="Severity.Error" Class="my-4">@_error</MudAlert>
+        <MudButton Variant="Variant.Filled"
+                  Color="Color.Primary"
+                  StartIcon="@Icons.Material.Filled.ArrowBack"
+                  Href="@($"/data-sources/{DataSourceId}")">
+            Back to Data Source
+        </MudButton>
+    }
+    else if (_documentation != null)
+    {
+        <!-- Header -->
+        <MudCard Elevation="2" Class="mb-4">
+            <MudCardHeader>
+                <CardHeaderContent>
+                    <div class="d-flex align-center gap-3">
+                        <MudIconButton Icon="@Icons.Material.Filled.ArrowBack"
+                                      Color="Color.Primary"
+                                      Href="@($"/data-sources/{DataSourceId}")"
+                                      Size="Size.Medium"/>
+                        <div>
+                            <MudText Typo="Typo.h5">@_documentation.Title</MudText>
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                Generated @_documentation.GeneratedAt.ToString("g") by @_documentation.GeneratedByModel
+                            </MudText>
+                        </div>
+                    </div>
+                </CardHeaderContent>
+                <CardHeaderActions>
+                    <MudMenu Icon="@Icons.Material.Filled.FileDownload"
+                            Color="Color.Primary"
+                            Variant="Variant.Filled"
+                            AnchorOrigin="Origin.BottomRight">
+                        <MudMenuItem Icon="@Icons.Material.Filled.FileDownload" OnClick="ExportMarkdown">
+                            Export Markdown
+                        </MudMenuItem>
+                        <MudMenuItem Icon="@Icons.Material.Filled.FileDownload" OnClick="ExportHtml">
+                            Export HTML
+                        </MudMenuItem>
+                        <MudMenuItem Icon="@Icons.Material.Filled.PictureAsPdf" OnClick="ExportPdf">
+                            Export PDF
+                        </MudMenuItem>
+                    </MudMenu>
+                </CardHeaderActions>
+            </MudCardHeader>
+            <MudCardContent>
+                <MudGrid>
+                    <MudItem xs="12" sm="6" md="3">
+                        <MudPaper Elevation="0" Class="pa-3">
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">Tables Analyzed</MudText>
+                            <MudText Typo="Typo.h6">@_documentation.TablesAnalyzed</MudText>
+                        </MudPaper>
+                    </MudItem>
+                    <MudItem xs="12" sm="6" md="3">
+                        <MudPaper Elevation="0" Class="pa-3">
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">Tokens Used</MudText>
+                            <MudText Typo="Typo.h6">@_documentation.TokensUsed.ToString("N0")</MudText>
+                        </MudPaper>
+                    </MudItem>
+                    <MudItem xs="12" sm="6" md="3">
+                        <MudPaper Elevation="0" Class="pa-3">
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">Estimated Cost</MudText>
+                            <MudText Typo="Typo.h6">$@_documentation.EstimatedCost.ToString("F4")</MudText>
+                        </MudPaper>
+                    </MudItem>
+                    <MudItem xs="12" sm="6" md="3">
+                        <MudPaper Elevation="0" Class="pa-3">
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">Status</MudText>
+                            <MudChip T="string" Size="Size.Small" Color="@GetStatusColor(_documentation.Status)">
+                                @_documentation.Status
+                            </MudChip>
+                        </MudPaper>
+                    </MudItem>
+                </MudGrid>
+            </MudCardContent>
+        </MudCard>
+
+        <!-- Database Schema Overview -->
+        @if (_metadata != null)
+        {
+            <MudCard Elevation="2" Class="mb-4">
+                <MudCardHeader>
+                    <CardHeaderContent>
+                        <MudText Typo="Typo.h6">
+                            <MudIcon Icon="@Icons.Material.Filled.Schema" Class="mr-2" />
+                            Database Schema
+                        </MudText>
+                    </CardHeaderContent>
+                </MudCardHeader>
+                <MudCardContent>
+                    <DatabaseExplorer Metadata="@_metadata" />
+                </MudCardContent>
+            </MudCard>
+        }
+
+        <!-- Content Sections -->
+        @foreach (var docSection in _sections.OrderBy(s => s.SortOrder))
+        {
+            <MudCard Elevation="2" Class="mb-4">
+                <MudCardHeader>
+                    <CardHeaderContent>
+                        <MudText Typo="Typo.h6">
+                            @docSection.GetDisplayTitle()
+                        </MudText>
+                    </CardHeaderContent>
+                </MudCardHeader>
+                <MudCardContent>
+                    @if (docSection.SectionType == SectionType.Architecture && docSection.GetDisplayContent().Contains("```mermaid"))
+                    {
+                        <div class="documentation-content">
+                            @((MarkupString)RenderMermaidDiagram(docSection.GetDisplayContent()))
+                        </div>
+                    }
+                    else if (docSection.SectionType == SectionType.TableDetail
+                             && !string.IsNullOrEmpty(docSection.TableName)
+                             && !docSection.TableName.StartsWith("Domain:", StringComparison.OrdinalIgnoreCase)
+                             && !docSection.TableName.Contains(" "))
+                    {
+                        <!-- Single table section - show columns -->
+                        <div class="documentation-content">
+                            @((MarkupString)RenderMarkdown(docSection.GetDisplayContent()))
+                            @RenderTableColumns(docSection.TableName)
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="documentation-content">
+                            @((MarkupString)RenderMarkdown(docSection.GetDisplayContent()))
+                        </div>
+                    }
+                </MudCardContent>
+            </MudCard>
+        }
+
+        @if (!_sections.Any())
+        {
+            <MudAlert Severity="Severity.Info">
+                No content sections found. The documentation may not have been properly generated.
+            </MudAlert>
+        }
+    }
+</MudContainer>
+
+<style>
+    .documentation-content {
+        font-size: 14px;
+        line-height: 1.6;
+    }
+
+    .documentation-content h1 {
+        font-size: 1.8em;
+        margin-top: 20px;
+        margin-bottom: 10px;
+        color: #333;
+    }
+
+    .documentation-content h2 {
+        font-size: 1.5em;
+        margin-top: 18px;
+        margin-bottom: 8px;
+        color: #555;
+    }
+
+    .documentation-content h3 {
+        font-size: 1.3em;
+        margin-top: 16px;
+        margin-bottom: 8px;
+        color: #666;
+    }
+
+    .documentation-content p {
+        margin-bottom: 12px;
+    }
+
+    .documentation-content ul, .documentation-content ol {
+        margin-left: 20px;
+        margin-bottom: 12px;
+    }
+
+    .documentation-content code {
+        background-color: #f5f5f5;
+        padding: 2px 6px;
+        border-radius: 3px;
+        font-family: 'Courier New', monospace;
+    }
+
+    .documentation-content pre {
+        background-color: #f5f5f5;
+        padding: 12px;
+        border-radius: 5px;
+        overflow-x: auto;
+        margin-bottom: 12px;
+    }
+
+    .documentation-content pre code {
+        background-color: transparent;
+        padding: 0;
+    }
+
+    .documentation-content table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 16px;
+    }
+
+    .documentation-content th, .documentation-content td {
+        border: 1px solid #ddd;
+        padding: 8px;
+        text-align: left;
+    }
+
+    .documentation-content th {
+        background-color: #f0f0f0;
+        font-weight: bold;
+    }
+
+    .documentation-content blockquote {
+        border-left: 4px solid #007bff;
+        padding-left: 16px;
+        margin-left: 0;
+        color: #666;
+        font-style: italic;
+    }
+
+    .column-list {
+        list-style: none;
+        padding-left: 0;
+        margin-bottom: 20px;
+    }
+
+    .column-item {
+        padding: 8px 12px;
+        margin-bottom: 6px;
+        background-color: #f9f9f9;
+        border-left: 3px solid #007bff;
+        border-radius: 4px;
+    }
+
+    .not-null-badge {
+        display: inline-block;
+        padding: 2px 8px;
+        margin-left: 8px;
+        background-color: #ffc107;
+        color: #000;
+        border-radius: 3px;
+        font-size: 11px;
+        font-weight: bold;
+    }
+
+    .pk-badge {
+        display: inline-block;
+        padding: 2px 8px;
+        margin-left: 8px;
+        background-color: #28a745;
+        color: white;
+        border-radius: 3px;
+        font-size: 11px;
+        font-weight: bold;
+    }
+
+    .fk-badge {
+        display: inline-block;
+        padding: 2px 8px;
+        margin-left: 8px;
+        background-color: #17a2b8;
+        color: white;
+        border-radius: 3px;
+        font-size: 11px;
+        font-weight: bold;
+    }
+
+    .mermaid-diagram {
+        margin: 20px 0;
+        padding: 20px;
+        background-color: #f9f9f9;
+        border-radius: 8px;
+        overflow-x: auto;
+    }
+</style>
+
+@inject IAiDocumentationService AiDocumentationService
+@inject IDatabaseMetadataService MetadataService
+@inject NavigationManager Navigation
+@inject ISnackbar Snackbar
+@inject IJSRuntime JSRuntime
+@inject IDbContextFactory<SemanticoContext> DbContextFactory
+
+@code {
+    [Parameter]
+    public int DataSourceId { get; set; }
+
+    [Parameter]
+    public int DocumentationId { get; set; }
+
+    private DataSourceDocumentation? _documentation;
+    private List<DocumentationSection> _sections = new();
+    private DatabaseMetadataSnapshot? _metadata;
+    private bool _loading = true;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _loading = true;
+
+            // Load documentation with sections
+            using var context = await DbContextFactory.CreateDbContextAsync();
+            _documentation = await context.DataSourceDocumentations
+                .Include(d => d.Sections)
+                .Include(d => d.DataSource)
+                .AsSplitQuery()
+                .FirstOrDefaultAsync(d => d.Id == DocumentationId);
+
+            if (_documentation == null)
+            {
+                _error = $"Documentation with ID {DocumentationId} not found";
+                return;
+            }
+
+            if (_documentation.DataSourceId != DataSourceId)
+            {
+                _error = "Documentation does not belong to this data source";
+                return;
+            }
+
+            _sections = _documentation.Sections.ToList();
+
+            // Load metadata for schema display
+            try
+            {
+                _metadata = await MetadataService.GetMetadataAsync(DataSourceId);
+            }
+            catch
+            {
+                // Don't fail the page if metadata can't be loaded
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = $"Failed to load documentation: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private string RenderMarkdown(string markdown)
+    {
+        if (string.IsNullOrWhiteSpace(markdown))
+        {
+            return "<p><em>No content available</em></p>";
+        }
+
+        try
+        {
+            var pipeline = new MarkdownPipelineBuilder()
+                .UseAdvancedExtensions()
+                .Build();
+
+            return Markdig.Markdown.ToHtml(markdown, pipeline);
+        }
+        catch
+        {
+            return $"<pre>{System.Net.WebUtility.HtmlEncode(markdown)}</pre>";
+        }
+    }
+
+    private Color GetStatusColor(DocumentationStatus status)
+    {
+        return status switch
+        {
+            DocumentationStatus.Draft => Color.Default,
+            DocumentationStatus.Published => Color.Success,
+            _ => Color.Default
+        };
+    }
+
+    private async Task ExportMarkdown()
+    {
+        try
+        {
+            var markdown = await AiDocumentationService.ExportToMarkdownAsync(DocumentationId);
+            await DownloadFile($"documentation-{DocumentationId}.md", markdown, "text/markdown");
+            Snackbar.Add("Markdown exported successfully", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to export markdown: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task ExportHtml()
+    {
+        try
+        {
+            var html = await AiDocumentationService.ExportToHtmlAsync(DocumentationId);
+            await DownloadFile($"documentation-{DocumentationId}.html", html, "text/html");
+            Snackbar.Add("HTML exported successfully", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to export HTML: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task ExportPdf()
+    {
+        try
+        {
+            var pdf = await AiDocumentationService.ExportToPdfAsync(DocumentationId);
+            await DownloadFile($"documentation-{DocumentationId}.pdf", pdf, "application/pdf");
+            Snackbar.Add("PDF exported successfully", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to export PDF: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task DownloadFile(string fileName, string content, string contentType)
+    {
+        var bytes = System.Text.Encoding.UTF8.GetBytes(content);
+        await DownloadFile(fileName, bytes, contentType);
+    }
+
+    private async Task DownloadFile(string fileName, byte[] bytes, string contentType)
+    {
+        var base64 = Convert.ToBase64String(bytes);
+        await JSRuntime.InvokeVoidAsync("downloadFile", fileName, base64, contentType);
+    }
+
+    private string RenderMermaidDiagram(string markdown)
+    {
+        // Extract and render mermaid diagram
+        var lines = markdown.Split('\n');
+        var inMermaid = false;
+        var mermaidCode = new System.Text.StringBuilder();
+        var otherContent = new System.Text.StringBuilder();
+
+        foreach (var line in lines)
+        {
+            if (line.Trim() == "```mermaid")
+            {
+                inMermaid = true;
+                continue;
+            }
+            else if (line.Trim() == "```" && inMermaid)
+            {
+                inMermaid = false;
+                continue;
+            }
+
+            if (inMermaid)
+            {
+                mermaidCode.AppendLine(line);
+            }
+            else
+            {
+                otherContent.AppendLine(line);
+            }
+        }
+
+        var html = new System.Text.StringBuilder();
+
+        // Render other content
+        if (otherContent.Length > 0)
+        {
+            html.Append(RenderMarkdown(otherContent.ToString()));
+        }
+
+        // Render mermaid diagram
+        if (mermaidCode.Length > 0)
+        {
+            html.Append("<div class='mermaid-diagram'>");
+            html.Append("<pre class='mermaid'>");
+            html.Append(System.Net.WebUtility.HtmlEncode(mermaidCode.ToString()));
+            html.Append("</pre>");
+            html.Append("</div>");
+            html.Append("<script type='module'>import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs'; mermaid.initialize({ startOnLoad: true, theme: 'neutral' }); mermaid.run();</script>");
+        }
+
+        return html.ToString();
+    }
+
+    private RenderFragment RenderTableColumns(string tableName)
+    {
+        return builder =>
+        {
+            if (_metadata == null) return;
+
+            var table = _metadata.Tables.FirstOrDefault(t =>
+                t.TableName.Equals(tableName, StringComparison.OrdinalIgnoreCase));
+
+            if (table == null) return;
+
+            builder.OpenElement(0, "div");
+            builder.AddAttribute(1, "class", "mt-4");
+
+            builder.OpenElement(2, "h4");
+            builder.AddContent(3, "Columns");
+            builder.CloseElement();
+
+            builder.OpenElement(4, "ul");
+            builder.AddAttribute(5, "class", "column-list");
+
+            foreach (var column in table.Columns.OrderBy(c => c.OrdinalPosition))
+            {
+                builder.OpenElement(6, "li");
+                builder.AddAttribute(7, "class", "column-item");
+
+                // Column name
+                builder.OpenElement(8, "strong");
+                builder.AddContent(9, column.ColumnName);
+                builder.CloseElement();
+
+                // Data type
+                builder.AddContent(10, $" ({column.DataType})");
+
+                // Nullable
+                if (!column.IsNullable)
+                {
+                    builder.OpenElement(11, "span");
+                    builder.AddAttribute(12, "class", "not-null-badge");
+                    builder.AddContent(13, " NOT NULL");
+                    builder.CloseElement();
+                }
+
+                // Primary key
+                if (column.IsPrimaryKey)
+                {
+                    builder.OpenElement(14, "span");
+                    builder.AddAttribute(15, "class", "pk-badge");
+                    builder.AddContent(16, " 🔑 PK");
+                    builder.CloseElement();
+                }
+
+                // Foreign key
+                if (column.IsForeignKey && !string.IsNullOrEmpty(column.ForeignKeyTable))
+                {
+                    builder.OpenElement(17, "span");
+                    builder.AddAttribute(18, "class", "fk-badge");
+                    builder.AddContent(19, $" → {column.ForeignKeyTable}");
+                    builder.CloseElement();
+                }
+
+                builder.CloseElement(); // li
+            }
+
+            builder.CloseElement(); // ul
+            builder.CloseElement(); // div
+        };
+    }
+}
