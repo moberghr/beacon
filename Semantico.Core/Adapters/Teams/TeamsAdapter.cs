@@ -1,11 +1,17 @@
 ﻿using MessageCardModel;
+using Microsoft.Extensions.Logging;
+using Semantico.Core.Adapters.Shared;
 using Semantico.Core.Data.Enums;
+using Semantico.Core.Models;
 using System.Text;
 
 namespace Semantico.Core.Adapters.Teams;
 
-internal class TeamsAdapter(IHttpClientFactory httpClientFactory, SemanticoConfiguration configuration) : IAdapter
+internal class TeamsAdapter(IHttpClientFactory httpClientFactory, SemanticoConfiguration configuration, ILogger<TeamsAdapter> logger) : IAdapter
 {
+    private const int MaxColumns = AdapterConstants.Teams.MaxColumns;
+    private const int MaxRows = AdapterConstants.Teams.MaxRows;
+
     public NotificationType NotificationType => NotificationType.Teams;
 
     public async Task SendNotificationAsync(RecipientQueryResult recipientQueryResult, int? lastNotificationResultCount)
@@ -17,7 +23,7 @@ internal class TeamsAdapter(IHttpClientFactory httpClientFactory, SemanticoConfi
         {
             new AdaptiveCards.AdaptiveTextBlock()
             {
-                Text = $"[Semantico] {queryResult.DataSourceName} - {queryResult.SubscriptionName}",
+                Text = $"{AdapterConstants.NotificationPrefix} {queryResult.DataSourceName} - {queryResult.SubscriptionName}",
                 Size = AdaptiveCards.AdaptiveTextSize.Large,
                 Weight = AdaptiveCards.AdaptiveTextWeight.Bolder,
                 Id = "title",
@@ -34,14 +40,14 @@ internal class TeamsAdapter(IHttpClientFactory httpClientFactory, SemanticoConfi
             });
         }
 
-        if (queryResult.TopRecords.Count > 0)
+        if (queryResult.TopRecords.HasRecords())
         {
             bodyElements.Add(new AdaptiveCards.AdaptiveTextBlock()
             {
-                Text = queryResult.TotalRecords > 10 ? "First 10 records" : "Query Results",
+                Text = queryResult.TotalRecords > MaxRows ? $"First {MaxRows} records" : "Query Results",
                 Weight = AdaptiveCards.AdaptiveTextWeight.Bolder,
                 Spacing = AdaptiveCards.AdaptiveSpacing.Medium,
-                Id = "first10RecordsTitle"
+                Id = "firstRecordsTitle"
             });
             bodyElements.Add(GenerateAdaptiveTableFromQueryResults(queryResult.TopRecords));
         }
@@ -75,17 +81,25 @@ internal class TeamsAdapter(IHttpClientFactory httpClientFactory, SemanticoConfi
         var jsonPayload = card.ToJson();
         var content = new StringContent(jsonPayload, Encoding.UTF8, System.Net.Mime.MediaTypeNames.Application.Json);
 
-        await client.PostAsync(recipientQueryResult.RecipientDestination, content);
+        var response = await client.PostAsync(recipientQueryResult.RecipientDestination, content);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorBody = await response.Content.ReadAsStringAsync();
+            logger.LogError("Microsoft Teams webhook returned error {StatusCode}: {ErrorBody}", response.StatusCode, errorBody);
+            throw new SemanticoException(
+                $"Failed to send Teams notification: {response.StatusCode}. {errorBody}");
+        }
     }
 
     private AdaptiveCards.AdaptiveTable GenerateAdaptiveTableFromQueryResults(List<IDictionary<string, object?>> queryResults)
     {
-        if (!queryResults.Any())
+        if (!queryResults.HasRecords())
         {
             return new AdaptiveCards.AdaptiveTable();
         }
 
-        var columnNames = queryResults.First().Keys.Take(3).ToList();
+        var columnNames = queryResults.GetColumnNamesSafe(MaxColumns);
         
         // Create columns
         var columns = columnNames.Select(_ => new AdaptiveCards.AdaptiveTableColumnDefinition
@@ -120,7 +134,7 @@ internal class TeamsAdapter(IHttpClientFactory httpClientFactory, SemanticoConfi
                 [
                     new AdaptiveCards.AdaptiveTextBlock
                     {
-                        Text = result.TryGetValue(columnName, out var value) ? value?.ToString() ?? string.Empty : string.Empty,
+                        Text = result.TryGetValue(columnName, out var value) ? CellValueFormatter.Format(value) : string.Empty,
                         Wrap = true
                     }
                 ]

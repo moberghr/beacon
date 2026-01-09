@@ -30,7 +30,10 @@ public interface ISubscriptionService
     Task<SubscriptionDetailsData> GetSubscriptionDetails(int subscriptionId, CancellationToken cancellationToken);
 }
 
-internal class SubscriptionService(IDbContextFactory<SemanticoContext> contextFactory, ISemanticoScheduler semanticoScheduler)
+internal class SubscriptionService(
+    IDbContextFactory<SemanticoContext> contextFactory,
+    ISemanticoScheduler semanticoScheduler,
+    IAnomalyDetectionService anomalyDetectionService)
     : ISubscriptionService
 {
     public async Task<BaseResponse> CreateSubscription(SubscriptionData subscriptionData, CancellationToken cancellationToken)
@@ -82,6 +85,13 @@ internal class SubscriptionService(IDbContextFactory<SemanticoContext> contextFa
         context.Subscriptions.Add(subscription);
 
         await context.SaveChangesAsync(cancellationToken);
+
+        // Save anomaly configuration if provided
+        if (subscriptionData.AnomalyConfig != null)
+        {
+            subscriptionData.AnomalyConfig.SubscriptionId = subscription.Id;
+            await anomalyDetectionService.SaveAnomalyConfigAsync(subscriptionData.AnomalyConfig, cancellationToken);
+        }
 
         var query = context.Queries.Single(x => x.Id == subscriptionData.QueryId);
 
@@ -208,6 +218,13 @@ internal class SubscriptionService(IDbContextFactory<SemanticoContext> contextFa
 
         await context.SaveChangesAsync(cancellationToken);
 
+        // Save anomaly configuration if provided
+        if (subscriptionData.AnomalyConfig != null)
+        {
+            subscriptionData.AnomalyConfig.SubscriptionId = subscription.Id;
+            await anomalyDetectionService.SaveAnomalyConfigAsync(subscriptionData.AnomalyConfig, cancellationToken);
+        }
+
         var query = context.Queries.Single(x => x.Id == subscription.QueryId);
 
         if (shouldUpdateHangfire)
@@ -252,6 +269,9 @@ internal class SubscriptionService(IDbContextFactory<SemanticoContext> contextFa
                 }).ToList(),
             })
             .SingleAsync(cancellationToken);
+
+        // Load anomaly configuration if it exists
+        subscription.AnomalyConfig = await anomalyDetectionService.GetAnomalyConfigAsync(subscriptionId, cancellationToken);
 
         return subscription;
     }

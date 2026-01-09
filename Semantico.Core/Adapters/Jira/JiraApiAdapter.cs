@@ -3,6 +3,7 @@ using System.Text.Json;
 using Adapters.Adapters.Jira;
 using Microsoft.Extensions.Logging;
 using Refit;
+using Semantico.Core.Models;
 
 namespace Semantico.Core.Adapters.Jira;
 
@@ -81,8 +82,11 @@ public class JiraApiAdapter(
     {
         var client = clientFactory.CreateClient(credentials);
 
-        // we need to escape the title for JQL query to do exact matching
-        var jqlQuery = $"text ~ \"\\\"{sessionId}\\\"\" AND project = \"{credentials.Project}\" AND reporter = \"{credentials.Email}\" order by created DESC";
+        // Use safe JQL query builder to prevent injection attacks
+        var jqlQuery = JqlHelper.BuildSearchBySessionIdQuery(
+            sessionId,
+            credentials.Project,
+            credentials.Email);
         var searchResponse = await client.SearchAsync(jqlQuery, 10, 0, "key,summary", cancellationToken);
 
         var existingIssue = searchResponse.Issues
@@ -112,7 +116,7 @@ public class JiraApiAdapter(
                 var errorContent = ex.Content ?? "No error content";
                 logger.LogError(ex, "Failed to create Jira issue. Project: {Project}, IssueType: {IssueType}, Error: {Error}",
                     credentials.Project, issueType, errorContent);
-                throw new InvalidOperationException($"Failed to create Jira issue: {errorContent}", ex);
+                throw new SemanticoException($"Failed to create Jira issue: {errorContent}", ex);
             }
         }
         else

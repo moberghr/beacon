@@ -7,130 +7,125 @@ nav_order: 1
 
 # Installation Guide
 
-Add Semantico to your ASP.NET Core application in under 10 minutes.
+Complete step-by-step guide to install and configure Semantico in your ASP.NET Core application. This guide is based on the actual SampleProject implementation.
 
 ## Prerequisites
 
 Before you begin, ensure you have:
 
-- **.NET 9.0 SDK** or later installed
-- **ASP.NET Core** web application project
-- **PostgreSQL 12+** or **SQL Server 2019+** database for Semantico metadata
-- **Job scheduler** implementing `ISemanticoScheduler` interface (e.g., Hangfire, Quartz.NET, or custom implementation)
-- **(Optional)** Email provider (SMTP) for email notifications
+- **.NET 9.0 SDK** or later
+- **PostgreSQL 12+** or **SQL Server 2019+** for Semantico metadata database
+- **Visual Studio 2022**, **Rider**, or **VS Code** with C# support
+- **Job scheduler** (Hangfire recommended, but Quartz.NET or custom implementations work)
 
-## Quick Installation
+## Step 1: Install NuGet Packages
 
-### Step 1: Install NuGet Packages
+### For PostgreSQL (Recommended)
 
-Install the database provider package for your Semantico metadata database:
-
-**For PostgreSQL (recommended):**
 ```bash
+# Core Semantico packages
 dotnet add package Semantico.Core.PostgreSql
 dotnet add package Semantico.UI.AspNet
+
+# Job scheduler (Hangfire example)
+dotnet add package Hangfire.AspNetCore
+dotnet add package Hangfire.PostgreSql
 ```
 
-**For SQL Server:**
+### For SQL Server
+
 ```bash
+# Core Semantico packages
 dotnet add package Semantico.Core.SqlServer
 dotnet add package Semantico.UI.AspNet
+
+# Job scheduler (Hangfire example)
+dotnet add package Hangfire.AspNetCore
+dotnet add package Hangfire.SqlServer
 ```
 
 {: .note }
-> **Note**: The provider you choose is for Semantico's metadata database. You can still query PostgreSQL, SQL Server, and MySQL databases for monitoring regardless of which provider you choose.
+> The provider you choose is for Semantico's metadata database. You can still query PostgreSQL, SQL Server, and MySQL databases for monitoring regardless of which provider you choose.
 
-### Step 2: Configure Connection String
+## Step 2: Generate Encryption Key
 
-Add the Semantico connection string to `appsettings.json`:
+Semantico requires an encryption key for securing sensitive data like connection strings.
+
+```bash
+openssl rand -base64 32
+```
+
+**Example output:**
+```
+[REMOVED-KEY]=
+```
+
+Save this key - you'll need it in the next step.
+
+## Step 3: Configure appsettings.json
+
+Add connection strings and Semantico configuration:
 
 ```json
 {
   "ConnectionStrings": {
     "SemanticoContext": "Host=localhost;Database=semantico;Username=postgres;Password=yourpassword"
+  },
+  "Semantico": {
+    "EncryptionKey": "[REMOVED-KEY]="
+  },
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning",
+      "Microsoft.EntityFrameworkCore.Database": "Warning"
+    }
   }
 }
 ```
 
-**PostgreSQL example:**
+### Optional: Enable AI Features (Experimental)
+
+⚠️ **AI features are experimental.** Add LLM configuration only if you plan to use AI-powered documentation or alert generation:
+
 ```json
-"SemanticoContext": "Host=localhost;Port=5432;Database=semantico;Username=semantico;Password=secretpass"
-```
-
-**SQL Server example:**
-```json
-"SemanticoContext": "Server=localhost;Database=semantico;User Id=semantico;Password=secretpass;TrustServerCertificate=True"
-```
-
-### Step 3: Configure a Job Scheduler
-
-Semantico requires a job scheduler that implements `ISemanticoScheduler`. The example below uses Hangfire, but you can use any scheduler (Quartz.NET, custom implementation, etc.).
-
-**Example using Hangfire:**
-
-```csharp
-using Hangfire;
-using Hangfire.PostgreSql;
-
-builder.Services.AddHangfire((provider, hangfireConfiguration) => hangfireConfiguration
-    .SetDataCompatibilityLevel(CompatibilityLevel.Version_170)
-    .UseSimpleAssemblyNameTypeSerializer()
-    .UseRecommendedSerializerSettings()
-    .UseFilter(new AutomaticRetryAttribute { Attempts = 0 })
-    .UsePostgreSqlStorage(
-        builder.Configuration.GetConnectionString("SemanticoContext"),
-        new PostgreSqlStorageOptions
-        {
-            PrepareSchemaIfNecessary = true,
-            QueuePollInterval = TimeSpan.FromSeconds(1),
-        }));
-
-builder.Services.AddHangfireServer();
-```
-
-📚 [See Hangfire documentation](https://www.hangfire.io/) | You can also use Quartz.NET, custom implementations, or any scheduler that can call `IJobService.ExecuteQuery()`
-
-### Step 4: Configure Semantico Services
-
-Add Semantico to your `Program.cs`:
-
-```csharp
-using Semantico.Core;
-using Semantico.Core.PostgreSql;
-using Semantico.UI.AspNet;
-
-var builder = WebApplication.CreateBuilder(args);
-
-// Configure Semantico with PostgreSQL
-builder.Services.AddPostgreSqlSemantico(
-    builder.Configuration.GetConnectionString("SemanticoContext")!,
-    schema: "semantico");
-
-// Add Semantico admin UI with scheduler
-builder.Services.AddSemanticoAdmin(builder.Configuration, options =>
 {
-    options.AddSemanticoScheduler<SemanticoScheduler>();
-    options.AddAuthorizationProvider<YourAuthorizationProvider>(); // Optional
-});
+  "Semantico": {
+    "EncryptionKey": "your-generated-key",
+    "LLM": {
+      "Provider": "OpenAI",
+      "ApiKey": "sk-your-openai-key",
+      "Model": "gpt-4o",
+      "Limits": {
+        "MaxConcurrentRequests": 5,
+        "RequestsPerMinute": 60,
+        "MaxTokensPerRequest": 4000
+      }
+    }
+  }
+}
 ```
 
-**For SQL Server:**
-```csharp
-using Semantico.Core.SqlServer;
+**Supported Providers:**
+- `OpenAI` - gpt-4o (recommended)
+- `Anthropic` - claude-3-5-sonnet-20241022 (recommended)
+- `AzureOpenAI` - Latest models only
 
-builder.Services.AddSqlServerSemantico(
-    builder.Configuration.GetConnectionString("SemanticoContext")!,
-    schema: "semantico");
-```
+## Step 4: Create Job Scheduler Implementation
 
-### Step 5: Implement ISemanticoScheduler
+Create a class that implements `ISemanticoScheduler`. This example uses Hangfire (from SampleProject):
 
-Create a scheduler implementation. This example uses Hangfire, but you can adapt it to any job scheduler:
+**Create file:** `Services/SemanticoScheduler.cs`
 
 ```csharp
 using Hangfire;
 using Semantico.Core.Worker;
 
+namespace YourProject.Services;
+
+/// <summary>
+/// Hangfire implementation of Semantico scheduler
+/// </summary>
 public class SemanticoScheduler : ISemanticoScheduler
 {
     private readonly IRecurringJobManager _recurringJobManager;
@@ -142,66 +137,213 @@ public class SemanticoScheduler : ISemanticoScheduler
 
     public void AddOrUpdate(int subscriptionId, string subscriptionName, string cron)
     {
-        var jobKey = $"{subscriptionId} - {subscriptionName}";
         _recurringJobManager.AddOrUpdate<IJobService>(
-            jobKey,
+            CompileSubscriptionJobKey(subscriptionId, subscriptionName),
             x => x.ExecuteQuery(subscriptionId),
             cron);
     }
 
     public void Remove(int subscriptionId, string subscriptionName)
     {
-        var jobKey = $"{subscriptionId} - {subscriptionName}";
-        _recurringJobManager.RemoveIfExists(jobKey);
+        _recurringJobManager.RemoveIfExists(
+            CompileSubscriptionJobKey(subscriptionId, subscriptionName));
+    }
+
+    private static string CompileSubscriptionJobKey(int subscriptionId, string subscriptionName)
+    {
+        return $"{subscriptionId} - {subscriptionName}";
     }
 }
 ```
 
-### Step 6: Configure Semantico UI
+{: .note }
+> If you prefer Quartz.NET or a custom scheduler, implement the same `ISemanticoScheduler` interface with your chosen scheduler. See [Alternative Schedulers](#alternative-schedulers) section below.
 
-Add Semantico UI middleware to your application pipeline:
+## Step 5: Configure Program.cs
+
+Update your `Program.cs` to register Semantico services. This is the complete configuration from SampleProject:
 
 ```csharp
+using Hangfire;
+using Hangfire.PostgreSql;
+using Semantico.Core.PostgreSql;
+using Semantico.UI.AspNet;
+using YourProject.Services;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// 1. Configure Blazor Server (required for Semantico UI)
+builder.Services.AddServerSideBlazor();
+
+// 2. Configure Hangfire (job scheduler)
+builder.Services.AddHangfire((provider, hangfireConfiguration) => hangfireConfiguration
+    .SetDataCompatibilityLevel(CompatibilityLevel.Version_170)
+    .UseSimpleAssemblyNameTypeSerializer()
+    .UseRecommendedSerializerSettings()
+    .UseFilter(new AutomaticRetryAttribute { Attempts = 0 })
+    .UsePostgreSqlStorage(
+        builder.Configuration.GetConnectionString("SemanticoContext"),
+        new PostgreSqlStorageOptions
+        {
+            PrepareSchemaIfNecessary = true,
+            QueuePollInterval = TimeSpan.FromSeconds(1)
+        }));
+
+builder.Services.AddHangfireServer();
+
+// 3. SEMANTICO: Configure database provider
+builder.Services.AddPostgreSqlSemantico(
+    builder.Configuration.GetConnectionString("SemanticoContext")!,
+    schema: "semantico");
+
+// 4. SEMANTICO: Configure admin services
+builder.Services.AddSemanticoAdmin(builder.Configuration, options =>
+{
+    // Required: Register your scheduler implementation
+    options.AddSemanticoScheduler<SemanticoScheduler>();
+
+    // Optional: Base URL for notification links
+    options.BaseUrl = "https://localhost:7187/semantico";
+
+    // Optional: Enable AI features (experimental)
+    options.UseAI = true;
+});
+
 var app = builder.Build();
 
-// Configure Semantico UI with basic authentication
+app.UseHttpsRedirection();
+app.UseAuthorization();
+
+// 5. SEMANTICO: Configure admin UI with authentication
 app.UseSemanticoUI()
-    .UseBasicAuthentication("admin", "admin")
-    .UseAuthorization()
+    .UseBasicAuthentication("admin", "admin")  // Change these credentials!
     .AddBlazorUI("/semantico");
 
 // Optional: Hangfire dashboard
 app.UseHangfireDashboard("/hangfire", new DashboardOptions
 {
-    IgnoreAntiforgeryToken = true,
+    IgnoreAntiforgeryToken = true
 });
-
-// Run Semantico database migrations
-ServiceConfiguration.UseSemantico(app.Services);
 
 app.Run();
 ```
 
-### Step 7: Run Your Application
+### For SQL Server
+
+If using SQL Server instead of PostgreSQL, make these changes:
+
+```csharp
+using Semantico.Core.SqlServer;
+using Hangfire.SqlServer;
+
+// Replace PostgreSQL configuration with:
+builder.Services.AddSqlServerSemantico(
+    builder.Configuration.GetConnectionString("SemanticoContext")!,
+    schema: "semantico");
+
+// Update Hangfire to use SQL Server:
+builder.Services.AddHangfire(config => config
+    .UseSqlServerStorage(
+        builder.Configuration.GetConnectionString("SemanticoContext")));
+```
+
+Update connection string in appsettings.json:
+```json
+{
+  "ConnectionStrings": {
+    "SemanticoContext": "Server=localhost;Database=semantico;User Id=sa;Password=YourPassword123!;TrustServerCertificate=True"
+  }
+}
+```
+
+## Step 6: Optional - Extended Timeouts for AI Operations
+
+If you plan to use AI features, configure extended timeouts for long-running operations (from SampleProject):
+
+```csharp
+// Configure Kestrel server limits for long-running AI operations
+builder.WebHost.ConfigureKestrel(serverOptions =>
+{
+    serverOptions.Limits.KeepAliveTimeout = TimeSpan.FromMinutes(5);
+    serverOptions.Limits.RequestHeadersTimeout = TimeSpan.FromMinutes(5);
+});
+
+// Configure Blazor Server with extended timeouts for long-running AI operations
+builder.Services.AddServerSideBlazor()
+    .AddCircuitOptions(options =>
+    {
+        options.DisconnectedCircuitMaxRetained = 100;
+        options.DisconnectedCircuitRetentionPeriod = TimeSpan.FromMinutes(3);
+        options.JSInteropDefaultCallTimeout = TimeSpan.FromMinutes(5);
+        options.MaxBufferedUnacknowledgedRenderBatches = 10;
+    });
+
+// Increase timeout for all HTTP clients (including AI provider APIs)
+builder.Services.AddHttpClient().ConfigureHttpClientDefaults(http =>
+{
+    http.ConfigureHttpClient(client =>
+    {
+        client.Timeout = TimeSpan.FromMinutes(5);
+    });
+});
+```
+
+## Step 7: Run Your Application
 
 ```bash
 dotnet run
 ```
 
-Access Semantico UI at: `http://localhost:5000/semantico`
+On first run, Semantico will automatically create the database schema and apply migrations.
 
-## Complete Program.cs Example
+Navigate to:
+- **Semantico Admin UI**: https://localhost:7187/semantico
+- **Hangfire Dashboard**: https://localhost:7187/hangfire (if enabled)
 
-Here's a complete example from the Semantico.SampleProject:
+**Default credentials (basic auth):**
+- Username: `admin`
+- Password: `admin`
+
+⚠️ **Important:** Change default credentials in production!
+
+## Complete Program.cs Example (Production-Ready)
+
+Here's the complete `Program.cs` from SampleProject with all features enabled:
 
 ```csharp
 using Hangfire;
 using Hangfire.PostgreSql;
-using Semantico.Core;
 using Semantico.Core.PostgreSql;
 using Semantico.UI.AspNet;
+using YourProject.Services;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Configure Kestrel server limits for long-running AI operations
+builder.WebHost.ConfigureKestrel(serverOptions =>
+{
+    serverOptions.Limits.KeepAliveTimeout = TimeSpan.FromMinutes(5);
+    serverOptions.Limits.RequestHeadersTimeout = TimeSpan.FromMinutes(5);
+});
+
+// Configure Blazor Server with extended timeouts for long-running AI operations
+builder.Services.AddServerSideBlazor()
+    .AddCircuitOptions(options =>
+    {
+        options.DisconnectedCircuitMaxRetained = 100;
+        options.DisconnectedCircuitRetentionPeriod = TimeSpan.FromMinutes(3);
+        options.JSInteropDefaultCallTimeout = TimeSpan.FromMinutes(5);
+        options.MaxBufferedUnacknowledgedRenderBatches = 10;
+    });
+
+// Increase timeout for all HTTP clients
+builder.Services.AddHttpClient().ConfigureHttpClientDefaults(http =>
+{
+    http.ConfigureHttpClient(client =>
+    {
+        client.Timeout = TimeSpan.FromMinutes(5);
+    });
+});
 
 // Configure Hangfire
 builder.Services.AddHangfire((provider, hangfireConfiguration) => hangfireConfiguration
@@ -214,21 +356,22 @@ builder.Services.AddHangfire((provider, hangfireConfiguration) => hangfireConfig
         new PostgreSqlStorageOptions
         {
             PrepareSchemaIfNecessary = true,
-            QueuePollInterval = TimeSpan.FromSeconds(1),
+            QueuePollInterval = TimeSpan.FromSeconds(1)
         }));
 
 builder.Services.AddHangfireServer();
 
-// Configure Semantico with PostgreSQL
+// SEMANTICO: Configure database provider
 builder.Services.AddPostgreSqlSemantico(
     builder.Configuration.GetConnectionString("SemanticoContext")!,
     schema: "semantico");
 
-// Add Semantico admin UI
+// SEMANTICO: Configure admin services
 builder.Services.AddSemanticoAdmin(builder.Configuration, options =>
 {
     options.AddSemanticoScheduler<SemanticoScheduler>();
-    options.AddAuthorizationProvider<SampleAuthorizationProvider>();
+    options.BaseUrl = "https://localhost:7187/semantico";
+    options.UseAI = true;  // Optional: Enable AI features (experimental)
 });
 
 var app = builder.Build();
@@ -236,236 +379,216 @@ var app = builder.Build();
 app.UseHttpsRedirection();
 app.UseAuthorization();
 
-// Configure Semantico UI
+// SEMANTICO: Configure admin UI
 app.UseSemanticoUI()
-    .UseBasicAuthentication("admin", "admin")
-    .UseAuthorization()
+    .UseBasicAuthentication("admin", "admin")  // Change in production!
     .AddBlazorUI("/semantico");
 
 // Optional: Hangfire dashboard
 app.UseHangfireDashboard("/hangfire", new DashboardOptions
 {
-    IgnoreAntiforgeryToken = true,
+    IgnoreAntiforgeryToken = true
 });
-
-// Run migrations
-ServiceConfiguration.UseSemantico(app.Services);
 
 app.Run();
 ```
 
-## Optional: Custom Authorization
+## Custom Authorization Provider
 
-Implement `ISemanticoAuthorizationProvider` for custom permissions:
+Replace basic authentication with your own authorization logic:
 
 ```csharp
-using Semantico.UI.AspNet.Authentication;
+using Microsoft.AspNetCore.Http;
+using Semantico.UI.AspNet;
 
-public class SampleAuthorizationProvider : ISemanticoAuthorizationProvider
+public class CustomAuthorizationProvider : ISemanticoAuthorizationProvider
 {
-    public Task<bool> HasReadPermissionAsync(string username)
+    public Task<bool> IsAuthorizedAsync(HttpContext context)
     {
-        // Implement your logic - check database, AD, etc.
-        return Task.FromResult(true);
-    }
-
-    public Task<bool> HasWritePermissionAsync(string username)
-    {
-        // Only admins can modify
-        return Task.FromResult(username == "admin");
+        // Your authorization logic here
+        // Example: Check if user is authenticated and has specific role
+        return Task.FromResult(
+            context.User.Identity?.IsAuthenticated == true &&
+            context.User.IsInRole("SemanticoAdmin"));
     }
 }
 ```
 
-Register in configuration:
-
+Register in Program.cs:
 ```csharp
 builder.Services.AddSemanticoAdmin(builder.Configuration, options =>
 {
     options.AddSemanticoScheduler<SemanticoScheduler>();
-    options.AddAuthorizationProvider<SampleAuthorizationProvider>();
+    options.AddAuthorizationProvider<CustomAuthorizationProvider>();
 });
+
+// Use custom authorization instead of basic auth
+app.UseSemanticoUI()
+    .UseAuthorization()  // Instead of UseBasicAuthentication
+    .AddBlazorUI("/semantico");
 ```
 
-## Optional: Custom Email Adapter
+## Alternative Schedulers
 
-Implement `IEmailAdapter` for your email provider (SMTP, SendGrid, AWS SES, etc.):
+### Using Quartz.NET
 
 ```csharp
-using Semantico.Core.Adapters.Mail;
-using System.Net.Mail;
+using Quartz;
+using Semantico.Core.Worker;
 
-public class SmtpEmailAdapter : IEmailAdapter
+public class QuartzSemanticoScheduler : ISemanticoScheduler
 {
-    private readonly IConfiguration _configuration;
+    private readonly ISchedulerFactory _schedulerFactory;
 
-    public SmtpEmailAdapter(IConfiguration configuration)
+    public QuartzSemanticoScheduler(ISchedulerFactory schedulerFactory)
     {
-        _configuration = configuration;
+        _schedulerFactory = schedulerFactory;
     }
 
-    public async Task SendEmailAsync(string to, string subject, string body, QueryResultFile? queryResultAttachmentFile)
+    public async void AddOrUpdate(int subscriptionId, string subscriptionName, string cron)
     {
-        using var smtpClient = new SmtpClient
-        {
-            Host = _configuration["Email:SmtpHost"],
-            Port = int.Parse(_configuration["Email:SmtpPort"]),
-            EnableSsl = true,
-            Credentials = new NetworkCredential(
-                _configuration["Email:Username"],
-                _configuration["Email:Password"])
-        };
+        var scheduler = await _schedulerFactory.GetScheduler();
 
-        var message = new MailMessage
-        {
-            From = new MailAddress(
-                _configuration["Email:FromAddress"],
-                _configuration["Email:FromName"]),
-            Subject = subject,
-            Body = body,
-            IsBodyHtml = true
-        };
+        var job = JobBuilder.Create<SemanticoJob>()
+            .WithIdentity($"semantico-{subscriptionId}")
+            .UsingJobData("subscriptionId", subscriptionId)
+            .Build();
 
-        message.To.Add(to);
+        var trigger = TriggerBuilder.Create()
+            .WithIdentity($"semantico-{subscriptionId}-trigger")
+            .WithCronSchedule(cron)
+            .Build();
 
-        // Add CSV attachment if provided
-        if (queryResultAttachmentFile != null)
-        {
-            var attachmentStream = new MemoryStream(queryResultAttachmentFile.Data);
-            message.Attachments.Add(new Attachment(
-                attachmentStream,
-                queryResultAttachmentFile.Name,
-                queryResultAttachmentFile.ContentType));
-        }
+        await scheduler.ScheduleJob(job, trigger);
+    }
 
-        await smtpClient.SendMailAsync(message);
+    public async void Remove(int subscriptionId, string subscriptionName)
+    {
+        var scheduler = await _schedulerFactory.GetScheduler();
+        await scheduler.DeleteJob(new JobKey($"semantico-{subscriptionId}"));
+    }
+}
+
+public class SemanticoJob : IJob
+{
+    private readonly IJobService _jobService;
+
+    public SemanticoJob(IJobService jobService)
+    {
+        _jobService = jobService;
+    }
+
+    public async Task Execute(IJobExecutionContext context)
+    {
+        var subscriptionId = context.JobDetail.JobDataMap.GetInt("subscriptionId");
+        await _jobService.ExecuteQuery(subscriptionId);
     }
 }
 ```
-
-Register in configuration:
-
-```csharp
-builder.Services.AddSemanticoAdmin(builder.Configuration, options =>
-{
-    options.AddSemanticoScheduler<SemanticoScheduler>();
-    options.AddEmailAdapter<SmtpEmailAdapter>();
-});
-```
-
-## Database Setup
-
-### Create Semantico Database
-
-**PostgreSQL:**
-```sql
-CREATE DATABASE semantico;
-CREATE USER semantico WITH PASSWORD 'secretpassword';
-GRANT ALL PRIVILEGES ON DATABASE semantico TO semantico;
-```
-
-**SQL Server:**
-```sql
-CREATE DATABASE semantico;
-CREATE LOGIN semantico WITH PASSWORD = 'SecretPassword123!';
-USE semantico;
-CREATE USER semantico FOR LOGIN semantico;
-ALTER ROLE db_owner ADD MEMBER semantico;
-```
-
-### Run Migrations
-
-Migrations run automatically when you call:
-
-```csharp
-ServiceConfiguration.UseSemantico(app.Services);
-```
-
-This will:
-1. Create the schema if it doesn't exist (for custom schemas)
-2. Apply all pending EF Core migrations
-3. Initialize Semantico tables
 
 ## Troubleshooting
 
-### NuGet Package Not Found
+### Issue: "Semantico:EncryptionKey must be configured"
 
-Ensure you're using .NET 9.0 SDK:
-
+**Solution:** Generate and add encryption key to appsettings.json:
 ```bash
-dotnet --version
+openssl rand -base64 32
 ```
 
-Check NuGet sources:
+### Issue: "Cannot create database schema"
 
-```bash
-dotnet nuget list source
-```
-
-### Database Connection Errors
-
-Test connection string:
+**Solution:** Ensure your database user has CREATE SCHEMA permissions:
 
 **PostgreSQL:**
-```bash
-psql "Host=localhost;Database=semantico;Username=semantico;Password=secretpass"
+```sql
+GRANT CREATE ON DATABASE semantico TO your_user;
 ```
 
 **SQL Server:**
-```bash
-sqlcmd -S localhost -d semantico -U semantico -P secretpass
+```sql
+GRANT CREATE SCHEMA TO your_user;
 ```
 
-### Migration Errors
+### Issue: Jobs not executing
 
-Check migration status:
+**Solutions:**
+1. Verify Hangfire is configured and running
+2. Check Hangfire dashboard at `/hangfire` for job status
+3. Ensure `AddHangfireServer()` is called
+4. Verify database connection
 
-```bash
-dotnet ef migrations list --project Semantico.Core.PostgreSql --startup-project YourProject
+### Issue: UI not loading at /semantico
+
+**Solutions:**
+1. Verify route matches `.AddBlazorUI("/semantico")`
+2. Check browser console for errors
+3. Ensure `AddServerSideBlazor()` is configured
+4. Try clearing browser cache
+
+### Issue: Authentication failing
+
+**Solutions:**
+1. Verify credentials match `.UseBasicAuthentication("admin", "admin")`
+2. Check if custom authorization provider is properly configured
+3. Ensure `UseAuthorization()` is called before Semantico UI
+
+### Issue: AI features not working
+
+**Solutions:**
+1. Verify `options.UseAI = true` is set
+2. Check LLM configuration in appsettings.json
+3. Verify API key is valid and has quota
+4. Check application logs for API errors
+5. Ensure extended timeouts are configured (Step 6)
+
+## Production Considerations
+
+### Security
+
+✅ **Change default credentials** - Never use admin/admin in production
+✅ **Use environment variables** - Store sensitive config outside appsettings.json
+✅ **Enable HTTPS** - Always use HTTPS in production
+✅ **Implement proper auth** - Use custom authorization provider
+✅ **Rotate encryption keys** - Regularly update encryption keys
+
+**Example with environment variables:**
+```json
+{
+  "Semantico": {
+    "EncryptionKey": "${SEMANTICO_ENCRYPTION_KEY}",
+    "LLM": {
+      "ApiKey": "${LLM_API_KEY}"
+    }
+  }
+}
 ```
 
-Apply migrations manually:
+### Performance
 
-```bash
-dotnet ef database update --project Semantico.Core.PostgreSql --startup-project YourProject
-```
+✅ **Connection pooling** - Configure database connection pooling
+✅ **Hangfire workers** - Adjust worker count based on load
+✅ **Memory monitoring** - Monitor memory usage for large result sets
+✅ **Query timeouts** - Set appropriate execution timeouts
 
-### Scheduler Not Scheduling
+### Monitoring
 
-Verify your scheduler is registered:
-1. Check your scheduler service is properly registered
-2. Verify your `ISemanticoScheduler` implementation is registered
-3. Check scheduler dashboard/logs (e.g., Hangfire dashboard at `/hangfire`)
-
-## Package Versions
-
-Compatible package versions:
-
-| Package | Minimum Version |
-|---------|----------------|
-| Semantico.Core.PostgreSql | Latest |
-| Semantico.Core.SqlServer | Latest |
-| Semantico.UI.AspNet | Latest |
-| Hangfire | 1.8.0+ |
-| Hangfire.PostgreSql | 1.20.0+ |
-| Microsoft.EntityFrameworkCore | 9.0.0+ |
+✅ **Application logging** - Enable detailed logging for troubleshooting
+✅ **Hangfire dashboard** - Monitor job execution and failures
+✅ **Query alerts** - Set up notifications for critical failures
+✅ **AI usage tracking** - Monitor token usage and costs (if using AI)
 
 ## Next Steps
 
-<div class="code-example" markdown="1">
-🚀 **[Quick Start Guide →](quick-start)**
+Now that Semantico is installed:
 
-Create your first query and notification in 30 minutes
-</div>
+1. **[Connect your first data source](../features/data-sources)** - Add databases to monitor
+2. **[Create your first query](../features/queries)** - Define SQL monitoring queries
+3. **[Set up a subscription](../features/subscriptions)** - Schedule automated execution
+4. **[Configure notifications](../features/notifications)** - Send results via Email, Teams, Slack, or Jira
 
-<div class="code-example" markdown="1">
-⚙️ **[Configuration Guide →](configuration)**
+## Additional Resources
 
-Learn about all configuration options and customization
-</div>
-
-<div class="code-example" markdown="1">
-🏗️ **[Architecture →](../advanced/architecture)**
-
-Understand Semantico's Clean Architecture design
-</div>
+- 📚 [Configuration Guide](configuration) - Detailed configuration options
+- 🚀 [Quick Start](quick-start) - 5-minute quickstart guide
+- 🎓 [Features Overview](../features/) - Complete feature documentation
+- 🐛 [Report Issues](https://github.com/moberghr/semantico/issues)

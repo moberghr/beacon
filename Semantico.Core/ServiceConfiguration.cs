@@ -34,8 +34,19 @@ public static class ServiceConfiguration
         services.AddHttpClient();
         services.AddMemoryCache();
 
+        // MediatR for CQRS pattern
+        services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(typeof(ServiceConfiguration).Assembly));
+
         // Encryption service for sensitive data (e.g., connection strings)
-        var encryptionKey = configuration["Semantico:EncryptionKey"] ?? "DefaultKey_ChangeInProduction_MustBe32CharsLong!";
+        var encryptionKey = configuration["Semantico:EncryptionKey"];
+        if (string.IsNullOrWhiteSpace(encryptionKey))
+        {
+            throw new InvalidOperationException(
+                "Semantico:EncryptionKey must be configured. " +
+                "Generate a secure key with: openssl rand -base64 32" +
+                Environment.NewLine +
+                "Then add to appsettings.json: { \"Semantico\": { \"EncryptionKey\": \"your-generated-key\" } }");
+        }
         services.AddSingleton<IEncryptionService>(new EncryptionService(encryptionKey));
 
         services.AddSingleton<IAdapter, TeamsAdapter>();
@@ -68,10 +79,50 @@ public static class ServiceConfiguration
         services.TryAddTransient<IStatisticsService, StatisticsService>();
         services.TryAddTransient<IMigrationService, MigrationService>();
         services.TryAddTransient<IDatabaseMetadataService, DatabaseMetadataService>();
+        services.TryAddTransient<IAnomalyDetectionService, AnomalyDetectionService>();
+
+        // AI/LLM services
+        RegisterAiServices(services, configuration);
 
         services.TryAddTransient(typeof(ISemanticoScheduler), configurationOptions.SemanticoScheduler!);
 
         return services;
+    }
+
+    private static void RegisterAiServices(IServiceCollection services, IConfiguration configuration)
+    {
+        // Load LLM configuration from appsettings
+        var llmConfig = configuration.GetSection("Semantico:LLM").Get<Models.Configuration.LlmConfiguration>();
+
+        if (llmConfig == null)
+        {
+            return;
+        }
+
+        services.AddSingleton(llmConfig);
+
+        // LLM Provider Factory
+        services.AddSingleton<Services.LlmProviders.LlmProviderFactory>();
+
+        // LLM Provider (singleton for the application)
+        services.AddSingleton<Services.LlmProviders.ILlmProvider>(sp =>
+        {
+            var factory = sp.GetRequiredService<Services.LlmProviders.LlmProviderFactory>();
+            var provider = factory.CreateProvider();
+            return provider;
+        });
+
+        // Request queue for rate limiting
+        services.AddSingleton(sp =>
+        {
+            var config = sp.GetRequiredService<Models.Configuration.LlmConfiguration>();
+            return new Services.LlmProviders.LlmRequestQueue(
+                config.Limits.MaxConcurrentRequests);
+        });
+
+        // AI services
+        services.TryAddScoped<Services.Ai.IAiDocumentationService, Services.Ai.AiDocumentationService>();
+        services.TryAddScoped<Services.Ai.IAiAlertGenerationService, Services.Ai.AiAlertGenerationService>(); 
     }
 
     public static void UseSemantico(IServiceProvider serviceProvider, bool createSchema = false)
@@ -110,6 +161,12 @@ public class SemanticoConfiguration
     /// Used for generating links in notifications.
     /// </summary>
     public string? BaseUrl { get; set; }
+
+    /// <summary>
+    /// Enables AI-powered features in the UI (documentation generation, smart alerts).
+    /// Requires LLM configuration in appsettings.json.
+    /// </summary>
+    public bool UseAI { get; set; } = false;
 
     public void AddSemanticoScheduler<T>() where T : class, ISemanticoScheduler
     {

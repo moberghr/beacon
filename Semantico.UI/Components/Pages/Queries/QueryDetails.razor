@@ -1,4 +1,4 @@
-﻿@page "/queries/{id:int}"
+@page "/queries/{id:int}"
 @inherits BasePageComponent
 @using Semantico.Core.Models.Subscriptions
 @using Semantico.Core.Services
@@ -7,56 +7,194 @@
 @using Semantico.Core.Models.Queries
 @using Semantico.Core.Data.Enums
 @using Semantico.Core.Adapters
+@using Semantico.UI.Helpers
 
 <SemanticoPageTitle Title="Query"/>
 
-<MudContainer Class="my-4 px-4"  MaxWidth="MaxWidth.ExtraExtraLarge">
-    <SemanticoPageHeader Icon="@Icons.Material.Filled.QueryStats" Title="@($"Query details: {Model?.Name}")" ButtonText="Add subscription" OnClick="@AddSubscription"/>
-    <MudCard Class="px-2">
-        <MudCardContent>
-            @if (_loading)
-            {
-                <MudSkeleton Animation="Animation.Wave"/>
-            }
-        </MudCardContent>
-    </MudCard>
+<style>
+    /* QueryDetails-specific styles (not shared across pages) */
+    .step-card {
+        border-left: 4px solid var(--mud-palette-primary);
+        transition: all 0.3s ease;
+    }
 
-    <MudCard Class="my-4 px-2">
-        <MudCardContent>
-            @if (_loading)
-            {
-                <MudSkeleton Animation="Animation.Wave"/>
-            }
-            else
-            {
-                <MudGrid Justify="Justify.FlexStart" Spacing="3">
-                    <MudItem xs="12" md="4">
-                        <MudStack Spacing="2">
-                            <MudText Typo="Typo.h6">Query Information</MudText>
-                            <MudText>
-                                <strong>Query ID:</strong> @Model?.Id
-                            </MudText>
-                            <MudText>
-                                <strong>Name:</strong> @Model?.Name
-                            </MudText>
-                            <MudText>
-                                <strong>Description:</strong> @(Model?.Description ?? "No description")
-                            </MudText>
-                            <MudText>
-                                <strong>Created:</strong> @Model?.CreatedTime
-                            </MudText>
-                            @if (!string.IsNullOrEmpty(Model?.FinalQuery))
+    .step-card:hover {
+        border-left-color: var(--mud-palette-secondary);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+</style>
+
+<MudContainer Class="my-4 px-4" MaxWidth="MaxWidth.ExtraExtraLarge">
+    <!-- Page Header -->
+    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-6">
+        <MudStack Spacing="1">
+            <MudText Typo="Typo.h3" Style="font-weight: 600;">
+                <MudIcon Icon="@Icons.Material.Filled.QueryStats" Class="mr-2" />
+                @(Model?.Name ?? "Query Details")
+            </MudText>
+            <MudText Typo="Typo.body2" Color="Color.Secondary">
+                @if (!string.IsNullOrEmpty(Model?.Description))
+                {
+                    @Model.Description
+                }
+                else
+                {
+                    <text>Query configuration and execution details</text>
+                }
+            </MudText>
+        </MudStack>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="@AddSubscription">
+            Add Subscription
+        </MudButton>
+    </MudStack>
+
+    @if (_loading)
+    {
+        <MudProgressLinear Color="Color.Primary" Indeterminate="true" />
+    }
+    else
+    {
+        <!-- Hero Stats -->
+        <MudGrid Spacing="3" Class="mb-4">
+            <MudItem xs="12" sm="6" md="3">
+                <MudPaper Class="hero-stat-card pa-4" Elevation="4">
+                    <MudStack Spacing="2">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                            <MudIcon Icon="@Icons.Material.Filled.PlayArrow" Size="Size.Large" />
+                            <MudChip T="string" Size="Size.Small" Style="background: rgba(255,255,255,0.2); color: white;">Total</MudChip>
+                        </MudStack>
+                        <MudText Class="hero-stat-number">@(Model?.TotalExecutions ?? 0)</MudText>
+                        <MudText Class="hero-stat-label">Executions</MudText>
+                    </MudStack>
+                </MudPaper>
+            </MudItem>
+
+            <MudItem xs="12" sm="6" md="3">
+                <MudPaper Class="hero-stat-card hero-stat-card-success pa-4" Elevation="4">
+                    <MudStack Spacing="2">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                            <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Large" />
+                            <MudChip T="string" Size="Size.Small" Style="background: rgba(255,255,255,0.2); color: white;">Rate</MudChip>
+                        </MudStack>
+                        <MudText Class="hero-stat-number">
+                            @if (Model?.TotalExecutions > 0)
                             {
-                                <MudStack Spacing="1">
-                                    <MudText><strong>Final Query:</strong></MudText>
-                                    <MudChip T="string" Size="Size.Small" Color="Color.Success">
-                                        <MudIcon Icon="@Icons.Material.Filled.LibraryBooks" Size="Size.Small" />
-                                        Uses @@result references
-                                    </MudChip>
-                                </MudStack>
+                                var rate = (double)(Model?.SentNotifications ?? 0) / (Model?.TotalExecutions ?? 1) * 100;
+                                @($"{rate:F0}%")
                             }
-                            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-                                <MudText><strong>Type:</strong></MudText>
+                            else
+                            {
+                                <text>N/A</text>
+                            }
+                        </MudText>
+                        <MudText Class="hero-stat-label">Results Rate</MudText>
+                    </MudStack>
+                </MudPaper>
+            </MudItem>
+
+            <MudItem xs="12" sm="6" md="3">
+                <MudPaper Class="hero-stat-card hero-stat-card-info pa-4" Elevation="4">
+                    <MudStack Spacing="2">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                            <MudIcon Icon="@Icons.Material.Filled.Subscriptions" Size="Size.Large" />
+                            <MudChip T="string" Size="Size.Small" Style="background: rgba(255,255,255,0.2); color: white;">Active</MudChip>
+                        </MudStack>
+                        <MudText Class="hero-stat-number">@(Model?.Subscriptions?.Count ?? 0)</MudText>
+                        <MudText Class="hero-stat-label">Subscriptions</MudText>
+                    </MudStack>
+                </MudPaper>
+            </MudItem>
+
+            <MudItem xs="12" sm="6" md="3">
+                <MudPaper Class="hero-stat-card hero-stat-card-warning pa-4" Elevation="4">
+                    <MudStack Spacing="2">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                            <MudIcon Icon="@Icons.Material.Filled.AccountTree" Size="Size.Large" />
+                            <MudChip T="string" Size="Size.Small" Style="background: rgba(255,255,255,0.2); color: white;">Steps</MudChip>
+                        </MudStack>
+                        <MudText Class="hero-stat-number">@(Model?.Steps?.Count ?? 0)</MudText>
+                        <MudText Class="hero-stat-label">Query Steps</MudText>
+                    </MudStack>
+                </MudPaper>
+            </MudItem>
+        </MudGrid>
+
+        <!-- Execution Time Metrics -->
+        <MudGrid Spacing="3" Class="mb-4">
+            <MudItem xs="12" sm="6" md="4">
+                <MudPaper Class="hero-metric-card-primary pa-4" Elevation="4">
+                    <MudStack Spacing="2">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                            <MudIcon Icon="@Icons.Material.Filled.Speed" Size="Size.Large" />
+                            <MudChip T="string" Size="Size.Small" Style="background: rgba(255,255,255,0.2); color: white;">Average</MudChip>
+                        </MudStack>
+                        <MudText Class="hero-stat-number">@FormatExecutionTime(Model?.AvgExecutionTimeMs ?? 0)</MudText>
+                        <MudText Class="hero-stat-label">Avg Execution Time</MudText>
+                    </MudStack>
+                </MudPaper>
+            </MudItem>
+
+            <MudItem xs="12" sm="6" md="4">
+                <MudPaper Class="hero-metric-card-success pa-4" Elevation="4">
+                    <MudStack Spacing="2">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                            <MudIcon Icon="@Icons.Material.Filled.FlashOn" Size="Size.Large" />
+                            <MudChip T="string" Size="Size.Small" Style="background: rgba(255,255,255,0.2); color: white;">Fastest</MudChip>
+                        </MudStack>
+                        <MudText Class="hero-stat-number">@FormatExecutionTime(Model?.MinExecutionTimeMs ?? 0)</MudText>
+                        <MudText Class="hero-stat-label">Fastest Execution</MudText>
+                    </MudStack>
+                </MudPaper>
+            </MudItem>
+
+            <MudItem xs="12" sm="6" md="4">
+                <MudPaper Class="hero-metric-card-error pa-4" Elevation="4">
+                    <MudStack Spacing="2">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                            <MudIcon Icon="@Icons.Material.Filled.HourglassTop" Size="Size.Large" />
+                            <MudChip T="string" Size="Size.Small" Style="background: rgba(255,255,255,0.2); color: white;">Slowest</MudChip>
+                        </MudStack>
+                        <MudText Class="hero-stat-number">@FormatExecutionTime(Model?.MaxExecutionTimeMs ?? 0)</MudText>
+                        <MudText Class="hero-stat-label">Slowest Execution</MudText>
+                    </MudStack>
+                </MudPaper>
+            </MudItem>
+        </MudGrid>
+
+        <!-- Query Information -->
+        <MudPaper Class="detail-card pa-4 mb-3" Elevation="2">
+            <MudText Typo="Typo.h6" Class="section-title">
+                <MudIcon Icon="@Icons.Material.Filled.Info" Class="mr-2" />
+                Query Information
+            </MudText>
+            <MudGrid Spacing="3">
+                <MudItem xs="12" md="6">
+                    <MudStack Spacing="2">
+                        <div class="info-row">
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">Query ID</MudText>
+                            <MudText Typo="Typo.body1" Style="font-weight: 600;">@Model?.Id</MudText>
+                        </div>
+                        <div class="info-row">
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">Created</MudText>
+                            <MudText Typo="Typo.body1">@Model?.CreatedTime.ToString("g")</MudText>
+                        </div>
+                        @if (!string.IsNullOrEmpty(Model?.FinalQuery))
+                        {
+                            <div class="info-row" style="border-left-color: var(--mud-palette-success);">
+                                <MudText Typo="Typo.caption" Color="Color.Secondary">Final Query</MudText>
+                                <MudChip T="string" Size="Size.Small" Color="Color.Success">
+                                    <MudIcon Icon="@Icons.Material.Filled.LibraryBooks" Size="Size.Small" />
+                                    Uses @("@")result references
+                                </MudChip>
+                            </div>
+                        }
+                    </MudStack>
+                </MudItem>
+                <MudItem xs="12" md="6">
+                    <MudStack Spacing="2">
+                        <div class="info-row" style="border-left-color: var(--mud-palette-info);">
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">Query Type</MudText>
+                            <MudStack Row="true" Spacing="1">
                                 @if (Model?.IsMultiStep == true)
                                 {
                                     <MudChip T="string" Size="Size.Small" Color="Color.Info">Multi-Step</MudChip>
@@ -67,158 +205,152 @@
                                 }
                                 @if (Model?.IsCrossDataSource == true)
                                 {
-                                    <MudChip T="string" Size="Size.Small" Color="Color.Warning">Cross-Project</MudChip>
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Warning">Cross-DataSource</MudChip>
                                 }
                                 @if (Model?.IsCrossDatabase == true)
                                 {
                                     <MudChip T="string" Size="Size.Small" Color="Color.Error">Cross-Database</MudChip>
                                 }
                             </MudStack>
-                        </MudStack>
-                    </MudItem>
-                    <MudItem xs="12" md="4">
-                        <MudStack Spacing="2">
-                            <MudText Typo="Typo.h6">Projects & Databases</MudText>
-                            @if (Model?.DataSourceNames?.Any() == true)
-                            {
-                                <MudText><strong>Projects:</strong></MudText>
-                                @foreach (var projectName in Model.DataSourceNames)
-                                {
-                                    <MudText Style="margin-left: 16px;">• @projectName</MudText>
-                                }
-                            }
-                            @if (Model?.DatabaseEngines?.Any() == true)
-                            {
-                                <MudText><strong>Database Engines:</strong></MudText>
-                                @foreach (var dbEngine in Model.DatabaseEngines.Distinct())
-                                {
-                                    <MudText Style="margin-left: 16px;">• @dbEngine</MudText>
-                                }
-                            }
-                        </MudStack>
-                    </MudItem>
-                    <MudItem xs="12" md="4">
-                        <MudStack Spacing="2">
-                            <MudText Typo="Typo.h6">Execution Statistics</MudText>
-                            <MudText>
-                                <strong>Total Steps:</strong> @(Model?.Steps?.Count ?? 0)
-                            </MudText>
-                            <MudText>
-                                <strong>Total Executions:</strong> @(Model?.TotalExecutions ?? 0)
-                            </MudText>
-                            <MudText>
-                                <strong>Notifications Sent:</strong> @(Model?.SentNotifications ?? 0)
-                            </MudText>
-                            @if (Model?.TotalExecutions > 0)
-                            {
-                                <MudStack Row="true" AlignItems="AlignItems.Center">
-                                    <MudText><strong>Success Rate:</strong></MudText>
-                                    <MudProgressLinear Color="Color.Primary" Rounded="true" Size="Size.Large" 
-                                                       Value="@decimal.ToDouble(Model?.SentNotifications ?? 0)" 
-                                                       Min="0" Max="@decimal.ToDouble(Model?.TotalExecutions ?? 0)" 
-                                                       Style="height: 24px; width: 150px;">
-                                        <MudText Typo="Typo.body2">
-                                            <b>@Model?.SentNotifications / @Model?.TotalExecutions</b>
-                                        </MudText>
-                                    </MudProgressLinear>
+                        </div>
+                        @if (Model?.DataSourceNames?.Any() == true)
+                        {
+                            <div class="info-row">
+                                <MudText Typo="Typo.caption" Color="Color.Secondary">Data Sources</MudText>
+                                <MudStack Spacing="1">
+                                    @foreach (var dataSource in Model.DataSourceNames)
+                                    {
+                                        <MudChip T="string" Size="Size.Small">@dataSource</MudChip>
+                                    }
                                 </MudStack>
-                            }
-                        </MudStack>
-                    </MudItem>
-                </MudGrid>
-            }
-        </MudCardContent>
-    </MudCard>
+                            </div>
+                        }
+                        @if (Model?.DatabaseEngines?.Any() == true)
+                        {
+                            <div class="info-row">
+                                <MudText Typo="Typo.caption" Color="Color.Secondary">Database Engines</MudText>
+                                <MudStack Spacing="1">
+                                    @foreach (var engine in Model.DatabaseEngines.Distinct())
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Secondary">@engine</MudChip>
+                                    }
+                                </MudStack>
+                            </div>
+                        }
+                    </MudStack>
+                </MudItem>
+            </MudGrid>
+        </MudPaper>
 
-    @* Notification Statistics Charts *@
-    @if (!_loading && Model?.NotificationHistory?.Any() == true)
-    {
-        <MudCard Class="my-4 px-2">
-            <MudCardHeader>
-                <CardHeaderContent>
-                    <MudText Typo="Typo.h5">
-                        <MudIcon Icon="@Icons.Material.Filled.Analytics" Class="mr-2" />
-                        Notification Statistics (Last 30 Days)
-                    </MudText>
-                </CardHeaderContent>
-            </MudCardHeader>
-            <MudCardContent>
-                <MudGrid>
-                    <MudItem xs="12" md="6">
-                        <MudText Typo="Typo.h6" Class="mb-3">Success Rate Over Time</MudText>
-                        <MudChart ChartType="ChartType.Line" 
-                                  ChartSeries="@_successRateSeriesData" 
-                                  XAxisLabels="@_chartLabels" 
-                                  Width="100%" 
-                                  Height="300px"
-                                  ChartOptions="@_successRateOptions"/>
+        <!-- Notification Statistics Charts -->
+        @if (Model?.NotificationHistory?.Any() == true)
+        {
+            <MudPaper Class="detail-card pa-4 mb-3" Elevation="2">
+                <MudText Typo="Typo.h6" Class="section-title">
+                    <MudIcon Icon="@Icons.Material.Filled.Analytics" Class="mr-2" />
+                    Execution Analytics (Last 30 Days)
+                </MudText>
+
+                <!-- Summary Stats -->
+                <MudGrid Class="mb-4">
+                    <MudItem xs="6" sm="3">
+                        <MudPaper Class="pa-3 text-center" Style="background: linear-gradient(135deg, rgba(var(--mud-palette-primary-rgb), 0.1), transparent); border-left: 4px solid var(--mud-palette-primary);">
+                            <MudText Typo="Typo.h4" Color="Color.Primary">@Model.NotificationHistory.Sum(x => x.TotalExecutions)</MudText>
+                            <MudText Typo="Typo.caption">Total Executions</MudText>
+                        </MudPaper>
                     </MudItem>
-                    <MudItem xs="12" md="6">
-                        <MudText Typo="Typo.h6" Class="mb-3">Daily Executions</MudText>
-                        <MudChart ChartType="ChartType.Bar" 
-                                  ChartSeries="@_executionSeriesData" 
-                                  XAxisLabels="@_chartLabels" 
-                                  Width="100%" 
-                                  Height="300px"
-                                  ChartOptions="@_executionOptions"/>
+                    <MudItem xs="6" sm="3">
+                        <MudPaper Class="pa-3 text-center" Style="background: linear-gradient(135deg, rgba(var(--mud-palette-success-rgb), 0.1), transparent); border-left: 4px solid var(--mud-palette-success);">
+                            <MudText Typo="Typo.h4" Color="Color.Success">@Model.NotificationHistory.Sum(x => x.SuccessfulNotifications)</MudText>
+                            <MudText Typo="Typo.caption">With Results</MudText>
+                        </MudPaper>
                     </MudItem>
-                </MudGrid>
-                
-                @* Summary Stats *@
-                <MudDivider Class="my-4" />
-                <MudGrid>
-                    <MudItem xs="3" Class="text-center">
-                        <MudText Typo="Typo.h4" Color="Color.Primary">@Model.NotificationHistory.Sum(x => x.TotalExecutions)</MudText>
-                        <MudText Typo="Typo.caption">Total Executions</MudText>
+                    <MudItem xs="6" sm="3">
+                        <MudPaper Class="pa-3 text-center" Style="background: linear-gradient(135deg, rgba(var(--mud-palette-secondary-rgb), 0.1), transparent); border-left: 4px solid var(--mud-palette-secondary);">
+                            <MudText Typo="Typo.h4" Color="Color.Secondary">@Model.NotificationHistory.Sum(x => x.FailedExecutions)</MudText>
+                            <MudText Typo="Typo.caption">No Results</MudText>
+                        </MudPaper>
                     </MudItem>
-                    <MudItem xs="3" Class="text-center">
-                        <MudText Typo="Typo.h4" Color="Color.Success">@Model.NotificationHistory.Sum(x => x.SuccessfulNotifications)</MudText>
-                        <MudText Typo="Typo.caption">Successful Notifications</MudText>
-                    </MudItem>
-                    <MudItem xs="3" Class="text-center">
-                        <MudText Typo="Typo.h4" Color="Color.Error">@Model.NotificationHistory.Sum(x => x.FailedExecutions)</MudText>
-                        <MudText Typo="Typo.caption">Failed Executions</MudText>
-                    </MudItem>
-                    <MudItem xs="3" Class="text-center">
+                    <MudItem xs="6" sm="3">
                         @{
                             var totalExec = Model.NotificationHistory.Sum(x => x.TotalExecutions);
                             var totalSuccess = Model.NotificationHistory.Sum(x => x.SuccessfulNotifications);
                             var overallSuccessRate = totalExec > 0 ? (double)totalSuccess / totalExec * 100 : 0;
                         }
-                        <MudText Typo="Typo.h4" Color="@(overallSuccessRate >= 80 ? Color.Success : overallSuccessRate >= 50 ? Color.Warning : Color.Error)">@overallSuccessRate.ToString("F1")%</MudText>
-                        <MudText Typo="Typo.caption">Overall Success Rate</MudText>
+                        <MudPaper Class="pa-3 text-center" Style="@($"background: linear-gradient(135deg, rgba(var(--mud-palette-{(overallSuccessRate >= 80 ? "success" : overallSuccessRate >= 50 ? "warning" : "info")}-rgb), 0.1), transparent); border-left: 4px solid var(--mud-palette-{(overallSuccessRate >= 80 ? "success" : overallSuccessRate >= 50 ? "warning" : "info")});")">
+                            <MudText Typo="Typo.h4" Color="@(overallSuccessRate >= 80 ? Color.Success : overallSuccessRate >= 50 ? Color.Warning : Color.Info)">@overallSuccessRate.ToString("F1")%</MudText>
+                            <MudText Typo="Typo.caption">Results Rate</MudText>
+                        </MudPaper>
                     </MudItem>
                 </MudGrid>
-            </MudCardContent>
-        </MudCard>
-    }
 
-    @* Query Flow Diagram *@
-    @if (!_loading && Model?.Steps?.Any() == true)
-    {
-        <QueryFlowDiagram Query="@ConvertToQueryData()" />
-    }
+                <!-- Charts -->
+                <MudGrid>
+                    <MudItem xs="12" md="6">
+                        <MudText Typo="Typo.subtitle1" Style="font-weight: 600;" Class="mb-3">Results Rate Over Time</MudText>
+                        <MudChart ChartType="ChartType.Line"
+                                  ChartSeries="@_successRateSeriesData"
+                                  XAxisLabels="@_chartLabels"
+                                  Width="100%"
+                                  Height="300px"
+                                  ChartOptions="@_successRateOptions"
+                                  AxisChartOptions="@_successRateAxisOptions" />
+                    </MudItem>
+                    <MudItem xs="12" md="6">
+                        <MudText Typo="Typo.subtitle1" Style="font-weight: 600;" Class="mb-3">Daily Executions</MudText>
+                        <MudChart ChartType="ChartType.Bar"
+                                  ChartSeries="@_executionSeriesData"
+                                  XAxisLabels="@_chartLabels"
+                                  Width="100%"
+                                  Height="300px"
+                                  ChartOptions="@_executionOptions"
+                                  AxisChartOptions="@_executionAxisOptions" />
+                    </MudItem>
+                </MudGrid>
+            </MudPaper>
+        }
 
-    @* Query Steps Section *@
-    @if (!_loading && Model?.Steps?.Any() == true)
-    {
-        <MudCard Class="my-4 px-2">
-            <MudCardHeader>
-                <CardHeaderContent>
-                    <MudText Typo="Typo.h5">
+        <!-- Execution Time Chart -->
+        @if (Model?.ExecutionTimeHistory?.Any() == true)
+        {
+            <MudPaper Class="detail-card pa-4 mb-3" Elevation="2">
+                <MudText Typo="Typo.h6" Class="section-title">
+                    <MudIcon Icon="@Icons.Material.Filled.Timer" Class="mr-2" />
+                    Query Execution Performance - Last 30 Days
+                </MudText>
+                <MudChart ChartType="ChartType.Line"
+                          ChartSeries="@_executionTimeChartSeries"
+                          XAxisLabels="@_executionTimeXAxisLabels"
+                          Width="@ChartHelper.DefaultChartWidth"
+                          Height="@ChartHelper.DefaultChartHeight"
+                          ChartOptions="@_executionTimeChartOptions"
+                          AxisChartOptions="@_executionTimeAxisChartOptions"/>
+            </MudPaper>
+        }
+
+        <!-- Query Flow Diagram -->
+        @if (Model?.Steps?.Any() == true)
+        {
+            <QueryFlowDiagram Query="@ConvertToQueryData()" />
+        }
+
+        <!-- Query Steps Section -->
+        @if (Model?.Steps?.Any() == true)
+        {
+            <MudPaper Class="detail-card pa-4 mb-3" Elevation="2">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-4">
+                    <MudText Typo="Typo.h6" Class="section-title" Style="border: none; margin: 0; padding: 0;">
                         <MudIcon Icon="@Icons.Material.Filled.AccountTree" Class="mr-2" />
                         Query Steps (@Model.Steps.Count)
                     </MudText>
-                </CardHeaderContent>
-                <CardHeaderActions>
-                    <MudButton Variant="Variant.Outlined" 
+                    <MudButton Variant="Variant.Filled"
+                               Color="Color.Primary"
                                StartIcon="@Icons.Material.Filled.PlayArrow"
                                OnClick="@ExecuteQuery">
                         Execute Query
                     </MudButton>
-                </CardHeaderActions>
-            </MudCardHeader>
-            <MudCardContent>
+                </MudStack>
+
                 <MudTimeline TimelineOrientation="TimelineOrientation.Vertical" TimelinePosition="TimelinePosition.Start">
                     @foreach (var step in Model.Steps.OrderBy(s => s.StepOrder))
                     {
@@ -235,82 +367,85 @@
                                 </MudChip>
                             </ItemOpposite>
                             <ItemContent>
-                                <MudCard Outlined="true" Class="pa-4">
-                                    <MudStack Spacing="2">
-                                        <MudText Typo="Typo.h6">@step.Name</MudText>
-                                        @if (!string.IsNullOrEmpty(step.Description))
-                                        {
-                                            <MudText Typo="Typo.body2" Color="Color.Secondary">
-                                                @step.Description
-                                            </MudText>
-                                        }
-                                        <MudStack Row Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
-                                            <MudText Typo="Typo.subtitle2">SQL Query:</MudText>
-                                            <MudButton Size="Size.Small"
-                                                      Variant="Variant.Text"
-                                                      StartIcon="@(_editingStepId == step.StepId ? Icons.Material.Filled.Visibility : Icons.Material.Filled.Edit)"
-                                                      OnClick="@(() => ToggleStepEdit(step.StepId))">
-                                                @(_editingStepId == step.StepId ? "View Only" : "Edit")
-                                            </MudButton>
+                                <MudCard Class="step-card" Outlined="true">
+                                    <MudCardContent>
+                                        <MudStack Spacing="2">
+                                            <MudText Typo="Typo.h6">@step.Name</MudText>
+                                            @if (!string.IsNullOrEmpty(step.Description))
+                                            {
+                                                <MudText Typo="Typo.body2" Color="Color.Secondary">
+                                                    @step.Description
+                                                </MudText>
+                                            }
+                                            <MudStack Row Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                                                <MudText Typo="Typo.subtitle2">SQL Query:</MudText>
+                                                <MudButton Size="Size.Small"
+                                                          Variant="Variant.Text"
+                                                          StartIcon="@(_editingStepId == step.StepId ? Icons.Material.Filled.Visibility : Icons.Material.Filled.Edit)"
+                                                          OnClick="@(() => ToggleStepEdit(step.StepId))">
+                                                    @(_editingStepId == step.StepId ? "View Only" : "Edit")
+                                                </MudButton>
+                                            </MudStack>
+                                            @if (_editingStepId == step.StepId)
+                                            {
+                                                <SqlEditor Value="@step.SqlValue"
+                                                          ValueChanged="@((newValue) => { step.SqlValue = newValue; })"
+                                                          DataSourceId="@step.DataSourceId"
+                                                          Height="300px"
+                                                          EditorId="@($"sql-editor-step-{step.StepId}")" />
+                                            }
+                                            else
+                                            {
+                                                <MudPaper Class="pa-2" Style="background-color: #f5f5f5; border-radius: 8px;">
+                                                    <CodeHiglight Code="@step.SqlValue" />
+                                                </MudPaper>
+                                            }
+                                            @if (step.Parameters?.Any() == true)
+                                            {
+                                                <MudText Typo="Typo.subtitle2">Parameters:</MudText>
+                                                <MudGrid>
+                                                    @foreach (var param in step.Parameters)
+                                                    {
+                                                        <MudItem xs="6" sm="4" md="3">
+                                                            <MudChip T="string" Size="Size.Small"
+                                                                     Color="Color.Info"
+                                                                     Text="@($"{param.Name} ({param.Type})")" />
+                                                        </MudItem>
+                                                    }
+                                                </MudGrid>
+                                                <MudCollapse Expanded="@(_showParametersDetails.GetValueOrDefault(step.StepId, false))">
+                                                    <MudTable T="QueryStepParameterData" Items="@step.Parameters" Dense="true" Hover="true">
+                                                        <HeaderContent>
+                                                            <MudTh>Name</MudTh>
+                                                            <MudTh>Type</MudTh>
+                                                            <MudTh>Description</MudTh>
+                                                            <MudTh>Placeholder</MudTh>
+                                                        </HeaderContent>
+                                                        <RowTemplate>
+                                                            <MudTd>@context.Name</MudTd>
+                                                            <MudTd>@context.Type</MudTd>
+                                                            <MudTd>@(context.Description ?? "-")</MudTd>
+                                                            <MudTd>@(context.Placeholder ?? "-")</MudTd>
+                                                        </RowTemplate>
+                                                    </MudTable>
+                                                </MudCollapse>
+                                                <MudButton Size="Size.Small"
+                                                           Variant="Variant.Text"
+                                                           OnClick="@(() => ToggleParameterDetails(step.StepId))">
+                                                    @(_showParametersDetails.GetValueOrDefault(step.StepId, false) ? "Hide Details" : "Show Details")
+                                                </MudButton>
+                                            }
+                                            else
+                                            {
+                                                <MudText Typo="Typo.caption" Color="Color.Tertiary">No parameters</MudText>
+                                            }
                                         </MudStack>
-                                        @if (_editingStepId == step.StepId)
-                                        {
-                                            <SqlEditor Value="@step.SqlValue"
-                                                      ValueChanged="@((newValue) => { step.SqlValue = newValue; })"
-                                                      DataSourceId="@step.DataSourceId"
-                                                      Height="300px"
-                                                      EditorId="@($"sql-editor-step-{step.StepId}")" />
-                                        }
-                                        else
-                                        {
-                                            <MudPaper Class="pa-2" Style="background-color: #f5f5f5;">
-                                                <CodeHiglight Code="@step.SqlValue" />
-                                            </MudPaper>
-                                        }
-                                        @if (step.Parameters?.Any() == true)
-                                        {
-                                            <MudText Typo="Typo.subtitle2">Parameters:</MudText>
-                                            <MudGrid>
-                                                @foreach (var param in step.Parameters)
-                                                {
-                                                    <MudItem xs="6" sm="4" md="3">
-                                                        <MudChip T="string" Size="Size.Small" 
-                                                                 Color="Color.Info" 
-                                                                 Text="@($"{param.Name} ({param.Type})")" />
-                                                    </MudItem>
-                                                }
-                                            </MudGrid>
-                                            <MudCollapse Expanded="@(_showParametersDetails.GetValueOrDefault(step.StepId, false))">
-                                                <MudTable T="QueryStepParameterData" Items="@step.Parameters" Dense="true">
-                                                    <HeaderContent>
-                                                        <MudTh>Name</MudTh>
-                                                        <MudTh>Type</MudTh>
-                                                        <MudTh>Description</MudTh>
-                                                        <MudTh>Placeholder</MudTh>
-                                                    </HeaderContent>
-                                                    <RowTemplate>
-                                                        <MudTd>@context.Name</MudTd>
-                                                        <MudTd>@context.Type</MudTd>
-                                                        <MudTd>@(context.Description ?? "-")</MudTd>
-                                                        <MudTd>@(context.Placeholder ?? "-")</MudTd>
-                                                    </RowTemplate>
-                                                </MudTable>
-                                            </MudCollapse>
-                                            <MudButton Size="Size.Small" 
-                                                       Variant="Variant.Text"
-                                                       OnClick="@(() => ToggleParameterDetails(step.StepId))">
-                                                @(_showParametersDetails.GetValueOrDefault(step.StepId, false) ? "Hide Details" : "Show Details")
-                                            </MudButton>
-                                        }
-                                        else
-                                        {
-                                            <MudText Typo="Typo.caption" Color="Color.Tertiary">No parameters</MudText>
-                                        }
-                                    </MudStack>
+                                    </MudCardContent>
                                     <MudCardActions>
-                                        <MudButton StartIcon="@Icons.Material.Filled.PlayArrow" 
-                                                   Color="Color.Primary" 
+                                        <MudButton StartIcon="@Icons.Material.Filled.PlayArrow"
+                                                   Color="Color.Primary"
                                                    Size="Size.Small"
+                                                   Variant="Variant.Text"
                                                    OnClick="@(() => ExecuteStep(step.StepOrder))">
                                             Execute Step
                                         </MudButton>
@@ -320,56 +455,49 @@
                         </MudTimelineItem>
                     }
                 </MudTimeline>
-            </MudCardContent>
-        </MudCard>
-    }
+            </MudPaper>
+        }
 
-    @* Final Query Section *@
-    @if (!_loading && !string.IsNullOrEmpty(Model?.FinalQuery))
-    {
-        <MudCard Class="my-4 px-2">
-            <MudCardHeader>
-                <CardHeaderContent>
-                    <MudText Typo="Typo.h5">
+        <!-- Final Query Section -->
+        @if (!string.IsNullOrEmpty(Model?.FinalQuery))
+        {
+            <MudPaper Class="detail-card pa-4 mb-3" Elevation="2">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-4">
+                    <MudText Typo="Typo.h6" Class="section-title" Style="border: none; margin: 0; padding: 0;">
                         <MudIcon Icon="@Icons.Material.Filled.TableChart" Class="mr-2" />
                         Final Query
                     </MudText>
-                </CardHeaderContent>
-                <CardHeaderActions>
                     <MudStack Row="true" Spacing="2">
                         <MudChip T="string" Size="Size.Small" Color="Color.Info">
                             <MudIcon Icon="@Icons.Material.Filled.LibraryBooks" Size="Size.Small" />
-                            Uses @@result references
+                            Uses @("@")result references
                         </MudChip>
                         @if (Model?.FinalQueryDataSourceId.HasValue == true)
                         {
                             <MudChip T="string" Size="Size.Small" Color="Color.Secondary">
                                 <MudIcon Icon="@Icons.Material.Filled.Storage" Size="Size.Small" />
-                                Target Project
+                                Target DataSource
                             </MudChip>
                         }
                     </MudStack>
-                </CardHeaderActions>
-            </MudCardHeader>
-            <MudCardContent>
+                </MudStack>
                 <MudStack Spacing="3">
                     <MudText Typo="Typo.body2" Color="Color.Secondary">
-                        This query will be executed against an in-memory SQLite database containing all step results as tables. 
-                        Use <code>@@result1</code>, <code>@@result2</code>, etc. to reference data from previous steps.
+                        This query executes against an in-memory SQLite database containing all step results as tables.
+                        Use <code>@("@")result1</code>, <code>@("@")result2</code>, etc. to reference previous steps.
                     </MudText>
-                    
+
                     @if (Model?.FinalQueryDataSourceId.HasValue == true)
                     {
                         <MudAlert Severity="Severity.Info" Dense="true">
                             <MudText Typo="Typo.body2">
-                                <strong>Target Data Source:</strong> The final query will be executed using the database engine context
-                                from data source ID @Model.FinalQueryDataSourceId (for SQL dialect compatibility).
+                                <strong>Target Data Source:</strong> Uses database engine from data source ID @Model.FinalQueryDataSourceId for SQL dialect compatibility.
                             </MudText>
                         </MudAlert>
                     }
-                    
+
                     <MudStack Row Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
-                        <MudText Typo="Typo.subtitle1"><strong>SQL Query:</strong></MudText>
+                        <MudText Typo="Typo.subtitle1" Style="font-weight: 600;">SQL Query:</MudText>
                         <MudButton Size="Size.Small"
                                   Variant="Variant.Text"
                                   StartIcon="@(_editingFinalQuery ? Icons.Material.Filled.Visibility : Icons.Material.Filled.Edit)"
@@ -387,54 +515,46 @@
                     }
                     else
                     {
-                        <MudPaper Class="pa-3" Style="background-color: #f8f9fa; border-left: 4px solid #007acc;">
+                        <MudPaper Class="pa-3" Style="background-color: #f8f9fa; border-left: 4px solid #007acc; border-radius: 8px;">
                             <CodeHiglight Code="@Model.FinalQuery" />
                         </MudPaper>
                     }
                 </MudStack>
-            </MudCardContent>
-        </MudCard>
+            </MudPaper>
+        }
+
+        <!-- Subscriptions Section -->
+        <MudPaper Class="detail-card pa-4" Elevation="2">
+            <MudText Typo="Typo.h6" Class="section-title">
+                <MudIcon Icon="@Icons.Material.Filled.Subscriptions" Class="mr-2" />
+                Subscriptions (@(Model?.Subscriptions?.Count ?? 0))
+            </MudText>
+            <MudTable T="SubscriptionListData" Items="@Model?.Subscriptions" Hover="true" OnRowClick="OnRowClick">
+                <HeaderContent>
+                    <MudTh>Subscription ID</MudTh>
+                    <MudTh>Name</MudTh>
+                    <MudTh>Created</MudTh>
+                    <MudTh>Subscribers</MudTh>
+                    <MudTh>Cron Expression</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Subscription ID">@context.SubscriptionId</MudTd>
+                    <MudTd DataLabel="Name">@context.Name</MudTd>
+                    <MudTd DataLabel="Created">@context.CreatedTime.ToString("g")</MudTd>
+                    <MudTd DataLabel="Subscribers">@context.Subscribers</MudTd>
+                    <MudTd DataLabel="Cron Expression"><MudChip T="string" Size="Size.Small">@context.CronExpression</MudChip></MudTd>
+                </RowTemplate>
+            </MudTable>
+        </MudPaper>
     }
 
-    @* Subscriptions Section *@
-    <MudCard Class="my-4 px-2">
-        <MudCardHeader>
-            <CardHeaderContent>
-                <MudText Typo="Typo.h5">
-                    <MudIcon Icon="@Icons.Material.Filled.Subscriptions" Class="mr-2" />
-                    Subscriptions (@(Model?.Subscriptions?.Count ?? 0))
-                </MudText>
-            </CardHeaderContent>
-        </MudCardHeader>
-        <MudCardContent>
-            <MudItem xs="12">
-                <MudTable T="SubscriptionListData" Items="@Model?.Subscriptions" Hover="true" OnRowClick="OnRowClick">
-                    <HeaderContent>
-                        <MudTh>Subscription ID</MudTh>
-                        <MudTh>Created</MudTh>
-                        <MudTh>Subscribers</MudTh>
-                        <MudTh>Name</MudTh>
-                        <MudTh>Cron Expression</MudTh>
-                    </HeaderContent>
-                    <RowTemplate>
-                        <MudTd DataLabel="Subscription ID">@context.SubscriptionId</MudTd>
-                        <MudTd DataLabel="Created">@context.CreatedTime</MudTd>
-                        <MudTd DataLabel="Name">@context.Name</MudTd>
-                        <MudTd DataLabel="Subscribers">@context.Subscribers</MudTd>
-                        <MudTd DataLabel="Cron Expression">@context.CronExpression</MudTd>
-                    </RowTemplate>
-                </MudTable>
-            </MudItem>
-        </MudCardContent>
-    </MudCard>
-
-    @* Comprehensive Results Preview Panel *@
+    <!-- Comprehensive Results Preview Panel -->
     @if (_currentQueryResult != null)
     {
         <QueryExecutionResultsPreview ExecutionResult="@_currentQueryResult"
                                       OnClose="@CloseResultsPreview" />
     }
-    
+
     @if (_currentStepResult != null)
     {
         <QueryResultsPreview Results="@_currentStepResult.PreviewResults"
@@ -466,14 +586,22 @@
     private QueryStepResult? _currentStepResult;
     private int? _editingStepId;
     private bool _editingFinalQuery;
-    
+
     // Chart data
     private List<ChartSeries> _successRateSeriesData = new();
     private List<ChartSeries> _executionSeriesData = new();
     private string[] _chartLabels = Array.Empty<string>();
     private ChartOptions _successRateOptions = new();
+    private AxisChartOptions _successRateAxisOptions = new();
     private ChartOptions _executionOptions = new();
-    
+    private AxisChartOptions _executionAxisOptions = new();
+
+    // Execution time chart fields
+    private List<ChartSeries> _executionTimeChartSeries = new();
+    private string[] _executionTimeXAxisLabels = Array.Empty<string>();
+    private ChartOptions _executionTimeChartOptions = new();
+    private AxisChartOptions _executionTimeAxisChartOptions = new();
+
     protected override async Task OnInitializedAsync()
     {
         await Load();
@@ -484,46 +612,51 @@
         _loading = true;
 
         Model = await Service.GetQueryDetails(Id, new CancellationToken());
-        
+
         if (Model?.NotificationHistory?.Any() == true)
         {
             PrepareChartData();
         }
 
+        if (Model?.ExecutionTimeHistory?.Any() == true)
+        {
+            PrepareExecutionTimeChart();
+        }
+
         _loading = false;
     }
-    
+
     private void PrepareChartData()
     {
         if (Model?.NotificationHistory == null || !Model.NotificationHistory.Any()) return;
-        
+
         // Prepare chart labels (dates)
         _chartLabels = Model.NotificationHistory
             .Select(x => x.Date.ToString("MM/dd"))
             .ToArray();
-        
-        // Success Rate Chart Data
+
+        // Results Rate Chart Data
         _successRateSeriesData = new List<ChartSeries>
         {
             new() {
-                Name = "Success Rate (%)",
+                Name = "Results Rate (%)",
                 Data = Model.NotificationHistory.Select(x => x.SuccessRate).ToArray()
             }
         };
-        
+
         // Execution Chart Data
         _executionSeriesData = new List<ChartSeries>
         {
             new() {
-                Name = "Successful",
+                Name = "With Results",
                 Data = Model.NotificationHistory.Select(x => (double)x.SuccessfulNotifications).ToArray()
             },
             new() {
-                Name = "Failed",
+                Name = "No Results",
                 Data = Model.NotificationHistory.Select(x => (double)x.FailedExecutions).ToArray()
             }
         };
-        
+
         // Chart options
         _successRateOptions = new ChartOptions
         {
@@ -533,13 +666,15 @@
             LineStrokeWidth = 3,
             ChartPalette = new[] { Colors.Green.Default }
         };
-        
+        _successRateAxisOptions = ChartHelper.CreateDefaultAxisChartOptions();
+
         _executionOptions = new ChartOptions
         {
             YAxisTicks = 10,
             MaxNumYAxisTicks = 10,
-            ChartPalette = new[] { Colors.Green.Default, Colors.Red.Default }
+            ChartPalette = new[] { Colors.Green.Default, Colors.Gray.Default }
         };
+        _executionAxisOptions = ChartHelper.CreateDefaultAxisChartOptions();
     }
 
     private void ToggleParameterDetails(int stepId)
@@ -555,24 +690,24 @@
     private async Task ExecuteQuery()
     {
         if (Model?.Id == null) return;
-        
+
         try
         {
             _currentStepResult = null;
-            
+
             Snackbar.Add("Executing full query...", Severity.Info);
             var result = await PreviewService.ExecuteQueryPreview(Model.Id, CancellationToken.None);
-            
+
             if (result != null)
             {
                 _currentQueryResult = result;
-                
+
                 if (result.Success)
                 {
-                    var message = result.IsMultiStep 
+                    var message = result.IsMultiStep
                         ? $"Query executed successfully! {result.StepResults.Count} steps completed in {result.TotalExecutionTimeMs:F0}ms"
                         : $"Query executed successfully! Returned {result.FinalResult?.TotalRecords ?? 0} rows in {result.TotalExecutionTimeMs:F0}ms";
-                        
+
                     Snackbar.Add(message, Severity.Success);
                 }
                 else
@@ -584,7 +719,7 @@
             {
                 Snackbar.Add("Query execution failed", Severity.Error);
             }
-            
+
             StateHasChanged();
         }
         catch (Exception ex)
@@ -664,16 +799,18 @@
     private async Task AddSubscription()
     {
         var breakpoint = await BrowserViewport.GetCurrentBreakpointAsync();
-        var options = new DialogOptions {
+        var options = new DialogOptions
+        {
             MaxWidth = MaxWidth.Small,
             FullWidth = true,
             FullScreen = breakpoint == Breakpoint.Xs,
         };
-        
-        var subscription = new SubscriptionData {
+
+        var subscription = new SubscriptionData
+        {
             QueryId = Id
         };
-        
+
         var parameters = new DialogParameters<AddSubscriptionDialog> { { x => x.Subscription, subscription } };
 
         var dialog = await DialogService.ShowAsync<AddSubscriptionDialog>("", parameters, options);
@@ -684,7 +821,7 @@
         {
             return;
         }
-        
+
         // TODO: we could just reload the subscriptions instead of the whole page
         await Load();
     }
@@ -697,24 +834,24 @@
     private List<IDictionary<string, object?>>? GetResultsForPreview(QueryExecutionResult result)
     {
         if (!result.Success) return null;
-        
+
         if (result.IsMultiStep)
         {
             return result.StepResults.LastOrDefault()?.PreviewResults;
         }
-        
+
         return result.FinalResult?.AllRecords;
     }
 
     private int GetTotalRowsForPreview(QueryExecutionResult result)
     {
         if (!result.Success) return 0;
-        
+
         if (result.IsMultiStep)
         {
             return result.StepResults.LastOrDefault()?.TotalRows ?? 0;
         }
-        
+
         return result.FinalResult?.TotalRecords ?? 0;
     }
 
@@ -733,7 +870,7 @@
     private QueryData ConvertToQueryData()
     {
         if (Model == null) return new QueryData();
-        
+
         return new QueryData
         {
             QueryId = Model.Id,
@@ -744,5 +881,45 @@
             FinalQuery = Model.FinalQuery,
             FinalQueryDataSourceId = Model.FinalQueryDataSourceId
         };
+    }
+
+    private void PrepareExecutionTimeChart()
+    {
+        if (Model?.ExecutionTimeHistory == null || !Model.ExecutionTimeHistory.Any())
+            return;
+
+        var data = Model.ExecutionTimeHistory.OrderBy(x => x.Date).ToList();
+
+        _executionTimeXAxisLabels = data.Select(x => x.Date.ToString("MM/dd")).ToArray();
+
+        _executionTimeChartSeries = new List<ChartSeries>
+        {
+            new()
+            {
+                Name = "Average",
+                Data = data.Select(x => x.AvgExecutionTimeMs).ToArray()
+            },
+            new()
+            {
+                Name = "Minimum",
+                Data = data.Select(x => x.MinExecutionTimeMs).ToArray()
+            },
+            new()
+            {
+                Name = "Maximum",
+                Data = data.Select(x => x.MaxExecutionTimeMs).ToArray()
+            }
+        };
+
+        _executionTimeChartOptions = ChartHelper.CreateMultiSeriesChartOptions();
+        _executionTimeAxisChartOptions = ChartHelper.CreateDefaultAxisChartOptions();
+    }
+
+    private string FormatExecutionTime(double milliseconds)
+    {
+        if (milliseconds < 1000)
+            return $"{milliseconds:0} ms";
+
+        return $"{milliseconds / 1000:0.00} s";
     }
 }

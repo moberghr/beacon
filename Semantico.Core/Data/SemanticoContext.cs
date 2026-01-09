@@ -51,6 +51,26 @@ public abstract partial class SemanticoContext : DbContext
 
     public DbSet<Comment> Comments => Set<Comment>();
 
+    public DbSet<AnomalyConfig> AnomalyConfigs => Set<AnomalyConfig>();
+
+    public DbSet<AnomalyBaseline> AnomalyBaselines => Set<AnomalyBaseline>();
+
+    public DbSet<AnomalyEvent> AnomalyEvents => Set<AnomalyEvent>();
+
+    public DbSet<AiUsageMetrics> AiUsageMetrics => Set<AiUsageMetrics>();
+
+    public DbSet<DataSourceDocumentation> DataSourceDocumentations => Set<DataSourceDocumentation>();
+
+    public DbSet<DocumentationSection> DocumentationSections => Set<DocumentationSection>();
+
+    public DbSet<DocumentationVersion> DocumentationVersions => Set<DocumentationVersion>();
+
+    public DbSet<AiPromptTemplate> AiPromptTemplates => Set<AiPromptTemplate>();
+
+    public DbSet<AiAlertConfiguration> AiAlertConfigurations => Set<AiAlertConfiguration>();
+
+    public DbSet<AiConversationHistory> AiConversationHistories => Set<AiConversationHistory>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         // Set default schema for all entities
@@ -61,6 +81,8 @@ public abstract partial class SemanticoContext : DbContext
         ConfigureMetadataEntities(modelBuilder);
         ConfigureTaskEntity(modelBuilder);
         ConfigureCommentEntity(modelBuilder);
+        ConfigureAnomalyEntities(modelBuilder);
+        ConfigureAiEntities(modelBuilder);
         base.OnModelCreating(modelBuilder);
     }
 
@@ -268,6 +290,177 @@ public abstract partial class SemanticoContext : DbContext
 
             // Index for ordering by creation time
             entity.HasIndex(e => e.CreatedTime);
+        });
+    }
+
+    protected static void ConfigureAnomalyEntities(ModelBuilder modelBuilder)
+    {
+        // AnomalyConfig configuration
+        modelBuilder.Entity<AnomalyConfig>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+
+            // Relationships
+            entity.HasOne(e => e.Subscription)
+                  .WithMany()
+                  .HasForeignKey(e => e.SubscriptionId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            // Unique index: one config per subscription
+            entity.HasIndex(e => e.SubscriptionId)
+                  .IsUnique();
+
+            // Index for enabled configs
+            entity.HasIndex(e => e.Enabled);
+        });
+
+        // AnomalyBaseline configuration
+        modelBuilder.Entity<AnomalyBaseline>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+
+            // Relationships
+            entity.HasOne(e => e.Subscription)
+                  .WithMany()
+                  .HasForeignKey(e => e.SubscriptionId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            // Index for efficient time-based queries
+            entity.HasIndex(e => new { e.SubscriptionId, e.ExecutionTime });
+
+            // Index for lookback queries
+            entity.HasIndex(e => e.ExecutionTime);
+        });
+
+        // AnomalyEvent configuration
+        modelBuilder.Entity<AnomalyEvent>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Severity)
+                  .HasMaxLength(20)
+                  .IsRequired();
+
+            entity.Property(e => e.Explanation)
+                  .HasMaxLength(2000);
+
+            entity.Property(e => e.AcknowledgedBy)
+                  .HasMaxLength(200);
+
+            // Relationships
+            entity.HasOne(e => e.Subscription)
+                  .WithMany()
+                  .HasForeignKey(e => e.SubscriptionId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.Notification)
+                  .WithMany()
+                  .HasForeignKey(e => e.NotificationId)
+                  .OnDelete(DeleteBehavior.SetNull);
+
+            // Indexes for querying
+            entity.HasIndex(e => new { e.SubscriptionId, e.DetectedTime });
+            entity.HasIndex(e => new { e.Acknowledged, e.DetectedTime });
+            entity.HasIndex(e => e.DetectedTime);
+            entity.HasIndex(e => e.NotificationId);
+        });
+    }
+
+    protected static void ConfigureAiEntities(ModelBuilder modelBuilder)
+    {
+        // AiUsageMetrics configuration
+        modelBuilder.Entity<AiUsageMetrics>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+
+            // Indexes for querying and analytics
+            entity.HasIndex(e => e.UserId);
+            entity.HasIndex(e => e.Timestamp);
+            entity.HasIndex(e => e.Provider);
+            entity.HasIndex(e => e.OperationType);
+            entity.HasIndex(e => e.DataSourceId);
+        });
+
+        // DataSourceDocumentation configuration
+        modelBuilder.Entity<DataSourceDocumentation>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.DataSourceId);
+            entity.HasIndex(e => e.Status);
+            entity.HasIndex(e => e.GeneratedAt);
+
+            entity.HasOne(e => e.DataSource)
+                .WithMany()
+                .HasForeignKey(e => e.DataSourceId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // DocumentationSection configuration
+        modelBuilder.Entity<DocumentationSection>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.DocumentationId);
+            entity.HasIndex(e => e.TableName);
+            entity.HasIndex(e => e.SectionType);
+
+            entity.HasOne(e => e.Documentation)
+                .WithMany(d => d.Sections)
+                .HasForeignKey(e => e.DocumentationId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // DocumentationVersion configuration
+        modelBuilder.Entity<DocumentationVersion>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.DocumentationId);
+            entity.HasIndex(e => e.CreatedAt);
+
+            entity.HasOne(e => e.Documentation)
+                .WithMany(d => d.Versions)
+                .HasForeignKey(e => e.DocumentationId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // AiPromptTemplate configuration
+        modelBuilder.Entity<AiPromptTemplate>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.OperationType);
+            entity.HasIndex(e => e.IsActive);
+        });
+
+        // AiAlertConfiguration configuration
+        modelBuilder.Entity<AiAlertConfiguration>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.DataSourceId);
+            entity.HasIndex(e => e.Status);
+            entity.HasIndex(e => e.SubscriptionId);
+
+            entity.HasOne(e => e.DataSource)
+                .WithMany()
+                .HasForeignKey(e => e.DataSourceId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.Subscription)
+                .WithMany()
+                .HasForeignKey(e => e.SubscriptionId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        // AiConversationHistory configuration
+        modelBuilder.Entity<AiConversationHistory>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.AiAlertConfigurationId);
+            entity.HasIndex(e => e.TurnNumber);
+            entity.HasIndex(e => e.Timestamp);
+
+            entity.HasOne(e => e.AiAlertConfiguration)
+                .WithMany(a => a.ConversationHistory)
+                .HasForeignKey(e => e.AiAlertConfigurationId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

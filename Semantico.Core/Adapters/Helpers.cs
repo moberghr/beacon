@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using Semantico.Core.Adapters.Jira;
+using Semantico.Core.Adapters.Shared;
 
 namespace Semantico.Core.Adapters;
 
@@ -13,13 +14,13 @@ public static class Helpers
             <pre>{queryResult.SqlQuery}</pre>"
             : "";
 
-        var firstRecord = queryResult.TopRecords.FirstOrDefault();
+        var firstRecord = queryResult.TopRecords.GetFirstRecordSafe();
         var tableHeaders = firstRecord != null
             ? string.Join("", firstRecord.Select(property => $"<th>{property.Key}</th>"))
             : "<th>No data</th>";
 
-        var tableRows = queryResult.TopRecords.Any()
-            ? string.Join("", queryResult.TopRecords.Select(record => $"<tr>{string.Join("", record.Select(property => $"<td>{property.Value}</td>"))}</tr>"))
+        var tableRows = queryResult.TopRecords.HasRecords()
+            ? string.Join("", queryResult.TopRecords.Select(record => $"<tr>{string.Join("", record.Select(property => $"<td>{CellValueFormatter.Format(property.Value)}</td>"))}</tr>"))
             : "<tr><td>No records found</td></tr>";
 
         return $@"
@@ -72,7 +73,7 @@ public static class Helpers
         ----"
             : "";
 
-        var firstRecord = queryResult.TopRecords.FirstOrDefault();
+        var firstRecord = queryResult.TopRecords.GetFirstRecordSafe();
         if (firstRecord == null)
         {
             return $@"
@@ -85,7 +86,7 @@ public static class Helpers
 
         var headers = string.Join("|", firstRecord.Select(property => property.Key));
         var rows = string.Join("\n", queryResult.TopRecords.Select(record =>
-            $"|{string.Join("|", record.Select(property => Regex.Replace(property.Value?.ToString() ?? "-", @"\t|\n|\r", "")))}|"));
+            $"|{string.Join("|", record.Select(property => CellValueFormatter.FormatAndSanitize(property.Value) ))}|"));
 
         return $@"
         {querySection}
@@ -119,14 +120,14 @@ public static class Helpers
             .Bold(queryResult.TotalRecords.ToString()));
 
         // Add results table
-        var firstRecord = queryResult.TopRecords.FirstOrDefault();
-        if (firstRecord != null && queryResult.TopRecords.Count != 0)
+        var firstRecord = queryResult.TopRecords.GetFirstRecordSafe();
+        if (firstRecord != null && queryResult.TopRecords.HasRecords())
         {
             builder.AddHeading(4, $"First {queryResult.TopRecords.Count} records:");
 
             var headers = firstRecord.Select(p => p.Key).ToList();
             var rows = queryResult.TopRecords.Select(record =>
-                record.Select(p => SanitizeTableCell(p.Value?.ToString())).ToList()
+                record.Select(p => CellValueFormatter.FormatAndSanitize(p.Value)).ToList()
             ).ToList();
 
             builder.AddTable(headers, rows);
@@ -149,12 +150,4 @@ public static class Helpers
             .Build();
     }
 
-    private static string SanitizeTableCell(string? value)
-    {
-        if (string.IsNullOrEmpty(value))
-            return "-";
-
-        // Remove newlines and tabs that would break table formatting
-        return Regex.Replace(value, @"\t|\n|\r", " ").Trim();
-    }
 }

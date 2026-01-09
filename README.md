@@ -19,14 +19,17 @@ Create semantic SQL queries to monitor data quality, business rules, and databas
 ### 🔔 Smart Alerting
 Deliver notifications via Email, Microsoft Teams, Slack, or Jira with rich formatting and complete result attachments
 
+### 🤖 AI-Powered Features
+Automatic data source documentation generation, natural language alert creation, and intelligent anomaly detection
+
 ### 🔄 Data Migration
 Orchestrate ETL workflows with Insert, Upsert, Truncate, and Sync modes across different database engines
 
 ### 🔗 Cross-Database Joins
 Query across PostgreSQL, SQL Server, and MySQL simultaneously with virtual table abstractions
 
-### 📋 Task Management
-Automatic alerting tasks from subscriptions with lifecycle tracking, auto-resolution when issues are fixed, and team collaboration
+### 📋 Task Management & Anomaly Detection
+Automatic alerting tasks with lifecycle tracking, statistical anomaly detection, and intelligent auto-resolution
 
 ## 🚀 Quick Start
 
@@ -210,11 +213,25 @@ flowchart LR
 - **Jira** issue creation and updates
 - Full result attachments (unlimited rows)
 
+### 🤖 AI-Powered Features (Experimental)
+- **Automatic Documentation**: AI analyzes schemas and generates comprehensive documentation
+- **Natural Language Alerts**: Create complex queries from plain English descriptions
+- **Smart Insights**: AI-powered data analysis and recommendations
+- Export documentation as Markdown, HTML, or PDF
+
+⚠️ **Note:** AI features are experimental and may produce incorrect or incomplete results. Always review AI-generated content before use.
+
+### 🔍 Anomaly Detection
+- **Statistical Methods**: Standard deviation, IQR, percentage change detection
+- **Baseline Learning**: Automatically learns normal patterns from historical data
+- **Configurable Thresholds**: Customize sensitivity and lookback periods
+- **Real-time Alerting**: Immediate notifications on detected anomalies
+
 ### 💾 Multi-Database Support
 - PostgreSQL, SQL Server, MySQL connectivity
 - Cross-database joins via SQLite virtual tables
 - Database metadata introspection with caching
-- Encrypted connection strings (AES)
+- **Encrypted connection strings** (AES-256) with mandatory encryption key
 
 ### 🔄 Data Migration (ETL)
 - 4 migration modes: Insert, Upsert, Truncate, Sync
@@ -292,15 +309,36 @@ ServiceConfiguration.UseSemantico(app.Services);
 app.Run();
 ```
 
-Add connection string to `appsettings.json`:
+Add connection strings and encryption key to `appsettings.json`:
 
 ```json
 {
   "ConnectionStrings": {
     "SemanticoContext": "Host=localhost;Database=semantico;Username=postgres;Password=yourpassword"
+  },
+  "Semantico": {
+    "EncryptionKey": "your-secure-32-character-key-here",
+    "LLM": {
+      "Provider": "OpenAI",
+      "ApiKey": "your-openai-api-key",
+      "Model": "gpt-4o",
+      "Limits": {
+        "MaxConcurrentRequests": 5,
+        "RequestsPerMinute": 60
+      }
+    }
   }
 }
 ```
+
+⚠️ **AI features are experimental.** Optional configuration for AI-powered documentation and alert generation.
+
+**Generate a secure encryption key:**
+```bash
+openssl rand -base64 32
+```
+
+⚠️ **Important:** The `EncryptionKey` is required for encrypting sensitive data like connection strings.
 
 📚 [View detailed installation guide →](https://moberghr.github.io/semantico/getting-started/installation)
 
@@ -351,6 +389,14 @@ Create Jira issues on first detection, add comments on follow-ups, automatically
 ### 📋 Alert Lifecycle Management
 Create alerting tasks from subscriptions, track result count trends over time, collaborate with comments, and auto-resolve when issues are fixed.
 
+### 🤖 AI-Powered Data Analysis (Experimental)
+Generate comprehensive documentation by analyzing database schemas with AI. Export as interactive HTML with ERD diagrams, Markdown, or PDF. Create sophisticated alerts using natural language instead of SQL.
+
+⚠️ **Experimental Feature:** AI-generated content should be reviewed and validated before production use.
+
+### 📊 Intelligent Anomaly Detection
+Monitor subscriptions for unusual patterns using statistical methods (Z-score, IQR, percentage change). System learns baselines from historical data and alerts on deviations automatically.
+
 ## 🛠️ Technology Stack
 
 ### Framework & Runtime
@@ -377,6 +423,16 @@ Create alerting tasks from subscriptions, track result count trends over time, c
 - ISemanticoScheduler interface (implement with Hangfire, Quartz.NET, or custom)
 - Cronos (cron expression parsing)
 
+### AI & Machine Learning
+- OpenAI / Anthropic Claude / Azure OpenAI (LLM providers)
+- Configurable token limits and rate limiting
+- Cost tracking and usage monitoring
+
+### Document Generation
+- QuestPDF (PDF generation)
+- Markdig (Markdown processing)
+- Mermaid.js (ERD diagrams)
+
 ### Integrations
 - Atlassian.SDK (Jira)
 - AdaptiveCards
@@ -388,6 +444,8 @@ Create alerting tasks from subscriptions, track result count trends over time, c
 - **.NET 9.0** or later
 - **PostgreSQL 12+** or **SQL Server 2019+** for Semantico metadata database
 - **Job scheduler** implementing `ISemanticoScheduler` (e.g., Hangfire, Quartz.NET, or custom)
+- **Encryption key** (32-character key for AES-256 encryption) - **Required**
+- **(Optional)** LLM API key (OpenAI, Anthropic, or Azure OpenAI) for AI-powered features
 - **(Optional)** Email provider for email notifications (built-in support for any SMTP-compatible service)
 
 ## 🚦 Getting Started

@@ -54,12 +54,20 @@ dotnet ef database update --project Semantico.Core --startup-project Semantico.S
 - Semantico.SampleProject: Sample implementation/application
 
 ## Active Technologies
-- C# 12 / .NET 8.0 + EF Core 8.0, MediatR, Blazor Server (004-alerting-tasks)
-- PostgreSQL (primary) and SQL Server (secondary) via provider-specific projects (004-alerting-tasks)
+- C# 13 / .NET 9.0 + EF Core 9.0, MediatR, Blazor Server
+- PostgreSQL (primary) and SQL Server (secondary) via provider-specific projects
 - Scheduled jobs: Core provides interfaces (e.g., `IJobScheduler`); consumers implement with their preferred scheduler (Hangfire used in SampleProject as example)
+- **AI/LLM Integration**: OpenAI, Anthropic Claude, Azure OpenAI support for documentation generation and alert creation
+- **Anomaly Detection**: Statistical anomaly detection with baseline learning (Z-score, IQR, percentage change methods)
+- **Document Generation**: QuestPDF (PDF), Markdig (Markdown), Mermaid.js (ERD diagrams)
 
-## Recent Changes
-- 004-alerting-tasks: Added C# 12 / .NET 8.0 + EF Core 8.0, MediatR, Blazor Server
+## Recent Changes (005-ai-integration - January 2026)
+- **EncryptionKey**: Now **required** configuration for AES-256 encryption of connection strings (see Configuration section below)
+- **AI Documentation Service**: Automatic data source documentation generation with LLM providers
+- **AI Alert Generation Service**: Natural language to SQL query conversion for alert creation
+- **Anomaly Detection Service**: Statistical anomaly detection with configurable thresholds and baseline learning
+- **LLM Provider Factory**: Pluggable LLM provider architecture (OpenAI, Claude, Azure OpenAI)
+- **Document Export**: PDF, HTML, Markdown generation with QuestPDF and Markdig
 - **Slack Notifications**: Added Slack notification channel with superior table formatting (December 2025)
 
 ## Notification System Architecture
@@ -256,3 +264,235 @@ curl -X POST 'https://hooks.slack.com/services/...' \
 5. **Interactive elements**: Add buttons for actions (e.g., "Acknowledge", "Resolve")
 
 **Note**: These enhancements require additional configuration and may need UI changes.
+
+## Encryption Configuration (Required - January 2026)
+
+### EncryptionKey Requirement
+
+**IMPORTANT**: The `Semantico:EncryptionKey` configuration is now **required** (as of 005-ai-integration branch).
+
+**Purpose**: Used for AES-256 encryption of sensitive data, primarily connection strings stored in the `DataSource` entity.
+
+**Configuration:**
+```json
+{
+  "Semantico": {
+    "EncryptionKey": "your-secure-32-character-key-here"
+  }
+}
+```
+
+**Generate a secure key:**
+```bash
+openssl rand -base64 32
+```
+
+**Implementation:**
+- `Semantico.Core/Services/EncryptionService.cs` - AES-256 encryption/decryption
+- `Semantico.Core/ServiceConfiguration.cs` - Validates key is present on startup
+- Connection strings are encrypted when saved and decrypted when retrieved
+
+**Error if missing:**
+```
+InvalidOperationException: "Semantico:EncryptionKey must be configured.
+Generate a secure key with: openssl rand -base64 32
+Then add to appsettings.json: { "Semantico": { "EncryptionKey": "your-generated-key" } }"
+```
+
+**Key Files:**
+- `Semantico.Core/ServiceConfiguration.cs` (lines 41-50) - Validation and registration
+- `Semantico.Core/Services/EncryptionService.cs` - Implementation
+- `Semantico.SampleProject/appsettings.json` - Configuration example
+
+## AI Integration Architecture (January 2026) - EXPERIMENTAL
+
+⚠️ **IMPORTANT: AI features are experimental and may produce incorrect or incomplete results. Always review and validate AI-generated content before use in production.**
+
+### Overview
+
+Semantico integrates LLM providers for two primary use cases:
+1. **Automatic Documentation Generation**: Analyze data source schemas and generate comprehensive documentation
+2. **Natural Language Alert Creation**: Convert plain English descriptions to SQL queries
+
+### LLM Configuration
+
+**appsettings.json:**
+```json
+{
+  "Semantico": {
+    "LLM": {
+      "Provider": "OpenAI",
+      "ApiKey": "your-api-key-here",
+      "Model": "gpt-4o",
+      "BaseUrl": "https://api.openai.com/v1",
+      "Limits": {
+        "MaxConcurrentRequests": 5,
+        "RequestsPerMinute": 60,
+        "MaxTokensPerRequest": 4000
+      }
+    }
+  }
+}
+```
+
+**Supported Providers:**
+- **OpenAI**: `gpt-4o` (recommended), `gpt-4`
+- **Anthropic Claude**: `claude-3-5-sonnet-20241022` (recommended)
+- **Azure OpenAI**: Configure with custom `BaseUrl` and deployment name
+
+⚠️ **Note:** Older models (gpt-3.5-turbo, claude-3-opus) are not recommended for production use.
+
+### Key Services
+
+**AI Documentation Service** (`Semantico.Core/Services/Ai/AiDocumentationService.cs`):
+- Fetches schema metadata via `IDatabaseMetadataService`
+- Constructs prompts with schema structure and sample data
+- Calls LLM provider to generate documentation
+- Stores results in `DataSourceDocumentation` entity
+- Exports to Markdown, HTML (with Mermaid ERD diagrams), or PDF
+
+**AI Alert Generation Service** (`Semantico.Core/Services/Ai/AiAlertGenerationService.cs`):
+- Accepts natural language alert descriptions
+- Constructs prompt with data source schema context
+- Generates SQL queries from natural language
+- Validates generated SQL before returning
+- Stores in `AiAlertConfiguration` entity
+
+**LLM Provider Factory** (`Semantico.Core/Services/LlmProviders/LlmProviderFactory.cs`):
+- Creates appropriate provider based on configuration
+- Supports OpenAI, Claude, Azure OpenAI
+- Handles rate limiting via `LlmRequestQueue`
+- Tracks token usage and costs
+
+### Document Export
+
+**PDF Generation** (QuestPDF):
+- Full documentation with table of contents
+- Schema diagrams and table structures
+- Professional formatting
+
+**HTML Export** (Markdig + Mermaid.js):
+- Interactive HTML with collapsible sections
+- Embedded Mermaid ERD diagrams
+- Table of contents with anchor links
+
+**Markdown Export**:
+- Clean markdown format
+- Compatible with GitHub, GitLab, etc.
+
+### Key Entities
+
+**DataSourceDocumentation**:
+- Stores AI-generated documentation
+- Tracks model used, tokens consumed, cost
+- Version history support
+
+**DocumentationSection**:
+- Individual sections (table descriptions, column details)
+- Distinguishes AI-generated vs user-edited content
+
+**DocumentationExport**:
+- Cached HTML exports
+- Regenerates only when documentation changes
+
+**AiAlertConfiguration**:
+- Natural language description
+- Generated SQL query
+- AI reasoning/explanation
+
+## Anomaly Detection System (January 2026)
+
+### Overview
+
+Statistical anomaly detection for subscriptions that learns from historical data and alerts on deviations.
+
+### Detection Methods
+
+**1. Standard Deviation (Z-Score)**:
+- Calculates mean and standard deviation from historical baselines
+- Flags values outside N standard deviations (configurable, default 2-3)
+- Best for: Normally distributed data
+
+**2. Interquartile Range (IQR)**:
+- Calculates Q1, Q3, and IQR from historical data
+- Flags values outside Q1 - (1.5 * IQR) or Q3 + (1.5 * IQR)
+- Best for: Skewed distributions, outlier detection
+
+**3. Percentage Change**:
+- Compares current value to most recent historical value
+- Flags if percentage change exceeds threshold (e.g., >50% increase)
+- Best for: Trend monitoring, business metrics
+
+### Configuration
+
+**Entity:** `AnomalyConfig` (per subscription)
+```csharp
+public class AnomalyConfig
+{
+    public int SubscriptionId { get; set; }
+    public bool Enabled { get; set; }
+    public AnomalyDetectionMethod DetectionMethod { get; set; } // StandardDeviation, IQR, PercentageChange
+    public int LookbackDays { get; set; } // How far back to analyze
+    public int MinimumDataPoints { get; set; } // Min history before detecting
+    public decimal Threshold { get; set; } // Sensitivity (e.g., 2.5 std devs)
+}
+```
+
+### Baseline Learning
+
+**Entity:** `AnomalyBaseline`
+```csharp
+public class AnomalyBaseline
+{
+    public int SubscriptionId { get; set; }
+    public DateTime ExecutionTime { get; set; }
+    public decimal MetricValue { get; set; } // Row count from query result
+}
+```
+
+**Process:**
+1. Every subscription execution stores row count in `AnomalyBaseline`
+2. System accumulates historical data over time
+3. Once `MinimumDataPoints` is reached, anomaly detection activates
+4. Baseline continuously refines as more data is collected
+
+### Usage
+
+**Service:** `IAnomalyDetectionService`
+```csharp
+public interface IAnomalyDetectionService
+{
+    Task<AnomalyEvaluationResult> EvaluateAnomalyAsync(
+        int subscriptionId,
+        int rowCount,
+        CancellationToken cancellationToken = default);
+
+    Task StoreBaselineAsync(
+        int subscriptionId,
+        decimal metricValue,
+        DateTime executionTime,
+        CancellationToken cancellationToken = default);
+}
+```
+
+**Integration:**
+- Called automatically during subscription execution
+- If anomaly detected, creates alert task or sends notification
+- Result includes: IsAnomaly flag, explanation, historical metrics
+
+### Example Scenario
+
+**Subscription**: Monitor failed login attempts
+**Query**: `SELECT COUNT(*) FROM audit_log WHERE event = 'login_failed' AND created_at > NOW() - INTERVAL '1 hour'`
+
+**Normal baseline**: 5-15 failed logins per hour (learned from 30 days of history)
+**Anomaly detected**: 150 failed logins in current execution
+**Action**: Create high-priority task or send immediate notification
+
+### Key Files
+
+- `Semantico.Core/Services/AnomalyDetectionService.cs` - Main implementation
+- `Semantico.Core/Data/Entities/AnomalyConfig.cs` - Configuration entity
+- `Semantico.Core/Data/Entities/AnomalyBaseline.cs` - Historical data storage
+- `Semantico.Core/Data/Enums/AnomalyDetectionMethod.cs` - Detection method enum
+- `Semantico.Core/Models/Anomaly/AnomalyEvaluationResult.cs` - Result model

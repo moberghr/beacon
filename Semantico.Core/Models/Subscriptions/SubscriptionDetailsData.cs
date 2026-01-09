@@ -1,4 +1,5 @@
 using Semantico.Core.Data.Enums;
+using Semantico.Core.Models.Anomaly;
 using Semantico.Core.Models.Recipients;
 
 namespace Semantico.Core.Models.Subscriptions;
@@ -38,7 +39,18 @@ public class SubscriptionDetailsData
     /// </summary>
     public bool CreateTasks { get; set; } = false;
 
+    /// <summary>
+    /// Controls when notifications should be sent for this subscription.
+    /// Default is OnResultCountChange (send when result count differs from last execution).
+    /// </summary>
+    public NotificationTrigger NotificationTrigger { get; set; } = NotificationTrigger.OnResultCountChange;
+
     public List<SubscriptionParameterData> Parameters { get; set; } = new();
 
     public List<RecipientData> Recipients { get; set; } = new();
+
+    /// <summary>
+    /// Anomaly detection configuration for this subscription
+    /// </summary>
+    public AnomalyConfigData? AnomalyConfig { get; set; }
 }
