@@ -257,6 +257,21 @@
                                         </MudChip>
                                     </MudStack>
                                 </MudPaper>
+
+                                <MudPaper Elevation="0" Class="pa-3" Style="border: 1px solid var(--mud-palette-divider); border-radius: 8px;">
+                                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                                            <MudIcon Icon="@Icons.Material.Filled.NotificationAdd" Color="Color.Primary" />
+                                            <div>
+                                                <MudText Typo="Typo.body2" Style="font-weight: 600;">Send Notification</MudText>
+                                                <MudText Typo="Typo.caption" Color="Color.Secondary">@GetNotificationTriggerDescription()</MudText>
+                                            </div>
+                                        </MudStack>
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Primary">
+                                            @GetNotificationTriggerLabel()
+                                        </MudChip>
+                                    </MudStack>
+                                </MudPaper>
                             </MudStack>
                         </MudItem>
 
@@ -831,6 +846,28 @@
             NotificationStatus.Timeout => Icons.Material.Filled.Error,
             NotificationStatus.NotificationSilenced => Icons.Material.Filled.NotificationsOff,
             _ => Icons.Material.Filled.Circle
+        };
+    }
+
+    private string GetNotificationTriggerLabel()
+    {
+        return Model?.NotificationTrigger switch
+        {
+            NotificationTrigger.OnResultCountChange => "On Change",
+            NotificationTrigger.Always => "Always",
+            NotificationTrigger.OnResultCountIncrease => "On Increase",
+            _ => "Unknown"
+        };
+    }
+
+    private string GetNotificationTriggerDescription()
+    {
+        return Model?.NotificationTrigger switch
+        {
+            NotificationTrigger.OnResultCountChange => "When result count changes",
+            NotificationTrigger.Always => "Every execution",
+            NotificationTrigger.OnResultCountIncrease => "When result count increases",
+            _ => "Unknown trigger"
         };
     }
 }

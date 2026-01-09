@@ -293,7 +293,8 @@
                                   XAxisLabels="@_chartLabels"
                                   Width="100%"
                                   Height="300px"
-                                  ChartOptions="@_successRateOptions" />
+                                  ChartOptions="@_successRateOptions"
+                                  AxisChartOptions="@_successRateAxisOptions" />
                     </MudItem>
                     <MudItem xs="12" md="6">
                         <MudText Typo="Typo.subtitle1" Style="font-weight: 600;" Class="mb-3">Daily Executions</MudText>
@@ -302,7 +303,8 @@
                                   XAxisLabels="@_chartLabels"
                                   Width="100%"
                                   Height="300px"
-                                  ChartOptions="@_executionOptions" />
+                                  ChartOptions="@_executionOptions"
+                                  AxisChartOptions="@_executionAxisOptions" />
                     </MudItem>
                 </MudGrid>
             </MudPaper>
@@ -590,7 +592,9 @@
     private List<ChartSeries> _executionSeriesData = new();
     private string[] _chartLabels = Array.Empty<string>();
     private ChartOptions _successRateOptions = new();
+    private AxisChartOptions _successRateAxisOptions = new();
     private ChartOptions _executionOptions = new();
+    private AxisChartOptions _executionAxisOptions = new();
 
     // Execution time chart fields
     private List<ChartSeries> _executionTimeChartSeries = new();
@@ -662,6 +666,7 @@
             LineStrokeWidth = 3,
             ChartPalette = new[] { Colors.Green.Default }
         };
+        _successRateAxisOptions = ChartHelper.CreateDefaultAxisChartOptions();
 
         _executionOptions = new ChartOptions
         {
@@ -669,6 +674,7 @@
             MaxNumYAxisTicks = 10,
             ChartPalette = new[] { Colors.Green.Default, Colors.Gray.Default }
         };
+        _executionAxisOptions = ChartHelper.CreateDefaultAxisChartOptions();
     }
 
     private void ToggleParameterDetails(int stepId)

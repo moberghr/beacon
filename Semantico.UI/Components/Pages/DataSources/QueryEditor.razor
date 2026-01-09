@@ -1,6 +1,10 @@
 @page "/data-sources/{DataSourceId:int}"
 @inherits BasePageComponent
+@using Semantico.Core
 @using Semantico.Core.Services
+@using Semantico.Core.Services.Ai
+@using Semantico.Core.Data.Entities
+@using Semantico.Core.Data.Enums
 @using Semantico.Core.Models.Metadata
 @using Semantico.Core.Models.DataSources
 @using BlazorMonaco
@@ -65,8 +69,78 @@
                         </MudPaper>
                     </MudItem>
                 </MudGrid>
+
+                @if (_configuration?.UseAI == true && AiDocumentationService != null)
+                {
+                    <MudDivider Class="my-4" />
+                    <div class="d-flex justify-center">
+                        <MudButton Variant="Variant.Filled"
+                                  Color="Color.Primary"
+                                  StartIcon="@Icons.Material.Filled.AutoAwesome"
+                                  OnClick="GenerateDocumentation"
+                                  Size="Size.Large">
+                            Generate AI Documentation
+                        </MudButton>
+                    </div>
+                }
             </MudCardContent>
         </MudCard>
+
+        <!-- AI Documentation History -->
+        @if (_configuration?.UseAI == true && AiDocumentationService != null && _documentations?.Count > 0)
+        {
+            <MudCard Elevation="2" Class="mb-4">
+                <MudCardHeader>
+                    <CardHeaderContent>
+                        <MudText Typo="Typo.h6">
+                            <MudIcon Icon="@Icons.Material.Filled.AutoAwesome" Class="mr-2" />
+                            AI Documentation History
+                        </MudText>
+                    </CardHeaderContent>
+                </MudCardHeader>
+                <MudCardContent>
+                    <MudTable Items="@_documentations" Hover="true" Dense="true" Striped="true">
+                        <HeaderContent>
+                            <MudTh>Title</MudTh>
+                            <MudTh>Generated</MudTh>
+                            <MudTh>Tables</MudTh>
+                            <MudTh>Model</MudTh>
+                            <MudTh>Status</MudTh>
+                            <MudTh>Actions</MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd DataLabel="Title">@context.Title</MudTd>
+                            <MudTd DataLabel="Generated">@context.GeneratedAt.ToString("g")</MudTd>
+                            <MudTd DataLabel="Tables">@context.TablesAnalyzed</MudTd>
+                            <MudTd DataLabel="Model">@context.GeneratedByModel</MudTd>
+                            <MudTd DataLabel="Status">
+                                <MudChip T="string" Size="Size.Small" Color="@GetStatusColor(context.Status)">
+                                    @context.Status
+                                </MudChip>
+                            </MudTd>
+                            <MudTd DataLabel="Actions">
+                                <MudIconButton Icon="@Icons.Material.Filled.Visibility"
+                                              Color="Color.Primary"
+                                              Size="Size.Small"
+                                              Href="@($"data-sources/{DataSourceId}/documentation/{context.Id}")"
+                                              Title="View Documentation"/>
+                                <MudMenu Icon="@Icons.Material.Filled.MoreVert" Size="Size.Small">
+                                    <MudMenuItem Icon="@Icons.Material.Filled.FileDownload" OnClick="@(() => ExportMarkdown(context.Id))">
+                                        Export Markdown
+                                    </MudMenuItem>
+                                    <MudMenuItem Icon="@Icons.Material.Filled.FileDownload" OnClick="@(() => ExportHtml(context.Id))">
+                                        Export HTML
+                                    </MudMenuItem>
+                                    <MudMenuItem Icon="@Icons.Material.Filled.PictureAsPdf" OnClick="@(() => ExportPdf(context.Id))">
+                                        Export PDF
+                                    </MudMenuItem>
+                                </MudMenu>
+                            </MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                </MudCardContent>
+            </MudCard>
+        }
 
         <!-- Query Editor -->
         <MudCard Elevation="2" Class="mb-4">
@@ -186,10 +260,15 @@
 @inject NavigationManager Navigation
 @inject ISnackbar Snackbar
 @inject IJSRuntime JSRuntime
+@inject IDialogService DialogService
+@inject SemanticoConfiguration _configuration
 
 @code {
     [Parameter]
     public int DataSourceId { get; set; }
+
+    [Inject]
+    private IAiDocumentationService? AiDocumentationService { get; set; }
 
     private StandaloneCodeEditor? _editor;
     private DatabaseMetadataSnapshot? _metadata;
@@ -205,12 +284,10 @@
     private string _currentQuery = "";
     private bool _completionProviderRegistered = false;
     private bool _monacoReady = false;
+    private List<DataSourceDocumentation>? _documentations;
 
     protected override async Task OnInitializedAsync()
     {
-        // Wait for Monaco to be ready before rendering the editor
-        _monacoReady = await WaitForMonacoAsync();
-
         try
         {
             _loading = true;
@@ -232,6 +309,13 @@
 
             // Load metadata
             _metadata = await MetadataService.GetMetadataAsync(DataSourceId);
+
+            // Load AI documentation history if AI is enabled
+            if (_configuration?.UseAI == true && AiDocumentationService != null)
+            {
+                _documentations = await AiDocumentationService.GetDocumentationsAsync(DataSourceId);
+            }
+
             _error = null;
         }
         catch (Exception ex)
@@ -241,6 +325,16 @@
         finally
         {
             _loading = false;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // Wait for Monaco to be ready after first render (JS interop is now available)
+            _monacoReady = await WaitForMonacoAsync();
+            StateHasChanged(); // Re-render to show the editor
         }
     }
 
@@ -279,20 +373,16 @@
                 var isReady = await JSRuntime.InvokeAsync<bool>("eval",
                     "typeof monaco !== 'undefined' && typeof blazorMonaco !== 'undefined' && typeof blazorMonaco.editor !== 'undefined' && typeof blazorMonaco.editor.create !== 'undefined'");
                 if (isReady)
-                {
-                    Console.WriteLine($"QueryEditor: BlazorMonaco is ready (attempt {i + 1})");
                     return true;
-                }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Console.WriteLine($"QueryEditor: BlazorMonaco check failed (attempt {i + 1}): {ex.Message}");
+                // Suppress individual attempt errors during initialization
             }
 
             await Task.Delay(delayMs);
         }
 
-        Console.WriteLine($"QueryEditor: BlazorMonaco not ready after {maxAttempts} attempts");
         return false;
     }
 
@@ -300,23 +390,14 @@
     {
         try
         {
-            var success = await JSRuntime.InvokeAsync<bool>(
+            await JSRuntime.InvokeAsync<bool>(
                 "semanticoSqlEditor.enableDropOnEditor",
                 "query-editor"
             );
-
-            if (success)
-            {
-                Console.WriteLine("Drop enabled on Monaco editor");
-            }
-            else
-            {
-                Console.WriteLine("Failed to enable drop on Monaco editor");
-            }
         }
-        catch (Exception ex)
+        catch
         {
-            Console.WriteLine($"Error enabling drop on editor: {ex.Message}");
+            // Silently fail if drop functionality cannot be enabled
         }
     }
 
@@ -524,5 +605,121 @@
                 // Silently ignore insert errors
             }
         }
+    }
+
+    private async Task GenerateDocumentation()
+    {
+        if (AiDocumentationService == null)
+        {
+            Snackbar.Add("AI service not available. Please configure LLM settings.", Severity.Error);
+            return;
+        }
+
+        var options = new DialogOptions
+        {
+            MaxWidth = MaxWidth.Medium,
+            FullWidth = true
+        };
+
+        var parameters = new DialogParameters<GenerateDocumentationDialog>
+        {
+            { x => x.DataSourceId, DataSourceId }
+        };
+
+        var dialog = await DialogService.ShowAsync<GenerateDocumentationDialog>("", parameters, options);
+
+        var result = await dialog.Result;
+
+        if (!result!.Canceled)
+        {
+            // Reload documentations
+            if (_configuration?.UseAI == true && AiDocumentationService != null)
+            {
+                _documentations = await AiDocumentationService.GetDocumentationsAsync(DataSourceId);
+            }
+            Snackbar.Add("Documentation generated successfully!", Severity.Success);
+        }
+    }
+
+    private Color GetStatusColor(DocumentationStatus status)
+    {
+        return status switch
+        {
+            DocumentationStatus.Draft => Color.Default,
+            DocumentationStatus.Published => Color.Success,
+            _ => Color.Default
+        };
+    }
+
+    private async Task ExportMarkdown(int documentationId)
+    {
+        if (AiDocumentationService == null)
+        {
+            Snackbar.Add("AI service not available", Severity.Error);
+            return;
+        }
+
+        try
+        {
+            var markdown = await AiDocumentationService.ExportToMarkdownAsync(documentationId);
+            await DownloadFile($"documentation-{documentationId}.md", markdown, "text/markdown");
+            Snackbar.Add("Markdown exported successfully", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to export markdown: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task ExportHtml(int documentationId)
+    {
+        if (AiDocumentationService == null)
+        {
+            Snackbar.Add("AI service not available", Severity.Error);
+            return;
+        }
+
+        try
+        {
+            var html = await AiDocumentationService.ExportToHtmlAsync(documentationId);
+            await DownloadFile($"documentation-{documentationId}.html", html, "text/html");
+            Snackbar.Add("HTML exported successfully", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to export HTML: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task ExportPdf(int documentationId)
+    {
+        if (AiDocumentationService == null)
+        {
+            Snackbar.Add("AI service not available", Severity.Error);
+            return;
+        }
+
+        try
+        {
+            var pdf = await AiDocumentationService.ExportToPdfAsync(documentationId);
+            await DownloadFile($"documentation-{documentationId}.pdf", pdf, "application/pdf");
+            Snackbar.Add("PDF exported successfully", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to export PDF: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task DownloadFile(string fileName, string content, string contentType)
+    {
+        var bytes = System.Text.Encoding.UTF8.GetBytes(content);
+        await DownloadFile(fileName, bytes, contentType);
+    }
+
+    private async Task DownloadFile(string fileName, byte[] bytes, string contentType)
+    {
+        var base64 = Convert.ToBase64String(bytes);
+        await JSRuntime.InvokeVoidAsync("downloadFile", fileName, base64, contentType);
     }
 }

@@ -61,6 +61,18 @@
                 HelperText="Automatically create and update a task for this subscription on each execution"
                 Class="mb-2" />
 
+            <MudSelect T="NotificationTrigger"
+                @bind-Value="Subscription.NotificationTrigger"
+                Label="Send Notification"
+                Variant="Variant.Outlined"
+                Margin="Margin.Dense"
+                HelperText="Controls when notifications should be sent for this subscription"
+                Class="mb-2">
+                <MudSelectItem Value="NotificationTrigger.OnResultCountChange">When result count changes</MudSelectItem>
+                <MudSelectItem Value="NotificationTrigger.Always">Always (every execution)</MudSelectItem>
+                <MudSelectItem Value="NotificationTrigger.OnResultCountIncrease">When result count increases</MudSelectItem>
+            </MudSelect>
+
             <MudExpansionPanels Class="mb-3">
                 <MudExpansionPanel Text="Anomaly Detection" IsExpanded="@_anomalyDetectionEnabled">
                     <TitleContent>
