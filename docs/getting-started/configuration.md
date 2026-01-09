@@ -82,7 +82,245 @@ options.BaseUrl = builder.Configuration["Semantico:BaseUrl"];
 ```json
 {
   "Semantico": {
-    "BaseUrl": "https://yourdomain.com/semantico"
+    "BaseUrl": "https://yourdomain.com/semantico",
+    "EncryptionKey": "your-secure-32-character-key-here"
+  }
+}
+```
+
+## Encryption Key Configuration ⚠️ REQUIRED
+
+The `EncryptionKey` is **required** for encrypting sensitive data like database connection strings.
+
+### Generate a Secure Key
+
+```bash
+openssl rand -base64 32
+```
+
+This generates a cryptographically secure 32-character random key suitable for AES-256 encryption.
+
+### Configuration
+
+```json
+{
+  "Semantico": {
+    "EncryptionKey": "k8J3m9Lp2Nq5Rt8Vw1Yz4Bc7Df0Gh3Jk6=="
+  }
+}
+```
+
+### Security Best Practices
+
+⚠️ **Never commit encryption keys to source control**
+
+**Development:**
+```json
+{
+  "Semantico": {
+    "EncryptionKey": "DevKey_OnlyForLocalDevelopment_ChangeInProd!"
+  }
+}
+```
+
+**Production - Use Environment Variables:**
+```json
+{
+  "Semantico": {
+    "EncryptionKey": "${SEMANTICO_ENCRYPTION_KEY}"
+  }
+}
+```
+
+Then set the environment variable:
+```bash
+export SEMANTICO_ENCRYPTION_KEY="your-production-key-here"
+```
+
+**Production - Use Azure Key Vault:**
+```csharp
+var keyVaultEndpoint = new Uri(Environment.GetEnvironmentVariable("VaultUri"));
+var secretClient = new SecretClient(keyVaultEndpoint, new DefaultAzureCredential());
+var secret = await secretClient.GetSecretAsync("SemanticoEncryptionKey");
+builder.Configuration["Semantico:EncryptionKey"] = secret.Value.Value;
+```
+
+### What Gets Encrypted
+
+The encryption key is used to encrypt:
+- Data source connection strings (stored in database)
+- Other sensitive configuration values (as needed)
+
+### Error if Missing
+
+If the encryption key is not configured, Semantico will throw an exception on startup:
+
+```
+InvalidOperationException: Semantico:EncryptionKey must be configured.
+Generate a secure key with: openssl rand -base64 32
+Then add to appsettings.json: { "Semantico": { "EncryptionKey": "your-generated-key" } }
+```
+
+## AI/LLM Configuration (Optional - Experimental)
+
+{: .warning }
+> **⚠️ Experimental Feature:** AI-powered features are experimental and may produce incorrect results. Configure only if you understand the limitations and will validate all AI-generated content.
+
+Configure LLM providers for AI-powered features like documentation generation and natural language alert creation.
+
+### Supported Providers
+
+- **OpenAI**: gpt-4o (recommended), gpt-4
+- **Anthropic Claude**: claude-3-5-sonnet-20241022 (recommended)
+- **Azure OpenAI**: Latest models only
+
+{: .note }
+> Use latest models only. Older models (gpt-3.5-turbo, claude-3-opus) are not recommended.
+
+### Basic Configuration
+
+```json
+{
+  "Semantico": {
+    "LLM": {
+      "Provider": "OpenAI",
+      "ApiKey": "sk-your-api-key-here",
+      "Model": "gpt-4o"
+    }
+  }
+}
+```
+
+### Complete Configuration
+
+```json
+{
+  "Semantico": {
+    "LLM": {
+      "Provider": "OpenAI",
+      "ApiKey": "sk-your-api-key-here",
+      "Model": "gpt-4o",
+      "BaseUrl": "https://api.openai.com/v1",
+      "Limits": {
+        "MaxConcurrentRequests": 5,
+        "RequestsPerMinute": 60,
+        "MaxTokensPerRequest": 4000
+      }
+    }
+  }
+}
+```
+
+### OpenAI Configuration
+
+```json
+{
+  "Semantico": {
+    "LLM": {
+      "Provider": "OpenAI",
+      "ApiKey": "sk-...",
+      "Model": "gpt-4o",
+      "BaseUrl": "https://api.openai.com/v1"
+    }
+  }
+}
+```
+
+**Recommended model:**
+- `gpt-4o` - Best balance of cost and performance (use this)
+
+**Alternative:**
+- `gpt-4` - Higher quality, more expensive
+
+### Anthropic Claude Configuration
+
+```json
+{
+  "Semantico": {
+    "LLM": {
+      "Provider": "Anthropic",
+      "ApiKey": "sk-ant-...",
+      "Model": "claude-3-5-sonnet-20241022",
+      "BaseUrl": "https://api.anthropic.com"
+    }
+  }
+}
+```
+
+**Recommended model:**
+- `claude-3-5-sonnet-20241022` - Best overall (use this)
+
+### Azure OpenAI Configuration
+
+```json
+{
+  "Semantico": {
+    "LLM": {
+      "Provider": "AzureOpenAI",
+      "ApiKey": "your-azure-key",
+      "Model": "your-deployment-name",
+      "BaseUrl": "https://your-resource.openai.azure.com"
+    }
+  }
+}
+```
+
+### Rate Limiting
+
+Control API usage and costs with rate limits:
+
+```json
+{
+  "Semantico": {
+    "LLM": {
+      "Limits": {
+        "MaxConcurrentRequests": 5,
+        "RequestsPerMinute": 60,
+        "MaxTokensPerRequest": 4000
+      }
+    }
+  }
+}
+```
+
+| Setting | Description | Default | Recommended |
+|---------|-------------|---------|-------------|
+| `MaxConcurrentRequests` | Max parallel AI requests | 5 | 3-10 based on tier |
+| `RequestsPerMinute` | Rate limit per minute | 60 | Match provider tier |
+| `MaxTokensPerRequest` | Max tokens per request | 4000 | 4000-8000 |
+
+### Cost Estimation
+
+Typical costs per operation:
+
+| Operation | Tokens | OpenAI (gpt-4o) | Anthropic (Claude 3.5) |
+|-----------|--------|-----------------|------------------------|
+| Small doc generation (10 tables) | ~2,500 | $0.02 | $0.01 |
+| Large doc generation (50 tables) | ~8,000 | $0.06 | $0.04 |
+| Alert query generation | ~1,000 | $0.01 | $0.01 |
+
+### Environment-Specific Configuration
+
+**Development:**
+```json
+{
+  "Semantico": {
+    "LLM": {
+      "Provider": "OpenAI",
+      "ApiKey": "sk-dev-key-here",
+      "Model": "gpt-4o"  // Use same model as production
+    }
+  }
+}
+```
+
+**Production - Use Environment Variables:**
+```json
+{
+  "Semantico": {
+    "LLM": {
+      "ApiKey": "${LLM_API_KEY}"
+    }
   }
 }
 ```
