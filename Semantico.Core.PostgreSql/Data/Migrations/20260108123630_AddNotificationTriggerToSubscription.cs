@@ -16,7 +16,7 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                 table: "subscriptions",
                 type: "integer",
                 nullable: false,
-                defaultValue: 0);
+                defaultValue: 1);
         }
 
         /// <inheritdoc />
