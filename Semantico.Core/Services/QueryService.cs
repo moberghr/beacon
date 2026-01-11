@@ -377,9 +377,9 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
 
         result.NotificationHistory = notificationHistory;
 
-        // Get execution time statistics for this query (all subscriptions)
+        // Get execution time statistics for this query (all subscriptions, only successful executions)
         var executionTimeStats = await context.QueryExecutionHistory
-            .Where(x => x.Subscription.QueryId == queryId)
+            .Where(x => x.Subscription.QueryId == queryId && x.ExecutionTimeMs > 0)
             .GroupBy(x => 1)
             .Select(g => new
             {
@@ -389,9 +389,9 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
             })
             .FirstOrDefaultAsync(cancellationToken);
 
-        // Get execution time history (last 30 days, grouped by date)
+        // Get execution time history (last 30 days, grouped by date, only successful executions)
         var executionTimeHistory = await context.QueryExecutionHistory
-            .Where(x => x.Subscription.QueryId == queryId && x.CreatedTime >= cutoffDate)
+            .Where(x => x.Subscription.QueryId == queryId && x.CreatedTime >= cutoffDate && x.ExecutionTimeMs > 0)
             .GroupBy(x => x.CreatedTime.Date)
             .Select(g => new ExecutionTimeDataPoint
             {

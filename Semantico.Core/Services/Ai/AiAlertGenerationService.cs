@@ -105,31 +105,8 @@ public class AiAlertGenerationService : IAiAlertGenerationService
         };
 
         // Save conversation history
-        var conversationEntry = new AiConversationHistory
-        {
-            AiAlertConfigurationId = alertConfig.Id,
-            TurnNumber = 1,
-            Role = ConversationRole.User,
-            MessageContent = naturalLanguageDescription,
-            TokensUsed = response.InputTokens,
-            Model = response.Model,
-            Timestamp = DateTime.UtcNow
-        };
-
-        alertConfig.ConversationHistory.Add(conversationEntry);
-
-        var assistantEntry = new AiConversationHistory
-        {
-            AiAlertConfigurationId = alertConfig.Id,
-            TurnNumber = 2,
-            Role = ConversationRole.Assistant,
-            MessageContent = response.Content,
-            TokensUsed = response.OutputTokens,
-            Model = response.Model,
-            Timestamp = DateTime.UtcNow
-        };
-
-        alertConfig.ConversationHistory.Add(assistantEntry);
+        AddConversationTurn(alertConfig, ConversationRole.User, naturalLanguageDescription, response.InputTokens, response.Model, 1);
+        AddConversationTurn(alertConfig, ConversationRole.Assistant, response.Content, response.OutputTokens, response.Model, 2);
 
         // Save to database
         context.AiAlertConfigurations.Add(alertConfig);
@@ -190,28 +167,8 @@ public class AiAlertGenerationService : IAiAlertGenerationService
 
         // Add conversation entries
         var nextTurn = alertConfig.ConversationHistory.Max(h => h.TurnNumber) + 1;
-
-        alertConfig.ConversationHistory.Add(new AiConversationHistory
-        {
-            AiAlertConfigurationId = alertConfigurationId,
-            TurnNumber = nextTurn,
-            Role = ConversationRole.User,
-            MessageContent = userFeedback,
-            TokensUsed = response.InputTokens,
-            Model = response.Model,
-            Timestamp = DateTime.UtcNow
-        });
-
-        alertConfig.ConversationHistory.Add(new AiConversationHistory
-        {
-            AiAlertConfigurationId = alertConfigurationId,
-            TurnNumber = nextTurn + 1,
-            Role = ConversationRole.Assistant,
-            MessageContent = response.Content,
-            TokensUsed = response.OutputTokens,
-            Model = response.Model,
-            Timestamp = DateTime.UtcNow
-        });
+        AddConversationTurn(alertConfig, ConversationRole.User, userFeedback, response.InputTokens, response.Model, nextTurn);
+        AddConversationTurn(alertConfig, ConversationRole.Assistant, response.Content, response.OutputTokens, response.Model, nextTurn + 1);
 
         await context.SaveChangesAsync(cancellationToken);
 
@@ -324,6 +281,26 @@ public class AiAlertGenerationService : IAiAlertGenerationService
 
         // If no code block found, return the whole response trimmed
         return response.Trim();
+    }
+
+    private void AddConversationTurn(
+        AiAlertConfiguration config,
+        ConversationRole role,
+        string content,
+        int tokens,
+        string model,
+        int turnNumber)
+    {
+        config.ConversationHistory.Add(new AiConversationHistory
+        {
+            AiAlertConfigurationId = config.Id,
+            TurnNumber = turnNumber,
+            Role = role,
+            MessageContent = content,
+            TokensUsed = tokens,
+            Model = model,
+            Timestamp = DateTime.UtcNow
+        });
     }
 
     private async Task TrackUsageAsync(
