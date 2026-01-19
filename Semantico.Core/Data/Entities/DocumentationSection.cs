@@ -14,8 +14,6 @@ public class DocumentationSection : BaseEntity
     public string? UserEditedContent { get; set; }
     public bool IsUserEdited { get; set; }
     public ContentFormat ContentFormat { get; set; }
-    public DateTime CreatedAt { get; set; }
-    public DateTime ModifiedAt { get; set; }
     public string CreatedBy { get; set; } = null!;
     public string ModifiedBy { get; set; } = null!;
 

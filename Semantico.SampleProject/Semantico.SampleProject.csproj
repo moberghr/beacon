@@ -4,11 +4,12 @@
         <TargetFramework>net9.0</TargetFramework>
         <Nullable>enable</Nullable>
         <ImplicitUsings>enable</ImplicitUsings>
+        <UserSecretsId>83bd5adc-17be-4915-a4f0-b44dac7e11e5</UserSecretsId>
     </PropertyGroup>
 
     <ItemGroup>
         <PackageReference Include="Blazored.LocalStorage" Version="4.5.0" />
-        <PackageReference Include="Hangfire" Version="1.8.17" />
+        <PackageReference Include="Hangfire" Version="1.8.22" />
         <PackageReference Include="Hangfire.PostgreSql" Version="1.20.12" />
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.11" />
         <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.11">
@@ -19,9 +20,8 @@
     </ItemGroup>
 
     <ItemGroup>
-      <ProjectReference Include="..\Semantico.Core.SqlServer\Semantico.Core.SqlServer.csproj"/>
+      <ProjectReference Include="..\Semantico.Core.SqlServer\Semantico.Core.SqlServer.csproj" />
       <ProjectReference Include="..\Semantico.Core\Semantico.Core.csproj" />
-      <ProjectReference Include="..\Semantico.UI.AspNet\Semantico.UI.AspNet.csproj" />
       <ProjectReference Include="..\Semantico.UI\Semantico.UI.csproj" />
       <ProjectReference Include="..\Semantico.Core.PostgreSql\Semantico.Core.PostgreSql.csproj" />
     </ItemGroup>

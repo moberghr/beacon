@@ -1,23 +1,42 @@
 using Blazored.LocalStorage;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Components;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 using MudBlazor.Services;
 using Semantico.Core;
-using Semantico.UI.AspNet.Authentication;
+using Semantico.Core.PostgreSql;
+using Semantico.Core.SqlServer;
+using Semantico.UI.Authentication;
 using Semantico.UI.Components;
 using Semantico.UI.Components.Shared;
 
-namespace Semantico.UI.AspNet;
+namespace Semantico.UI;
 
-public static class Helpers
+public static class ServiceExtensions
 {
-    public static IServiceCollection AddSemanticoAdmin(this IServiceCollection services, IConfiguration configuration, Action<SemanticoConfiguration> semanticoConfiguration)
+    public static IServiceCollection AddSemantico(this IServiceCollection services, IConfiguration configuration, Action<SemanticoConfiguration> semanticoConfiguration)
     {
         var configurationOptions = new SemanticoConfiguration();
         semanticoConfiguration(configurationOptions);
+        configurationOptions.Validate();
 
-        services.AddSemantico(configuration, semanticoConfiguration);
+        // Register database provider based on configuration
+        switch (configurationOptions.DatabaseProvider)
+        {
+            case DatabaseProviderType.PostgreSql:
+                services.AddPostgreSqlSemantico(configurationOptions.ConnectionString!, configurationOptions.Schema);
+                break;
+            case DatabaseProviderType.SqlServer:
+                services.AddSqlServerSemantico(configurationOptions.ConnectionString!, configurationOptions.Schema);
+                break;
+            default:
+                throw new InvalidOperationException($"Unsupported database provider: {configurationOptions.DatabaseProvider}");
+        }
+
+        services.AddSemanticoCore(configuration, semanticoConfiguration);
 
         services.AddRazorComponents().AddInteractiveServerComponents();
         services.AddMudServices();
@@ -84,6 +103,16 @@ public class SemanticoUIBuilder
         basePath = basePath ?? "/semantico";
 
         ServiceConfiguration.UseSemantico(_app.Services);
+
+        // Enable static files globally to serve _content files from Razor Class Library
+        if (!_app.Environment.IsDevelopment())
+        {
+            // In production, check if static files middleware is already added
+            // This is a workaround since we can't reliably detect if middleware is already added
+        }
+
+        // Note: UseStaticFiles should be called on the main app before Map
+        // to ensure _content files from RCL are available
 
         // Create a separate pipeline branch for Semantico UI
         _app.Map(basePath, semanticoApp =>

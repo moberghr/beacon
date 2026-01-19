@@ -21,6 +21,8 @@ public interface IDataSourceService
     Task<List<DataSourceListData>> GetDataSources(int? dataSourceId, CancellationToken cancellationToken);
 
     Task<AdHocQueryResult> ExecuteAdHocQuery(int dataSourceId, string query, CancellationToken cancellationToken);
+
+    Task<BaseResponse> TestConnection(string connectionString, Data.Enums.DatabaseEngineType databaseEngineType, CancellationToken cancellationToken);
 }
 
 internal class DataSourceService(
@@ -193,6 +195,30 @@ internal class DataSourceService(
                 Columns = new List<string>(),
                 Rows = new List<Dictionary<string, object?>>(),
                 RowCount = 0
+            };
+        }
+    }
+
+    public async Task<BaseResponse> TestConnection(string connectionString, Data.Enums.DatabaseEngineType databaseEngineType, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var connection = DbConnectionFactory.CreateConnection(databaseEngineType, connectionString);
+            await connection.OpenAsync(cancellationToken);
+            await connection.CloseAsync();
+
+            return new BaseResponse
+            {
+                Success = true,
+                Message = "Connection successful"
+            };
+        }
+        catch (Exception ex)
+        {
+            return new BaseResponse
+            {
+                Success = false,
+                Message = $"Connection failed: {ex.Message}"
             };
         }
     }

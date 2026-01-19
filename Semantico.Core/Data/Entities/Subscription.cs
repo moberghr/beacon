@@ -11,6 +11,13 @@ public class Subscription : ArchivableBaseEntity
     
     public int? MaxRows { get; set; }
 
+    /// <summary>
+    /// Minimum row count threshold for sending notifications.
+    /// If set, notifications will only be sent if the query result count is greater than or equal to this value.
+    /// This filter is applied independently of the NotificationTrigger setting.
+    /// </summary>
+    public int? MinimumRowCount { get; set; }
+
     public bool IncludeAttachment { get; set; } = true;
 
     public FileType? ResultAttachmentType { get; set; }

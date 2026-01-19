@@ -44,7 +44,7 @@ internal class StatisticsService(IDbContextFactory<SemanticoContext> contextFact
                 Description = $"Query '{h.Subscription.Query.Name}' executed",
                 Timestamp = h.CreatedTime,
                 Icon = "Search",
-                Link = $"/semantico/subscriptions/{h.SubscriptionId}",
+                Link = $"subscriptions/{h.SubscriptionId}",
                 Status = h.NotificationStatus == NotificationStatus.NotificationSent ? "Notification Sent" : null
             })
             .ToListAsync(cancellationToken);
@@ -58,7 +58,7 @@ internal class StatisticsService(IDbContextFactory<SemanticoContext> contextFact
                 Description = $"Anomaly detected in subscription '{a.Subscription.Query.Name}'",
                 Timestamp = a.DetectedTime,
                 Icon = "Warning",
-                Link = $"/semantico/subscriptions/{a.SubscriptionId}",
+                Link = $"subscriptions/{a.SubscriptionId}",
                 Status = a.Severity
             })
             .ToListAsync(cancellationToken);

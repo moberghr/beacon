@@ -1,0 +1,309 @@
+@using Semantico.Core.Handlers.Ai.DocumentationAgent
+@using Semantico.Core.Data.Entities
+@using Semantico.Core.Services.Ai.DocumentationAgent.Models
+@using MediatR
+@using System.Timers
+@implements IDisposable
+
+@if (_progress == null)
+{
+    <MudProgressLinear Color="Color.Primary" Indeterminate="true" Class="my-2" />
+}
+else
+{
+    <MudCard Elevation="2" Class="my-4">
+        <MudCardHeader>
+            <CardHeaderContent>
+                <MudText Typo="Typo.h6">
+                    <MudIcon Icon="@GetPhaseIcon(_progress.CurrentPhase)" Size="Size.Small" Class="mr-2" />
+                    @GetPhaseName(_progress.CurrentPhase)
+                </MudText>
+            </CardHeaderContent>
+            <CardHeaderActions>
+                @if (_progress.IsRunning)
+                {
+                    <MudChip T="string" Color="Color.Primary" Size="Size.Small">Running</MudChip>
+                }
+                else if (_progress.IsCompleted)
+                {
+                    <MudChip T="string" Color="Color.Success" Size="Size.Small">Completed</MudChip>
+                }
+                else if (_progress.IsFailed)
+                {
+                    <MudChip T="string" Color="Color.Error" Size="Size.Small">Failed</MudChip>
+                }
+                else
+                {
+                    <MudChip T="string" Color="Color.Default" Size="Size.Small">@_progress.Status.ToString()</MudChip>
+                }
+            </CardHeaderActions>
+        </MudCardHeader>
+        <MudCardContent>
+            <MudProgressLinear
+                Color="@GetProgressColor()"
+                Value="@_progress.ProgressPercent"
+                Class="my-2"
+                Striped="@_progress.IsRunning"
+            />
+
+            <MudText Typo="Typo.body2" Class="mt-2">
+                @_progress.ProgressMessage
+            </MudText>
+
+            @if (_progress.TotalTables > 0)
+            {
+                <MudGrid Class="mt-4">
+                    <MudItem xs="4">
+                        <MudPaper Elevation="0" Class="pa-2">
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">Total Tables</MudText>
+                            <MudText Typo="Typo.h6">@_progress.TotalTables</MudText>
+                        </MudPaper>
+                    </MudItem>
+                    <MudItem xs="4">
+                        <MudPaper Elevation="0" Class="pa-2">
+                            <MudText Typo="Typo.caption" Color="Color.Success">Completed</MudText>
+                            <MudText Typo="Typo.h6">@_progress.TablesCompleted</MudText>
+                        </MudPaper>
+                    </MudItem>
+                    <MudItem xs="4">
+                        <MudPaper Elevation="0" Class="pa-2">
+                            <MudText Typo="Typo.caption" Color="Color.Error">Failed</MudText>
+                            <MudText Typo="Typo.h6">@_progress.TablesFailed</MudText>
+                        </MudPaper>
+                    </MudItem>
+                </MudGrid>
+            }
+
+            @if (_progress.IsCompleted && _progress.DocumentationId.HasValue)
+            {
+                <MudButton
+                    Variant="Variant.Filled"
+                    Color="Color.Primary"
+                    StartIcon="@Icons.Material.Filled.Description"
+                    Class="mt-4"
+                    OnClick="@ViewDocumentation"
+                >
+                    View Documentation
+                </MudButton>
+            }
+
+            @if (_progress.IsFailed && !string.IsNullOrEmpty(_progress.LastError))
+            {
+                <MudAlert Severity="Severity.Error" Class="mt-4" Dense="true">
+                    @_progress.LastError
+                </MudAlert>
+            }
+
+            @if (_progress.FailedTables.Count > 0)
+            {
+                <MudExpansionPanels Class="mt-4">
+                    <MudExpansionPanel Text="@($"Failed Tables ({_progress.FailedTables.Count})")" MaxHeight="400">
+                        <MudList T="string" Dense="true">
+                            @foreach (var failure in _progress.FailedTables)
+                            {
+                                <MudListItem T="string">
+                                    <div>
+                                        <MudText Typo="Typo.body2">
+                                            <strong>@failure.TableName</strong>
+                                        </MudText>
+                                        <MudText Typo="Typo.caption" Color="Color.Error">
+                                            @failure.ErrorMessage
+                                        </MudText>
+                                        <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                            Retry attempts: @failure.RetryCount | Last attempt: @failure.LastAttempt.ToLocalTime().ToString("g")
+                                        </MudText>
+                                    </div>
+                                </MudListItem>
+                            }
+                        </MudList>
+                    </MudExpansionPanel>
+                </MudExpansionPanels>
+            }
+
+            @if (_progress.TotalTokensUsed > 0)
+            {
+                <MudText Typo="Typo.caption" Class="mt-4" Color="Color.Secondary">
+                    Tokens used: @_progress.TotalTokensUsed.ToString("N0") | Est. cost: $@_progress.EstimatedCost.ToString("F4")
+                </MudText>
+            }
+
+            <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-2">
+                Started: @_progress.StartedAt.ToLocalTime().ToString("g")
+                @if (_progress.CompletedAt.HasValue)
+                {
+                    <text> | Completed: @_progress.CompletedAt.Value.ToLocalTime().ToString("g")</text>
+                }
+            </MudText>
+        </MudCardContent>
+        <MudCardActions>
+            @if (_progress.IsRunning)
+            {
+                <MudButton
+                    StartIcon="@Icons.Material.Filled.Cancel"
+                    OnClick="@CancelAgent"
+                    Color="Color.Error"
+                    Variant="Variant.Text"
+                >
+                    Cancel
+                </MudButton>
+            }
+            @if (_progress.TablesFailed > 0 && !_progress.IsRunning)
+            {
+                <MudButton
+                    StartIcon="@Icons.Material.Filled.Refresh"
+                    OnClick="@RetryFailed"
+                    Color="Color.Warning"
+                    Variant="Variant.Text"
+                >
+                    Retry Failed Tables
+                </MudButton>
+            }
+        </MudCardActions>
+    </MudCard>
+}
+
+@inject IMediator Mediator
+@inject ISnackbar Snackbar
+@inject NavigationManager Navigation
+
+@code
+{
+    [Parameter]
+    public int AgentRunId { get; set; }
+
+    [Parameter]
+    public EventCallback OnCompleted { get; set; }
+
+    private Timer? _pollTimer;
+    private DocumentationAgentProgressResult? _progress;
+    private bool _disposed;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadProgress();
+        StartPolling();
+    }
+
+    private void StartPolling()
+    {
+        _pollTimer = new Timer(3000); // Poll every 3 seconds
+        _pollTimer.Elapsed += async (sender, e) => await PollProgress();
+        _pollTimer.AutoReset = true;
+        _pollTimer.Start();
+    }
+
+    private async Task PollProgress()
+    {
+        if (_disposed || _progress?.IsCompleted == true || _progress?.IsFailed == true)
+        {
+            StopPolling();
+            return;
+        }
+
+        await LoadProgress();
+    }
+
+    private async Task LoadProgress()
+    {
+        try
+        {
+            var query = new GetDocumentationAgentProgressQuery { AgentRunId = AgentRunId };
+            _progress = await Mediator.Send(query);
+
+            await InvokeAsync(StateHasChanged);
+
+            if (_progress?.IsCompleted == true)
+            {
+                StopPolling();
+                await OnCompleted.InvokeAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading progress: {ex.Message}");
+        }
+    }
+
+    private void StopPolling()
+    {
+        _pollTimer?.Stop();
+        _pollTimer?.Dispose();
+        _pollTimer = null;
+    }
+
+    private async Task CancelAgent()
+    {
+        try
+        {
+            var command = new CancelDocumentationAgentCommand { AgentRunId = AgentRunId };
+            await Mediator.Send(command);
+            Snackbar.Add("Agent cancelled", Severity.Info);
+            await LoadProgress();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to cancel: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task RetryFailed()
+    {
+        try
+        {
+            var command = new Semantico.Core.Handlers.Ai.DocumentationAgent.RetryFailedTablesCommand
+            {
+                AgentRunId = AgentRunId
+            };
+            var result = await Mediator.Send(command);
+            Snackbar.Add($"Retrying {result.FailedTableCount} failed tables...", Severity.Info);
+            await LoadProgress();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to retry: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private void ViewDocumentation()
+    {
+        if (_progress?.DocumentationId.HasValue == true)
+        {
+            Navigation.NavigateTo($"data-sources/{_progress.DataSourceId}/documentation/{_progress.DocumentationId.Value}");
+        }
+    }
+
+    private static string GetPhaseName(DocumentationAgentPhase phase) => phase switch
+    {
+        DocumentationAgentPhase.NotStarted => "Not Started",
+        DocumentationAgentPhase.Discovery => "Schema Discovery",
+        DocumentationAgentPhase.TableDocumentation => "Documenting Tables",
+        DocumentationAgentPhase.Synthesis => "Generating Overview",
+        DocumentationAgentPhase.Completed => "Completed",
+        DocumentationAgentPhase.Failed => "Failed",
+        _ => phase.ToString()
+    };
+
+    private static string GetPhaseIcon(DocumentationAgentPhase phase) => phase switch
+    {
+        DocumentationAgentPhase.Discovery => Icons.Material.Filled.Search,
+        DocumentationAgentPhase.TableDocumentation => Icons.Material.Filled.TableChart,
+        DocumentationAgentPhase.Synthesis => Icons.Material.Filled.AutoAwesome,
+        DocumentationAgentPhase.Completed => Icons.Material.Filled.CheckCircle,
+        DocumentationAgentPhase.Failed => Icons.Material.Filled.Error,
+        _ => Icons.Material.Filled.HourglassEmpty
+    };
+
+    private Color GetProgressColor() => _progress?.Status switch
+    {
+        DocumentationAgentStatus.Completed => Color.Success,
+        DocumentationAgentStatus.Failed => Color.Error,
+        DocumentationAgentStatus.Cancelled => Color.Warning,
+        _ => Color.Primary
+    };
+
+    public void Dispose()
+    {
+        _disposed = true;
+        StopPolling();
+    }
+}

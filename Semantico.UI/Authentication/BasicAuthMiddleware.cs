@@ -3,7 +3,7 @@ using System.Security.Claims;
 using System.Text;
 using Microsoft.AspNetCore.Http;
 
-namespace Semantico.UI.AspNet.Authentication;
+namespace Semantico.UI.Authentication;
 
 internal sealed class BasicAuthMiddleware
 {

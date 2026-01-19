@@ -98,8 +98,6 @@ public class AiAlertGenerationService : IAiAlertGenerationService
             ConversationTurns = 1,
             TokensUsed = response.TotalTokens,
             EstimatedCost = response.EstimatedCost,
-            CreatedAt = DateTime.UtcNow,
-            ModifiedAt = DateTime.UtcNow,
             CreatedBy = createdBy,
             ModifiedBy = createdBy
         };
@@ -162,7 +160,6 @@ public class AiAlertGenerationService : IAiAlertGenerationService
         alertConfig.ConversationTurns++;
         alertConfig.TokensUsed += response.TotalTokens;
         alertConfig.EstimatedCost += response.EstimatedCost;
-        alertConfig.ModifiedAt = DateTime.UtcNow;
         alertConfig.ModifiedBy = modifiedBy;
 
         // Add conversation entries
@@ -203,7 +200,6 @@ public class AiAlertGenerationService : IAiAlertGenerationService
         // TODO: Create subscription from alert configuration
         // For MVP, just mark as approved
         alertConfig.Status = AlertStatus.Approved;
-        alertConfig.ModifiedAt = DateTime.UtcNow;
         alertConfig.ModifiedBy = approvedBy;
 
         await context.SaveChangesAsync(cancellationToken);
