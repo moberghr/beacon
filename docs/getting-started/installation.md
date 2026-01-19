@@ -166,7 +166,7 @@ Update your `Program.cs` to register Semantico services. This is the complete co
 ```csharp
 using Hangfire;
 using Hangfire.PostgreSql;
-using Semantico.Core.PostgreSql;
+using Semantico.Core;
 using Semantico.UI.AspNet;
 using YourProject.Services;
 
@@ -191,14 +191,12 @@ builder.Services.AddHangfire((provider, hangfireConfiguration) => hangfireConfig
 
 builder.Services.AddHangfireServer();
 
-// 3. SEMANTICO: Configure database provider
-builder.Services.AddPostgreSqlSemantico(
-    builder.Configuration.GetConnectionString("SemanticoContext")!,
-    schema: "semantico");
-
-// 4. SEMANTICO: Configure admin services
-builder.Services.AddSemanticoAdmin(builder.Configuration, options =>
+// 3. SEMANTICO: Configure services (single method call)
+builder.Services.AddSemantico(builder.Configuration, options =>
 {
+    // Configure database provider
+    options.UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
+
     // Required: Register your scheduler implementation
     options.AddSemanticoScheduler<SemanticoScheduler>();
 
@@ -212,9 +210,9 @@ builder.Services.AddSemanticoAdmin(builder.Configuration, options =>
 var app = builder.Build();
 
 app.UseHttpsRedirection();
-app.UseAuthorization();
+app.UseStaticFiles(); // Required: Serves Semantico UI assets
 
-// 5. SEMANTICO: Configure admin UI with authentication
+// 4. SEMANTICO: Configure admin UI with authentication
 app.UseSemanticoUI()
     .UseBasicAuthentication("admin", "admin")  // Change these credentials!
     .AddBlazorUI("/semantico");
@@ -233,13 +231,14 @@ app.Run();
 If using SQL Server instead of PostgreSQL, make these changes:
 
 ```csharp
-using Semantico.Core.SqlServer;
 using Hangfire.SqlServer;
 
-// Replace PostgreSQL configuration with:
-builder.Services.AddSqlServerSemantico(
-    builder.Configuration.GetConnectionString("SemanticoContext")!,
-    schema: "semantico");
+// Replace PostgreSQL configuration with SQL Server:
+builder.Services.AddSemantico(builder.Configuration, options =>
+{
+    options.UseSqlServer(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
+    options.AddSemanticoScheduler<SemanticoScheduler>();
+});
 
 // Update Hangfire to use SQL Server:
 builder.Services.AddHangfire(config => config
@@ -313,7 +312,7 @@ Here's the complete `Program.cs` from SampleProject with all features enabled:
 ```csharp
 using Hangfire;
 using Hangfire.PostgreSql;
-using Semantico.Core.PostgreSql;
+using Semantico.Core;
 using Semantico.UI.AspNet;
 using YourProject.Services;
 
@@ -361,14 +360,10 @@ builder.Services.AddHangfire((provider, hangfireConfiguration) => hangfireConfig
 
 builder.Services.AddHangfireServer();
 
-// SEMANTICO: Configure database provider
-builder.Services.AddPostgreSqlSemantico(
-    builder.Configuration.GetConnectionString("SemanticoContext")!,
-    schema: "semantico");
-
-// SEMANTICO: Configure admin services
-builder.Services.AddSemanticoAdmin(builder.Configuration, options =>
+// SEMANTICO: Configure services (single method call)
+builder.Services.AddSemantico(builder.Configuration, options =>
 {
+    options.UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
     options.AddSemanticoScheduler<SemanticoScheduler>();
     options.BaseUrl = "https://localhost:7187/semantico";
     options.UseAI = true;  // Optional: Enable AI features (experimental)
@@ -377,7 +372,7 @@ builder.Services.AddSemanticoAdmin(builder.Configuration, options =>
 var app = builder.Build();
 
 app.UseHttpsRedirection();
-app.UseAuthorization();
+app.UseStaticFiles(); // Required: Serves Semantico UI assets
 
 // SEMANTICO: Configure admin UI
 app.UseSemanticoUI()
@@ -416,8 +411,9 @@ public class CustomAuthorizationProvider : ISemanticoAuthorizationProvider
 
 Register in Program.cs:
 ```csharp
-builder.Services.AddSemanticoAdmin(builder.Configuration, options =>
+builder.Services.AddSemantico(builder.Configuration, options =>
 {
+    options.UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
     options.AddSemanticoScheduler<SemanticoScheduler>();
     options.AddAuthorizationProvider<CustomAuthorizationProvider>();
 });

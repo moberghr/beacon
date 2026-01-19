@@ -11,33 +11,34 @@ Complete reference for all Semantico configuration options.
 
 ## Configuration in Program.cs
 
-Semantico is configured in your ASP.NET Core application's `Program.cs` file.
+Semantico is configured in your ASP.NET Core application's `Program.cs` file using a single method call.
 
 ### Basic Configuration
 
 ```csharp
-using Semantico.Core.PostgreSql;
+using Semantico.Core;
 using Semantico.UI.AspNet;
 
-// Add Semantico services
-builder.Services.AddPostgreSqlSemantico(
-    builder.Configuration.GetConnectionString("SemanticoContext")!,
-    schema: "semantico");
-
-builder.Services.AddSemanticoAdmin(builder.Configuration, options =>
+// Add Semantico services (single method call)
+builder.Services.AddSemantico(builder.Configuration, options =>
 {
+    // Configure database provider
+    options.UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
+    // Or use SQL Server:
+    // options.UseSqlServer(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
+
     options.AddSemanticoScheduler<YourScheduler>();
     options.BaseUrl = "https://your-domain.com/semantico"; // For notification links
 });
 
+var app = builder.Build();
+
+app.UseStaticFiles(); // Required: Serves Semantico UI assets
+
 // Configure UI
 app.UseSemanticoUI()
     .UseBasicAuthentication("admin", "admin")
-    .UseAuthorization()
     .AddBlazorUI("/semantico");
-
-// Run migrations
-ServiceConfiguration.UseSemantico(app.Services);
 ```
 
 ## Base URL Configuration
@@ -47,8 +48,9 @@ The `BaseUrl` setting specifies where your Semantico admin UI is hosted. This UR
 ### Setting Base URL
 
 ```csharp
-builder.Services.AddSemanticoAdmin(builder.Configuration, options =>
+builder.Services.AddSemantico(builder.Configuration, options =>
 {
+    options.UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
     options.AddSemanticoScheduler<YourScheduler>();
     // Set the URL where Semantico UI is accessible
     options.BaseUrl = "https://your-domain.com/semantico";
@@ -348,14 +350,21 @@ This allows recipients to click through from Teams to view:
 
 ## Database Provider Configuration
 
+Database providers are configured within the `AddSemantico` options.
+
 ### PostgreSQL Provider
 
 ```csharp
-using Semantico.Core.PostgreSql;
+using Semantico.Core;
 
-builder.Services.AddPostgreSqlSemantico(
-    connectionString: builder.Configuration.GetConnectionString("SemanticoContext")!,
-    schema: "semantico"); // Optional, defaults to "semantico"
+builder.Services.AddSemantico(builder.Configuration, options =>
+{
+    options.UsePostgreSql(
+        builder.Configuration.GetConnectionString("SemanticoContext")!,
+        "semantico"); // Optional schema, defaults to "semantico"
+
+    options.AddSemanticoScheduler<YourScheduler>();
+});
 ```
 
 **Connection string in appsettings.json:**
@@ -370,11 +379,16 @@ builder.Services.AddPostgreSqlSemantico(
 ### SQL Server Provider
 
 ```csharp
-using Semantico.Core.SqlServer;
+using Semantico.Core;
 
-builder.Services.AddSqlServerSemantico(
-    connectionString: builder.Configuration.GetConnectionString("SemanticoContext")!,
-    schema: "semantico"); // Optional, defaults to "semantico"
+builder.Services.AddSemantico(builder.Configuration, options =>
+{
+    options.UseSqlServer(
+        builder.Configuration.GetConnectionString("SemanticoContext")!,
+        "semantico"); // Optional schema, defaults to "semantico"
+
+    options.AddSemanticoScheduler<YourScheduler>();
+});
 ```
 
 **Connection string in appsettings.json:**
@@ -501,8 +515,9 @@ public class SemanticoScheduler : ISemanticoScheduler
 Register the scheduler:
 
 ```csharp
-builder.Services.AddSemanticoAdmin(builder.Configuration, options =>
+builder.Services.AddSemantico(builder.Configuration, options =>
 {
+    options.UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
     options.AddSemanticoScheduler<SemanticoScheduler>();
 });
 ```
@@ -564,8 +579,9 @@ public class CustomAuthorizationProvider : ISemanticoAuthorizationProvider
 Register the provider:
 
 ```csharp
-builder.Services.AddSemanticoAdmin(builder.Configuration, options =>
+builder.Services.AddSemantico(builder.Configuration, options =>
 {
+    options.UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
     options.AddSemanticoScheduler<SemanticoScheduler>();
     options.AddAuthorizationProvider<CustomAuthorizationProvider>();
 });
@@ -628,8 +644,9 @@ public class SmtpEmailAdapter : IEmailAdapter
 Register the adapter:
 
 ```csharp
-builder.Services.AddSemanticoAdmin(builder.Configuration, options =>
+builder.Services.AddSemantico(builder.Configuration, options =>
 {
+    options.UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
     options.AddSemanticoScheduler<SemanticoScheduler>();
     options.AddEmailAdapter<SmtpEmailAdapter>();
 });
@@ -655,9 +672,14 @@ Add SMTP settings to `appsettings.json`:
 Specify a custom schema for multi-tenant deployments:
 
 ```csharp
-builder.Services.AddPostgreSqlSemantico(
-    builder.Configuration.GetConnectionString("SemanticoContext")!,
-    schema: "tenant_acme");
+builder.Services.AddSemantico(builder.Configuration, options =>
+{
+    options.UsePostgreSql(
+        builder.Configuration.GetConnectionString("SemanticoContext")!,
+        "tenant_acme"); // Custom schema name
+
+    options.AddSemanticoScheduler<YourScheduler>();
+});
 ```
 
 ### Runtime Schema Selection
@@ -667,9 +689,14 @@ Select schema based on configuration or tenant context:
 ```csharp
 var schema = builder.Configuration["Semantico:Schema"] ?? "semantico";
 
-builder.Services.AddPostgreSqlSemantico(
-    builder.Configuration.GetConnectionString("SemanticoContext")!,
-    schema: schema);
+builder.Services.AddSemantico(builder.Configuration, options =>
+{
+    options.UsePostgreSql(
+        builder.Configuration.GetConnectionString("SemanticoContext")!,
+        schema);
+
+    options.AddSemanticoScheduler<YourScheduler>();
+});
 ```
 
 **In appsettings.json:**
@@ -690,9 +717,14 @@ Each tenant gets its own schema in the same database:
 var tenantId = GetTenantFromContext();
 var schema = $"tenant_{tenantId}";
 
-builder.Services.AddPostgreSqlSemantico(
-    builder.Configuration.GetConnectionString("SemanticoContext")!,
-    schema: schema);
+builder.Services.AddSemantico(builder.Configuration, options =>
+{
+    options.UsePostgreSql(
+        builder.Configuration.GetConnectionString("SemanticoContext")!,
+        schema);
+
+    options.AddSemanticoScheduler<YourScheduler>();
+});
 ```
 
 📚 [Learn more about multi-tenant deployments →](../advanced/multi-tenant)
@@ -877,8 +909,9 @@ public class SmtpEmailAdapter : IEmailAdapter
 Register the adapter:
 
 ```csharp
-builder.Services.AddSemanticoAdmin(builder.Configuration, options =>
+builder.Services.AddSemantico(builder.Configuration, options =>
 {
+    options.UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
     options.AddSemanticoScheduler<SemanticoScheduler>();
     options.AddEmailAdapter<SmtpEmailAdapter>();
 });
@@ -913,9 +946,12 @@ Jira notifications work out-of-the-box. Configure per recipient with Jira instan
 By default, Semantico uses `"semantico"` schema:
 
 ```csharp
-builder.Services.AddPostgreSqlSemantico(
-    builder.Configuration.GetConnectionString("SemanticoContext")!);
-// Uses "semantico" schema
+builder.Services.AddSemantico(builder.Configuration, options =>
+{
+    options.UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!);
+    // Uses "semantico" schema by default
+    options.AddSemanticoScheduler<YourScheduler>();
+});
 ```
 
 ### Custom Schema
@@ -923,9 +959,14 @@ builder.Services.AddPostgreSqlSemantico(
 Specify custom schema for multi-tenancy or environment separation:
 
 ```csharp
-builder.Services.AddPostgreSqlSemantico(
-    builder.Configuration.GetConnectionString("SemanticoContext")!,
-    schema: "custom_schema");
+builder.Services.AddSemantico(builder.Configuration, options =>
+{
+    options.UsePostgreSql(
+        builder.Configuration.GetConnectionString("SemanticoContext")!,
+        "custom_schema");
+
+    options.AddSemanticoScheduler<YourScheduler>();
+});
 ```
 
 ### Runtime Schema Selection
@@ -935,9 +976,14 @@ Load schema from configuration:
 ```csharp
 var schema = builder.Configuration["Semantico:Schema"] ?? "semantico";
 
-builder.Services.AddPostgreSqlSemantico(
-    builder.Configuration.GetConnectionString("SemanticoContext")!,
-    schema: schema);
+builder.Services.AddSemantico(builder.Configuration, options =>
+{
+    options.UsePostgreSql(
+        builder.Configuration.GetConnectionString("SemanticoContext")!,
+        schema);
+
+    options.AddSemanticoScheduler<YourScheduler>();
+});
 ```
 
 **In appsettings.json:**
@@ -1028,7 +1074,6 @@ Configure logging in `appsettings.json`:
 using Hangfire;
 using Hangfire.PostgreSql;
 using Semantico.Core;
-using Semantico.Core.PostgreSql;
 using Semantico.UI.AspNet;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -1052,15 +1097,14 @@ builder.Services.AddHangfireServer(options =>
     options.WorkerCount = 10; // Adjust based on load
 });
 
-// Semantico database configuration
+// Semantico configuration (single method call)
 var schema = builder.Configuration["Semantico:Schema"] ?? "semantico";
-builder.Services.AddPostgreSqlSemantico(
-    builder.Configuration.GetConnectionString("SemanticoContext")!,
-    schema: schema);
-
-// Semantico admin UI configuration
-builder.Services.AddSemanticoAdmin(builder.Configuration, options =>
+builder.Services.AddSemantico(builder.Configuration, options =>
 {
+    options.UsePostgreSql(
+        builder.Configuration.GetConnectionString("SemanticoContext")!,
+        schema);
+
     options.AddSemanticoScheduler<SemanticoScheduler>();
     options.AddAuthorizationProvider<CustomAuthorizationProvider>();
     options.AddEmailAdapter<SmtpEmailAdapter>();
@@ -1070,7 +1114,7 @@ builder.Services.AddSemanticoAdmin(builder.Configuration, options =>
 var app = builder.Build();
 
 app.UseHttpsRedirection();
-app.UseAuthorization();
+app.UseStaticFiles(); // Required: Serves Semantico UI assets
 
 // Semantico UI
 app.UseSemanticoUI()
@@ -1082,9 +1126,6 @@ app.UseSemanticoUI()
 
 // Optional: Hangfire dashboard
 app.UseHangfireDashboard("/hangfire");
-
-// Run migrations
-ServiceConfiguration.UseSemantico(app.Services);
 
 app.Run();
 ```

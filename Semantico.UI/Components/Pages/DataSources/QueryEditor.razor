@@ -73,18 +73,48 @@
                 @if (_configuration?.UseAI == true && AiDocumentationService != null)
                 {
                     <MudDivider Class="my-4" />
-                    <div class="d-flex justify-center">
+                    <div class="d-flex justify-center gap-4">
                         <MudButton Variant="Variant.Filled"
                                   Color="Color.Primary"
                                   StartIcon="@Icons.Material.Filled.AutoAwesome"
                                   OnClick="GenerateDocumentation"
                                   Size="Size.Large">
-                            Generate AI Documentation
+                            Generate AI Documentation (Legacy)
+                        </MudButton>
+                        <MudButton Variant="Variant.Filled"
+                                  Color="Color.Secondary"
+                                  StartIcon="@Icons.Material.Filled.SmartToy"
+                                  OnClick="StartDocumentationAgent"
+                                  Size="Size.Large">
+                            Start Documentation Agent (New)
                         </MudButton>
                     </div>
                 }
             </MudCardContent>
         </MudCard>
+
+        <!-- Active Agent Runs -->
+        @if (_configuration?.UseAI == true && _activeAgentRuns?.Count > 0)
+        {
+            <MudCard Elevation="2" Class="mb-4">
+                <MudCardHeader>
+                    <CardHeaderContent>
+                        <MudText Typo="Typo.h6">
+                            <MudIcon Icon="@Icons.Material.Filled.SmartToy" Class="mr-2" />
+                            Active Documentation Agent Runs
+                        </MudText>
+                    </CardHeaderContent>
+                </MudCardHeader>
+                <MudCardContent>
+                    @foreach (var agentRun in _activeAgentRuns)
+                    {
+                        <DocumentationAgentProgress
+                            AgentRunId="@agentRun.Id"
+                            OnCompleted="@OnAgentCompleted" />
+                    }
+                </MudCardContent>
+            </MudCard>
+        }
 
         <!-- AI Documentation History -->
         @if (_configuration?.UseAI == true && AiDocumentationService != null && _documentations?.Count > 0)
@@ -262,6 +292,7 @@
 @inject IJSRuntime JSRuntime
 @inject IDialogService DialogService
 @inject SemanticoConfiguration _configuration
+@inject MediatR.IMediator Mediator
 
 @code {
     [Parameter]
@@ -285,6 +316,7 @@
     private bool _completionProviderRegistered = false;
     private bool _monacoReady = false;
     private List<DataSourceDocumentation>? _documentations;
+    private List<Semantico.Core.Data.Entities.DocumentationAgentRun>? _activeAgentRuns;
 
     protected override async Task OnInitializedAsync()
     {
@@ -315,6 +347,9 @@
             {
                 _documentations = await AiDocumentationService.GetDocumentationsAsync(DataSourceId);
             }
+
+            // Load active agent runs
+            await LoadActiveAgentRuns();
 
             _error = null;
         }
@@ -721,5 +756,68 @@
     {
         var base64 = Convert.ToBase64String(bytes);
         await JSRuntime.InvokeVoidAsync("downloadFile", fileName, base64, contentType);
+    }
+
+    private async Task StartDocumentationAgent()
+    {
+        if (AiDocumentationService == null)
+        {
+            Snackbar.Add("AI service not available. Please configure LLM settings.", Severity.Error);
+            return;
+        }
+
+        var options = new DialogOptions
+        {
+            MaxWidth = MaxWidth.Medium,
+            FullWidth = true
+        };
+
+        var parameters = new DialogParameters<StartDocumentationAgentDialog>
+        {
+            { x => x.DataSourceId, DataSourceId },
+            { x => x.UserId, 1 } // TODO: Get from auth context
+        };
+
+        var dialog = await DialogService.ShowAsync<StartDocumentationAgentDialog>("", parameters, options);
+
+        var result = await dialog.Result;
+
+        if (!result!.Canceled && result.Data is Semantico.Core.Handlers.Ai.DocumentationAgent.StartDocumentationAgentResult agentResult)
+        {
+            // Reload active agent runs
+            await LoadActiveAgentRuns();
+            Snackbar.Add($"Documentation agent started! Run ID: {agentResult.AgentRunId}", Severity.Success);
+        }
+    }
+
+    private async Task LoadActiveAgentRuns()
+    {
+        try
+        {
+            var query = new Semantico.Core.Handlers.Ai.DocumentationAgent.GetActiveAgentRunsQuery
+            {
+                DataSourceId = DataSourceId
+            };
+            _activeAgentRuns = await Mediator.Send(query);
+        }
+        catch (Exception ex)
+        {
+            // Silently fail - agent runs are optional
+            _activeAgentRuns = null;
+        }
+    }
+
+    private async Task OnAgentCompleted()
+    {
+        // Reload documentation history
+        if (_configuration?.UseAI == true && AiDocumentationService != null)
+        {
+            _documentations = await AiDocumentationService.GetDocumentationsAsync(DataSourceId);
+        }
+
+        // Reload active runs
+        await LoadActiveAgentRuns();
+
+        StateHasChanged();
     }
 }

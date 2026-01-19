@@ -19,7 +19,7 @@ namespace Semantico.Core;
 
 public static class ServiceConfiguration
 {
-    public static IServiceCollection AddSemantico(this IServiceCollection services, IConfiguration configuration, Action<SemanticoConfiguration> semanticoConfiguration)
+    internal static IServiceCollection AddSemanticoCore(this IServiceCollection services, IConfiguration configuration, Action<SemanticoConfiguration> semanticoConfiguration)
     {
         var configurationOptions = new SemanticoConfiguration();
         semanticoConfiguration(configurationOptions);
@@ -122,7 +122,11 @@ public static class ServiceConfiguration
 
         // AI services
         services.TryAddScoped<Services.Ai.IAiDocumentationService, Services.Ai.AiDocumentationService>();
-        services.TryAddScoped<Services.Ai.IAiAlertGenerationService, Services.Ai.AiAlertGenerationService>(); 
+        services.TryAddScoped<Services.Ai.IAiAlertGenerationService, Services.Ai.AiAlertGenerationService>();
+
+        // Documentation Agent services (new agent-based approach)
+        services.TryAddTransient<Services.Ai.DocumentationAgent.DocumentationAgentTools>();
+        services.TryAddTransient<Services.Ai.DocumentationAgent.IDocumentationAgentService, Services.Ai.DocumentationAgent.DocumentationAgentService>();
     }
 
     public static void UseSemantico(IServiceProvider serviceProvider, bool createSchema = false)
@@ -183,11 +187,37 @@ public class SemanticoConfiguration
         AuthorizationProvider = typeof(T);
     }
 
+    /// <summary>
+    /// Configure PostgreSQL as the database provider.
+    /// </summary>
+    public void UsePostgreSql(string connectionString, string schema = "semantico")
+    {
+        DatabaseProvider = DatabaseProviderType.PostgreSql;
+        ConnectionString = connectionString;
+        Schema = schema;
+    }
+
+    /// <summary>
+    /// Configure SQL Server as the database provider.
+    /// </summary>
+    public void UseSqlServer(string connectionString, string schema = "semantico")
+    {
+        DatabaseProvider = DatabaseProviderType.SqlServer;
+        ConnectionString = connectionString;
+        Schema = schema;
+    }
+
     internal Type? SemanticoScheduler { get; set; }
 
     internal Type? EmailAdapter { get; set; }
 
     public Type? AuthorizationProvider { get; set; }
+
+    internal DatabaseProviderType? DatabaseProvider { get; set; }
+
+    internal string? ConnectionString { get; set; }
+
+    internal string Schema { get; set; } = "semantico";
 
     internal void Validate()
     {
@@ -195,5 +225,21 @@ public class SemanticoConfiguration
         {
             throw new SemanticoException($"Implementation of ISemanticoScheduler is required.");
         }
+
+        if (DatabaseProvider == null)
+        {
+            throw new SemanticoException($"Database provider must be configured. Call UsePostgreSql() or UseSqlServer() on the configuration options.");
+        }
+
+        if (string.IsNullOrWhiteSpace(ConnectionString))
+        {
+            throw new SemanticoException($"Connection string must be provided when configuring the database provider.");
+        }
     }
+}
+
+internal enum DatabaseProviderType
+{
+    PostgreSql,
+    SqlServer
 }

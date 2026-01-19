@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Semantico.Core.Data.Entities;
 using Semantico.Core.Data.Entities.Base;
 using Semantico.Core.Data.Entities.DataMigration;
@@ -70,6 +70,8 @@ public abstract partial class SemanticoContext : DbContext
     public DbSet<AiAlertConfiguration> AiAlertConfigurations => Set<AiAlertConfiguration>();
 
     public DbSet<AiConversationHistory> AiConversationHistories => Set<AiConversationHistory>();
+
+    public DbSet<DocumentationAgentRun> DocumentationAgentRuns => Set<DocumentationAgentRun>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -241,9 +243,8 @@ public abstract partial class SemanticoContext : DbContext
         // QueryTask entity configuration
         modelBuilder.Entity<QueryTask>(entity =>
         {
-            // Unique index for subscription (one task per subscription)
-            entity.HasIndex(t => t.SubscriptionId)
-                .IsUnique();
+            // Index for subscription lookup
+            entity.HasIndex(t => t.SubscriptionId);
 
             // Composite index for filtering by resolution status
             entity.HasIndex(t => new { t.Resolved, t.CreatedTime });
@@ -414,7 +415,7 @@ public abstract partial class SemanticoContext : DbContext
         {
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => e.DocumentationId);
-            entity.HasIndex(e => e.CreatedAt);
+            entity.HasIndex(e => e.CreatedTime);
 
             entity.HasOne(e => e.Documentation)
                 .WithMany(d => d.Versions)
@@ -461,6 +462,34 @@ public abstract partial class SemanticoContext : DbContext
                 .WithMany(a => a.ConversationHistory)
                 .HasForeignKey(e => e.AiAlertConfigurationId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // DocumentationAgentRun configuration
+        modelBuilder.Entity<DocumentationAgentRun>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.ProgressMessage).HasMaxLength(500);
+            entity.Property(e => e.LastError).HasMaxLength(4000);
+
+            // Indexes for querying
+            entity.HasIndex(e => e.DataSourceId);
+            entity.HasIndex(e => e.DocumentationId);
+            entity.HasIndex(e => e.Status);
+            entity.HasIndex(e => e.CurrentPhase);
+            entity.HasIndex(e => e.StartedAt);
+            entity.HasIndex(e => new { e.DataSourceId, e.Status });
+
+            // Relationships
+            entity.HasOne(e => e.DataSource)
+                .WithMany()
+                .HasForeignKey(e => e.DataSourceId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.Documentation)
+                .WithMany()
+                .HasForeignKey(e => e.DocumentationId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
     }
 }

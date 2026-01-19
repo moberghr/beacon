@@ -19,6 +19,10 @@
 	</PropertyGroup>
 
 	<ItemGroup>
+		<InternalsVisibleTo Include="Semantico.UI" />
+	</ItemGroup>
+
+	<ItemGroup>
 		<None Include="README.md" Pack="true" PackagePath="\" />
 	</ItemGroup>
 
@@ -34,9 +38,13 @@
 		<PackageReference Include="CsvHelper" Version="33.1.0" />
 		<PackageReference Include="Dapper" Version="2.1.66" />
 		<PackageReference Include="EFCore.BulkExtensions" Version="9.0.2" />
+		<PackageReference Include="Hangfire.Core" Version="1.8.22" />
 		<PackageReference Include="Markdig" Version="0.44.0" />
 		<PackageReference Include="MediatR" Version="14.0.0" />
 		<PackageReference Include="MessageCardModel" Version="1.1.5" />
+		<PackageReference Include="Microsoft.Agents.AI" Version="1.0.0-preview.260108.1" />
+		<PackageReference Include="Microsoft.Agents.AI.OpenAI" Version="1.0.0-preview.260108.1" />
+		<PackageReference Include="Microsoft.Agents.AI.Workflows" Version="1.0.0-preview.260108.1" />
 		<PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.11" />
 		<PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="9.0.11" />
 		<PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="9.0.11" />

@@ -6,7 +6,6 @@ public class DocumentationVersion : BaseEntity
 {
     public int DocumentationId { get; set; }
     public int VersionNumber { get; set; }
-    public DateTime CreatedAt { get; set; }
     public int CreatedByUserId { get; set; }
     public string? ChangeDescription { get; set; }
     public string SnapshotJson { get; set; } = null!;

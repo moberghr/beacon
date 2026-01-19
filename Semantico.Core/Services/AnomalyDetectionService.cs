@@ -266,52 +266,10 @@ public class AnomalyDetectionService : IAnomalyDetectionService
         var historicalMetrics = await GetHistoricalMetricsAsync(subscriptionId, config.LookbackDays, cancellationToken);
 
         // Calculate baseline and thresholds
-        decimal? baselineMean = null;
-        decimal? upperThreshold = null;
-        decimal? lowerThreshold = null;
-
-        if (historicalMetrics.Count >= config.MinimumDataPoints)
-        {
-            baselineMean = historicalMetrics.Average();
-
-            // Calculate thresholds based on detection method
-            switch (config.DetectionMethod)
-            {
-                case AnomalyDetectionMethod.StandardDeviation:
-                    var variance = historicalMetrics.Sum(x => (x - baselineMean.Value) * (x - baselineMean.Value)) / historicalMetrics.Count;
-                    var stdDev = (decimal)Math.Sqrt((double)variance);
-                    var threshold = GetThresholdForSensitivity(config.Sensitivity);
-
-                    if (config.AlertOnIncrease)
-                        upperThreshold = baselineMean + (threshold * stdDev);
-                    if (config.AlertOnDecrease)
-                        lowerThreshold = baselineMean - (threshold * stdDev);
-                    break;
-
-                case AnomalyDetectionMethod.IQR:
-                    var sorted = historicalMetrics.OrderBy(x => x).ToList();
-                    var q1Index = (int)(sorted.Count * 0.25);
-                    var q3Index = (int)(sorted.Count * 0.75);
-                    var q1 = sorted[q1Index];
-                    var q3 = sorted[q3Index];
-                    var iqr = q3 - q1;
-
-                    if (config.AlertOnIncrease)
-                        upperThreshold = q3 + 1.5m * iqr;
-                    if (config.AlertOnDecrease)
-                        lowerThreshold = q1 - 1.5m * iqr;
-                    break;
-
-                case AnomalyDetectionMethod.PercentageChange:
-                    var percentThreshold = GetPercentageThresholdForSensitivity(config.Sensitivity);
-
-                    if (config.AlertOnIncrease)
-                        upperThreshold = baselineMean * (1 + percentThreshold);
-                    if (config.AlertOnDecrease)
-                        lowerThreshold = baselineMean * (1 - percentThreshold);
-                    break;
-            }
-        }
+        (var baselineMean, var upperThreshold, var lowerThreshold) =
+            historicalMetrics.Count >= config.MinimumDataPoints
+                ? CalculateThresholds(historicalMetrics, config)
+                : (null, null, null);
 
         // Build data points and calculate rolling baseline
         var dataPoints = new List<AnomalyChartPoint>();
@@ -350,65 +308,14 @@ public class AnomalyDetectionService : IAnomalyDetectionService
 
             if (rollingHistoricalData.Count >= config.MinimumDataPoints)
             {
-                var rollingMean = rollingHistoricalData.Average();
-                rollingBaseline.Add(rollingMean);
-
-                // Calculate rolling thresholds based on detection method
-                switch (config.DetectionMethod)
-                {
-                    case AnomalyDetectionMethod.StandardDeviation:
-                        var rollingVariance = rollingHistoricalData.Sum(x => (x - rollingMean) * (x - rollingMean)) / rollingHistoricalData.Count;
-                        var rollingStdDev = (decimal)Math.Sqrt((double)rollingVariance);
-                        var threshold = GetThresholdForSensitivity(config.Sensitivity);
-
-                        if (config.AlertOnIncrease)
-                            rollingUpperThreshold.Add(rollingMean + (threshold * rollingStdDev));
-                        else
-                            rollingUpperThreshold.Add(rollingMean); // Just add mean as placeholder
-
-                        if (config.AlertOnDecrease)
-                            rollingLowerThreshold.Add(rollingMean - (threshold * rollingStdDev));
-                        else
-                            rollingLowerThreshold.Add(rollingMean); // Just add mean as placeholder
-                        break;
-
-                    case AnomalyDetectionMethod.IQR:
-                        var sorted = rollingHistoricalData.OrderBy(x => x).ToList();
-                        var q1Index = (int)(sorted.Count * 0.25);
-                        var q3Index = (int)(sorted.Count * 0.75);
-                        var q1 = sorted[q1Index];
-                        var q3 = sorted[q3Index];
-                        var iqr = q3 - q1;
-
-                        if (config.AlertOnIncrease)
-                            rollingUpperThreshold.Add(q3 + 1.5m * iqr);
-                        else
-                            rollingUpperThreshold.Add(rollingMean);
-
-                        if (config.AlertOnDecrease)
-                            rollingLowerThreshold.Add(q1 - 1.5m * iqr);
-                        else
-                            rollingLowerThreshold.Add(rollingMean);
-                        break;
-
-                    case AnomalyDetectionMethod.PercentageChange:
-                        var percentThreshold = GetPercentageThresholdForSensitivity(config.Sensitivity);
-
-                        if (config.AlertOnIncrease)
-                            rollingUpperThreshold.Add(rollingMean * (1 + percentThreshold));
-                        else
-                            rollingUpperThreshold.Add(rollingMean);
-
-                        if (config.AlertOnDecrease)
-                            rollingLowerThreshold.Add(rollingMean * (1 - percentThreshold));
-                        else
-                            rollingLowerThreshold.Add(rollingMean);
-                        break;
-                }
+                var (rollingMean, rollingUpper, rollingLower) = CalculateThresholds(rollingHistoricalData, config);
+                rollingBaseline.Add(rollingMean!.Value);
+                rollingUpperThreshold.Add(rollingUpper ?? rollingMean!.Value);
+                rollingLowerThreshold.Add(rollingLower ?? rollingMean!.Value);
             }
             else
             {
-                // Not enough data points yet - use current value or zero
+                // Not enough data points yet - use current value
                 rollingBaseline.Add(execution.ResultCount);
                 rollingUpperThreshold.Add(execution.ResultCount);
                 rollingLowerThreshold.Add(execution.ResultCount);
@@ -441,22 +348,7 @@ public class AnomalyDetectionService : IAnomalyDetectionService
 
         var zScore = stdDev == 0 ? 0 : (currentValue - mean) / stdDev;
         var threshold = GetThresholdForSensitivity(config.Sensitivity);
-
-        var isAnomaly = Math.Abs(zScore) > threshold;
-        var isIncrease = zScore > 0;
-        var isDecrease = zScore < 0;
-
-        // Check alert direction settings
-        if (isAnomaly)
-        {
-            if (isIncrease && !config.AlertOnIncrease)
-                isAnomaly = false;
-            if (isDecrease && !config.AlertOnDecrease)
-                isAnomaly = false;
-        }
-
-        var severity = CalculateSeverity(Math.Abs(zScore));
-        var explanation = GenerateStandardDeviationExplanation(currentValue, mean, stdDev, zScore, isAnomaly);
+        var isAnomaly = Math.Abs(zScore) > threshold && ShouldAlert(currentValue > mean, config);
 
         return new AnomalyEvaluationResult
         {
@@ -465,8 +357,8 @@ public class AnomalyDetectionService : IAnomalyDetectionService
             BaselineMean = mean,
             BaselineStdDev = stdDev,
             ZScore = zScore,
-            Severity = severity,
-            Explanation = explanation,
+            Severity = CalculateSeverity(Math.Abs(zScore)),
+            Explanation = GenerateStandardDeviationExplanation(currentValue, mean, stdDev, zScore, isAnomaly),
             HistoricalDataPoints = historicalMetrics.Count
         };
     }
@@ -479,38 +371,22 @@ public class AnomalyDetectionService : IAnomalyDetectionService
         var sorted = historicalMetrics.OrderBy(x => x).ToList();
         var q1Index = (int)(sorted.Count * 0.25);
         var q3Index = (int)(sorted.Count * 0.75);
-
         var q1 = sorted[q1Index];
         var q3 = sorted[q3Index];
         var iqr = q3 - q1;
 
         var lowerBound = q1 - 1.5m * iqr;
         var upperBound = q3 + 1.5m * iqr;
-
-        var isAnomaly = currentValue < lowerBound || currentValue > upperBound;
-        var isIncrease = currentValue > upperBound;
-        var isDecrease = currentValue < lowerBound;
-
-        // Check alert direction settings
-        if (isAnomaly)
-        {
-            if (isIncrease && !config.AlertOnIncrease)
-                isAnomaly = false;
-            if (isDecrease && !config.AlertOnDecrease)
-                isAnomaly = false;
-        }
-
-        var mean = historicalMetrics.Average();
-        var severity = CalculateSeverityIQR(currentValue, lowerBound, upperBound, iqr);
-        var explanation = GenerateIQRExplanation(currentValue, q1, q3, lowerBound, upperBound, isAnomaly);
+        var isOutOfBounds = currentValue < lowerBound || currentValue > upperBound;
+        var isAnomaly = isOutOfBounds && ShouldAlert(currentValue > upperBound, config);
 
         return new AnomalyEvaluationResult
         {
             IsAnomaly = isAnomaly,
             CurrentValue = currentValue,
-            BaselineMean = mean,
-            Severity = severity,
-            Explanation = explanation,
+            BaselineMean = historicalMetrics.Average(),
+            Severity = CalculateSeverityIQR(currentValue, lowerBound, upperBound, iqr),
+            Explanation = GenerateIQRExplanation(currentValue, q1, q3, lowerBound, upperBound, isAnomaly),
             HistoricalDataPoints = historicalMetrics.Count
         };
     }
@@ -539,32 +415,57 @@ public class AnomalyDetectionService : IAnomalyDetectionService
 
         var percentChange = Math.Abs((currentValue - baseline) / baseline);
         var thresholdPercent = GetPercentageThresholdForSensitivity(config.Sensitivity);
-
-        var isAnomaly = percentChange > thresholdPercent;
-        var isIncrease = currentValue > baseline;
-        var isDecrease = currentValue < baseline;
-
-        // Check alert direction settings
-        if (isAnomaly)
-        {
-            if (isIncrease && !config.AlertOnIncrease)
-                isAnomaly = false;
-            if (isDecrease && !config.AlertOnDecrease)
-                isAnomaly = false;
-        }
-
-        var severity = CalculateSeverityPercentage(percentChange);
-        var explanation = GeneratePercentageExplanation(currentValue, baseline, percentChange, isAnomaly);
+        var isAnomaly = percentChange > thresholdPercent && ShouldAlert(currentValue > baseline, config);
 
         return new AnomalyEvaluationResult
         {
             IsAnomaly = isAnomaly,
             CurrentValue = currentValue,
             BaselineMean = baseline,
-            Severity = severity,
-            Explanation = explanation,
+            Severity = CalculateSeverityPercentage(percentChange),
+            Explanation = GeneratePercentageExplanation(currentValue, baseline, percentChange, isAnomaly),
             HistoricalDataPoints = historicalMetrics.Count
         };
+    }
+
+    private bool ShouldAlert(bool isIncrease, AnomalyConfig config) =>
+        isIncrease ? config.AlertOnIncrease : config.AlertOnDecrease;
+
+    private (decimal? mean, decimal? upper, decimal? lower) CalculateThresholds(
+        List<decimal> metrics,
+        AnomalyConfig config)
+    {
+        var mean = metrics.Average();
+        decimal? upper = null;
+        decimal? lower = null;
+
+        switch (config.DetectionMethod)
+        {
+            case AnomalyDetectionMethod.StandardDeviation:
+                var variance = metrics.Sum(x => (x - mean) * (x - mean)) / metrics.Count;
+                var stdDev = (decimal)Math.Sqrt((double)variance);
+                var threshold = GetThresholdForSensitivity(config.Sensitivity);
+                if (config.AlertOnIncrease) upper = mean + (threshold * stdDev);
+                if (config.AlertOnDecrease) lower = mean - (threshold * stdDev);
+                break;
+
+            case AnomalyDetectionMethod.IQR:
+                var sorted = metrics.OrderBy(x => x).ToList();
+                var q1 = sorted[(int)(sorted.Count * 0.25)];
+                var q3 = sorted[(int)(sorted.Count * 0.75)];
+                var iqr = q3 - q1;
+                if (config.AlertOnIncrease) upper = q3 + 1.5m * iqr;
+                if (config.AlertOnDecrease) lower = q1 - 1.5m * iqr;
+                break;
+
+            case AnomalyDetectionMethod.PercentageChange:
+                var percentThreshold = GetPercentageThresholdForSensitivity(config.Sensitivity);
+                if (config.AlertOnIncrease) upper = mean * (1 + percentThreshold);
+                if (config.AlertOnDecrease) lower = mean * (1 - percentThreshold);
+                break;
+        }
+
+        return (mean, upper, lower);
     }
 
     private decimal GetThresholdForSensitivity(AnomalySensitivity sensitivity)

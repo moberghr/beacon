@@ -6,5 +6,6 @@ public enum NotificationStatus
     NotificationSent = 2,
     NotificationSilenced = 3,
     NoResults = 4,
-    Timeout = 5
+    Timeout = 5,
+    BelowThreshold = 6
 }

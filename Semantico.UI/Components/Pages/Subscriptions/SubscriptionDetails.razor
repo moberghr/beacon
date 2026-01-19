@@ -180,8 +180,29 @@
                                 </div>
 
                                 <div class="config-item">
+                                    <div class="config-label">Minimum Row Threshold</div>
+                                    <div class="config-value">
+                                        @if (Model.MinimumRowCount.HasValue)
+                                        {
+                                            <MudChip T="string" Size="Size.Small" Icon="@Icons.Material.Filled.FilterAlt" Color="Color.Warning">
+                                                ≥ @Model.MinimumRowCount rows
+                                            </MudChip>
+                                            <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-1">
+                                                Notifications only sent when result count meets or exceeds this threshold
+                                            </MudText>
+                                        }
+                                        else
+                                        {
+                                            <span>No minimum threshold</span>
+                                        }
+                                    </div>
+                                </div>
+
+                                <div class="config-item">
                                     <div class="config-label">Query Timeout</div>
-                                    <div class="config-value">@Model.TimeoutSeconds seconds</div>
+                                    <div class="config-value">
+                                        @(Model.TimeoutSeconds.HasValue ? Model.TimeoutSeconds + " seconds" : "No timeout")
+                                    </div>
                                 </div>
                             </MudStack>
                         </MudItem>

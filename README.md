@@ -43,24 +43,20 @@ Add Semantico to your ASP.NET application in under 30 minutes:
 
 2. **Configure in Program.cs**
    ```csharp
-   builder.Services.AddPostgreSqlSemantico(
-       builder.Configuration.GetConnectionString("SemanticoContext")!,
-       schema: "semantico");
-
-   builder.Services.AddSemanticoAdmin(builder.Configuration, options =>
+   builder.Services.AddSemantico(builder.Configuration, options =>
    {
+       options.UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
        options.AddSemanticoScheduler<YourScheduler>();
        options.BaseUrl = "https://your-domain.com/semantico"; // For notification links
    });
    ```
 
-3. **Add UI and run migrations**
+3. **Add UI middleware**
    ```csharp
+   app.UseStaticFiles(); // Required for Semantico UI assets
    app.UseSemanticoUI()
        .UseBasicAuthentication("admin", "admin")
        .AddBlazorUI("/semantico");
-
-   ServiceConfiguration.UseSemantico(app.Services);
    ```
 
 4. **Access the UI** at `http://localhost:5000/semantico`
@@ -278,33 +274,31 @@ dotnet add package Semantico.UI.AspNet
 Add to your ASP.NET Core `Program.cs`:
 
 ```csharp
-using Semantico.Core.PostgreSql;
+using Semantico.Core;
 using Semantico.UI.AspNet;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Configure Semantico with PostgreSQL
-builder.Services.AddPostgreSqlSemantico(
-    builder.Configuration.GetConnectionString("SemanticoContext")!,
-    schema: "semantico");
-
-// Add Semantico admin UI
-builder.Services.AddSemanticoAdmin(builder.Configuration, options =>
+// Configure Semantico with PostgreSQL (single method call)
+builder.Services.AddSemantico(builder.Configuration, options =>
 {
+    options.UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
+    // Or use SQL Server:
+    // options.UseSqlServer(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
+
     options.AddSemanticoScheduler<YourScheduler>();
     options.BaseUrl = "https://your-domain.com/semantico"; // For notification links
 });
 
 var app = builder.Build();
 
+app.UseHttpsRedirection();
+app.UseStaticFiles(); // Required: Serves Semantico UI assets
+
 // Configure Semantico UI
 app.UseSemanticoUI()
     .UseBasicAuthentication("admin", "admin")
-    .UseAuthorization()
     .AddBlazorUI("/semantico");
-
-// Run migrations
-ServiceConfiguration.UseSemantico(app.Services);
 
 app.Run();
 ```

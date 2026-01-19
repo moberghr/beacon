@@ -10,16 +10,12 @@
     </TitleContent>
     <DialogContent>
         <MudForm @ref="@_form" Class="pt-1" @bind-Errors="@errors" @bind-IsValid="_isFormValid">
-            <MudTextField
-                OnlyValidateIfDirty="true"
-                Margin="Margin.Normal"
-                Variant="Variant.Text"
-                Class="mb-2"
-                @bind-Value="@DataSource.Name"
-                T="String"
-                Label="Name"
-                Required="true"
-            />
+            <MudSelect T="DatabaseEngineType" Label="Database Engine Type" @bind-Value="@DataSource.DatabaseEngineType" Required="true" Class="mb-4">
+                <MudSelectItem Value="DatabaseEngineType.PostgreSQL">PostgreSQL</MudSelectItem>
+                <MudSelectItem Value="DatabaseEngineType.MSSQL">MSSQL</MudSelectItem>
+                <MudSelectItem Value="DatabaseEngineType.MySQL">MySQL</MudSelectItem>
+            </MudSelect>
+
             <MudTextField
                 OnlyValidateIfDirty="true"
                 Immediate="true"
@@ -34,11 +30,48 @@
                 Adornment="Adornment.End"
                 AdornmentIcon="@Icons.Material.Filled.Lock"
             />
-            <MudSelect T="DatabaseEngineType" Label="Database Engine Type" @bind-Value="@DataSource.DatabaseEngineType" Required="true">
-    <MudSelectItem Value="DatabaseEngineType.PostgreSQL">PostgreSQL</MudSelectItem>
-    <MudSelectItem Value="DatabaseEngineType.MSSQL">MSSQL</MudSelectItem>
-    <MudSelectItem Value="DatabaseEngineType.MySQL">MySQL</MudSelectItem>
-</MudSelect>
+
+            <div class="d-flex align-center mb-4">
+                <MudButton
+                    Variant="Variant.Outlined"
+                    Color="Color.Primary"
+                    OnClick="TestConnection"
+                    Disabled="@(_testingConnection || string.IsNullOrWhiteSpace(DataSource.ConnectionString))"
+                    StartIcon="@(_testingConnection ? null : Icons.Material.Filled.Cable)"
+                    Class="mr-2">
+                    @if (_testingConnection)
+                    {
+                        <MudProgressCircular Class="mr-2" Size="Size.Small" Indeterminate="true"/>
+                    }
+                    <span>@(_testingConnection ? "Testing..." : "Test Connection")</span>
+                </MudButton>
+
+                @if (_connectionTested)
+                {
+                    <MudChip T="string"
+                             Color="@(_connectionSuccess ? Color.Success : Color.Error)"
+                             Icon="@(_connectionSuccess ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.Error)"
+                             Size="Size.Small">
+                        @(_connectionSuccess ? "Connected" : "Failed")
+                    </MudChip>
+                }
+            </div>
+
+            @if (_connectionTested && !_connectionSuccess && !string.IsNullOrWhiteSpace(_connectionErrorMessage))
+            {
+                <MudAlert Severity="Severity.Error" Class="mb-4">@_connectionErrorMessage</MudAlert>
+            }
+
+            <MudTextField
+                OnlyValidateIfDirty="true"
+                Margin="Margin.Normal"
+                Variant="Variant.Text"
+                Class="mb-2"
+                @bind-Value="@DataSource.Name"
+                T="String"
+                Label="Name"
+                Required="true"
+            />
         </MudForm>
     </DialogContent>
     <DialogActions>
@@ -67,8 +100,44 @@
 
     private MudForm _form;
     private bool _loading;
+    private bool _testingConnection;
+    private bool _connectionTested;
+    private bool _connectionSuccess;
+    private string _connectionErrorMessage = string.Empty;
     bool _isFormValid = false;
     string[] errors = { };
+
+    async Task TestConnection()
+    {
+        if (_testingConnection || string.IsNullOrWhiteSpace(DataSource.ConnectionString))
+        {
+            return;
+        }
+
+        _testingConnection = true;
+        _connectionTested = false;
+        _connectionErrorMessage = string.Empty;
+
+        var response = await Service.TestConnection(
+            DataSource.ConnectionString,
+            DataSource.DatabaseEngineType,
+            CancellationToken.None);
+
+        _connectionTested = true;
+        _connectionSuccess = response.Success;
+
+        if (response.Success)
+        {
+            Snackbar.Add(response.Message, Severity.Success);
+        }
+        else
+        {
+            _connectionErrorMessage = response.Message;
+            Snackbar.Add(response.Message, Severity.Error);
+        }
+
+        _testingConnection = false;
+    }
 
     async Task Submit()
     {
@@ -78,7 +147,7 @@
         }
 
         await _form.Validate();
-        
+
         if (!_form.IsValid)
         {
             return;
