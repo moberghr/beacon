@@ -8,9 +8,14 @@ The Semantico architecture supports runtime schema selection. This means migrati
 ### 1. Schema is Applied at Runtime
 ```csharp
 // In your consuming application (Program.cs)
-builder.Services.AddPostgreSqlSemantico(connectionString, "your_custom_schema");
-// OR
-builder.Services.AddSqlServerSemantico(connectionString, "your_custom_schema");
+builder.Services.AddSemantico(builder.Configuration, options =>
+{
+    options.UsePostgreSql(connectionString, "your_custom_schema");
+    // OR
+    // options.UseSqlServer(connectionString, "your_custom_schema");
+
+    options.AddSemanticoScheduler<YourScheduler>();
+});
 ```
 
 ### 2. Schema is Set via HasDefaultSchema
@@ -43,7 +48,11 @@ Each provider has different SQL syntax, so they need separate migrations.
 1. **Temporarily set the default schema in Program.cs** (for migration generation):
    ```csharp
    // Use default schema for generating migrations
-   builder.Services.AddPostgreSqlSemantico(connectionString); // Uses "semantico"
+   builder.Services.AddSemantico(builder.Configuration, options =>
+   {
+       options.UsePostgreSql(connectionString); // Uses "semantico" by default
+       options.AddSemanticoScheduler<YourScheduler>();
+   });
    ```
 
 2. **Generate the migration**:
@@ -61,21 +70,26 @@ Each provider has different SQL syntax, so they need separate migrations.
 
 3. **Restore your custom schema** (if you were testing with one):
    ```csharp
-   builder.Services.AddPostgreSqlSemantico(connectionString, "test");
+   builder.Services.AddSemantico(builder.Configuration, options =>
+   {
+       options.UsePostgreSql(connectionString, "test");
+       options.AddSemanticoScheduler<YourScheduler>();
+   });
    ```
 
 ## How Consuming Projects Use Custom Schemas
 
 ### Example: Multiple Tenants with Different Schemas
 ```csharp
-public void ConfigureServices(IServiceCollection services)
+public void ConfigureServices(IServiceCollection services, IConfiguration configuration)
 {
     var tenantSchema = GetTenantSchema(); // e.g., "tenant1", "tenant2", etc.
 
-    services.AddPostgreSqlSemantico(
-        Configuration.GetConnectionString("Database"),
-        schema: tenantSchema
-    );
+    services.AddSemantico(configuration, options =>
+    {
+        options.UsePostgreSql(configuration.GetConnectionString("Database")!, tenantSchema);
+        options.AddSemanticoScheduler<YourScheduler>();
+    });
 }
 ```
 
@@ -97,7 +111,11 @@ public void ConfigureServices(IServiceCollection services)
 
 // Program.cs
 var schema = builder.Configuration["Semantico:Schema"] ?? "semantico";
-builder.Services.AddPostgreSqlSemantico(connectionString, schema);
+builder.Services.AddSemantico(builder.Configuration, options =>
+{
+    options.UsePostgreSql(connectionString, schema);
+    options.AddSemanticoScheduler<YourScheduler>();
+});
 ```
 
 ## Automatic Schema Creation
@@ -128,13 +146,25 @@ public static void UseSemantico(IServiceProvider serviceProvider)
 ### Test with different schemas:
 ```csharp
 // Test 1: Default schema
-builder.Services.AddPostgreSqlSemantico(connectionString);
+builder.Services.AddSemantico(builder.Configuration, options =>
+{
+    options.UsePostgreSql(connectionString); // Uses "semantico" by default
+    options.AddSemanticoScheduler<YourScheduler>();
+});
 
 // Test 2: Custom schema
-builder.Services.AddPostgreSqlSemantico(connectionString, "custom");
+builder.Services.AddSemantico(builder.Configuration, options =>
+{
+    options.UsePostgreSql(connectionString, "custom");
+    options.AddSemanticoScheduler<YourScheduler>();
+});
 
 // Test 3: Per-tenant schema
-builder.Services.AddPostgreSqlSemantico(connectionString, $"tenant_{tenantId}");
+builder.Services.AddSemantico(builder.Configuration, options =>
+{
+    options.UsePostgreSql(connectionString, $"tenant_{tenantId}");
+    options.AddSemanticoScheduler<YourScheduler>();
+});
 ```
 
 ## Benefits

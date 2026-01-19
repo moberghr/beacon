@@ -210,27 +210,24 @@ dotnet add package Semantico.UI.AspNet
 ### 2. Configure in Program.cs
 
 ```csharp
-using Semantico.Core.PostgreSql;
+using Semantico.Core;
 using Semantico.UI.AspNet;
 
-// Add Semantico with PostgreSQL
-builder.Services.AddPostgreSqlSemantico(
-    builder.Configuration.GetConnectionString("SemanticoContext")!,
-    schema: "semantico");
-
-// Add admin UI
-builder.Services.AddSemanticoAdmin(builder.Configuration, options =>
+// Add Semantico with PostgreSQL (single method call)
+builder.Services.AddSemantico(builder.Configuration, options =>
 {
+    options.UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
     options.AddSemanticoScheduler<YourHangfireScheduler>();
 });
+
+var app = builder.Build();
+
+app.UseStaticFiles(); // Required for Semantico UI assets
 
 // Configure UI
 app.UseSemanticoUI()
     .UseBasicAuthentication("admin", "admin")
     .AddBlazorUI("/semantico");
-
-// Run migrations
-ServiceConfiguration.UseSemantico(app.Services);
 ```
 
 ### 3. Add Connection String
