@@ -1,4 +1,4 @@
-namespace Semantico.UI.AspNet.Authentication;
+namespace Semantico.UI.Authentication;
 
 public interface ISemanticoAuthorizationProvider
 {

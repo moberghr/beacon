@@ -51,41 +51,24 @@ public class LlmProviderFactory
     private BedrockProvider CreateBedrockProvider(bool useFastModel = false)
     {
         if (string.IsNullOrEmpty(_config.Region))
-        {
             throw new InvalidOperationException("AWS Region is required for Bedrock provider");
-        }
-        
-        var modelId = useFastModel && !string.IsNullOrEmpty(_config.FastModel)
-            ? _config.FastModel
-            : _config.Model;
 
-        if (string.IsNullOrEmpty(modelId))
-        {
-            throw new InvalidOperationException("Model ID is required for Bedrock provider");
-        }
-        
+        var modelId = (useFastModel && !string.IsNullOrEmpty(_config.FastModel) ? _config.FastModel : _config.Model)
+            ?? throw new InvalidOperationException("Model ID is required for Bedrock provider");
+
         // If ApiKey contains both access and secret keys (format: "accessKey:secretKey")
         if (!string.IsNullOrEmpty(_config.ApiKey) && _config.ApiKey.Contains(':'))
         {
             var parts = _config.ApiKey.Split(':', 2);
             if (parts.Length != 2)
-            {
                 throw new InvalidOperationException("ApiKey format should be 'accessKey:secretKey'");
-            }
 
-            var accessKey = parts[0];
-            var secretKey = parts[1];
-
-            // If session token is provided, use temporary credentials
-            if (!string.IsNullOrEmpty(_config.SessionToken))
-            {
-                return new BedrockProvider(accessKey, secretKey, _config.SessionToken, _config.Region, modelId);
-            }
-
-            return new BedrockProvider(accessKey, secretKey, _config.Region, modelId);
+            return !string.IsNullOrEmpty(_config.SessionToken)
+                ? new BedrockProvider(parts[0], parts[1], _config.SessionToken, _config.Region, modelId)
+                : new BedrockProvider(parts[0], parts[1], _config.Region, modelId);
         }
 
-        // Otherwise, use default AWS credentials (IAM role, environment variables, etc.)
+        // Use default AWS credentials (IAM role, environment variables, etc.)
         return new BedrockProvider(_config.Region, modelId);
     }
 }

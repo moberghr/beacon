@@ -9,101 +9,446 @@
 @using Microsoft.EntityFrameworkCore
 @using Markdig
 @using Semantico.UI.Components.Shared
+@using MediatR
+@using Semantico.Core.Handlers.Ai.ArchiveDocumentation
 
 <SemanticoPageTitle Title="@_documentation?.Title"/>
+
+<style>
+    .documentation-header-gradient {
+        background: linear-gradient(135deg, rgba(var(--mud-palette-primary-rgb), 0.08) 0%, rgba(var(--mud-palette-secondary-rgb), 0.08) 100%);
+        border-radius: 12px;
+        padding: 32px;
+        margin-bottom: 24px;
+    }
+
+    .doc-stat-mini {
+        background: rgba(255, 255, 255, 0.6);
+        border-radius: 10px;
+        padding: 16px;
+        border: 1px solid rgba(0, 0, 0, 0.06);
+        transition: all 0.3s ease;
+    }
+
+    .mud-theme-dark .doc-stat-mini {
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .doc-stat-mini:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    }
+
+    .doc-stat-mini .stat-value {
+        font-size: 1.75rem;
+        font-weight: 700;
+        line-height: 1;
+        margin-bottom: 4px;
+    }
+
+    .doc-stat-mini .stat-label {
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        opacity: 0.7;
+        font-weight: 600;
+    }
+
+    .documentation-content {
+        font-size: 15px;
+        line-height: 1.7;
+        color: rgba(0, 0, 0, 0.87);
+    }
+
+    .mud-theme-dark .documentation-content {
+        color: rgba(255, 255, 255, 0.87);
+    }
+
+    .documentation-content h1 {
+        font-size: 2rem;
+        font-weight: 700;
+        margin-top: 32px;
+        margin-bottom: 16px;
+        color: var(--mud-palette-text-primary);
+        border-bottom: 2px solid var(--mud-palette-primary);
+        padding-bottom: 8px;
+    }
+
+    .documentation-content h2 {
+        font-size: 1.5rem;
+        font-weight: 600;
+        margin-top: 28px;
+        margin-bottom: 12px;
+        color: var(--mud-palette-text-primary);
+    }
+
+    .documentation-content h3 {
+        font-size: 1.25rem;
+        font-weight: 600;
+        margin-top: 24px;
+        margin-bottom: 10px;
+        color: var(--mud-palette-text-primary);
+    }
+
+    .documentation-content h4 {
+        font-size: 1.1rem;
+        font-weight: 600;
+        margin-top: 20px;
+        margin-bottom: 8px;
+        color: var(--mud-palette-text-secondary);
+    }
+
+    .documentation-content p {
+        margin-bottom: 16px;
+        line-height: 1.7;
+    }
+
+    .documentation-content ul, .documentation-content ol {
+        margin-bottom: 16px;
+        padding-left: 28px;
+    }
+
+    .documentation-content li {
+        margin-bottom: 8px;
+        line-height: 1.6;
+    }
+
+    .documentation-content code {
+        background-color: rgba(var(--mud-palette-primary-rgb), 0.08);
+        padding: 3px 8px;
+        border-radius: 4px;
+        font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+        font-size: 0.9em;
+        color: var(--mud-palette-primary-darken);
+    }
+
+    .documentation-content pre {
+        background: linear-gradient(135deg, rgba(var(--mud-palette-primary-rgb), 0.04) 0%, rgba(var(--mud-palette-secondary-rgb), 0.04) 100%);
+        padding: 20px;
+        border-radius: 8px;
+        overflow-x: auto;
+        margin-bottom: 20px;
+        border: 1px solid rgba(0, 0, 0, 0.08);
+    }
+
+    .mud-theme-dark .documentation-content pre {
+        background: linear-gradient(135deg, rgba(var(--mud-palette-primary-rgb), 0.08) 0%, rgba(var(--mud-palette-secondary-rgb), 0.08) 100%);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .documentation-content pre code {
+        background-color: transparent;
+        padding: 0;
+        color: inherit;
+    }
+
+    .documentation-content table {
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0;
+        margin-bottom: 24px;
+        border-radius: 8px;
+        overflow: hidden;
+        border: 1px solid var(--mud-palette-divider);
+    }
+
+    .documentation-content th, .documentation-content td {
+        padding: 12px 16px;
+        text-align: left;
+        border-bottom: 1px solid var(--mud-palette-divider);
+    }
+
+    .documentation-content th {
+        background: linear-gradient(135deg, rgba(var(--mud-palette-primary-rgb), 0.08) 0%, rgba(var(--mud-palette-secondary-rgb), 0.08) 100%);
+        font-weight: 600;
+        text-transform: uppercase;
+        font-size: 0.75rem;
+        letter-spacing: 0.5px;
+        color: var(--mud-palette-primary);
+    }
+
+    .documentation-content tr:last-child td {
+        border-bottom: none;
+    }
+
+    .documentation-content tr:hover {
+        background: rgba(var(--mud-palette-primary-rgb), 0.02);
+    }
+
+    .documentation-content blockquote {
+        border-left: 4px solid var(--mud-palette-primary);
+        padding: 16px 20px;
+        margin: 20px 0;
+        background: linear-gradient(to right, rgba(var(--mud-palette-primary-rgb), 0.05), transparent);
+        border-radius: 0 8px 8px 0;
+        font-style: italic;
+        color: var(--mud-palette-text-secondary);
+    }
+
+    .column-list {
+        list-style: none;
+        padding-left: 0;
+        margin-top: 24px;
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+        gap: 12px;
+    }
+
+    .column-item {
+        padding: 14px 18px;
+        background: linear-gradient(to right, rgba(var(--mud-palette-primary-rgb), 0.04), transparent);
+        border-left: 3px solid var(--mud-palette-primary);
+        border-radius: 0 8px 8px 0;
+        transition: all 0.2s ease;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .column-item:hover {
+        background: linear-gradient(to right, rgba(var(--mud-palette-primary-rgb), 0.08), transparent);
+        transform: translateX(4px);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+    }
+
+    .column-name {
+        font-weight: 600;
+        font-size: 0.95rem;
+        color: var(--mud-palette-text-primary);
+    }
+
+    .column-type {
+        font-size: 0.85rem;
+        color: var(--mud-palette-text-secondary);
+        font-family: 'Consolas', 'Monaco', monospace;
+    }
+
+    .column-badges {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+        margin-top: 4px;
+    }
+
+    .column-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 3px 10px;
+        border-radius: 4px;
+        font-size: 0.7rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.3px;
+    }
+
+    .not-null-badge {
+        background: linear-gradient(135deg, #ffa726 0%, #fb8c00 100%);
+        color: white;
+    }
+
+    .pk-badge {
+        background: linear-gradient(135deg, #66bb6a 0%, #43a047 100%);
+        color: white;
+    }
+
+    .fk-badge {
+        background: linear-gradient(135deg, #42a5f5 0%, #1e88e5 100%);
+        color: white;
+    }
+
+    .mermaid-diagram {
+        margin: 24px 0;
+        padding: 28px;
+        background: linear-gradient(135deg, rgba(var(--mud-palette-primary-rgb), 0.02) 0%, rgba(var(--mud-palette-secondary-rgb), 0.02) 100%);
+        border-radius: 12px;
+        overflow-x: auto;
+        border: 1px solid rgba(0, 0, 0, 0.06);
+    }
+
+    .mud-theme-dark .mermaid-diagram {
+        background: linear-gradient(135deg, rgba(var(--mud-palette-primary-rgb), 0.05) 0%, rgba(var(--mud-palette-secondary-rgb), 0.05) 100%);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .doc-section-card {
+        margin-bottom: 20px;
+        transition: all 0.3s ease;
+    }
+
+    .doc-section-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1) !important;
+    }
+
+    .mud-theme-dark .doc-section-card:hover {
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4) !important;
+    }
+
+    .section-icon {
+        margin-right: 8px;
+        vertical-align: middle;
+    }
+
+    .export-menu-button {
+        margin-right: 8px;
+    }
+
+    .back-button {
+        margin-right: 12px;
+    }
+
+    @@media (max-width: 960px) {
+        .documentation-header-gradient {
+            padding: 20px;
+        }
+
+        .column-list {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
 
 <MudContainer MaxWidth="MaxWidth.ExtraExtraLarge" Class="my-4 px-4">
     @if (_loading)
     {
-        <MudProgressLinear Color="Color.Primary" Indeterminate="true" Class="my-4"/>
+        <MudStack AlignItems="AlignItems.Center" Justify="Justify.Center" Style="min-height: 400px;">
+            <MudProgressCircular Color="Color.Primary" Size="Size.Large" Indeterminate="true" />
+            <MudText Typo="Typo.h6" Color="Color.Secondary" Class="mt-4">Loading documentation...</MudText>
+        </MudStack>
     }
     else if (_error != null)
     {
-        <MudAlert Severity="Severity.Error" Class="my-4">@_error</MudAlert>
+        <MudAlert Severity="Severity.Error" Variant="Variant.Filled" Class="mb-4">
+            <MudText Typo="Typo.body1">@_error</MudText>
+        </MudAlert>
         <MudButton Variant="Variant.Filled"
                   Color="Color.Primary"
                   StartIcon="@Icons.Material.Filled.ArrowBack"
-                  Href="@($"/data-sources/{DataSourceId}")">
+                  Href="@($"data-sources/{DataSourceId}")"
+                  Size="Size.Large">
             Back to Data Source
         </MudButton>
     }
     else if (_documentation != null)
     {
-        <!-- Header -->
-        <MudCard Elevation="2" Class="mb-4">
-            <MudCardHeader>
-                <CardHeaderContent>
-                    <div class="d-flex align-center gap-3">
+        <!-- Header Section -->
+        <div class="documentation-header-gradient">
+            <MudStack Row="true" AlignItems="AlignItems.Start" Justify="Justify.SpaceBetween" Class="mb-4">
+                <MudStack Spacing="2" Style="flex: 1;">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
                         <MudIconButton Icon="@Icons.Material.Filled.ArrowBack"
                                       Color="Color.Primary"
-                                      Href="@($"/data-sources/{DataSourceId}")"
-                                      Size="Size.Medium"/>
+                                      Href="@($"data-sources/{DataSourceId}")"
+                                      Size="Size.Large"
+                                      Variant="Variant.Filled"
+                                      Class="back-button"/>
+                        <MudIcon Icon="@Icons.Material.Filled.Description" Size="Size.Large" Color="Color.Primary" />
                         <div>
-                            <MudText Typo="Typo.h5">@_documentation.Title</MudText>
-                            <MudText Typo="Typo.caption" Color="Color.Secondary">
-                                Generated @_documentation.GeneratedAt.ToString("g") by @_documentation.GeneratedByModel
+                            <MudText Typo="Typo.h4" Style="font-weight: 700; margin: 0;">
+                                @_documentation.Title
                             </MudText>
+                            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mt-1">
+                                <MudChip T="string"
+                                        Size="Size.Small"
+                                        Color="@GetStatusColor(_documentation.Status)"
+                                        Variant="Variant.Filled">
+                                    @_documentation.Status
+                                </MudChip>
+                                <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                    <MudIcon Icon="@Icons.Material.Filled.AutoAwesome" Size="Size.Small" Class="mr-1" />
+                                    Generated @_documentation.GeneratedAt.ToLocalTime().ToString("g") by @_documentation.GeneratedByModel
+                                </MudText>
+                            </MudStack>
                         </div>
-                    </div>
-                </CardHeaderContent>
-                <CardHeaderActions>
+                    </MudStack>
+                </MudStack>
+
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                    <MudButton StartIcon="@Icons.Material.Filled.Archive"
+                              Color="Color.Warning"
+                              Variant="Variant.Outlined"
+                              OnClick="ArchiveDocumentation"
+                              Size="Size.Medium"
+                              Class="mr-1">
+                        Archive
+                    </MudButton>
                     <MudMenu Icon="@Icons.Material.Filled.FileDownload"
                             Color="Color.Primary"
                             Variant="Variant.Filled"
-                            AnchorOrigin="Origin.BottomRight">
+                            Size="Size.Medium"
+                            AnchorOrigin="Origin.BottomRight"
+                            Dense="true">
                         <MudMenuItem Icon="@Icons.Material.Filled.FileDownload" OnClick="ExportMarkdown">
-                            Export Markdown
+                            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                                <MudText>Export Markdown</MudText>
+                            </MudStack>
                         </MudMenuItem>
-                        <MudMenuItem Icon="@Icons.Material.Filled.FileDownload" OnClick="ExportHtml">
-                            Export HTML
+                        <MudMenuItem Icon="@Icons.Material.Filled.Html" OnClick="ExportHtml">
+                            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                                <MudText>Export HTML</MudText>
+                            </MudStack>
                         </MudMenuItem>
                         <MudMenuItem Icon="@Icons.Material.Filled.PictureAsPdf" OnClick="ExportPdf">
-                            Export PDF
+                            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                                <MudText>Export PDF</MudText>
+                            </MudStack>
                         </MudMenuItem>
                     </MudMenu>
-                </CardHeaderActions>
-            </MudCardHeader>
-            <MudCardContent>
-                <MudGrid>
-                    <MudItem xs="12" sm="6" md="3">
-                        <MudPaper Elevation="0" Class="pa-3">
-                            <MudText Typo="Typo.caption" Color="Color.Secondary">Tables Analyzed</MudText>
-                            <MudText Typo="Typo.h6">@_documentation.TablesAnalyzed</MudText>
-                        </MudPaper>
-                    </MudItem>
-                    <MudItem xs="12" sm="6" md="3">
-                        <MudPaper Elevation="0" Class="pa-3">
-                            <MudText Typo="Typo.caption" Color="Color.Secondary">Tokens Used</MudText>
-                            <MudText Typo="Typo.h6">@_documentation.TokensUsed.ToString("N0")</MudText>
-                        </MudPaper>
-                    </MudItem>
-                    <MudItem xs="12" sm="6" md="3">
-                        <MudPaper Elevation="0" Class="pa-3">
-                            <MudText Typo="Typo.caption" Color="Color.Secondary">Estimated Cost</MudText>
-                            <MudText Typo="Typo.h6">$@_documentation.EstimatedCost.ToString("F4")</MudText>
-                        </MudPaper>
-                    </MudItem>
-                    <MudItem xs="12" sm="6" md="3">
-                        <MudPaper Elevation="0" Class="pa-3">
-                            <MudText Typo="Typo.caption" Color="Color.Secondary">Status</MudText>
-                            <MudChip T="string" Size="Size.Small" Color="@GetStatusColor(_documentation.Status)">
-                                @_documentation.Status
-                            </MudChip>
-                        </MudPaper>
-                    </MudItem>
-                </MudGrid>
-            </MudCardContent>
-        </MudCard>
+                </MudStack>
+            </MudStack>
+
+            <!-- Statistics -->
+            <MudGrid Spacing="3">
+                <MudItem xs="6" sm="3">
+                    <div class="doc-stat-mini">
+                        <MudStack AlignItems="AlignItems.Center" Spacing="1">
+                            <MudIcon Icon="@Icons.Material.Filled.TableChart" Size="Size.Large" Color="Color.Primary" />
+                            <div class="stat-value">@_documentation.TablesAnalyzed</div>
+                            <div class="stat-label">Tables Analyzed</div>
+                        </MudStack>
+                    </div>
+                </MudItem>
+                <MudItem xs="6" sm="3">
+                    <div class="doc-stat-mini">
+                        <MudStack AlignItems="AlignItems.Center" Spacing="1">
+                            <MudIcon Icon="@Icons.Material.Filled.AutoAwesome" Size="Size.Large" Color="Color.Info" />
+                            <div class="stat-value">@_documentation.TokensUsed.ToString("N0")</div>
+                            <div class="stat-label">Tokens Used</div>
+                        </MudStack>
+                    </div>
+                </MudItem>
+                <MudItem xs="6" sm="3">
+                    <div class="doc-stat-mini">
+                        <MudStack AlignItems="AlignItems.Center" Spacing="1">
+                            <MudIcon Icon="@Icons.Material.Filled.AttachMoney" Size="Size.Large" Color="Color.Success" />
+                            <div class="stat-value">$@_documentation.EstimatedCost.ToString("F4")</div>
+                            <div class="stat-label">Estimated Cost</div>
+                        </MudStack>
+                    </div>
+                </MudItem>
+                <MudItem xs="6" sm="3">
+                    <div class="doc-stat-mini">
+                        <MudStack AlignItems="AlignItems.Center" Spacing="1">
+                            <MudIcon Icon="@Icons.Material.Filled.Description" Size="Size.Large" Color="Color.Secondary" />
+                            <div class="stat-value">@_sections.Count</div>
+                            <div class="stat-label">Sections</div>
+                        </MudStack>
+                    </div>
+                </MudItem>
+            </MudGrid>
+        </div>
 
         <!-- Database Schema Overview -->
         @if (_metadata != null)
         {
-            <MudCard Elevation="2" Class="mb-4">
+            <MudCard Elevation="3" Class="doc-section-card">
                 <MudCardHeader>
                     <CardHeaderContent>
-                        <MudText Typo="Typo.h6">
-                            <MudIcon Icon="@Icons.Material.Filled.Schema" Class="mr-2" />
-                            Database Schema
+                        <MudText Typo="Typo.h6" Style="font-weight: 600;">
+                            <MudIcon Icon="@Icons.Material.Filled.Schema" Class="section-icon" Color="Color.Primary" />
+                            Database Schema Overview
                         </MudText>
                     </CardHeaderContent>
                 </MudCardHeader>
@@ -116,10 +461,11 @@
         <!-- Content Sections -->
         @foreach (var docSection in _sections.OrderBy(s => s.SortOrder))
         {
-            <MudCard Elevation="2" Class="mb-4">
+            <MudCard Elevation="3" Class="doc-section-card">
                 <MudCardHeader>
                     <CardHeaderContent>
-                        <MudText Typo="Typo.h6">
+                        <MudText Typo="Typo.h6" Style="font-weight: 600;">
+                            @GetSectionIcon(docSection.SectionType)
                             @docSection.GetDisplayTitle()
                         </MudText>
                     </CardHeaderContent>
@@ -154,149 +500,15 @@
 
         @if (!_sections.Any())
         {
-            <MudAlert Severity="Severity.Info">
-                No content sections found. The documentation may not have been properly generated.
+            <MudAlert Severity="Severity.Info" Variant="Variant.Filled">
+                <MudText Typo="Typo.body1">
+                    <MudIcon Icon="@Icons.Material.Filled.Info" Class="mr-2" />
+                    No content sections found. The documentation may not have been properly generated.
+                </MudText>
             </MudAlert>
         }
     }
 </MudContainer>
-
-<style>
-    .documentation-content {
-        font-size: 14px;
-        line-height: 1.6;
-    }
-
-    .documentation-content h1 {
-        font-size: 1.8em;
-        margin-top: 20px;
-        margin-bottom: 10px;
-        color: #333;
-    }
-
-    .documentation-content h2 {
-        font-size: 1.5em;
-        margin-top: 18px;
-        margin-bottom: 8px;
-        color: #555;
-    }
-
-    .documentation-content h3 {
-        font-size: 1.3em;
-        margin-top: 16px;
-        margin-bottom: 8px;
-        color: #666;
-    }
-
-    .documentation-content p {
-        margin-bottom: 12px;
-    }
-
-    .documentation-content ul, .documentation-content ol {
-        margin-left: 20px;
-        margin-bottom: 12px;
-    }
-
-    .documentation-content code {
-        background-color: #f5f5f5;
-        padding: 2px 6px;
-        border-radius: 3px;
-        font-family: 'Courier New', monospace;
-    }
-
-    .documentation-content pre {
-        background-color: #f5f5f5;
-        padding: 12px;
-        border-radius: 5px;
-        overflow-x: auto;
-        margin-bottom: 12px;
-    }
-
-    .documentation-content pre code {
-        background-color: transparent;
-        padding: 0;
-    }
-
-    .documentation-content table {
-        width: 100%;
-        border-collapse: collapse;
-        margin-bottom: 16px;
-    }
-
-    .documentation-content th, .documentation-content td {
-        border: 1px solid #ddd;
-        padding: 8px;
-        text-align: left;
-    }
-
-    .documentation-content th {
-        background-color: #f0f0f0;
-        font-weight: bold;
-    }
-
-    .documentation-content blockquote {
-        border-left: 4px solid #007bff;
-        padding-left: 16px;
-        margin-left: 0;
-        color: #666;
-        font-style: italic;
-    }
-
-    .column-list {
-        list-style: none;
-        padding-left: 0;
-        margin-bottom: 20px;
-    }
-
-    .column-item {
-        padding: 8px 12px;
-        margin-bottom: 6px;
-        background-color: #f9f9f9;
-        border-left: 3px solid #007bff;
-        border-radius: 4px;
-    }
-
-    .not-null-badge {
-        display: inline-block;
-        padding: 2px 8px;
-        margin-left: 8px;
-        background-color: #ffc107;
-        color: #000;
-        border-radius: 3px;
-        font-size: 11px;
-        font-weight: bold;
-    }
-
-    .pk-badge {
-        display: inline-block;
-        padding: 2px 8px;
-        margin-left: 8px;
-        background-color: #28a745;
-        color: white;
-        border-radius: 3px;
-        font-size: 11px;
-        font-weight: bold;
-    }
-
-    .fk-badge {
-        display: inline-block;
-        padding: 2px 8px;
-        margin-left: 8px;
-        background-color: #17a2b8;
-        color: white;
-        border-radius: 3px;
-        font-size: 11px;
-        font-weight: bold;
-    }
-
-    .mermaid-diagram {
-        margin: 20px 0;
-        padding: 20px;
-        background-color: #f9f9f9;
-        border-radius: 8px;
-        overflow-x: auto;
-    }
-</style>
 
 @inject IAiDocumentationService AiDocumentationService
 @inject IDatabaseMetadataService MetadataService
@@ -304,6 +516,7 @@
 @inject ISnackbar Snackbar
 @inject IJSRuntime JSRuntime
 @inject IDbContextFactory<SemanticoContext> DbContextFactory
+@inject IMediator Mediator
 
 @code {
     [Parameter]
@@ -334,7 +547,7 @@
 
             if (_documentation == null)
             {
-                _error = $"Documentation with ID {DocumentationId} not found";
+                _error = $"Documentation with ID {DocumentationId} not found or has been archived";
                 return;
             }
 
@@ -394,6 +607,33 @@
             DocumentationStatus.Draft => Color.Default,
             DocumentationStatus.Published => Color.Success,
             _ => Color.Default
+        };
+    }
+
+    private RenderFragment GetSectionIcon(SectionType sectionType)
+    {
+        return builder =>
+        {
+            var icon = sectionType switch
+            {
+                SectionType.Overview => Icons.Material.Filled.Info,
+                SectionType.Architecture => Icons.Material.Filled.AccountTree,
+                SectionType.TableDetail => Icons.Material.Filled.TableChart,
+                SectionType.TableDescription => Icons.Material.Filled.TableView,
+                SectionType.ColumnDescription => Icons.Material.Filled.ViewColumn,
+                SectionType.Relationships => Icons.Material.Filled.Link,
+                SectionType.DataQuality => Icons.Material.Filled.VerifiedUser,
+                SectionType.SampleData => Icons.Material.Filled.DataObject,
+                SectionType.BestPractices => Icons.Material.Filled.Lightbulb,
+                SectionType.UsageExamples => Icons.Material.Filled.Code,
+                _ => Icons.Material.Filled.Article
+            };
+
+            builder.OpenComponent<MudIcon>(0);
+            builder.AddAttribute(1, "Icon", icon);
+            builder.AddAttribute(2, "Class", "section-icon");
+            builder.AddAttribute(3, "Color", Color.Primary);
+            builder.CloseComponent();
         };
     }
 
@@ -516,53 +756,69 @@
             if (table == null) return;
 
             builder.OpenElement(0, "div");
-            builder.AddAttribute(1, "class", "mt-4");
+            builder.AddAttribute(1, "style", "margin-top: 24px;");
 
             builder.OpenElement(2, "h4");
-            builder.AddContent(3, "Columns");
+            builder.AddAttribute(3, "style", "font-weight: 600; margin-bottom: 16px; color: var(--mud-palette-primary);");
+            builder.OpenComponent<MudIcon>(4);
+            builder.AddAttribute(5, "Icon", Icons.Material.Filled.ViewColumn);
+            builder.AddAttribute(6, "Size", Size.Small);
+            builder.AddAttribute(7, "Class", "mr-2");
+            builder.CloseComponent();
+            builder.AddContent(8, "Columns");
             builder.CloseElement();
 
-            builder.OpenElement(4, "ul");
-            builder.AddAttribute(5, "class", "column-list");
+            builder.OpenElement(9, "ul");
+            builder.AddAttribute(10, "class", "column-list");
 
             foreach (var column in table.Columns.OrderBy(c => c.OrdinalPosition))
             {
-                builder.OpenElement(6, "li");
-                builder.AddAttribute(7, "class", "column-item");
+                builder.OpenElement(11, "li");
+                builder.AddAttribute(12, "class", "column-item");
 
                 // Column name
-                builder.OpenElement(8, "strong");
-                builder.AddContent(9, column.ColumnName);
+                builder.OpenElement(13, "div");
+                builder.AddAttribute(14, "class", "column-name");
+                builder.AddContent(15, column.ColumnName);
                 builder.CloseElement();
 
                 // Data type
-                builder.AddContent(10, $" ({column.DataType})");
+                builder.OpenElement(16, "div");
+                builder.AddAttribute(17, "class", "column-type");
+                builder.AddContent(18, column.DataType);
+                builder.CloseElement();
 
-                // Nullable
-                if (!column.IsNullable)
+                // Badges
+                if (!column.IsNullable || column.IsPrimaryKey || column.IsForeignKey)
                 {
-                    builder.OpenElement(11, "span");
-                    builder.AddAttribute(12, "class", "not-null-badge");
-                    builder.AddContent(13, " NOT NULL");
-                    builder.CloseElement();
-                }
+                    builder.OpenElement(19, "div");
+                    builder.AddAttribute(20, "class", "column-badges");
 
-                // Primary key
-                if (column.IsPrimaryKey)
-                {
-                    builder.OpenElement(14, "span");
-                    builder.AddAttribute(15, "class", "pk-badge");
-                    builder.AddContent(16, " 🔑 PK");
-                    builder.CloseElement();
-                }
+                    if (column.IsPrimaryKey)
+                    {
+                        builder.OpenElement(21, "span");
+                        builder.AddAttribute(22, "class", "column-badge pk-badge");
+                        builder.AddContent(23, "🔑 PRIMARY KEY");
+                        builder.CloseElement();
+                    }
 
-                // Foreign key
-                if (column.IsForeignKey && !string.IsNullOrEmpty(column.ForeignKeyTable))
-                {
-                    builder.OpenElement(17, "span");
-                    builder.AddAttribute(18, "class", "fk-badge");
-                    builder.AddContent(19, $" → {column.ForeignKeyTable}");
-                    builder.CloseElement();
+                    if (column.IsForeignKey && !string.IsNullOrEmpty(column.ForeignKeyTable))
+                    {
+                        builder.OpenElement(24, "span");
+                        builder.AddAttribute(25, "class", "column-badge fk-badge");
+                        builder.AddContent(26, $"→ {column.ForeignKeyTable}");
+                        builder.CloseElement();
+                    }
+
+                    if (!column.IsNullable)
+                    {
+                        builder.OpenElement(27, "span");
+                        builder.AddAttribute(28, "class", "column-badge not-null-badge");
+                        builder.AddContent(29, "NOT NULL");
+                        builder.CloseElement();
+                    }
+
+                    builder.CloseElement(); // badges div
                 }
 
                 builder.CloseElement(); // li
@@ -571,5 +827,20 @@
             builder.CloseElement(); // ul
             builder.CloseElement(); // div
         };
+    }
+
+    private async Task ArchiveDocumentation()
+    {
+        try
+        {
+            var command = new ArchiveDocumentationCommand { DocumentationId = DocumentationId };
+            await Mediator.Send(command);
+            Snackbar.Add("Documentation archived successfully", Severity.Success);
+            Navigation.NavigateTo($"data-sources/{DataSourceId}");
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to archive documentation: {ex.Message}", Severity.Error);
+        }
     }
 }

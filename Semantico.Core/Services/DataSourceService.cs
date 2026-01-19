@@ -21,6 +21,8 @@ public interface IDataSourceService
     Task<List<DataSourceListData>> GetDataSources(int? dataSourceId, CancellationToken cancellationToken);
 
     Task<AdHocQueryResult> ExecuteAdHocQuery(int dataSourceId, string query, CancellationToken cancellationToken);
+
+    Task<BaseResponse> TestConnection(string connectionString, Data.Enums.DatabaseEngineType databaseEngineType, CancellationToken cancellationToken);
 }
 
 internal class DataSourceService(
@@ -160,12 +162,8 @@ internal class DataSourceService(
 
         var dataSource = await context.DataSources
             .Where(x => x.Id == dataSourceId)
-            .SingleOrDefaultAsync(cancellationToken);
-
-        if (dataSource == null)
-        {
-            throw new SemanticoException($"Data source with ID {dataSourceId} not found");
-        }
+            .SingleOrDefaultAsync(cancellationToken)
+            ?? throw new SemanticoException($"Data source with ID {dataSourceId} not found");
 
         var startTime = DateTime.UtcNow;
 
@@ -175,30 +173,8 @@ internal class DataSourceService(
             await using var connection = DbConnectionFactory.CreateConnection(dataSource.DatabaseEngineType, decryptedConnectionString);
             await connection.OpenAsync(cancellationToken);
 
-            var result = await connection.QueryAsync(new CommandDefinition(
-                query,
-                cancellationToken: cancellationToken,
-                commandTimeout: 120
-            ));
-
-            var executionTime = DateTime.UtcNow - startTime;
-            var resultList = result.AsList();
-
-            // Convert dynamic results to column/row structure
-            var columns = new List<string>();
-            var rows = new List<Dictionary<string, object?>>();
-
-            if (resultList.Count > 0)
-            {
-                var firstRow = (IDictionary<string, object?>)resultList[0];
-                columns = firstRow.Keys.ToList();
-
-                foreach (var item in resultList)
-                {
-                    var rowDict = (IDictionary<string, object?>)item;
-                    rows.Add(rowDict.ToDictionary(kvp => kvp.Key, kvp => kvp.Value));
-                }
-            }
+            var result = await connection.QueryAsync(new CommandDefinition(query, cancellationToken: cancellationToken, commandTimeout: 120));
+            var (columns, rows) = ConvertQueryResults(result.AsList());
 
             return new AdHocQueryResult
             {
@@ -206,21 +182,58 @@ internal class DataSourceService(
                 Columns = columns,
                 Rows = rows,
                 RowCount = rows.Count,
-                ExecutionTime = executionTime
+                ExecutionTime = DateTime.UtcNow - startTime
             };
         }
         catch (Exception ex)
         {
-            var executionTime = DateTime.UtcNow - startTime;
             return new AdHocQueryResult
             {
                 Success = false,
                 Error = ex.Message,
-                ExecutionTime = executionTime,
+                ExecutionTime = DateTime.UtcNow - startTime,
                 Columns = new List<string>(),
                 Rows = new List<Dictionary<string, object?>>(),
                 RowCount = 0
             };
         }
+    }
+
+    public async Task<BaseResponse> TestConnection(string connectionString, Data.Enums.DatabaseEngineType databaseEngineType, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var connection = DbConnectionFactory.CreateConnection(databaseEngineType, connectionString);
+            await connection.OpenAsync(cancellationToken);
+            await connection.CloseAsync();
+
+            return new BaseResponse
+            {
+                Success = true,
+                Message = "Connection successful"
+            };
+        }
+        catch (Exception ex)
+        {
+            return new BaseResponse
+            {
+                Success = false,
+                Message = $"Connection failed: {ex.Message}"
+            };
+        }
+    }
+
+    private (List<string> columns, List<Dictionary<string, object?>> rows) ConvertQueryResults(IList<dynamic> resultList)
+    {
+        if (resultList.Count == 0)
+            return (new List<string>(), new List<Dictionary<string, object?>>());
+
+        var firstRow = (IDictionary<string, object?>)resultList[0];
+        var columns = firstRow.Keys.ToList();
+        var rows = resultList
+            .Select(item => ((IDictionary<string, object?>)item).ToDictionary(kvp => kvp.Key, kvp => kvp.Value))
+            .ToList();
+
+        return (columns, rows);
     }
 }

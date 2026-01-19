@@ -98,8 +98,6 @@ public class AiDocumentationService : IAiDocumentationService
             TablesAnalyzed = filteredTables.Count,
             TokensUsed = response.TotalTokens,
             EstimatedCost = response.EstimatedCost,
-            CreatedAt = DateTime.UtcNow,
-            ModifiedAt = DateTime.UtcNow,
             CreatedBy = userId.ToString(),
             ModifiedBy = userId.ToString()
         };
@@ -138,7 +136,6 @@ public class AiDocumentationService : IAiDocumentationService
         {
             DocumentationId = documentationId,
             VersionNumber = await GetNextVersionNumberAsync(context, documentationId, cancellationToken),
-            CreatedAt = DateTime.UtcNow,
             CreatedByUserId = userId,
             ChangeDescription = "Regenerated documentation",
             SnapshotJson = JsonSerializer.Serialize(existing.Sections),
@@ -295,8 +292,6 @@ public class AiDocumentationService : IAiDocumentationService
         GenerationOptions options)
     {
         var sb = new StringBuilder();
-
-        // Context section
         sb.AppendLine("# Database Documentation Task");
         sb.AppendLine();
         sb.AppendLine("## Context");
@@ -305,78 +300,59 @@ public class AiDocumentationService : IAiDocumentationService
         sb.AppendLine("- **Objective:** Generate comprehensive documentation for developers and data analysts");
         sb.AppendLine("- **Audience:** Software developers, data engineers, database administrators, and technical stakeholders");
         sb.AppendLine();
-
-        // Database Schema section with detailed metadata
         sb.AppendLine("## Database Schema");
         sb.AppendLine();
 
         foreach (var table in tables)
         {
-            sb.AppendLine($"### Table: `{table.SchemaName}.{table.TableName}`");
-            sb.AppendLine();
-
-            // Table description if available
-            if (!string.IsNullOrEmpty(table.Description))
-            {
-                sb.AppendLine($"**Description:** {table.Description}");
-                sb.AppendLine();
-            }
-
-            sb.AppendLine("**Columns:**");
-            sb.AppendLine();
-
-            // Primary keys first
-            var primaryKeys = table.Columns.Where(c => c.IsPrimaryKey).ToList();
-            if (primaryKeys.Any())
-            {
-                sb.AppendLine("*Primary Keys:*");
-                foreach (var column in primaryKeys)
-                {
-                    sb.AppendLine($"- **{column.ColumnName}** ({column.DataType}) - PRIMARY KEY {(column.IsNullable ? "NULL" : "NOT NULL")}");
-                    if (!string.IsNullOrEmpty(column.DefaultValue))
-                    {
-                        sb.AppendLine($"  - Default: `{column.DefaultValue}`");
-                    }
-                }
-                sb.AppendLine();
-            }
-
-            // Foreign keys
-            var foreignKeys = table.Columns.Where(c => c.IsForeignKey).ToList();
-            if (foreignKeys.Any())
-            {
-                sb.AppendLine("*Foreign Keys:*");
-                foreach (var column in foreignKeys)
-                {
-                    var refInfo = !string.IsNullOrEmpty(column.ForeignKeyTable)
-                        ? $" → References `{column.ForeignKeyTable}.{column.ForeignKeyColumn}`"
-                        : "";
-                    sb.AppendLine($"- **{column.ColumnName}** ({column.DataType}){refInfo} {(column.IsNullable ? "NULL" : "NOT NULL")}");
-                }
-                sb.AppendLine();
-            }
-
-            // Regular columns
-            var regularColumns = table.Columns.Where(c => !c.IsPrimaryKey && !c.IsForeignKey).ToList();
-            if (regularColumns.Any())
-            {
-                sb.AppendLine("*Columns:*");
-                foreach (var column in regularColumns)
-                {
-                    sb.AppendLine($"- **{column.ColumnName}** ({column.DataType}) {(column.IsNullable ? "NULL" : "NOT NULL")}");
-                    if (!string.IsNullOrEmpty(column.DefaultValue))
-                    {
-                        sb.AppendLine($"  - Default: `{column.DefaultValue}`");
-                    }
-                }
-                sb.AppendLine();
-            }
-
-            sb.AppendLine("---");
-            sb.AppendLine();
+            AppendTableSchema(sb, table);
         }
 
         return sb.ToString();
+    }
+
+    private void AppendTableSchema(StringBuilder sb, TableMetadataDto table)
+    {
+        sb.AppendLine($"### Table: `{table.SchemaName}.{table.TableName}`");
+        sb.AppendLine();
+
+        if (!string.IsNullOrEmpty(table.Description))
+        {
+            sb.AppendLine($"**Description:** {table.Description}");
+            sb.AppendLine();
+        }
+
+        sb.AppendLine("**Columns:**");
+        sb.AppendLine();
+
+        AppendColumnGroup(sb, "Primary Keys", table.Columns.Where(c => c.IsPrimaryKey));
+        AppendColumnGroup(sb, "Foreign Keys", table.Columns.Where(c => c.IsForeignKey));
+        AppendColumnGroup(sb, "Columns", table.Columns.Where(c => !c.IsPrimaryKey && !c.IsForeignKey));
+
+        sb.AppendLine("---");
+        sb.AppendLine();
+    }
+
+    private void AppendColumnGroup(StringBuilder sb, string groupName, IEnumerable<ColumnMetadataDto> columns)
+    {
+        var columnList = columns.ToList();
+        if (!columnList.Any()) return;
+
+        sb.AppendLine($"*{groupName}:*");
+        foreach (var column in columnList)
+        {
+            var refInfo = groupName == "Foreign Keys" && !string.IsNullOrEmpty(column.ForeignKeyTable)
+                ? $" → References `{column.ForeignKeyTable}.{column.ForeignKeyColumn}`"
+                : "";
+            var keyInfo = groupName == "Primary Keys" ? " - PRIMARY KEY" : "";
+            sb.AppendLine($"- **{column.ColumnName}** ({column.DataType}){refInfo}{keyInfo} {(column.IsNullable ? "NULL" : "NOT NULL")}");
+
+            if (!string.IsNullOrEmpty(column.DefaultValue))
+            {
+                sb.AppendLine($"  - Default: `{column.DefaultValue}`");
+            }
+        }
+        sb.AppendLine();
     }
 
     private string GetDocumentationSystemPrompt()
@@ -542,39 +518,21 @@ Focus on revealing the 'why' behind the schema, not just describing the 'what'."
             return new List<DocumentationSection>();
 
         var sections = new List<DocumentationSection>();
-        var sortOrder = 1;
-
-        // Split by top-level headers (### or ##)
         var lines = aiContent.Split('\n');
         var currentSection = new StringBuilder();
-        SectionType currentType = SectionType.Overview;
+        var currentType = SectionType.Overview;
         string? currentTableName = null;
-        bool hasSeenHeader = false;
+        var sortOrder = 1;
 
-        for (int i = 0; i < lines.Length; i++)
+        foreach (var line in lines)
         {
-            var line = lines[i];
-
-            // Detect section headers (### Section Name or ## Section Name)
             if (line.StartsWith("### ") || (line.StartsWith("## ") && !line.StartsWith("###")))
             {
-                // Save previous section if it has content
-                if (currentSection.Length > 0)
-                {
-                    var content = currentSection.ToString().Trim();
-                    if (!string.IsNullOrWhiteSpace(content))
-                    {
-                        sections.Add(CreateSection(currentType, currentTableName, content, sortOrder++));
-                    }
-                    currentSection.Clear();
-                }
+                AddSectionIfValid(sections, currentType, currentTableName, currentSection, ref sortOrder);
 
-                // Determine section type from header
-                var headerText = line.StartsWith("### ") ? line.Substring(4).Trim() : line.Substring(3).Trim();
-                // Remove numbered prefixes like "1. " or "2. "
+                var headerText = line.StartsWith("### ") ? line[4..].Trim() : line[3..].Trim();
                 headerText = System.Text.RegularExpressions.Regex.Replace(headerText, @"^\d+\.\s*", "");
                 (currentType, currentTableName) = DetermineSectionType(headerText);
-                hasSeenHeader = true;
             }
             else
             {
@@ -582,23 +540,27 @@ Focus on revealing the 'why' behind the schema, not just describing the 'what'."
             }
         }
 
-        // Add final section
-        if (currentSection.Length > 0)
-        {
-            var content = currentSection.ToString().Trim();
-            if (!string.IsNullOrWhiteSpace(content))
-            {
-                sections.Add(CreateSection(currentType, currentTableName, content, sortOrder++));
-            }
-        }
+        AddSectionIfValid(sections, currentType, currentTableName, currentSection, ref sortOrder);
 
-        // If no sections were parsed (no headers found), create a single overview section
-        if (sections.Count == 0 && !string.IsNullOrWhiteSpace(aiContent))
-        {
-            sections.Add(CreateSection(SectionType.Overview, null, aiContent.Trim(), 1));
-        }
+        // If no sections parsed, create a single overview section
+        return sections.Count == 0 && !string.IsNullOrWhiteSpace(aiContent)
+            ? new List<DocumentationSection> { CreateSection(SectionType.Overview, null, aiContent.Trim(), 1) }
+            : sections;
+    }
 
-        return sections;
+    private void AddSectionIfValid(
+        List<DocumentationSection> sections,
+        SectionType type,
+        string? tableName,
+        StringBuilder content,
+        ref int sortOrder)
+    {
+        var trimmedContent = content.ToString().Trim();
+        if (!string.IsNullOrWhiteSpace(trimmedContent))
+        {
+            sections.Add(CreateSection(type, tableName, trimmedContent, sortOrder++));
+            content.Clear();
+        }
     }
 
     private DocumentationSection CreateSection(
@@ -620,8 +582,6 @@ Focus on revealing the 'why' behind the schema, not just describing the 'what'."
             AiGeneratedContent = content ?? string.Empty,
             IsUserEdited = false,
             ContentFormat = ContentFormat.Markdown,
-            CreatedAt = DateTime.UtcNow,
-            ModifiedAt = DateTime.UtcNow,
             CreatedBy = "system",
             ModifiedBy = "system"
         };

@@ -15,8 +15,6 @@ public class AiPromptTemplate : BaseEntity
     public int MaxTokens { get; set; }
     public string VariableDefinitions { get; set; } = null!;
     public string? Description { get; set; }
-    public DateTime CreatedAt { get; set; }
-    public DateTime ModifiedAt { get; set; }
     public string CreatedBy { get; set; } = null!;
     public string ModifiedBy { get; set; } = null!;
 }

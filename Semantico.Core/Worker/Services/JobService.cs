@@ -76,47 +76,13 @@ internal class JobService(
                 CancellationToken.None);
         }
 
-        NotificationStatus status;
-
-        // Use the explicit TimedOut flag
-        if (queryResult.TimedOut)
-        {
-            status = NotificationStatus.Timeout;
-        }
-        else if (queryResult.TotalRecords == 0)
-        {
-            status = NotificationStatus.NoResults;
-        }
-        else if (hasAnomalyDetection)
-        {
-            // If anomaly detection is enabled, ONLY send notification if anomaly is detected
-            // Do not fall through to old logic
-            if (anomalyEvaluation!.IsAnomaly)
-            {
-                status = NotificationStatus.NotificationSent;
-                logger.LogInformation("Anomaly detected for subscription {SubscriptionId}: {Explanation}",
-                    subscriptionId, anomalyEvaluation.Explanation);
-            }
-            else
-            {
-                status = NotificationStatus.NotificationSilenced;
-                logger.LogDebug("No anomaly detected for subscription {SubscriptionId}, notification silenced",
-                    subscriptionId);
-            }
-        }
-        else
-        {
-            // Use NotificationTrigger setting to determine if notification should be sent
-            status = subscription.NotificationTrigger switch
-            {
-                NotificationTrigger.Always => NotificationStatus.NotificationSent,
-                NotificationTrigger.OnResultCountChange when lastExecutedQuery == null => NotificationStatus.NotificationSent,
-                NotificationTrigger.OnResultCountChange when queryResult.TotalRecords != lastExecutedQuery.ResultCount => NotificationStatus.NotificationSent,
-                NotificationTrigger.OnResultCountIncrease when lastExecutedQuery == null => NotificationStatus.NotificationSent,
-                NotificationTrigger.OnResultCountIncrease when queryResult.TotalRecords > lastExecutedQuery.ResultCount => NotificationStatus.NotificationSent,
-                _ => NotificationStatus.NotificationSilenced
-            };
-        }
+        var status = DetermineNotificationStatus(
+            queryResult,
+            subscription,
+            lastExecutedQuery?.ResultCount,
+            hasAnomalyDetection,
+            anomalyEvaluation,
+            subscriptionId);
 
         var executedQuery = new QueryExecutionHistory
         {
@@ -212,5 +178,55 @@ internal class JobService(
         {
             await notificationService.SendNotification(recipientQueryResult, lastExecutedQuery?.ResultCount);
         }
+    }
+
+    private NotificationStatus DetermineNotificationStatus(
+        QueryResult queryResult,
+        Subscription subscription,
+        int? lastResultCount,
+        bool hasAnomalyDetection,
+        Models.Anomaly.AnomalyEvaluationResult? anomalyEvaluation,
+        int subscriptionId)
+    {
+        // Check for timeout
+        if (queryResult.TimedOut)
+            return NotificationStatus.Timeout;
+
+        // Check for no results
+        if (queryResult.TotalRecords == 0)
+            return NotificationStatus.NoResults;
+
+        // Check minimum row count threshold
+        if (subscription.MinimumRowCount.HasValue && queryResult.TotalRecords < subscription.MinimumRowCount.Value)
+        {
+            logger.LogDebug("Result count {ResultCount} is below minimum threshold {MinimumRowCount} for subscription {SubscriptionId}, notification silenced",
+                queryResult.TotalRecords, subscription.MinimumRowCount.Value, subscriptionId);
+            return NotificationStatus.BelowThreshold;
+        }
+
+        // Check anomaly detection
+        if (hasAnomalyDetection)
+        {
+            if (anomalyEvaluation!.IsAnomaly)
+            {
+                logger.LogInformation("Anomaly detected for subscription {SubscriptionId}: {Explanation}",
+                    subscriptionId, anomalyEvaluation.Explanation);
+                return NotificationStatus.NotificationSent;
+            }
+
+            logger.LogDebug("No anomaly detected for subscription {SubscriptionId}, notification silenced", subscriptionId);
+            return NotificationStatus.NotificationSilenced;
+        }
+
+        // Use notification trigger setting
+        return subscription.NotificationTrigger switch
+        {
+            NotificationTrigger.Always => NotificationStatus.NotificationSent,
+            NotificationTrigger.OnResultCountChange when lastResultCount == null => NotificationStatus.NotificationSent,
+            NotificationTrigger.OnResultCountChange when queryResult.TotalRecords != lastResultCount => NotificationStatus.NotificationSent,
+            NotificationTrigger.OnResultCountIncrease when lastResultCount == null => NotificationStatus.NotificationSent,
+            NotificationTrigger.OnResultCountIncrease when queryResult.TotalRecords > lastResultCount => NotificationStatus.NotificationSent,
+            _ => NotificationStatus.NotificationSilenced
+        };
     }
 }

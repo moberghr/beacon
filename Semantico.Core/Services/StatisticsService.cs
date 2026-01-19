@@ -44,7 +44,7 @@ internal class StatisticsService(IDbContextFactory<SemanticoContext> contextFact
                 Description = $"Query '{h.Subscription.Query.Name}' executed",
                 Timestamp = h.CreatedTime,
                 Icon = "Search",
-                Link = $"/semantico/subscriptions/{h.SubscriptionId}",
+                Link = $"subscriptions/{h.SubscriptionId}",
                 Status = h.NotificationStatus == NotificationStatus.NotificationSent ? "Notification Sent" : null
             })
             .ToListAsync(cancellationToken);
@@ -58,7 +58,7 @@ internal class StatisticsService(IDbContextFactory<SemanticoContext> contextFact
                 Description = $"Anomaly detected in subscription '{a.Subscription.Query.Name}'",
                 Timestamp = a.DetectedTime,
                 Icon = "Warning",
-                Link = $"/semantico/subscriptions/{a.SubscriptionId}",
+                Link = $"subscriptions/{a.SubscriptionId}",
                 Status = a.Severity
             })
             .ToListAsync(cancellationToken);
@@ -86,8 +86,9 @@ internal class StatisticsService(IDbContextFactory<SemanticoContext> contextFact
             .Take(5)
             .ToListAsync(cancellationToken);
 
-        // Get execution time statistics
+        // Get execution time statistics (only successful executions with valid times)
         var executionTimeStats = await context.QueryExecutionHistory
+            .Where(h => h.ExecutionTimeMs > 0)
             .GroupBy(x => 1)
             .Select(g => new
             {
@@ -97,9 +98,9 @@ internal class StatisticsService(IDbContextFactory<SemanticoContext> contextFact
             })
             .FirstOrDefaultAsync(cancellationToken);
 
-        // Get execution time history (last 30 days, grouped by date)
+        // Get execution time history (last 30 days, grouped by date, only successful executions)
         var executionTimeHistory = await context.QueryExecutionHistory
-            .Where(h => h.CreatedTime >= thirtyDaysAgo)
+            .Where(h => h.CreatedTime >= thirtyDaysAgo && h.ExecutionTimeMs > 0)
             .GroupBy(h => h.CreatedTime.Date)
             .Select(g => new ExecutionTimeDataPoint
             {

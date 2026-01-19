@@ -7,6 +7,64 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Run application: `dotnet run --project Semantico.SampleProject`
 - Watch for changes: `dotnet watch run --project Semantico.SampleProject`
 
+## Configuration
+
+### Simplified Setup (Recommended)
+All configuration is now done in a single method call:
+
+**Services Configuration:**
+```csharp
+builder.Services.AddSemantico(builder.Configuration, options =>
+{
+    // Configure database provider
+    options.UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
+    // Or use SQL Server:
+    // options.UseSqlServer(builder.Configuration.GetConnectionString("SemanticoContextSql")!, "semantico");
+
+    options.AddSemanticoScheduler<SemanticoScheduler>();
+    options.BaseUrl = "https://localhost:7187/semantico";
+    options.UseAI = true;
+});
+```
+
+**Middleware Configuration:**
+```csharp
+var app = builder.Build();
+
+app.UseHttpsRedirection();
+app.UseStaticFiles(); // REQUIRED: Serves _content files from Razor Class Libraries
+
+// SEMANTICO admin UI setup
+app.UseSemanticoUI()
+    .UseBasicAuthentication("admin", "admin")
+    .AddBlazorUI("/semantico");
+
+app.Run();
+```
+
+**Important Notes:**
+- `app.UseStaticFiles()` must be called before `app.UseSemanticoUI()` to properly serve JavaScript, CSS, and other static assets from the Semantico UI library
+- Razor Class Library static files are referenced using `../_content/...` paths to resolve correctly with the base href configuration
+
+### Legacy Configuration (Deprecated but still supported)
+The old two-step configuration is still supported for backward compatibility:
+
+```csharp
+// Step 1: Configure database provider first
+builder.Services.AddPostgreSqlSemantico(
+    builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
+
+// Step 2: Add Semantico services
+builder.Services.AddSemanticoAdmin(builder.Configuration, options =>
+{
+    options.AddSemanticoScheduler<SemanticoScheduler>();
+    options.BaseUrl = "https://localhost:7187/semantico";
+    options.UseAI = true;
+});
+```
+
+**Note**: New projects should use the simplified setup. The legacy configuration methods (`AddPostgreSqlSemantico`, `AddSqlServerSemantico`, and `AddSemanticoAdmin`) may be removed in a future major version.
+
 ## Code Style Guidelines
 - **Naming**: PascalCase for classes, methods, properties; camelCase for parameters, local variables
 - **Organization**: Group related files in folders based on domain/functionality
@@ -43,6 +101,138 @@ dotnet ef database update --project Semantico.Core --startup-project Semantico.S
 # services.AddPostgreSqlSemantico(connectionString, "your_schema_name")
 ```
 
+### Enum Values Reference
+
+All database enum integer values are documented here for reference. These are stored as integers in the database but represented as C# enums in code.
+
+**NotificationType** (`notification_type` column):
+- `Teams = 1` - Microsoft Teams notifications
+- `Email = 2` - Email notifications
+- `Jira = 3` - Jira ticket creation
+- `Slack = 4` - Slack notifications
+
+**NotificationStatus** (`notification_status` column):
+- `Created = 1` - Notification record created
+- `NotificationSent = 2` - Notification successfully sent
+- `NotificationSilenced = 3` - Notification suppressed by rules
+- `NoResults = 4` - Query returned no results
+- `Timeout = 5` - Query execution timed out
+- `BelowThreshold = 6` - Result count below minimum threshold
+
+**AnomalyDetectionMethod** (`detection_method` column):
+- `StandardDeviation = 1` - Z-score method: (current - mean) / std_dev
+- `IQR = 2` - Interquartile range: Q1 - 1.5*IQR, Q3 + 1.5*IQR
+- `PercentageChange = 3` - Simple percentage change: (current - avg) / avg
+
+**DatabaseEngineType** (`database_engine_type` column):
+- `PostgreSql = 1`
+- `MySql = 2`
+- `SqlServer = 3`
+- `Oracle = 4`
+
+**AlertStatus** (AI alert configuration status):
+- `Draft = 1`
+- `ValidationPending = 2`
+- `ValidationFailed = 3`
+- `Active = 4`
+- `Archived = 5`
+
+**DocumentationStatus** (documentation generation status):
+- `Queued = 1`
+- `InProgress = 2`
+- `Completed = 3`
+- `Failed = 4`
+
+**SectionType** (documentation section types):
+- `Overview = 1`
+- `TableDetail = 2`
+- `Architecture = 3`
+- `Relationships = 4`
+
+**ContentFormat** (documentation content format):
+- `Markdown = 1`
+- `Html = 2`
+- `PlainText = 3`
+
+**ParameterType** (query parameter types):
+- `String = 1`
+- `Integer = 2`
+- `Decimal = 3`
+- `Boolean = 4`
+- `Date = 5`
+- `DateTime = 6`
+
+**OperationType** (AI operation types):
+- `DocumentationGeneration = 1`
+- `QueryExplanation = 2`
+- `QueryOptimization = 3`
+- `AlertGeneration = 4`
+
+**MigrationStatus** (migration job status):
+- `Pending = 1`
+- `Running = 2`
+- `Completed = 3`
+- `Failed = 4`
+- `Cancelled = 5`
+
+**MigrationMode** (how migration writes data):
+- `FullRefresh = 1` - Truncate and reload
+- `IncrementalAppend = 2` - Insert new rows only
+- `Upsert = 3` - Update existing, insert new
+
+**NotificationTrigger** (when to send notifications):
+- `Always = 1` - Send for every execution
+- `OnlyOnResults = 2` - Only when query returns rows
+- `OnlyOnChanges = 3` - Only when results differ from previous
+- `OnlyOnAnomalies = 4` - Only when anomaly detected
+
+**AnomalySensitivity** (anomaly detection sensitivity):
+- `Low = 1`
+- `Medium = 2`
+- `High = 3`
+- `VeryHigh = 4`
+
+**ConversationRole** (AI conversation message role):
+- `User = 1`
+- `Assistant = 2`
+- `System = 3`
+
+**FileType** (document export format):
+- `Pdf = 1`
+- `Html = 2`
+- `Markdown = 3`
+- `Csv = 4`
+
+**DocumentationExportFormat** (export format for documentation):
+- `Pdf = 1`
+- `Html = 2`
+- `Markdown = 3`
+
+**AiProvider** (LLM provider):
+- `OpenAI = 1`
+- `Anthropic = 2`
+- `AzureOpenAI = 3`
+
+**EntityType** (polymorphic entity discriminator):
+- `Query = 1`
+- `DataSource = 2`
+- `Subscription = 3`
+- `Dashboard = 4`
+- `Alert = 5`
+
+### Foreign Key Cascade Behaviors
+
+**ON DELETE CASCADE** (deleting parent deletes children):
+- `subscriptions` → `query_execution_history`: Deleting subscription removes execution history
+- `subscriptions` → `anomaly_baselines`: Deleting subscription removes baseline data
+- `subscriptions` → `anomaly_configs`: Deleting subscription removes anomaly configuration
+- `data_source_documentations` → `documentation_sections`: Deleting documentation removes sections
+- `data_source_documentations` → `documentation_versions`: Deleting documentation removes versions
+
+**ON DELETE RESTRICT** (cannot delete parent if children exist):
+- `data_sources` → `subscriptions`: Cannot delete data source with active subscriptions
+- `recipients` → `notifications`: Cannot delete recipient with notification history
+
 ### Handler Structure
 - Create `internal sealed class` implementing `IRequestHandler<TRequest, TResponse>`
 - Define request/response as records at file end (not with "// Request/Response at end of file" comment)
@@ -69,6 +259,7 @@ dotnet ef database update --project Semantico.Core --startup-project Semantico.S
 - **LLM Provider Factory**: Pluggable LLM provider architecture (OpenAI, Claude, Azure OpenAI)
 - **Document Export**: PDF, HTML, Markdown generation with QuestPDF and Markdig
 - **Slack Notifications**: Added Slack notification channel with superior table formatting (December 2025)
+- **Centralized AI Prompts**: Documentation prompts moved to `DocumentationPrompts.cs` for easier refinement (January 2026)
 
 ## Notification System Architecture
 
@@ -399,6 +590,30 @@ Semantico integrates LLM providers for two primary use cases:
 - Natural language description
 - Generated SQL query
 - AI reasoning/explanation
+
+### AI Documentation Prompts (January 2026)
+
+All AI prompts for documentation generation are centralized in `Semantico.Core/Services/Ai/DocumentationAgent/DocumentationPrompts.cs`.
+
+**Purpose**: Makes prompts easier to review, refine, and version control without digging through service code.
+
+**Key Improvements Made**:
+1. **Explicit Enum Values**: Prompts enforce definitive enum documentation (e.g., "1 = Email, 2 = Teams") or explicit "unknown" statements. No more uncertain language like "likely", "might", "probably".
+2. **Complete Domain Coverage**: Safeguards against large "Other" category - prompts require breaking down miscellaneous groups into logical subdomains.
+3. **Workflow Documentation**: Tables must explain their role in end-to-end workflows, showing how they interact with other tables.
+4. **Concrete Recommendations**: Replaced vague suggestions with specific requirements (actual SQL queries, CREATE INDEX statements).
+5. **Architecture Focus**: Architecture section identifies hub tables, explains patterns, and provides scalability considerations.
+
+**Key Files**:
+- `DocumentationPrompts.cs` - All system prompts, user prompts, and formatting helpers
+- `DocumentationAgentService.cs` - Service that uses these prompts
+
+**How to Improve Documentation Quality**:
+1. Edit prompts in `DocumentationPrompts.cs`
+2. Test with a sample data source
+3. Review generated documentation
+4. Iterate on prompt wording
+5. No code changes needed in service layer
 
 ## Anomaly Detection System (January 2026)
 

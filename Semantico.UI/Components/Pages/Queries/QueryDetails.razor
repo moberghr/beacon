@@ -796,34 +796,9 @@
         }
     }
 
-    private async Task AddSubscription()
+    private void AddSubscription()
     {
-        var breakpoint = await BrowserViewport.GetCurrentBreakpointAsync();
-        var options = new DialogOptions
-        {
-            MaxWidth = MaxWidth.Small,
-            FullWidth = true,
-            FullScreen = breakpoint == Breakpoint.Xs,
-        };
-
-        var subscription = new SubscriptionData
-        {
-            QueryId = Id
-        };
-
-        var parameters = new DialogParameters<AddSubscriptionDialog> { { x => x.Subscription, subscription } };
-
-        var dialog = await DialogService.ShowAsync<AddSubscriptionDialog>("", parameters, options);
-
-        var result = await dialog.Result;
-
-        if (result!.Canceled)
-        {
-            return;
-        }
-
-        // TODO: we could just reload the subscriptions instead of the whole page
-        await Load();
+        NavManager.NavigateTo($"subscriptions/add/{Id}");
     }
 
     private async Task OnRowClick(TableRowClickEventArgs<SubscriptionListData> args)

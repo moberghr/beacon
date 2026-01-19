@@ -30,15 +30,15 @@ dotnet add package Semantico.Core.SqlServer
 ## Quick Start
 
 ```csharp
-using Semantico.Core.PostgreSql;
+using Semantico.Core;
 
-// Configure in Program.cs
-builder.Services.AddPostgreSqlSemantico(
-    builder.Configuration.GetConnectionString("SemanticoContext")!,
-    schema: "semantico");
-
-builder.Services.AddSemanticoAdmin(builder.Configuration, options =>
+// Configure in Program.cs (single method call)
+builder.Services.AddSemantico(builder.Configuration, options =>
 {
+    options.UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
+    // Or use SQL Server:
+    // options.UseSqlServer(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
+
     options.AddSemanticoScheduler<YourScheduler>();
     options.BaseUrl = "https://your-domain.com/semantico";
 });
