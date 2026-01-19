@@ -1,4 +1,4 @@
-using Semantico.UI.AspNet.Authentication;
+using Semantico.UI.Authentication;
 
 namespace Semantico.SampleProject.Services;
 

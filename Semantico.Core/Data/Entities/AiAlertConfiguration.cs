@@ -20,8 +20,6 @@ public class AiAlertConfiguration : ArchivableBaseEntity
     public int ConversationTurns { get; set; }
     public int TokensUsed { get; set; }
     public decimal EstimatedCost { get; set; }
-    public DateTime CreatedAt { get; set; }
-    public DateTime ModifiedAt { get; set; }
     public string CreatedBy { get; set; } = null!;
     public string ModifiedBy { get; set; } = null!;
 

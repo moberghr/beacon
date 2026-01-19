@@ -3,6 +3,12 @@ name: Build the Semantico Release
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g., 1.0.0)'
+        required: true
+        type: string
 
 jobs:
   build:
@@ -11,22 +17,51 @@ jobs:
 
     steps:
     - name: Checkout
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
     - name: Setup .NET
-      uses: actions/setup-dotnet@v1
+      uses: actions/setup-dotnet@v4
       with:
         dotnet-version: '9.0'
+
+    - name: Determine version
+      id: version
+      run: |
+        if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+          echo "version=${{ inputs.version }}" >> $GITHUB_OUTPUT
+        else
+          echo "version=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+        fi
 
     - name: Restore dependencies
       run: dotnet restore
 
+    - name: Build solution
+      run: dotnet build --configuration Release --no-restore --property WarningLevel=0
+
+    - name: Run tests
+      run: dotnet test --configuration Release --no-build --verbosity normal
+
     - name: Find and publish packable projects
       run: |
-        # Find all .csproj files with IsPackable=true
-        PACKABLE_PROJECTS=$(find . -name "*.csproj" -not -path "*/bin/*" -not -path "*/obj/*" -exec grep -l "<IsPackable>true</IsPackable>" {} \;)
+        VERSION="${{ steps.version.outputs.version }}"
+        echo "Publishing version: $VERSION"
 
-        echo "Found packable projects:"
+        # Get projects from solution file (only projects in solution will be processed)
+        SOLUTION_PROJECTS=$(grep -E '\.csproj"' Semantico.sln | sed 's/.*"\([^"]*\.csproj\)".*/\1/' | sed 's/\\/\//g')
+
+        echo "Projects in solution:"
+        echo "$SOLUTION_PROJECTS"
+
+        # Filter to only packable projects
+        PACKABLE_PROJECTS=""
+        for PROJECT in $SOLUTION_PROJECTS; do
+          if [ -f "$PROJECT" ] && grep -q "<IsPackable>true</IsPackable>" "$PROJECT"; then
+            PACKABLE_PROJECTS="$PACKABLE_PROJECTS $PROJECT"
+          fi
+        done
+
+        echo "Packable projects:"
         echo "$PACKABLE_PROJECTS"
 
         # Pack and push each project
@@ -38,12 +73,12 @@ jobs:
 
           # Create NuGet package
           dotnet pack "$PROJECT" \
-            -p:PackageVersion=${{github.ref_name}} \
+            -p:PackageVersion="$VERSION" \
             --configuration Release \
-            --no-restore
+            --no-build
 
           # Find and push the package
-          PACKAGE_PATH=$(find "$PROJECT_DIR/bin/Release" -name "$PROJECT_NAME.${{github.ref_name}}.nupkg" | head -n 1)
+          PACKAGE_PATH=$(find "$PROJECT_DIR/bin/Release" -name "$PROJECT_NAME.$VERSION.nupkg" | head -n 1)
 
           if [ -f "$PACKAGE_PATH" ]; then
             echo "Pushing package: $PACKAGE_PATH"

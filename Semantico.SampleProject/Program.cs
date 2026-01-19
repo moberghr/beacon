@@ -4,7 +4,6 @@ using Semantico.Core.PostgreSql;
 using Semantico.Core.SqlServer;
 using Semantico.SampleProject.Services;
 using Semantico.UI;
-using Semantico.UI.AspNet;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -54,18 +53,17 @@ builder.Services.AddHangfire((provider, hangfireConfiguration) => hangfireConfig
 
 builder.Services.AddHangfireServer();
 
-//SEMANTICO setup - Configure database provider first
- builder.Services.AddPostgreSqlSemantico(
-     builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
-
-// Uncomment to use SQL Server instead (requires SQL Server connection string)
-// builder.Services.AddSqlServerSemantico(
-//     builder.Configuration.GetConnectionString("SemanticoContextSql")!);
-
-builder.Services.AddSemanticoAdmin(builder.Configuration, options =>
+//SEMANTICO setup
+builder.Services.AddSemantico(builder.Configuration, options =>
 {
+    // Configure database provider
+    options.UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
+    // Or use SQL Server:
+    // options.UseSqlServer(builder.Configuration.GetConnectionString("SemanticoContextSql")!, "semantico");
+
     options.AddSemanticoScheduler<SemanticoScheduler>();
     //options.AddAuthorizationProvider<SampleAuthorizationProvider>();
+
     // Set the base URL for generating links in notifications (e.g., Teams messages)
     // This should match where your Semantico admin UI is hosted
     options.BaseUrl = "https://localhost:7187/semantico"; // Update with your actual URL
@@ -75,6 +73,8 @@ builder.Services.AddSemanticoAdmin(builder.Configuration, options =>
 var app = builder.Build();
 
 app.UseHttpsRedirection();
+
+app.UseStaticFiles(); // Required for serving _content files from Razor Class Libraries
 
 app.UseAuthorization();
 

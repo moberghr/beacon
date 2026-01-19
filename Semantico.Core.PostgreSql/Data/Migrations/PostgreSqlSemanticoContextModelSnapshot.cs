@@ -63,10 +63,6 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("conversation_turns");
 
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
                     b.Property<string>("CreatedBy")
                         .IsRequired()
                         .HasColumnType("text")
@@ -101,10 +97,6 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                     b.Property<string>("GenerationReasoning")
                         .HasColumnType("text")
                         .HasColumnName("generation_reasoning");
-
-                    b.Property<DateTime>("ModifiedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("modified_at");
 
                     b.Property<string>("ModifiedBy")
                         .IsRequired()
@@ -227,10 +219,6 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
                     b.Property<string>("CreatedBy")
                         .IsRequired()
                         .HasColumnType("text")
@@ -251,10 +239,6 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                     b.Property<int>("MaxTokens")
                         .HasColumnType("integer")
                         .HasColumnName("max_tokens");
-
-                    b.Property<DateTime>("ModifiedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("modified_at");
 
                     b.Property<string>("ModifiedBy")
                         .IsRequired()
@@ -889,10 +873,6 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("archived_time");
 
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
                     b.Property<string>("CreatedBy")
                         .IsRequired()
                         .HasColumnType("text")
@@ -923,10 +903,6 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("generated_by_user_id");
 
-                    b.Property<DateTime?>("LastModifiedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("last_modified_at");
-
                     b.Property<int?>("LastModifiedByUserId")
                         .HasColumnType("integer")
                         .HasColumnName("last_modified_by_user_id");
@@ -934,10 +910,6 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                     b.Property<string>("Metadata")
                         .HasColumnType("text")
                         .HasColumnName("metadata");
-
-                    b.Property<DateTime>("ModifiedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("modified_at");
 
                     b.Property<string>("ModifiedBy")
                         .IsRequired()
@@ -976,6 +948,137 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                     b.ToTable("data_source_documentations", "semantico");
                 });
 
+            modelBuilder.Entity("Semantico.Core.Data.Entities.DocumentationAgentRun", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("CheckpointStateJson")
+                        .HasColumnType("text")
+                        .HasColumnName("checkpoint_state_json");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("completed_at");
+
+                    b.Property<string>("CompletedTablesJson")
+                        .HasColumnType("text")
+                        .HasColumnName("completed_tables_json");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_time");
+
+                    b.Property<int>("CurrentBatchIndex")
+                        .HasColumnType("integer")
+                        .HasColumnName("current_batch_index");
+
+                    b.Property<int>("CurrentPhase")
+                        .HasColumnType("integer")
+                        .HasColumnName("current_phase");
+
+                    b.Property<int>("DataSourceId")
+                        .HasColumnType("integer")
+                        .HasColumnName("data_source_id");
+
+                    b.Property<string>("DiscoveredTablesJson")
+                        .HasColumnType("text")
+                        .HasColumnName("discovered_tables_json");
+
+                    b.Property<int?>("DocumentationId")
+                        .HasColumnType("integer")
+                        .HasColumnName("documentation_id");
+
+                    b.Property<string>("DomainGroupsJson")
+                        .HasColumnType("text")
+                        .HasColumnName("domain_groups_json");
+
+                    b.Property<decimal>("EstimatedCost")
+                        .HasColumnType("numeric")
+                        .HasColumnName("estimated_cost");
+
+                    b.Property<string>("FailedTablesJson")
+                        .HasColumnType("text")
+                        .HasColumnName("failed_tables_json");
+
+                    b.Property<DateTime?>("LastCheckpointAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_checkpoint_at");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)")
+                        .HasColumnName("last_error");
+
+                    b.Property<string>("ProgressMessage")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("progress_message");
+
+                    b.Property<int>("ProgressPercent")
+                        .HasColumnType("integer")
+                        .HasColumnName("progress_percent");
+
+                    b.Property<int>("RetryCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("retry_count");
+
+                    b.Property<DateTime>("StartedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("started_at");
+
+                    b.Property<int>("StartedByUserId")
+                        .HasColumnType("integer")
+                        .HasColumnName("started_by_user_id");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
+                    b.Property<int>("TablesCompleted")
+                        .HasColumnType("integer")
+                        .HasColumnName("tables_completed");
+
+                    b.Property<int>("TablesFailed")
+                        .HasColumnType("integer")
+                        .HasColumnName("tables_failed");
+
+                    b.Property<int>("TotalTablesDiscovered")
+                        .HasColumnType("integer")
+                        .HasColumnName("total_tables_discovered");
+
+                    b.Property<int>("TotalTokensUsed")
+                        .HasColumnType("integer")
+                        .HasColumnName("total_tokens_used");
+
+                    b.HasKey("Id")
+                        .HasName("pk_documentation_agent_runs");
+
+                    b.HasIndex("CurrentPhase")
+                        .HasDatabaseName("ix_documentation_agent_runs_current_phase");
+
+                    b.HasIndex("DataSourceId")
+                        .HasDatabaseName("ix_documentation_agent_runs_data_source_id");
+
+                    b.HasIndex("DocumentationId")
+                        .HasDatabaseName("ix_documentation_agent_runs_documentation_id");
+
+                    b.HasIndex("StartedAt")
+                        .HasDatabaseName("ix_documentation_agent_runs_started_at");
+
+                    b.HasIndex("Status")
+                        .HasDatabaseName("ix_documentation_agent_runs_status");
+
+                    b.HasIndex("DataSourceId", "Status")
+                        .HasDatabaseName("ix_documentation_agent_runs_data_source_id_status");
+
+                    b.ToTable("documentation_agent_runs", "semantico");
+                });
+
             modelBuilder.Entity("Semantico.Core.Data.Entities.DocumentationSection", b =>
                 {
                     b.Property<int>("Id")
@@ -994,10 +1097,6 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("content_format");
 
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
                     b.Property<string>("CreatedBy")
                         .IsRequired()
                         .HasColumnType("text")
@@ -1014,10 +1113,6 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                     b.Property<bool>("IsUserEdited")
                         .HasColumnType("boolean")
                         .HasColumnName("is_user_edited");
-
-                    b.Property<DateTime>("ModifiedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("modified_at");
 
                     b.Property<string>("ModifiedBy")
                         .IsRequired()
@@ -1072,10 +1167,6 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                         .HasColumnType("text")
                         .HasColumnName("change_description");
 
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
                     b.Property<int>("CreatedByUserId")
                         .HasColumnType("integer")
                         .HasColumnName("created_by_user_id");
@@ -1108,8 +1199,8 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                     b.HasKey("Id")
                         .HasName("pk_documentation_versions");
 
-                    b.HasIndex("CreatedAt")
-                        .HasDatabaseName("ix_documentation_versions_created_at");
+                    b.HasIndex("CreatedTime")
+                        .HasDatabaseName("ix_documentation_versions_created_time");
 
                     b.HasIndex("DocumentationId")
                         .HasDatabaseName("ix_documentation_versions_documentation_id");
@@ -1632,7 +1723,6 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                         .HasDatabaseName("ix_query_tasks_created_time");
 
                     b.HasIndex("SubscriptionId")
-                        .IsUnique()
                         .HasDatabaseName("ix_query_tasks_subscription_id");
 
                     b.HasIndex("Resolved", "CreatedTime")
@@ -1715,6 +1805,10 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                     b.Property<int?>("MaxRows")
                         .HasColumnType("integer")
                         .HasColumnName("max_rows");
+
+                    b.Property<int?>("MinimumRowCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("minimum_row_count");
 
                     b.Property<int>("NotificationTrigger")
                         .HasColumnType("integer")
@@ -1950,6 +2044,26 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                         .HasConstraintName("fk_data_source_documentations_data_sources_data_source_id");
 
                     b.Navigation("DataSource");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.DocumentationAgentRun", b =>
+                {
+                    b.HasOne("Semantico.Core.Data.Entities.DataSource", "DataSource")
+                        .WithMany()
+                        .HasForeignKey("DataSourceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_documentation_agent_runs_data_sources_data_source_id");
+
+                    b.HasOne("Semantico.Core.Data.Entities.DataSourceDocumentation", "Documentation")
+                        .WithMany()
+                        .HasForeignKey("DocumentationId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_documentation_agent_runs_data_source_documentations_documen");
+
+                    b.Navigation("DataSource");
+
+                    b.Navigation("Documentation");
                 });
 
             modelBuilder.Entity("Semantico.Core.Data.Entities.DocumentationSection", b =>

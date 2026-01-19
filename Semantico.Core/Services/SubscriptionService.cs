@@ -72,6 +72,7 @@ internal class SubscriptionService(
             CronExpression = subscriptionData.CronExpression,
             QueryId = subscriptionData.QueryId,
             MaxRows = subscriptionData.MaxRows,
+            MinimumRowCount = subscriptionData.MinimumRowCount,
             IncludeAttachment = subscriptionData.IncludeAttachment,
             ResultAttachmentType = subscriptionData.ResultAttachmentType,
             ShowQuery = subscriptionData.ShowQuery,
@@ -146,6 +147,7 @@ internal class SubscriptionService(
                     }).ToList(),
                     CronExpression = x.CronExpression,
                     MaxRows = x.MaxRows,
+                    MinimumRowCount = x.MinimumRowCount,
                     IncludeAttachment = x.IncludeAttachment,
                     ResultAttachmentType = x.ResultAttachmentType,
                     ShowQuery = x.ShowQuery,
@@ -200,6 +202,7 @@ internal class SubscriptionService(
 
         subscription.CronExpression = subscriptionData.CronExpression;
         subscription.MaxRows = subscriptionData.MaxRows;
+        subscription.MinimumRowCount = subscriptionData.MinimumRowCount;
         subscription.IncludeAttachment = subscriptionData.IncludeAttachment;
         subscription.ResultAttachmentType = subscriptionData.ResultAttachmentType;
         subscription.ShowQuery = subscriptionData.ShowQuery;
@@ -255,12 +258,14 @@ internal class SubscriptionService(
                 QueryName = x.Query.Name,
                 CronExpression = x.CronExpression,
                 MaxRows = x.MaxRows,
+                MinimumRowCount = x.MinimumRowCount,
                 IncludeAttachment = x.IncludeAttachment,
                 ResultAttachmentType = x.ResultAttachmentType,
                 ShowQuery = x.ShowQuery,
                 TimeoutSeconds = x.TimeoutSeconds,
                 StoreResults = x.StoreResults,
                 CreateTasks = x.CreateTasks,
+                NotificationTrigger = x.NotificationTrigger,
                 Status = x.ArchivedTime.HasValue ? "Archived" : "Active",
                 Parameters = x.Parameters.Select(y => new SubscriptionParameterData()
                 {

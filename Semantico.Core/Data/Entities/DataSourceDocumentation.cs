@@ -11,14 +11,11 @@ public class DataSourceDocumentation : ArchivableBaseEntity
     public DateTime GeneratedAt { get; set; }
     public int GeneratedByUserId { get; set; }
     public int? LastModifiedByUserId { get; set; }
-    public DateTime? LastModifiedAt { get; set; }
     public DocumentationStatus Status { get; set; }
     public int TablesAnalyzed { get; set; }
     public int TokensUsed { get; set; }
     public decimal EstimatedCost { get; set; }
     public string? Metadata { get; set; }
-    public DateTime CreatedAt { get; set; }
-    public DateTime ModifiedAt { get; set; }
     public string CreatedBy { get; set; } = null!;
     public string ModifiedBy { get; set; } = null!;
 

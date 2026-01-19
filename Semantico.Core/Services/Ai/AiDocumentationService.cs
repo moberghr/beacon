@@ -98,8 +98,6 @@ public class AiDocumentationService : IAiDocumentationService
             TablesAnalyzed = filteredTables.Count,
             TokensUsed = response.TotalTokens,
             EstimatedCost = response.EstimatedCost,
-            CreatedAt = DateTime.UtcNow,
-            ModifiedAt = DateTime.UtcNow,
             CreatedBy = userId.ToString(),
             ModifiedBy = userId.ToString()
         };
@@ -138,7 +136,6 @@ public class AiDocumentationService : IAiDocumentationService
         {
             DocumentationId = documentationId,
             VersionNumber = await GetNextVersionNumberAsync(context, documentationId, cancellationToken),
-            CreatedAt = DateTime.UtcNow,
             CreatedByUserId = userId,
             ChangeDescription = "Regenerated documentation",
             SnapshotJson = JsonSerializer.Serialize(existing.Sections),
@@ -585,8 +582,6 @@ Focus on revealing the 'why' behind the schema, not just describing the 'what'."
             AiGeneratedContent = content ?? string.Empty,
             IsUserEdited = false,
             ContentFormat = ContentFormat.Markdown,
-            CreatedAt = DateTime.UtcNow,
-            ModifiedAt = DateTime.UtcNow,
             CreatedBy = "system",
             ModifiedBy = "system"
         };
