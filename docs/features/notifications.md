@@ -54,8 +54,10 @@ public class SmtpEmailAdapter : IEmailAdapter
 Register in your Program.cs:
 
 ```csharp
-builder.Services.AddSemanticoAdmin(builder.Configuration, options =>
+builder.Services.AddSemantico(builder.Configuration, options =>
 {
+    options.UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
+    options.AddSemanticoScheduler<YourScheduler>();
     options.AddEmailAdapter<SmtpEmailAdapter>();
 });
 ```
@@ -183,8 +185,9 @@ Teams notifications use Adaptive Cards with:
 To enable the **"View Query Results"** button in Teams notifications, configure the `BaseUrl` setting in your application:
 
 ```csharp
-builder.Services.AddSemanticoAdmin(builder.Configuration, options =>
+builder.Services.AddSemantico(builder.Configuration, options =>
 {
+    options.UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
     options.AddSemanticoScheduler<YourScheduler>();
     // Set your Semantico UI base URL
     options.BaseUrl = "https://yourdomain.com/semantico";
@@ -202,8 +205,9 @@ builder.Services.AddSemanticoAdmin(builder.Configuration, options =>
 ```
 
 ```csharp
-builder.Services.AddSemanticoAdmin(builder.Configuration, options =>
+builder.Services.AddSemantico(builder.Configuration, options =>
 {
+    options.UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
     options.AddSemanticoScheduler<YourScheduler>();
     options.BaseUrl = builder.Configuration["Semantico:BaseUrl"];
 });
@@ -336,8 +340,9 @@ Slack provides significantly better table formatting than Teams:
 To enable the **"View Full Results"** button in Slack notifications, configure the `BaseUrl` setting in your application:
 
 ```csharp
-builder.Services.AddSemanticoAdmin(builder.Configuration, options =>
+builder.Services.AddSemantico(builder.Configuration, options =>
 {
+    options.UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
     options.AddSemanticoScheduler<YourScheduler>();
     // Set your Semantico UI base URL
     options.BaseUrl = "https://yourdomain.com/semantico";
