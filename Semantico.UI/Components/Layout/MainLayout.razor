@@ -12,7 +12,7 @@
 @* Needed for snackbars *@
 <MudSnackbarProvider />
 
-<MudLayout Class="semantico-layout">
+<MudLayout Class="@($"semantico-layout {(_isDark ? "mud-theme-dark" : "")}")">
     <MudAppBar Elevation="0" Dense="false" Class="semantico-appbar">
         <div class="appbar-brand-spacer"></div>
         <MudSpacer />
