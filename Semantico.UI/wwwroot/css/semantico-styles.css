@@ -175,15 +175,17 @@ html, body {
     backdrop-filter: blur(12px);
     background: linear-gradient(90deg, rgba(99, 102, 241, 1) 0%, rgba(129, 140, 248, 0.98) 40%, rgba(139, 92, 246, 0.96) 70%, rgba(168, 85, 247, 0.95) 100%) !important;
     border-bottom: none !important;
+    border-top: none !important;
     padding: 0 20px !important;
     min-height: 60px !important;
     box-shadow: 0 4px 20px rgba(99, 102, 241, 0.3) !important;
 }
 
 .mud-theme-dark .semantico-appbar {
-    background: linear-gradient(90deg, rgba(17, 24, 39, 1) 0%, rgba(31, 41, 55, 0.98) 50%, rgba(55, 65, 81, 0.96) 100%) !important;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4) !important;
-    border-bottom: 1px solid rgba(99, 102, 241, 0.2) !important;
+    background: linear-gradient(90deg, #1e293b 0%, rgba(30, 41, 59, 0.98) 50%, rgba(51, 65, 85, 0.96) 100%) !important;
+    box-shadow: none !important;
+    border-bottom: none !important;
+    border-top: none !important;
 }
 
 .appbar-brand-spacer {
@@ -245,16 +247,16 @@ html, body {
 }
 
 .semantico-drawer .mud-drawer-content {
-    background: white !important;
+    background-color: white !important;
     overflow-x: hidden !important;
 }
 
 .mud-theme-dark .semantico-drawer {
-    background: #1f2937 !important;
+    background-color: #111827 !important;
 }
 
 .mud-theme-dark .semantico-drawer .mud-drawer-content {
-    background: #1f2937 !important;
+    background-color: #363740 !important;
 }
 
 /* Header wrapper with gradient */
@@ -273,12 +275,13 @@ html, body {
 
 .mud-theme-dark .drawer-header-wrapper {
     background: linear-gradient(180deg,
-        rgba(17, 24, 39, 1) 0%,
-        rgba(17, 24, 39, 1) 110px,
-        rgba(31, 41, 55, 0.6) 135px,
-        rgba(55, 65, 81, 0.3) 155px,
-        rgba(75, 85, 99, 0.15) 170px,
-        rgba(31, 41, 55, 0) 185px
+        #1e293b 0%,
+        #1e293b 60px,
+        #1e293b 110px,
+        rgba(30, 41, 59, 0.6) 135px,
+        rgba(51, 65, 85, 0.3) 155px,
+        rgba(71, 85, 105, 0.15) 170px,
+        rgba(54, 55, 64, 0) 185px
     );
 }
 
@@ -291,6 +294,7 @@ html, body {
     position: relative;
     min-height: 60px;
     background: transparent;
+    border-bottom: none !important;
 }
 
 .drawer-logo {
@@ -370,10 +374,16 @@ html, body {
 .semantico-drawer.mud-drawer {
     border-right: none !important;
     box-shadow: 4px 0 20px rgba(0, 0, 0, 0.08) !important;
+    background-color: white !important;
 }
 
 .mud-theme-dark .semantico-drawer.mud-drawer {
     box-shadow: 4px 0 20px rgba(0, 0, 0, 0.3) !important;
+    background-color: #111827 !important;
+}
+
+.mud-theme-dark .semantico-drawer .mud-drawer-paper {
+    background-color: #111827 !important;
 }
 
 /* Container spacing */
