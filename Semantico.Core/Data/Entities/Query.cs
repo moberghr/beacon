@@ -16,9 +16,34 @@ public class Query : ArchivableBaseEntity, IMultiStepWorkflow
     /// </summary>
     public string? FinalQuery { get; set; }
 
+    /// <summary>
+    /// If this query was created by an AI Actor, the actor's ID.
+    /// Null means user-created.
+    /// </summary>
+    public int? AiActorId { get; set; }
+
+    /// <summary>
+    /// Whether this query is locked from AI modifications.
+    /// When true, AI Actors cannot modify this query's SQL.
+    /// </summary>
+    public bool IsLocked { get; set; }
+
+    /// <summary>
+    /// When the query was locked
+    /// </summary>
+    public DateTime? LockedAt { get; set; }
+
+    /// <summary>
+    /// User ID who locked the query
+    /// </summary>
+    public string? LockedByUserId { get; set; }
+
     public List<Subscription> Subscriptions { get; set; } = new();
 
     public List<QueryStep> Steps { get; set; } = new();
+
+    // Navigation property for AI Actor
+    public AiActor? AiActor { get; set; }
 
     /// <summary>
     /// Computed properties for backward compatibility and query analysis

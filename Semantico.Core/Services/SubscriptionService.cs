@@ -137,6 +137,8 @@ internal class SubscriptionService(
                     SubscriptionId = x.Id,
                     QueryId = x.QueryId,
                     QueryName = x.Query.Name,
+                    AiActorId = x.AiActorId,
+                    AiActorName = x.AiActor != null ? x.AiActor.Name : null,
                     Recipients = x.Recipients.Select(y => new RecipientData
                     {
                         RecipientId = y.Id,
@@ -256,6 +258,8 @@ internal class SubscriptionService(
                     NotificationType = y.NotificationType
                 }).ToList(),
                 QueryName = x.Query.Name,
+                AiActorId = x.AiActorId,
+                AiActorName = x.AiActor != null ? x.AiActor.Name : null,
                 CronExpression = x.CronExpression,
                 MaxRows = x.MaxRows,
                 MinimumRowCount = x.MinimumRowCount,

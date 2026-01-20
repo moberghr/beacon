@@ -28,10 +28,39 @@
     <!-- Page Header -->
     <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-6">
         <MudStack Spacing="1">
-            <MudText Typo="Typo.h3" Style="font-weight: 600;">
-                <MudIcon Icon="@Icons.Material.Filled.QueryStats" Class="mr-2" />
-                @(Model?.Name ?? "Query Details")
-            </MudText>
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                <MudText Typo="Typo.h3" Style="font-weight: 600;">
+                    <MudIcon Icon="@Icons.Material.Filled.QueryStats" Class="mr-2" />
+                    @(Model?.Name ?? "Query Details")
+                </MudText>
+                @if (Model?.AiActorId.HasValue == true)
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Filled">
+                        <MudIcon Icon="@Icons.Material.Filled.SmartToy" Size="Size.Small" Class="mr-1" />
+                        AI Managed
+                    </MudChip>
+                    @if (!string.IsNullOrEmpty(Model?.AiActorName))
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Default" Variant="Variant.Outlined">
+                            @Model.AiActorName
+                        </MudChip>
+                    }
+                }
+                else
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Filled">
+                        <MudIcon Icon="@Icons.Material.Filled.Person" Size="Size.Small" Class="mr-1" />
+                        User Defined
+                    </MudChip>
+                }
+                @if (Model?.IsLocked == true)
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Filled">
+                        <MudIcon Icon="@Icons.Material.Filled.Lock" Size="Size.Small" Class="mr-1" />
+                        Locked
+                    </MudChip>
+                }
+            </MudStack>
             <MudText Typo="Typo.body2" Color="Color.Secondary">
                 @if (!string.IsNullOrEmpty(Model?.Description))
                 {

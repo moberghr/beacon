@@ -73,6 +73,16 @@ public abstract partial class SemanticoContext : DbContext
 
     public DbSet<DocumentationAgentRun> DocumentationAgentRuns => Set<DocumentationAgentRun>();
 
+    public DbSet<AiActor> AiActors => Set<AiActor>();
+
+    public DbSet<AiActorExecution> AiActorExecutions => Set<AiActorExecution>();
+
+    public DbSet<AiActorConversation> AiActorConversations => Set<AiActorConversation>();
+
+    public DbSet<AiActorPlan> AiActorPlans => Set<AiActorPlan>();
+
+    public DbSet<QueryStepChangeHistory> QueryStepChangeHistory => Set<QueryStepChangeHistory>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         // Set default schema for all entities
@@ -85,6 +95,7 @@ public abstract partial class SemanticoContext : DbContext
         ConfigureCommentEntity(modelBuilder);
         ConfigureAnomalyEntities(modelBuilder);
         ConfigureAiEntities(modelBuilder);
+        ConfigureAiActorEntities(modelBuilder);
         base.OnModelCreating(modelBuilder);
     }
 
@@ -490,6 +501,190 @@ public abstract partial class SemanticoContext : DbContext
                 .WithMany()
                 .HasForeignKey(e => e.DocumentationId)
                 .OnDelete(DeleteBehavior.SetNull);
+        });
+    }
+
+    protected static void ConfigureAiActorEntities(ModelBuilder modelBuilder)
+    {
+        // AiActor configuration
+        modelBuilder.Entity<AiActor>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Name).HasMaxLength(200).IsRequired();
+            entity.Property(e => e.Instructions).IsRequired();
+            entity.Property(e => e.CreatedByUserId).HasMaxLength(100);
+            entity.Property(e => e.LastError).HasMaxLength(4000);
+
+            // Indexes
+            entity.HasIndex(e => e.DataSourceId);
+            entity.HasIndex(e => e.Status);
+            entity.HasIndex(e => e.ArchivedTime);
+            entity.HasIndex(e => new { e.DataSourceId, e.Status });
+            entity.HasIndex(e => new { e.Status, e.ArchivedTime });
+
+            // Relationships
+            entity.HasOne(e => e.DataSource)
+                .WithMany()
+                .HasForeignKey(e => e.DataSourceId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasMany(e => e.Executions)
+                .WithOne(e => e.AiActor)
+                .HasForeignKey(e => e.AiActorId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasMany(e => e.Conversations)
+                .WithOne(e => e.AiActor)
+                .HasForeignKey(e => e.AiActorId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasMany(e => e.Queries)
+                .WithOne(e => e.AiActor)
+                .HasForeignKey(e => e.AiActorId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasMany(e => e.Subscriptions)
+                .WithOne(e => e.AiActor)
+                .HasForeignKey(e => e.AiActorId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        // AiActorExecution configuration
+        modelBuilder.Entity<AiActorExecution>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Model).HasMaxLength(100);
+            entity.Property(e => e.DecisionSummary).HasMaxLength(4000);
+            entity.Property(e => e.ErrorMessage).HasMaxLength(4000);
+
+            // Indexes
+            entity.HasIndex(e => e.AiActorId);
+            entity.HasIndex(e => e.TriggeringSubscriptionId);
+            entity.HasIndex(e => e.Phase);
+            entity.HasIndex(e => e.StartedAt);
+            entity.HasIndex(e => new { e.AiActorId, e.StartedAt });
+            entity.HasIndex(e => e.AiActorPlanId);
+
+            // Relationships
+            entity.HasOne(e => e.TriggeringSubscription)
+                .WithMany()
+                .HasForeignKey(e => e.TriggeringSubscriptionId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasOne(e => e.AiActorPlan)
+                .WithOne(p => p.AiActorExecution)
+                .HasForeignKey<AiActorExecution>(e => e.AiActorPlanId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        // AiActorConversation configuration
+        modelBuilder.Entity<AiActorConversation>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.MessageContent).IsRequired();
+            entity.Property(e => e.Model).HasMaxLength(100);
+
+            // Indexes
+            entity.HasIndex(e => e.AiActorId);
+            entity.HasIndex(e => e.AiActorExecutionId);
+            entity.HasIndex(e => e.TurnNumber);
+            entity.HasIndex(e => e.Timestamp);
+            entity.HasIndex(e => new { e.AiActorId, e.TurnNumber });
+
+            // Relationships
+            entity.HasOne(e => e.AiActorExecution)
+                .WithMany()
+                .HasForeignKey(e => e.AiActorExecutionId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        // AiActorPlan configuration
+        modelBuilder.Entity<AiActorPlan>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Analysis).IsRequired();
+            entity.Property(e => e.ActionsJson).IsRequired();
+            entity.Property(e => e.Model).HasMaxLength(100);
+            entity.Property(e => e.ReviewedByUserId).HasMaxLength(100);
+            entity.Property(e => e.ReviewerComment).HasMaxLength(4000);
+
+            // Indexes
+            entity.HasIndex(e => e.AiActorId);
+            entity.HasIndex(e => e.Status);
+            entity.HasIndex(e => e.ProposedAt);
+            entity.HasIndex(e => e.ParentPlanId);
+            entity.HasIndex(e => new { e.AiActorId, e.Status });
+            entity.HasIndex(e => new { e.AiActorId, e.ProposedAt });
+
+            // Relationships
+            entity.HasOne(e => e.AiActor)
+                .WithMany(a => a.Plans)
+                .HasForeignKey(e => e.AiActorId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.ParentPlan)
+                .WithMany(p => p.Revisions)
+                .HasForeignKey(e => e.ParentPlanId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasMany(e => e.ChangeHistory)
+                .WithOne(c => c.AiActorPlan)
+                .HasForeignKey(c => c.AiActorPlanId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        // QueryStepChangeHistory configuration
+        modelBuilder.Entity<QueryStepChangeHistory>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.PreviousSql).IsRequired();
+            entity.Property(e => e.NewSql).IsRequired();
+            entity.Property(e => e.UserId).HasMaxLength(100);
+            entity.Property(e => e.ChangeReason).HasMaxLength(2000);
+
+            // Indexes
+            entity.HasIndex(e => e.QueryStepId);
+            entity.HasIndex(e => e.AiActorId);
+            entity.HasIndex(e => e.AiActorExecutionId);
+            entity.HasIndex(e => e.AiActorPlanId);
+            entity.HasIndex(e => e.ChangedAt);
+            entity.HasIndex(e => e.ChangeSource);
+            entity.HasIndex(e => new { e.QueryStepId, e.ChangedAt });
+
+            // Relationships
+            entity.HasOne(e => e.QueryStep)
+                .WithMany()
+                .HasForeignKey(e => e.QueryStepId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.AiActor)
+                .WithMany()
+                .HasForeignKey(e => e.AiActorId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasOne(e => e.AiActorExecution)
+                .WithMany()
+                .HasForeignKey(e => e.AiActorExecutionId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        // Add indexes to Query for AiActorId and lock fields
+        modelBuilder.Entity<Query>(entity =>
+        {
+            entity.HasIndex(e => e.AiActorId);
+            entity.HasIndex(e => e.IsLocked);
+            entity.Property(e => e.LockedByUserId).HasMaxLength(100);
+        });
+
+        // Add indexes to Subscription for AiActorId
+        modelBuilder.Entity<Subscription>(entity =>
+        {
+            entity.HasIndex(e => e.AiActorId);
         });
     }
 }
