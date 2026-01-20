@@ -127,6 +127,9 @@ public static class ServiceConfiguration
         // Documentation Agent services (new agent-based approach)
         services.TryAddTransient<Services.Ai.DocumentationAgent.DocumentationAgentTools>();
         services.TryAddTransient<Services.Ai.DocumentationAgent.IDocumentationAgentService, Services.Ai.DocumentationAgent.DocumentationAgentService>();
+
+        // AI Actor services (autonomous monitoring)
+        services.TryAddScoped<Services.Ai.AiActor.IAiActorService, Services.Ai.AiActor.AiActorService>();
     }
 
     public static void UseSemantico(IServiceProvider serviceProvider, bool createSchema = false)

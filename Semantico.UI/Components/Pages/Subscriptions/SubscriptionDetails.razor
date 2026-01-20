@@ -52,6 +52,26 @@
                             Archived
                         </div>
                     }
+                    @if (Model.AiActorId.HasValue)
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Filled">
+                            <MudIcon Icon="@Icons.Material.Filled.SmartToy" Size="Size.Small" Class="mr-1" />
+                            AI Managed
+                        </MudChip>
+                        @if (!string.IsNullOrEmpty(Model.AiActorName))
+                        {
+                            <MudChip T="string" Size="Size.Small" Color="Color.Default" Variant="Variant.Outlined">
+                                @Model.AiActorName
+                            </MudChip>
+                        }
+                    }
+                    else
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Filled">
+                            <MudIcon Icon="@Icons.Material.Filled.Person" Size="Size.Small" Class="mr-1" />
+                            User Defined
+                        </MudChip>
+                    }
                 </MudStack>
                 <MudText Typo="Typo.body2" Color="Color.Secondary">
                     <MudIcon Icon="@Icons.Material.Filled.Schedule" Size="Size.Small" Style="vertical-align: middle;" />

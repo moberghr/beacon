@@ -66,7 +66,7 @@ public class QueryDetailsData
     public int SentNotifications { get; set; }
 
     public List<QueryStepData> Steps { get; set; } = new();
-    
+
     /// <summary>
     /// Final query to execute against the in-memory SQLite database with all step results loaded
     /// Uses @result1, @result2, etc. to reference previous step results
@@ -78,7 +78,22 @@ public class QueryDetailsData
     /// If null, defaults to the first step's data source
     /// </summary>
     public int? FinalQueryDataSourceId { get; set; }
-    
+
+    /// <summary>
+    /// AI Actor ID if this query is managed by an AI Actor, null if user-created
+    /// </summary>
+    public int? AiActorId { get; set; }
+
+    /// <summary>
+    /// Name of the AI Actor managing this query
+    /// </summary>
+    public string? AiActorName { get; set; }
+
+    /// <summary>
+    /// Whether this query is locked from AI modifications
+    /// </summary>
+    public bool IsLocked { get; set; }
+
     public List<SubscriptionListData> Subscriptions { get; set; } = new();
 
     public List<NotificationStatisticsEntry> NotificationHistory { get; set; } = new();
@@ -282,6 +297,8 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
                     CreatedTime = x.CreatedTime,
                     Name = x.Name,
                     Description = x.Description,
+                    AiActorId = x.AiActorId,
+                    AiActorName = x.AiActor != null ? x.AiActor.Name : null,
                     Steps = x.Steps.OrderBy(s => s.StepOrder).Select(s => new QueryStepData
                     {
                         StepId = s.Id,
@@ -329,6 +346,9 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
                     Name = x.Name,
                     Description = x.Description,
                     FinalQuery = x.FinalQuery,
+                    AiActorId = x.AiActorId,
+                    AiActorName = x.AiActor != null ? x.AiActor.Name : null,
+                    IsLocked = x.IsLocked,
                     TotalExecutions = x.Subscriptions.Sum(y => y.QueryExecutionHistory.Count),
                     SentNotifications = x.Subscriptions.Sum(y => y.QueryExecutionHistory.Count(z => z.NotificationStatus == NotificationStatus.NotificationSent)),
                     Steps = x.Steps.OrderBy(s => s.StepOrder).Select(s => new QueryStepData

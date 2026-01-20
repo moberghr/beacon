@@ -214,6 +214,8 @@ public class TaskService(IDbContextFactory<SemanticoContext> contextFactory, ILo
                 Resolved = t.Resolved,
                 ResolvedAt = t.ResolvedAt,
                 ResolvedByUserName = null, // TODO: lookup from user service when auth integrated
+                AiActorId = t.Subscription.AiActorId,
+                AiActorName = t.Subscription.AiActor != null ? t.Subscription.AiActor.Name : null,
                 // Count executions since task creation
                 ExecutionCount = context.QueryExecutionHistory
                     .Count(qeh => qeh.SubscriptionId == t.SubscriptionId),
@@ -266,7 +268,9 @@ public class TaskService(IDbContextFactory<SemanticoContext> contextFactory, ILo
                 ResolvedByUserName = null, // TODO: lookup when auth integrated
                 ResolutionNotes = t.ResolutionNotes,
                 QueryId = t.Subscription.QueryId,
-                QueryName = t.Subscription.Query.Name
+                QueryName = t.Subscription.Query.Name,
+                AiActorId = t.Subscription.AiActorId,
+                AiActorName = t.Subscription.AiActor != null ? t.Subscription.AiActor.Name : null
             })
             .FirstOrDefaultAsync(cancellationToken);
 
