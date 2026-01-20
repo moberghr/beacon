@@ -40,7 +40,9 @@ internal class NotificationService(IDbContextFactory<SemanticoContext> contextFa
                     NotificationStatus = x.NotificationStatus,
                     QueryName = x.Subscription.Query.Name,
                     SubscriptionId = x.SubscriptionId,
-                    ExecutionTimeMs = x.ExecutionTimeMs
+                    ExecutionTimeMs = x.ExecutionTimeMs,
+                    AiActorId = x.Subscription.AiActorId,
+                    AiActorName = x.Subscription.AiActor != null ? x.Subscription.AiActor.Name : null
                 })
             .ToPagedListAsync(request, cancellationToken);
 

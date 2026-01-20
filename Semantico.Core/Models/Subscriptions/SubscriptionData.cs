@@ -57,4 +57,14 @@ public class SubscriptionData
     /// Anomaly detection configuration for this subscription
     /// </summary>
     public AnomalyConfigData? AnomalyConfig { get; set; }
+
+    /// <summary>
+    /// AI Actor ID if this subscription is managed by an AI Actor, null if user-created
+    /// </summary>
+    public int? AiActorId { get; set; }
+
+    /// <summary>
+    /// Name of the AI Actor managing this subscription
+    /// </summary>
+    public string? AiActorName { get; set; }
 }

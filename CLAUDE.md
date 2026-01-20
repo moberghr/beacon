@@ -237,6 +237,18 @@ All database enum integer values are documented here for reference. These are st
 - Create `internal sealed class` implementing `IRequestHandler<TRequest, TResponse>`
 - Define request/response as records at file end (not with "// Request/Response at end of file" comment)
 - Use primary constructor injection for dependencies
+- **IMPORTANT: For database access, use `IDbContextFactory<SemanticoContext>` - never inject `SemanticoContext` directly**
+  ```csharp
+  internal sealed class MyHandler(IDbContextFactory<SemanticoContext> contextFactory)
+      : IRequestHandler<MyCommand, MyResult>
+  {
+      public async Task<MyResult> Handle(MyCommand request, CancellationToken cancellationToken)
+      {
+          await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+          // use context here
+      }
+  }
+  ```
 
 ## Project Structure
 - Semantico.Core: Core domain model, services, data access
@@ -711,3 +723,51 @@ public interface IAnomalyDetectionService
 - `Semantico.Core/Data/Entities/AnomalyBaseline.cs` - Historical data storage
 - `Semantico.Core/Data/Enums/AnomalyDetectionMethod.cs` - Detection method enum
 - `Semantico.Core/Models/Anomaly/AnomalyEvaluationResult.cs` - Result model
+
+## AI Actor System (January 2026)
+
+### Overview
+
+AI Actors are autonomous monitoring agents that can create, modify, and manage queries and subscriptions based on natural language instructions.
+
+### Query Validation
+
+**IMPORTANT:** When AI Actors create or refine queries, they are automatically validated by execution:
+
+1. **Create Query**: After creating a query, it's executed against the data source
+   - If execution fails (invalid SQL), the query is deleted and the action marked as failed
+   - If execution succeeds with 0 rows, the query is kept (logged as info)
+   - If execution succeeds with results, the query is kept
+
+2. **Refine Query**: Before committing SQL changes:
+   - The new SQL is temporarily applied
+   - The query is executed to validate
+   - If execution fails, the original SQL is restored
+   - If execution succeeds, the change is committed and recorded in history
+
+This ensures AI-generated queries are always syntactically valid and executable.
+
+### Query Locking
+
+Queries can be locked to prevent AI modification:
+- `Query.IsLocked` - Boolean flag
+- `Query.LockedAt` - Timestamp when locked
+- `Query.LockedByUserId` - User who locked it
+
+Use `ToggleQueryLockCommand` to lock/unlock queries.
+
+### Plan Approval Workflow
+
+When `AiActor.RequiresApproval = true`:
+1. AI generates a plan (not executed immediately)
+2. User reviews proposed actions
+3. User can approve, reject, or request revision
+4. Only approved plans are executed
+
+### Key Files
+
+- `Semantico.Core/Services/Ai/AiActor/AiActorService.cs` - Main service
+- `Semantico.Core/Services/Ai/AiActor/AiActorPrompts.cs` - LLM prompts
+- `Semantico.Core/Data/Entities/AiActor.cs` - Actor entity
+- `Semantico.Core/Data/Entities/AiActorPlan.cs` - Plan entity for approval workflow
+- `Semantico.Core/Data/Entities/QueryStepChangeHistory.cs` - Change tracking

@@ -1,0 +1,246 @@
+@page "/ai-actors"
+@page "/ai-actors/data-source/{DataSourceId:int}"
+@inherits BasePageComponent
+@using Semantico.Core.Data.Enums
+@using Semantico.Core.Handlers.Ai.AiActor
+@using Semantico.Core.Services
+@using MediatR
+
+<SemanticoPageTitle Title="AI Actors"/>
+
+<MudContainer Class="my-4 px-4" MaxWidth="MaxWidth.ExtraExtraLarge">
+    <SemanticoPageHeader Icon="@Icons.Material.Filled.SmartToy" Title="AI Actors" />
+    <SemanticoPageAlert Text="AI Actors autonomously monitor data sources by creating queries, analyzing results, and sending notifications when important patterns are detected."/>
+
+    <MudStack Row="true" Class="mb-4" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+        <MudStack Row="true" Class="gap-4">
+            <MudSelect T="int?" Label="Data Source" @bind-Value="_selectedDataSourceId" Variant="Variant.Outlined" AnchorOrigin="Origin.BottomCenter" Style="min-width: 250px;">
+                <MudSelectItem T="int?" Value="@((int?)null)">All Data Sources</MudSelectItem>
+                @foreach (var ds in _dataSources)
+                {
+                    <MudSelectItem T="int?" Value="@ds.Id">@ds.Name</MudSelectItem>
+                }
+            </MudSelect>
+            <MudSwitch @bind-Checked="_includeArchived" T="bool" Color="Color.Primary" Label="Include Archived" />
+        </MudStack>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="@OpenCreateDialog" Disabled="@(!_selectedDataSourceId.HasValue)">
+            Create AI Actor
+        </MudButton>
+    </MudStack>
+
+    @if (_loading)
+    {
+        <MudProgressLinear Color="Color.Primary" Indeterminate="true" Class="mb-4" />
+    }
+
+    @if (_actors.Any())
+    {
+        <MudGrid>
+            @foreach (var actor in _actors)
+            {
+                <MudItem xs="12" sm="6" md="4">
+                    <MudCard>
+                        <MudCardHeader>
+                            <CardHeaderContent>
+                                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                                    <MudText Typo="Typo.h6">@actor.Name</MudText>
+                                    <MudChip T="string" Size="Size.Small" Color="@GetStatusColor(actor.Status)" Variant="Variant.Filled">
+                                        @actor.Status.ToString()
+                                    </MudChip>
+                                </MudStack>
+                            </CardHeaderContent>
+                        </MudCardHeader>
+                        <MudCardContent>
+                            <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-2">@actor.Instructions</MudText>
+                            <MudDivider Class="my-3" />
+                            <MudStack Spacing="1">
+                                <MudStack Row="true" Justify="Justify.SpaceBetween">
+                                    <MudText Typo="Typo.caption">Data Source:</MudText>
+                                    <MudText Typo="Typo.caption">@actor.DataSourceName</MudText>
+                                </MudStack>
+                                <MudStack Row="true" Justify="Justify.SpaceBetween">
+                                    <MudText Typo="Typo.caption">Think Cycles:</MudText>
+                                    <MudText Typo="Typo.caption">@actor.ThinkCount</MudText>
+                                </MudStack>
+                                <MudStack Row="true" Justify="Justify.SpaceBetween">
+                                    <MudText Typo="Typo.caption">Total Cost:</MudText>
+                                    <MudText Typo="Typo.caption">$@actor.TotalCost.ToString("F4")</MudText>
+                                </MudStack>
+                                @if (actor.LastThinkTime.HasValue)
+                                {
+                                    <MudStack Row="true" Justify="Justify.SpaceBetween">
+                                        <MudText Typo="Typo.caption">Last Think:</MudText>
+                                        <MudText Typo="Typo.caption">@actor.LastThinkTime.Value.ToString("g")</MudText>
+                                    </MudStack>
+                                }
+                            </MudStack>
+                        </MudCardContent>
+                        <MudCardActions>
+                            <MudButton Variant="Variant.Text" Color="Color.Primary" Href="@($"ai-actors/{actor.ActorId}")">Details</MudButton>
+                            @if (actor.Status == AiActorStatus.Active)
+                            {
+                                <MudButton Variant="Variant.Text" Color="Color.Warning" OnClick="@(() => PauseActor(actor.ActorId))">Pause</MudButton>
+                            }
+                            else if (actor.Status == AiActorStatus.Paused || actor.Status == AiActorStatus.Failed)
+                            {
+                                <MudButton Variant="Variant.Text" Color="Color.Success" OnClick="@(() => ResumeActor(actor.ActorId))">Resume</MudButton>
+                            }
+                        </MudCardActions>
+                    </MudCard>
+                </MudItem>
+            }
+        </MudGrid>
+    }
+    else if (!_loading)
+    {
+        <MudAlert Severity="Severity.Info">
+            @if (_selectedDataSourceId.HasValue)
+            {
+                <span>No AI Actors found for the selected data source. Create one to start autonomous monitoring.</span>
+            }
+            else
+            {
+                <span>Select a data source to view or create AI Actors.</span>
+            }
+        </MudAlert>
+    }
+</MudContainer>
+
+@inject ISnackbar Snackbar
+@inject IMediator Mediator
+@inject IDialogService DialogService
+@inject IDataSourceService DataSourceService
+@inject NavigationManager NavigationManager
+
+@code {
+    [Parameter]
+    public int? DataSourceId { get; set; }
+
+    private List<AiActorListItem> _actors = new();
+    private List<Semantico.Core.Models.DataSources.DataSourceListData> _dataSources = new();
+    private int? _selectedDataSourceId;
+    private bool _includeArchived;
+    private bool _loading;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDataSourcesAsync();
+
+        if (DataSourceId.HasValue)
+        {
+            _selectedDataSourceId = DataSourceId;
+        }
+        else if (_dataSources.Any())
+        {
+            _selectedDataSourceId = _dataSources.First().Id;
+        }
+
+        await LoadActorsAsync();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (DataSourceId.HasValue && _selectedDataSourceId != DataSourceId)
+        {
+            _selectedDataSourceId = DataSourceId;
+            await LoadActorsAsync();
+        }
+    }
+
+    private async Task LoadDataSourcesAsync()
+    {
+        var dataSources = await DataSourceService.GetDataSources(null, CancellationToken.None);
+        _dataSources = dataSources.ToList();
+    }
+
+    private async Task LoadActorsAsync()
+    {
+        if (!_selectedDataSourceId.HasValue)
+        {
+            _actors = new();
+            return;
+        }
+
+        _loading = true;
+        StateHasChanged();
+
+        try
+        {
+            var query = new GetAiActorListQuery
+            {
+                DataSourceId = _selectedDataSourceId.Value,
+                IncludeArchived = _includeArchived
+            };
+            var result = await Mediator.Send(query);
+            _actors = result.Actors;
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to load actors: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task OpenCreateDialog()
+    {
+        if (!_selectedDataSourceId.HasValue) return;
+
+        var parameters = new DialogParameters<CreateAiActorDialog>
+        {
+            { x => x.DataSourceId, _selectedDataSourceId.Value }
+        };
+
+        var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true };
+        var dialog = await DialogService.ShowAsync<CreateAiActorDialog>("Create AI Actor", parameters, options);
+        var result = await dialog.Result;
+
+        if (!result.Canceled)
+        {
+            await LoadActorsAsync();
+        }
+    }
+
+    private async Task PauseActor(int actorId)
+    {
+        try
+        {
+            var command = new PauseAiActorCommand { ActorId = actorId };
+            await Mediator.Send(command);
+            Snackbar.Add("Actor paused successfully", Severity.Success);
+            await LoadActorsAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to pause actor: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task ResumeActor(int actorId)
+    {
+        try
+        {
+            var command = new ResumeAiActorCommand { ActorId = actorId };
+            await Mediator.Send(command);
+            Snackbar.Add("Actor resumed successfully", Severity.Success);
+            await LoadActorsAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to resume actor: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private Color GetStatusColor(AiActorStatus status) => status switch
+    {
+        AiActorStatus.Active => Color.Success,
+        AiActorStatus.Paused => Color.Warning,
+        AiActorStatus.Failed => Color.Error,
+        AiActorStatus.Archived => Color.Default,
+        AiActorStatus.Draft => Color.Info,
+        _ => Color.Default
+    };
+}

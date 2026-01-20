@@ -12,24 +12,56 @@
 @* Needed for snackbars *@
 <MudSnackbarProvider />
 
-<MudLayout>
-    <MudAppBar Elevation="1" Dense="true" ToolBarClass="px-3">
-        <HomeButton />
+<MudLayout Class="semantico-layout">
+    <MudAppBar Elevation="0" Dense="false" Class="semantico-appbar">
+        <div class="appbar-brand-spacer"></div>
         <MudSpacer />
-        <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
-            <ThemeIconButton @bind-IsDark="@_isDark" OnClick="@ChangeTheme" />
-            <MudIconButton Icon="@Icons.Material.Filled.Settings" Color="Color.Inherit" Size="Size.Medium" />
+        <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+            <MudTooltip Text="@(_isDark ? "Light Mode" : "Dark Mode")" Placement="Placement.Bottom">
+                <MudIconButton Icon="@(_isDark ? Icons.Material.Outlined.LightMode : Icons.Material.Outlined.DarkMode)"
+                               Color="Color.Inherit"
+                               Size="Size.Small"
+                               OnClick="@ChangeTheme"
+                               Class="appbar-icon-btn" />
+            </MudTooltip>
+            <MudTooltip Text="Settings" Placement="Placement.Bottom">
+                <MudIconButton Icon="@Icons.Material.Outlined.Settings"
+                               Color="Color.Inherit"
+                               Size="Size.Small"
+                               Class="appbar-icon-btn" />
+            </MudTooltip>
+            <MudDivider Vertical="true" FlexItem="true" Class="appbar-divider" />
+            <MudMenu AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
+                <ActivatorContent>
+                    <MudChip T="string" Color="Color.Primary" Variant="Variant.Filled" Size="Size.Small" Class="appbar-user-chip">
+                        <MudAvatar Size="Size.Small" Style="height: 22px; width: 22px; font-size: 0.7rem;" Color="Color.Secondary">A</MudAvatar>
+                        <MudText Typo="Typo.body2" Class="ml-2">Admin</MudText>
+                    </MudChip>
+                </ActivatorContent>
+                <ChildContent>
+                    <MudMenuItem Icon="@Icons.Material.Outlined.Person">Profile</MudMenuItem>
+                    <MudMenuItem Icon="@Icons.Material.Outlined.Settings">Settings</MudMenuItem>
+                    <MudDivider Class="my-1" />
+                    <MudMenuItem Icon="@Icons.Material.Outlined.Logout">Logout</MudMenuItem>
+                </ChildContent>
+            </MudMenu>
         </MudStack>
     </MudAppBar>
-    <MudDrawer Open="true" ClipMode="DrawerClipMode.Always" Elevation="2" Width="250px">
-        <MudNavMenu Class="pa-2" Bordered="true">
-            <div class="d-flex flex-column align-center pa-4">
-                <MudText Typo="Typo.h5" Class="fw-bold">Moberg</MudText>
-                <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Text" Class="mt-1">v0.8</MudChip>
+    <MudDrawer Open="true" ClipMode="DrawerClipMode.Never" Elevation="0" Width="250px" Class="semantico-drawer">
+        <div class="drawer-header-wrapper">
+            <div class="drawer-brand-header">
+                <img src="../_content/Semantico.UI/favicon.svg" alt="Semantico" class="drawer-logo" />
+                <div class="drawer-brand-text">
+                    <span class="drawer-title">Semantico</span>
+                    <span class="drawer-version">v0.99</span>
+                </div>
             </div>
-            <MudDivider Class="my-2"/>
+            <div class="drawer-gradient-fade"></div>
+        </div>
+        <MudNavMenu Class="drawer-nav" Bordered="false">
             <MudNavLink Href="@($"{GetBaseHref()}dashboard")" Icon="@Icons.Material.Filled.Home" IconColor="Color.Primary">Home</MudNavLink>
             <MudNavLink Href="@($"{GetBaseHref()}data-sources")" Icon="@Icons.Material.Filled.Folder" IconColor="Color.Secondary">Data Sources</MudNavLink>
+            <MudNavLink Href="@($"{GetBaseHref()}ai-actors")" Icon="@Icons.Material.Filled.SmartToy" IconColor="Color.Tertiary">AI Actors</MudNavLink>
             <MudNavGroup Title="Alerts" Icon="@Icons.Material.Filled.NotificationsActive" IconColor="Color.Info" Expanded="true" HideExpandIcon="true">
                 <MudNavLink Href="@($"{GetBaseHref()}recipients")" Icon="@Icons.Material.Filled.People" IconColor="Color.Tertiary">Recipients</MudNavLink>
                 <MudNavLink Href="@($"{GetBaseHref()}queries")" Icon="@Icons.Material.Filled.Search" IconColor="Color.Info">Queries</MudNavLink>
@@ -39,7 +71,7 @@
             </MudNavGroup>
             <MudNavLink Href="@($"{GetBaseHref()}data-migration")" Icon="@Icons.Material.Filled.SwapHoriz" IconColor="Color.Error">Data Migration</MudNavLink>
             <MudDivider Class="my-2"/>
-            <MudNavLink Href="@($"{GetBaseHref()}about")" Icon="@Icons.Material.Filled.Info" IconColor="Color.Default">About</MudNavLink>
+            <MudNavLink Href="@($"{GetBaseHref()}about")" Icon="@Icons.Material.Filled.Info" IconColor="Color.Warning">About</MudNavLink>
         </MudNavMenu>
     </MudDrawer>
     <MudMainContent Class="pb-12">

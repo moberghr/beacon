@@ -42,6 +42,16 @@ public class QueryData
     public List<DatabaseEngineType> DatabaseEngines => Steps.Select(s => s.DatabaseEngineType).Distinct().ToList();
 
     /// <summary>
+    /// AI Actor ID if this query is managed by an AI Actor, null if user-created
+    /// </summary>
+    public int? AiActorId { get; set; }
+
+    /// <summary>
+    /// Name of the AI Actor managing this query
+    /// </summary>
+    public string? AiActorName { get; set; }
+
+    /// <summary>
     /// Backward compatibility properties (map to first step)
     /// </summary>
     public string SqlValue

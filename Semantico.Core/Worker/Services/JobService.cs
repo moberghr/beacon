@@ -6,6 +6,7 @@ using Semantico.Core.Data.Entities;
 using Semantico.Core.Data.Enums;
 using Semantico.Core.Helpers.File;
 using Semantico.Core.Services;
+using Semantico.Core.Services.Ai.AiActor;
 
 namespace Semantico.Core.Worker.Services;
 
@@ -15,6 +16,7 @@ internal class JobService(
     INotificationService notificationService,
     ITaskService taskService,
     IAnomalyDetectionService anomalyDetectionService,
+    IAiActorService aiActorService,
     ILogger<JobService> logger)
     : IJobService
 {
@@ -118,6 +120,9 @@ internal class JobService(
             {
                 await context.SaveChangesAsync();
             }
+
+            // Trigger AI Actor think cycle even if no notification was sent
+            await TriggerAiActorIfApplicableAsync(subscriptionId, queryResult.TotalRecords);
             return;
         }
 
@@ -177,6 +182,22 @@ internal class JobService(
         foreach (var recipientQueryResult in recipientsQueryResults)
         {
             await notificationService.SendNotification(recipientQueryResult, lastExecutedQuery?.ResultCount);
+        }
+
+        // Trigger AI Actor think cycle if this subscription belongs to an actor
+        await TriggerAiActorIfApplicableAsync(subscriptionId, queryResult.TotalRecords);
+    }
+
+    private async Task TriggerAiActorIfApplicableAsync(int subscriptionId, int rowCount)
+    {
+        try
+        {
+            await aiActorService.OnSubscriptionExecutedAsync(subscriptionId, rowCount, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            // Log but don't fail the subscription execution
+            logger.LogWarning(ex, "Failed to trigger AI Actor for subscription {SubscriptionId}", subscriptionId);
         }
     }
 
