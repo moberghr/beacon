@@ -18,6 +18,16 @@ public record TaskDetailsData
     public string? ResolutionNotes { get; init; }
     public required int QueryId { get; init; }
     public required string QueryName { get; init; }
+
+    /// <summary>
+    /// AI Actor ID if the subscription is managed by an AI Actor, null if user-created
+    /// </summary>
+    public int? AiActorId { get; init; }
+
+    /// <summary>
+    /// Name of the AI Actor managing the subscription
+    /// </summary>
+    public string? AiActorName { get; init; }
 }
 
 public record SubscriptionSummary(int Id, string Name, string? Description);

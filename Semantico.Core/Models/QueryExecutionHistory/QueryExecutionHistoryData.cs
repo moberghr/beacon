@@ -17,6 +17,16 @@ public class QueryExecutionHistoryData
     public string QueryName { get; set; }
 
     public int SubscriptionId { get; set; }
-    
+
     public double ExecutionTimeMs { get; set; }
+
+    /// <summary>
+    /// AI Actor ID if the subscription is managed by an AI Actor, null if user-created
+    /// </summary>
+    public int? AiActorId { get; set; }
+
+    /// <summary>
+    /// Name of the AI Actor managing the subscription
+    /// </summary>
+    public string? AiActorName { get; set; }
 }

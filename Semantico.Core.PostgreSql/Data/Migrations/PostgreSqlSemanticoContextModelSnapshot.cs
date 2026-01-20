@@ -42,6 +42,404 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                     b.ToTable("recipient_subscription", "semantico");
                 });
 
+            modelBuilder.Entity("Semantico.Core.Data.Entities.AiActor", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("AdditionalContext")
+                        .HasColumnType("text")
+                        .HasColumnName("additional_context");
+
+                    b.Property<DateTime?>("ArchivedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("archived_time");
+
+                    b.Property<string>("CreatedByUserId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("created_by_user_id");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_time");
+
+                    b.Property<int>("DataSourceId")
+                        .HasColumnType("integer")
+                        .HasColumnName("data_source_id");
+
+                    b.Property<string>("Instructions")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("instructions");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)")
+                        .HasColumnName("last_error");
+
+                    b.Property<DateTime?>("LastThinkTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_think_time");
+
+                    b.Property<int>("MaxQueries")
+                        .HasColumnType("integer")
+                        .HasColumnName("max_queries");
+
+                    b.Property<int>("MaxSubscriptionsPerQuery")
+                        .HasColumnType("integer")
+                        .HasColumnName("max_subscriptions_per_query");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("name");
+
+                    b.Property<bool>("RequiresApproval")
+                        .HasColumnType("boolean")
+                        .HasColumnName("requires_approval");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
+                    b.Property<int>("ThinkCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("think_count");
+
+                    b.Property<decimal>("TotalCost")
+                        .HasColumnType("numeric")
+                        .HasColumnName("total_cost");
+
+                    b.Property<int>("TotalTokensUsed")
+                        .HasColumnType("integer")
+                        .HasColumnName("total_tokens_used");
+
+                    b.HasKey("Id")
+                        .HasName("pk_ai_actors");
+
+                    b.HasIndex("ArchivedTime")
+                        .HasDatabaseName("ix_ai_actors_archived_time");
+
+                    b.HasIndex("DataSourceId")
+                        .HasDatabaseName("ix_ai_actors_data_source_id");
+
+                    b.HasIndex("Status")
+                        .HasDatabaseName("ix_ai_actors_status");
+
+                    b.HasIndex("DataSourceId", "Status")
+                        .HasDatabaseName("ix_ai_actors_data_source_id_status");
+
+                    b.HasIndex("Status", "ArchivedTime")
+                        .HasDatabaseName("ix_ai_actors_status_archived_time");
+
+                    b.ToTable("ai_actors", "semantico");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.AiActorConversation", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int?>("AiActorExecutionId")
+                        .HasColumnType("integer")
+                        .HasColumnName("ai_actor_execution_id");
+
+                    b.Property<int>("AiActorId")
+                        .HasColumnType("integer")
+                        .HasColumnName("ai_actor_id");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_time");
+
+                    b.Property<string>("MessageContent")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("message_content");
+
+                    b.Property<string>("Metadata")
+                        .HasColumnType("text")
+                        .HasColumnName("metadata");
+
+                    b.Property<string>("Model")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("model");
+
+                    b.Property<int>("Role")
+                        .HasColumnType("integer")
+                        .HasColumnName("role");
+
+                    b.Property<DateTime>("Timestamp")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("timestamp");
+
+                    b.Property<int>("TokensUsed")
+                        .HasColumnType("integer")
+                        .HasColumnName("tokens_used");
+
+                    b.Property<int>("TurnNumber")
+                        .HasColumnType("integer")
+                        .HasColumnName("turn_number");
+
+                    b.HasKey("Id")
+                        .HasName("pk_ai_actor_conversations");
+
+                    b.HasIndex("AiActorExecutionId")
+                        .HasDatabaseName("ix_ai_actor_conversations_ai_actor_execution_id");
+
+                    b.HasIndex("AiActorId")
+                        .HasDatabaseName("ix_ai_actor_conversations_ai_actor_id");
+
+                    b.HasIndex("Timestamp")
+                        .HasDatabaseName("ix_ai_actor_conversations_timestamp");
+
+                    b.HasIndex("TurnNumber")
+                        .HasDatabaseName("ix_ai_actor_conversations_turn_number");
+
+                    b.HasIndex("AiActorId", "TurnNumber")
+                        .HasDatabaseName("ix_ai_actor_conversations_ai_actor_id_turn_number");
+
+                    b.ToTable("ai_actor_conversations", "semantico");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.AiActorExecution", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ActionsJson")
+                        .HasColumnType("text")
+                        .HasColumnName("actions_json");
+
+                    b.Property<int>("AiActorId")
+                        .HasColumnType("integer")
+                        .HasColumnName("ai_actor_id");
+
+                    b.Property<int?>("AiActorPlanId")
+                        .HasColumnType("integer")
+                        .HasColumnName("ai_actor_plan_id");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("completed_at");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_time");
+
+                    b.Property<string>("DecisionSummary")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)")
+                        .HasColumnName("decision_summary");
+
+                    b.Property<string>("DetailedAnalysis")
+                        .HasColumnType("text")
+                        .HasColumnName("detailed_analysis");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)")
+                        .HasColumnName("error_message");
+
+                    b.Property<decimal>("EstimatedCost")
+                        .HasColumnType("numeric")
+                        .HasColumnName("estimated_cost");
+
+                    b.Property<string>("FindingsJson")
+                        .HasColumnType("text")
+                        .HasColumnName("findings_json");
+
+                    b.Property<string>("Model")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("model");
+
+                    b.Property<int>("NotificationsTriggered")
+                        .HasColumnType("integer")
+                        .HasColumnName("notifications_triggered");
+
+                    b.Property<int>("Phase")
+                        .HasColumnType("integer")
+                        .HasColumnName("phase");
+
+                    b.Property<int>("QueriesAnalyzed")
+                        .HasColumnType("integer")
+                        .HasColumnName("queries_analyzed");
+
+                    b.Property<int>("QueriesCreated")
+                        .HasColumnType("integer")
+                        .HasColumnName("queries_created");
+
+                    b.Property<int>("QueriesRefined")
+                        .HasColumnType("integer")
+                        .HasColumnName("queries_refined");
+
+                    b.Property<DateTime>("StartedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("started_at");
+
+                    b.Property<int>("SubscriptionsCreated")
+                        .HasColumnType("integer")
+                        .HasColumnName("subscriptions_created");
+
+                    b.Property<int>("TokensUsed")
+                        .HasColumnType("integer")
+                        .HasColumnName("tokens_used");
+
+                    b.Property<int?>("TriggeringSubscriptionId")
+                        .HasColumnType("integer")
+                        .HasColumnName("triggering_subscription_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_ai_actor_executions");
+
+                    b.HasIndex("AiActorId")
+                        .HasDatabaseName("ix_ai_actor_executions_ai_actor_id");
+
+                    b.HasIndex("AiActorPlanId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_ai_actor_executions_ai_actor_plan_id");
+
+                    b.HasIndex("Phase")
+                        .HasDatabaseName("ix_ai_actor_executions_phase");
+
+                    b.HasIndex("StartedAt")
+                        .HasDatabaseName("ix_ai_actor_executions_started_at");
+
+                    b.HasIndex("TriggeringSubscriptionId")
+                        .HasDatabaseName("ix_ai_actor_executions_triggering_subscription_id");
+
+                    b.HasIndex("AiActorId", "StartedAt")
+                        .HasDatabaseName("ix_ai_actor_executions_ai_actor_id_started_at");
+
+                    b.ToTable("ai_actor_executions", "semantico");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.AiActorPlan", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ActionsJson")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("actions_json");
+
+                    b.Property<int?>("AiActorExecutionId")
+                        .HasColumnType("integer")
+                        .HasColumnName("ai_actor_execution_id");
+
+                    b.Property<int>("AiActorId")
+                        .HasColumnType("integer")
+                        .HasColumnName("ai_actor_id");
+
+                    b.Property<string>("Analysis")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("analysis");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_time");
+
+                    b.Property<decimal>("EstimatedCost")
+                        .HasColumnType("numeric")
+                        .HasColumnName("estimated_cost");
+
+                    b.Property<DateTime?>("ExecutedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("executed_at");
+
+                    b.Property<string>("FindingsJson")
+                        .HasColumnType("text")
+                        .HasColumnName("findings_json");
+
+                    b.Property<string>("Model")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("model");
+
+                    b.Property<int?>("ParentPlanId")
+                        .HasColumnType("integer")
+                        .HasColumnName("parent_plan_id");
+
+                    b.Property<DateTime>("ProposedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("proposed_at");
+
+                    b.Property<DateTime?>("ReviewedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("reviewed_at");
+
+                    b.Property<string>("ReviewedByUserId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("reviewed_by_user_id");
+
+                    b.Property<string>("ReviewerComment")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)")
+                        .HasColumnName("reviewer_comment");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
+                    b.Property<int>("TokensUsed")
+                        .HasColumnType("integer")
+                        .HasColumnName("tokens_used");
+
+                    b.Property<string>("UserInstruction")
+                        .HasColumnType("text")
+                        .HasColumnName("user_instruction");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("integer")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id")
+                        .HasName("pk_ai_actor_plans");
+
+                    b.HasIndex("AiActorId")
+                        .HasDatabaseName("ix_ai_actor_plans_ai_actor_id");
+
+                    b.HasIndex("ParentPlanId")
+                        .HasDatabaseName("ix_ai_actor_plans_parent_plan_id");
+
+                    b.HasIndex("ProposedAt")
+                        .HasDatabaseName("ix_ai_actor_plans_proposed_at");
+
+                    b.HasIndex("Status")
+                        .HasDatabaseName("ix_ai_actor_plans_status");
+
+                    b.HasIndex("AiActorId", "ProposedAt")
+                        .HasDatabaseName("ix_ai_actor_plans_ai_actor_id_proposed_at");
+
+                    b.HasIndex("AiActorId", "Status")
+                        .HasDatabaseName("ix_ai_actor_plans_ai_actor_id_status");
+
+                    b.ToTable("ai_actor_plans", "semantico");
+                });
+
             modelBuilder.Entity("Semantico.Core.Data.Entities.AiAlertConfiguration", b =>
                 {
                     b.Property<int>("Id")
@@ -1453,6 +1851,10 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<int?>("AiActorId")
+                        .HasColumnType("integer")
+                        .HasColumnName("ai_actor_id");
+
                     b.Property<DateTime?>("ArchivedTime")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("archived_time");
@@ -1469,6 +1871,19 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                         .HasColumnType("text")
                         .HasColumnName("final_query");
 
+                    b.Property<bool>("IsLocked")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_locked");
+
+                    b.Property<DateTime?>("LockedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("locked_at");
+
+                    b.Property<string>("LockedByUserId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("locked_by_user_id");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("text")
@@ -1476,6 +1891,12 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
 
                     b.HasKey("Id")
                         .HasName("pk_queries");
+
+                    b.HasIndex("AiActorId")
+                        .HasDatabaseName("ix_queries_ai_actor_id");
+
+                    b.HasIndex("IsLocked")
+                        .HasDatabaseName("ix_queries_is_locked");
 
                     b.ToTable("queries", "semantico");
                 });
@@ -1624,6 +2045,90 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                         .HasDatabaseName("ix_query_steps_query_id");
 
                     b.ToTable("query_steps", "semantico");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.QueryStepChangeHistory", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int?>("AiActorExecutionId")
+                        .HasColumnType("integer")
+                        .HasColumnName("ai_actor_execution_id");
+
+                    b.Property<int?>("AiActorId")
+                        .HasColumnType("integer")
+                        .HasColumnName("ai_actor_id");
+
+                    b.Property<int?>("AiActorPlanId")
+                        .HasColumnType("integer")
+                        .HasColumnName("ai_actor_plan_id");
+
+                    b.Property<string>("ChangeReason")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("change_reason");
+
+                    b.Property<int>("ChangeSource")
+                        .HasColumnType("integer")
+                        .HasColumnName("change_source");
+
+                    b.Property<DateTime>("ChangedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("changed_at");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_time");
+
+                    b.Property<string>("NewSql")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("new_sql");
+
+                    b.Property<string>("PreviousSql")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("previous_sql");
+
+                    b.Property<int>("QueryStepId")
+                        .HasColumnType("integer")
+                        .HasColumnName("query_step_id");
+
+                    b.Property<string>("UserId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_query_step_change_history");
+
+                    b.HasIndex("AiActorExecutionId")
+                        .HasDatabaseName("ix_query_step_change_history_ai_actor_execution_id");
+
+                    b.HasIndex("AiActorId")
+                        .HasDatabaseName("ix_query_step_change_history_ai_actor_id");
+
+                    b.HasIndex("AiActorPlanId")
+                        .HasDatabaseName("ix_query_step_change_history_ai_actor_plan_id");
+
+                    b.HasIndex("ChangeSource")
+                        .HasDatabaseName("ix_query_step_change_history_change_source");
+
+                    b.HasIndex("ChangedAt")
+                        .HasDatabaseName("ix_query_step_change_history_changed_at");
+
+                    b.HasIndex("QueryStepId")
+                        .HasDatabaseName("ix_query_step_change_history_query_step_id");
+
+                    b.HasIndex("QueryStepId", "ChangedAt")
+                        .HasDatabaseName("ix_query_step_change_history_query_step_id_changed_at");
+
+                    b.ToTable("query_step_change_history", "semantico");
                 });
 
             modelBuilder.Entity("Semantico.Core.Data.Entities.QueryStepParameter", b =>
@@ -1781,6 +2286,10 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<int?>("AiActorId")
+                        .HasColumnType("integer")
+                        .HasColumnName("ai_actor_id");
+
                     b.Property<DateTime?>("ArchivedTime")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("archived_time");
@@ -1836,6 +2345,9 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
 
                     b.HasKey("Id")
                         .HasName("pk_subscriptions");
+
+                    b.HasIndex("AiActorId")
+                        .HasDatabaseName("ix_subscriptions_ai_actor_id");
 
                     b.HasIndex("QueryId")
                         .HasDatabaseName("ix_subscriptions_query_id");
@@ -1898,6 +2410,86 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_recipient_subscription_subscriptions_subscriptions_id");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.AiActor", b =>
+                {
+                    b.HasOne("Semantico.Core.Data.Entities.DataSource", "DataSource")
+                        .WithMany()
+                        .HasForeignKey("DataSourceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_ai_actors_data_sources_data_source_id");
+
+                    b.Navigation("DataSource");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.AiActorConversation", b =>
+                {
+                    b.HasOne("Semantico.Core.Data.Entities.AiActorExecution", "AiActorExecution")
+                        .WithMany()
+                        .HasForeignKey("AiActorExecutionId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_ai_actor_conversations_ai_actor_executions_ai_actor_executi");
+
+                    b.HasOne("Semantico.Core.Data.Entities.AiActor", "AiActor")
+                        .WithMany("Conversations")
+                        .HasForeignKey("AiActorId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_ai_actor_conversations_ai_actors_ai_actor_id");
+
+                    b.Navigation("AiActor");
+
+                    b.Navigation("AiActorExecution");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.AiActorExecution", b =>
+                {
+                    b.HasOne("Semantico.Core.Data.Entities.AiActor", "AiActor")
+                        .WithMany("Executions")
+                        .HasForeignKey("AiActorId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_ai_actor_executions_ai_actors_ai_actor_id");
+
+                    b.HasOne("Semantico.Core.Data.Entities.AiActorPlan", "AiActorPlan")
+                        .WithOne("AiActorExecution")
+                        .HasForeignKey("Semantico.Core.Data.Entities.AiActorExecution", "AiActorPlanId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_ai_actor_executions_ai_actor_plans_ai_actor_plan_id");
+
+                    b.HasOne("Semantico.Core.Data.Entities.Subscription", "TriggeringSubscription")
+                        .WithMany()
+                        .HasForeignKey("TriggeringSubscriptionId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_ai_actor_executions_subscriptions_triggering_subscription_id");
+
+                    b.Navigation("AiActor");
+
+                    b.Navigation("AiActorPlan");
+
+                    b.Navigation("TriggeringSubscription");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.AiActorPlan", b =>
+                {
+                    b.HasOne("Semantico.Core.Data.Entities.AiActor", "AiActor")
+                        .WithMany("Plans")
+                        .HasForeignKey("AiActorId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_ai_actor_plans_ai_actors_ai_actor_id");
+
+                    b.HasOne("Semantico.Core.Data.Entities.AiActorPlan", "ParentPlan")
+                        .WithMany("Revisions")
+                        .HasForeignKey("ParentPlanId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_ai_actor_plans_ai_actor_plans_parent_plan_id");
+
+                    b.Navigation("AiActor");
+
+                    b.Navigation("ParentPlan");
                 });
 
             modelBuilder.Entity("Semantico.Core.Data.Entities.AiAlertConfiguration", b =>
@@ -2155,6 +2747,17 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                     b.Navigation("Task");
                 });
 
+            modelBuilder.Entity("Semantico.Core.Data.Entities.Query", b =>
+                {
+                    b.HasOne("Semantico.Core.Data.Entities.AiActor", "AiActor")
+                        .WithMany("Queries")
+                        .HasForeignKey("AiActorId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_queries_ai_actors_ai_actor_id");
+
+                    b.Navigation("AiActor");
+                });
+
             modelBuilder.Entity("Semantico.Core.Data.Entities.QueryExecutionHistory", b =>
                 {
                     b.HasOne("Semantico.Core.Data.Entities.Subscription", "Subscription")
@@ -2200,6 +2803,42 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                     b.Navigation("Query");
                 });
 
+            modelBuilder.Entity("Semantico.Core.Data.Entities.QueryStepChangeHistory", b =>
+                {
+                    b.HasOne("Semantico.Core.Data.Entities.AiActorExecution", "AiActorExecution")
+                        .WithMany()
+                        .HasForeignKey("AiActorExecutionId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_query_step_change_history_ai_actor_executions_ai_actor_exec");
+
+                    b.HasOne("Semantico.Core.Data.Entities.AiActor", "AiActor")
+                        .WithMany()
+                        .HasForeignKey("AiActorId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_query_step_change_history_ai_actors_ai_actor_id");
+
+                    b.HasOne("Semantico.Core.Data.Entities.AiActorPlan", "AiActorPlan")
+                        .WithMany("ChangeHistory")
+                        .HasForeignKey("AiActorPlanId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_query_step_change_history_ai_actor_plans_ai_actor_plan_id");
+
+                    b.HasOne("Semantico.Core.Data.Entities.QueryStep", "QueryStep")
+                        .WithMany()
+                        .HasForeignKey("QueryStepId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_query_step_change_history_query_steps_query_step_id");
+
+                    b.Navigation("AiActor");
+
+                    b.Navigation("AiActorExecution");
+
+                    b.Navigation("AiActorPlan");
+
+                    b.Navigation("QueryStep");
+                });
+
             modelBuilder.Entity("Semantico.Core.Data.Entities.QueryStepParameter", b =>
                 {
                     b.HasOne("Semantico.Core.Data.Entities.QueryStep", "QueryStep")
@@ -2226,12 +2865,20 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
 
             modelBuilder.Entity("Semantico.Core.Data.Entities.Subscription", b =>
                 {
+                    b.HasOne("Semantico.Core.Data.Entities.AiActor", "AiActor")
+                        .WithMany("Subscriptions")
+                        .HasForeignKey("AiActorId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_subscriptions_ai_actors_ai_actor_id");
+
                     b.HasOne("Semantico.Core.Data.Entities.Query", "Query")
                         .WithMany("Subscriptions")
                         .HasForeignKey("QueryId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_subscriptions_queries_query_id");
+
+                    b.Navigation("AiActor");
 
                     b.Navigation("Query");
                 });
@@ -2246,6 +2893,28 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                         .HasConstraintName("fk_subscription_parameters_subscriptions_subscription_id");
 
                     b.Navigation("Subscription");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.AiActor", b =>
+                {
+                    b.Navigation("Conversations");
+
+                    b.Navigation("Executions");
+
+                    b.Navigation("Plans");
+
+                    b.Navigation("Queries");
+
+                    b.Navigation("Subscriptions");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.AiActorPlan", b =>
+                {
+                    b.Navigation("AiActorExecution");
+
+                    b.Navigation("ChangeHistory");
+
+                    b.Navigation("Revisions");
                 });
 
             modelBuilder.Entity("Semantico.Core.Data.Entities.AiAlertConfiguration", b =>

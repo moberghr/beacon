@@ -58,6 +58,10 @@ html, body {
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4) !important;
 }
 
+.mud-theme-dark .explorer-content .mud-typography .mud-typography-body2{
+    color: black!important;
+}
+
 /* Button improvements */
 .mud-button-root {
     border-radius: 8px !important;
@@ -123,10 +127,15 @@ html, body {
     margin: 4px 8px !important;
     font-weight: 500 !important;
     transition: background 0.2s ease !important;
+    color: rgba(0, 0, 0, 0.87) !important;
 }
 
 .mud-nav-link:hover {
     background: rgba(0, 0, 0, 0.04) !important;
+}
+
+.mud-theme-dark .mud-nav-link {
+    color: rgba(255, 255, 255, 0.9) !important;
 }
 
 .mud-theme-dark .mud-nav-link:hover {
@@ -142,9 +151,210 @@ html, body {
     background: rgba(255, 255, 255, 0.12) !important;
 }
 
-/* AppBar improvements - removed fixed backgrounds to let MudBlazor theme handle it */
-.mud-appbar {
-    backdrop-filter: blur(10px);
+/* Nav group styling */
+.mud-nav-group .mud-nav-group-header {
+    color: rgba(0, 0, 0, 0.87) !important;
+}
+
+.mud-theme-dark .mud-nav-group .mud-nav-group-header {
+    color: rgba(255, 255, 255, 0.9) !important;
+}
+
+/* ============================================
+   Unified AppBar + Drawer Design
+   ============================================ */
+
+/* Main layout wrapper */
+/*.semantico-layout .mud-appbar {*/
+/*    left: 250px !important;*/
+/*    width: calc(100% - 250px) !important;*/
+/*}*/
+
+/* AppBar styling */
+.semantico-appbar {
+    backdrop-filter: blur(12px);
+    background: linear-gradient(90deg, rgba(99, 102, 241, 1) 0%, rgba(129, 140, 248, 0.98) 40%, rgba(139, 92, 246, 0.96) 70%, rgba(168, 85, 247, 0.95) 100%) !important;
+    border-bottom: none !important;
+    padding: 0 20px !important;
+    min-height: 60px !important;
+    box-shadow: 0 4px 20px rgba(99, 102, 241, 0.3) !important;
+}
+
+.mud-theme-dark .semantico-appbar {
+    background: linear-gradient(90deg, rgba(17, 24, 39, 1) 0%, rgba(31, 41, 55, 0.98) 50%, rgba(55, 65, 81, 0.96) 100%) !important;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4) !important;
+    border-bottom: 1px solid rgba(99, 102, 241, 0.2) !important;
+}
+
+.appbar-brand-spacer {
+    width: 0;
+}
+
+.appbar-divider {
+    height: 24px;
+    margin: 0 8px !important;
+    opacity: 0.3;
+}
+
+.appbar-icon-btn {
+    color: rgba(255, 255, 255, 0.9) !important;
+    border-radius: 10px !important;
+    transition: all 0.2s ease !important;
+    width: 36px !important;
+    height: 36px !important;
+}
+
+.appbar-icon-btn:hover {
+    background: rgba(255, 255, 255, 0.2) !important;
+    color: white !important;
+    transform: translateY(-1px);
+}
+
+.mud-theme-dark .appbar-icon-btn {
+    color: rgba(255, 255, 255, 0.7) !important;
+}
+
+.mud-theme-dark .appbar-icon-btn:hover {
+    background: rgba(99, 102, 241, 0.3) !important;
+    color: #c7d2fe !important;
+}
+
+.appbar-user-chip {
+    cursor: pointer;
+    transition: all 0.2s ease !important;
+    padding-right: 14px !important;
+    background: rgba(255, 255, 255, 0.2) !important;
+    border: 1px solid rgba(255, 255, 255, 0.3) !important;
+}
+
+.appbar-user-chip:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25);
+    background: rgba(255, 255, 255, 0.25) !important;
+}
+
+.mud-theme-dark .appbar-user-chip {
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.6), rgba(139, 92, 246, 0.6)) !important;
+    border: 1px solid rgba(139, 92, 246, 0.4) !important;
+}
+
+/* Drawer styling - unified with appbar */
+.semantico-drawer {
+    background: white !important;
+    border-right: none !important;
+}
+
+.semantico-drawer .mud-drawer-content {
+    background: white !important;
+    overflow-x: hidden !important;
+}
+
+.mud-theme-dark .semantico-drawer {
+    background: #1f2937 !important;
+}
+
+.mud-theme-dark .semantico-drawer .mud-drawer-content {
+    background: #1f2937 !important;
+}
+
+/* Header wrapper with gradient */
+.drawer-header-wrapper {
+    position: relative;
+    background: linear-gradient(180deg,
+        rgba(99, 102, 241, 1) 0%,
+        rgba(99, 102, 241, 1) 110px,
+        rgba(129, 140, 248, 0.6) 135px,
+        rgba(165, 180, 252, 0.3) 155px,
+        rgba(199, 210, 254, 0.15) 170px,
+        rgba(255, 255, 255, 0) 185px
+    );
+    padding-bottom: 125px;
+}
+
+.mud-theme-dark .drawer-header-wrapper {
+    background: linear-gradient(180deg,
+        rgba(17, 24, 39, 1) 0%,
+        rgba(17, 24, 39, 1) 110px,
+        rgba(31, 41, 55, 0.6) 135px,
+        rgba(55, 65, 81, 0.3) 155px,
+        rgba(75, 85, 99, 0.15) 170px,
+        rgba(31, 41, 55, 0) 185px
+    );
+}
+
+.drawer-brand-header {
+    padding: 19px 20px 19px 20px;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 16px;
+    position: relative;
+    min-height: 60px;
+    background: transparent;
+}
+
+.drawer-logo {
+    height: 50px;
+    width: 50px;
+    filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.25));
+    flex-shrink: 0;
+}
+
+.drawer-brand-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.drawer-title {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: white;
+    letter-spacing: 0.3px;
+    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+    line-height: 1.2;
+}
+
+.mud-theme-dark .drawer-title {
+    background: linear-gradient(135deg, #06b6d4, #818cf8, #c084fc);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    text-shadow: none;
+    filter: drop-shadow(0 2px 4px rgba(99, 102, 241, 0.3));
+}
+
+.drawer-version {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.85);
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+}
+
+.mud-theme-dark .drawer-version {
+    color: rgba(165, 180, 252, 0.7);
+}
+
+.drawer-gradient-fade {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 80px;
+    pointer-events: none;
+}
+
+.drawer-nav {
+    padding: 0 8px !important;
+    margin-top: -20px;
+    overflow-x: hidden !important;
+}
+
+.drawer-nav .mud-nav-item {
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
 }
 
 /* Drawer improvements */
@@ -154,6 +364,16 @@ html, body {
 
 .mud-theme-dark .mud-drawer {
     border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+/* Semantico drawer override */
+.semantico-drawer.mud-drawer {
+    border-right: none !important;
+    box-shadow: 4px 0 20px rgba(0, 0, 0, 0.08) !important;
+}
+
+.mud-theme-dark .semantico-drawer.mud-drawer {
+    box-shadow: 4px 0 20px rgba(0, 0, 0, 0.3) !important;
 }
 
 /* Container spacing */

@@ -19,6 +19,24 @@
             <PropertyColumn Property="x => x.CreatedTime" Title="Created"/>
             <PropertyColumn Property="x => x.DataSourceName"/>
             <PropertyColumn Property="x => x.SubscriptionsCount" Title="Subscriptions Count"/>
+            <TemplateColumn Title="Source" Sortable="false">
+                <CellTemplate>
+                    @if (context.Item.AiActorId.HasValue)
+                    {
+                        <MudTooltip Text="@($"AI Managed by {context.Item.AiActorName}")">
+                            <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Filled">
+                                <MudIcon Icon="@Icons.Material.Filled.SmartToy" Size="Size.Small" Class="mr-1"/>AI
+                            </MudChip>
+                        </MudTooltip>
+                    }
+                    else
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Filled">
+                            <MudIcon Icon="@Icons.Material.Filled.Person" Size="Size.Small" Class="mr-1"/>User
+                        </MudChip>
+                    }
+                </CellTemplate>
+            </TemplateColumn>
             <PropertyColumn Property="x => x.Parameters.ToJson()" Title="Parameters"/>
         </Columns>
             <PagerContent>

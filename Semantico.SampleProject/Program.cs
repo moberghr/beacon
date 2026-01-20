@@ -57,9 +57,9 @@ builder.Services.AddHangfireServer();
 builder.Services.AddSemantico(builder.Configuration, options =>
 {
     // Configure database provider
-    options.UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
+    //options.UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
     // Or use SQL Server:
-    // options.UseSqlServer(builder.Configuration.GetConnectionString("SemanticoContextSql")!, "semantico");
+    options.UseSqlServer(builder.Configuration.GetConnectionString("SemanticoContextSql")!, "semantico");
 
     options.AddSemanticoScheduler<SemanticoScheduler>();
     //options.AddAuthorizationProvider<SampleAuthorizationProvider>();

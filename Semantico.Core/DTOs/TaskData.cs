@@ -22,4 +22,14 @@ public record TaskData
     /// Number of distinct result counts seen (indicates result volatility)
     /// </summary>
     public int UniqueResultCounts { get; init; }
+
+    /// <summary>
+    /// AI Actor ID if the subscription is managed by an AI Actor, null if user-created
+    /// </summary>
+    public int? AiActorId { get; init; }
+
+    /// <summary>
+    /// Name of the AI Actor managing the subscription
+    /// </summary>
+    public string? AiActorName { get; init; }
 }

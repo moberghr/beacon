@@ -27,10 +27,32 @@
         <!-- Page Header -->
         <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-6">
             <MudStack Spacing="1">
-                <MudText Typo="Typo.h3" Style="font-weight: 600;">
-                    <MudIcon Icon="@Icons.Material.Filled.Task" Class="mr-2" />
-                    Task #@Model.Id
-                </MudText>
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                    <MudText Typo="Typo.h3" Style="font-weight: 600;">
+                        <MudIcon Icon="@Icons.Material.Filled.Task" Class="mr-2" />
+                        Task #@Model.Id
+                    </MudText>
+                    @if (Model.AiActorId.HasValue)
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Filled">
+                            <MudIcon Icon="@Icons.Material.Filled.SmartToy" Size="Size.Small" Class="mr-1" />
+                            AI Managed
+                        </MudChip>
+                        @if (!string.IsNullOrEmpty(Model.AiActorName))
+                        {
+                            <MudChip T="string" Size="Size.Small" Color="Color.Default" Variant="Variant.Outlined">
+                                @Model.AiActorName
+                            </MudChip>
+                        }
+                    }
+                    else
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Filled">
+                            <MudIcon Icon="@Icons.Material.Filled.Person" Size="Size.Small" Class="mr-1" />
+                            User Defined
+                        </MudChip>
+                    }
+                </MudStack>
                 <MudText Typo="Typo.body2" Color="Color.Secondary">
                     Created @Model.CreatedAt.ToString("MMM dd, yyyy HH:mm") • @(Model.Resolved ? "Resolved" : "Open")
                 </MudText>

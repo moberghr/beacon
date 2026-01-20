@@ -45,7 +45,18 @@ public class Subscription : ArchivableBaseEntity
     /// </summary>
     public NotificationTrigger NotificationTrigger { get; set; } = NotificationTrigger.OnResultCountChange;
 
+    /// <summary>
+    /// If this subscription was created by an AI Actor, the actor's ID.
+    /// Null means user-created.
+    /// </summary>
+    public int? AiActorId { get; set; }
+
     public Query Query { get; set; } = null!;
+
+    /// <summary>
+    /// The AI Actor that created this subscription (null if user-created)
+    /// </summary>
+    public AiActor? AiActor { get; set; }
 
     public List<Recipient> Recipients { get; set; } = new();
 
