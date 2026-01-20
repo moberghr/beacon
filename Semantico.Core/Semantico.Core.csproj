@@ -40,7 +40,7 @@
 		<PackageReference Include="EFCore.BulkExtensions" Version="9.0.2" />
 		<PackageReference Include="Hangfire.Core" Version="1.8.22" />
 		<PackageReference Include="Markdig" Version="0.44.0" />
-		<PackageReference Include="MediatR" Version="14.0.0" />
+		<PackageReference Include="MediatR" Version="12.4.1" />
 		<PackageReference Include="MessageCardModel" Version="1.1.5" />
 		<PackageReference Include="Microsoft.Agents.AI" Version="1.0.0-preview.260108.1" />
 		<PackageReference Include="Microsoft.Agents.AI.OpenAI" Version="1.0.0-preview.260108.1" />
