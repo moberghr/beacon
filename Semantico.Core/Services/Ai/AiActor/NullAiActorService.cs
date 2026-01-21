@@ -10,11 +10,23 @@ namespace Semantico.Core.Services.Ai.AiActor;
 /// </summary>
 internal sealed class NullAiActorService : IAiActorService
 {
+    private const string AiNotConfiguredMessage =
+        "AI features are not enabled. To use AI Actors, configure LLM settings in appsettings.json:\n\n" +
+        "{\n" +
+        "  \"Semantico\": {\n" +
+        "    \"LLM\": {\n" +
+        "      \"Provider\": \"OpenAI\",\n" +
+        "      \"ApiKey\": \"your-api-key\",\n" +
+        "      \"Model\": \"gpt-4o\"\n" +
+        "    }\n" +
+        "  }\n" +
+        "}";
+
     public Task<Data.Entities.AiActor> CreateActorAsync(
         CreateAiActorOptions options,
         CancellationToken cancellationToken = default)
     {
-        throw new InvalidOperationException("AI features are not enabled. Configure LLM settings in appsettings.json to use AI Actors.");
+        throw new InvalidOperationException(AiNotConfiguredMessage);
     }
 
     public Task OnSubscriptionExecutedAsync(
@@ -31,35 +43,35 @@ internal sealed class NullAiActorService : IAiActorService
         int? triggeringSubscriptionId = null,
         CancellationToken cancellationToken = default)
     {
-        throw new InvalidOperationException("AI features are not enabled. Configure LLM settings in appsettings.json to use AI Actors.");
+        throw new InvalidOperationException(AiNotConfiguredMessage);
     }
 
     public Task ExecuteThinkCycleBackgroundAsync(
         int actorId,
         int? triggeringSubscriptionId = null)
     {
-        throw new InvalidOperationException("AI features are not enabled. Configure LLM settings in appsettings.json to use AI Actors.");
+        throw new InvalidOperationException(AiNotConfiguredMessage);
     }
 
     public Task PauseActorAsync(
         int actorId,
         CancellationToken cancellationToken = default)
     {
-        throw new InvalidOperationException("AI features are not enabled. Configure LLM settings in appsettings.json to use AI Actors.");
+        throw new InvalidOperationException(AiNotConfiguredMessage);
     }
 
     public Task ResumeActorAsync(
         int actorId,
         CancellationToken cancellationToken = default)
     {
-        throw new InvalidOperationException("AI features are not enabled. Configure LLM settings in appsettings.json to use AI Actors.");
+        throw new InvalidOperationException(AiNotConfiguredMessage);
     }
 
     public Task ArchiveActorAsync(
         int actorId,
         CancellationToken cancellationToken = default)
     {
-        throw new InvalidOperationException("AI features are not enabled. Configure LLM settings in appsettings.json to use AI Actors.");
+        throw new InvalidOperationException(AiNotConfiguredMessage);
     }
 
     public Task<AiActorThinkResult> RefineActorAsync(
@@ -67,7 +79,7 @@ internal sealed class NullAiActorService : IAiActorService
         string feedback,
         CancellationToken cancellationToken = default)
     {
-        throw new InvalidOperationException("AI features are not enabled. Configure LLM settings in appsettings.json to use AI Actors.");
+        throw new InvalidOperationException(AiNotConfiguredMessage);
     }
 
     public Task<Data.Entities.AiActor?> GetActorAsync(
@@ -111,28 +123,28 @@ internal sealed class NullAiActorService : IAiActorService
         GeneratePlanOptions options,
         CancellationToken cancellationToken = default)
     {
-        throw new InvalidOperationException("AI features are not enabled. Configure LLM settings in appsettings.json to use AI Actors.");
+        throw new InvalidOperationException(AiNotConfiguredMessage);
     }
 
     public Task<AiActorThinkResult> ApprovePlanAsync(
         ApprovePlanOptions options,
         CancellationToken cancellationToken = default)
     {
-        throw new InvalidOperationException("AI features are not enabled. Configure LLM settings in appsettings.json to use AI Actors.");
+        throw new InvalidOperationException(AiNotConfiguredMessage);
     }
 
     public Task RejectPlanAsync(
         RejectPlanOptions options,
         CancellationToken cancellationToken = default)
     {
-        throw new InvalidOperationException("AI features are not enabled. Configure LLM settings in appsettings.json to use AI Actors.");
+        throw new InvalidOperationException(AiNotConfiguredMessage);
     }
 
     public Task<AiActorPlanResult> RequestPlanRevisionAsync(
         RequestRevisionOptions options,
         CancellationToken cancellationToken = default)
     {
-        throw new InvalidOperationException("AI features are not enabled. Configure LLM settings in appsettings.json to use AI Actors.");
+        throw new InvalidOperationException(AiNotConfiguredMessage);
     }
 
     public Task<List<PendingPlanSummary>> GetPendingPlansAsync(
