@@ -1,5 +1,6 @@
 @page "/ai-actors/{ActorId:int}"
 @inherits BasePageComponent
+@using Semantico.Core
 @using Semantico.Core.Data.Enums
 @using Semantico.Core.Handlers.Ai.AiActor
 @using Semantico.Core.Handlers.Queries
@@ -9,7 +10,20 @@
 <SemanticoPageTitle Title="@(_actor?.Name ?? "AI Actor Details")"/>
 
 <MudContainer Class="my-4 px-4" MaxWidth="MaxWidth.ExtraExtraLarge">
-    @if (_loading)
+    @if (_configuration?.UseAI != true)
+    {
+        <MudAlert Severity="Severity.Warning" Class="mb-4">
+            <MudText Typo="Typo.body1" Class="mb-2"><strong>AI features are not enabled.</strong></MudText>
+            <MudText Typo="Typo.body2">
+                To use AI Actors, you need to:
+                <ol class="mt-2 mb-0">
+                    <li>Configure LLM settings in your <code>appsettings.json</code></li>
+                    <li>Set <code>options.UseAI = true</code> in your startup configuration</li>
+                </ol>
+            </MudText>
+        </MudAlert>
+    }
+    else if (_loading)
     {
         <MudProgressLinear Color="Color.Primary" Indeterminate="true" />
     }
@@ -261,6 +275,7 @@
 @inject IMediator Mediator
 @inject IDialogService DialogService
 @inject NavigationManager NavigationManager
+@inject SemanticoConfiguration _configuration
 
 @code {
     [Parameter]
