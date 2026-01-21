@@ -136,7 +136,7 @@ public class TaskService(IDbContextFactory<SemanticoContext> contextFactory, ILo
         int taskId,
         CancellationToken cancellationToken)
     {
-        var notification = await context.Notifications.FindAsync(new object[] { notificationId }, cancellationToken);
+        var notification = await context.Notifications.FirstOrDefaultAsync(n => n.Id == notificationId, cancellationToken);
         if (notification != null)
         {
             notification.TaskId = taskId;
@@ -152,7 +152,7 @@ public class TaskService(IDbContextFactory<SemanticoContext> contextFactory, ILo
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         var task = await context.QueryTasks
-            .FindAsync(new object[] { taskId }, cancellationToken)
+            .FirstOrDefaultAsync(t => t.Id == taskId, cancellationToken)
             ?? throw new SemanticoException($"Task {taskId} not found");
 
         // Update task resolution fields
@@ -169,7 +169,7 @@ public class TaskService(IDbContextFactory<SemanticoContext> contextFactory, ILo
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         var task = await context.QueryTasks
-            .FindAsync(new object[] { taskId }, cancellationToken)
+            .FirstOrDefaultAsync(t => t.Id == taskId, cancellationToken)
             ?? throw new SemanticoException($"Task {taskId} not found");
 
         if (!task.Resolved)

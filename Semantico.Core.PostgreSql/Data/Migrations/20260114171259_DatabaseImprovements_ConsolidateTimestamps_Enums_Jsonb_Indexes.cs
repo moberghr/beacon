@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore.Migrations;
+﻿using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
@@ -123,7 +123,7 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
 
             // Migration execution row counts must be non-negative
             migrationBuilder.Sql(@"
-                ALTER TABLE semantico.migration_execution_histories
+                ALTER TABLE semantico.migration_executions
                 ADD CONSTRAINT check_row_counts_non_negative
                 CHECK (
                     source_rows_read >= 0 AND
@@ -186,19 +186,7 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
             // ========================================
             // POINT 5: Define Foreign Key Cascade Behaviors Explicitly
             // ========================================
-
-            // Subscriptions -> DataSource: RESTRICT (prevent deletion of data sources with active subscriptions)
-            migrationBuilder.Sql(@"
-                ALTER TABLE semantico.subscriptions
-                DROP CONSTRAINT IF EXISTS fk_subscriptions_data_sources_data_source_id;
-
-                ALTER TABLE semantico.subscriptions
-                ADD CONSTRAINT fk_subscriptions_data_sources_data_source_id
-                FOREIGN KEY (data_source_id)
-                REFERENCES semantico.data_sources(id)
-                ON DELETE RESTRICT;
-            ");
-
+            
             // QueryExecutionHistory -> Subscription: CASCADE (delete history when subscription is deleted)
             migrationBuilder.Sql(@"
                 ALTER TABLE semantico.query_execution_history
@@ -288,21 +276,7 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                 ON semantico.query_execution_history(subscription_id, created_time DESC)
                 INCLUDE (result_count, execution_time_ms);
             ");
-
-            // Anomaly detection queries (partial index for hot data)
-            migrationBuilder.Sql(@"
-                CREATE INDEX IF NOT EXISTS idx_anomaly_baselines_sub_time
-                ON semantico.anomaly_baselines(subscription_id, execution_time DESC)
-                WHERE execution_time >= NOW() - INTERVAL '90 days';
-            ");
-
-            // Notification delivery tracking
-            migrationBuilder.Sql(@"
-                CREATE INDEX IF NOT EXISTS idx_notifications_status_created
-                ON semantico.notifications(notification_status, created_time DESC)
-                WHERE notification_status != 2;
-            ");
-
+            
             // AI cost tracking
             migrationBuilder.Sql(@"
                 CREATE INDEX IF NOT EXISTS idx_ai_usage_timestamp_provider

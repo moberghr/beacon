@@ -23,35 +23,57 @@ public class DatabaseMetadataService(
     private const string CacheKeyPrefix = "DbMetadata_";
     private static readonly TimeSpan CacheExpiration = TimeSpan.FromHours(1);
 
+    // Lock per data source to prevent concurrent refresh operations
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<int, SemaphoreSlim> _refreshLocks = new();
+
     public async Task<DatabaseMetadataSnapshot> RefreshMetadataAsync(int dataSourceId, CancellationToken cancellationToken = default)
     {
-        logger.LogInformation("Refreshing metadata for data source {DataSourceId}", dataSourceId);
+        // Get or create a lock for this specific data source
+        var refreshLock = _refreshLocks.GetOrAdd(dataSourceId, _ => new SemaphoreSlim(1, 1));
 
-        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-
-        var dataSource = await context.DataSources.FindAsync(new object[] { dataSourceId }, cancellationToken);
-        if (dataSource == null)
-            throw new SemanticoException($"Data source {dataSourceId} not found");
-
-        // Extract metadata based on database type
-        var connectionString = encryptionService.Decrypt(dataSource.ConnectionString);
-        var tables = dataSource.DatabaseEngineType switch
+        // Try to acquire the lock - if already locked, wait
+        await refreshLock.WaitAsync(cancellationToken);
+        try
         {
-            DatabaseEngineType.PostgreSQL => await GetPostgreSqlMetadataAsync(connectionString, cancellationToken),
-            DatabaseEngineType.MSSQL => await GetSqlServerMetadataAsync(connectionString, cancellationToken),
-            _ => throw new NotSupportedException($"Database type {dataSource.DatabaseEngineType} not supported for metadata extraction")
-        };
+            // Double-check cache after acquiring lock (another thread may have just completed refresh)
+            if (cache.TryGetValue(GetCacheKey(dataSourceId), out DatabaseMetadataSnapshot? cachedSnapshot) && cachedSnapshot != null)
+            {
+                logger.LogDebug("Metadata for data source {DataSourceId} was refreshed by another thread", dataSourceId);
+                return cachedSnapshot;
+            }
 
-        // Store in database
-        await StoreMetadataAsync(dataSourceId, tables, cancellationToken);
+            logger.LogInformation("Refreshing metadata for data source {DataSourceId}", dataSourceId);
 
-        // Update cache
-        var snapshot = new DatabaseMetadataSnapshot(dataSourceId, dataSource.DatabaseEngineType, tables, DateTime.UtcNow);
-        cache.Set(GetCacheKey(dataSourceId), snapshot, CacheExpiration);
+            await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        logger.LogInformation("Refreshed metadata for data source {DataSourceId}: {TableCount} tables", dataSourceId, tables.Count);
+            var dataSource = await context.DataSources.FirstOrDefaultAsync(ds => ds.Id == dataSourceId, cancellationToken);
+            if (dataSource == null)
+                throw new SemanticoException($"Data source {dataSourceId} not found");
 
-        return snapshot;
+            // Extract metadata based on database type
+            var connectionString = encryptionService.Decrypt(dataSource.ConnectionString);
+            var tables = dataSource.DatabaseEngineType switch
+            {
+                DatabaseEngineType.PostgreSQL => await GetPostgreSqlMetadataAsync(connectionString, cancellationToken),
+                DatabaseEngineType.MSSQL => await GetSqlServerMetadataAsync(connectionString, cancellationToken),
+                _ => throw new NotSupportedException($"Database type {dataSource.DatabaseEngineType} not supported for metadata extraction")
+            };
+
+            // Store in database
+            await StoreMetadataAsync(dataSourceId, tables, cancellationToken);
+
+            // Update cache
+            var snapshot = new DatabaseMetadataSnapshot(dataSourceId, dataSource.DatabaseEngineType, tables, DateTime.UtcNow);
+            cache.Set(GetCacheKey(dataSourceId), snapshot, CacheExpiration);
+
+            logger.LogInformation("Refreshed metadata for data source {DataSourceId}: {TableCount} tables", dataSourceId, tables.Count);
+
+            return snapshot;
+        }
+        finally
+        {
+            refreshLock.Release();
+        }
     }
 
     public async Task<DatabaseMetadataSnapshot> GetMetadataAsync(int dataSourceId, CancellationToken cancellationToken = default)
@@ -65,7 +87,7 @@ public class DatabaseMetadataService(
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         // Get the data source to know the database type
-        var dataSource = await context.DataSources.FindAsync(new object[] { dataSourceId }, cancellationToken);
+        var dataSource = await context.DataSources.FirstOrDefaultAsync(ds => ds.Id == dataSourceId, cancellationToken);
         if (dataSource == null)
             throw new SemanticoException($"Data source {dataSourceId} not found");
 
@@ -198,10 +220,13 @@ public class DatabaseMetadataService(
                 AND array_position(con.conkey, a.attnum) = array_position(con.confkey, fa.attnum)";
 
         var foreignKeys = await connection.QueryAsync(foreignKeysQuery, commandTimeout:180);
-        var fkLookup = foreignKeys.ToDictionary(
-            fk => $"{fk.table_schema}.{fk.table_name}.{fk.column_name}",
-            fk => (TableName: (string)fk.foreign_table_name, ColumnName: (string)fk.foreign_column_name)
-        );
+        // Use GroupBy + First to handle duplicate keys (can happen with multiple FK constraints on same column)
+        var fkLookup = foreignKeys
+            .GroupBy(fk => $"{fk.table_schema}.{fk.table_name}.{fk.column_name}")
+            .ToDictionary(
+                g => g.Key,
+                g => (TableName: (string)g.First().foreign_table_name, ColumnName: (string)g.First().foreign_column_name)
+            );
 
         // Get indexes
         const string indexesQuery = @"
@@ -316,10 +341,13 @@ public class DatabaseMetadataService(
             JOIN sys.columns rc ON fk.referenced_object_id = rc.object_id AND fk.referenced_column_id = rc.column_id";
 
         var foreignKeys = await connection.QueryAsync(foreignKeysQuery);
-        var fkLookup = foreignKeys.ToDictionary(
-            fk => $"{fk.table_schema}.{fk.table_name}.{fk.column_name}",
-            fk => (TableName: (string)fk.foreign_table_name, ColumnName: (string)fk.foreign_column_name)
-        );
+        // Use GroupBy + First to handle duplicate keys (can happen with multiple FK constraints on same column)
+        var fkLookup = foreignKeys
+            .GroupBy(fk => $"{fk.table_schema}.{fk.table_name}.{fk.column_name}")
+            .ToDictionary(
+                g => g.Key,
+                g => (TableName: (string)g.First().foreign_table_name, ColumnName: (string)g.First().foreign_column_name)
+            );
 
         // Get indexes
         const string indexesQuery = @"

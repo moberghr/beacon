@@ -1,5 +1,6 @@
 ﻿@using Blazored.LocalStorage
 @using Color = MudBlazor.Color
+@using Semantico.Core
 @inherits LayoutComponentBase
 
 @* Required *@
@@ -61,7 +62,10 @@
         <MudNavMenu Class="drawer-nav" Bordered="false">
             <MudNavLink Href="@($"{GetBaseHref()}dashboard")" Icon="@Icons.Material.Filled.Home" IconColor="Color.Primary">Home</MudNavLink>
             <MudNavLink Href="@($"{GetBaseHref()}data-sources")" Icon="@Icons.Material.Filled.Folder" IconColor="Color.Secondary">Data Sources</MudNavLink>
-            <MudNavLink Href="@($"{GetBaseHref()}ai-actors")" Icon="@Icons.Material.Filled.SmartToy" IconColor="Color.Tertiary">AI Actors</MudNavLink>
+            @if (Configuration?.UseAI == true)
+            {
+                <MudNavLink Href="@($"{GetBaseHref()}ai-actors")" Icon="@Icons.Material.Filled.SmartToy" IconColor="Color.Tertiary">AI Actors</MudNavLink>
+            }
             <MudNavGroup Title="Alerts" Icon="@Icons.Material.Filled.NotificationsActive" IconColor="Color.Info" Expanded="true" HideExpandIcon="true">
                 <MudNavLink Href="@($"{GetBaseHref()}recipients")" Icon="@Icons.Material.Filled.People" IconColor="Color.Tertiary">Recipients</MudNavLink>
                 <MudNavLink Href="@($"{GetBaseHref()}queries")" Icon="@Icons.Material.Filled.Search" IconColor="Color.Info">Queries</MudNavLink>
@@ -91,6 +95,7 @@
 @inject ILocalStorageService LocalStorage
 @inject IJSRuntime JS
 @inject NavigationManager NavigationManager
+@inject SemanticoConfiguration Configuration
 
 @code
 {

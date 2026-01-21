@@ -400,7 +400,7 @@ public abstract partial class SemanticoContext : DbContext
         modelBuilder.Entity<DataSourceDocumentation>(entity =>
         {
             entity.HasKey(e => e.Id);
-            entity.HasIndex(e => e.DataSourceId);
+            // Note: Don't add explicit HasIndex for DataSourceId - EF Core creates one automatically for the FK
             entity.HasIndex(e => e.Status);
             entity.HasIndex(e => e.GeneratedAt);
 
@@ -414,7 +414,7 @@ public abstract partial class SemanticoContext : DbContext
         modelBuilder.Entity<DocumentationSection>(entity =>
         {
             entity.HasKey(e => e.Id);
-            entity.HasIndex(e => e.DocumentationId);
+            // Note: Don't add explicit HasIndex for DocumentationId - EF Core creates one automatically for the FK
             entity.HasIndex(e => e.TableName);
             entity.HasIndex(e => e.SectionType);
 
@@ -428,7 +428,7 @@ public abstract partial class SemanticoContext : DbContext
         modelBuilder.Entity<DocumentationVersion>(entity =>
         {
             entity.HasKey(e => e.Id);
-            entity.HasIndex(e => e.DocumentationId);
+            // Note: Don't add explicit HasIndex for DocumentationId - EF Core creates one automatically for the FK
             entity.HasIndex(e => e.CreatedTime);
 
             entity.HasOne(e => e.Documentation)
@@ -449,9 +449,8 @@ public abstract partial class SemanticoContext : DbContext
         modelBuilder.Entity<AiAlertConfiguration>(entity =>
         {
             entity.HasKey(e => e.Id);
-            entity.HasIndex(e => e.DataSourceId);
+            // Note: Don't add explicit HasIndex for DataSourceId/SubscriptionId - EF Core creates indexes automatically for FKs
             entity.HasIndex(e => e.Status);
-            entity.HasIndex(e => e.SubscriptionId);
 
             entity.HasOne(e => e.DataSource)
                 .WithMany()
@@ -468,7 +467,7 @@ public abstract partial class SemanticoContext : DbContext
         modelBuilder.Entity<AiConversationHistory>(entity =>
         {
             entity.HasKey(e => e.Id);
-            entity.HasIndex(e => e.AiAlertConfigurationId);
+            // Note: Don't add explicit HasIndex for AiAlertConfigurationId - EF Core creates one automatically for the FK
             entity.HasIndex(e => e.TurnNumber);
             entity.HasIndex(e => e.Timestamp);
 
@@ -487,8 +486,7 @@ public abstract partial class SemanticoContext : DbContext
             entity.Property(e => e.LastError).HasMaxLength(4000);
 
             // Indexes for querying
-            entity.HasIndex(e => e.DataSourceId);
-            entity.HasIndex(e => e.DocumentationId);
+            // Note: Don't add explicit HasIndex for DataSourceId/DocumentationId - EF Core creates indexes automatically for FKs
             entity.HasIndex(e => e.Status);
             entity.HasIndex(e => e.CurrentPhase);
             entity.HasIndex(e => e.StartedAt);
@@ -520,7 +518,7 @@ public abstract partial class SemanticoContext : DbContext
             entity.Property(e => e.LastError).HasMaxLength(4000);
 
             // Indexes
-            entity.HasIndex(e => e.DataSourceId);
+            // Note: Don't add explicit HasIndex for DataSourceId - EF Core creates one automatically for the FK
             entity.HasIndex(e => e.Status);
             entity.HasIndex(e => e.ArchivedTime);
             entity.HasIndex(e => new { e.DataSourceId, e.Status });
@@ -563,12 +561,11 @@ public abstract partial class SemanticoContext : DbContext
             entity.Property(e => e.ErrorMessage).HasMaxLength(4000);
 
             // Indexes
-            entity.HasIndex(e => e.AiActorId);
-            entity.HasIndex(e => e.TriggeringSubscriptionId);
+            // Note: Don't add explicit HasIndex for FK columns - EF Core creates indexes automatically for FKs
+            // AiActorId index is created by parent relationship (AiActor.Executions)
             entity.HasIndex(e => e.Phase);
             entity.HasIndex(e => e.StartedAt);
             entity.HasIndex(e => new { e.AiActorId, e.StartedAt });
-            entity.HasIndex(e => e.AiActorPlanId);
 
             // Relationships
             entity.HasOne(e => e.TriggeringSubscription)
@@ -591,8 +588,8 @@ public abstract partial class SemanticoContext : DbContext
             entity.Property(e => e.Model).HasMaxLength(100);
 
             // Indexes
-            entity.HasIndex(e => e.AiActorId);
-            entity.HasIndex(e => e.AiActorExecutionId);
+            // Note: Don't add explicit HasIndex for FK columns - EF Core creates indexes automatically for FKs
+            // AiActorId index is created by parent relationship (AiActor.Conversations)
             entity.HasIndex(e => e.TurnNumber);
             entity.HasIndex(e => e.Timestamp);
             entity.HasIndex(e => new { e.AiActorId, e.TurnNumber });
@@ -616,10 +613,9 @@ public abstract partial class SemanticoContext : DbContext
             entity.Property(e => e.ReviewerComment).HasMaxLength(4000);
 
             // Indexes
-            entity.HasIndex(e => e.AiActorId);
+            // Note: Don't add explicit HasIndex for FK columns - EF Core creates indexes automatically for FKs
             entity.HasIndex(e => e.Status);
             entity.HasIndex(e => e.ProposedAt);
-            entity.HasIndex(e => e.ParentPlanId);
             entity.HasIndex(e => new { e.AiActorId, e.Status });
             entity.HasIndex(e => new { e.AiActorId, e.ProposedAt });
 
@@ -651,10 +647,7 @@ public abstract partial class SemanticoContext : DbContext
             entity.Property(e => e.ChangeReason).HasMaxLength(2000);
 
             // Indexes
-            entity.HasIndex(e => e.QueryStepId);
-            entity.HasIndex(e => e.AiActorId);
-            entity.HasIndex(e => e.AiActorExecutionId);
-            entity.HasIndex(e => e.AiActorPlanId);
+            // Note: Don't add explicit HasIndex for FK columns - EF Core creates indexes automatically for FKs
             entity.HasIndex(e => e.ChangedAt);
             entity.HasIndex(e => e.ChangeSource);
             entity.HasIndex(e => new { e.QueryStepId, e.ChangedAt });
