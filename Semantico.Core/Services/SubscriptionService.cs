@@ -130,7 +130,7 @@ internal class SubscriptionService(
         return await context.Subscriptions
             .WhereIf(subscriptionId.HasValue, x => x.Id == subscriptionId)
             .WhereIf(queryId.HasValue, x => x.QueryId == queryId)
-            .WhereIf(!string.IsNullOrWhiteSpace(keyword), x => x.Recipients.Select(y => y.Name).Contains(keyword!))
+            .WhereIf(!string.IsNullOrWhiteSpace(keyword), x => x.Query.Name.Contains(keyword!))
             .Select(x =>
                 new SubscriptionData
                 {

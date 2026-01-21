@@ -163,6 +163,16 @@ public class GetQueriesRequest : SortedListRequest
     public int? DataSourceId { get; set; }
 
     public string? QueryName { get; set; }
+
+    /// <summary>
+    /// Filter by folder ID. Null means show all queries regardless of folder. Use -1 to show only root-level queries (no folder).
+    /// </summary>
+    public int? FolderId { get; set; }
+
+    /// <summary>
+    /// Search term to filter queries by name (case-insensitive partial match).
+    /// </summary>
+    public string? SearchTerm { get; set; }
 }
 
 internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, IEncryptionService encryptionService, ILogger<QueryService> logger, ILoggerFactory loggerFactory) : IQueryService
@@ -284,11 +294,14 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
     public async Task<PagedList<QueryData>> GetQueries(GetQueriesRequest request, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-        
+
         var results = await context.Queries
             .WhereIf(request.QueryId.HasValue, x => x.Id == request.QueryId)
             .WhereIf(request.QueryName != null, x => x.Name == request.QueryName)
             .WhereIf(request.DataSourceId.HasValue, x => x.Steps.Any(s => s.DataSourceId == request.DataSourceId))
+            .WhereIf(request.FolderId.HasValue && request.FolderId.Value == -1, x => x.FolderId == null)
+            .WhereIf(request.FolderId.HasValue && request.FolderId.Value != -1, x => x.FolderId == request.FolderId.Value)
+            .WhereIf(!string.IsNullOrWhiteSpace(request.SearchTerm), x => x.Name.ToLower().Contains(request.SearchTerm!.ToLower()))
             .Select(x =>
                 new QueryData
                 {
@@ -297,6 +310,8 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
                     CreatedTime = x.CreatedTime,
                     Name = x.Name,
                     Description = x.Description,
+                    FolderId = x.FolderId,
+                    FolderPath = x.Folder != null ? x.Folder.Path : null,
                     AiActorId = x.AiActorId,
                     AiActorName = x.AiActor != null ? x.AiActor.Name : null,
                     Steps = x.Steps.OrderBy(s => s.StepOrder).Select(s => new QueryStepData

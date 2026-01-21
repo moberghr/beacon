@@ -11,6 +11,11 @@ public class Query : ArchivableBaseEntity, IMultiStepWorkflow
     public string? Description { get; set; }
 
     /// <summary>
+    /// Folder ID for organization. Null means root level (no folder).
+    /// </summary>
+    public int? FolderId { get; set; }
+
+    /// <summary>
     /// Final query to execute against the in-memory SQLite database with all step results loaded
     /// Uses @result1, @result2, etc. to reference previous step results
     /// </summary>
@@ -42,7 +47,9 @@ public class Query : ArchivableBaseEntity, IMultiStepWorkflow
 
     public List<QueryStep> Steps { get; set; } = new();
 
-    // Navigation property for AI Actor
+    // Navigation properties
+    public QueryFolder? Folder { get; set; }
+
     public AiActor? AiActor { get; set; }
 
     /// <summary>

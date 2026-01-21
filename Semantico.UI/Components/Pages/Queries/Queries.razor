@@ -10,40 +10,93 @@
 <MudContainer MaxWidth="MaxWidth.ExtraExtraLarge" Class="my-4 px-4">
     <SemanticoPageHeader Icon="@Icons.Material.Filled.Search" Title="Queries" ButtonText="New Query" OnClick="@NewQuery"/>
     <SemanticoPageAlert Text="Manage your queries and subscriptions. Click on a row to view details and configure subscriptions."/>
-    <MudCard Elevation="2">
-        <MudDataGrid @ref="_dataGrid" ServerData="ServerReload" T="QueryData" RowClick="OnRowClick" Hover="true" Filterable="false" Bordered="false">
-        <Columns>
-            <PropertyColumn Property="x => x.QueryId" Title="Id"/>
-            <PropertyColumn InitialDirection="SortDirection.Ascending" Property="x => x.Name" Title="Name"/>
-            <PropertyColumn Property="x => x.Description" Title="Description"/>
-            <PropertyColumn Property="x => x.CreatedTime" Title="Created"/>
-            <PropertyColumn Property="x => x.DataSourceName"/>
-            <PropertyColumn Property="x => x.SubscriptionsCount" Title="Subscriptions Count"/>
-            <TemplateColumn Title="Source" Sortable="false">
-                <CellTemplate>
-                    @if (context.Item.AiActorId.HasValue)
-                    {
-                        <MudTooltip Text="@($"AI Managed by {context.Item.AiActorName}")">
-                            <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Filled">
-                                <MudIcon Icon="@Icons.Material.Filled.SmartToy" Size="Size.Small" Class="mr-1"/>AI
-                            </MudChip>
-                        </MudTooltip>
-                    }
-                    else
-                    {
-                        <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Filled">
-                            <MudIcon Icon="@Icons.Material.Filled.Person" Size="Size.Small" Class="mr-1"/>User
-                        </MudChip>
-                    }
-                </CellTemplate>
-            </TemplateColumn>
-            <PropertyColumn Property="x => x.Parameters.ToJson()" Title="Parameters"/>
-        </Columns>
-            <PagerContent>
-                <MudDataGridPager T="QueryData"/>
-            </PagerContent>
-        </MudDataGrid>
-    </MudCard>
+
+    <MudGrid>
+        @if (!_foldersCollapsed)
+        {
+            <MudItem xs="12" md="3">
+                <QueryFolderTreeView OnFolderSelected="@OnFolderSelected" />
+            </MudItem>
+        }
+        <MudItem xs="12" md="@(_foldersCollapsed ? 12 : 9)">
+            <MudCard Elevation="2">
+                <MudCardHeader>
+                    <CardHeaderContent>
+                        <div class="d-flex align-center gap-2">
+                            <MudIconButton Icon="@(_foldersCollapsed ? Icons.Material.Filled.ChevronRight : Icons.Material.Filled.ChevronLeft)"
+                                           Size="Size.Small"
+                                           OnClick="@(() => _foldersCollapsed = !_foldersCollapsed)"
+                                           Title="@(_foldersCollapsed ? "Show Folders" : "Hide Folders")" />
+                            <MudTextField @bind-Value="_searchString"
+                                          Placeholder="Search queries..."
+                                          Adornment="Adornment.Start"
+                                          AdornmentIcon="@Icons.Material.Filled.Search"
+                                          IconSize="Size.Medium"
+                                          Class="mt-0 flex-grow-1"
+                                          Immediate="true"
+                                          DebounceInterval="300"
+                                          OnDebounceIntervalElapsed="@(() => _dataGrid?.ReloadServerData())" />
+                        </div>
+                    </CardHeaderContent>
+                </MudCardHeader>
+                <MudDataGrid @ref="_dataGrid" ServerData="ServerReload" T="QueryData" RowClick="OnRowClick" Hover="true" Filterable="false" Bordered="false">
+                    <Columns>
+                        <PropertyColumn Property="x => x.QueryId" Title="Id"/>
+                        <PropertyColumn InitialDirection="SortDirection.Ascending" Property="x => x.Name" Title="Name"/>
+                        <TemplateColumn Title="Folder" Sortable="false">
+                            <CellTemplate>
+                                @if (!string.IsNullOrEmpty(context.Item.FolderPath))
+                                {
+                                    <MudChip T="string" Size="Size.Small" Icon="@Icons.Material.Filled.Folder" Variant="Variant.Text">
+                                        @context.Item.FolderPath
+                                    </MudChip>
+                                }
+                                else
+                                {
+                                    <MudChip T="string" Size="Size.Small" Icon="@Icons.Material.Filled.FolderOff" Variant="Variant.Text" Color="Color.Default">
+                                        Root
+                                    </MudChip>
+                                }
+                            </CellTemplate>
+                        </TemplateColumn>
+                        <PropertyColumn Property="x => x.Description" Title="Description"/>
+                        <PropertyColumn Property="x => x.CreatedTime" Title="Created"/>
+                        <PropertyColumn Property="x => x.DataSourceName"/>
+                        <PropertyColumn Property="x => x.SubscriptionsCount" Title="Subscriptions Count"/>
+                        <TemplateColumn Title="Source" Sortable="false">
+                            <CellTemplate>
+                                @if (context.Item.AiActorId.HasValue)
+                                {
+                                    <MudTooltip Text="@($"AI Managed by {context.Item.AiActorName}")">
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Filled">
+                                            <MudIcon Icon="@Icons.Material.Filled.SmartToy" Size="Size.Small" Class="mr-1"/>AI
+                                        </MudChip>
+                                    </MudTooltip>
+                                }
+                                else
+                                {
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Filled">
+                                        <MudIcon Icon="@Icons.Material.Filled.Person" Size="Size.Small" Class="mr-1"/>User
+                                    </MudChip>
+                                }
+                            </CellTemplate>
+                        </TemplateColumn>
+                        <TemplateColumn Title="Actions" Sortable="false">
+                            <CellTemplate>
+                                <MudIconButton Icon="@Icons.Material.Filled.DriveFileMove"
+                                               Size="Size.Small"
+                                               OnClick="@(() => MoveQueryToFolder(context.Item))"
+                                               Title="Move to Folder" />
+                            </CellTemplate>
+                        </TemplateColumn>
+                    </Columns>
+                    <PagerContent>
+                        <MudDataGridPager T="QueryData"/>
+                    </PagerContent>
+                </MudDataGrid>
+            </MudCard>
+        </MudItem>
+    </MudGrid>
 </MudContainer>
 
 
@@ -54,11 +107,23 @@
     private PagedList<QueryData> QueriesList { get; set; }
     MudDataGrid<QueryData>? _dataGrid;
     private bool _loading;
-    private string _searchString;
+    private string _searchString = "";
+    private int? _selectedFolderId;
+    private bool _foldersCollapsed;
 
     private async Task<GridData<QueryData>> ServerReload(GridState<QueryData> state)
     {
         var request = DataGridHelper.BuildSortedRequest<GetQueriesRequest, QueryData>(state);
+
+        // Apply folder filter
+        request.FolderId = _selectedFolderId;
+
+        // Apply search filter
+        if (!string.IsNullOrWhiteSpace(_searchString))
+        {
+            request.SearchTerm = _searchString;
+        }
+
         QueriesList = await service.GetQueries(request, CancellationToken.None);
 
         return new GridData<QueryData>
@@ -68,10 +133,10 @@
         };
     }
 
-    private void OnSearch(string text)
+    private async Task OnFolderSelected(int? folderId)
     {
-        _searchString = text;
-        _dataGrid?.ReloadServerData();
+        _selectedFolderId = folderId;
+        await _dataGrid!.ReloadServerData();
     }
 
     private async Task OnRowClick(DataGridRowClickEventArgs<QueryData> args)
@@ -82,5 +147,23 @@
     private void NewQuery()
     {
         NavManager.NavigateTo("queries/add");
+    }
+
+    private async Task MoveQueryToFolder(QueryData query)
+    {
+        var parameters = new DialogParameters<MoveQueryToFolderDialog>
+        {
+            { x => x.QueryId, query.QueryId!.Value },
+            { x => x.QueryName, query.Name },
+            { x => x.CurrentFolderId, query.FolderId }
+        };
+
+        var dialog = await DialogService.ShowAsync<MoveQueryToFolderDialog>("Move Query to Folder", parameters);
+        var result = await dialog.Result;
+
+        if (!result.Canceled)
+        {
+            await _dataGrid!.ReloadServerData();
+        }
     }
 }
