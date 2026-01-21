@@ -96,6 +96,9 @@ public static class ServiceConfiguration
 
         if (llmConfig == null)
         {
+            // Register null/no-op implementations when AI is not configured
+            // This allows services like JobService to have their dependencies satisfied
+            services.TryAddScoped<Services.Ai.AiActor.IAiActorService, Services.Ai.AiActor.NullAiActorService>();
             return;
         }
 

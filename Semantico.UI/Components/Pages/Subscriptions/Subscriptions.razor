@@ -10,8 +10,9 @@
     <SemanticoPageAlert Text="List of defined subscriptions. Click on subscription to view more."/>
     <MudDataGrid @ref="_dataGrid" ServerData="ServerReload" T="SubscriptionData" RowClick="OnRowClick" Hover="true" Filterable="false">
         <ToolBarContent>
-            <MudTextField T="string" ValueChanged="@(s => OnSearch(s))" Placeholder="Search" Adornment="Adornment.Start"
+            <MudTextField T="string" ValueChanged="@(s => OnSearch(s))" Placeholder="Search by query name..." Adornment="Adornment.Start"
                           Immediate="true"
+                          DebounceInterval="300"
                           AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium" Class="mt-0">
             </MudTextField>
 

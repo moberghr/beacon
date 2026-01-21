@@ -9,9 +9,19 @@ public class QueryData
     public string Name { get; set; } = null!;
 
     public string? Description { get; set; }
-    
+
+    /// <summary>
+    /// Folder ID for organization. Null means root level (no folder).
+    /// </summary>
+    public int? FolderId { get; set; }
+
+    /// <summary>
+    /// Full folder path (e.g., "topfolder/something"). Null if query is at root level.
+    /// </summary>
+    public string? FolderPath { get; set; }
+
     public DateTime CreatedTime { get; set; }
-        
+
     public int SubscriptionsCount { get; set; }
 
     public List<QueryStepData> Steps { get; set; } = new();

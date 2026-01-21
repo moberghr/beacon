@@ -1,0 +1,107 @@
+@using Semantico.Core.Handlers.QueryFolders
+@using MediatR
+
+<MudDialog>
+    <DialogContent>
+        <MudTextField @bind-Value="_folderName"
+                      Label="Folder Name"
+                      Required="true"
+                      Immediate="true"
+                      HelperText="Enter a unique name for the folder" />
+
+        <MudTextField @bind-Value="_description"
+                      Label="Description"
+                      Lines="3"
+                      Class="mt-3"
+                      HelperText="Optional description" />
+
+        <MudAlert Severity="Severity.Info" Class="mt-3">
+            Path: @Folder.Path
+        </MudAlert>
+
+        @if (Folder.ChildFolderCount > 0)
+        {
+            <MudAlert Severity="Severity.Warning" Class="mt-2">
+                This folder contains @Folder.ChildFolderCount subfolder(s). Renaming will update paths for all descendants.
+            </MudAlert>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary"
+                   Variant="Variant.Filled"
+                   OnClick="Submit"
+                   Disabled="@(string.IsNullOrWhiteSpace(_folderName) || _saving)">
+            @if (_saving)
+            {
+                <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+            }
+            else
+            {
+                <text>Update</text>
+            }
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@inject IMediator Mediator
+@inject ISnackbar Snackbar
+
+@code {
+    [CascadingParameter]
+    IMudDialogInstance MudDialog { get; set; } = null!;
+
+    [Parameter]
+    public QueryFolderData Folder { get; set; } = null!;
+
+    private string _folderName = "";
+    private string? _description;
+    private bool _saving;
+
+    protected override void OnInitialized()
+    {
+        _folderName = Folder.Name;
+        _description = Folder.Description;
+    }
+
+    private void Cancel()
+    {
+        MudDialog.Cancel();
+    }
+
+    private async Task Submit()
+    {
+        if (string.IsNullOrWhiteSpace(_folderName))
+        {
+            Snackbar.Add("Folder name is required", Severity.Error);
+            return;
+        }
+
+        _saving = true;
+        try
+        {
+            var command = new UpdateQueryFolderCommand(
+                FolderId: Folder.Id,
+                Name: _folderName.Trim(),
+                Description: string.IsNullOrWhiteSpace(_description) ? null : _description.Trim()
+            );
+
+            await Mediator.Send(command);
+
+            Snackbar.Add($"Folder '{_folderName}' updated successfully", Severity.Success);
+            MudDialog.Close(DialogResult.Ok(true));
+        }
+        catch (InvalidOperationException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error updating folder: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+}
