@@ -73,21 +73,27 @@
                 @if (_configuration?.UseAI == true && AiDocumentationService != null)
                 {
                     <MudDivider Class="my-4" />
-                    <div class="d-flex justify-center gap-4">
-                        <MudButton Variant="Variant.Filled"
-                                  Color="Color.Primary"
-                                  StartIcon="@Icons.Material.Filled.AutoAwesome"
-                                  OnClick="GenerateDocumentation"
-                                  Size="Size.Large">
-                            Generate AI Documentation (Legacy)
-                        </MudButton>
-                        <MudButton Variant="Variant.Filled"
-                                  Color="Color.Secondary"
-                                  StartIcon="@Icons.Material.Filled.SmartToy"
-                                  OnClick="StartDocumentationAgent"
-                                  Size="Size.Large">
-                            Start Documentation Agent (New)
-                        </MudButton>
+                    <div class="d-flex flex-column align-center gap-2">
+                        <MudText Typo="Typo.subtitle2" Color="Color.Secondary">Generate Documentation</MudText>
+                        <div class="d-flex justify-center gap-4">
+                            <MudButton Variant="Variant.Filled"
+                                      Color="Color.Primary"
+                                      StartIcon="@Icons.Material.Filled.Hub"
+                                      OnClick="GenerateDocumentation"
+                                      Size="Size.Large">
+                                Multi-Agent Workflow
+                            </MudButton>
+                            <MudButton Variant="Variant.Outlined"
+                                      Color="Color.Default"
+                                      StartIcon="@Icons.Material.Filled.SmartToy"
+                                      OnClick="StartDocumentationAgent"
+                                      Size="Size.Large">
+                                Background Agent
+                            </MudButton>
+                        </div>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-1">
+                            Multi-Agent: Orchestrator identifies domains → Parallel agents document each → Aggregator synthesizes
+                        </MudText>
                     </div>
                 }
             </MudCardContent>

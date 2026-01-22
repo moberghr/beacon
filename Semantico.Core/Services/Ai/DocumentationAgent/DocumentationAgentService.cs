@@ -489,7 +489,7 @@ public class DocumentationAgentService : IDocumentationAgentService
         SampleDataResult? sampleData = null;
         if (state.Options.IncludeSampleData)
         {
-            sampleData = await _tools.QuerySampleData(state.DataSourceId, tableName, state.Options.MaxSampleRows, cancellationToken: cancellationToken);
+            sampleData = await _tools.QuerySampleData(state.DataSourceId, tableName, state.Options.MaxSampleRows, metadata.SchemaName, cancellationToken);
         }
 
         // Generate documentation using LLM
