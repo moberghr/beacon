@@ -131,6 +131,9 @@ public static class ServiceConfiguration
         services.TryAddScoped<Services.Ai.IAiDocumentationService, Services.Ai.AiDocumentationService>();
         services.TryAddScoped<Services.Ai.IAiAlertGenerationService, Services.Ai.AiAlertGenerationService>();
 
+        // Multi-agent documentation service
+        services.TryAddScoped<Services.Ai.MultiAgent.IMultiAgentDocumentationService, Services.Ai.MultiAgent.MultiAgentDocumentationService>();
+
         // Documentation Agent services (new agent-based approach)
         services.TryAddTransient<Services.Ai.DocumentationAgent.DocumentationAgentTools>();
         services.TryAddTransient<Services.Ai.DocumentationAgent.IDocumentationAgentService, Services.Ai.DocumentationAgent.DocumentationAgentService>();

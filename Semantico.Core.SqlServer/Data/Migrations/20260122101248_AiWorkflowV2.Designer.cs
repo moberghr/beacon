@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Semantico.Core.SqlServer.Data;
 
@@ -11,9 +12,11 @@ using Semantico.Core.SqlServer.Data;
 namespace Semantico.Core.SqlServer.Data.Migrations
 {
     [DbContext(typeof(SqlServerSemanticoContext))]
-    partial class SqlServerSemanticoContextModelSnapshot : ModelSnapshot
+    [Migration("20260122101248_AiWorkflowV2")]
+    partial class AiWorkflowV2
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
