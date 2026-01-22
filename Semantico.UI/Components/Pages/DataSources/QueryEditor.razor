@@ -2,7 +2,6 @@
 @inherits BasePageComponent
 @using Semantico.Core
 @using Semantico.Core.Services
-@using Semantico.Core.Services.Ai
 @using Semantico.Core.Data.Entities
 @using Semantico.Core.Data.Enums
 @using Semantico.Core.Models.Metadata
@@ -70,7 +69,7 @@
                     </MudItem>
                 </MudGrid>
 
-                @if (_configuration?.UseAI == true && AiDocumentationService != null)
+                @if (_configuration?.UseAI == true)
                 {
                     <MudDivider Class="my-4" />
                     <div class="d-flex flex-column align-center gap-2">
@@ -123,7 +122,7 @@
         }
 
         <!-- AI Documentation History -->
-        @if (_configuration?.UseAI == true && AiDocumentationService != null && _documentations?.Count > 0)
+        @if (_configuration?.UseAI == true && _documentations?.Count > 0)
         {
             <MudCard Elevation="2" Class="mb-4">
                 <MudCardHeader>
@@ -304,9 +303,6 @@
     [Parameter]
     public int DataSourceId { get; set; }
 
-    [Inject]
-    private IAiDocumentationService? AiDocumentationService { get; set; }
-
     private StandaloneCodeEditor? _editor;
     private DatabaseMetadataSnapshot? _metadata;
     private DataSourceListData? _dataSourceInfo;
@@ -349,9 +345,9 @@
             _metadata = await MetadataService.GetMetadataAsync(DataSourceId);
 
             // Load AI documentation history if AI is enabled
-            if (_configuration?.UseAI == true && AiDocumentationService != null)
+            if (_configuration?.UseAI == true)
             {
-                _documentations = await AiDocumentationService.GetDocumentationsAsync(DataSourceId);
+                _documentations = await Mediator.Send(new GetDocumentationsCommand { DataSourceId = DataSourceId });
             }
 
             // Load active agent runs
@@ -650,11 +646,6 @@
 
     private async Task GenerateDocumentation()
     {
-        if (AiDocumentationService == null)
-        {
-            Snackbar.Add("AI service not available. Please configure LLM settings.", Severity.Error);
-            return;
-        }
 
         var options = new DialogOptions
         {
@@ -674,9 +665,9 @@
         if (!result!.Canceled)
         {
             // Reload documentations
-            if (_configuration?.UseAI == true && AiDocumentationService != null)
+            if (_configuration?.UseAI == true)
             {
-                _documentations = await AiDocumentationService.GetDocumentationsAsync(DataSourceId);
+                _documentations = await Mediator.Send(new GetDocumentationsCommand { DataSourceId = DataSourceId });
             }
             Snackbar.Add("Documentation generated successfully!", Severity.Success);
         }
@@ -694,15 +685,10 @@
 
     private async Task ExportMarkdown(int documentationId)
     {
-        if (AiDocumentationService == null)
-        {
-            Snackbar.Add("AI service not available", Severity.Error);
-            return;
-        }
 
         try
         {
-            var markdown = await AiDocumentationService.ExportToMarkdownAsync(documentationId);
+            var markdown = await Mediator.Send(new ExportDocumentationToMarkdownCommand { DocumentationId = documentationId });
             await DownloadFile($"documentation-{documentationId}.md", markdown, "text/markdown");
             Snackbar.Add("Markdown exported successfully", Severity.Success);
         }
@@ -714,15 +700,10 @@
 
     private async Task ExportHtml(int documentationId)
     {
-        if (AiDocumentationService == null)
-        {
-            Snackbar.Add("AI service not available", Severity.Error);
-            return;
-        }
 
         try
         {
-            var html = await AiDocumentationService.ExportToHtmlAsync(documentationId);
+            var html = await Mediator.Send(new ExportDocumentationToHtmlCommand { DocumentationId = documentationId });
             await DownloadFile($"documentation-{documentationId}.html", html, "text/html");
             Snackbar.Add("HTML exported successfully", Severity.Success);
         }
@@ -734,15 +715,10 @@
 
     private async Task ExportPdf(int documentationId)
     {
-        if (AiDocumentationService == null)
-        {
-            Snackbar.Add("AI service not available", Severity.Error);
-            return;
-        }
 
         try
         {
-            var pdf = await AiDocumentationService.ExportToPdfAsync(documentationId);
+            var pdf = await Mediator.Send(new ExportDocumentationToPdfCommand { DocumentationId = documentationId });
             await DownloadFile($"documentation-{documentationId}.pdf", pdf, "application/pdf");
             Snackbar.Add("PDF exported successfully", Severity.Success);
         }
@@ -766,11 +742,6 @@
 
     private async Task StartDocumentationAgent()
     {
-        if (AiDocumentationService == null)
-        {
-            Snackbar.Add("AI service not available. Please configure LLM settings.", Severity.Error);
-            return;
-        }
 
         var options = new DialogOptions
         {
@@ -816,9 +787,9 @@
     private async Task OnAgentCompleted()
     {
         // Reload documentation history
-        if (_configuration?.UseAI == true && AiDocumentationService != null)
+        if (_configuration?.UseAI == true)
         {
-            _documentations = await AiDocumentationService.GetDocumentationsAsync(DataSourceId);
+            _documentations = await Mediator.Send(new GetDocumentationsCommand { DataSourceId = DataSourceId });
         }
 
         // Reload active runs

@@ -1,57 +1,11 @@
 using MediatR;
-using Microsoft.Extensions.Logging;
 using Semantico.Core.Data.Enums;
-using Semantico.Core.Services.Ai.AiActor;
+using Semantico.Core.Models.Ai;
+using Semantico.Core.Data.Entities;
+
+
 
 namespace Semantico.Core.Handlers.Ai.AiActor;
-
-internal sealed class GetAiActorExecutionHistoryHandler : IRequestHandler<GetAiActorExecutionHistoryQuery, GetAiActorExecutionHistoryResult>
-{
-    private readonly IAiActorService _aiActorService;
-    private readonly ILogger<GetAiActorExecutionHistoryHandler> _logger;
-
-    public GetAiActorExecutionHistoryHandler(
-        IAiActorService aiActorService,
-        ILogger<GetAiActorExecutionHistoryHandler> logger)
-    {
-        _aiActorService = aiActorService;
-        _logger = logger;
-    }
-
-    public async Task<GetAiActorExecutionHistoryResult> Handle(
-        GetAiActorExecutionHistoryQuery request,
-        CancellationToken cancellationToken)
-    {
-        var executions = await _aiActorService.GetExecutionHistoryAsync(
-            request.ActorId,
-            request.Limit,
-            cancellationToken);
-
-        return new GetAiActorExecutionHistoryResult
-        {
-            ActorId = request.ActorId,
-            Executions = executions.Select(e => new ExecutionHistoryItem
-            {
-                ExecutionId = e.Id,
-                TriggeringSubscriptionId = e.TriggeringSubscriptionId,
-                Phase = e.Phase,
-                StartedAt = e.StartedAt,
-                CompletedAt = e.CompletedAt,
-                QueriesAnalyzed = e.QueriesAnalyzed,
-                QueriesCreated = e.QueriesCreated,
-                QueriesRefined = e.QueriesRefined,
-                SubscriptionsCreated = e.SubscriptionsCreated,
-                NotificationsTriggered = e.NotificationsTriggered,
-                TokensUsed = e.TokensUsed,
-                EstimatedCost = e.EstimatedCost,
-                Model = e.Model,
-                DecisionSummary = e.DecisionSummary,
-                ErrorMessage = e.ErrorMessage,
-                ActionsJson = e.ActionsJson
-            }).ToList()
-        };
-    }
-}
 
 public record GetAiActorExecutionHistoryQuery : IRequest<GetAiActorExecutionHistoryResult>
 {

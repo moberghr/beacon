@@ -1,13 +1,11 @@
 @page "/data-sources/{DataSourceId:int}/documentation/{DocumentationId:int}"
 @inherits BasePageComponent
-@using Semantico.Core.Services.Ai
 @using Semantico.Core.Services
 @using Semantico.Core.Data.Entities
 @using Semantico.Core.Data.Enums
 @using Semantico.Core.Data
 @using Semantico.Core.Models.Metadata
 @using Microsoft.EntityFrameworkCore
-@using Markdig
 @using Semantico.UI.Components.Shared
 @using MediatR
 @using Semantico.Core.Handlers.Ai.ArchiveDocumentation
@@ -510,7 +508,6 @@
     }
 </MudContainer>
 
-@inject IAiDocumentationService AiDocumentationService
 @inject IDatabaseMetadataService MetadataService
 @inject NavigationManager Navigation
 @inject ISnackbar Snackbar
@@ -586,18 +583,8 @@
             return "<p><em>No content available</em></p>";
         }
 
-        try
-        {
-            var pipeline = new MarkdownPipelineBuilder()
-                .UseAdvancedExtensions()
-                .Build();
-
-            return Markdig.Markdown.ToHtml(markdown, pipeline);
-        }
-        catch
-        {
-            return $"<pre>{System.Net.WebUtility.HtmlEncode(markdown)}</pre>";
-        }
+        // Simple markdown display - for full rendering, add Markdig package to UI project
+        return $"<pre class=\"markdown-content\">{System.Net.WebUtility.HtmlEncode(markdown)}</pre>";
     }
 
     private Color GetStatusColor(DocumentationStatus status)
@@ -641,7 +628,7 @@
     {
         try
         {
-            var markdown = await AiDocumentationService.ExportToMarkdownAsync(DocumentationId);
+            var markdown = await Mediator.Send(new ExportDocumentationToMarkdownCommand { DocumentationId = DocumentationId });
             await DownloadFile($"documentation-{DocumentationId}.md", markdown, "text/markdown");
             Snackbar.Add("Markdown exported successfully", Severity.Success);
         }
@@ -655,7 +642,7 @@
     {
         try
         {
-            var html = await AiDocumentationService.ExportToHtmlAsync(DocumentationId);
+            var html = await Mediator.Send(new ExportDocumentationToHtmlCommand { DocumentationId = DocumentationId });
             await DownloadFile($"documentation-{DocumentationId}.html", html, "text/html");
             Snackbar.Add("HTML exported successfully", Severity.Success);
         }
@@ -669,7 +656,7 @@
     {
         try
         {
-            var pdf = await AiDocumentationService.ExportToPdfAsync(DocumentationId);
+            var pdf = await Mediator.Send(new ExportDocumentationToPdfCommand { DocumentationId = DocumentationId });
             await DownloadFile($"documentation-{DocumentationId}.pdf", pdf, "application/pdf");
             Snackbar.Add("PDF exported successfully", Severity.Success);
         }

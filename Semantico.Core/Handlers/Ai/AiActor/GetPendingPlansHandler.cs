@@ -1,24 +1,11 @@
 using MediatR;
-using Semantico.Core.Services.Ai.AiActor;
-using Semantico.Core.Services.Ai.AiActor.Models;
+using Semantico.Core.Data.Enums;
+using Semantico.Core.Models.Ai;
+using Semantico.Core.Data.Entities;
+
+
 
 namespace Semantico.Core.Handlers.Ai.AiActor;
-
-internal sealed class GetPendingPlansHandler(IAiActorService aiActorService)
-    : IRequestHandler<GetPendingPlansQuery, GetPendingPlansResult>
-{
-    public async Task<GetPendingPlansResult> Handle(
-        GetPendingPlansQuery request,
-        CancellationToken cancellationToken)
-    {
-        var plans = await aiActorService.GetPendingPlansAsync(request.ActorId, cancellationToken);
-
-        return new GetPendingPlansResult
-        {
-            Plans = plans
-        };
-    }
-}
 
 public record GetPendingPlansQuery : IRequest<GetPendingPlansResult>
 {

@@ -1,5 +1,6 @@
 using Hangfire;
 using Hangfire.PostgreSql;
+using Semantico.AI;
 using Semantico.Core.PostgreSql;
 using Semantico.Core.SqlServer;
 using Semantico.SampleProject.Services;
@@ -34,24 +35,41 @@ builder.Services.AddHttpClient().ConfigureHttpClientDefaults(http =>
     });
 });
 
-builder.Services.AddHangfire((provider, hangfireConfiguration) => hangfireConfiguration
-    .SetDataCompatibilityLevel(CompatibilityLevel.Version_170)
-    .UseSimpleAssemblyNameTypeSerializer()
-    .UseRecommendedSerializerSettings()
-    .UseFilter(
-        new AutomaticRetryAttribute
-        {
-            Attempts = 0
-        })
-    .UsePostgreSqlStorage(
-        builder.Configuration.GetConnectionString("SemanticoContext"),
-        new PostgreSqlStorageOptions
-        {
-            PrepareSchemaIfNecessary = true,
-            QueuePollInterval = TimeSpan.FromSeconds(1),
-        }));
+ builder.Services.AddHangfire((provider, hangfireConfiguration) => hangfireConfiguration
+     .SetDataCompatibilityLevel(CompatibilityLevel.Version_170)
+     .UseSimpleAssemblyNameTypeSerializer()
+     .UseRecommendedSerializerSettings()
+     .UseFilter(
+         new AutomaticRetryAttribute
+         {
+             Attempts = 0// builder.Services.AddHangfire((provider, hangfireConfiguration) => hangfireConfiguration
+                           //     .SetDataCompatibilityLevel(CompatibilityLevel.Version_170)
+                           //     .UseSimpleAssemblyNameTypeSerializer()
+                           //     .UseRecommendedSerializerSettings()
+                           //     .UseFilter(
+                           //         new AutomaticRetryAttribute
+                           //         {
+                           //             Attempts = 0
+                           //         })
+                           //     .UsePostgreSqlStorage(
+                           //         builder.Configuration.GetConnectionString("SemanticoContext"),
+                           //         new PostgreSqlStorageOptions
+                           //         {
+                           //             PrepareSchemaIfNecessary = true,
+                           //             QueuePollInterval = TimeSpan.FromSeconds(1),
+                           //         }));
+                           //
+                           // builder.Services.AddHangfireServer();
+         })
+     .UsePostgreSqlStorage(
+         builder.Configuration.GetConnectionString("SemanticoContext"),
+         new PostgreSqlStorageOptions
+         {
+             PrepareSchemaIfNecessary = true,
+             QueuePollInterval = TimeSpan.FromSeconds(1),
+         }));
 
-builder.Services.AddHangfireServer();
+ builder.Services.AddHangfireServer();
 
 //SEMANTICO setup
 builder.Services.AddSemantico(builder.Configuration, options =>
@@ -69,6 +87,9 @@ builder.Services.AddSemantico(builder.Configuration, options =>
     options.BaseUrl = "https://localhost:7187/semantico"; // Update with your actual URL
     options.UseAI = true;
 });
+
+// Add Semantico AI services (optional)
+builder.Services.AddSemanticoAI(builder.Configuration);
 
 var app = builder.Build();
 

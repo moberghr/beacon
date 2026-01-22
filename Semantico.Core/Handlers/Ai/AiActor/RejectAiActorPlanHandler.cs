@@ -1,38 +1,11 @@
 using MediatR;
-using Microsoft.Extensions.Logging;
-using Semantico.Core.Services.Ai.AiActor;
-using Semantico.Core.Services.Ai.AiActor.Models;
+using Semantico.Core.Data.Enums;
+using Semantico.Core.Models.Ai;
+using Semantico.Core.Data.Entities;
+
+
 
 namespace Semantico.Core.Handlers.Ai.AiActor;
-
-internal sealed class RejectAiActorPlanHandler(
-    IAiActorService aiActorService,
-    ILogger<RejectAiActorPlanHandler> logger)
-    : IRequestHandler<RejectAiActorPlanCommand, RejectAiActorPlanResult>
-{
-    public async Task<RejectAiActorPlanResult> Handle(
-        RejectAiActorPlanCommand request,
-        CancellationToken cancellationToken)
-    {
-        logger.LogInformation("Rejecting plan {PlanId} by user {UserId}: {Reason}",
-            request.PlanId, request.UserId, request.Reason);
-
-        var options = new RejectPlanOptions
-        {
-            PlanId = request.PlanId,
-            UserId = request.UserId,
-            Reason = request.Reason
-        };
-
-        await aiActorService.RejectPlanAsync(options, cancellationToken);
-
-        return new RejectAiActorPlanResult
-        {
-            Success = true,
-            PlanId = request.PlanId
-        };
-    }
-}
 
 public record RejectAiActorPlanCommand : IRequest<RejectAiActorPlanResult>
 {

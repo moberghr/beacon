@@ -1,0 +1,81 @@
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Semantico.AI.Models.Configuration;
+using Semantico.AI.Services.Ai;
+using Semantico.AI.Services.Ai.AiActor;
+using Semantico.AI.Services.Ai.DocumentationAgent;
+using Semantico.AI.Services.Ai.MultiAgent;
+using Semantico.AI.Services.LlmProviders;
+
+namespace Semantico.AI;
+
+public static class ServiceConfiguration
+{
+    /// <summary>
+    /// Adds AI services to the service collection. Requires LLM configuration in appsettings.json.
+    /// </summary>
+    /// <param name="services">The service collection to add services to.</param>
+    /// <param name="configuration">The application configuration containing LLM settings.</param>
+    /// <returns>The service collection for chaining.</returns>
+    public static IServiceCollection AddSemanticoAI(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        // Load LLM configuration from appsettings
+        var llmConfig = configuration.GetSection("Semantico:LLM").Get<LlmConfiguration>();
+
+        if (llmConfig == null)
+        {
+            throw new InvalidOperationException(
+                "Semantico:LLM configuration is required when using Semantico.AI. " +
+                "Add LLM configuration to appsettings.json: " +
+                "{ \"Semantico\": { \"LLM\": { \"Provider\": \"OpenAI\", \"ApiKey\": \"...\", \"Model\": \"gpt-4o\" } } }");
+        }
+
+        services.AddSingleton(llmConfig);
+
+        // MediatR for AI handlers
+        services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(typeof(ServiceConfiguration).Assembly));
+
+        // LLM Provider Factory
+        services.AddSingleton<LlmProviderFactory>();
+
+        // LLM Provider (singleton for the application)
+        services.AddSingleton<ILlmProvider>(sp =>
+        {
+            var factory = sp.GetRequiredService<LlmProviderFactory>();
+            var provider = factory.CreateProvider();
+            return provider;
+        });
+
+        // Request queue for rate limiting
+        services.AddSingleton(sp =>
+        {
+            var config = sp.GetRequiredService<LlmConfiguration>();
+            return new LlmRequestQueue(
+                config.Limits.MaxConcurrentRequests);
+        });
+
+        // AI services
+        services.TryAddScoped<IAiDocumentationService, AiDocumentationService>();
+        services.TryAddScoped<IAiAlertGenerationService, AiAlertGenerationService>();
+
+        // Multi-agent documentation service
+        services.TryAddScoped<IMultiAgentDocumentationService, MultiAgentDocumentationService>();
+
+        // Documentation Agent services (new agent-based approach)
+        services.TryAddTransient<DocumentationAgentTools>();
+        services.TryAddTransient<IDocumentationAgentService, DocumentationAgentService>();
+
+        // AI Actor services (autonomous monitoring)
+        // Register the concrete implementation
+        services.TryAddScoped<AiActorService>();
+
+        // Register both interfaces to the same implementation instance
+        services.TryAddScoped<IAiActorServiceExtended>(sp => sp.GetRequiredService<AiActorService>());
+        services.TryAddScoped<Core.Services.IAiActorService>(sp => sp.GetRequiredService<AiActorService>());
+
+        return services;
+    }
+}

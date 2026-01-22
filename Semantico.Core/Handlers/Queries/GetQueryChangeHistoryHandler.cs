@@ -2,6 +2,10 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Semantico.Core.Data;
 using Semantico.Core.Data.Enums;
+using Semantico.Core.Models.Ai;
+using Semantico.Core.Data.Entities;
+
+
 
 namespace Semantico.Core.Handlers.Queries;
 
