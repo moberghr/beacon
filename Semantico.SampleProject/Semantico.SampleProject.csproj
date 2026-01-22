@@ -24,6 +24,7 @@
       <ProjectReference Include="..\Semantico.Core\Semantico.Core.csproj" />
       <ProjectReference Include="..\Semantico.UI\Semantico.UI.csproj" />
       <ProjectReference Include="..\Semantico.Core.PostgreSql\Semantico.Core.PostgreSql.csproj" />
+      <ProjectReference Include="..\Semantico.AI\Semantico.AI.csproj" />
     </ItemGroup>
 
 </Project>

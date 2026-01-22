@@ -81,65 +81,9 @@ public static class ServiceConfiguration
         services.TryAddTransient<IDatabaseMetadataService, DatabaseMetadataService>();
         services.TryAddTransient<IAnomalyDetectionService, AnomalyDetectionService>();
 
-        // AI/LLM services
-        RegisterAiServices(services, configuration);
-
         services.TryAddTransient(typeof(ISemanticoScheduler), configurationOptions.SemanticoScheduler!);
 
         return services;
-    }
-
-    private static void RegisterAiServices(IServiceCollection services, IConfiguration configuration)
-    {
-        // Load LLM configuration from appsettings
-        var llmConfig = configuration.GetSection("Semantico:LLM").Get<Models.Configuration.LlmConfiguration>();
-
-        if (llmConfig == null)
-        {
-            // Register null/no-op implementations when AI is not configured
-            // This allows handlers and services to have their dependencies satisfied
-            // without requiring LLM configuration
-            services.TryAddScoped<Services.Ai.AiActor.IAiActorService, Services.Ai.AiActor.NullAiActorService>();
-            services.TryAddScoped<Services.Ai.IAiDocumentationService, Services.Ai.NullAiDocumentationService>();
-            services.TryAddScoped<Services.Ai.IAiAlertGenerationService, Services.Ai.NullAiAlertGenerationService>();
-            services.TryAddTransient<Services.Ai.DocumentationAgent.IDocumentationAgentService, Services.Ai.DocumentationAgent.NullDocumentationAgentService>();
-            return;
-        }
-
-        services.AddSingleton(llmConfig);
-
-        // LLM Provider Factory
-        services.AddSingleton<Services.LlmProviders.LlmProviderFactory>();
-
-        // LLM Provider (singleton for the application)
-        services.AddSingleton<Services.LlmProviders.ILlmProvider>(sp =>
-        {
-            var factory = sp.GetRequiredService<Services.LlmProviders.LlmProviderFactory>();
-            var provider = factory.CreateProvider();
-            return provider;
-        });
-
-        // Request queue for rate limiting
-        services.AddSingleton(sp =>
-        {
-            var config = sp.GetRequiredService<Models.Configuration.LlmConfiguration>();
-            return new Services.LlmProviders.LlmRequestQueue(
-                config.Limits.MaxConcurrentRequests);
-        });
-
-        // AI services
-        services.TryAddScoped<Services.Ai.IAiDocumentationService, Services.Ai.AiDocumentationService>();
-        services.TryAddScoped<Services.Ai.IAiAlertGenerationService, Services.Ai.AiAlertGenerationService>();
-
-        // Multi-agent documentation service
-        services.TryAddScoped<Services.Ai.MultiAgent.IMultiAgentDocumentationService, Services.Ai.MultiAgent.MultiAgentDocumentationService>();
-
-        // Documentation Agent services (new agent-based approach)
-        services.TryAddTransient<Services.Ai.DocumentationAgent.DocumentationAgentTools>();
-        services.TryAddTransient<Services.Ai.DocumentationAgent.IDocumentationAgentService, Services.Ai.DocumentationAgent.DocumentationAgentService>();
-
-        // AI Actor services (autonomous monitoring)
-        services.TryAddScoped<Services.Ai.AiActor.IAiActorService, Services.Ai.AiActor.AiActorService>();
     }
 
     public static void UseSemantico(IServiceProvider serviceProvider, bool createSchema = false)
