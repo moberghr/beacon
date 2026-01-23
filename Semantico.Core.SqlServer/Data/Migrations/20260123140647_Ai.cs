@@ -502,7 +502,7 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                         principalSchema: "semantico",
                         principalTable: "DataSources",
                         principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
+                        onDelete: ReferentialAction.Restrict);
                 });
 
             migrationBuilder.CreateTable(
@@ -601,8 +601,7 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                         column: x => x.AiActorPlanId,
                         principalSchema: "semantico",
                         principalTable: "AiActorPlans",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.SetNull);
+                        principalColumn: "Id");
                     table.ForeignKey(
                         name: "FK_AiActorExecutions_AiActors_AiActorId",
                         column: x => x.AiActorId,
@@ -645,8 +644,7 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                         column: x => x.AiActorExecutionId,
                         principalSchema: "semantico",
                         principalTable: "AiActorExecutions",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.SetNull);
+                        principalColumn: "Id");
                     table.ForeignKey(
                         name: "FK_AiActorConversations_AiActors_AiActorId",
                         column: x => x.AiActorId,
@@ -683,22 +681,19 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                         column: x => x.AiActorExecutionId,
                         principalSchema: "semantico",
                         principalTable: "AiActorExecutions",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.SetNull);
+                        principalColumn: "Id");
                     table.ForeignKey(
                         name: "FK_QueryStepChangeHistory_AiActorPlans_AiActorPlanId",
                         column: x => x.AiActorPlanId,
                         principalSchema: "semantico",
                         principalTable: "AiActorPlans",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.SetNull);
+                        principalColumn: "Id");
                     table.ForeignKey(
                         name: "FK_QueryStepChangeHistory_AiActors_AiActorId",
                         column: x => x.AiActorId,
                         principalSchema: "semantico",
                         principalTable: "AiActors",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.SetNull);
+                        principalColumn: "Id");
                     table.ForeignKey(
                         name: "FK_QueryStepChangeHistory_QuerySteps_QueryStepId",
                         column: x => x.QueryStepId,

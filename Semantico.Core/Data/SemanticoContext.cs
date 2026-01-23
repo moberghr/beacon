@@ -495,10 +495,12 @@ public abstract partial class SemanticoContext : DbContext
             entity.HasIndex(e => new { e.DataSourceId, e.Status });
 
             // Relationships
+            // Restrict prevents SQL Server cascade cycle (DataSource -> Documentation -> AgentRun -> DataSource)
+            // Application code should explicitly clean up AgentRuns when deleting DataSources
             entity.HasOne(e => e.DataSource)
                 .WithMany()
                 .HasForeignKey(e => e.DataSourceId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.Restrict);
 
             entity.HasOne(e => e.Documentation)
                 .WithMany()
@@ -575,10 +577,11 @@ public abstract partial class SemanticoContext : DbContext
                 .HasForeignKey(e => e.TriggeringSubscriptionId)
                 .OnDelete(DeleteBehavior.SetNull);
 
+            // NoAction prevents SQL Server cascade cycle (AiActor -> AiActorExecution and AiActor -> AiActorPlan -> AiActorExecution)
             entity.HasOne(e => e.AiActorPlan)
                 .WithOne(p => p.AiActorExecution)
                 .HasForeignKey<AiActorExecution>(e => e.AiActorPlanId)
-                .OnDelete(DeleteBehavior.SetNull);
+                .OnDelete(DeleteBehavior.NoAction);
         });
 
         // AiActorConversation configuration
@@ -597,10 +600,11 @@ public abstract partial class SemanticoContext : DbContext
             entity.HasIndex(e => new { e.AiActorId, e.TurnNumber });
 
             // Relationships
+            // NoAction prevents SQL Server cascade cycle (AiActor -> AiActorConversation and AiActor -> AiActorExecution)
             entity.HasOne(e => e.AiActorExecution)
                 .WithMany()
                 .HasForeignKey(e => e.AiActorExecutionId)
-                .OnDelete(DeleteBehavior.SetNull);
+                .OnDelete(DeleteBehavior.NoAction);
         });
 
         // AiActorPlan configuration
@@ -634,10 +638,11 @@ public abstract partial class SemanticoContext : DbContext
                 .HasForeignKey(e => e.ParentPlanId)
                 .OnDelete(DeleteBehavior.NoAction);
 
+            // NoAction prevents SQL Server cascade cycle (AiActor -> AiActorPlan -> QueryStepChangeHistory)
             entity.HasMany(e => e.ChangeHistory)
                 .WithOne(c => c.AiActorPlan)
                 .HasForeignKey(c => c.AiActorPlanId)
-                .OnDelete(DeleteBehavior.SetNull);
+                .OnDelete(DeleteBehavior.NoAction);
         });
 
         // QueryStepChangeHistory configuration
@@ -662,15 +667,17 @@ public abstract partial class SemanticoContext : DbContext
                 .HasForeignKey(e => e.QueryStepId)
                 .OnDelete(DeleteBehavior.Cascade);
 
+            // NoAction prevents SQL Server cascade cycles (multiple paths from AiActor hierarchy)
             entity.HasOne(e => e.AiActor)
                 .WithMany()
                 .HasForeignKey(e => e.AiActorId)
-                .OnDelete(DeleteBehavior.SetNull);
+                .OnDelete(DeleteBehavior.NoAction);
 
+            // NoAction prevents SQL Server cascade cycles (AiActor -> AiActorExecution and other paths)
             entity.HasOne(e => e.AiActorExecution)
                 .WithMany()
                 .HasForeignKey(e => e.AiActorExecutionId)
-                .OnDelete(DeleteBehavior.SetNull);
+                .OnDelete(DeleteBehavior.NoAction);
         });
 
         // Add indexes to Query for AiActorId and lock fields
