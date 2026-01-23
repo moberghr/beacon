@@ -627,10 +627,12 @@ public abstract partial class SemanticoContext : DbContext
                 .HasForeignKey(e => e.AiActorId)
                 .OnDelete(DeleteBehavior.Cascade);
 
+            // NoAction prevents SQL Server cascade cycle error (AiActor -> AiActorPlan -> AiActorPlan creates multiple paths)
+            // Application code should explicitly handle ParentPlanId when deleting plans if needed
             entity.HasOne(e => e.ParentPlan)
                 .WithMany(p => p.Revisions)
                 .HasForeignKey(e => e.ParentPlanId)
-                .OnDelete(DeleteBehavior.SetNull);
+                .OnDelete(DeleteBehavior.NoAction);
 
             entity.HasMany(e => e.ChangeHistory)
                 .WithOne(c => c.AiActorPlan)

@@ -12,7 +12,7 @@ using Semantico.Core.SqlServer.Data;
 namespace Semantico.Core.SqlServer.Data.Migrations
 {
     [DbContext(typeof(SqlServerSemanticoContext))]
-    [Migration("20260123120051_Ai")]
+    [Migration("20260123121704_Ai")]
     partial class Ai
     {
         /// <inheritdoc />
@@ -1989,7 +1989,7 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                     b.HasOne("Semantico.Core.Data.Entities.AiActorPlan", "ParentPlan")
                         .WithMany("Revisions")
                         .HasForeignKey("ParentPlanId")
-                        .OnDelete(DeleteBehavior.SetNull);
+                        .OnDelete(DeleteBehavior.NoAction);
 
                     b.Navigation("AiActor");
 
