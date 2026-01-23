@@ -1937,7 +1937,7 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                     b.HasOne("Semantico.Core.Data.Entities.AiActorExecution", "AiActorExecution")
                         .WithMany()
                         .HasForeignKey("AiActorExecutionId")
-                        .OnDelete(DeleteBehavior.SetNull);
+                        .OnDelete(DeleteBehavior.NoAction);
 
                     b.HasOne("Semantico.Core.Data.Entities.AiActor", "AiActor")
                         .WithMany("Conversations")
@@ -1961,7 +1961,7 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                     b.HasOne("Semantico.Core.Data.Entities.AiActorPlan", "AiActorPlan")
                         .WithOne("AiActorExecution")
                         .HasForeignKey("Semantico.Core.Data.Entities.AiActorExecution", "AiActorPlanId")
-                        .OnDelete(DeleteBehavior.SetNull);
+                        .OnDelete(DeleteBehavior.NoAction);
 
                     b.HasOne("Semantico.Core.Data.Entities.Subscription", "TriggeringSubscription")
                         .WithMany()
@@ -2130,7 +2130,7 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                     b.HasOne("Semantico.Core.Data.Entities.DataSource", "DataSource")
                         .WithMany()
                         .HasForeignKey("DataSourceId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.HasOne("Semantico.Core.Data.Entities.DataSourceDocumentation", "Documentation")
@@ -2297,17 +2297,17 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                     b.HasOne("Semantico.Core.Data.Entities.AiActorExecution", "AiActorExecution")
                         .WithMany()
                         .HasForeignKey("AiActorExecutionId")
-                        .OnDelete(DeleteBehavior.SetNull);
+                        .OnDelete(DeleteBehavior.NoAction);
 
                     b.HasOne("Semantico.Core.Data.Entities.AiActor", "AiActor")
                         .WithMany()
                         .HasForeignKey("AiActorId")
-                        .OnDelete(DeleteBehavior.SetNull);
+                        .OnDelete(DeleteBehavior.NoAction);
 
                     b.HasOne("Semantico.Core.Data.Entities.AiActorPlan", "AiActorPlan")
                         .WithMany("ChangeHistory")
                         .HasForeignKey("AiActorPlanId")
-                        .OnDelete(DeleteBehavior.SetNull);
+                        .OnDelete(DeleteBehavior.NoAction);
 
                     b.HasOne("Semantico.Core.Data.Entities.QueryStep", "QueryStep")
                         .WithMany()
