@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace Semantico.Core.SqlServer.Data.Migrations
 {
     /// <inheritdoc />
-    public partial class AiActors : Migration
+    public partial class Ai : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -40,6 +40,13 @@ namespace Semantico.Core.SqlServer.Data.Migrations
 
             migrationBuilder.AddColumn<int>(
                 name: "AiActorId",
+                schema: "semantico",
+                table: "Queries",
+                type: "int",
+                nullable: true);
+
+            migrationBuilder.AddColumn<int>(
+                name: "FolderId",
                 schema: "semantico",
                 table: "Queries",
                 type: "int",
@@ -309,8 +316,7 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                         column: x => x.SubscriptionId,
                         principalSchema: "semantico",
                         principalTable: "Subscriptions",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
+                        principalColumn: "Id");
                 });
 
             migrationBuilder.CreateTable(
@@ -346,6 +352,33 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                         principalTable: "DataSources",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "QueryFolders",
+                schema: "semantico",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "int", nullable: false)
+                        .Annotation("SqlServer:Identity", "1, 1"),
+                    Name = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: false),
+                    Description = table.Column<string>(type: "nvarchar(1000)", maxLength: 1000, nullable: true),
+                    ParentFolderId = table.Column<int>(type: "int", nullable: true),
+                    Path = table.Column<string>(type: "nvarchar(1000)", maxLength: 1000, nullable: false),
+                    SortOrder = table.Column<int>(type: "int", nullable: false),
+                    CreatedTime = table.Column<DateTime>(type: "datetime2", nullable: false),
+                    ArchivedTime = table.Column<DateTime>(type: "datetime2", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_QueryFolders", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_QueryFolders_QueryFolders_ParentFolderId",
+                        column: x => x.ParentFolderId,
+                        principalSchema: "semantico",
+                        principalTable: "QueryFolders",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
                 });
 
             migrationBuilder.CreateTable(
@@ -695,6 +728,12 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                 column: "AiActorId");
 
             migrationBuilder.CreateIndex(
+                name: "IX_Queries_FolderId",
+                schema: "semantico",
+                table: "Queries",
+                column: "FolderId");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_Queries_IsLocked",
                 schema: "semantico",
                 table: "Queries",
@@ -705,12 +744,6 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                 schema: "semantico",
                 table: "AiActorConversations",
                 column: "AiActorExecutionId");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_AiActorConversations_AiActorId",
-                schema: "semantico",
-                table: "AiActorConversations",
-                column: "AiActorId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_AiActorConversations_AiActorId_TurnNumber",
@@ -729,12 +762,6 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                 schema: "semantico",
                 table: "AiActorConversations",
                 column: "TurnNumber");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_AiActorExecutions_AiActorId",
-                schema: "semantico",
-                table: "AiActorExecutions",
-                column: "AiActorId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_AiActorExecutions_AiActorId_StartedAt",
@@ -767,12 +794,6 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                 schema: "semantico",
                 table: "AiActorExecutions",
                 column: "TriggeringSubscriptionId");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_AiActorPlans_AiActorId",
-                schema: "semantico",
-                table: "AiActorPlans",
-                column: "AiActorId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_AiActorPlans_AiActorId_ProposedAt",
@@ -809,12 +830,6 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                 schema: "semantico",
                 table: "AiActors",
                 column: "ArchivedTime");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_AiActors_DataSourceId",
-                schema: "semantico",
-                table: "AiActors",
-                column: "DataSourceId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_AiActors_DataSourceId_Status",
@@ -992,12 +1007,6 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                 column: "CurrentPhase");
 
             migrationBuilder.CreateIndex(
-                name: "IX_DocumentationAgentRuns_DataSourceId",
-                schema: "semantico",
-                table: "DocumentationAgentRuns",
-                column: "DataSourceId");
-
-            migrationBuilder.CreateIndex(
                 name: "IX_DocumentationAgentRuns_DataSourceId_Status",
                 schema: "semantico",
                 table: "DocumentationAgentRuns",
@@ -1052,6 +1061,38 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                 column: "DocumentationId");
 
             migrationBuilder.CreateIndex(
+                name: "IX_QueryFolders_ArchivedTime",
+                schema: "semantico",
+                table: "QueryFolders",
+                column: "ArchivedTime");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_QueryFolders_ParentFolderId",
+                schema: "semantico",
+                table: "QueryFolders",
+                column: "ParentFolderId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_QueryFolders_ParentFolderId_Name",
+                schema: "semantico",
+                table: "QueryFolders",
+                columns: new[] { "ParentFolderId", "Name" },
+                unique: true,
+                filter: "[ParentFolderId] IS NOT NULL");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_QueryFolders_ParentFolderId_SortOrder",
+                schema: "semantico",
+                table: "QueryFolders",
+                columns: new[] { "ParentFolderId", "SortOrder" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_QueryFolders_Path",
+                schema: "semantico",
+                table: "QueryFolders",
+                column: "Path");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_QueryStepChangeHistory_AiActorExecutionId",
                 schema: "semantico",
                 table: "QueryStepChangeHistory",
@@ -1082,12 +1123,6 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                 column: "ChangeSource");
 
             migrationBuilder.CreateIndex(
-                name: "IX_QueryStepChangeHistory_QueryStepId",
-                schema: "semantico",
-                table: "QueryStepChangeHistory",
-                column: "QueryStepId");
-
-            migrationBuilder.CreateIndex(
                 name: "IX_QueryStepChangeHistory_QueryStepId_ChangedAt",
                 schema: "semantico",
                 table: "QueryStepChangeHistory",
@@ -1100,6 +1135,16 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                 column: "AiActorId",
                 principalSchema: "semantico",
                 principalTable: "AiActors",
+                principalColumn: "Id",
+                onDelete: ReferentialAction.SetNull);
+
+            migrationBuilder.AddForeignKey(
+                name: "FK_Queries_QueryFolders_FolderId",
+                schema: "semantico",
+                table: "Queries",
+                column: "FolderId",
+                principalSchema: "semantico",
+                principalTable: "QueryFolders",
                 principalColumn: "Id",
                 onDelete: ReferentialAction.SetNull);
 
@@ -1119,6 +1164,11 @@ namespace Semantico.Core.SqlServer.Data.Migrations
         {
             migrationBuilder.DropForeignKey(
                 name: "FK_Queries_AiActors_AiActorId",
+                schema: "semantico",
+                table: "Queries");
+
+            migrationBuilder.DropForeignKey(
+                name: "FK_Queries_QueryFolders_FolderId",
                 schema: "semantico",
                 table: "Queries");
 
@@ -1168,6 +1218,10 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                 schema: "semantico");
 
             migrationBuilder.DropTable(
+                name: "QueryFolders",
+                schema: "semantico");
+
+            migrationBuilder.DropTable(
                 name: "QueryStepChangeHistory",
                 schema: "semantico");
 
@@ -1207,6 +1261,11 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                 table: "Queries");
 
             migrationBuilder.DropIndex(
+                name: "IX_Queries_FolderId",
+                schema: "semantico",
+                table: "Queries");
+
+            migrationBuilder.DropIndex(
                 name: "IX_Queries_IsLocked",
                 schema: "semantico",
                 table: "Queries");
@@ -1228,6 +1287,11 @@ namespace Semantico.Core.SqlServer.Data.Migrations
 
             migrationBuilder.DropColumn(
                 name: "AiActorId",
+                schema: "semantico",
+                table: "Queries");
+
+            migrationBuilder.DropColumn(
+                name: "FolderId",
                 schema: "semantico",
                 table: "Queries");
 

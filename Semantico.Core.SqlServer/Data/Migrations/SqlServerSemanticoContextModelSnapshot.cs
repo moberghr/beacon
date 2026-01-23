@@ -2069,7 +2069,7 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                     b.HasOne("Semantico.Core.Data.Entities.Subscription", "Subscription")
                         .WithMany()
                         .HasForeignKey("SubscriptionId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.NoAction)
                         .IsRequired();
 
                     b.Navigation("Notification");

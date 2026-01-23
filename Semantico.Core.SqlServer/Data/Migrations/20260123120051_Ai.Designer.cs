@@ -12,8 +12,8 @@ using Semantico.Core.SqlServer.Data;
 namespace Semantico.Core.SqlServer.Data.Migrations
 {
     [DbContext(typeof(SqlServerSemanticoContext))]
-    [Migration("20260120121445_AiActors")]
-    partial class AiActors
+    [Migration("20260123120051_Ai")]
+    partial class Ai
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -106,8 +106,6 @@ namespace Semantico.Core.SqlServer.Data.Migrations
 
                     b.HasIndex("ArchivedTime");
 
-                    b.HasIndex("DataSourceId");
-
                     b.HasIndex("Status");
 
                     b.HasIndex("DataSourceId", "Status");
@@ -160,8 +158,6 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("AiActorExecutionId");
-
-                    b.HasIndex("AiActorId");
 
                     b.HasIndex("Timestamp");
 
@@ -244,8 +240,6 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                         .HasColumnType("int");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("AiActorId");
 
                     b.HasIndex("AiActorPlanId")
                         .IsUnique()
@@ -330,8 +324,6 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                         .HasColumnType("int");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("AiActorId");
 
                     b.HasIndex("ParentPlanId");
 
@@ -1134,8 +1126,6 @@ namespace Semantico.Core.SqlServer.Data.Migrations
 
                     b.HasIndex("CurrentPhase");
 
-                    b.HasIndex("DataSourceId");
-
                     b.HasIndex("DocumentationId");
 
                     b.HasIndex("StartedAt");
@@ -1456,6 +1446,9 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                     b.Property<string>("FinalQuery")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<int?>("FolderId")
+                        .HasColumnType("int");
+
                     b.Property<bool>("IsLocked")
                         .HasColumnType("bit");
 
@@ -1473,6 +1466,8 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("AiActorId");
+
+                    b.HasIndex("FolderId");
 
                     b.HasIndex("IsLocked");
 
@@ -1514,6 +1509,57 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                     b.HasIndex("SubscriptionId");
 
                     b.ToTable("QueryExecutionHistory", "semantico");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.QueryFolder", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime?>("ArchivedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<int?>("ParentFolderId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Path")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ArchivedTime");
+
+                    b.HasIndex("ParentFolderId");
+
+                    b.HasIndex("Path");
+
+                    b.HasIndex("ParentFolderId", "Name")
+                        .IsUnique()
+                        .HasFilter("[ParentFolderId] IS NOT NULL");
+
+                    b.HasIndex("ParentFolderId", "SortOrder");
+
+                    b.ToTable("QueryFolders", "semantico");
                 });
 
             modelBuilder.Entity("Semantico.Core.Data.Entities.QueryParameter", b =>
@@ -1650,8 +1696,6 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                     b.HasIndex("ChangeSource");
 
                     b.HasIndex("ChangedAt");
-
-                    b.HasIndex("QueryStepId");
 
                     b.HasIndex("QueryStepId", "ChangedAt");
 
@@ -2028,7 +2072,7 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                     b.HasOne("Semantico.Core.Data.Entities.Subscription", "Subscription")
                         .WithMany()
                         .HasForeignKey("SubscriptionId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.NoAction)
                         .IsRequired();
 
                     b.Navigation("Notification");
@@ -2190,7 +2234,14 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                         .HasForeignKey("AiActorId")
                         .OnDelete(DeleteBehavior.SetNull);
 
+                    b.HasOne("Semantico.Core.Data.Entities.QueryFolder", "Folder")
+                        .WithMany("Queries")
+                        .HasForeignKey("FolderId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.Navigation("AiActor");
+
+                    b.Navigation("Folder");
                 });
 
             modelBuilder.Entity("Semantico.Core.Data.Entities.QueryExecutionHistory", b =>
@@ -2202,6 +2253,16 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("Subscription");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.QueryFolder", b =>
+                {
+                    b.HasOne("Semantico.Core.Data.Entities.QueryFolder", "ParentFolder")
+                        .WithMany("ChildFolders")
+                        .HasForeignKey("ParentFolderId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("ParentFolder");
                 });
 
             modelBuilder.Entity("Semantico.Core.Data.Entities.QueryParameter", b =>
@@ -2378,6 +2439,13 @@ namespace Semantico.Core.SqlServer.Data.Migrations
             modelBuilder.Entity("Semantico.Core.Data.Entities.QueryExecutionHistory", b =>
                 {
                     b.Navigation("Notifications");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.QueryFolder", b =>
+                {
+                    b.Navigation("ChildFolders");
+
+                    b.Navigation("Queries");
                 });
 
             modelBuilder.Entity("Semantico.Core.Data.Entities.QueryStep", b =>

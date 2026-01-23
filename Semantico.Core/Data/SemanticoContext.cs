@@ -363,10 +363,12 @@ public abstract partial class SemanticoContext : DbContext
                   .HasMaxLength(200);
 
             // Relationships
+            // NoAction prevents SQL Server cascade cycle error (Subscription -> Notification -> AnomalyEvent creates multiple paths)
+            // Application code should explicitly delete AnomalyEvents when deleting Subscriptions if needed
             entity.HasOne(e => e.Subscription)
                   .WithMany()
                   .HasForeignKey(e => e.SubscriptionId)
-                  .OnDelete(DeleteBehavior.Cascade);
+                  .OnDelete(DeleteBehavior.NoAction);
 
             entity.HasOne(e => e.Notification)
                   .WithMany()
