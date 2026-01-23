@@ -1986,7 +1986,7 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                     b.HasOne("Semantico.Core.Data.Entities.AiActorPlan", "ParentPlan")
                         .WithMany("Revisions")
                         .HasForeignKey("ParentPlanId")
-                        .OnDelete(DeleteBehavior.SetNull);
+                        .OnDelete(DeleteBehavior.NoAction);
 
                     b.Navigation("AiActor");
 

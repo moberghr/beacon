@@ -415,8 +415,7 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                         column: x => x.ParentPlanId,
                         principalSchema: "semantico",
                         principalTable: "AiActorPlans",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.SetNull);
+                        principalColumn: "Id");
                     table.ForeignKey(
                         name: "FK_AiActorPlans_AiActors_AiActorId",
                         column: x => x.AiActorId,
