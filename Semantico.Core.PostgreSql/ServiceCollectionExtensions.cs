@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Semantico.Core.Data;
 using Semantico.Core.PostgreSql.Data;
@@ -7,24 +8,28 @@ namespace Semantico.Core.PostgreSql;
 
 public static class ServiceCollectionExtensions
 {
-    public static IServiceCollection AddPostgreSqlSemantico(
-        this IServiceCollection services,
+    /// <summary>
+    /// Configures PostgreSQL as the database provider for Semantico.
+    /// This method is chainable after AddSemanticoServices().
+    /// </summary>
+    public static IServiceCollection UsePostgreSql(
+        this SemanticoBuilder builder,
         string connectionString,
         string schema = "semantico")
     {
-        services.AddDbContextFactory<PostgreSqlSemanticoContext>(options =>
+        builder.Services.AddDbContextFactory<PostgreSqlSemanticoContext>(options =>
             options.UseNpgsql(connectionString,
-                    builder => builder.MigrationsHistoryTable("__EFMigrationsHistory", schema))
+                    b => b.MigrationsHistoryTable("__EFMigrationsHistory", schema))
                    .UseSnakeCaseNamingConvention());
 
         // Register the base context factory using the PostgreSQL implementation
-        services.AddSingleton<IDbContextFactory<SemanticoContext>>(sp =>
+        builder.Services.AddSingleton<IDbContextFactory<SemanticoContext>>(sp =>
         {
             var factory = sp.GetRequiredService<IDbContextFactory<PostgreSqlSemanticoContext>>();
             return new SemanticoContextFactoryAdapter(factory);
         });
 
-        return services;
+        return builder.Services;
     }
 
     private class SemanticoContextFactoryAdapter : IDbContextFactory<SemanticoContext>

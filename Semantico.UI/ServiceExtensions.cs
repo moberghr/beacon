@@ -7,8 +7,6 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using MudBlazor.Services;
 using Semantico.Core;
-using Semantico.Core.PostgreSql;
-using Semantico.Core.SqlServer;
 using Semantico.UI.Authentication;
 using Semantico.UI.Components;
 using Semantico.UI.Components.Shared;
@@ -17,26 +15,29 @@ namespace Semantico.UI;
 
 public static class ServiceExtensions
 {
-    public static IServiceCollection AddSemantico(this IServiceCollection services, IConfiguration configuration, Action<SemanticoConfiguration> semanticoConfiguration)
+    /// <summary>
+    /// Adds Semantico UI services (Blazor components and MudBlazor).
+    /// Prerequisites: Core services must be registered first using AddSemanticoWithPostgreSql or AddSemanticoWithSqlServer.
+    /// </summary>
+    public static IServiceCollection AddSemanticoUI(this IServiceCollection services)
     {
-        var configurationOptions = new SemanticoConfiguration();
-        semanticoConfiguration(configurationOptions);
-        configurationOptions.Validate();
+        services.AddRazorComponents().AddInteractiveServerComponents();
+        services.AddMudServices();
+        services.AddSingleton<PageHistoryState>();
+        services.AddBlazoredLocalStorage();
+        services.AddHttpContextAccessor();
 
-        // Register database provider based on configuration
-        switch (configurationOptions.DatabaseProvider)
-        {
-            case DatabaseProviderType.PostgreSql:
-                services.AddPostgreSqlSemantico(configurationOptions.ConnectionString!, configurationOptions.Schema);
-                break;
-            case DatabaseProviderType.SqlServer:
-                services.AddSqlServerSemantico(configurationOptions.ConnectionString!, configurationOptions.Schema);
-                break;
-            default:
-                throw new InvalidOperationException($"Unsupported database provider: {configurationOptions.DatabaseProvider}");
-        }
+        return services;
+    }
 
-        services.AddSemanticoCore(configuration, semanticoConfiguration);
+    /// <summary>
+    /// Adds Semantico UI services with optional authorization provider.
+    /// Prerequisites: Core services must be registered first using AddSemanticoWithPostgreSql or AddSemanticoWithSqlServer.
+    /// </summary>
+    public static IServiceCollection AddSemanticoUI(this IServiceCollection services, Action<SemanticoUIConfiguration> configure)
+    {
+        var configuration = new SemanticoUIConfiguration();
+        configure(configuration);
 
         services.AddRazorComponents().AddInteractiveServerComponents();
         services.AddMudServices();
@@ -44,9 +45,9 @@ public static class ServiceExtensions
         services.AddBlazoredLocalStorage();
         services.AddHttpContextAccessor();
 
-        if (configurationOptions.AuthorizationProvider != null)
+        if (configuration.AuthorizationProvider != null)
         {
-            services.TryAddSingleton(typeof(ISemanticoAuthorizationProvider), configurationOptions.AuthorizationProvider);
+            services.TryAddSingleton(typeof(ISemanticoAuthorizationProvider), configuration.AuthorizationProvider);
         }
 
         return services;
@@ -141,5 +142,15 @@ public class SemanticoUIBuilder
                     .AddInteractiveServerRenderMode();
             });
         });
+    }
+}
+
+public class SemanticoUIConfiguration
+{
+    public Type? AuthorizationProvider { get; set; }
+
+    public void AddAuthorizationProvider<T>() where T : class, ISemanticoAuthorizationProvider
+    {
+        AuthorizationProvider = typeof(T);
     }
 }

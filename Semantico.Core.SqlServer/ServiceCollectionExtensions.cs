@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Semantico.Core.Data;
 using Semantico.Core.SqlServer.Data;
@@ -7,23 +8,27 @@ namespace Semantico.Core.SqlServer;
 
 public static class ServiceCollectionExtensions
 {
-    public static IServiceCollection AddSqlServerSemantico(
-        this IServiceCollection services,
+    /// <summary>
+    /// Configures SQL Server as the database provider for Semantico.
+    /// This method is chainable after AddSemanticoServices().
+    /// </summary>
+    public static IServiceCollection UseSqlServer(
+        this SemanticoBuilder builder,
         string connectionString,
         string schema = "semantico")
     {
-        services.AddDbContextFactory<SqlServerSemanticoContext>(options =>
+        builder.Services.AddDbContextFactory<SqlServerSemanticoContext>(options =>
             options.UseSqlServer(connectionString,
-                    builder => builder.MigrationsHistoryTable("__EFMigrationsHistory", schema)));
+                    b => b.MigrationsHistoryTable("__EFMigrationsHistory", schema)));
 
         // Register the base context factory using the SQL Server implementation
-        services.AddSingleton<IDbContextFactory<SemanticoContext>>(sp =>
+        builder.Services.AddSingleton<IDbContextFactory<SemanticoContext>>(sp =>
         {
             var factory = sp.GetRequiredService<IDbContextFactory<SqlServerSemanticoContext>>();
             return new SemanticoContextFactoryAdapter(factory);
         });
 
-        return services;
+        return builder.Services;
     }
 
     private class SemanticoContextFactoryAdapter : IDbContextFactory<SemanticoContext>
