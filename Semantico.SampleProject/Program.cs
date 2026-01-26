@@ -1,8 +1,8 @@
 using Hangfire;
 using Hangfire.PostgreSql;
 using Semantico.AI;
+using Semantico.Core;
 using Semantico.Core.PostgreSql;
-using Semantico.Core.SqlServer;
 using Semantico.SampleProject.Services;
 using Semantico.UI;
 
@@ -15,96 +15,88 @@ builder.WebHost.ConfigureKestrel(serverOptions =>
     serverOptions.Limits.RequestHeadersTimeout = TimeSpan.FromMinutes(5);
 });
 
-// Add services to the container.
-// Configure Blazor Server with extended timeouts for long-running AI operations
-builder.Services.AddServerSideBlazor()
-    .AddCircuitOptions(options =>
-    {
-        options.DisconnectedCircuitMaxRetained = 100;
-        options.DisconnectedCircuitRetentionPeriod = TimeSpan.FromMinutes(3);
-        options.JSInteropDefaultCallTimeout = TimeSpan.FromMinutes(5);
-        options.MaxBufferedUnacknowledgedRenderBatches = 10;
-    });
-
+// Configure HTTP clients with extended timeouts for AI operations
 builder.Services.AddHttpClient().ConfigureHttpClientDefaults(http =>
 {
-    // Increase timeout for all HTTP clients (including AWS SDK)
     http.ConfigureHttpClient(client =>
     {
         client.Timeout = TimeSpan.FromMinutes(5);
     });
 });
 
- builder.Services.AddHangfire((provider, hangfireConfiguration) => hangfireConfiguration
-     .SetDataCompatibilityLevel(CompatibilityLevel.Version_170)
-     .UseSimpleAssemblyNameTypeSerializer()
-     .UseRecommendedSerializerSettings()
-     .UseFilter(
-         new AutomaticRetryAttribute
-         {
-             Attempts = 0// builder.Services.AddHangfire((provider, hangfireConfiguration) => hangfireConfiguration
-                           //     .SetDataCompatibilityLevel(CompatibilityLevel.Version_170)
-                           //     .UseSimpleAssemblyNameTypeSerializer()
-                           //     .UseRecommendedSerializerSettings()
-                           //     .UseFilter(
-                           //         new AutomaticRetryAttribute
-                           //         {
-                           //             Attempts = 0
-                           //         })
-                           //     .UsePostgreSqlStorage(
-                           //         builder.Configuration.GetConnectionString("SemanticoContext"),
-                           //         new PostgreSqlStorageOptions
-                           //         {
-                           //             PrepareSchemaIfNecessary = true,
-                           //             QueuePollInterval = TimeSpan.FromSeconds(1),
-                           //         }));
-                           //
-                           // builder.Services.AddHangfireServer();
-         })
-     .UsePostgreSqlStorage(
-         builder.Configuration.GetConnectionString("SemanticoContext"),
-         new PostgreSqlStorageOptions
-         {
-             PrepareSchemaIfNecessary = true,
-             QueuePollInterval = TimeSpan.FromSeconds(1),
-         }));
+// Configure Hangfire with PostgreSQL
+builder.Services.AddHangfire(hangfireConfiguration => hangfireConfiguration
+    .SetDataCompatibilityLevel(CompatibilityLevel.Version_170)
+    .UseSimpleAssemblyNameTypeSerializer()
+    .UseRecommendedSerializerSettings()
+    .UseFilter(new AutomaticRetryAttribute { Attempts = 0 })
+    .UsePostgreSqlStorage(
+        builder.Configuration.GetConnectionString("SemanticoContext"),
+        new PostgreSqlStorageOptions
+        {
+            PrepareSchemaIfNecessary = true,
+            QueuePollInterval = TimeSpan.FromSeconds(1),
+        }));
 
- builder.Services.AddHangfireServer();
+builder.Services.AddHangfireServer();
 
-//SEMANTICO setup
-builder.Services.AddSemantico(builder.Configuration, options =>
+// ============================================================================
+// SEMANTICO SETUP
+// ============================================================================
+
+// Step 1: Add Semantico core services with database provider
+
+builder.Services.AddSemanticoServices(builder.Configuration, options =>
+    {
+        options.AddSemanticoScheduler<SemanticoScheduler>();
+        options.BaseUrl = "https://localhost:7187/semantico"; // For notification links
+        options.UseAI = true; // Enable AI features (requires LLM configuration)
+    })
+    .UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
+
+// Alternative: Use SQL Server instead of PostgreSQL
+// builder.Services.AddSemanticoWithSqlServer(
+//     builder.Configuration,
+//     builder.Configuration.GetConnectionString("SemanticoContextSql")!,
+//     "semantico",
+//     options =>
+//     {
+//         options.AddSemanticoScheduler<SemanticoScheduler>();
+//         options.BaseUrl = "https://localhost:7187/semantico";
+//         options.UseAI = true;
+//     });
+
+// Step 2: Add Semantico UI components (Blazor + MudBlazor)
+builder.Services.AddSemanticoUI(options =>
 {
-    // Configure database provider
-    options.UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
-    // Or use SQL Server:
-    //options.UseSqlServer(builder.Configuration.GetConnectionString("SemanticoContextSql")!, "semantico");
-
-    options.AddSemanticoScheduler<SemanticoScheduler>();
-    //options.AddAuthorizationProvider<SampleAuthorizationProvider>();
-
-    // Set the base URL for generating links in notifications (e.g., Teams messages)
-    // This should match where your Semantico admin UI is hosted
-    options.BaseUrl = "https://localhost:7187/semantico"; // Update with your actual URL
-    options.UseAI = true;
+    // Optional: Add custom authorization provider
+    // options.AddAuthorizationProvider<SampleAuthorizationProvider>();
 });
 
-// Add Semantico AI services (optional)
+// Step 3: Add Semantico AI services (required for AI features)
 builder.Services.AddSemanticoAI(builder.Configuration);
 
 var app = builder.Build();
 
+// ============================================================================
+// MIDDLEWARE PIPELINE
+// ============================================================================
+
 app.UseHttpsRedirection();
 
-app.UseStaticFiles(); // Required for serving _content files from Razor Class Libraries
+// IMPORTANT: UseStaticFiles must be called before UseSemanticoUI
+// to serve _content files from Razor Class Libraries
+app.UseStaticFiles();
 
 app.UseAuthorization();
 
-//SEMANTICO admin UI setup
+// Semantico Admin UI - available at /semantico
 app.UseSemanticoUI()
-    .UseBasicAuthentication("admin", "admin")
-    //.UseAuthorization()
+    .UseBasicAuthentication("admin", "admin") // Basic auth for demo
+    // .UseAuthorization() // Optional: Use custom authorization
     .AddBlazorUI("/semantico");
 
+// Hangfire Dashboard - available at /hangfire
 app.UseHangfireDashboard("/hangfire", new DashboardOptions
 {
     IgnoreAntiforgeryToken = true,

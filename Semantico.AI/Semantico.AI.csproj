@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
 	<PropertyGroup>
 		<TargetFramework>net9.0</TargetFramework>
@@ -34,7 +34,7 @@
 		<PackageReference Include="Microsoft.Agents.AI" Version="1.0.0-preview.260108.1" />
 		<PackageReference Include="Microsoft.Agents.AI.OpenAI" Version="1.0.0-preview.260108.1" />
 		<PackageReference Include="Microsoft.Agents.AI.Workflows" Version="1.0.0-preview.260108.1" />
-		<PackageReference Include="Microsoft.Extensions.AI" Version="10.1.1" />
+		<PackageReference Include="Microsoft.Extensions.AI" Version="10.2.0" />
 		<PackageReference Include="AWSSDK.BedrockRuntime" Version="4.0.14.4" />
 
 		<!-- Document generation packages -->

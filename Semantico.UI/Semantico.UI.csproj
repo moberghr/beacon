@@ -46,8 +46,6 @@
 
     <ItemGroup>
       <ProjectReference Include="..\Semantico.Core\Semantico.Core.csproj" />
-      <ProjectReference Include="..\Semantico.Core.PostgreSql\Semantico.Core.PostgreSql.csproj" />
-      <ProjectReference Include="..\Semantico.Core.SqlServer\Semantico.Core.SqlServer.csproj" />
     </ItemGroup>
 
     <ItemGroup>

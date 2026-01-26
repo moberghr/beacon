@@ -9,22 +9,78 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Configuration
 
-### Simplified Setup (Recommended)
-All configuration is now done in a single method call:
+### Configuration Options
 
-**Services Configuration:**
+Semantico uses a composable configuration approach with a chainable builder pattern (similar to EF Core):
+
+**Recommended Pattern: Chainable Builder**
+
+**1. For Web Applications with UI (PostgreSQL):**
 ```csharp
-builder.Services.AddSemantico(builder.Configuration, options =>
-{
-    // Configure database provider
-    options.UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
-    // Or use SQL Server:
-    // options.UseSqlServer(builder.Configuration.GetConnectionString("SemanticoContextSql")!, "semantico");
+// Step 1: Add core services and configure database provider
+builder.Services.AddSemanticoServices(builder.Configuration, options =>
+    {
+        options.AddSemanticoScheduler<SemanticoScheduler>();
+        options.BaseUrl = "https://localhost:7187/semantico";
+        options.UseAI = true;
+    })
+    .UsePostgreSql(
+        builder.Configuration.GetConnectionString("SemanticoContext")!,
+        "semantico");
 
-    options.AddSemanticoScheduler<SemanticoScheduler>();
-    options.BaseUrl = "https://localhost:7187/semantico";
-    options.UseAI = true;
+// Step 2: Add UI components
+builder.Services.AddSemanticoUI();
+
+// Or with authorization:
+builder.Services.AddSemanticoUI(options =>
+{
+    options.AddAuthorizationProvider<MyAuthorizationProvider>();
 });
+```
+
+**2. For Web Applications with UI (SQL Server):**
+```csharp
+// Step 1: Add core services and configure database provider
+builder.Services.AddSemanticoServices(builder.Configuration, options =>
+    {
+        options.AddSemanticoScheduler<SemanticoScheduler>();
+        options.BaseUrl = "https://localhost:7187/semantico";
+        options.UseAI = true;
+    })
+    .UseSqlServer(
+        builder.Configuration.GetConnectionString("SemanticoContextSql")!,
+        "semantico");
+
+// Step 2: Add UI components
+builder.Services.AddSemanticoUI();
+```
+
+**3. For Worker Services / Console Applications (PostgreSQL):**
+```csharp
+// Just add core services, no UI
+services.AddSemanticoServices(configuration, options =>
+    {
+        options.AddSemanticoScheduler<SemanticoScheduler>();
+        options.BaseUrl = "https://localhost:7187/semantico"; // Optional for notifications
+        options.UseAI = true;
+    })
+    .UsePostgreSql(
+        configuration.GetConnectionString("SemanticoContext")!,
+        "semantico");
+```
+
+**4. For Worker Services / Console Applications (SQL Server):**
+```csharp
+// Just add core services, no UI
+services.AddSemanticoServices(configuration, options =>
+    {
+        options.AddSemanticoScheduler<SemanticoScheduler>();
+        options.BaseUrl = "https://localhost:7187/semantico"; // Optional for notifications
+        options.UseAI = true;
+    })
+    .UseSqlServer(
+        configuration.GetConnectionString("SemanticoContextSql")!,
+        "semantico");
 ```
 
 **Middleware Configuration:**
@@ -46,24 +102,52 @@ app.Run();
 - `app.UseStaticFiles()` must be called before `app.UseSemanticoUI()` to properly serve JavaScript, CSS, and other static assets from the Semantico UI library
 - Razor Class Library static files are referenced using `../_content/...` paths to resolve correctly with the base href configuration
 
-### Legacy Configuration (Deprecated but still supported)
-The old two-step configuration is still supported for backward compatibility:
+### Alternative Patterns
+
+**Convenience Methods (One-Liner)**
+
+If you prefer a single method call, convenience methods are available:
 
 ```csharp
-// Step 1: Configure database provider first
-builder.Services.AddPostgreSqlSemantico(
-    builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
+// For PostgreSQL
+builder.Services.AddSemanticoWithPostgreSql(
+    builder.Configuration,
+    builder.Configuration.GetConnectionString("SemanticoContext")!,
+    "semantico",
+    options =>
+    {
+        options.AddSemanticoScheduler<SemanticoScheduler>();
+        options.BaseUrl = "https://localhost:7187/semantico";
+        options.UseAI = true;
+    });
 
-// Step 2: Add Semantico services
-builder.Services.AddSemanticoAdmin(builder.Configuration, options =>
+// For SQL Server
+builder.Services.AddSemanticoWithSqlServer(...);
+```
+
+**Fine-Grained Control (Low-Level)**
+
+For advanced scenarios, you can register components individually:
+
+```csharp
+// Step 1: Register database provider only
+builder.Services.AddPostgreSqlSemantico(
+    builder.Configuration.GetConnectionString("SemanticoContext")!,
+    "semantico");
+
+// Step 2: Add core services separately
+builder.Services.AddSemanticoServices(builder.Configuration, options =>
 {
     options.AddSemanticoScheduler<SemanticoScheduler>();
     options.BaseUrl = "https://localhost:7187/semantico";
     options.UseAI = true;
 });
+
+// Step 3: Add UI components (for web apps)
+builder.Services.AddSemanticoUI();
 ```
 
-**Note**: New projects should use the simplified setup. The legacy configuration methods (`AddPostgreSqlSemantico`, `AddSqlServerSemantico`, and `AddSemanticoAdmin`) may be removed in a future major version.
+**Note**: The chainable builder pattern (`AddSemanticoServices().UsePostgreSql()`) is recommended as it follows .NET conventions and provides better discoverability.
 
 ## Code Style Guidelines
 - **Naming**: PascalCase for classes, methods, properties; camelCase for parameters, local variables

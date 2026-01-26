@@ -23,10 +23,18 @@ internal class TeamsAdapter(IHttpClientFactory httpClientFactory, SemanticoConfi
         {
             new AdaptiveCards.AdaptiveTextBlock()
             {
-                Text = $"{AdapterConstants.NotificationPrefix} {queryResult.DataSourceName} - {queryResult.SubscriptionName}",
+                Text = "Semantico",
                 Size = AdaptiveCards.AdaptiveTextSize.Large,
                 Weight = AdaptiveCards.AdaptiveTextWeight.Bolder,
                 Id = "title",
+            },
+            new AdaptiveCards.AdaptiveTextBlock()
+            {
+                Text = $"{queryResult.DataSourceName}: {queryResult.SubscriptionName}",
+                Size = AdaptiveCards.AdaptiveTextSize.Medium,
+                Weight = AdaptiveCards.AdaptiveTextWeight.Bolder,
+                Wrap = true,
+                Id = "subtitle",
             }
         };
 

@@ -9,39 +9,21 @@ using Semantico.Core.Services;
 
 namespace Semantico.Core.Worker.Services;
 
-internal class JobService : IJobService
+internal class JobService(
+    IDbContextFactory<SemanticoContext> contextFactory,
+    IQueryService queryService,
+    INotificationService notificationService,
+    ITaskService taskService,
+    IAnomalyDetectionService anomalyDetectionService,
+    ILogger<JobService> logger,
+    IAiActorService? aiActorService = null)
+    : IJobService
 {
-    private readonly IDbContextFactory<SemanticoContext> _contextFactory;
-    private readonly IQueryService _queryService;
-    private readonly INotificationService _notificationService;
-    private readonly ITaskService _taskService;
-    private readonly IAnomalyDetectionService _anomalyDetectionService;
-    private readonly ILogger<JobService> _logger;
-
     // AI Actor service is optional - only available if Semantico.AI is added
-    private readonly IAiActorService? _aiActorService;
-
-    public JobService(
-        IDbContextFactory<SemanticoContext> _contextFactory,
-        IQueryService _queryService,
-        INotificationService _notificationService,
-        ITaskService _taskService,
-        IAnomalyDetectionService _anomalyDetectionService,
-        ILogger<JobService> _logger,
-        IAiActorService? aiActorService = null)
-    {
-        _contextFactory = _contextFactory;
-        _queryService = _queryService;
-        _notificationService = _notificationService;
-        _taskService = _taskService;
-        _anomalyDetectionService = _anomalyDetectionService;
-        _logger = _logger;
-        _aiActorService = aiActorService;
-    }
 
     public async Task ExecuteQuery(int subscriptionId)
     {
-        await using var context = await _contextFactory.CreateDbContextAsync();
+        await using var context = await contextFactory.CreateDbContextAsync();
 
         var subscription = await context.Subscriptions
             .Where(x => x.Id == subscriptionId)
@@ -52,7 +34,7 @@ internal class JobService : IJobService
             return;
         }
 
-        var queryResult = await _queryService.ExecuteQuery(subscriptionId, CancellationToken.None);
+        var queryResult = await queryService.ExecuteQuery(subscriptionId, CancellationToken.None);
 
         // Set subscription specific parameters
         queryResult.ShowQuery = subscription.ShowQuery;
@@ -84,13 +66,13 @@ internal class JobService : IJobService
         // Only evaluate anomaly detection if it's enabled
         if (hasAnomalyDetection)
         {
-            anomalyEvaluation = await _anomalyDetectionService.EvaluateAnomalyAsync(
+            anomalyEvaluation = await anomalyDetectionService.EvaluateAnomalyAsync(
                 subscriptionId,
                 queryResult.TotalRecords,
                 CancellationToken.None);
 
             // Store baseline for future anomaly detection
-            await _anomalyDetectionService.StoreBaselineAsync(
+            await anomalyDetectionService.StoreBaselineAsync(
                 subscriptionId,
                 queryResult.TotalRecords,
                 DateTime.UtcNow,
@@ -123,9 +105,9 @@ internal class JobService : IJobService
         {
             await context.SaveChangesAsync(); // Save QueryExecutionHistory first
 
-            _logger.LogDebug("Creating/updating task for subscription {SubscriptionId}, result count {ResultCount}",
+            logger.LogDebug("Creating/updating task for subscription {SubscriptionId}, result count {ResultCount}",
                 subscriptionId, queryResult.TotalRecords);
-            await _taskService.CreateOrUpdateTask(
+            await taskService.CreateOrUpdateTask(
                 subscriptionId,
                 queryResult.TotalRecords,
                 CancellationToken.None
@@ -166,7 +148,7 @@ internal class JobService : IJobService
         // Record anomaly event if anomaly was detected
         if (anomalyEvaluation?.IsAnomaly == true)
         {
-            await _anomalyDetectionService.RecordAnomalyEventAsync(
+            await anomalyDetectionService.RecordAnomalyEventAsync(
                 subscriptionId,
                 anomalyEvaluation,
                 notifications.FirstOrDefault()?.Id,
@@ -200,7 +182,7 @@ internal class JobService : IJobService
 
         foreach (var recipientQueryResult in recipientsQueryResults)
         {
-            await _notificationService.SendNotification(recipientQueryResult, lastExecutedQuery?.ResultCount);
+            await notificationService.SendNotification(recipientQueryResult, lastExecutedQuery?.ResultCount);
         }
 
         // Trigger AI Actor think cycle if this subscription belongs to an actor
@@ -210,19 +192,19 @@ internal class JobService : IJobService
     private async Task TriggerAiActorIfApplicableAsync(int subscriptionId, int rowCount)
     {
         // AI Actor service is optional - only available if Semantico.AI is added
-        if (_aiActorService == null)
+        if (aiActorService == null)
         {
             return;
         }
 
         try
         {
-            await _aiActorService.OnSubscriptionExecutedAsync(subscriptionId, rowCount, CancellationToken.None);
+            await aiActorService.OnSubscriptionExecutedAsync(subscriptionId, rowCount, CancellationToken.None);
         }
         catch (Exception ex)
         {
             // Log but don't fail the subscription execution
-            _logger.LogWarning(ex, "Failed to trigger AI Actor for subscription {SubscriptionId}", subscriptionId);
+            logger.LogWarning(ex, "Failed to trigger AI Actor for subscription {SubscriptionId}", subscriptionId);
         }
     }
 
@@ -245,7 +227,7 @@ internal class JobService : IJobService
         // Check minimum row count threshold
         if (subscription.MinimumRowCount.HasValue && queryResult.TotalRecords < subscription.MinimumRowCount.Value)
         {
-            _logger.LogDebug("Result count {ResultCount} is below minimum threshold {MinimumRowCount} for subscription {SubscriptionId}, notification silenced",
+            logger.LogDebug("Result count {ResultCount} is below minimum threshold {MinimumRowCount} for subscription {SubscriptionId}, notification silenced",
                 queryResult.TotalRecords, subscription.MinimumRowCount.Value, subscriptionId);
             return NotificationStatus.BelowThreshold;
         }
@@ -255,12 +237,12 @@ internal class JobService : IJobService
         {
             if (anomalyEvaluation!.IsAnomaly)
             {
-                _logger.LogInformation("Anomaly detected for subscription {SubscriptionId}: {Explanation}",
+                logger.LogInformation("Anomaly detected for subscription {SubscriptionId}: {Explanation}",
                     subscriptionId, anomalyEvaluation.Explanation);
                 return NotificationStatus.NotificationSent;
             }
 
-            _logger.LogDebug("No anomaly detected for subscription {SubscriptionId}, notification silenced", subscriptionId);
+            logger.LogDebug("No anomaly detected for subscription {SubscriptionId}, notification silenced", subscriptionId);
             return NotificationStatus.NotificationSilenced;
         }
 
