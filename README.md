@@ -43,12 +43,20 @@ Add Semantico to your ASP.NET application in under 30 minutes:
 
 2. **Configure in Program.cs**
    ```csharp
-   builder.Services.AddSemantico(builder.Configuration, options =>
-   {
-       options.UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
-       options.AddSemanticoScheduler<YourScheduler>();
-       options.BaseUrl = "https://your-domain.com/semantico"; // For notification links
-   });
+   // Step 1: Add core services and configure database provider
+   builder.Services.AddSemanticoServices(builder.Configuration, options =>
+       {
+           options.AddSemanticoScheduler<YourScheduler>();
+           options.BaseUrl = "https://your-domain.com/semantico"; // For notification links
+           options.UseAI = true; // Enable AI features (optional)
+       })
+       .UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
+
+   // Step 2: Add UI components
+   builder.Services.AddSemanticoUI();
+
+   // Step 3: Add AI services (optional, requires LLM configuration)
+   builder.Services.AddSemanticoAI(builder.Configuration);
    ```
 
 3. **Add UI middleware**
@@ -275,20 +283,27 @@ Add to your ASP.NET Core `Program.cs`:
 
 ```csharp
 using Semantico.Core;
-using Semantico.UI.AspNet;
+using Semantico.Core.PostgreSql;
+using Semantico.UI;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Configure Semantico with PostgreSQL (single method call)
-builder.Services.AddSemantico(builder.Configuration, options =>
-{
-    options.UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
-    // Or use SQL Server:
-    // options.UseSqlServer(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
+// Step 1: Add core services and configure database provider
+builder.Services.AddSemanticoServices(builder.Configuration, options =>
+    {
+        options.AddSemanticoScheduler<YourScheduler>();
+        options.BaseUrl = "https://your-domain.com/semantico"; // For notification links
+        options.UseAI = true; // Enable AI features (optional)
+    })
+    .UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
+// Or use SQL Server:
+// .UseSqlServer(builder.Configuration.GetConnectionString("SemanticoContextSql")!, "semantico");
 
-    options.AddSemanticoScheduler<YourScheduler>();
-    options.BaseUrl = "https://your-domain.com/semantico"; // For notification links
-});
+// Step 2: Add UI components
+builder.Services.AddSemanticoUI();
+
+// Step 3: Add AI services (optional, requires LLM configuration)
+builder.Services.AddSemanticoAI(builder.Configuration);
 
 var app = builder.Build();
 
