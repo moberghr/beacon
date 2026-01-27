@@ -201,23 +201,28 @@ public class DocumentationAgentTools
 
         try
         {
-            var fullTableName = string.IsNullOrEmpty(schemaName)
-                ? QuoteIdentifier(tableName, dataSource.DatabaseEngineType)
-                : $"{QuoteIdentifier(schemaName, dataSource.DatabaseEngineType)}.{QuoteIdentifier(tableName, dataSource.DatabaseEngineType)}";
+            if (!dataSource.DatabaseEngineType.HasValue)
+                throw new InvalidOperationException($"Data source {dataSource.Id} is not a database type");
 
-            var limitClause = dataSource.DatabaseEngineType == DatabaseEngineType.MSSQL
+            var dbEngineType = dataSource.DatabaseEngineType.Value;
+
+            var fullTableName = string.IsNullOrEmpty(schemaName)
+                ? QuoteIdentifier(tableName, dbEngineType)
+                : $"{QuoteIdentifier(schemaName, dbEngineType)}.{QuoteIdentifier(tableName, dbEngineType)}";
+
+            var limitClause = dbEngineType == DatabaseEngineType.MSSQL
                 ? $"TOP {rowCount}"
                 : "";
-            var offsetClause = dataSource.DatabaseEngineType != DatabaseEngineType.MSSQL
+            var offsetClause = dbEngineType != DatabaseEngineType.MSSQL
                 ? $"LIMIT {rowCount}"
                 : "";
 
-            var query = dataSource.DatabaseEngineType == DatabaseEngineType.MSSQL
+            var query = dbEngineType == DatabaseEngineType.MSSQL
                 ? $"SELECT {limitClause} * FROM {fullTableName}"
                 : $"SELECT * FROM {fullTableName} {offsetClause}";
 
-            var decryptedConnectionString = _encryptionService.Decrypt(dataSource.ConnectionString);
-            await using var connection = DbConnectionFactory.CreateConnection(dataSource.DatabaseEngineType, decryptedConnectionString);
+            var decryptedConnectionString = _encryptionService.Decrypt(dataSource.EncryptedConnectionData);
+            await using var connection = DbConnectionFactory.CreateConnection(dbEngineType, decryptedConnectionString);
             await connection.OpenAsync(cancellationToken);
 
             var rows = (await connection.QueryAsync<dynamic>(query)).ToList();

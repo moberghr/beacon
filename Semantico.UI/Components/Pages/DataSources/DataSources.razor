@@ -13,7 +13,19 @@
         <MudDataGrid @ref="_dataGrid" ServerData="ServerReload" T="DataSourceListData" Hover="true" Filterable="false" SortMode="SortMode.None" Bordered="false">
         <Columns>
             <PropertyColumn Property="x => x.Name" Title="Name"/>
-            <PropertyColumn Property="x => x.DatabaseEngineType" Title="Database engine"/>
+            <PropertyColumn Property="x => x.DataSourceType" Title="Type"/>
+            <TemplateColumn Title="Engine">
+                <CellTemplate>
+                    @if (context.Item.DatabaseEngineType.HasValue)
+                    {
+                        <text>@context.Item.DatabaseEngineType.Value</text>
+                    }
+                    else
+                    {
+                        <MudChip Size="Size.Small" Color="Color.Info">@context.Item.DataSourceType</MudChip>
+                    }
+                </CellTemplate>
+            </TemplateColumn>
             <PropertyColumn Property="x => x.Queries.Count" Title="Queries"/>
             <PropertyColumn Property="x => x.MigrationJobsCount" Title="Migrations"/>
             <TemplateColumn Title="Actions" Sortable="false">

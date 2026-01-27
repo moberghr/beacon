@@ -162,13 +162,14 @@
         return sb.ToString();
     }
 
-    private static string GetProjectColor(DatabaseEngineType dbType)
+    private static string GetProjectColor(DatabaseEngineType? dbType)
     {
         return dbType switch
         {
             DatabaseEngineType.PostgreSQL => "postgresql",
             DatabaseEngineType.MySQL => "mysql",
             DatabaseEngineType.MSSQL => "sqlserver",
+            null => "generic", // For non-database data sources like CloudWatch
             _ => "postgresql"
         };
     }

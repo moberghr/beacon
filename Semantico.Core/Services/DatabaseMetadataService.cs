@@ -50,9 +50,13 @@ public class DatabaseMetadataService(
             if (dataSource == null)
                 throw new SemanticoException($"Data source {dataSourceId} not found");
 
+            // Only database type data sources have metadata
+            if (!dataSource.DatabaseEngineType.HasValue)
+                throw new SemanticoException($"Data source {dataSourceId} is not a database type");
+
             // Extract metadata based on database type
-            var connectionString = encryptionService.Decrypt(dataSource.ConnectionString);
-            var tables = dataSource.DatabaseEngineType switch
+            var connectionString = encryptionService.Decrypt(dataSource.EncryptedConnectionData);
+            var tables = dataSource.DatabaseEngineType.Value switch
             {
                 DatabaseEngineType.PostgreSQL => await GetPostgreSqlMetadataAsync(connectionString, cancellationToken),
                 DatabaseEngineType.MSSQL => await GetSqlServerMetadataAsync(connectionString, cancellationToken),
@@ -63,7 +67,7 @@ public class DatabaseMetadataService(
             await StoreMetadataAsync(dataSourceId, tables, cancellationToken);
 
             // Update cache
-            var snapshot = new DatabaseMetadataSnapshot(dataSourceId, dataSource.DatabaseEngineType, tables, DateTime.UtcNow);
+            var snapshot = new DatabaseMetadataSnapshot(dataSourceId, dataSource.DatabaseEngineType.Value, tables, DateTime.UtcNow);
             cache.Set(GetCacheKey(dataSourceId), snapshot, CacheExpiration);
 
             logger.LogInformation("Refreshed metadata for data source {DataSourceId}: {TableCount} tables", dataSourceId, tables.Count);
@@ -90,6 +94,9 @@ public class DatabaseMetadataService(
         var dataSource = await context.DataSources.FirstOrDefaultAsync(ds => ds.Id == dataSourceId, cancellationToken);
         if (dataSource == null)
             throw new SemanticoException($"Data source {dataSourceId} not found");
+
+        if (!dataSource.DatabaseEngineType.HasValue)
+            throw new SemanticoException($"Data source {dataSourceId} is not a database type");
 
         // Try to get from database
         var metadata = await context.DatabaseMetadata
@@ -125,7 +132,7 @@ public class DatabaseMetadataService(
                 m.TableDescription
             )).ToList();
 
-            var snapshot = new DatabaseMetadataSnapshot(dataSourceId, dataSource.DatabaseEngineType, tables, metadata.Max(m => m.LastRefreshed));
+            var snapshot = new DatabaseMetadataSnapshot(dataSourceId, dataSource.DatabaseEngineType.Value, tables, metadata.Max(m => m.LastRefreshed));
             cache.Set(GetCacheKey(dataSourceId), snapshot, CacheExpiration);
 
             return snapshot;

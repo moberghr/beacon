@@ -48,8 +48,12 @@ public class QueryData
     public bool IsCrossDatabase => Steps.Select(s => s.DatabaseEngineType).Distinct().Count() > 1;
 
     public List<string> DataSourceNames => Steps.Select(s => s.DataSourceName).Distinct().ToList();
-    
-    public List<DatabaseEngineType> DatabaseEngines => Steps.Select(s => s.DatabaseEngineType).Distinct().ToList();
+
+    public List<DatabaseEngineType> DatabaseEngines => Steps
+        .Where(s => s.DatabaseEngineType.HasValue)
+        .Select(s => s.DatabaseEngineType!.Value)
+        .Distinct()
+        .ToList();
 
     /// <summary>
     /// AI Actor ID if this query is managed by an AI Actor, null if user-created

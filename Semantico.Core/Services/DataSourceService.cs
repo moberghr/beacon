@@ -7,6 +7,8 @@ using Semantico.Core.Helpers;
 using Semantico.Core.Models;
 using Semantico.Core.Models.DataSources;
 using Semantico.Core.Models.Queries;
+using Semantico.Core.Services.Providers;
+using Microsoft.Extensions.Logging;
 
 namespace Semantico.Core.Services;
 
@@ -23,11 +25,15 @@ public interface IDataSourceService
     Task<AdHocQueryResult> ExecuteAdHocQuery(int dataSourceId, string query, CancellationToken cancellationToken);
 
     Task<BaseResponse> TestConnection(string connectionString, Data.Enums.DatabaseEngineType databaseEngineType, CancellationToken cancellationToken);
+
+    Task<string> GetDecryptedConnectionData(int dataSourceId, CancellationToken cancellationToken);
 }
 
 internal class DataSourceService(
     IDbContextFactory<SemanticoContext> contextFactory,
-    IEncryptionService encryptionService) : IDataSourceService
+    IEncryptionService encryptionService,
+    IDataSourceProviderFactory providerFactory,
+    ILogger<DataSourceService> logger) : IDataSourceService
 {
     public async Task<BaseResponse> CreateDataSource(DataSourceData dataSourceData, CancellationToken cancellationToken)
     {
@@ -36,7 +42,8 @@ internal class DataSourceService(
         var dataSource = new DataSource
         {
             Name = dataSourceData.Name,
-            ConnectionString = encryptionService.Encrypt(dataSourceData.ConnectionString),
+            DataSourceType = dataSourceData.DataSourceType,
+            EncryptedConnectionData = encryptionService.Encrypt(dataSourceData.ConnectionString),
             DatabaseEngineType = dataSourceData.DatabaseEngineType
         };
 
@@ -104,6 +111,7 @@ internal class DataSourceService(
             {
                 Id = x.Id,
                 Name = x.Name,
+                DataSourceType = x.DataSourceType,
                 DatabaseEngineType = x.DatabaseEngineType,
                 MigrationJobsCount = context.MigrationJobs
                     .Count(mj => (mj.DataSourceId == x.Id || mj.DestinationDataSourceId == x.Id)
@@ -127,6 +135,7 @@ internal class DataSourceService(
                             SqlValue = qs.SqlValue,
                             DataSourceId = qs.DataSourceId,
                             DataSourceName = x.Name,
+                            DataSourceType = x.DataSourceType,
                             DatabaseEngineType = x.DatabaseEngineType,
                             Parameters = qs.Parameters.Select(p => new QueryStepParameterData
                             {
@@ -150,7 +159,7 @@ internal class DataSourceService(
             .SingleAsync(cancellationToken);
 
         dataSource.Name = dataSourceData.Name;
-        dataSource.ConnectionString = encryptionService.Encrypt(dataSourceData.ConnectionString);
+        dataSource.EncryptedConnectionData = encryptionService.Encrypt(dataSourceData.ConnectionString);
         dataSource.DatabaseEngineType = dataSourceData.DatabaseEngineType;
 
         await context.SaveChangesAsync(cancellationToken);
@@ -169,24 +178,38 @@ internal class DataSourceService(
 
         try
         {
-            var decryptedConnectionString = encryptionService.Decrypt(dataSource.ConnectionString);
-            await using var connection = DbConnectionFactory.CreateConnection(dataSource.DatabaseEngineType, decryptedConnectionString);
-            await connection.OpenAsync(cancellationToken);
+            // Use provider factory to execute query for any data source type
+            var provider = providerFactory.GetProvider(dataSource.DataSourceType);
 
-            var result = await connection.QueryAsync(new CommandDefinition(query, cancellationToken: cancellationToken, commandTimeout: 120));
-            var (columns, rows) = ConvertQueryResults(result.AsList());
+            logger.LogInformation("Executing ad-hoc query on data source {DataSourceId} ({DataSourceType})",
+                dataSourceId, dataSource.DataSourceType);
+
+            var result = await provider.ExecuteQueryAsync(
+                dataSource,
+                query,
+                new Dictionary<string, object?>(),
+                cancellationToken);
+
+            if (!result.Success)
+            {
+                logger.LogWarning("Ad-hoc query failed for data source {DataSourceId}: {ErrorMessage}",
+                    dataSourceId, result.ErrorMessage);
+            }
 
             return new AdHocQueryResult
             {
-                Success = true,
-                Columns = columns,
-                Rows = rows,
-                RowCount = rows.Count,
-                ExecutionTime = DateTime.UtcNow - startTime
+                Success = result.Success,
+                Columns = result.Success ? ExtractColumns(result.Rows) : new List<string>(),
+                Rows = result.Rows,
+                RowCount = result.TotalRows,
+                ExecutionTime = TimeSpan.FromMilliseconds(result.ExecutionTimeMs),
+                Error = result.ErrorMessage
             };
         }
         catch (Exception ex)
         {
+            logger.LogError(ex, "Exception executing ad-hoc query on data source {DataSourceId}", dataSourceId);
+
             return new AdHocQueryResult
             {
                 Success = false,
@@ -197,6 +220,14 @@ internal class DataSourceService(
                 RowCount = 0
             };
         }
+    }
+
+    private List<string> ExtractColumns(List<Dictionary<string, object?>> rows)
+    {
+        if (rows == null || rows.Count == 0)
+            return new List<string>();
+
+        return rows[0].Keys.ToList();
     }
 
     public async Task<BaseResponse> TestConnection(string connectionString, Data.Enums.DatabaseEngineType databaseEngineType, CancellationToken cancellationToken)
@@ -235,5 +266,17 @@ internal class DataSourceService(
             .ToList();
 
         return (columns, rows);
+    }
+
+    public async Task<string> GetDecryptedConnectionData(int dataSourceId, CancellationToken cancellationToken)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        var dataSource = await context.DataSources
+            .Where(x => x.Id == dataSourceId)
+            .SingleOrDefaultAsync(cancellationToken)
+            ?? throw new SemanticoException($"Data source with ID {dataSourceId} not found");
+
+        return encryptionService.Decrypt(dataSource.EncryptedConnectionData);
     }
 }

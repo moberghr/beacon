@@ -67,6 +67,11 @@ public static class ServiceConfiguration
         services.TryAddTransient<ParameterResolver>();
         services.TryAddTransient<SchedulingService>();
 
+        // Data source providers (use AddTransient to register multiple implementations)
+        services.AddTransient<Services.Providers.IDataSourceProvider, Services.Providers.DatabaseProvider>();
+        services.AddTransient<Services.Providers.IDataSourceProvider, Services.Providers.CloudWatchProvider>();
+        services.TryAddTransient<Services.Providers.IDataSourceProviderFactory, Services.Providers.DataSourceProviderFactory>();
+
         // Domain services
         services.TryAddTransient<IJobRepository, JobRepository>();
         services.TryAddTransient<IJobService, JobService>();

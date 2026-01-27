@@ -112,13 +112,16 @@
     {
         var dataSources = await DataSourceService.GetDataSources(null, default);
 
-        _availableProjects = dataSources.ToDictionary(x => x.Id, x => new QueryStepBuilder.ProjectInfo 
-        { 
-            Name = x.Name, 
-            DatabaseEngine = x.DatabaseEngineType.ToString(),
-            DatabaseEngineType = x.DatabaseEngineType
-        });
-        
+        // Only include database type data sources for queries (for now)
+        _availableProjects = dataSources
+            .Where(x => x.DatabaseEngineType.HasValue)
+            .ToDictionary(x => x.Id, x => new QueryStepBuilder.ProjectInfo
+            {
+                Name = x.Name,
+                DatabaseEngine = x.DatabaseEngineType!.Value.ToString(),
+                DatabaseEngineType = x.DatabaseEngineType.Value
+            });
+
         // Initialize query with empty steps collection
         Query = new QueryData { Name = "", Description = "", Steps = new() };
     }
@@ -202,9 +205,9 @@
                     TotalExecutionTimeMs = executionResult.ExecutionTimeMs,
                     IsMultiStep = Query.Steps.Count > 1,
                     IsCrossDataSource = Query.Steps.Select(s => s.DataSourceId).Distinct().Count() > 1,
-                    IsCrossDatabase = Query.Steps.Select(s => s.DatabaseEngineType).Distinct().Count() > 1,
+                    IsCrossDatabase = Query.Steps.Where(s => s.DatabaseEngineType.HasValue).Select(s => s.DatabaseEngineType!.Value).Distinct().Count() > 1,
                     DataSourcesInvolved = Query.Steps.Select(s => s.DataSourceName).Distinct().ToList(),
-                    DatabaseEnginesUsed = Query.Steps.Select(s => s.DatabaseEngineType).Distinct().ToList(),
+                    DatabaseEnginesUsed = Query.Steps.Where(s => s.DatabaseEngineType.HasValue).Select(s => s.DatabaseEngineType!.Value).Distinct().ToList(),
                     StepResults = new List<QueryStepResult> { executionResult },
                     FinalResult = executionResult.Success && executionResult.PreviewResults != null ? new QueryResult
                     {

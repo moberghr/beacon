@@ -1,6 +1,7 @@
 @using Semantico.Core.Data.Enums
 @using Semantico.Core.Models.DataSources
 @using Semantico.Core.Services
+@using System.Text.Json
 <MudDialog Class="pb-2">
     <TitleContent>
         <MudText Typo="Typo.h6">
@@ -10,33 +11,98 @@
     </TitleContent>
     <DialogContent>
         <MudForm @ref="@_form" Class="pt-1" @bind-Errors="@errors" @bind-IsValid="_isFormValid">
-            <MudSelect T="DatabaseEngineType" Label="Database Engine Type" @bind-Value="@DataSource.DatabaseEngineType" Required="true" Class="mb-4">
-                <MudSelectItem Value="DatabaseEngineType.PostgreSQL">PostgreSQL</MudSelectItem>
-                <MudSelectItem Value="DatabaseEngineType.MSSQL">MSSQL</MudSelectItem>
-                <MudSelectItem Value="DatabaseEngineType.MySQL">MySQL</MudSelectItem>
+            <MudSelect T="DataSourceType" Label="Data Source Type" @bind-Value="_selectedDataSourceType" Required="true" Class="mb-4">
+                <MudSelectItem Value="DataSourceType.Database">Database (PostgreSQL, MSSQL, MySQL)</MudSelectItem>
+                <MudSelectItem Value="DataSourceType.CloudWatch">AWS CloudWatch</MudSelectItem>
             </MudSelect>
 
-            <MudTextField
-                OnlyValidateIfDirty="true"
-                Immediate="true"
-                Margin="Margin.Dense"
-                Variant="Variant.Outlined"
-                Class="mb-2"
-                @bind-Value="@DataSource.ConnectionString"
-                T="string"
-                Label="Connection string"
-                Required="true"
-                InputType="InputType.Password"
-                Adornment="Adornment.End"
-                AdornmentIcon="@Icons.Material.Filled.Lock"
-            />
+            @if (_selectedDataSourceType == DataSourceType.Database)
+            {
+                <MudSelect T="DatabaseEngineType" Label="Database Engine Type" @bind-Value="@_selectedDatabaseEngine" Required="true" Class="mb-4">
+                    <MudSelectItem Value="DatabaseEngineType.PostgreSQL">PostgreSQL</MudSelectItem>
+                    <MudSelectItem Value="DatabaseEngineType.MSSQL">MSSQL</MudSelectItem>
+                    <MudSelectItem Value="DatabaseEngineType.MySQL">MySQL</MudSelectItem>
+                </MudSelect>
+
+                <MudTextField
+                    OnlyValidateIfDirty="true"
+                    Immediate="true"
+                    Margin="Margin.Dense"
+                    Variant="Variant.Outlined"
+                    Class="mb-2"
+                    @bind-Value="@DataSource.ConnectionString"
+                    T="string"
+                    Label="Connection string"
+                    Required="true"
+                    InputType="InputType.Password"
+                    Adornment="Adornment.End"
+                    AdornmentIcon="@Icons.Material.Filled.Lock"
+                />
+            }
+            else if (_selectedDataSourceType == DataSourceType.CloudWatch)
+            {
+                <MudTextField
+                    Margin="Margin.Dense"
+                    Variant="Variant.Outlined"
+                    Class="mb-2"
+                    @bind-Value="@_cloudWatchRegion"
+                    T="string"
+                    Label="AWS Region"
+                    Required="true"
+                    HelperText="e.g., us-east-1, eu-west-1"
+                />
+
+                <MudTextField
+                    Margin="Margin.Dense"
+                    Variant="Variant.Outlined"
+                    Class="mb-2"
+                    @bind-Value="@_cloudWatchAccessKeyId"
+                    T="string"
+                    Label="AWS Access Key ID (optional)"
+                    HelperText="Leave empty to use IAM role or AWS profile"
+                />
+
+                <MudTextField
+                    Margin="Margin.Dense"
+                    Variant="Variant.Outlined"
+                    Class="mb-2"
+                    @bind-Value="@_cloudWatchSecretAccessKey"
+                    T="string"
+                    Label="AWS Secret Access Key (optional)"
+                    InputType="InputType.Password"
+                    Adornment="Adornment.End"
+                    AdornmentIcon="@Icons.Material.Filled.Lock"
+                />
+
+                <MudTextField
+                    Margin="Margin.Dense"
+                    Variant="Variant.Outlined"
+                    Class="mb-2"
+                    @bind-Value="@_cloudWatchLogGroups"
+                    T="string"
+                    Label="Log Groups (comma-separated)"
+                    Required="true"
+                    HelperText="e.g., /aws/lambda/function1, /aws/lambda/function2"
+                    Lines="2"
+                />
+
+                <MudTextField
+                    Margin="Margin.Dense"
+                    Variant="Variant.Outlined"
+                    Class="mb-2"
+                    @bind-Value="@_cloudWatchProfileName"
+                    T="string"
+                    Label="AWS Profile Name (optional)"
+                    HelperText="Use profile from ~/.aws/credentials"
+                />
+            }
 
             <div class="d-flex align-center mb-4">
                 <MudButton
                     Variant="Variant.Outlined"
                     Color="Color.Primary"
                     OnClick="TestConnection"
-                    Disabled="@(_testingConnection || string.IsNullOrWhiteSpace(DataSource.ConnectionString))"
+                    Disabled="@(_testingConnection || !CanTestConnection())"
                     StartIcon="@(_testingConnection ? null : Icons.Material.Filled.Cable)"
                     Class="mr-2">
                     @if (_testingConnection)
@@ -107,9 +173,33 @@
     bool _isFormValid = false;
     string[] errors = { };
 
+    // Data source type selection
+    private DataSourceType _selectedDataSourceType = DataSourceType.Database;
+    private DatabaseEngineType _selectedDatabaseEngine = DatabaseEngineType.PostgreSQL;
+
+    // CloudWatch fields
+    private string _cloudWatchRegion = "";
+    private string _cloudWatchAccessKeyId = "";
+    private string _cloudWatchSecretAccessKey = "";
+    private string _cloudWatchLogGroups = "";
+    private string _cloudWatchProfileName = "";
+
+    bool CanTestConnection()
+    {
+        if (_selectedDataSourceType == DataSourceType.Database)
+        {
+            return !string.IsNullOrWhiteSpace(DataSource.ConnectionString);
+        }
+        else if (_selectedDataSourceType == DataSourceType.CloudWatch)
+        {
+            return !string.IsNullOrWhiteSpace(_cloudWatchRegion) && !string.IsNullOrWhiteSpace(_cloudWatchLogGroups);
+        }
+        return false;
+    }
+
     async Task TestConnection()
     {
-        if (_testingConnection || string.IsNullOrWhiteSpace(DataSource.ConnectionString))
+        if (_testingConnection || !CanTestConnection())
         {
             return;
         }
@@ -118,22 +208,33 @@
         _connectionTested = false;
         _connectionErrorMessage = string.Empty;
 
-        var response = await Service.TestConnection(
-            DataSource.ConnectionString,
-            DataSource.DatabaseEngineType,
-            CancellationToken.None);
-
-        _connectionTested = true;
-        _connectionSuccess = response.Success;
-
-        if (response.Success)
+        // For database type, use existing test connection
+        if (_selectedDataSourceType == DataSourceType.Database)
         {
-            Snackbar.Add(response.Message, Severity.Success);
+            var response = await Service.TestConnection(
+                DataSource.ConnectionString,
+                _selectedDatabaseEngine,
+                CancellationToken.None);
+
+            _connectionTested = true;
+            _connectionSuccess = response.Success;
+
+            if (response.Success)
+            {
+                Snackbar.Add(response.Message, Severity.Success);
+            }
+            else
+            {
+                _connectionErrorMessage = response.Message;
+                Snackbar.Add(response.Message, Severity.Error);
+            }
         }
         else
         {
-            _connectionErrorMessage = response.Message;
-            Snackbar.Add(response.Message, Severity.Error);
+            // For CloudWatch, we'll implement test connection later via provider
+            _connectionTested = true;
+            _connectionSuccess = true;
+            Snackbar.Add("CloudWatch connection test not yet implemented. Configuration will be validated on save.", Severity.Info);
         }
 
         _testingConnection = false;
@@ -153,18 +254,52 @@
             return;
         }
 
-        _loading = true;
-        var response = await Service.CreateDataSource(DataSource, CancellationToken.None);
+        // Prepare data source based on type
+        DataSource.DataSourceType = _selectedDataSourceType;
 
-        if (response.Success)
+        if (_selectedDataSourceType == DataSourceType.Database)
         {
-            MudDialog.Close(DialogResult.Ok(true));
-            Snackbar.Add(response.Message, Severity.Success);
+            DataSource.DatabaseEngineType = _selectedDatabaseEngine;
+            // ConnectionString is already bound
         }
-        else
+        else if (_selectedDataSourceType == DataSourceType.CloudWatch)
         {
-            Snackbar.Add(response.Message, Severity.Error);
+            // Create CloudWatch configuration JSON
+            var cloudWatchConfig = new
+            {
+                Region = _cloudWatchRegion,
+                AccessKeyId = string.IsNullOrWhiteSpace(_cloudWatchAccessKeyId) ? null : _cloudWatchAccessKeyId,
+                SecretAccessKey = string.IsNullOrWhiteSpace(_cloudWatchSecretAccessKey) ? null : _cloudWatchSecretAccessKey,
+                LogGroups = _cloudWatchLogGroups.Split(',').Select(lg => lg.Trim()).Where(lg => !string.IsNullOrEmpty(lg)).ToList(),
+                ProfileName = string.IsNullOrWhiteSpace(_cloudWatchProfileName) ? null : _cloudWatchProfileName,
+                QueryTimeoutSeconds = 300
+            };
+
+            DataSource.ConnectionString = JsonSerializer.Serialize(cloudWatchConfig);
+            DataSource.DatabaseEngineType = null; // Not applicable for CloudWatch
         }
+
+        _loading = true;
+
+        try
+        {
+            var response = await Service.CreateDataSource(DataSource, CancellationToken.None);
+
+            if (response.Success)
+            {
+                MudDialog.Close(DialogResult.Ok(true));
+                Snackbar.Add(response.Message, Severity.Success);
+            }
+            else
+            {
+                Snackbar.Add(response.Message, Severity.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error: {ex.Message}", Severity.Error);
+        }
+
         _loading = false;
     }
 

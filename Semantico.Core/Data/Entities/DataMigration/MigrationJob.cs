@@ -62,7 +62,15 @@ public class MigrationJob : ArchivableBaseEntity, IScheduledJob, IMultiStepWorkf
 
     public bool IsMultiStep => ParsedSteps.Count > 1;
     public bool IsCrossDataSource => ParsedSteps.Select(s => s.DataSourceId).Distinct().Count() > 1;
-    public bool IsCrossDatabase => ParsedSteps.Select(s => s.DatabaseEngineType).Distinct().Count() > 1;
+    public bool IsCrossDatabase => ParsedSteps
+        .Where(s => s.DatabaseEngineType.HasValue)
+        .Select(s => s.DatabaseEngineType!.Value)
+        .Distinct()
+        .Count() > 1;
     public List<int> DataSourceIds => ParsedSteps.Select(s => s.DataSourceId).Distinct().ToList();
-    public List<DatabaseEngineType> DatabaseEngines => ParsedSteps.Select(s => s.DatabaseEngineType).Distinct().ToList();
+    public List<DatabaseEngineType> DatabaseEngines => ParsedSteps
+        .Where(s => s.DatabaseEngineType.HasValue)
+        .Select(s => s.DatabaseEngineType!.Value)
+        .Distinct()
+        .ToList();
 }

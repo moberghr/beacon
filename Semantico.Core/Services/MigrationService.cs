@@ -10,6 +10,7 @@ using Semantico.Core.Data.Entities.DataMigration;
 using Semantico.Core.Data.Enums;
 using Semantico.Core.Helpers;
 using Semantico.Core.Helpers.BulkHelpers;
+using Semantico.Core.Models;
 using Semantico.Core.Models.DataMigration;
 using Semantico.Core.Models.Queries;
 using static Semantico.Core.Helpers.BulkExtension;
@@ -589,6 +590,11 @@ internal class MigrationService(
         MigrationMode mode,
         CancellationToken cancellationToken)
     {
+        if (!destinationDataSource.DatabaseEngineType.HasValue)
+            throw new SemanticoException($"Destination data source {destinationDataSource.Id} is not a database type");
+
+        var databaseEngineType = destinationDataSource.DatabaseEngineType.Value;
+
         DbConnection? connection = null;
         DbTransaction? transaction = null;
 
@@ -599,7 +605,7 @@ internal class MigrationService(
             await connection.OpenAsync(cancellationToken);
 
             // Validate destination table exists
-            await ValidateDestinationTable(connection, destinationTable, destinationDataSource.DatabaseEngineType);
+            await ValidateDestinationTable(connection, destinationTable, databaseEngineType);
 
             // Start transaction for data consistency
             transaction = await connection.BeginTransactionAsync(cancellationToken);
@@ -615,16 +621,16 @@ internal class MigrationService(
                 switch (mode)
                 {
                     case MigrationMode.Truncate:
-                        await ExecuteTruncate(connection, transaction, destinationTable, destinationDataSource.DatabaseEngineType);
-                        (rowsWritten, rowsFailed, errorDetails) = await ExecuteInserts(connection, transaction, destinationTable, data, destinationDataSource.DatabaseEngineType);
+                        await ExecuteTruncate(connection, transaction, destinationTable, databaseEngineType);
+                        (rowsWritten, rowsFailed, errorDetails) = await ExecuteInserts(connection, transaction, destinationTable, data, databaseEngineType);
                         break;
 
                     case MigrationMode.Insert:
-                        (rowsWritten, rowsFailed, errorDetails) = await ExecuteInserts(connection, transaction, destinationTable, data, destinationDataSource.DatabaseEngineType);
+                        (rowsWritten, rowsFailed, errorDetails) = await ExecuteInserts(connection, transaction, destinationTable, data, databaseEngineType);
                         break;
 
                     case MigrationMode.Upsert:
-                        (rowsWritten, rowsFailed, errorDetails) = await ExecuteUpserts(connection, transaction, destinationTable, data, destinationDataSource.DatabaseEngineType);
+                        (rowsWritten, rowsFailed, errorDetails) = await ExecuteUpserts(connection, transaction, destinationTable, data, databaseEngineType);
                         break;
                 }
 
@@ -673,8 +679,11 @@ internal class MigrationService(
     {
         try
         {
-            var connectionString = encryptionService.Decrypt(dataSource.ConnectionString);
-            return DbConnectionFactory.CreateConnection(dataSource.DatabaseEngineType, connectionString);
+            if (!dataSource.DatabaseEngineType.HasValue)
+                throw new SemanticoException($"Data source {dataSource.Id} is not a database type");
+
+            var connectionString = encryptionService.Decrypt(dataSource.EncryptedConnectionData);
+            return DbConnectionFactory.CreateConnection(dataSource.DatabaseEngineType.Value, connectionString);
         }
         catch (Exception ex)
         {

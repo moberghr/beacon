@@ -205,12 +205,15 @@
             _dataSources = await _dataSourceService.GetDataSources(null, CancellationToken.None);
 
             // Build available data sources dictionary for QueryStepBuilder
-            _availableProjects = _dataSources?.ToDictionary(x => x.Id, x => new QueryStepBuilder.ProjectInfo
-            {
-                Name = x.Name,
-                DatabaseEngine = x.DatabaseEngineType.ToString(),
-                DatabaseEngineType = x.DatabaseEngineType
-            }) ?? new();
+            // Only include database type data sources (migrations don't support CloudWatch, etc.)
+            _availableProjects = _dataSources?
+                .Where(x => x.DatabaseEngineType.HasValue)
+                .ToDictionary(x => x.Id, x => new QueryStepBuilder.ProjectInfo
+                {
+                    Name = x.Name,
+                    DatabaseEngine = x.DatabaseEngineType!.Value.ToString(),
+                    DatabaseEngineType = x.DatabaseEngineType.Value
+                }) ?? new();
         }
         catch (Exception ex)
         {
