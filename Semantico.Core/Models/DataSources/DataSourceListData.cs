@@ -9,7 +9,9 @@ public class DataSourceListData
 
     public required string Name { get; init; }
 
-    public required DatabaseEngineType DatabaseEngineType { get; init; }
+    public required DataSourceType DataSourceType { get; init; }
+
+    public DatabaseEngineType? DatabaseEngineType { get; init; }
 
     public List<QueryData> Queries { get; init; } = new();
 

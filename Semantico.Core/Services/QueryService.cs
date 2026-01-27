@@ -117,8 +117,12 @@ public class QueryDetailsData
     public bool IsCrossDatabase => Steps.Select(s => s.DatabaseEngineType).Distinct().Count() > 1;
 
     public List<string> DataSourceNames => Steps.Select(s => s.DataSourceName).Distinct().ToList();
-    
-    public List<DatabaseEngineType> DatabaseEngines => Steps.Select(s => s.DatabaseEngineType).Distinct().ToList();
+
+    public List<DatabaseEngineType> DatabaseEngines => Steps
+        .Where(s => s.DatabaseEngineType.HasValue)
+        .Select(s => s.DatabaseEngineType!.Value)
+        .Distinct()
+        .ToList();
 
     /// <summary>
     /// Backward compatibility properties (map to first step)
@@ -833,8 +837,8 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
                 var dataSourceInfo = new ProjectInfo
                 {
                     Name = step.DataSource.Name,
-                    DatabaseEngine = step.DataSource.DatabaseEngineType.ToString(),
-                    DatabaseEngineType = step.DataSource.DatabaseEngineType
+                    DatabaseEngine = step.DataSource.DatabaseEngineType?.ToString() ?? step.DataSource.DataSourceType.ToString(),
+                    DatabaseEngineType = step.DataSource.DatabaseEngineType ?? DatabaseEngineType.PostgreSQL // Default fallback
                 };
 
                 virtualTableManager.AddVirtualTable($"@result{step.StepOrder}", stepResult.AllResults, dataSourceInfo);
@@ -870,20 +874,26 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
             IsCrossDataSource = query.IsCrossDataSource,
             IsCrossDatabase = query.IsCrossDatabase,
             DataSourcesInvolved = stepResults.Select(s => s.DataSourceName).Distinct().ToList(),
-            DatabaseEnginesUsed = stepResults.Select(s => s.DatabaseEngineType).Distinct().ToList(),
+            DatabaseEnginesUsed = stepResults
+                .Select(s => s.DatabaseEngineType)
+                .Distinct()
+                .ToList(),
             ExecutionTimeByDataSource = dataSourceExecutionTimes
         };
     }
 
     private async Task<QueryStepResult> ExecuteStep(QueryStep step, List<ParameterValue>? parameters)
     {
+        if (!step.DataSource.DatabaseEngineType.HasValue)
+            throw new SemanticoException($"Data source {step.DataSourceId} is not a database type");
+
         var stepParameters = ExtractStepParameters(step, parameters);
         var (parameterizedSql, sqlParameters) = QueryHelper.PrepareParameterizedQuery(step.SqlValue, stepParameters);
 
         // Each step executes against its own data source/database
         var (results, executionTimeMs, timedOut) = await ExecuteQueryAsync(
-            step.DataSource.DatabaseEngineType,   // Each step can be different engine type!
-            encryptionService.Decrypt(step.DataSource.ConnectionString),     // Each step connects to different database
+            step.DataSource.DatabaseEngineType.Value,   // Each step can be different engine type!
+            encryptionService.Decrypt(step.DataSource.EncryptedConnectionData),     // Each step connects to different database
             parameterizedSql,
             sqlParameters,
             null // Use default timeout
@@ -895,8 +905,8 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
             StepName = step.Name ?? $"Step {step.StepOrder}",
             SqlQuery = parameterizedSql,
             DataSourceName = step.DataSource.Name,
-            DatabaseEngine = step.DataSource.DatabaseEngineType.ToString(),
-            DatabaseEngineType = step.DataSource.DatabaseEngineType,
+            DatabaseEngine = step.DataSource.DatabaseEngineType.Value.ToString(),
+            DatabaseEngineType = step.DataSource.DatabaseEngineType.Value,
             PreviewResults = results.Take(10).ToList(),
             AllResults = results,
             TotalRows = results.Count,

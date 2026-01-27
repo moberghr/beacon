@@ -7,9 +7,22 @@ public class DataSource : ArchivableBaseEntity
 {
     public required string Name { get; set; }
 
-    public required string ConnectionString { get; set; }
+    /// <summary>
+    /// Type of data source (Database, CloudWatch, etc.)
+    /// </summary>
+    public required DataSourceType DataSourceType { get; set; }
 
-    public required DatabaseEngineType DatabaseEngineType { get; set; }
+    /// <summary>
+    /// Encrypted connection data
+    /// - For Database types: connection string
+    /// - For CloudWatch/other providers: JSON configuration
+    /// </summary>
+    public required string EncryptedConnectionData { get; set; }
+
+    /// <summary>
+    /// Only applicable for Database type data sources
+    /// </summary>
+    public DatabaseEngineType? DatabaseEngineType { get; set; }
 
     public List<QueryStep> QuerySteps { get; set; } = new();
 }

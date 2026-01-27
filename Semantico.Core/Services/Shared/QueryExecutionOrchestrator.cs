@@ -1,12 +1,12 @@
-using System.Data.Common;
-using Dapper;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using Semantico.Core.Adapters;
-using Semantico.Core.Data.Entities;
+using Semantico.Core.Data;
 using Semantico.Core.Data.Enums;
 using Semantico.Core.Helpers;
+using Semantico.Core.Models;
 using Semantico.Core.Models.Queries;
 using Semantico.Core.Models.Subscriptions;
+using Semantico.Core.Services.Providers;
 
 namespace Semantico.Core.Services.Shared;
 
@@ -14,14 +14,12 @@ namespace Semantico.Core.Services.Shared;
 /// Shared orchestrator for multi-step query execution
 /// Used by both QueryService and MigrationService
 /// </summary>
-internal class QueryExecutionOrchestrator
+internal class QueryExecutionOrchestrator(
+    IDbContextFactory<SemanticoContext> contextFactory,
+    IDataSourceProviderFactory providerFactory,
+    ILogger<QueryExecutionOrchestrator> logger)
 {
-    private readonly ILogger<QueryExecutionOrchestrator> _logger;
-
-    public QueryExecutionOrchestrator(ILogger<QueryExecutionOrchestrator> logger)
-    {
-        _logger = logger;
-    }
+    private readonly ILogger<QueryExecutionOrchestrator> _logger = logger;
 
     /// <summary>
     /// Executes a list of query steps across potentially different databases
@@ -37,8 +35,12 @@ internal class QueryExecutionOrchestrator
 
         foreach (var step in steps.OrderBy(s => s.StepOrder))
         {
-            _logger.LogDebug("Executing step {StepOrder} against project {DataSourceName} ({DatabaseEngine})",
-                step.StepOrder, step.DataSourceName, step.DatabaseEngineType);
+            var dataSourceInfo = step.DatabaseEngineType.HasValue
+                ? $"{step.DataSourceName} ({step.DatabaseEngineType})"
+                : $"{step.DataSourceName} ({step.DataSourceType})";
+
+            _logger.LogDebug("Executing step {StepOrder} against data source {DataSourceInfo}",
+                step.StepOrder, dataSourceInfo);
 
             var result = await ExecuteSingleStep(step, parameters, cancellationToken);
             results.Add(result);
@@ -89,6 +91,7 @@ internal class QueryExecutionOrchestrator
             StepName = step.Name ?? $"Step {step.StepOrder}",
             SqlQuery = parameterizedSql,
             DataSourceName = step.DataSourceName,
+            DataSourceType = step.DataSourceType,
             DatabaseEngineType = step.DatabaseEngineType,
             Results = results,
             TotalRows = results.Count,
@@ -99,7 +102,7 @@ internal class QueryExecutionOrchestrator
     }
 
     /// <summary>
-    /// Executes a SQL query against the specified database
+    /// Executes a query against the specified data source using the appropriate provider
     /// </summary>
     private async Task<List<Dictionary<string, object?>>> ExecuteQueryAsync(
         QueryStepData step,
@@ -107,13 +110,28 @@ internal class QueryExecutionOrchestrator
         Dictionary<string, object?> parameters,
         CancellationToken cancellationToken)
     {
-        // Note: This method needs to be provided a connection string
-        // In a real implementation, this would get the connection from project configuration
-        // For now, this is a placeholder that should be replaced with actual connection logic
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        throw new NotImplementedException(
-            "ExecuteQueryAsync requires access to project connection strings. " +
-            "This should be injected via a repository or configuration service.");
+        var dataSource = await context.DataSources
+            .FirstOrDefaultAsync(ds => ds.Id == step.DataSourceId, cancellationToken)
+            ?? throw new SemanticoException($"Data source {step.DataSourceId} not found");
+
+        // Get appropriate provider based on data source type
+        var provider = providerFactory.GetProvider(dataSource.DataSourceType);
+
+        // Execute using provider
+        var result = await provider.ExecuteQueryAsync(
+            dataSource,
+            parameterizedSql,
+            parameters,
+            cancellationToken);
+
+        if (!result.Success)
+        {
+            throw new SemanticoException(result.ErrorMessage ?? "Query execution failed");
+        }
+
+        return result.Rows;
     }
 
     /// <summary>
@@ -147,7 +165,8 @@ public class StepExecutionResult
     public string StepName { get; set; } = null!;
     public string SqlQuery { get; set; } = null!;
     public string DataSourceName { get; set; } = null!;
-    public DatabaseEngineType DatabaseEngineType { get; set; }
+    public DataSourceType DataSourceType { get; set; }
+    public DatabaseEngineType? DatabaseEngineType { get; set; }
     public List<Dictionary<string, object?>> Results { get; set; } = new();
     public int TotalRows { get; set; }
     public double ExecutionTimeMs { get; set; }

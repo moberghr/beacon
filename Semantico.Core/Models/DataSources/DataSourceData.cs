@@ -8,7 +8,9 @@ public class DataSourceData
 
     public string Name { get; set; }
 
+    public DataSourceType DataSourceType { get; set; } = DataSourceType.Database;
+
     public string ConnectionString { get; set; }
 
-    public DatabaseEngineType DatabaseEngineType { get; set; }
+    public DatabaseEngineType? DatabaseEngineType { get; set; }
 }

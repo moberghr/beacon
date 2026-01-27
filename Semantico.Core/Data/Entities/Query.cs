@@ -63,5 +63,9 @@ public class Query : ArchivableBaseEntity, IMultiStepWorkflow
 
     public List<int> DataSourceIds => Steps.Select(s => s.DataSourceId).Distinct().ToList();
 
-    public List<DatabaseEngineType> DatabaseEngines => Steps.Select(s => s.DataSource.DatabaseEngineType).Distinct().ToList();
+    public List<DatabaseEngineType> DatabaseEngines => Steps
+        .Where(s => s.DataSource.DatabaseEngineType.HasValue)
+        .Select(s => s.DataSource.DatabaseEngineType!.Value)
+        .Distinct()
+        .ToList();
 }

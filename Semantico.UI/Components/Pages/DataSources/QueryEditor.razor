@@ -6,8 +6,10 @@
 @using Semantico.Core.Data.Enums
 @using Semantico.Core.Models.Metadata
 @using Semantico.Core.Models.DataSources
+@using Semantico.Core.Models.Providers.CloudWatch
 @using BlazorMonaco
 @using BlazorMonaco.Editor
+@using System.Text.Json
 
 <style>
     .sql-editor-container {
@@ -41,9 +43,18 @@
                 <MudGrid>
                     <MudItem xs="12" sm="6" md="3">
                         <MudPaper Elevation="0" Class="pa-4 d-flex flex-column align-center">
-                            <MudIcon Icon="@Icons.Material.Filled.Storage" Color="Color.Primary" Size="Size.Large" Class="mb-2"/>
-                            <MudText Typo="Typo.h4">@_dataSourceInfo?.DatabaseEngineType</MudText>
-                            <MudText Typo="Typo.body2" Color="Color.Secondary">Database Type</MudText>
+                            <MudIcon Icon="@(_dataSourceInfo?.DataSourceType == DataSourceType.CloudWatch ? Icons.Material.Filled.Cloud : Icons.Material.Filled.Storage)" Color="Color.Primary" Size="Size.Large" Class="mb-2"/>
+                            <MudText Typo="Typo.h4">
+                                @if (_dataSourceInfo?.DataSourceType == DataSourceType.CloudWatch)
+                                {
+                                    <text>CloudWatch</text>
+                                }
+                                else
+                                {
+                                    @_dataSourceInfo?.DatabaseEngineType
+                                }
+                            </MudText>
+                            <MudText Typo="Typo.body2" Color="Color.Secondary">Data Source Type</MudText>
                         </MudPaper>
                     </MudItem>
                     <MudItem xs="12" sm="6" md="3">
@@ -60,16 +71,19 @@
                             <MudText Typo="Typo.body2" Color="Color.Secondary">Migration Jobs</MudText>
                         </MudPaper>
                     </MudItem>
-                    <MudItem xs="12" sm="6" md="3">
-                        <MudPaper Elevation="0" Class="pa-4 d-flex flex-column align-center">
-                            <MudIcon Icon="@Icons.Material.Filled.TableChart" Color="Color.Warning" Size="Size.Large" Class="mb-2"/>
-                            <MudText Typo="Typo.h4">@(_metadata?.Tables.Count ?? 0)</MudText>
-                            <MudText Typo="Typo.body2" Color="Color.Secondary">Tables</MudText>
-                        </MudPaper>
-                    </MudItem>
+                    @if (_dataSourceInfo?.DataSourceType == DataSourceType.Database)
+                    {
+                        <MudItem xs="12" sm="6" md="3">
+                            <MudPaper Elevation="0" Class="pa-4 d-flex flex-column align-center">
+                                <MudIcon Icon="@Icons.Material.Filled.TableChart" Color="Color.Warning" Size="Size.Large" Class="mb-2"/>
+                                <MudText Typo="Typo.h4">@(_metadata?.Tables.Count ?? 0)</MudText>
+                                <MudText Typo="Typo.body2" Color="Color.Secondary">Tables</MudText>
+                            </MudPaper>
+                        </MudItem>
+                    }
                 </MudGrid>
 
-                @if (_configuration?.UseAI == true)
+                @if (_configuration?.UseAI == true && _dataSourceInfo?.DataSourceType == DataSourceType.Database)
                 {
                     <MudDivider Class="my-4" />
                     <div class="d-flex flex-column align-center gap-2">
@@ -99,7 +113,7 @@
         </MudCard>
 
         <!-- Active Agent Runs -->
-        @if (_configuration?.UseAI == true && _activeAgentRuns?.Count > 0)
+        @if (_configuration?.UseAI == true && _dataSourceInfo?.DataSourceType == DataSourceType.Database && _activeAgentRuns?.Count > 0)
         {
             <MudCard Elevation="2" Class="mb-4">
                 <MudCardHeader>
@@ -122,7 +136,7 @@
         }
 
         <!-- AI Documentation History -->
-        @if (_configuration?.UseAI == true && _documentations?.Count > 0)
+        @if (_configuration?.UseAI == true && _dataSourceInfo?.DataSourceType == DataSourceType.Database && _documentations?.Count > 0)
         {
             <MudCard Elevation="2" Class="mb-4">
                 <MudCardHeader>
@@ -177,115 +191,125 @@
             </MudCard>
         }
 
-        <!-- Query Editor -->
-        <MudCard Elevation="2" Class="mb-4">
-            <MudCardHeader>
-                <CardHeaderContent>
-                    <MudText Typo="Typo.h6">Ad-Hoc Query Editor</MudText>
-                </CardHeaderContent>
-            </MudCardHeader>
-            <MudCardContent>
-                <div class="d-flex align-center gap-2 mb-2">
-                    <MudButton Variant="Variant.Filled"
-                              Color="Color.Primary"
-                              StartIcon="@Icons.Material.Filled.PlayArrow"
-                              OnClick="ExecuteQuery"
-                              Disabled="@_executing">
-                        @(_executing ? "Executing..." : "Execute Query")
-                    </MudButton>
-                    <MudButton Variant="Variant.Outlined"
-                              Color="Color.Secondary"
-                              StartIcon="@Icons.Material.Filled.Refresh"
-                              OnClick="RefreshMetadata"
-                              Disabled="@_refreshingMetadata">
-                        @(_refreshingMetadata ? "Refreshing..." : "Refresh Metadata")
-                    </MudButton>
-                    @if (_metadata != null)
-                    {
-                        <MudText Typo="Typo.caption" Class="ml-auto">
-                            Last refreshed: @_metadata.RefreshedAt.ToString("g")
-                        </MudText>
-                    }
-                </div>
-
-                <div style="display: flex; gap: 0; height: 600px; border: 1px solid #ddd;">
-                    <div style="width: 300px; min-width: 300px; height: 100%; overflow: hidden;">
-                        <DatabaseExplorer Metadata="@_metadata"
-                                         OnTableSelected="@OnTableSelected"
-                                         OnColumnSelected="@OnColumnSelected" />
-                    </div>
-                    <div style="flex: 1; height: 100%; border-left: 1px solid #ddd;">
-                        @if (_monacoReady)
-                        {
-                            <StandaloneCodeEditor @ref="_editor"
-                                                 Id="query-editor"
-                                                 ConstructionOptions="EditorConstructionOptions"
-                                                 OnDidInit="OnEditorInit"
-                                                 OnDidChangeModelContent="OnEditorContentChanged"
-                                                 CssClass="sql-editor-container"/>
-                        }
-                        else
-                        {
-                            <div style="display: flex; align-items: center; justify-content: center; height: 100%; background-color: #f5f5f5;">
-                                <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
-                            </div>
-                        }
-                    </div>
-                </div>
-            </MudCardContent>
-        </MudCard>
-
-        @if (_queryResult != null)
+        <!-- Query Editor - conditional based on data source type -->
+        @if (_dataSourceInfo?.DataSourceType == DataSourceType.CloudWatch)
         {
-            <MudCard Elevation="2">
+            <CloudWatchQueryEditor DataSourceId="@DataSourceId"
+                                  Config="@_cloudWatchConfig"
+                                  ExecuteAdHocQuery="@ExecuteAdHocQueryWrapper" />
+        }
+        else
+        {
+            <!-- Database Query Editor -->
+            <MudCard Elevation="2" Class="mb-4">
                 <MudCardHeader>
                     <CardHeaderContent>
-                        <MudText Typo="Typo.h6">Query Results</MudText>
-                        <MudText Typo="Typo.body2" Color="Color.Secondary">
-                            Executed in @_queryResult.ExecutionTime.TotalMilliseconds.ToString("F2") ms | @_queryResult.RowCount rows
-                        </MudText>
+                        <MudText Typo="Typo.h6">Ad-Hoc Query Editor</MudText>
                     </CardHeaderContent>
-                    <CardHeaderActions>
-                        <MudIconButton Icon="@Icons.Material.Filled.Close"
-                                      Color="Color.Default"
-                                      OnClick="@(() => _queryResult = null)"/>
-                    </CardHeaderActions>
                 </MudCardHeader>
                 <MudCardContent>
-                    @if (_queryResult.Success)
-                    {
-                        @if (_queryResult.RowCount > 0)
+                    <div class="d-flex align-center gap-2 mb-2">
+                        <MudButton Variant="Variant.Filled"
+                                  Color="Color.Primary"
+                                  StartIcon="@Icons.Material.Filled.PlayArrow"
+                                  OnClick="ExecuteQuery"
+                                  Disabled="@_executing">
+                            @(_executing ? "Executing..." : "Execute Query")
+                        </MudButton>
+                        <MudButton Variant="Variant.Outlined"
+                                  Color="Color.Secondary"
+                                  StartIcon="@Icons.Material.Filled.Refresh"
+                                  OnClick="RefreshMetadata"
+                                  Disabled="@_refreshingMetadata">
+                            @(_refreshingMetadata ? "Refreshing..." : "Refresh Metadata")
+                        </MudButton>
+                        @if (_metadata != null)
                         {
-                            <div style="overflow-x: auto;">
-                                <MudTable Items="@_queryResult.Rows" Hover="true" Dense="true" Striped="true" Bordered="true">
-                                    <HeaderContent>
-                                        @foreach (var column in _queryResult.Columns)
-                                        {
-                                            <MudTh>@column</MudTh>
-                                        }
-                                    </HeaderContent>
-                                    <RowTemplate>
-                                        @foreach (var column in _queryResult.Columns)
-                                        {
-                                            <MudTd DataLabel="@column">
-                                                @(context.ContainsKey(column) ? (context[column]?.ToString() ?? "NULL") : "")
-                                            </MudTd>
-                                        }
-                                    </RowTemplate>
-                                </MudTable>
-                            </div>
+                            <MudText Typo="Typo.caption" Class="ml-auto">
+                                Last refreshed: @_metadata.RefreshedAt.ToString("g")
+                            </MudText>
+                        }
+                    </div>
+
+                    <div style="display: flex; gap: 0; height: 600px; border: 1px solid #ddd;">
+                        <div style="width: 300px; min-width: 300px; height: 100%; overflow: hidden;">
+                            <DatabaseExplorer Metadata="@_metadata"
+                                             OnTableSelected="@OnTableSelected"
+                                             OnColumnSelected="@OnColumnSelected" />
+                        </div>
+                        <div style="flex: 1; height: 100%; border-left: 1px solid #ddd;">
+                            @if (_monacoReady)
+                            {
+                                <StandaloneCodeEditor @ref="_editor"
+                                                     Id="query-editor"
+                                                     ConstructionOptions="EditorConstructionOptions"
+                                                     OnDidInit="OnEditorInit"
+                                                     OnDidChangeModelContent="OnEditorContentChanged"
+                                                     CssClass="sql-editor-container"/>
+                            }
+                            else
+                            {
+                                <div style="display: flex; align-items: center; justify-content: center; height: 100%; background-color: #f5f5f5;">
+                                    <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </MudCardContent>
+            </MudCard>
+
+            @if (_queryResult != null)
+            {
+                <MudCard Elevation="2">
+                    <MudCardHeader>
+                        <CardHeaderContent>
+                            <MudText Typo="Typo.h6">Query Results</MudText>
+                            <MudText Typo="Typo.body2" Color="Color.Secondary">
+                                Executed in @_queryResult.ExecutionTime.TotalMilliseconds.ToString("F2") ms | @_queryResult.RowCount rows
+                            </MudText>
+                        </CardHeaderContent>
+                        <CardHeaderActions>
+                            <MudIconButton Icon="@Icons.Material.Filled.Close"
+                                          Color="Color.Default"
+                                          OnClick="@(() => _queryResult = null)"/>
+                        </CardHeaderActions>
+                    </MudCardHeader>
+                    <MudCardContent>
+                        @if (_queryResult.Success)
+                        {
+                            @if (_queryResult.RowCount > 0)
+                            {
+                                <div style="overflow-x: auto;">
+                                    <MudTable Items="@_queryResult.Rows" Hover="true" Dense="true" Striped="true" Bordered="true">
+                                        <HeaderContent>
+                                            @foreach (var column in _queryResult.Columns)
+                                            {
+                                                <MudTh>@column</MudTh>
+                                            }
+                                        </HeaderContent>
+                                        <RowTemplate>
+                                            @foreach (var column in _queryResult.Columns)
+                                            {
+                                                <MudTd DataLabel="@column">
+                                                    @(context.ContainsKey(column) ? (context[column]?.ToString() ?? "NULL") : "")
+                                                </MudTd>
+                                            }
+                                        </RowTemplate>
+                                    </MudTable>
+                                </div>
+                            }
+                            else
+                            {
+                                <MudAlert Severity="Severity.Info">Query executed successfully but returned no rows.</MudAlert>
+                            }
                         }
                         else
                         {
-                            <MudAlert Severity="Severity.Info">Query executed successfully but returned no rows.</MudAlert>
+                            <MudAlert Severity="Severity.Error">@_queryResult.Error</MudAlert>
                         }
-                    }
-                    else
-                    {
-                        <MudAlert Severity="Severity.Error">@_queryResult.Error</MudAlert>
-                    }
-                </MudCardContent>
-            </MudCard>
+                    </MudCardContent>
+                </MudCard>
+            }
         }
     }
 </MudContainer>
@@ -319,6 +343,7 @@
     private bool _monacoReady = false;
     private List<DataSourceDocumentation>? _documentations;
     private List<Semantico.Core.Data.Entities.DocumentationAgentRun>? _activeAgentRuns;
+    private CloudWatchConfiguration? _cloudWatchConfig;
 
     protected override async Task OnInitializedAsync()
     {
@@ -341,17 +366,38 @@
                 _dataSourceName = $"Data Source {DataSourceId}";
             }
 
-            // Load metadata
-            _metadata = await MetadataService.GetMetadataAsync(DataSourceId);
-
-            // Load AI documentation history if AI is enabled
-            if (_configuration?.UseAI == true)
+            // Load metadata only for database types
+            if (_dataSourceInfo?.DataSourceType == DataSourceType.Database)
             {
-                _documentations = await Mediator.Send(new GetDocumentationsCommand { DataSourceId = DataSourceId });
+                _metadata = await MetadataService.GetMetadataAsync(DataSourceId);
+            }
+            else if (_dataSourceInfo?.DataSourceType == DataSourceType.CloudWatch)
+            {
+                // Parse CloudWatch configuration from encrypted connection data
+                try
+                {
+                    var decryptedConnectionData = await DataSourceService.GetDecryptedConnectionData(DataSourceId, CancellationToken.None);
+                    _cloudWatchConfig = JsonSerializer.Deserialize<CloudWatchConfiguration>(decryptedConnectionData);
+                }
+                catch (Exception ex)
+                {
+                    // If we can't load config, set a default
+                    _cloudWatchConfig = new CloudWatchConfiguration
+                    {
+                        Region = "Error loading configuration",
+                        LogGroups = new List<string> { ex.Message }
+                    };
+                }
             }
 
-            // Load active agent runs
-            await LoadActiveAgentRuns();
+            // Load AI documentation history if AI is enabled (only for database sources)
+            if (_configuration?.UseAI == true && _dataSourceInfo?.DataSourceType == DataSourceType.Database)
+            {
+                _documentations = await Mediator.Send(new GetDocumentationsCommand { DataSourceId = DataSourceId });
+
+                // Load active agent runs
+                await LoadActiveAgentRuns();
+            }
 
             _error = null;
         }
@@ -796,5 +842,10 @@
         await LoadActiveAgentRuns();
 
         StateHasChanged();
+    }
+
+    private async Task<AdHocQueryResult> ExecuteAdHocQueryWrapper(int dataSourceId, string query, CancellationToken cancellationToken)
+    {
+        return await DataSourceService.ExecuteAdHocQuery(dataSourceId, query, cancellationToken);
     }
 }
