@@ -32,20 +32,29 @@
                                Class="appbar-icon-btn" />
             </MudTooltip>
             <MudDivider Vertical="true" FlexItem="true" Class="appbar-divider" />
-            <MudMenu AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
-                <ActivatorContent>
-                    <MudChip T="string" Color="Color.Primary" Variant="Variant.Filled" Size="Size.Small" Class="appbar-user-chip">
-                        <MudAvatar Size="Size.Small" Style="height: 22px; width: 22px; font-size: 0.7rem;" Color="Color.Secondary">A</MudAvatar>
-                        <MudText Typo="Typo.body2" Class="ml-2">Admin</MudText>
-                    </MudChip>
-                </ActivatorContent>
-                <ChildContent>
-                    <MudMenuItem Icon="@Icons.Material.Outlined.Person">Profile</MudMenuItem>
-                    <MudMenuItem Icon="@Icons.Material.Outlined.Settings">Settings</MudMenuItem>
-                    <MudDivider Class="my-1" />
-                    <MudMenuItem Icon="@Icons.Material.Outlined.Logout">Logout</MudMenuItem>
-                </ChildContent>
-            </MudMenu>
+            @if (UserContext.IsAuthenticated)
+            {
+                <MudMenu AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
+                    <ActivatorContent>
+                        <MudChip T="string" Color="Color.Primary" Variant="Variant.Filled" Size="Size.Small" Class="appbar-user-chip">
+                            <MudAvatar Size="Size.Small" Style="height: 22px; width: 22px; font-size: 0.7rem;" Color="Color.Secondary">@GetUserInitial()</MudAvatar>
+                            <MudText Typo="Typo.body2" Class="ml-2">@(UserContext.UserName ?? "User")</MudText>
+                        </MudChip>
+                    </ActivatorContent>
+                    <ChildContent>
+                        <MudMenuItem Icon="@Icons.Material.Outlined.Person">Profile</MudMenuItem>
+                        <MudMenuItem Icon="@Icons.Material.Outlined.Settings">Settings</MudMenuItem>
+                        <MudDivider Class="my-1" />
+                        <MudMenuItem Icon="@Icons.Material.Outlined.Logout">Logout</MudMenuItem>
+                    </ChildContent>
+                </MudMenu>
+            }
+            else
+            {
+                <MudChip T="string" Color="Color.Default" Variant="Variant.Outlined" Size="Size.Small" Class="appbar-user-chip">
+                    <MudText Typo="Typo.body2">Guest</MudText>
+                </MudChip>
+            }
         </MudStack>
     </MudAppBar>
     <MudDrawer Open="true" ClipMode="DrawerClipMode.Never" Elevation="0" Width="250px" Class="semantico-drawer">
@@ -96,6 +105,7 @@
 @inject IJSRuntime JS
 @inject NavigationManager NavigationManager
 @inject SemanticoConfiguration Configuration
+@inject Semantico.Core.Authorization.ISemanticoUserContext UserContext
 
 @code
 {
@@ -107,6 +117,15 @@
         var baseUri = new Uri(NavigationManager.BaseUri);
         var path = baseUri.AbsolutePath;
         return path.EndsWith("/") ? path : $"{path}/";
+    }
+
+    private string GetUserInitial()
+    {
+        var userName = UserContext.UserName;
+        if (string.IsNullOrWhiteSpace(userName))
+            return "?";
+
+        return userName.Substring(0, 1).ToUpperInvariant();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)

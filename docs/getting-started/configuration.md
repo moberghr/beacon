@@ -169,6 +169,112 @@ Generate a secure key with: openssl rand -base64 32
 Then add to appsettings.json: { "Semantico": { "EncryptionKey": "your-generated-key" } }
 ```
 
+## Authorization Configuration (Optional)
+
+Semantico provides a flexible authorization system for controlling user access. Authorization is **disabled by default** (backward compatible).
+
+### Quick Start - Enable Authorization
+
+```csharp
+builder.Services.AddSemanticoServices(builder.Configuration, options =>
+{
+    options.AddSemanticoScheduler<YourScheduler>();
+    options.BaseUrl = "https://your-domain.com/semantico";
+
+    // Enable authorization with role-based access control
+    options.Authorization.Enabled = true;
+    options.AddAuthorizationProvider<RoleBasedAuthorizationProvider>();
+})
+.UsePostgreSql(connectionString, "semantico");
+
+builder.Services.AddSemanticoUI();
+
+// Enable authorization middleware
+app.UseSemanticoUI()
+    .UseBasicAuthentication("admin", "admin")
+    .UseAuthorization() // ← Add this line
+    .AddBlazorUI("/semantico");
+```
+
+### Built-in Authorization Providers
+
+**DefaultAuthorizationProvider** (default):
+- Allows all operations
+- Used when authorization is disabled
+- No configuration required
+
+**RoleBasedAuthorizationProvider**:
+- Simple RBAC with Admin, Editor, Viewer roles
+- Requires role claims to be added after authentication
+
+### Add Role Claims
+
+When using `RoleBasedAuthorizationProvider`, add a claims transformer:
+
+```csharp
+using Microsoft.AspNetCore.Authentication;
+using Semantico.Core.Authorization;
+
+public class MyClaimsTransformation : IClaimsTransformation
+{
+    public Task<ClaimsPrincipal> TransformAsync(ClaimsPrincipal principal)
+    {
+        var identity = (ClaimsIdentity)principal.Identity!;
+
+        // Add role based on your logic
+        identity.AddClaim(new Claim(SemanticoClaims.Role, "Admin"));
+        identity.AddClaim(new Claim(SemanticoClaims.UserId, principal.Identity.Name));
+        identity.AddClaim(new Claim(SemanticoClaims.UserName, principal.Identity.Name));
+
+        return Task.FromResult(principal);
+    }
+}
+
+// Register it
+builder.Services.AddScoped<IClaimsTransformation, MyClaimsTransformation>();
+```
+
+### Authorization Options
+
+```csharp
+options.Authorization.Enabled = true; // Enable authorization
+options.Authorization.EnableResourceLevelAuthorization = true; // Enable fine-grained permissions
+options.AddAuthorizationProvider<MyCustomProvider>(); // Use custom provider
+```
+
+### Custom Authorization Provider
+
+Create your own authorization logic:
+
+```csharp
+public class MyAuthorizationProvider : ISemanticoAuthorizationProvider
+{
+    private readonly ISemanticoUserContext _userContext;
+
+    public MyAuthorizationProvider(ISemanticoUserContext userContext)
+    {
+        _userContext = userContext;
+    }
+
+    public Task<bool> HasReadPermissionAsync(CancellationToken cancellationToken = default)
+    {
+        // Your logic here
+        return Task.FromResult(_userContext.IsAuthenticated);
+    }
+
+    public Task<bool> HasWritePermissionAsync(CancellationToken cancellationToken = default)
+    {
+        // Your logic here
+        return Task.FromResult(_userContext.HasClaim(SemanticoClaims.Role, "Admin"));
+    }
+
+    // Implement other methods...
+}
+```
+
+{: .note }
+> For complete authorization documentation, integration examples, and advanced scenarios, see the [Authorization Guide](../features/authorization.md).
+
 ## AI/LLM Configuration (Optional - Experimental)
 
 {: .warning }

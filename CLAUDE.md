@@ -98,9 +98,225 @@ app.UseSemanticoUI()
 app.Run();
 ```
 
+**5. With Authorization Enabled:**
+```csharp
+// Step 1: Add core services with authorization enabled
+builder.Services.AddSemanticoServices(builder.Configuration, options =>
+    {
+        options.AddSemanticoScheduler<SemanticoScheduler>();
+        options.BaseUrl = "https://localhost:7187/semantico";
+        options.UseAI = true;
+
+        // Enable authorization
+        options.Authorization.Enabled = true;
+        options.AddAuthorizationProvider<RoleBasedAuthorizationProvider>();
+    })
+    .UsePostgreSql(connectionString, "semantico");
+
+// Step 2: Add UI components
+builder.Services.AddSemanticoUI();
+
+// Step 3: Register claims transformer (adds role claims after authentication)
+builder.Services.AddScoped<IClaimsTransformation, MyClaimsTransformation>();
+
+// Middleware: Enable authorization
+app.UseSemanticoUI()
+    .UseBasicAuthentication("admin", "admin")
+    .UseAuthorization() // Enable authorization checks
+    .AddBlazorUI("/semantico");
+```
+
 **Important Notes:**
 - `app.UseStaticFiles()` must be called before `app.UseSemanticoUI()` to properly serve JavaScript, CSS, and other static assets from the Semantico UI library
 - Razor Class Library static files are referenced using `../_content/...` paths to resolve correctly with the base href configuration
+
+### Metadata Loading Configuration (Memory Management)
+
+**IMPORTANT**: For databases with hundreds of tables and thousands of columns, metadata loading can cause high memory usage and slow performance. Use these options to control metadata behavior:
+
+**Example 1: Disable metadata loading entirely**
+```csharp
+builder.Services.AddSemanticoServices(builder.Configuration, options =>
+{
+    options.AddSemanticoScheduler<SemanticoScheduler>();
+    options.BaseUrl = "https://localhost:7187/semantico";
+
+    // Disable database structure exploration
+    options.MetadataLoading.Enabled = false;
+})
+.UsePostgreSql(connectionString, "semantico");
+```
+
+**Example 2: Load only table names (no columns)**
+```csharp
+builder.Services.AddSemanticoServices(builder.Configuration, options =>
+{
+    options.AddSemanticoScheduler<SemanticoScheduler>();
+
+    // Load table names only, exclude column details
+    options.MetadataLoading.LoadTableNamesOnly = true;
+})
+.UsePostgreSql(connectionString, "semantico");
+```
+
+**Example 3: Limit tables and columns**
+```csharp
+builder.Services.AddSemanticoServices(builder.Configuration, options =>
+{
+    options.AddSemanticoScheduler<SemanticoScheduler>();
+
+    // Limit to 500 tables, 200 columns per table
+    options.MetadataLoading.MaxTables = 500;
+    options.MetadataLoading.MaxColumnsPerTable = 200;
+})
+.UsePostgreSql(connectionString, "semantico");
+```
+
+**Example 4: Schema filtering**
+```csharp
+builder.Services.AddSemanticoServices(builder.Configuration, options =>
+{
+    options.AddSemanticoScheduler<SemanticoScheduler>();
+
+    // Only load specific schemas
+    options.MetadataLoading.IncludeSchemas = new List<string> { "public", "app_schema" };
+
+    // Or exclude system schemas
+    // options.MetadataLoading.ExcludeSchemas = new List<string> { "information_schema", "pg_catalog" };
+})
+.UsePostgreSql(connectionString, "semantico");
+```
+
+**Available Options:**
+- `Enabled` (bool, default: true) - Enable/disable metadata loading completely
+- `MaxTables` (int, default: 0) - Maximum tables to load (0 = unlimited)
+- `MaxColumnsPerTable` (int, default: 0) - Maximum columns per table (0 = unlimited)
+- `LoadTableNamesOnly` (bool, default: false) - Load only table names without columns
+- `IncludeSchemas` (List<string>) - Only load specified schemas (takes precedence)
+- `ExcludeSchemas` (List<string>) - Exclude specified schemas
+
+**When to use:**
+- **Disable entirely**: If you don't need database structure exploration
+- **Table names only**: For quick overview without column details
+- **Limits**: For large databases (500+ tables, 10,000+ columns)
+- **Schema filtering**: To focus on application schemas and exclude system schemas
+
+### Authorization Configuration (Optional)
+
+**IMPORTANT**: Authorization is **disabled by default** for backward compatibility. Enable it explicitly when you need access control.
+
+**Authorization Options:**
+- `Enabled` (bool, default: false) - Enable authorization checks
+- `EnableResourceLevelAuthorization` (bool, default: false) - Enable fine-grained permissions
+- `AddAuthorizationProvider<T>()` - Register custom authorization provider
+
+**Example: Enable Simple RBAC**
+```csharp
+builder.Services.AddSemanticoServices(builder.Configuration, options =>
+{
+    options.AddSemanticoScheduler<SemanticoScheduler>();
+    options.BaseUrl = "https://localhost:7187/semantico";
+
+    // Enable authorization with role-based access control
+    options.Authorization.Enabled = true;
+    options.AddAuthorizationProvider<RoleBasedAuthorizationProvider>();
+})
+.UsePostgreSql(connectionString, "semantico");
+
+// Register claims transformer to add role claims
+builder.Services.AddScoped<IClaimsTransformation, MyClaimsTransformation>();
+
+// Enable authorization middleware
+app.UseSemanticoUI()
+    .UseBasicAuthentication("admin", "admin")
+    .UseAuthorization() // ← Add this line
+    .AddBlazorUI("/semantico");
+```
+
+**Built-in Roles (RoleBasedAuthorizationProvider):**
+- **Admin**: Full access (read, write, delete)
+- **Editor**: Read and write access (no delete)
+- **Viewer**: Read-only access
+- **Guest**: No access
+
+**Claims Required:**
+```csharp
+using Semantico.Core.Authorization;
+
+public class MyClaimsTransformation : IClaimsTransformation
+{
+    public Task<ClaimsPrincipal> TransformAsync(ClaimsPrincipal principal)
+    {
+        var identity = (ClaimsIdentity)principal.Identity!;
+
+        // Add Semantico claims
+        identity.AddClaim(new Claim(SemanticoClaims.Role, "Admin")); // or "Editor", "Viewer"
+        identity.AddClaim(new Claim(SemanticoClaims.UserId, principal.Identity.Name));
+        identity.AddClaim(new Claim(SemanticoClaims.UserName, principal.Identity.Name));
+
+        return Task.FromResult(principal);
+    }
+}
+```
+
+**Custom Authorization Provider:**
+```csharp
+public class MyAuthorizationProvider : ISemanticoAuthorizationProvider
+{
+    private readonly ISemanticoUserContext _userContext;
+
+    public MyAuthorizationProvider(ISemanticoUserContext userContext)
+    {
+        _userContext = userContext;
+    }
+
+    public Task<bool> HasReadPermissionAsync(CancellationToken cancellationToken = default)
+    {
+        // Your logic here
+        return Task.FromResult(_userContext.IsAuthenticated);
+    }
+
+    public Task<bool> HasWritePermissionAsync(CancellationToken cancellationToken = default)
+    {
+        // Your logic here - e.g., check external service
+        return Task.FromResult(_userContext.HasClaim(SemanticoClaims.Role, "Admin"));
+    }
+
+    // Implement other methods for resource-level authorization...
+}
+```
+
+**User Context Access:**
+
+Inject `ISemanticoUserContext` anywhere to access current user information:
+
+```csharp
+public class MyService
+{
+    private readonly ISemanticoUserContext _userContext;
+
+    public MyService(ISemanticoUserContext userContext)
+    {
+        _userContext = userContext;
+    }
+
+    public void DoSomething()
+    {
+        var userId = _userContext.UserId;
+        var userName = _userContext.UserName;
+        var isAuthenticated = _userContext.IsAuthenticated;
+
+        if (_userContext.HasClaim(SemanticoClaims.Role, "Admin"))
+        {
+            // Admin-only logic
+        }
+    }
+}
+```
+
+**For complete authorization documentation, see:**
+- `docs/features/authorization.md` - Full authorization guide
+- `Semantico.SampleProject/AUTHORIZATION_EXAMPLE.md` - Working example with test users
 
 ### Alternative Patterns
 
@@ -346,6 +562,65 @@ All database enum integer values are documented here for reference. These are st
 - **AI/LLM Integration**: OpenAI, Anthropic Claude, Azure OpenAI support for documentation generation and alert creation
 - **Anomaly Detection**: Statistical anomaly detection with baseline learning (Z-score, IQR, percentage change methods)
 - **Document Generation**: QuestPDF (PDF), Markdig (Markdown), Mermaid.js (ERD diagrams)
+
+## UI Display Limits (Memory Protection)
+
+**IMPORTANT**: To prevent `OutOfMemoryException` in Blazor Server, all UI result displays have a hard limit of 100 rows:
+
+- `Constants.Query.MaxUiDisplayRows = 100` - Hard limit for UI display
+- `Constants.Query.DefaultMaxRows = 10_000` - Backend processing limit for subscriptions
+- **Automatic Query Limiting**: Ad-hoc queries are automatically modified to add LIMIT/TOP clauses at the database level
+- All result grids use `MudDataGrid` with pagination (10, 25, 50, 100 rows per page)
+- Warning messages shown when query results exceed display limit
+
+### Automatic Query Rewriting
+
+When executing ad-hoc queries in the data source query editor, Semantico automatically adds appropriate LIMIT clauses **before** execution:
+
+**PostgreSQL/MySQL/SQLite:**
+```sql
+-- User types:
+SELECT * FROM users WHERE active = true
+
+-- Executed as:
+SELECT * FROM users WHERE active = true
+LIMIT 100
+```
+
+**SQL Server (MSSQL):**
+```sql
+-- User types:
+SELECT * FROM users WHERE active = true
+
+-- Executed as:
+SELECT TOP 100 * FROM users WHERE active = true
+```
+
+**Key behaviors:**
+- Limit only added if query doesn't already have one (detects LIMIT, TOP, FETCH FIRST, etc.)
+- Applied only to ad-hoc queries (scheduled subscriptions use `DefaultMaxRows`)
+- Logged when query is modified
+- Prevents fetching millions of rows from database into memory
+
+**Files implementing this limit:**
+- `Semantico.Core/Helpers/QueryLimitHelper.cs` - Automatic query rewriting logic
+- `Semantico.Core/Services/DataSourceService.cs:ExecuteAdHocQuery()` - Applies automatic limit
+- `Semantico.UI/Components/Pages/DataSources/QueryEditor.razor` - Paginated grid
+- `Semantico.UI/Components/Pages/DataSources/CloudWatchQueryEditor.razor` - Paginated grid
+- `Semantico.UI/Components/Pages/Notifications/NotificationDetails.razor` - Paginated grid with `.Take(100)`
+- `Semantico.UI/Components/Pages/QueryExecutionHistory/QueryExecutionHistoryDetails.razor` - Paginated grid with `.Take(100)`
+
+**Why this matters:**
+Blazor Server serializes the entire component render tree to send to the client via SignalR. Large result sets (100K+ rows) can cause:
+- `OutOfMemoryException` during render batch serialization in `RenderBatchWriter`
+- Circuit crashes with `SharedArrayPool` allocation failures
+- Browser unresponsiveness from excessive SignalR message traffic
+
+**For larger datasets:**
+- Use subscriptions with email/CSV attachments (supports full result sets up to `DefaultMaxRows`)
+- Add WHERE clauses or LIMIT to queries to reduce result size
+- Export results as CSV/PDF rather than viewing in browser
+- Consider data migration jobs for bulk data operations
 
 ## Recent Changes (005-ai-integration - January 2026)
 - **EncryptionKey**: Now **required** configuration for AES-256 encryption of connection strings (see Configuration section below)

@@ -38,6 +38,7 @@
 		<PackageReference Include="Hangfire.Core" Version="1.8.22" />
 		<PackageReference Include="MediatR" Version="12.4.1" />
 		<PackageReference Include="MessageCardModel" Version="1.1.5" />
+		<PackageReference Include="Microsoft.AspNetCore.Http.Abstractions" Version="2.2.0" />
 		<PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.11" />
 		<PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="9.0.11" />
 		<PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="9.0.11" />

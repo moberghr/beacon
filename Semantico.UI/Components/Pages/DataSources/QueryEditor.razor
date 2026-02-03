@@ -208,6 +208,11 @@
                     </CardHeaderContent>
                 </MudCardHeader>
                 <MudCardContent>
+                    <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">
+                        <strong>Results Limited:</strong> Ad-hoc queries are automatically limited to 100 rows to prevent memory issues.
+                        A LIMIT/TOP clause will be added if your query doesn't have one.
+                    </MudAlert>
+
                     <div class="d-flex align-center gap-2 mb-2">
                         <MudButton Variant="Variant.Filled"
                                   Color="Color.Primary"
@@ -279,23 +284,35 @@
                         {
                             @if (_queryResult.RowCount > 0)
                             {
+                                @if (_queryResult.RowCount > _queryResult.Rows.Count)
+                                {
+                                    <MudAlert Severity="Severity.Warning" Class="mb-3">
+                                        <strong>Results Truncated:</strong> Query returned @_queryResult.RowCount total rows, but only 100 rows (maximum) are displayed.
+                                        Consider adding a WHERE clause or LIMIT to reduce the result set.
+                                    </MudAlert>
+                                }
                                 <div style="overflow-x: auto;">
-                                    <MudTable Items="@_queryResult.Rows" Hover="true" Dense="true" Striped="true" Bordered="true">
-                                        <HeaderContent>
+                                    <MudDataGrid T="Dictionary<string, object?>"
+                                                 Items="@_queryResult.Rows"
+                                                 Hover="true"
+                                                 Dense="true"
+                                                 Filterable="false"
+                                                 SortMode="SortMode.Multiple">
+                                        <Columns>
                                             @foreach (var column in _queryResult.Columns)
                                             {
-                                                <MudTh>@column</MudTh>
+                                                var columnName = column;
+                                                <TemplateColumn Title="@columnName">
+                                                    <CellTemplate>
+                                                        @(context.Item.GetValueOrDefault(columnName)?.ToString() ?? "NULL")
+                                                    </CellTemplate>
+                                                </TemplateColumn>
                                             }
-                                        </HeaderContent>
-                                        <RowTemplate>
-                                            @foreach (var column in _queryResult.Columns)
-                                            {
-                                                <MudTd DataLabel="@column">
-                                                    @(context.ContainsKey(column) ? (context[column]?.ToString() ?? "NULL") : "")
-                                                </MudTd>
-                                            }
-                                        </RowTemplate>
-                                    </MudTable>
+                                        </Columns>
+                                        <PagerContent>
+                                            <MudDataGridPager T="Dictionary<string, object?>" PageSizeOptions="new int[] { 10, 25, 50, 100 }" />
+                                        </PagerContent>
+                                    </MudDataGrid>
                                 </div>
                             }
                             else

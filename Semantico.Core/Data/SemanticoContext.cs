@@ -85,6 +85,8 @@ public abstract partial class SemanticoContext : DbContext
 
     public DbSet<QueryStepChangeHistory> QueryStepChangeHistory => Set<QueryStepChangeHistory>();
 
+    public DbSet<ManualQueryExecutionLog> ManualQueryExecutionLogs => Set<ManualQueryExecutionLog>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         // Set default schema for all entities
@@ -99,6 +101,7 @@ public abstract partial class SemanticoContext : DbContext
         ConfigureAiEntities(modelBuilder);
         ConfigureAiActorEntities(modelBuilder);
         ConfigureQueryFolderEntities(modelBuilder);
+        ConfigureManualQueryExecutionLogEntity(modelBuilder);
         base.OnModelCreating(modelBuilder);
     }
 
@@ -730,6 +733,33 @@ public abstract partial class SemanticoContext : DbContext
         modelBuilder.Entity<Query>(entity =>
         {
             entity.HasIndex(e => e.FolderId);
+        });
+    }
+
+    protected static void ConfigureManualQueryExecutionLogEntity(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<ManualQueryExecutionLog>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.UserId).HasMaxLength(100);
+            entity.Property(e => e.QueryText).IsRequired();
+            entity.Property(e => e.ExecutionContext).HasMaxLength(100);
+            entity.Property(e => e.ErrorMessage).HasMaxLength(4000);
+
+            // Relationship with DataSource
+            entity.HasOne(e => e.DataSource)
+                .WithMany()
+                .HasForeignKey(e => e.DataSourceId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // Indexes for querying
+            entity.HasIndex(e => e.UserId);
+            entity.HasIndex(e => e.DataSourceId);
+            entity.HasIndex(e => e.CreatedTime);
+            entity.HasIndex(e => e.ExecutionContext);
+            entity.HasIndex(e => new { e.UserId, e.CreatedTime });
+            entity.HasIndex(e => new { e.DataSourceId, e.CreatedTime });
         });
     }
 }

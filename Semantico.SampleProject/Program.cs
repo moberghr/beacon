@@ -3,6 +3,7 @@ using Hangfire.PostgreSql;
 using Semantico.AI;
 using Semantico.Core;
 using Semantico.Core.PostgreSql;
+using Semantico.Core.SqlServer;
 using Semantico.SampleProject.Services;
 using Semantico.UI;
 
@@ -51,8 +52,14 @@ builder.Services.AddSemanticoServices(builder.Configuration, options =>
         options.AddSemanticoScheduler<SemanticoScheduler>();
         options.BaseUrl = "https://localhost:7187/semantico"; // For notification links
         options.UseAI = true; // Enable AI features (requires LLM configuration)
+
+        // Enable authorization with role-based access control
+        options.Authorization.Enabled = true;
+        options.AddAuthorizationProvider<SampleAuthorizationProvider>();
     })
-    .UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
+    //.UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico")
+    .UseSqlServer(builder.Configuration.GetConnectionString("SemanticoContextSql")!, "semantico")
+    ;
 
 // Alternative: Use SQL Server instead of PostgreSQL
 // builder.Services.AddSemanticoWithSqlServer(
@@ -67,11 +74,10 @@ builder.Services.AddSemanticoServices(builder.Configuration, options =>
 //     });
 
 // Step 2: Add Semantico UI components (Blazor + MudBlazor)
-builder.Services.AddSemanticoUI(options =>
-{
-    // Optional: Add custom authorization provider
-    // options.AddAuthorizationProvider<SampleAuthorizationProvider>();
-});
+builder.Services.AddSemanticoUI();
+
+// Register claims transformer to add role claims after authentication
+builder.Services.AddScoped<Microsoft.AspNetCore.Authentication.IClaimsTransformation, SampleClaimsTransformation>();
 
 // Step 3: Add Semantico AI services (required for AI features)
 builder.Services.AddSemanticoAI(builder.Configuration);
@@ -92,8 +98,8 @@ app.UseAuthorization();
 
 // Semantico Admin UI - available at /semantico
 app.UseSemanticoUI()
-    .UseBasicAuthentication("admin", "admin") // Basic auth for demo
-    // .UseAuthorization() // Optional: Use custom authorization
+    .UseBasicAuthentication("admin", "admin") // Basic auth for demo (username determines role)
+    .UseAuthorization() // Enable authorization checks
     .AddBlazorUI("/semantico");
 
 // Hangfire Dashboard - available at /hangfire

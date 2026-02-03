@@ -31,6 +31,9 @@ Query across PostgreSQL, SQL Server, and MySQL simultaneously with virtual table
 ### 📋 Task Management & Anomaly Detection
 Automatic alerting tasks with lifecycle tracking, statistical anomaly detection, and intelligent auto-resolution
 
+### 🔐 Authorization & Access Control
+Flexible, pluggable authorization system with role-based access control and custom provider support
+
 ## 🚀 Quick Start
 
 Add Semantico to your ASP.NET application in under 30 minutes:
@@ -224,6 +227,14 @@ flowchart LR
 - Export documentation as Markdown, HTML, or PDF
 
 ⚠️ **Note:** AI features are experimental and may produce incorrect or incomplete results. Always review AI-generated content before use.
+
+### 🔐 Authorization & Access Control
+- **Flexible Authorization**: Pluggable authorization system (disabled by default)
+- **Built-in RBAC**: Simple role-based access control with Admin/Editor/Viewer roles
+- **Custom Providers**: Integrate with any authentication system (OAuth, Identity, external services)
+- **Resource-Level Permissions**: Fine-grained access control for individual resources
+- **User Context**: Access current user information throughout the application
+- **Backward Compatible**: Existing installations work unchanged
 
 ### 🔍 Anomaly Detection
 - **Statistical Methods**: Standard deviation, IQR, percentage change detection

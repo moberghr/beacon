@@ -74,8 +74,25 @@
                 No metadata available. Select a project to load database structure.
             </MudAlert>
         }
+        else if (!Metadata.Tables.Any())
+        {
+            <MudAlert Severity="Severity.Warning" Dense="true">
+                Database metadata loading is disabled or no tables found.
+                <br/>
+                Configure <code>MetadataLoading.Enabled</code> in application settings to enable database structure exploration.
+            </MudAlert>
+        }
         else
         {
+            @* Show warning if columns are not loaded *@
+            @if (Metadata.Tables.Any() && Metadata.Tables.First().Columns.Count == 0)
+            {
+                <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">
+                    <MudText Typo="Typo.body2">Showing table names only. Column details are not loaded.</MudText>
+                    <MudText Typo="Typo.caption">Configure <code>MetadataLoading.LoadTableNamesOnly = false</code> to load column details.</MudText>
+                </MudAlert>
+            }
+
             <MudList T="string" Clickable="false" Dense="true">
                 @* Group tables by schema *@
                 @foreach (var schemaGroup in Metadata.Tables.GroupBy(t => t.SchemaName).OrderBy(g => g.Key))
@@ -110,9 +127,19 @@
                                         </div>
                                     </ChildContent>
                                     <NestedList>
-                                        @foreach (var column in table.Columns.OrderBy(c => c.ColumnName))
+                                        @if (!table.Columns.Any())
                                         {
                                             <MudListItem T="string">
+                                                <MudText Typo="Typo.caption" Color="Color.Secondary" Style="padding-left: 20px;">
+                                                    Column details not loaded
+                                                </MudText>
+                                            </MudListItem>
+                                        }
+                                        else
+                                        {
+                                            @foreach (var column in table.Columns.OrderBy(c => c.ColumnName))
+                                            {
+                                                <MudListItem T="string">
                                                 <div draggable="true"
                                                      data-drag-data="@column.ColumnName"
                                                      @ondragstart="@OnDragStartHandler"
@@ -137,6 +164,7 @@
                                                     </div>
                                                 </div>
                                             </MudListItem>
+                                            }
                                         }
                                     </NestedList>
                                 </MudListItem>
