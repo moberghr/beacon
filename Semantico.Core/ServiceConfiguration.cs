@@ -1,4 +1,5 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -7,6 +8,8 @@ using Semantico.Core.Adapters.Jira;
 using Semantico.Core.Adapters.Mail;
 using Semantico.Core.Adapters.Slack;
 using Semantico.Core.Adapters.Teams;
+using Semantico.Core.Authorization;
+using Semantico.Core.Authorization.Providers;
 using Semantico.Core.Data;
 using Semantico.Core.Models;
 using Semantico.Core.Services;
@@ -34,6 +37,22 @@ public static class ServiceConfiguration
 
         services.AddHttpClient();
         services.AddMemoryCache();
+
+        // Note: ISemanticoUserContext and ISemanticoAuthorizationProvider are registered by UI layer
+        // Core only provides the interfaces and default implementations
+
+        // Register authorization provider
+        if (configurationOptions.Authorization.ProviderType != null)
+        {
+            services.TryAddScoped(
+                typeof(ISemanticoAuthorizationProvider),
+                configurationOptions.Authorization.ProviderType);
+        }
+        else
+        {
+            // Default: allow all (backward compatible)
+            services.TryAddScoped<ISemanticoAuthorizationProvider, DefaultAuthorizationProvider>();
+        }
 
         // MediatR for CQRS pattern
         services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(typeof(ServiceConfiguration).Assembly));
@@ -86,6 +105,7 @@ public static class ServiceConfiguration
         services.TryAddTransient<IMigrationService, MigrationService>();
         services.TryAddTransient<IDatabaseMetadataService, DatabaseMetadataService>();
         services.TryAddTransient<IAnomalyDetectionService, AnomalyDetectionService>();
+        services.TryAddTransient<IManualQueryExecutionLogger, ManualQueryExecutionLogger>();
 
         services.TryAddTransient(typeof(ISemanticoScheduler), configurationOptions.SemanticoScheduler!);
 
@@ -135,6 +155,16 @@ public class SemanticoConfiguration
     /// </summary>
     public bool UseAI { get; set; } = false;
 
+    /// <summary>
+    /// Controls database metadata loading behavior. Useful for large databases with hundreds of tables.
+    /// </summary>
+    public MetadataLoadingOptions MetadataLoading { get; set; } = new();
+
+    /// <summary>
+    /// Authorization configuration
+    /// </summary>
+    public AuthorizationOptions Authorization { get; set; } = new();
+
     public void AddSemanticoScheduler<T>() where T : class, ISemanticoScheduler
     {
         SemanticoScheduler = typeof(T);
@@ -145,16 +175,14 @@ public class SemanticoConfiguration
         EmailAdapter = typeof(T);
     }
 
-    public void AddAuthorizationProvider<T>() where T : class
+    public void AddAuthorizationProvider<T>() where T : class, ISemanticoAuthorizationProvider
     {
-        AuthorizationProvider = typeof(T);
+        Authorization.ProviderType = typeof(T);
     }
 
     internal Type? SemanticoScheduler { get; set; }
 
     internal Type? EmailAdapter { get; set; }
-
-    public Type? AuthorizationProvider { get; set; }
 
     internal void ValidateCore()
     {
@@ -163,6 +191,75 @@ public class SemanticoConfiguration
             throw new SemanticoException($"Implementation of ISemanticoScheduler is required.");
         }
     }
+}
+
+/// <summary>
+/// Configuration options for database metadata loading.
+/// Use these settings to control memory usage when working with large databases.
+/// </summary>
+public class MetadataLoadingOptions
+{
+    /// <summary>
+    /// Enables metadata loading. Set to false to completely disable database structure exploration.
+    /// Default: true
+    /// </summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>
+    /// Maximum number of tables to load per data source. Set to 0 for unlimited.
+    /// Recommended: 500 for large databases to prevent memory issues.
+    /// Default: 0 (unlimited)
+    /// </summary>
+    public int MaxTables { get; set; } = 0;
+
+    /// <summary>
+    /// Maximum number of columns to load per table. Set to 0 for unlimited.
+    /// Recommended: 200 for large databases.
+    /// Default: 0 (unlimited)
+    /// </summary>
+    public int MaxColumnsPerTable { get; set; } = 0;
+
+    /// <summary>
+    /// If true, loads only table names without column details. Significantly reduces memory usage.
+    /// Default: false
+    /// </summary>
+    public bool LoadTableNamesOnly { get; set; } = false;
+
+    /// <summary>
+    /// List of schema names to exclude from metadata loading (case-insensitive).
+    /// Useful for excluding system schemas like 'information_schema', 'pg_catalog', 'sys'.
+    /// Default: empty (load all schemas)
+    /// </summary>
+    public List<string> ExcludeSchemas { get; set; } = new();
+
+    /// <summary>
+    /// List of schema names to include (case-insensitive). If specified, only these schemas are loaded.
+    /// Takes precedence over ExcludeSchemas.
+    /// Default: empty (load all schemas)
+    /// </summary>
+    public List<string> IncludeSchemas { get; set; } = new();
+}
+
+/// <summary>
+/// Configuration options for authorization.
+/// </summary>
+public class AuthorizationOptions
+{
+    /// <summary>
+    /// Enable authorization checks. Default: false (backward compatible)
+    /// </summary>
+    public bool Enabled { get; set; } = false;
+
+    /// <summary>
+    /// Authorization provider type. If null, uses DefaultAuthorizationProvider.
+    /// </summary>
+    public Type? ProviderType { get; set; }
+
+    /// <summary>
+    /// Enable resource-level authorization (requires provider support).
+    /// Default: false (use global read/write only)
+    /// </summary>
+    public bool EnableResourceLevelAuthorization { get; set; } = false;
 }
 
 /// <summary>

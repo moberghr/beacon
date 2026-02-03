@@ -179,7 +179,7 @@ public class GetQueriesRequest : SortedListRequest
     public string? SearchTerm { get; set; }
 }
 
-internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, IEncryptionService encryptionService, ILogger<QueryService> logger, ILoggerFactory loggerFactory) : IQueryService
+internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, IEncryptionService encryptionService, IManualQueryExecutionLogger queryExecutionLogger, ILogger<QueryService> logger, ILoggerFactory loggerFactory) : IQueryService
 {
     public async Task<BaseResponse> CreateQuery(QueryData queryData, CancellationToken cancellationToken)
     {
@@ -864,7 +864,7 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
             finalResult = ConvertStepToQueryResult(stepResults[0], query);
         }
         
-        return new QueryExecutionResult
+        var executionResult = new QueryExecutionResult
         {
             StepResults = stepResults,
             FinalResult = finalResult,
@@ -880,6 +880,28 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
                 .ToList(),
             ExecutionTimeByDataSource = dataSourceExecutionTimes
         };
+
+        // Log manual query execution for full query preview
+        // For multi-step queries, we log the final query if present, or concatenated step queries
+        var loggedQuery = !string.IsNullOrEmpty(finalQuery)
+            ? finalQuery
+            : string.Join("; ", stepResults.Select(s => s.SqlQuery));
+
+        var totalResultCount = finalResult?.TotalRecords ?? stepResults.LastOrDefault()?.TotalRows ?? 0;
+        var primaryDataSourceId = query.Steps.FirstOrDefault()?.DataSourceId;
+
+        await queryExecutionLogger.LogQueryExecutionAsync(
+            queryText: loggedQuery,
+            resultCount: totalResultCount,
+            executionTimeMs: totalExecutionTime,
+            success: allStepsSucceeded,
+            dataSourceId: primaryDataSourceId,
+            executionContext: "FullQueryPreview",
+            errorMessage: executionResult.ErrorMessage,
+            userId: null, // TODO: Set from middleware/user context
+            cancellationToken: cancellationToken);
+
+        return executionResult;
     }
 
     private async Task<QueryStepResult> ExecuteStep(QueryStep step, List<ParameterValue>? parameters)
@@ -899,7 +921,7 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
             null // Use default timeout
         );
 
-        return new QueryStepResult
+        var stepResult = new QueryStepResult
         {
             StepOrder = step.StepOrder,
             StepName = step.Name ?? $"Step {step.StepOrder}",
@@ -914,6 +936,20 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
             Success = !timedOut,
             ErrorMessage = timedOut ? "Step execution timed out" : null
         };
+
+        // Log manual query execution for step preview
+        await queryExecutionLogger.LogQueryExecutionAsync(
+            queryText: parameterizedSql,
+            resultCount: results.Count,
+            executionTimeMs: executionTimeMs,
+            success: !timedOut,
+            dataSourceId: step.DataSourceId,
+            executionContext: "QueryStepPreview",
+            errorMessage: timedOut ? "Step execution timed out" : null,
+            userId: null, // TODO: Set from middleware/user context
+            cancellationToken: CancellationToken.None);
+
+        return stepResult;
     }
 
     private async Task<QueryResult> ExecuteFinalQuery(string finalQuery, VirtualTableManager virtualTableManager)

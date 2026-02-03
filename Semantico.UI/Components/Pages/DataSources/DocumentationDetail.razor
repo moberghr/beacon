@@ -9,6 +9,7 @@
 @using Semantico.UI.Components.Shared
 @using MediatR
 @using Semantico.Core.Handlers.Ai.ArchiveDocumentation
+@using Markdig
 
 <SemanticoPageTitle Title="@_documentation?.Title"/>
 
@@ -583,8 +584,12 @@
             return "<p><em>No content available</em></p>";
         }
 
-        // Simple markdown display - for full rendering, add Markdig package to UI project
-        return $"<pre class=\"markdown-content\">{System.Net.WebUtility.HtmlEncode(markdown)}</pre>";
+        // Use Markdig to convert markdown to HTML
+        var pipeline = new MarkdownPipelineBuilder()
+            .UseAdvancedExtensions()
+            .Build();
+
+        return Markdown.ToHtml(markdown, pipeline);
     }
 
     private Color GetStatusColor(DocumentationStatus status)

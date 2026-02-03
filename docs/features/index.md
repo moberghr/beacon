@@ -28,6 +28,9 @@ Extract, transform, and load data between databases using multi-step ETL pipelin
 
 ## Advanced Features
 
+### [Authorization](authorization)
+Secure your Semantico installation with flexible authorization. Support for role-based access control (RBAC) and custom authorization providers. Integrate with any authentication system.
+
 ### [Multi-Step Queries](multi-step-queries)
 Chain multiple queries together and aggregate results. Query across different databases in a single workflow.
 

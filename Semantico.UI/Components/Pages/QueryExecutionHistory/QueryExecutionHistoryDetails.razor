@@ -246,20 +246,35 @@
                 </MudStack>
                 @if (_formattedResults != null)
                 {
-                    <MudDataGrid T="Dictionary<string, object?>" Items="@_formattedResults" Dense="true" Hover="true">
+                    @if (_formattedResults.Count > 100)
+                    {
+                        <MudAlert Severity="Severity.Warning" Class="mb-3">
+                            <strong>Results Truncated:</strong> This execution returned @_formattedResults.Count total rows. Only 100 rows (maximum) are displayed to prevent memory issues.
+                        </MudAlert>
+                    }
+                    <MudDataGrid T="Dictionary<string, object?>"
+                                 Items="@_formattedResults.Take(100)"
+                                 Dense="true"
+                                 Hover="true"
+                                 Filterable="false"
+                                 SortMode="SortMode.Multiple">
                         <Columns>
                             @if (_columns != null)
                             {
                                 @foreach (var column in _columns)
                                 {
-                                    <TemplateColumn Title="@column">
+                                    var columnName = column;
+                                    <TemplateColumn Title="@columnName">
                                         <CellTemplate>
-                                            @(context.Item.GetValueOrDefault(column)?.ToString() ?? "")
+                                            @(context.Item.GetValueOrDefault(columnName)?.ToString() ?? "")
                                         </CellTemplate>
                                     </TemplateColumn>
                                 }
                             }
                         </Columns>
+                        <PagerContent>
+                            <MudDataGridPager T="Dictionary<string, object?>" PageSizeOptions="new int[] { 10, 25, 50, 100 }" />
+                        </PagerContent>
                     </MudDataGrid>
                 }
                 else

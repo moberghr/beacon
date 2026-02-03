@@ -34,6 +34,7 @@
     <ItemGroup>
         <PackageReference Include="Blazored.LocalStorage" Version="4.5.0" />
         <PackageReference Include="BlazorMonaco" Version="3.4.0" />
+        <PackageReference Include="Markdig" Version="0.44.0" />
         <PackageReference Include="MudBlazor" Version="8.15.0" />
     </ItemGroup>
 

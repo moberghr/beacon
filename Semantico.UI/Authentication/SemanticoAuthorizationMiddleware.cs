@@ -1,58 +1,46 @@
-using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
+using Semantico.Core;
+using Semantico.Core.Authorization;
 
 namespace Semantico.UI.Authentication;
 
-internal sealed class SemanticoAuthorizationMiddleware
+internal sealed class SemanticoAuthorizationMiddleware(
+    RequestDelegate next,
+    ILogger<SemanticoAuthorizationMiddleware> logger)
 {
-    private readonly RequestDelegate _next;
-    private readonly ISemanticoAuthorizationProvider _authorizationProvider;
-
-    public SemanticoAuthorizationMiddleware(RequestDelegate next, ISemanticoAuthorizationProvider authorizationProvider)
+    public async Task InvokeAsync(
+        HttpContext context,
+        ISemanticoAuthorizationProvider authorizationProvider,
+        SemanticoConfiguration configuration)
     {
-        _next = next;
-        _authorizationProvider = authorizationProvider;
-    }
-
-    public async Task InvokeAsync(HttpContext context)
-    {
-        var username = context.User.Identity?.Name;
-
-        if (string.IsNullOrEmpty(username))
+        // Skip if authorization disabled
+        if (!configuration.Authorization.Enabled)
         {
-            context.Response.StatusCode = 403;
-            await context.Response.WriteAsync("Forbidden: User not authenticated");
+            await next(context);
             return;
         }
 
-        var isWriteOperation = IsWriteOperation(context.Request.Method);
+        // Determine if write operation
+        var isWriteOperation = context.Request.Method is "POST" or "PUT" or "PATCH" or "DELETE";
 
-        if (isWriteOperation)
+        // Check global permissions
+        var hasPermission = isWriteOperation
+            ? await authorizationProvider.HasWritePermissionAsync()
+            : await authorizationProvider.HasReadPermissionAsync();
+
+        if (!hasPermission)
         {
-            var hasWritePermission = await _authorizationProvider.HasWritePermissionAsync(username);
-            if (!hasWritePermission)
-            {
-                context.Response.StatusCode = 403;
-                await context.Response.WriteAsync("Forbidden: User does not have write permission");
-                return;
-            }
-        }
-        else
-        {
-            var hasReadPermission = await _authorizationProvider.HasReadPermissionAsync(username);
-            if (!hasReadPermission)
-            {
-                context.Response.StatusCode = 403;
-                await context.Response.WriteAsync("Forbidden: User does not have read permission");
-                return;
-            }
+            logger.LogWarning(
+                "Authorization denied for {Method} {Path}",
+                context.Request.Method,
+                context.Request.Path);
+
+            context.Response.StatusCode = 403;
+            await context.Response.WriteAsJsonAsync(new { error = "Forbidden" });
+            return;
         }
 
-        await _next(context);
-    }
-
-    private static bool IsWriteOperation(string method)
-    {
-        return method is "POST" or "PUT" or "PATCH" or "DELETE";
+        await next(context);
     }
 }

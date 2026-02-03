@@ -7,6 +7,8 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using MudBlazor.Services;
 using Semantico.Core;
+using Semantico.Core.Authorization;
+using Semantico.Core.Authorization.Providers;
 using Semantico.UI.Authentication;
 using Semantico.UI.Components;
 using Semantico.UI.Components.Shared;
@@ -27,6 +29,12 @@ public static class ServiceExtensions
         services.AddBlazoredLocalStorage();
         services.AddHttpContextAccessor();
 
+        // Register user context (always available)
+        services.TryAddScoped<ISemanticoUserContext, HttpContextUserContext>();
+
+        // Register default authorization provider if not already registered
+        services.TryAddScoped<Core.Authorization.ISemanticoAuthorizationProvider, DefaultAuthorizationProvider>();
+
         return services;
     }
 
@@ -45,9 +53,17 @@ public static class ServiceExtensions
         services.AddBlazoredLocalStorage();
         services.AddHttpContextAccessor();
 
+        // Register user context (always available)
+        services.TryAddScoped<ISemanticoUserContext, HttpContextUserContext>();
+
+        // Register authorization provider (custom or default)
         if (configuration.AuthorizationProvider != null)
         {
-            services.TryAddSingleton(typeof(ISemanticoAuthorizationProvider), configuration.AuthorizationProvider);
+            services.TryAddScoped(typeof(Core.Authorization.ISemanticoAuthorizationProvider), configuration.AuthorizationProvider);
+        }
+        else
+        {
+            services.TryAddScoped<Core.Authorization.ISemanticoAuthorizationProvider, DefaultAuthorizationProvider>();
         }
 
         return services;
@@ -125,11 +141,8 @@ public class SemanticoUIBuilder
 
             if (_useAuthorization)
             {
-                var authorizationProvider = _app.Services.GetService<ISemanticoAuthorizationProvider>();
-                if (authorizationProvider != null)
-                {
-                    semanticoApp.UseMiddleware<SemanticoAuthorizationMiddleware>(authorizationProvider);
-                }
+                // Add authorization middleware - it will resolve scoped dependencies per request
+                semanticoApp.UseMiddleware<SemanticoAuthorizationMiddleware>();
             }
 
             semanticoApp.UseStaticFiles();
@@ -149,7 +162,7 @@ public class SemanticoUIConfiguration
 {
     public Type? AuthorizationProvider { get; set; }
 
-    public void AddAuthorizationProvider<T>() where T : class, ISemanticoAuthorizationProvider
+    public void AddAuthorizationProvider<T>() where T : class, Core.Authorization.ISemanticoAuthorizationProvider
     {
         AuthorizationProvider = typeof(T);
     }

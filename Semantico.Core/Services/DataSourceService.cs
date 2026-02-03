@@ -3,6 +3,7 @@ using Dapper;
 using Microsoft.EntityFrameworkCore;
 using Semantico.Core.Data;
 using Semantico.Core.Data.Entities;
+using Semantico.Core.Data.Enums;
 using Semantico.Core.Helpers;
 using Semantico.Core.Models;
 using Semantico.Core.Models.DataSources;
@@ -33,6 +34,7 @@ internal class DataSourceService(
     IDbContextFactory<SemanticoContext> contextFactory,
     IEncryptionService encryptionService,
     IDataSourceProviderFactory providerFactory,
+    IManualQueryExecutionLogger queryExecutionLogger,
     ILogger<DataSourceService> logger) : IDataSourceService
 {
     public async Task<BaseResponse> CreateDataSource(DataSourceData dataSourceData, CancellationToken cancellationToken)
@@ -178,6 +180,23 @@ internal class DataSourceService(
 
         try
         {
+            // Add LIMIT/TOP clause to query if not already present (prevents fetching millions of rows)
+            var limitedQuery = query;
+            if (dataSource.DataSourceType == DataSourceType.Database && dataSource.DatabaseEngineType.HasValue)
+            {
+                limitedQuery = QueryLimitHelper.AddLimitIfMissing(
+                    query,
+                    dataSource.DatabaseEngineType.Value,
+                    Constants.Query.MaxUiDisplayRows);
+
+                if (limitedQuery != query)
+                {
+                    logger.LogInformation(
+                        "Added automatic LIMIT clause to ad-hoc query for data source {DataSourceId} (engine: {Engine})",
+                        dataSourceId, dataSource.DatabaseEngineType.Value);
+                }
+            }
+
             // Use provider factory to execute query for any data source type
             var provider = providerFactory.GetProvider(dataSource.DataSourceType);
 
@@ -186,7 +205,7 @@ internal class DataSourceService(
 
             var result = await provider.ExecuteQueryAsync(
                 dataSource,
-                query,
+                limitedQuery,  // Use limited query
                 new Dictionary<string, object?>(),
                 cancellationToken);
 
@@ -196,12 +215,28 @@ internal class DataSourceService(
                     dataSourceId, result.ErrorMessage);
             }
 
+            // Additional in-memory safety check (should not be needed if LIMIT worked)
+            var displayRows = result.Rows.Take(Constants.Query.MaxUiDisplayRows).ToList();
+            var totalRows = result.TotalRows;
+
+            // Log manual query execution
+            await queryExecutionLogger.LogQueryExecutionAsync(
+                queryText: limitedQuery,
+                resultCount: totalRows,
+                executionTimeMs: result.ExecutionTimeMs,
+                success: result.Success,
+                dataSourceId: dataSourceId,
+                executionContext: "DataSourceEditor",
+                errorMessage: result.ErrorMessage,
+                userId: null, // TODO: Set from middleware/user context
+                cancellationToken: cancellationToken);
+
             return new AdHocQueryResult
             {
                 Success = result.Success,
-                Columns = result.Success ? ExtractColumns(result.Rows) : new List<string>(),
-                Rows = result.Rows,
-                RowCount = result.TotalRows,
+                Columns = result.Success ? ExtractColumns(displayRows) : new List<string>(),
+                Rows = displayRows,
+                RowCount = totalRows,
                 ExecutionTime = TimeSpan.FromMilliseconds(result.ExecutionTimeMs),
                 Error = result.ErrorMessage
             };
@@ -209,6 +244,20 @@ internal class DataSourceService(
         catch (Exception ex)
         {
             logger.LogError(ex, "Exception executing ad-hoc query on data source {DataSourceId}", dataSourceId);
+
+            var executionTimeMs = (DateTime.UtcNow - startTime).TotalMilliseconds;
+
+            // Log failed query execution
+            await queryExecutionLogger.LogQueryExecutionAsync(
+                queryText: query,
+                resultCount: 0,
+                executionTimeMs: executionTimeMs,
+                success: false,
+                dataSourceId: dataSourceId,
+                executionContext: "DataSourceEditor",
+                errorMessage: ex.Message,
+                userId: null, // TODO: Set from middleware/user context
+                cancellationToken: cancellationToken);
 
             return new AdHocQueryResult
             {

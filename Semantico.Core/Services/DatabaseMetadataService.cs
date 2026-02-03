@@ -17,6 +17,7 @@ public class DatabaseMetadataService(
     IDbContextFactory<SemanticoContext> contextFactory,
     IEncryptionService encryptionService,
     IMemoryCache cache,
+    SemanticoConfiguration configuration,
     ILogger<DatabaseMetadataService> logger)
     : IDatabaseMetadataService
 {
@@ -63,6 +64,9 @@ public class DatabaseMetadataService(
                 _ => throw new NotSupportedException($"Database type {dataSource.DatabaseEngineType} not supported for metadata extraction")
             };
 
+            // Apply configuration filters
+            tables = ApplyMetadataFilters(tables);
+
             // Store in database
             await StoreMetadataAsync(dataSourceId, tables, cancellationToken);
 
@@ -82,6 +86,18 @@ public class DatabaseMetadataService(
 
     public async Task<DatabaseMetadataSnapshot> GetMetadataAsync(int dataSourceId, CancellationToken cancellationToken = default)
     {
+        // Check if metadata loading is disabled
+        if (!configuration.MetadataLoading.Enabled)
+        {
+            logger.LogDebug("Metadata loading is disabled in configuration");
+            await using var ctx = await contextFactory.CreateDbContextAsync(cancellationToken);
+            var ds = await ctx.DataSources.FirstOrDefaultAsync(d => d.Id == dataSourceId, cancellationToken);
+            if (ds?.DatabaseEngineType == null)
+                throw new SemanticoException($"Data source {dataSourceId} not found or is not a database type");
+
+            return new DatabaseMetadataSnapshot(dataSourceId, ds.DatabaseEngineType.Value, new List<TableMetadataDto>(), DateTime.UtcNow);
+        }
+
         // Try to get from cache first
         if (cache.TryGetValue(GetCacheKey(dataSourceId), out DatabaseMetadataSnapshot? cachedSnapshot) && cachedSnapshot != null)
         {
@@ -99,31 +115,66 @@ public class DatabaseMetadataService(
             throw new SemanticoException($"Data source {dataSourceId} is not a database type");
 
         // Try to get from database
-        var metadata = await context.DatabaseMetadata
-            .Include(m => m.Columns)
-            .Include(m => m.Indexes)
-            .Where(m => m.DataSourceId == dataSourceId)
-            .ToListAsync(cancellationToken);
+        var metadataQuery = context.DatabaseMetadata
+            .Where(m => m.DataSourceId == dataSourceId);
+
+        // Apply schema filters
+        var options = configuration.MetadataLoading;
+        if (options.IncludeSchemas.Any())
+        {
+            var includeSchemas = options.IncludeSchemas.Select(s => s.ToLowerInvariant()).ToList();
+            metadataQuery = metadataQuery.Where(m => includeSchemas.Contains(m.SchemaName.ToLower()));
+        }
+        else if (options.ExcludeSchemas.Any())
+        {
+            var excludeSchemas = options.ExcludeSchemas.Select(s => s.ToLowerInvariant()).ToList();
+            metadataQuery = metadataQuery.Where(m => !excludeSchemas.Contains(m.SchemaName.ToLower()));
+        }
+
+        // Apply table limit
+        if (options.MaxTables > 0)
+        {
+            metadataQuery = metadataQuery.Take(options.MaxTables);
+            logger.LogDebug("Limiting metadata to {MaxTables} tables", options.MaxTables);
+        }
+
+        // Load metadata based on LoadTableNamesOnly setting
+        List<DatabaseMetadata> metadata;
+        if (options.LoadTableNamesOnly)
+        {
+            metadata = await metadataQuery.ToListAsync(cancellationToken);
+            logger.LogDebug("Loaded {Count} table names only (columns excluded)", metadata.Count);
+        }
+        else
+        {
+            metadata = await metadataQuery
+                .Include(m => m.Columns)
+                .Include(m => m.Indexes)
+                .ToListAsync(cancellationToken);
+        }
 
         if (metadata.Any())
         {
             var tables = metadata.Select(m => new TableMetadataDto(
                 m.SchemaName,
                 m.TableName,
-                m.Columns.Select(c => new ColumnMetadataDto(
-                    c.ColumnName,
-                    c.DataType,
-                    c.IsNullable,
-                    c.IsPrimaryKey,
-                    c.IsForeignKey,
-                    c.OrdinalPosition,
-                    c.ForeignKeyTable,
-                    c.ForeignKeyColumn,
-                    c.DefaultValue,
-                    c.MaxLength,
-                    c.Description
-                )).OrderBy(c => c.OrdinalPosition).ToList(),
-                m.Indexes.Select(i => new IndexMetadataDto(
+                options.LoadTableNamesOnly ? new List<ColumnMetadataDto>() : m.Columns
+                    .OrderBy(c => c.OrdinalPosition)
+                    .Take(options.MaxColumnsPerTable > 0 ? options.MaxColumnsPerTable : int.MaxValue)
+                    .Select(c => new ColumnMetadataDto(
+                        c.ColumnName,
+                        c.DataType,
+                        c.IsNullable,
+                        c.IsPrimaryKey,
+                        c.IsForeignKey,
+                        c.OrdinalPosition,
+                        c.ForeignKeyTable,
+                        c.ForeignKeyColumn,
+                        c.DefaultValue,
+                        c.MaxLength,
+                        c.Description
+                    )).ToList(),
+                options.LoadTableNamesOnly ? new List<IndexMetadataDto>() : m.Indexes.Select(i => new IndexMetadataDto(
                     i.IndexName,
                     i.IsUnique,
                     i.IsPrimaryKey,
@@ -482,6 +533,65 @@ public class DatabaseMetadataService(
         }
 
         await context.SaveChangesAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Applies configuration filters to metadata to control memory usage.
+    /// </summary>
+    private IReadOnlyList<TableMetadataDto> ApplyMetadataFilters(IReadOnlyList<TableMetadataDto> tables)
+    {
+        var options = configuration.MetadataLoading;
+        var filteredTables = tables.AsEnumerable();
+
+        // Apply schema filters
+        if (options.IncludeSchemas.Any())
+        {
+            var includeSchemas = options.IncludeSchemas.Select(s => s.ToLowerInvariant()).ToHashSet();
+            filteredTables = filteredTables.Where(t => includeSchemas.Contains(t.SchemaName.ToLowerInvariant()));
+            logger.LogDebug("Filtering metadata to include only schemas: {Schemas}", string.Join(", ", options.IncludeSchemas));
+        }
+        else if (options.ExcludeSchemas.Any())
+        {
+            var excludeSchemas = options.ExcludeSchemas.Select(s => s.ToLowerInvariant()).ToHashSet();
+            filteredTables = filteredTables.Where(t => !excludeSchemas.Contains(t.SchemaName.ToLowerInvariant()));
+            logger.LogDebug("Filtering metadata to exclude schemas: {Schemas}", string.Join(", ", options.ExcludeSchemas));
+        }
+
+        // Apply table limit
+        if (options.MaxTables > 0)
+        {
+            filteredTables = filteredTables.Take(options.MaxTables);
+            logger.LogDebug("Limiting metadata to {MaxTables} tables", options.MaxTables);
+        }
+
+        var result = filteredTables.ToList();
+
+        // Apply column limit or load table names only
+        if (options.LoadTableNamesOnly)
+        {
+            logger.LogDebug("Loading table names only (columns and indexes excluded)");
+            return result.Select(t => new TableMetadataDto(
+                t.SchemaName,
+                t.TableName,
+                new List<ColumnMetadataDto>(),
+                new List<IndexMetadataDto>(),
+                t.Description
+            )).ToList();
+        }
+
+        if (options.MaxColumnsPerTable > 0)
+        {
+            logger.LogDebug("Limiting columns to {MaxColumns} per table", options.MaxColumnsPerTable);
+            return result.Select(t => new TableMetadataDto(
+                t.SchemaName,
+                t.TableName,
+                t.Columns.Take(options.MaxColumnsPerTable).ToList(),
+                t.Indexes,
+                t.Description
+            )).ToList();
+        }
+
+        return result;
     }
 
     private static string GetCacheKey(int dataSourceId) => $"{CacheKeyPrefix}{dataSourceId}";
