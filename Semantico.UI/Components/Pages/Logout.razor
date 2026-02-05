@@ -1,0 +1,54 @@
+@page "/logout"
+@rendermode InteractiveServer
+@layout LoginLayout
+@using System.Net.Http.Json
+@using Semantico.Core
+
+<SemanticoPageTitle Title="Logging out..." />
+
+<MudPaper Class="login-card pa-6" Elevation="8" Style="max-width: 420px; width: 100%;">
+    <MudStack Spacing="4" AlignItems="AlignItems.Center">
+        <img src="../_content/Semantico.UI/favicon.svg" alt="Semantico" style="width: 64px; height: 64px;" />
+        <MudText Typo="Typo.h5">Signing out...</MudText>
+        <MudProgressCircular Indeterminate="true" Color="Color.Primary" />
+    </MudStack>
+</MudPaper>
+
+<style>
+    .login-card {
+        border-radius: 16px;
+        background: var(--mud-palette-surface);
+    }
+</style>
+
+@inject HttpClient Http
+@inject NavigationManager NavigationManager
+@inject SemanticoConfiguration _configuration
+
+@code {
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                // Get the base path for the API endpoint
+                var baseUri = new Uri(NavigationManager.BaseUri);
+                var basePath = baseUri.AbsolutePath.TrimEnd('/');
+
+                // Call the logout API endpoint
+                await Http.PostAsync($"{basePath}/api/auth/logout", null);
+            }
+            catch
+            {
+                // Ignore errors during logout
+            }
+
+            // Redirect to login page
+            var loginPath = _configuration.Authentication.LoginPath;
+            var baseUriForRedirect = new Uri(NavigationManager.BaseUri);
+            var path = baseUriForRedirect.AbsolutePath.TrimEnd('/');
+            NavigationManager.NavigateTo($"{path}{loginPath}", forceLoad: true);
+        }
+    }
+}

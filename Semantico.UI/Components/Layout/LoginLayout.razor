@@ -1,0 +1,57 @@
+@using Blazored.LocalStorage
+@using Color = MudBlazor.Color
+@inherits LayoutComponentBase
+
+@* Required *@
+<MudThemeProvider IsDarkMode="@_isDark" />
+<MudPopoverProvider />
+
+@* Needed for dialogs *@
+<MudDialogProvider />
+
+@* Needed for snackbars *@
+<MudSnackbarProvider />
+
+<MudLayout Class="@($"semantico-layout semantico-login-layout {(_isDark ? "mud-theme-dark" : "")}")">
+    <MudMainContent Class="login-main-content">
+        <CascadingValue Value="@_isDark" Name="IsDarkMode">
+            @Body
+        </CascadingValue>
+    </MudMainContent>
+</MudLayout>
+
+<style>
+    .semantico-login-layout {
+        min-height: 100vh;
+        background: linear-gradient(135deg,
+            var(--mud-palette-background) 0%,
+            var(--mud-palette-surface) 50%,
+            var(--mud-palette-background) 100%);
+    }
+
+    .login-main-content {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+        padding: 24px;
+    }
+</style>
+
+@inject ILocalStorageService LocalStorage
+
+@code
+{
+    private static bool _isDark = true;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _isDark = await LocalStorage.GetItemAsync<string>("IsDark") == "True";
+            StateHasChanged();
+        }
+
+        await base.OnAfterRenderAsync(firstRender);
+    }
+}

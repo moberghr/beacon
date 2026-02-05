@@ -1,0 +1,187 @@
+@page "/login"
+@rendermode InteractiveServer
+@layout LoginLayout
+@using Semantico.Core
+@using Semantico.Core.Authorization
+
+<SemanticoPageTitle Title="Login" />
+
+<MudPaper Class="login-card pa-6" Elevation="8" Style="max-width: 420px; width: 100%;">
+    <MudStack Spacing="4" AlignItems="AlignItems.Center">
+        <!-- Logo and Title -->
+        <MudStack Spacing="2" AlignItems="AlignItems.Center">
+            <img src="../_content/Semantico.UI/favicon.svg" alt="Semantico" style="width: 64px; height: 64px;" />
+            <MudText Typo="Typo.h4" Style="font-weight: 600;">Semantico</MudText>
+            <MudText Typo="Typo.body2" Color="Color.Secondary">Sign in to continue</MudText>
+        </MudStack>
+
+        <!-- Error Alert -->
+        @if (!string.IsNullOrEmpty(_errorMessage))
+        {
+            <MudAlert Severity="Severity.Error" Class="mt-2" Style="width: 100%;">
+                @_errorMessage
+            </MudAlert>
+        }
+
+        <!-- Login Form -->
+        <MudForm @ref="_form" Style="width: 100%;">
+            <MudStack Spacing="3">
+                <MudTextField @bind-Value="_username"
+                              Label="Username"
+                              Variant="Variant.Outlined"
+                              InputType="InputType.Text"
+                              Adornment="Adornment.Start"
+                              AdornmentIcon="@Icons.Material.Filled.Person"
+                              Disabled="@_isLoading"
+                              Required="true"
+                              RequiredError="Username is required"
+                              Immediate="true" />
+
+                <MudTextField @bind-Value="_password"
+                              Label="Password"
+                              Variant="Variant.Outlined"
+                              InputType="@(_showPassword ? InputType.Text : InputType.Password)"
+                              Adornment="Adornment.End"
+                              AdornmentIcon="@(_showPassword ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)"
+                              OnAdornmentClick="TogglePasswordVisibility"
+                              Disabled="@_isLoading"
+                              Required="true"
+                              RequiredError="Password is required"
+                              Immediate="true"
+                              OnKeyUp="HandleKeyUp" />
+
+                @if (_configuration.Authentication.EnableRememberMe)
+                {
+                    <MudCheckBox @bind-Value="_rememberMe"
+                                 Label="Remember me"
+                                 Color="Color.Primary"
+                                 Disabled="@_isLoading" />
+                }
+
+                <MudButton Variant="Variant.Filled"
+                           Color="Color.Primary"
+                           FullWidth="true"
+                           Size="Size.Large"
+                           Disabled="@_isLoading"
+                           OnClick="HandleLoginAsync"
+                           Class="mt-2">
+                    @if (_isLoading)
+                    {
+                        <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                        <span>Signing in...</span>
+                    }
+                    else
+                    {
+                        <MudIcon Icon="@Icons.Material.Filled.Login" Class="mr-2" />
+                        <span>Sign In</span>
+                    }
+                </MudButton>
+            </MudStack>
+        </MudForm>
+    </MudStack>
+</MudPaper>
+
+<style>
+    .login-card {
+        border-radius: 16px;
+        background: var(--mud-palette-surface);
+    }
+
+    .login-card .mud-input-outlined .mud-input-outlined-border {
+        border-radius: 8px;
+    }
+</style>
+
+@inject IJSRuntime JS
+@inject NavigationManager NavigationManager
+@inject SemanticoConfiguration _configuration
+@inject ISemanticoUserContext UserContext
+
+@code {
+    private MudForm _form = null!;
+    private string _username = string.Empty;
+    private string _password = string.Empty;
+    private bool _rememberMe;
+    private bool _isLoading;
+    private bool _showPassword;
+    private string? _errorMessage;
+
+    protected override void OnInitialized()
+    {
+        // If already authenticated, redirect to dashboard
+        if (UserContext.IsAuthenticated)
+        {
+            NavigateToDashboard();
+        }
+    }
+
+    private async Task HandleKeyUp(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await HandleLoginAsync();
+        }
+    }
+
+    private async Task HandleLoginAsync()
+    {
+        await _form.Validate();
+        if (!_form.IsValid)
+        {
+            return;
+        }
+
+        _isLoading = true;
+        _errorMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            // Build the API URL
+            var baseUri = new Uri(NavigationManager.BaseUri);
+            var apiUrl = $"{baseUri.AbsolutePath.TrimEnd('/')}/api/auth/login";
+
+            // Call the login API via JavaScript (so browser receives the cookie)
+            var result = await JS.InvokeAsync<LoginResult>("semanticoLogin", apiUrl, _username, _password, _rememberMe);
+
+            if (result.Success && !string.IsNullOrEmpty(result.RedirectUrl))
+            {
+                // Navigate with force reload to apply the new cookie
+                NavigationManager.NavigateTo(result.RedirectUrl, forceLoad: true);
+            }
+            else
+            {
+                _errorMessage = result.Error ?? "Invalid username or password.";
+                _isLoading = false;
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = "An error occurred during login. Please try again.";
+            Console.WriteLine($"Login error: {ex.Message}");
+            _isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void NavigateToDashboard()
+    {
+        var redirectPath = _configuration.Authentication.LoginRedirectPath;
+        var baseUri = new Uri(NavigationManager.BaseUri);
+        var path = baseUri.AbsolutePath.TrimEnd('/');
+        NavigationManager.NavigateTo($"{path}{redirectPath}", forceLoad: true);
+    }
+
+    private void TogglePasswordVisibility()
+    {
+        _showPassword = !_showPassword;
+    }
+
+    private class LoginResult
+    {
+        public bool Success { get; set; }
+        public string? Error { get; set; }
+        public string? RedirectUrl { get; set; }
+    }
+}
