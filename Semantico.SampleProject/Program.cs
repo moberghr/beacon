@@ -56,9 +56,13 @@ builder.Services.AddSemanticoServices(builder.Configuration, options =>
         // Enable authorization with role-based access control
         options.Authorization.Enabled = true;
         options.AddAuthorizationProvider<SampleAuthorizationProvider>();
+
+        // Enable login form authentication
+        options.Authentication.EnableLoginForm = true;
+        options.AddAuthenticationProvider<SampleAuthenticationProvider>();
     })
-    //.UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico")
-    .UseSqlServer(builder.Configuration.GetConnectionString("SemanticoContextSql")!, "semantico")
+    .UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico")
+    //.UseSqlServer(builder.Configuration.GetConnectionString("SemanticoContextSql")!, "semantico")
     ;
 
 // Alternative: Use SQL Server instead of PostgreSQL
@@ -76,10 +80,13 @@ builder.Services.AddSemanticoServices(builder.Configuration, options =>
 // Step 2: Add Semantico UI components (Blazor + MudBlazor)
 builder.Services.AddSemanticoUI();
 
+// Step 3: Add cookie authentication for login form
+builder.Services.AddSemanticoCookieAuthentication("/semantico");
+
 // Register claims transformer to add role claims after authentication
 builder.Services.AddScoped<Microsoft.AspNetCore.Authentication.IClaimsTransformation, SampleClaimsTransformation>();
 
-// Step 3: Add Semantico AI services (required for AI features)
+// Step 4: Add Semantico AI services (required for AI features)
 builder.Services.AddSemanticoAI(builder.Configuration);
 
 var app = builder.Build();
@@ -94,11 +101,14 @@ app.UseHttpsRedirection();
 // to serve _content files from Razor Class Libraries
 app.UseStaticFiles();
 
+// Authentication must be before authorization
+app.UseAuthentication();
 app.UseAuthorization();
 
 // Semantico Admin UI - available at /semantico
+// Using login form instead of basic authentication
 app.UseSemanticoUI()
-    .UseBasicAuthentication("admin", "admin") // Basic auth for demo (username determines role)
+    .UseLoginForm() // Login form for demo (use admin/admin, editor/editor, or viewer/viewer)
     .UseAuthorization() // Enable authorization checks
     .AddBlazorUI("/semantico");
 

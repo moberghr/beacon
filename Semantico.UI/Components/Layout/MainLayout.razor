@@ -45,7 +45,7 @@
                         <MudMenuItem Icon="@Icons.Material.Outlined.Person">Profile</MudMenuItem>
                         <MudMenuItem Icon="@Icons.Material.Outlined.Settings">Settings</MudMenuItem>
                         <MudDivider Class="my-1" />
-                        <MudMenuItem Icon="@Icons.Material.Outlined.Logout">Logout</MudMenuItem>
+                        <MudMenuItem Icon="@Icons.Material.Outlined.Logout" OnClick="HandleLogout">Logout</MudMenuItem>
                     </ChildContent>
                 </MudMenu>
             }
@@ -180,5 +180,10 @@
         {
             // Silently ignore if mermaid is not yet loaded
         }
+    }
+
+    private void HandleLogout()
+    {
+        NavigationManager.NavigateTo($"{GetBaseHref()}logout", forceLoad: true);
     }
 }

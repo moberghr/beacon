@@ -8,6 +8,8 @@ using Semantico.Core.Adapters.Jira;
 using Semantico.Core.Adapters.Mail;
 using Semantico.Core.Adapters.Slack;
 using Semantico.Core.Adapters.Teams;
+using Semantico.Core.Authentication;
+using Semantico.Core.Authentication.Providers;
 using Semantico.Core.Authorization;
 using Semantico.Core.Authorization.Providers;
 using Semantico.Core.Data;
@@ -52,6 +54,19 @@ public static class ServiceConfiguration
         {
             // Default: allow all (backward compatible)
             services.TryAddScoped<ISemanticoAuthorizationProvider, DefaultAuthorizationProvider>();
+        }
+
+        // Register authentication provider
+        if (configurationOptions.Authentication.ProviderType != null)
+        {
+            services.TryAddScoped(
+                typeof(ISemanticoAuthenticationProvider),
+                configurationOptions.Authentication.ProviderType);
+        }
+        else
+        {
+            // Default: authentication fails (requires explicit configuration)
+            services.TryAddScoped<ISemanticoAuthenticationProvider, DefaultAuthenticationProvider>();
         }
 
         // MediatR for CQRS pattern
@@ -165,6 +180,11 @@ public class SemanticoConfiguration
     /// </summary>
     public AuthorizationOptions Authorization { get; set; } = new();
 
+    /// <summary>
+    /// Authentication configuration
+    /// </summary>
+    public AuthenticationOptions Authentication { get; set; } = new();
+
     public void AddSemanticoScheduler<T>() where T : class, ISemanticoScheduler
     {
         SemanticoScheduler = typeof(T);
@@ -178,6 +198,11 @@ public class SemanticoConfiguration
     public void AddAuthorizationProvider<T>() where T : class, ISemanticoAuthorizationProvider
     {
         Authorization.ProviderType = typeof(T);
+    }
+
+    public void AddAuthenticationProvider<T>() where T : class, ISemanticoAuthenticationProvider
+    {
+        Authentication.ProviderType = typeof(T);
     }
 
     internal Type? SemanticoScheduler { get; set; }
@@ -260,6 +285,52 @@ public class AuthorizationOptions
     /// Default: false (use global read/write only)
     /// </summary>
     public bool EnableResourceLevelAuthorization { get; set; } = false;
+}
+
+/// <summary>
+/// Configuration options for authentication.
+/// </summary>
+public class AuthenticationOptions
+{
+    /// <summary>
+    /// Enable login form. Default: false (backward compatible)
+    /// </summary>
+    public bool EnableLoginForm { get; set; } = false;
+
+    /// <summary>
+    /// Authentication provider type. If null, uses DefaultAuthenticationProvider (which fails).
+    /// </summary>
+    public Type? ProviderType { get; set; }
+
+    /// <summary>
+    /// Path to redirect to after successful login.
+    /// Default: "/" (root of the Semantico UI)
+    /// </summary>
+    public string LoginRedirectPath { get; set; } = "/";
+
+    /// <summary>
+    /// Path to the login page.
+    /// Default: "/login"
+    /// </summary>
+    public string LoginPath { get; set; } = "/login";
+
+    /// <summary>
+    /// Cookie expiration in hours for normal login.
+    /// Default: 24 hours
+    /// </summary>
+    public int CookieExpirationHours { get; set; } = 24;
+
+    /// <summary>
+    /// Enable "Remember Me" functionality on login form.
+    /// Default: true
+    /// </summary>
+    public bool EnableRememberMe { get; set; } = true;
+
+    /// <summary>
+    /// Cookie expiration in days when "Remember Me" is checked.
+    /// Default: 30 days
+    /// </summary>
+    public int RememberMeExpirationDays { get; set; } = 30;
 }
 
 /// <summary>
