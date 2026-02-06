@@ -87,6 +87,13 @@ public abstract partial class SemanticoContext : DbContext
 
     public DbSet<ManualQueryExecutionLog> ManualQueryExecutionLogs => Set<ManualQueryExecutionLog>();
 
+    // User Management
+    public DbSet<SemanticoUser> Users => Set<SemanticoUser>();
+
+    public DbSet<SemanticoRole> Roles => Set<SemanticoRole>();
+
+    public DbSet<SemanticoUserRole> UserRoles => Set<SemanticoUserRole>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         // Set default schema for all entities
@@ -102,6 +109,7 @@ public abstract partial class SemanticoContext : DbContext
         ConfigureAiActorEntities(modelBuilder);
         ConfigureQueryFolderEntities(modelBuilder);
         ConfigureManualQueryExecutionLogEntity(modelBuilder);
+        ConfigureUserManagementEntities(modelBuilder);
         base.OnModelCreating(modelBuilder);
     }
 
@@ -760,6 +768,75 @@ public abstract partial class SemanticoContext : DbContext
             entity.HasIndex(e => e.ExecutionContext);
             entity.HasIndex(e => new { e.UserId, e.CreatedTime });
             entity.HasIndex(e => new { e.DataSourceId, e.CreatedTime });
+        });
+    }
+
+    protected static void ConfigureUserManagementEntities(ModelBuilder modelBuilder)
+    {
+        // SemanticoUser configuration
+        modelBuilder.Entity<SemanticoUser>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.ExternalId).HasMaxLength(200).IsRequired();
+            entity.Property(e => e.UserName).HasMaxLength(100).IsRequired();
+            entity.Property(e => e.Email).HasMaxLength(255);
+            entity.Property(e => e.DisplayName).HasMaxLength(200);
+            entity.Property(e => e.PasswordHash).HasMaxLength(500);
+            entity.Property(e => e.PasswordSalt).HasMaxLength(500);
+
+            // Unique constraint on ExternalId
+            entity.HasIndex(e => e.ExternalId).IsUnique();
+
+            // Unique constraint on UserName (only for non-archived users)
+            entity.HasIndex(e => new { e.UserName, e.ArchivedTime });
+
+            // Indexes for querying
+            entity.HasIndex(e => e.Email);
+            entity.HasIndex(e => e.IsEnabled);
+            entity.HasIndex(e => e.IsSuperAdmin);
+            entity.HasIndex(e => e.IsInternalUser);
+            entity.HasIndex(e => e.ArchivedTime);
+
+            // Relationships
+            entity.HasMany(e => e.UserRoles)
+                .WithOne(ur => ur.User)
+                .HasForeignKey(ur => ur.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // SemanticoRole configuration
+        modelBuilder.Entity<SemanticoRole>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Name).HasMaxLength(50).IsRequired();
+            entity.Property(e => e.Description).HasMaxLength(500);
+
+            // Unique constraint on role name
+            entity.HasIndex(e => e.Name).IsUnique();
+
+            // Relationships
+            entity.HasMany(e => e.UserRoles)
+                .WithOne(ur => ur.Role)
+                .HasForeignKey(ur => ur.RoleId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // SemanticoUserRole configuration
+        modelBuilder.Entity<SemanticoUserRole>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.AssignedByUserId).HasMaxLength(200);
+
+            // Unique constraint on user-role combination
+            entity.HasIndex(e => new { e.UserId, e.RoleId }).IsUnique();
+
+            // Indexes for querying
+            entity.HasIndex(e => e.UserId);
+            entity.HasIndex(e => e.RoleId);
+            entity.HasIndex(e => e.AssignedAt);
         });
     }
 }

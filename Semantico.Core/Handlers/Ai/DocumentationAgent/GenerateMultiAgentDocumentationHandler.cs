@@ -4,9 +4,7 @@ using Semantico.Core.Models.Ai;
 using Semantico.Core.Models.Ai.MultiAgent;
 using Semantico.Core.Data.Entities;
 
-
-
-namespace Semantico.Core.Handlers.Documentation;
+namespace Semantico.Core.Handlers.Ai.DocumentationAgent;
 
 public record GenerateMultiAgentDocumentationCommand : IRequest<DataSourceDocumentation>
 {

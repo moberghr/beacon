@@ -1,5 +1,4 @@
-﻿using Microsoft.AspNetCore.Http;
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -124,6 +123,31 @@ public static class ServiceConfiguration
 
         services.TryAddTransient(typeof(ISemanticoScheduler), configurationOptions.SemanticoScheduler!);
 
+        // User Management services (opt-in feature)
+        if (configurationOptions.UserManagement.Enabled)
+        {
+            services.TryAddSingleton<Services.Security.IPasswordHasher, Services.Security.PasswordHasher>();
+            services.TryAddTransient<IRoleService, RoleService>();
+            services.TryAddTransient<IUserManagementService, UserManagementService>();
+
+            // Register database-backed authentication provider
+            if (configurationOptions.UserManagement.AllowInternalUsers)
+            {
+                // If JWT is also configured, use hybrid provider
+                if (configurationOptions.Authentication.Jwt?.ExternalLoginEndpoint != null)
+                {
+                    services.TryAddScoped<ISemanticoAuthenticationProvider, Authentication.Providers.HybridAuthenticationProvider>();
+                }
+                else
+                {
+                    services.TryAddScoped<ISemanticoAuthenticationProvider, Authentication.Providers.DatabaseAuthenticationProvider>();
+                }
+            }
+
+            // Register database-backed authorization provider
+            services.TryAddScoped<ISemanticoAuthorizationProvider, Authorization.Providers.DatabaseAuthorizationProvider>();
+        }
+
         return new SemanticoBuilder(services, configuration);
     }
 
@@ -151,199 +175,5 @@ public static class ServiceConfiguration
         var defaultSchemaProperty = typeof(SemanticoContext).GetProperty("DefaultSchema",
             System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
         return defaultSchemaProperty?.GetValue(context) as string ?? "semantico";
-    }
-}
-
-public class SemanticoConfiguration
-{
-    public string ConnectionStringName { get; set; } = nameof(SemanticoContext);
-
-    /// <summary>
-    /// Base URL of the Semantico admin UI (e.g., https://your-domain.com/semantico)
-    /// Used for generating links in notifications.
-    /// </summary>
-    public string? BaseUrl { get; set; }
-
-    /// <summary>
-    /// Enables AI-powered features in the UI (documentation generation, smart alerts).
-    /// Requires LLM configuration in appsettings.json.
-    /// </summary>
-    public bool UseAI { get; set; } = false;
-
-    /// <summary>
-    /// Controls database metadata loading behavior. Useful for large databases with hundreds of tables.
-    /// </summary>
-    public MetadataLoadingOptions MetadataLoading { get; set; } = new();
-
-    /// <summary>
-    /// Authorization configuration
-    /// </summary>
-    public AuthorizationOptions Authorization { get; set; } = new();
-
-    /// <summary>
-    /// Authentication configuration
-    /// </summary>
-    public AuthenticationOptions Authentication { get; set; } = new();
-
-    public void AddSemanticoScheduler<T>() where T : class, ISemanticoScheduler
-    {
-        SemanticoScheduler = typeof(T);
-    }
-
-    public void AddEmailAdapter<T>() where T : class, IEmailAdapter
-    {
-        EmailAdapter = typeof(T);
-    }
-
-    public void AddAuthorizationProvider<T>() where T : class, ISemanticoAuthorizationProvider
-    {
-        Authorization.ProviderType = typeof(T);
-    }
-
-    public void AddAuthenticationProvider<T>() where T : class, ISemanticoAuthenticationProvider
-    {
-        Authentication.ProviderType = typeof(T);
-    }
-
-    internal Type? SemanticoScheduler { get; set; }
-
-    internal Type? EmailAdapter { get; set; }
-
-    internal void ValidateCore()
-    {
-        if (SemanticoScheduler == null)
-        {
-            throw new SemanticoException($"Implementation of ISemanticoScheduler is required.");
-        }
-    }
-}
-
-/// <summary>
-/// Configuration options for database metadata loading.
-/// Use these settings to control memory usage when working with large databases.
-/// </summary>
-public class MetadataLoadingOptions
-{
-    /// <summary>
-    /// Enables metadata loading. Set to false to completely disable database structure exploration.
-    /// Default: true
-    /// </summary>
-    public bool Enabled { get; set; } = true;
-
-    /// <summary>
-    /// Maximum number of tables to load per data source. Set to 0 for unlimited.
-    /// Recommended: 500 for large databases to prevent memory issues.
-    /// Default: 0 (unlimited)
-    /// </summary>
-    public int MaxTables { get; set; } = 0;
-
-    /// <summary>
-    /// Maximum number of columns to load per table. Set to 0 for unlimited.
-    /// Recommended: 200 for large databases.
-    /// Default: 0 (unlimited)
-    /// </summary>
-    public int MaxColumnsPerTable { get; set; } = 0;
-
-    /// <summary>
-    /// If true, loads only table names without column details. Significantly reduces memory usage.
-    /// Default: false
-    /// </summary>
-    public bool LoadTableNamesOnly { get; set; } = false;
-
-    /// <summary>
-    /// List of schema names to exclude from metadata loading (case-insensitive).
-    /// Useful for excluding system schemas like 'information_schema', 'pg_catalog', 'sys'.
-    /// Default: empty (load all schemas)
-    /// </summary>
-    public List<string> ExcludeSchemas { get; set; } = new();
-
-    /// <summary>
-    /// List of schema names to include (case-insensitive). If specified, only these schemas are loaded.
-    /// Takes precedence over ExcludeSchemas.
-    /// Default: empty (load all schemas)
-    /// </summary>
-    public List<string> IncludeSchemas { get; set; } = new();
-}
-
-/// <summary>
-/// Configuration options for authorization.
-/// </summary>
-public class AuthorizationOptions
-{
-    /// <summary>
-    /// Enable authorization checks. Default: false (backward compatible)
-    /// </summary>
-    public bool Enabled { get; set; } = false;
-
-    /// <summary>
-    /// Authorization provider type. If null, uses DefaultAuthorizationProvider.
-    /// </summary>
-    public Type? ProviderType { get; set; }
-
-    /// <summary>
-    /// Enable resource-level authorization (requires provider support).
-    /// Default: false (use global read/write only)
-    /// </summary>
-    public bool EnableResourceLevelAuthorization { get; set; } = false;
-}
-
-/// <summary>
-/// Configuration options for authentication.
-/// </summary>
-public class AuthenticationOptions
-{
-    /// <summary>
-    /// Enable login form. Default: false (backward compatible)
-    /// </summary>
-    public bool EnableLoginForm { get; set; } = false;
-
-    /// <summary>
-    /// Authentication provider type. If null, uses DefaultAuthenticationProvider (which fails).
-    /// </summary>
-    public Type? ProviderType { get; set; }
-
-    /// <summary>
-    /// Path to redirect to after successful login.
-    /// Default: "/" (root of the Semantico UI)
-    /// </summary>
-    public string LoginRedirectPath { get; set; } = "/";
-
-    /// <summary>
-    /// Path to the login page.
-    /// Default: "/login"
-    /// </summary>
-    public string LoginPath { get; set; } = "/login";
-
-    /// <summary>
-    /// Cookie expiration in hours for normal login.
-    /// Default: 24 hours
-    /// </summary>
-    public int CookieExpirationHours { get; set; } = 24;
-
-    /// <summary>
-    /// Enable "Remember Me" functionality on login form.
-    /// Default: true
-    /// </summary>
-    public bool EnableRememberMe { get; set; } = true;
-
-    /// <summary>
-    /// Cookie expiration in days when "Remember Me" is checked.
-    /// Default: 30 days
-    /// </summary>
-    public int RememberMeExpirationDays { get; set; } = 30;
-}
-
-/// <summary>
-/// Builder for configuring Semantico services with a database provider.
-/// </summary>
-public class SemanticoBuilder
-{
-    public IServiceCollection Services { get; }
-    public IConfiguration Configuration { get; }
-
-    internal SemanticoBuilder(IServiceCollection services, IConfiguration configuration)
-    {
-        Services = services;
-        Configuration = configuration;
     }
 }

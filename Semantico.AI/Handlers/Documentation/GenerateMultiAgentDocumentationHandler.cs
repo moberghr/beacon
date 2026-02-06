@@ -2,7 +2,7 @@ using MediatR;
 using Semantico.AI.Models.MultiAgent;
 using Semantico.AI.Services.Ai.MultiAgent;
 using Semantico.Core.Data.Entities;
-using Semantico.Core.Handlers.Documentation;
+using Semantico.Core.Handlers.Ai.DocumentationAgent;
 
 namespace Semantico.AI.Handlers.Documentation;
 

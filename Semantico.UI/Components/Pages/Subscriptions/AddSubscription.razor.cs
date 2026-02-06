@@ -154,7 +154,7 @@ public partial class AddSubscription
             if (response.Success)
             {
                 Snackbar.Add("Subscription created successfully", Severity.Success);
-                NavigationManager.NavigateTo("/subscriptions");
+                NavigationManager.NavigateTo("subscriptions");
             }
             else
             {
@@ -173,7 +173,7 @@ public partial class AddSubscription
 
     private void Cancel()
     {
-        NavigationManager.NavigateTo("/subscriptions");
+        NavigationManager.NavigateTo("subscriptions");
     }
 
     private string GetRecipientIcon(NotificationType notificationType)

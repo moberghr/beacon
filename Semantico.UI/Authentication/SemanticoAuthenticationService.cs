@@ -53,34 +53,7 @@ public class SemanticoAuthenticationService : ISemanticoAuthenticationService
         }
 
         // Build claims from the authenticated user
-        var claims = new List<Claim>
-        {
-            new(ClaimTypes.Name, result.User.UserName),
-            new(ClaimTypes.NameIdentifier, result.User.UserId)
-        };
-
-        if (!string.IsNullOrEmpty(result.User.Email))
-        {
-            claims.Add(new Claim(ClaimTypes.Email, result.User.Email));
-        }
-
-        if (!string.IsNullOrEmpty(result.User.DisplayName))
-        {
-            claims.Add(new Claim("DisplayName", result.User.DisplayName));
-        }
-
-        // Add roles
-        foreach (var role in result.User.Roles)
-        {
-            claims.Add(new Claim(ClaimTypes.Role, role));
-        }
-
-        // Add custom claims
-        foreach (var claim in result.User.Claims)
-        {
-            claims.Add(new Claim(claim.Key, claim.Value));
-        }
-
+        var claims = result.User.ToClaims();
         var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
         var principal = new ClaimsPrincipal(identity);
 

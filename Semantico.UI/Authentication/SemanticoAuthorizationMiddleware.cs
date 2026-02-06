@@ -65,33 +65,6 @@ internal sealed class SemanticoAuthorizationMiddleware(
         await next(context);
     }
 
-    private static bool IsStaticFileOrFramework(string path)
-    {
-        // Allow Blazor framework files
-        if (path.Contains("/_framework/") || path.Contains("/_blazor"))
-        {
-            return true;
-        }
-
-        // Allow static content files
-        if (path.Contains("/_content/"))
-        {
-            return true;
-        }
-
-        // Allow common static file extensions
-        if (path.EndsWith(".js", StringComparison.OrdinalIgnoreCase) ||
-            path.EndsWith(".css", StringComparison.OrdinalIgnoreCase) ||
-            path.EndsWith(".svg", StringComparison.OrdinalIgnoreCase) ||
-            path.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ||
-            path.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ||
-            path.EndsWith(".ico", StringComparison.OrdinalIgnoreCase) ||
-            path.EndsWith(".woff", StringComparison.OrdinalIgnoreCase) ||
-            path.EndsWith(".woff2", StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        return false;
-    }
+    private static bool IsStaticFileOrFramework(string path) =>
+        MiddlewarePathHelper.IsStaticOrFrameworkPath(path);
 }

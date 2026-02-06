@@ -5,22 +5,15 @@ using Microsoft.AspNetCore.Http;
 
 namespace Semantico.UI.Authentication;
 
-internal sealed class BasicAuthMiddleware
+internal sealed class BasicAuthMiddleware(
+    RequestDelegate next,
+    BasicAuthConfiguration configuration)
 {
-    private readonly RequestDelegate _next;
-    private readonly BasicAuthConfiguration _configuration;
-
-    public BasicAuthMiddleware(RequestDelegate next, BasicAuthConfiguration configuration)
-    {
-        _next = next;
-        _configuration = configuration;
-    }
-
     public async Task InvokeAsync(HttpContext context)
     {
-        if (!_configuration.Enabled)
+        if (!configuration.Enabled)
         {
-            await _next(context);
+            await next(context);
             return;
         }
 
@@ -45,7 +38,7 @@ internal sealed class BasicAuthMiddleware
         var username = parts[0];
         var password = parts[1];
 
-        if (username == _configuration.Username && password == _configuration.Password)
+        if (username == configuration.Username && password == configuration.Password)
         {
             var claims = new[]
             {
@@ -55,7 +48,7 @@ internal sealed class BasicAuthMiddleware
             var identity = new ClaimsIdentity(claims, "BasicAuthentication");
             context.User = new ClaimsPrincipal(identity);
 
-            await _next(context);
+            await next(context);
             return;
         }
 
@@ -65,7 +58,7 @@ internal sealed class BasicAuthMiddleware
     private Task ChallengeAsync(HttpContext context)
     {
         context.Response.StatusCode = (int)HttpStatusCode.Unauthorized;
-        context.Response.Headers.WWWAuthenticate = $"Basic realm=\"{_configuration.Realm}\"";
+        context.Response.Headers.WWWAuthenticate = $"Basic realm=\"{configuration.Realm}\"";
         return Task.CompletedTask;
     }
 }
