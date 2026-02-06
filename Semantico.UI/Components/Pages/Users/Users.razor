@@ -1,0 +1,153 @@
+@page "/users"
+@inherits BasePageComponent
+@using Semantico.Core
+@using Semantico.Core.Authorization
+@using Semantico.Core.Models.UserManagement
+@using Semantico.Core.Services
+@using SortDirection = MudBlazor.SortDirection
+
+<SemanticoPageTitle Title="Users"/>
+
+<MudContainer Class="my-4 px-4" MaxWidth="MaxWidth.ExtraExtraLarge">
+    <SemanticoPageHeader Icon="@Icons.Material.Filled.People" Title="Users" ButtonText="Add User" OnClick="@AddUser" />
+    <SemanticoPageAlert Text="Manage users and their roles. Internal users authenticate with passwords stored in Semantico. External users are pre-registered and authenticate via JWT/OAuth."/>
+
+    <MudDataGrid @ref="_dataGrid" ServerData="ServerReload" T="SemanticoUserData" RowClick="OnRowClick" Hover="true" Filterable="false">
+        <ToolBarContent>
+            <MudTextField T="string" ValueChanged="@(s => OnSearch(s))" Placeholder="Search by username, email, or display name"
+                          Adornment="Adornment.Start" Immediate="true"
+                          AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium" Class="mt-0" />
+        </ToolBarContent>
+        <Columns>
+            <PropertyColumn Property="x => x.Id" Title="Id" />
+            <PropertyColumn InitialDirection="SortDirection.Ascending" Property="x => x.UserName" Title="Username" />
+            <PropertyColumn Property="x => x.Email" Title="Email" />
+            <PropertyColumn Property="x => x.DisplayName" Title="Display Name" />
+            <TemplateColumn Title="Type">
+                <CellTemplate>
+                    @if (context.Item.IsInternalUser)
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Outlined">Internal</MudChip>
+                    }
+                    else
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Secondary" Variant="Variant.Outlined">External</MudChip>
+                    }
+                </CellTemplate>
+            </TemplateColumn>
+            <TemplateColumn Title="Roles">
+                <CellTemplate>
+                    @foreach (var role in context.Item.Roles)
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="@GetRoleColor(role.Level)" Variant="Variant.Filled" Class="mr-1">@role.Name</MudChip>
+                    }
+                    @if (context.Item.IsSuperAdmin)
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="Variant.Filled">Super Admin</MudChip>
+                    }
+                </CellTemplate>
+            </TemplateColumn>
+            <TemplateColumn Title="Status">
+                <CellTemplate>
+                    <MudSwitch T="bool" Value="@context.Item.IsEnabled" ValueChanged="@((bool val) => ToggleEnabled(context.Item))"
+                               Color="Color.Success" UnCheckedColor="Color.Error" ReadOnly="@context.Item.IsSuperAdmin" />
+                </CellTemplate>
+            </TemplateColumn>
+            <PropertyColumn Property="x => x.LastLoginAt" Title="Last Login" Format="dd.MM.yyyy HH:mm" />
+        </Columns>
+        <PagerContent>
+            <MudDataGridPager T="SemanticoUserData" />
+        </PagerContent>
+    </MudDataGrid>
+</MudContainer>
+
+@inject IUserManagementService UserService
+@inject IRoleService RoleService
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject SemanticoConfiguration Configuration
+@inject ISemanticoUserContext UserContext
+
+@code {
+    private MudDataGrid<SemanticoUserData>? _dataGrid;
+    private string? _searchString;
+
+    private async Task<GridData<SemanticoUserData>> ServerReload(GridState<SemanticoUserData> state)
+    {
+        var users = await UserService.GetUsersAsync(_searchString);
+
+        return new GridData<SemanticoUserData>
+        {
+            TotalItems = users.Count,
+            Items = users
+        };
+    }
+
+    private void OnSearch(string text)
+    {
+        _searchString = text;
+        _dataGrid?.ReloadServerData();
+    }
+
+    private async Task OnRowClick(DataGridRowClickEventArgs<SemanticoUserData> args)
+    {
+        var breakpoint = await BrowserViewport.GetCurrentBreakpointAsync();
+        var options = new DialogOptions
+        {
+            MaxWidth = MaxWidth.Small,
+            FullWidth = true,
+            FullScreen = breakpoint == Breakpoint.Xs,
+        };
+
+        var parameters = new DialogParameters<UpdateUserDialog> { { x => x.User, args.Item } };
+
+        var dialog = await DialogService.ShowAsync<UpdateUserDialog>("", parameters, options);
+        var result = await dialog.Result;
+
+        if (!result!.Canceled)
+        {
+            await _dataGrid?.ReloadServerData()!;
+        }
+    }
+
+    private async Task AddUser()
+    {
+        var breakpoint = await BrowserViewport.GetCurrentBreakpointAsync();
+        var options = new DialogOptions
+        {
+            MaxWidth = MaxWidth.Medium,
+            FullWidth = true,
+            FullScreen = breakpoint == Breakpoint.Xs,
+        };
+
+        var dialog = await DialogService.ShowAsync<AddUserDialog>("", options);
+        var result = await dialog.Result;
+
+        if (!result!.Canceled)
+        {
+            await _dataGrid?.ReloadServerData()!;
+        }
+    }
+
+    private async Task ToggleEnabled(SemanticoUserData user)
+    {
+        var response = await UserService.ToggleUserEnabledAsync(user.Id);
+        if (response.Success)
+        {
+            Snackbar.Add(response.Message, Severity.Success);
+            await _dataGrid?.ReloadServerData()!;
+        }
+        else
+        {
+            Snackbar.Add(response.Message, Severity.Error);
+        }
+    }
+
+    private Color GetRoleColor(int level) => level switch
+    {
+        3 => Color.Error,    // Admin
+        2 => Color.Warning,  // Editor
+        1 => Color.Info,     // Viewer
+        _ => Color.Default
+    };
+}

@@ -83,6 +83,11 @@
                 <MudNavLink Href="@($"{GetBaseHref()}tasks")" Icon="@Icons.Material.Filled.Task" IconColor="Color.Primary">Tasks</MudNavLink>
             </MudNavGroup>
             <MudNavLink Href="@($"{GetBaseHref()}data-migration")" Icon="@Icons.Material.Filled.SwapHoriz" IconColor="Color.Error">Data Migration</MudNavLink>
+            @if (Configuration?.UserManagement.Enabled == true && HasAdminRole())
+            {
+                <MudDivider Class="my-2"/>
+                <MudNavLink Href="@($"{GetBaseHref()}users")" Icon="@Icons.Material.Filled.AdminPanelSettings" IconColor="Color.Error">User Management</MudNavLink>
+            }
             <MudDivider Class="my-2"/>
             <MudNavLink Href="@($"{GetBaseHref()}about")" Icon="@Icons.Material.Filled.Info" IconColor="Color.Warning">About</MudNavLink>
         </MudNavMenu>
@@ -185,5 +190,13 @@
     private void HandleLogout()
     {
         NavigationManager.NavigateTo($"{GetBaseHref()}logout", forceLoad: true);
+    }
+
+    private bool HasAdminRole()
+    {
+        // Check if user has Admin role or is SuperAdmin
+        // For now, check claims for "Admin" role
+        return UserContext.HasClaim("role", "Admin") ||
+               UserContext.HasClaim("http://schemas.microsoft.com/ws/2008/06/identity/claims/role", "Admin");
     }
 }

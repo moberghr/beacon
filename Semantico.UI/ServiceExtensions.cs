@@ -9,6 +9,8 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using MudBlazor.Services;
 using Semantico.Core;
+using Semantico.Core.Authentication;
+using Semantico.Core.Authentication.Providers;
 using Semantico.Core.Authorization;
 using Semantico.Core.Authorization.Providers;
 using Semantico.UI.Authentication;
@@ -25,22 +27,7 @@ public static class ServiceExtensions
     /// </summary>
     public static IServiceCollection AddSemanticoUI(this IServiceCollection services)
     {
-        services.AddRazorComponents().AddInteractiveServerComponents();
-        services.AddMudServices();
-        services.AddSingleton<PageHistoryState>();
-        services.AddBlazoredLocalStorage();
-        services.AddHttpContextAccessor();
-
-        // Register user context (always available)
-        services.TryAddScoped<ISemanticoUserContext, HttpContextUserContext>();
-
-        // Register default authorization provider if not already registered
-        services.TryAddScoped<Core.Authorization.ISemanticoAuthorizationProvider, DefaultAuthorizationProvider>();
-
-        // Register authentication service
-        services.TryAddScoped<ISemanticoAuthenticationService, SemanticoAuthenticationService>();
-
-        return services;
+        return services.AddSemanticoUI(_ => { });
     }
 
     /// <summary>
@@ -99,6 +86,36 @@ public static class ServiceExtensions
         return services;
     }
 
+    /// <summary>
+    /// Adds JWT authentication support for Semantico.
+    /// Supports both login form flow (external API) and bearer token flow.
+    /// </summary>
+    /// <param name="services">The service collection.</param>
+    /// <param name="configure">Action to configure JWT options.</param>
+    public static IServiceCollection AddSemanticoJwtAuthentication(
+        this IServiceCollection services,
+        Action<JwtAuthenticationOptions> configure)
+    {
+        var options = new JwtAuthenticationOptions();
+        configure(options);
+
+        // Register options as singleton
+        services.AddSingleton(options);
+
+        // Register the JWT authentication provider
+        // This will be used for both login form flow and bearer token validation
+        services.TryAddScoped<JwtExternalApiAuthenticationProvider>();
+
+        // If ExternalLoginEndpoint is configured, register as the authentication provider
+        if (!string.IsNullOrEmpty(options.ExternalLoginEndpoint))
+        {
+            services.AddScoped<ISemanticoAuthenticationProvider>(sp =>
+                sp.GetRequiredService<JwtExternalApiAuthenticationProvider>());
+        }
+
+        return services;
+    }
+
     public static SemanticoUIBuilder UseSemanticoUI(this WebApplication app)
     {
         return new SemanticoUIBuilder(app);
@@ -111,6 +128,7 @@ public class SemanticoUIBuilder
     private readonly BasicAuthConfiguration _basicAuthConfiguration = new();
     private bool _useAuthorization;
     private bool _useLoginForm;
+    private bool _useJwtBearer;
 
     internal SemanticoUIBuilder(WebApplication app)
     {
@@ -157,6 +175,17 @@ public class SemanticoUIBuilder
         return this;
     }
 
+    /// <summary>
+    /// Enables JWT bearer token authentication for stateless API access.
+    /// Validates tokens from Authorization: Bearer {token} headers.
+    /// Requires AddSemanticoJwtAuthentication() to be called during service registration.
+    /// </summary>
+    public SemanticoUIBuilder UseJwtBearerAuthentication()
+    {
+        _useJwtBearer = true;
+        return this;
+    }
+
     public void AddBlazorUI(string? basePath = null)
     {
         basePath = basePath ?? "/semantico";
@@ -183,6 +212,15 @@ public class SemanticoUIBuilder
             _app.MapLoginEndpoints(basePath, configuration);
         }
 
+        // Map setup endpoints for first-run wizard
+        if (configuration?.UserManagement.Enabled == true)
+        {
+            _app.MapSetupEndpoints(basePath);
+        }
+
+        // Get JWT options for bearer authentication
+        var jwtOptions = _app.Services.GetService<JwtAuthenticationOptions>();
+
         // Create a separate pipeline branch for Semantico UI
         _app.Map(basePath, semanticoApp =>
         {
@@ -191,10 +229,22 @@ public class SemanticoUIBuilder
                 semanticoApp.UseMiddleware<BasicAuthMiddleware>(_basicAuthConfiguration);
             }
 
+            // JWT bearer authentication (stateless) - before login form redirect
+            if (_useJwtBearer && jwtOptions?.EnableBearerAuthentication == true)
+            {
+                semanticoApp.UseMiddleware<JwtBearerAuthMiddleware>(jwtOptions);
+            }
+
             if (_useLoginForm && configuration?.Authentication.EnableLoginForm == true)
             {
                 // Add login form authentication middleware
                 semanticoApp.UseMiddleware<LoginFormAuthMiddleware>(configuration, basePath);
+            }
+
+            // First-run setup redirect middleware
+            if (configuration?.UserManagement.Enabled == true)
+            {
+                semanticoApp.UseMiddleware<FirstRunSetupMiddleware>(configuration, basePath);
             }
 
             if (_useAuthorization)

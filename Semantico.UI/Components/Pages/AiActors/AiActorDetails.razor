@@ -35,7 +35,7 @@
     {
         <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-4">
             <MudStack Row="true" AlignItems="AlignItems.Center">
-                <MudIconButton Icon="@Icons.Material.Filled.ArrowBack" Href="/ai-actors" />
+                <MudIconButton Icon="@Icons.Material.Filled.ArrowBack" Href="ai-actors" />
                 <MudIcon Icon="@Icons.Material.Filled.SmartToy" Size="Size.Large" Class="mr-2" />
                 <MudText Typo="Typo.h5">@_actor.Name</MudText>
                 <MudChip T="string" Size="Size.Small" Color="@GetStatusColor(_actor.Status)" Variant="Variant.Filled" Class="ml-2">
@@ -388,7 +388,7 @@
                 var command = new ArchiveAiActorCommand { ActorId = ActorId };
                 await Mediator.Send(command);
                 Snackbar.Add("Actor archived", Severity.Success);
-                NavigationManager.NavigateTo("/ai-actors");
+                NavigationManager.NavigateTo("ai-actors");
             }
             catch (Exception ex)
             {
