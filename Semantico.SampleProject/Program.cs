@@ -4,6 +4,7 @@ using Semantico.AI;
 using Semantico.Core;
 using Semantico.Core.PostgreSql;
 using Semantico.Core.SqlServer;
+using Semantico.Core.Authentication.Providers;
 using Semantico.SampleProject.Services;
 using Semantico.UI;
 
@@ -55,11 +56,17 @@ builder.Services.AddSemanticoServices(builder.Configuration, options =>
 
         // Enable authorization with role-based access control
         options.Authorization.Enabled = true;
-        options.AddAuthorizationProvider<SampleAuthorizationProvider>();
+        // DatabaseAuthorizationProvider auto-registers when UserManagement is enabled (via TryAddScoped)
 
         // Enable login form authentication
         options.Authentication.EnableLoginForm = true;
-        options.AddAuthenticationProvider<SampleAuthenticationProvider>();
+        options.AddAuthenticationProvider<DatabaseAuthenticationProvider>();
+        options.UserManagement = new UserManagementOptions
+        {
+                // For demo purposes, allow user registration. In production, you would likely disable this.
+                Enabled =  true
+            
+        };
     })
     .UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico")
     //.UseSqlServer(builder.Configuration.GetConnectionString("SemanticoContextSql")!, "semantico")

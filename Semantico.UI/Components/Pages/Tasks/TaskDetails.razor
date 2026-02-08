@@ -32,26 +32,7 @@
                         <MudIcon Icon="@Icons.Material.Filled.Task" Class="mr-2" />
                         Task #@Model.Id
                     </MudText>
-                    @if (Model.AiActorId.HasValue)
-                    {
-                        <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Filled">
-                            <MudIcon Icon="@Icons.Material.Filled.SmartToy" Size="Size.Small" Class="mr-1" />
-                            AI Managed
-                        </MudChip>
-                        @if (!string.IsNullOrEmpty(Model.AiActorName))
-                        {
-                            <MudChip T="string" Size="Size.Small" Color="Color.Default" Variant="Variant.Outlined">
-                                @Model.AiActorName
-                            </MudChip>
-                        }
-                    }
-                    else
-                    {
-                        <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Filled">
-                            <MudIcon Icon="@Icons.Material.Filled.Person" Size="Size.Small" Class="mr-1" />
-                            User Defined
-                        </MudChip>
-                    }
+                    <SourceChip AiActorId="@Model.AiActorId" AiActorName="@Model.AiActorName" Compact="false" />
                 </MudStack>
                 <MudText Typo="Typo.body2" Color="Color.Secondary">
                     Created @Model.CreatedAt.ToString("MMM dd, yyyy HH:mm") • @(Model.Resolved ? "Resolved" : "Open")
@@ -78,55 +59,22 @@
         <!-- Hero Statistics Cards -->
         <MudGrid Spacing="3" Class="mb-4">
             <MudItem xs="12" sm="6" md="3">
-                <MudPaper Class="hero-stat-card pa-4" Elevation="4">
-                    <MudStack Spacing="2">
-                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                            <MudIcon Icon="@Icons.Material.Filled.Analytics" Size="Size.Large" />
-                            <MudChip T="string" Size="Size.Small" Style="background: rgba(255,255,255,0.2); color: white;">Latest</MudChip>
-                        </MudStack>
-                        <MudText Class="hero-stat-number">@Model.LatestResultCount</MudText>
-                        <MudText Class="hero-stat-label">Latest Result Count</MudText>
-                    </MudStack>
-                </MudPaper>
+                <HeroStatCard CardClass="hero-stat-card" Icon="@Icons.Material.Filled.Analytics" Badge="Latest"
+                              Value="@Model.LatestResultCount.ToString()" Label="Latest Result Count" />
             </MudItem>
-
             <MudItem xs="12" sm="6" md="3">
-                <MudPaper Class="hero-stat-card-warning pa-4" Elevation="4">
-                    <MudStack Spacing="2">
-                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                            <MudIcon Icon="@Icons.Material.Filled.Notifications" Size="Size.Large" />
-                            <MudChip T="string" Size="Size.Small" Style="background: rgba(255,255,255,0.2); color: white;">Sent</MudChip>
-                        </MudStack>
-                        <MudText Class="hero-stat-number">@Model.NotificationCount</MudText>
-                        <MudText Class="hero-stat-label">Notifications</MudText>
-                    </MudStack>
-                </MudPaper>
+                <HeroStatCard CardClass="hero-stat-card-warning" Icon="@Icons.Material.Filled.Notifications" Badge="Sent"
+                              Value="@Model.NotificationCount.ToString()" Label="Notifications" />
             </MudItem>
-
             <MudItem xs="12" sm="6" md="3">
-                <MudPaper Class="hero-stat-card-info pa-4" Elevation="4">
-                    <MudStack Spacing="2">
-                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                            <MudIcon Icon="@Icons.Material.Filled.PlayArrow" Size="Size.Large" />
-                            <MudChip T="string" Size="Size.Small" Style="background: rgba(255,255,255,0.2); color: white;">Total</MudChip>
-                        </MudStack>
-                        <MudText Class="hero-stat-number">@_executionHistory.Count</MudText>
-                        <MudText Class="hero-stat-label">Executions</MudText>
-                    </MudStack>
-                </MudPaper>
+                <HeroStatCard CardClass="hero-stat-card-info" Icon="@Icons.Material.Filled.PlayArrow" Badge="Total"
+                              Value="@_executionHistory.Count.ToString()" Label="Executions" />
             </MudItem>
-
             <MudItem xs="12" sm="6" md="3">
-                <MudPaper Class="@((Model.Resolved ? "hero-stat-card-success" : "hero-stat-card-warning") + " pa-4")" Elevation="4">
-                    <MudStack Spacing="2">
-                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                            <MudIcon Icon="@(Model.Resolved ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.Schedule)" Size="Size.Large" />
-                            <MudChip T="string" Size="Size.Small" Style="background: rgba(255,255,255,0.2); color: white;">@(Model.Resolved ? "Resolved" : "Open")</MudChip>
-                        </MudStack>
-                        <MudText Class="hero-stat-number">@GetTaskAge()</MudText>
-                        <MudText Class="hero-stat-label">Task Age</MudText>
-                    </MudStack>
-                </MudPaper>
+                <HeroStatCard CardClass="@(Model.Resolved ? "hero-stat-card-success" : "hero-stat-card-warning")"
+                              Icon="@(Model.Resolved ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.Schedule)"
+                              Badge="@(Model.Resolved ? "Resolved" : "Open")"
+                              Value="@GetTaskAge()" Label="Task Age" />
             </MudItem>
         </MudGrid>
 

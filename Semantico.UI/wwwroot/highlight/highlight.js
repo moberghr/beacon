@@ -24,6 +24,15 @@ window.loadCss = (url) => {
     head.appendChild(link);
 };
 
+window.updateMermaidTheme = (theme) => {
+    if (typeof mermaid !== 'undefined') {
+        mermaid.initialize({
+            startOnLoad: false,
+            theme: theme
+        });
+    }
+};
+
 
 /*!
   Highlight.js v11.10.0 (git: 366a8bd012)

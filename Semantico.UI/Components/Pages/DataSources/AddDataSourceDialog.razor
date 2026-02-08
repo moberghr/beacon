@@ -97,6 +97,56 @@
                 />
             }
 
+            @if (_selectedDataSourceType == DataSourceType.Database)
+            {
+                <MudExpansionPanels Class="mb-4" Elevation="0">
+                    <MudExpansionPanel Text="Metadata Loading Options" IsInitiallyExpanded="false">
+                        <MudGrid Spacing="2">
+                            <MudItem xs="12">
+                                <MudSwitch @bind-Value="DataSource.MetadataLoadingEnabled"
+                                           Label="Enable Metadata Loading"
+                                           Color="Color.Primary" />
+                            </MudItem>
+                            <MudItem xs="12" sm="6">
+                                <MudNumericField @bind-Value="DataSource.MetadataMaxTables"
+                                                 Label="Max Tables"
+                                                 HelperText="0 = unlimited"
+                                                 Variant="Variant.Outlined"
+                                                 Margin="Margin.Dense"
+                                                 Min="0" />
+                            </MudItem>
+                            <MudItem xs="12" sm="6">
+                                <MudNumericField @bind-Value="DataSource.MetadataMaxColumnsPerTable"
+                                                 Label="Max Columns Per Table"
+                                                 HelperText="0 = unlimited"
+                                                 Variant="Variant.Outlined"
+                                                 Margin="Margin.Dense"
+                                                 Min="0" />
+                            </MudItem>
+                            <MudItem xs="12">
+                                <MudSwitch @bind-Value="DataSource.MetadataLoadTableNamesOnly"
+                                           Label="Load Table Names Only"
+                                           Color="Color.Primary" />
+                            </MudItem>
+                            <MudItem xs="12" sm="6">
+                                <MudTextField @bind-Value="_metadataExcludeSchemas"
+                                              Label="Exclude Schemas"
+                                              HelperText="Comma-separated (e.g., information_schema, pg_catalog)"
+                                              Variant="Variant.Outlined"
+                                              Margin="Margin.Dense" />
+                            </MudItem>
+                            <MudItem xs="12" sm="6">
+                                <MudTextField @bind-Value="_metadataIncludeSchemas"
+                                              Label="Include Schemas"
+                                              HelperText="Comma-separated. If set, only these schemas are loaded."
+                                              Variant="Variant.Outlined"
+                                              Margin="Margin.Dense" />
+                            </MudItem>
+                        </MudGrid>
+                    </MudExpansionPanel>
+                </MudExpansionPanels>
+            }
+
             <div class="d-flex align-center mb-4">
                 <MudButton
                     Variant="Variant.Outlined"
@@ -184,6 +234,10 @@
     private string _cloudWatchLogGroups = "";
     private string _cloudWatchProfileName = "";
 
+    // Metadata loading fields
+    private string _metadataExcludeSchemas = "";
+    private string _metadataIncludeSchemas = "";
+
     bool CanTestConnection()
     {
         if (_selectedDataSourceType == DataSourceType.Database)
@@ -261,6 +315,9 @@
         {
             DataSource.DatabaseEngineType = _selectedDatabaseEngine;
             // ConnectionString is already bound
+            // Parse comma-separated schema lists
+            DataSource.MetadataExcludeSchemas = ParseSchemaList(_metadataExcludeSchemas);
+            DataSource.MetadataIncludeSchemas = ParseSchemaList(_metadataIncludeSchemas);
         }
         else if (_selectedDataSourceType == DataSourceType.CloudWatch)
         {
@@ -304,4 +361,10 @@
     }
 
     void Cancel() => MudDialog.Cancel();
+
+    static List<string> ParseSchemaList(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return new();
+        return text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+    }
 }

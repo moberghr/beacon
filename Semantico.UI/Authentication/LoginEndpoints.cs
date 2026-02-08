@@ -71,6 +71,16 @@ public static class LoginEndpoints
             return Results.Ok(new { success = true });
         }).AllowAnonymous();
 
+        // GET /semantico/api/auth/signout — browser-navigable signout that clears the cookie and redirects
+        var loginPath = $"{basePath}{configuration.Authentication.LoginPath}";
+        endpoints.MapGet($"{basePath}/api/auth/signout", async (HttpContext context, ISemanticoAuthenticationProvider authProvider) =>
+        {
+            await authProvider.SignOutAsync();
+            await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+
+            return Results.Redirect(loginPath);
+        }).AllowAnonymous();
+
         return endpoints;
     }
 }

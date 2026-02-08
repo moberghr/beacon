@@ -7,76 +7,42 @@ public class BasePageComponent: ComponentBase
 {
     [Inject]
     protected NavigationManager NavManager { get; set; }
-    
+
     [Inject]
     protected PageHistoryState PageState { get; set; }
-    
+
     [Inject]
     protected IBrowserViewportService BrowserViewport { get; set; }
-
-    public BasePageComponent(NavigationManager navManager, PageHistoryState pageState)
-    {
-        NavManager = navManager;
-        PageState = pageState;
-    }
-
-    public BasePageComponent()
-    {
-    }
 
     protected override void OnInitialized()
     {
         base.OnInitialized();
         PageState.AddPageToHistory(NavManager.Uri);
     }
+
+    /// <summary>
+    /// Creates responsive DialogOptions that go fullscreen on mobile (Xs breakpoint).
+    /// </summary>
+    protected async Task<DialogOptions> CreateResponsiveDialogOptions(MaxWidth maxWidth = MaxWidth.Small)
+    {
+        var breakpoint = await BrowserViewport.GetCurrentBreakpointAsync();
+        return new DialogOptions
+        {
+            MaxWidth = maxWidth,
+            FullWidth = true,
+            FullScreen = breakpoint == Breakpoint.Xs,
+        };
+    }
 }
 
 public class PageHistoryState
 {
-    private Stack<string> previousPages;
-    private Stack<string> nextPages;
-    private readonly string errorPageUrl;
-    public PageHistoryState()
-    {
-        previousPages = new Stack<string>();
-        nextPages = new Stack<string>();
-        errorPageUrl = "/errorPage";
-    }
+    private readonly Stack<string> _previousPages = new();
 
     public void AddPageToHistory(string pageName)
     {
-        previousPages.Push(pageName);
+        _previousPages.Push(pageName);
     }
 
-    public string GetGoBackPage()
-    {
-        // This condition is to check if it is the first loaded page "/"
-        if (previousPages.TryPeek(out string url) && !string.IsNullOrWhiteSpace(url))
-        {
-            // If moved to the next page check
-            if (previousPages.Count > 1)
-            {
-                // Pop the current page
-                nextPages.Push(previousPages.Pop());
-                // Pop the previous page -> "/"
-                url = previousPages.Pop();
-                return url;
-            }
-        }
-
-        // If stack is empty redirect to the error page
-        return errorPageUrl;
-    }
-
-    public string GetGoForwardPage()
-    {
-        if (nextPages.TryPop(out string url) && !string.IsNullOrWhiteSpace(url))
-            return url;
-
-        // If stack is empty redirect to the error page
-        return errorPageUrl;
-    }
-
-    public bool CanGoForward() => nextPages.Any();
-    public bool CanGoBack() => previousPages.Count > 1;
+    public bool CanGoBack() => _previousPages.Count > 1;
 }

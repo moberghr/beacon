@@ -80,6 +80,21 @@
                                 <MudText Typo="Typo.body2" Color="Color.Secondary">Tables</MudText>
                             </MudPaper>
                         </MudItem>
+                        <MudItem xs="12" sm="6" md="3">
+                            <MudPaper Elevation="0" Class="pa-4 d-flex flex-column align-center">
+                                @if (_dataSourceInfo.MetadataLoadingEnabled)
+                                {
+                                    <MudIcon Icon="@Icons.Material.Filled.Sync" Color="Color.Success" Size="Size.Large" Class="mb-2"/>
+                                    <MudText Typo="Typo.h4" Color="Color.Success">Enabled</MudText>
+                                }
+                                else
+                                {
+                                    <MudIcon Icon="@Icons.Material.Filled.SyncDisabled" Color="Color.Error" Size="Size.Large" Class="mb-2"/>
+                                    <MudText Typo="Typo.h4" Color="Color.Error">Disabled</MudText>
+                                }
+                                <MudText Typo="Typo.body2" Color="Color.Secondary">Metadata Loading</MudText>
+                            </MudPaper>
+                        </MudItem>
                     }
                 </MudGrid>
 

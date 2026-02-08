@@ -1,4 +1,5 @@
 using MudBlazor;
+using Semantico.Core.Models.QueryExecutionHistory;
 
 namespace Semantico.UI.Helpers;
 
@@ -68,5 +69,26 @@ public static class ChartHelper
     public static ChartOptions CreateAnomalyChartOptions()
     {
         return CreateMultiSeriesChartOptions();
+    }
+
+    /// <summary>
+    /// Builds execution time chart data (Average/Min/Max series) from a list of data points.
+    /// Returns the series list and X-axis labels.
+    /// </summary>
+    public static (List<ChartSeries> Series, string[] Labels, ChartOptions Options, AxisChartOptions AxisOptions)
+        BuildExecutionTimeChart(IEnumerable<ExecutionTimeDataPoint> history, string dateFormat = "MM/dd")
+    {
+        var data = history.OrderBy(x => x.Date).ToList();
+
+        var labels = data.Select(x => x.Date.ToString(dateFormat)).ToArray();
+
+        var series = new List<ChartSeries>
+        {
+            new() { Name = "Average", Data = data.Select(x => x.AvgExecutionTimeMs).ToArray() },
+            new() { Name = "Minimum", Data = data.Select(x => x.MinExecutionTimeMs).ToArray() },
+            new() { Name = "Maximum", Data = data.Select(x => x.MaxExecutionTimeMs).ToArray() }
+        };
+
+        return (series, labels, CreateMultiSeriesChartOptions(), CreateDefaultAxisChartOptions());
     }
 }

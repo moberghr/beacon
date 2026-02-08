@@ -7,31 +7,23 @@ using Semantico.AI.Services.Ai.AiActor;
 using Semantico.AI.Services.Ai.DocumentationAgent;
 using Semantico.AI.Services.Ai.MultiAgent;
 using Semantico.AI.Services.LlmProviders;
+using Semantico.Core.Services;
 
 namespace Semantico.AI;
 
 public static class ServiceConfiguration
 {
     /// <summary>
-    /// Adds AI services to the service collection. Requires LLM configuration in appsettings.json.
+    /// Adds AI services to the service collection.
+    /// LLM configuration in appsettings.json is optional — it can be configured later via Admin Settings.
     /// </summary>
-    /// <param name="services">The service collection to add services to.</param>
-    /// <param name="configuration">The application configuration containing LLM settings.</param>
-    /// <returns>The service collection for chaining.</returns>
     public static IServiceCollection AddSemanticoAI(
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        // Load LLM configuration from appsettings
-        var llmConfig = configuration.GetSection("Semantico:LLM").Get<LlmConfiguration>();
-
-        if (llmConfig == null)
-        {
-            throw new InvalidOperationException(
-                "Semantico:LLM configuration is required when using Semantico.AI. " +
-                "Add LLM configuration to appsettings.json: " +
-                "{ \"Semantico\": { \"LLM\": { \"Provider\": \"OpenAI\", \"ApiKey\": \"...\", \"Model\": \"gpt-4o\" } } }");
-        }
+        // Load LLM configuration from appsettings (optional — defaults used if not present)
+        var llmConfig = configuration.GetSection("Semantico:LLM").Get<LlmConfiguration>()
+                        ?? new LlmConfiguration();
 
         services.AddSingleton(llmConfig);
 
@@ -41,13 +33,12 @@ public static class ServiceConfiguration
         // LLM Provider Factory
         services.AddSingleton<LlmProviderFactory>();
 
-        // LLM Provider (singleton for the application)
-        services.AddSingleton<ILlmProvider>(sp =>
-        {
-            var factory = sp.GetRequiredService<LlmProviderFactory>();
-            var provider = factory.CreateProvider();
-            return provider;
-        });
+        // LLM Provider Manager (holds swappable provider, implements ILlmConfigurationUpdater)
+        services.AddSingleton<LlmProviderManager>();
+        services.AddSingleton<ILlmConfigurationUpdater>(sp => sp.GetRequiredService<LlmProviderManager>());
+
+        // LLM Provider — delegating proxy that always uses the latest provider
+        services.AddSingleton<ILlmProvider, DelegatingLlmProvider>();
 
         // Request queue for rate limiting
         services.AddSingleton(sp =>

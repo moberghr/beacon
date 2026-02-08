@@ -3,11 +3,14 @@
 @using Semantico.Core.Models.Recipients
 @using Semantico.Core.Services
 @using SortDirection = MudBlazor.SortDirection
+@inject IRecipientService service
+@inject IDialogService DialogService
+@inject Semantico.Core.Authorization.ISemanticoAuthorizationProvider AuthorizationProvider
 
 <SemanticoPageTitle Title="Recipients"/>
 
 <MudContainer Class="my-4 px-4"  MaxWidth="MaxWidth.ExtraExtraLarge">
-    <SemanticoPageHeader Icon="@Icons.Material.Filled.QueryBuilder" Title="Recipients" ButtonText="New recipient" OnClick="@NewRecipient" />
+    <SemanticoPageHeader Icon="@Icons.Material.Filled.QueryBuilder" Title="Recipients" ButtonText="New recipient" OnClick="@NewRecipient" ButtonDisabled="@(!_canWrite)" />
     <SemanticoPageAlert Text="List of recipients. recipients need to be defined and then added to a subscription to receive notifications. Create new or click on row and edit recipient."/>
     <MudDataGrid @ref="_dataGrid" ServerData="ServerReload" T="RecipientData" RowClick="OnRowClick" Hover="true" Filterable="false" >
         <ToolBarContent>
@@ -33,14 +36,17 @@
     </MudDataGrid>
 </MudContainer>
 
-@inject IRecipientService service;
-@inject IDialogService DialogService
-
 @code {
     private List<RecipientData> RecipientList { get; set; } = new();
     MudDataGrid<RecipientData>? _dataGrid;
     private bool _loading;
     private string _searchString;
+    private bool _canWrite;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _canWrite = await AuthorizationProvider.HasWritePermissionAsync();
+    }
 
     private async Task<GridData<RecipientData>> ServerReload(GridState
         <RecipientData> state)
@@ -62,18 +68,10 @@
 
     private async Task OnRowClick(DataGridRowClickEventArgs<RecipientData> args)
     {
-        var breakpoint = await BrowserViewport.GetCurrentBreakpointAsync();
-        var options = new DialogOptions
-            {
-                MaxWidth = MaxWidth.Small,
-                FullWidth = true,
-                FullScreen = breakpoint == Breakpoint.Xs,
-            };
-
+        var options = await CreateResponsiveDialogOptions();
         var parameters = new DialogParameters<UpdateRecipientDialog> { { x => x.Recipient, args.Item } };
 
         var dialog = await DialogService.ShowAsync<UpdateRecipientDialog>("", parameters, options);
-
         var result = await dialog.Result;
 
         if (result!.Canceled)
@@ -86,20 +84,11 @@
 
     private async Task NewRecipient()
     {
-        var breakpoint = await BrowserViewport.GetCurrentBreakpointAsync();
-        var options = new DialogOptions
-            {
-                MaxWidth = MaxWidth.Small,
-                FullWidth = true,
-                FullScreen = breakpoint == Breakpoint.Xs,
-            };
-
+        var options = await CreateResponsiveDialogOptions();
         var recipient = new RecipientData();
-
         var parameters = new DialogParameters<AddRecipientDialog> { { x => x.Recipient, recipient } };
 
         var dialog = await DialogService.ShowAsync<AddRecipientDialog>("", parameters, options);
-
         var result = await dialog.Result;
 
         if (result!.Canceled)

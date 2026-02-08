@@ -23,6 +23,9 @@ internal sealed class HttpContextUserContext : ISemanticoUserContext
         _httpContextAccessor.HttpContext?.User.FindFirst(SemanticoClaims.UserName)?.Value
         ?? _httpContextAccessor.HttpContext?.User.Identity?.Name;
 
+    public string? DisplayName =>
+        _httpContextAccessor.HttpContext?.User.FindFirst("DisplayName")?.Value;
+
     public string? Email =>
         _httpContextAccessor.HttpContext?.User.FindFirst(ClaimTypes.Email)?.Value;
 

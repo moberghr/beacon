@@ -13,6 +13,8 @@ public class DataSourceListData
 
     public DatabaseEngineType? DatabaseEngineType { get; init; }
 
+    public bool MetadataLoadingEnabled { get; init; }
+
     public List<QueryData> Queries { get; init; } = new();
 
     public int MigrationJobsCount { get; init; }

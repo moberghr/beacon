@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Semantico.Core.PostgreSql.Data;
@@ -11,9 +12,11 @@ using Semantico.Core.PostgreSql.Data;
 namespace Semantico.Core.PostgreSql.Data.Migrations
 {
     [DbContext(typeof(PostgreSqlSemanticoContext))]
-    partial class PostgreSqlSemanticoContextModelSnapshot : ModelSnapshot
+    [Migration("20260206212239_AddAppSettings")]
+    partial class AddAppSettings
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1335,30 +1338,6 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                         .IsRequired()
                         .HasColumnType("text")
                         .HasColumnName("encrypted_connection_data");
-
-                    b.Property<string>("MetadataExcludeSchemas")
-                        .HasColumnType("text")
-                        .HasColumnName("metadata_exclude_schemas");
-
-                    b.Property<string>("MetadataIncludeSchemas")
-                        .HasColumnType("text")
-                        .HasColumnName("metadata_include_schemas");
-
-                    b.Property<bool>("MetadataLoadTableNamesOnly")
-                        .HasColumnType("boolean")
-                        .HasColumnName("metadata_load_table_names_only");
-
-                    b.Property<bool>("MetadataLoadingEnabled")
-                        .HasColumnType("boolean")
-                        .HasColumnName("metadata_loading_enabled");
-
-                    b.Property<int>("MetadataMaxColumnsPerTable")
-                        .HasColumnType("integer")
-                        .HasColumnName("metadata_max_columns_per_table");
-
-                    b.Property<int>("MetadataMaxTables")
-                        .HasColumnType("integer")
-                        .HasColumnName("metadata_max_tables");
 
                     b.Property<string>("Name")
                         .IsRequired()

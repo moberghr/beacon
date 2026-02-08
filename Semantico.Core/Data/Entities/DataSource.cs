@@ -24,5 +24,13 @@ public class DataSource : ArchivableBaseEntity
     /// </summary>
     public DatabaseEngineType? DatabaseEngineType { get; set; }
 
+    // Metadata loading options (only applicable for Database type)
+    public bool MetadataLoadingEnabled { get; set; } = true;
+    public int MetadataMaxTables { get; set; }
+    public int MetadataMaxColumnsPerTable { get; set; }
+    public bool MetadataLoadTableNamesOnly { get; set; }
+    public string? MetadataExcludeSchemas { get; set; }
+    public string? MetadataIncludeSchemas { get; set; }
+
     public List<QueryStep> QuerySteps { get; set; } = new();
 }
