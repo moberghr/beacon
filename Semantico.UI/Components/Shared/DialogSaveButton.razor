@@ -2,7 +2,7 @@
     Class="@Class"
     OnClick="@HandleClick"
     Variant="Variant.Filled"
-    Disabled="@Disabled"
+    Disabled="@(Disabled || _isSubmitting)"
     Style="@($"color: white; background: {Colors.Green.Default};")"
 >
     @Text
@@ -15,19 +15,19 @@
 
     [Parameter]
     public string Class { get; set; } = "mr-4";
-    
+
     [Parameter]
     public EventCallback<MouseEventArgs> OnClick { get; set; }
 
-    private async Task HandleClick()
-    {
-        Disabled = true;
-        await OnClick.InvokeAsync();
-        Disabled = false;
-    }
-    
     [Parameter]
     public bool Disabled { get; set; }
-    [Parameter]
-    public EventCallback<bool> DisabledChanged { get; set; }
+
+    private bool _isSubmitting;
+
+    private async Task HandleClick()
+    {
+        _isSubmitting = true;
+        await OnClick.InvokeAsync();
+        _isSubmitting = false;
+    }
 }

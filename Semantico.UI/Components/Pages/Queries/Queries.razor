@@ -3,12 +3,14 @@
 @using Semantico.Core.Models.Queries
 @using Semantico.Core.Services
 @using SortDirection = MudBlazor.SortDirection
-
+@inject Semantico.Core.Services.IQueryService service
+@inject IDialogService DialogService
+@inject Semantico.Core.Authorization.ISemanticoAuthorizationProvider AuthorizationProvider
 
 <SemanticoPageTitle Title="Queries"/>
 
 <MudContainer MaxWidth="MaxWidth.ExtraExtraLarge" Class="my-4 px-4">
-    <SemanticoPageHeader Icon="@Icons.Material.Filled.Search" Title="Queries" ButtonText="New Query" OnClick="@NewQuery"/>
+    <SemanticoPageHeader Icon="@Icons.Material.Filled.Search" Title="Queries" ButtonText="New Query" OnClick="@NewQuery" ButtonDisabled="@(!_canWrite)"/>
     <SemanticoPageAlert Text="Manage your queries and subscriptions. Click on a row to view details and configure subscriptions."/>
 
     <MudGrid>
@@ -65,20 +67,7 @@
                         <PropertyColumn Property="x => x.SubscriptionsCount" Title="Subscriptions Count"/>
                         <TemplateColumn Title="Source" Sortable="false">
                             <CellTemplate>
-                                @if (context.Item.AiActorId.HasValue)
-                                {
-                                    <MudTooltip Text="@($"AI Managed by {context.Item.AiActorName}")">
-                                        <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Filled">
-                                            <MudIcon Icon="@Icons.Material.Filled.SmartToy" Size="Size.Small" Class="mr-1"/>AI
-                                        </MudChip>
-                                    </MudTooltip>
-                                }
-                                else
-                                {
-                                    <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Filled">
-                                        <MudIcon Icon="@Icons.Material.Filled.Person" Size="Size.Small" Class="mr-1"/>User
-                                    </MudChip>
-                                }
+                                <SourceChip AiActorId="@context.Item.AiActorId" AiActorName="@context.Item.AiActorName" />
                             </CellTemplate>
                         </TemplateColumn>
                         <TemplateColumn Title="Actions" Sortable="false">
@@ -86,7 +75,8 @@
                                 <MudIconButton Icon="@Icons.Material.Filled.DriveFileMove"
                                                Size="Size.Small"
                                                OnClick="@(() => MoveQueryToFolder(context.Item))"
-                                               Title="Move to Folder" />
+                                               Title="Move to Folder"
+                                               Disabled="@(!_canWrite)" />
                             </CellTemplate>
                         </TemplateColumn>
                     </Columns>
@@ -100,9 +90,6 @@
 </MudContainer>
 
 
-@inject Semantico.Core.Services.IQueryService service;
-@inject IDialogService DialogService
-
 @code {
     private PagedList<QueryData> QueriesList { get; set; }
     MudDataGrid<QueryData>? _dataGrid;
@@ -110,6 +97,12 @@
     private string _searchString = "";
     private int? _selectedFolderId;
     private bool _foldersCollapsed;
+    private bool _canWrite;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _canWrite = await AuthorizationProvider.HasWritePermissionAsync();
+    }
 
     private async Task<GridData<QueryData>> ServerReload(GridState<QueryData> state)
     {

@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Semantico.Core.PostgreSql.Data;
@@ -11,9 +12,11 @@ using Semantico.Core.PostgreSql.Data;
 namespace Semantico.Core.PostgreSql.Data.Migrations
 {
     [DbContext(typeof(PostgreSqlSemanticoContext))]
-    partial class PostgreSqlSemanticoContextModelSnapshot : ModelSnapshot
+    [Migration("20260206112218_UserManagement")]
+    partial class UserManagement
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -963,103 +966,6 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                     b.ToTable("anomaly_events", "semantico");
                 });
 
-            modelBuilder.Entity("Semantico.Core.Data.Entities.AppSetting", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("Category")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)")
-                        .HasColumnName("category");
-
-                    b.Property<DateTime>("CreatedTime")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_time");
-
-                    b.Property<bool>("IsSensitive")
-                        .HasColumnType("boolean")
-                        .HasColumnName("is_sensitive");
-
-                    b.Property<string>("Key")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
-                        .HasColumnName("key");
-
-                    b.Property<string>("Value")
-                        .HasMaxLength(2000)
-                        .HasColumnType("character varying(2000)")
-                        .HasColumnName("value");
-
-                    b.HasKey("Id")
-                        .HasName("pk_app_settings");
-
-                    b.HasIndex("Category")
-                        .HasDatabaseName("ix_app_settings_category");
-
-                    b.HasIndex("Key")
-                        .IsUnique()
-                        .HasDatabaseName("ix_app_settings_key");
-
-                    b.ToTable("app_settings", "semantico");
-                });
-
-            modelBuilder.Entity("Semantico.Core.Data.Entities.AppSettingHistory", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime>("ChangedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("changed_at");
-
-                    b.Property<string>("ChangedByUserId")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
-                        .HasColumnName("changed_by_user_id");
-
-                    b.Property<DateTime>("CreatedTime")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_time");
-
-                    b.Property<string>("NewValue")
-                        .HasMaxLength(2000)
-                        .HasColumnType("character varying(2000)")
-                        .HasColumnName("new_value");
-
-                    b.Property<string>("OldValue")
-                        .HasMaxLength(2000)
-                        .HasColumnType("character varying(2000)")
-                        .HasColumnName("old_value");
-
-                    b.Property<string>("SettingKey")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
-                        .HasColumnName("setting_key");
-
-                    b.HasKey("Id")
-                        .HasName("pk_app_setting_history");
-
-                    b.HasIndex("ChangedAt")
-                        .HasDatabaseName("ix_app_setting_history_changed_at");
-
-                    b.HasIndex("SettingKey")
-                        .HasDatabaseName("ix_app_setting_history_setting_key");
-
-                    b.ToTable("app_setting_history", "semantico");
-                });
-
             modelBuilder.Entity("Semantico.Core.Data.Entities.Comment", b =>
                 {
                     b.Property<int>("Id")
@@ -1335,30 +1241,6 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                         .IsRequired()
                         .HasColumnType("text")
                         .HasColumnName("encrypted_connection_data");
-
-                    b.Property<string>("MetadataExcludeSchemas")
-                        .HasColumnType("text")
-                        .HasColumnName("metadata_exclude_schemas");
-
-                    b.Property<string>("MetadataIncludeSchemas")
-                        .HasColumnType("text")
-                        .HasColumnName("metadata_include_schemas");
-
-                    b.Property<bool>("MetadataLoadTableNamesOnly")
-                        .HasColumnType("boolean")
-                        .HasColumnName("metadata_load_table_names_only");
-
-                    b.Property<bool>("MetadataLoadingEnabled")
-                        .HasColumnType("boolean")
-                        .HasColumnName("metadata_loading_enabled");
-
-                    b.Property<int>("MetadataMaxColumnsPerTable")
-                        .HasColumnType("integer")
-                        .HasColumnName("metadata_max_columns_per_table");
-
-                    b.Property<int>("MetadataMaxTables")
-                        .HasColumnType("integer")
-                        .HasColumnName("metadata_max_tables");
 
                     b.Property<string>("Name")
                         .IsRequired()

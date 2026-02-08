@@ -67,20 +67,7 @@
             </TemplateColumn>
             <TemplateColumn Title="Source" Sortable="false">
                 <CellTemplate>
-                    @if (context.Item.AiActorId.HasValue)
-                    {
-                        <MudTooltip Text="@($"AI Managed by {context.Item.AiActorName}")">
-                            <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Filled">
-                                <MudIcon Icon="@Icons.Material.Filled.SmartToy" Size="Size.Small" Class="mr-1"/>AI
-                            </MudChip>
-                        </MudTooltip>
-                    }
-                    else
-                    {
-                        <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Filled">
-                            <MudIcon Icon="@Icons.Material.Filled.Person" Size="Size.Small" Class="mr-1"/>User
-                        </MudChip>
-                    }
+                    <SourceChip AiActorId="@context.Item.AiActorId" AiActorName="@context.Item.AiActorName" />
                 </CellTemplate>
             </TemplateColumn>
             <PropertyColumn Property="x => x.ExecutionTimeMs" Title="Execution Time (ms)" Format="N2"/>

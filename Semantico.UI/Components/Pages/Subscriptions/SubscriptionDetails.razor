@@ -52,26 +52,7 @@
                             Archived
                         </div>
                     }
-                    @if (Model.AiActorId.HasValue)
-                    {
-                        <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Filled">
-                            <MudIcon Icon="@Icons.Material.Filled.SmartToy" Size="Size.Small" Class="mr-1" />
-                            AI Managed
-                        </MudChip>
-                        @if (!string.IsNullOrEmpty(Model.AiActorName))
-                        {
-                            <MudChip T="string" Size="Size.Small" Color="Color.Default" Variant="Variant.Outlined">
-                                @Model.AiActorName
-                            </MudChip>
-                        }
-                    }
-                    else
-                    {
-                        <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Filled">
-                            <MudIcon Icon="@Icons.Material.Filled.Person" Size="Size.Small" Class="mr-1" />
-                            User Defined
-                        </MudChip>
-                    }
+                    <SourceChip AiActorId="@Model.AiActorId" AiActorName="@Model.AiActorName" Compact="false" />
                 </MudStack>
                 <MudText Typo="Typo.body2" Color="Color.Secondary">
                     <MudIcon Icon="@Icons.Material.Filled.Schedule" Size="Size.Small" Style="vertical-align: middle;" />
@@ -87,14 +68,15 @@
                            Color="Color.Primary"
                            StartIcon="@Icons.Material.Filled.PlayArrow"
                            Size="Size.Large"
-                           OnClick="@TestSubscription">
+                           OnClick="@TestSubscription"
+                           Disabled="@(!_canWrite)">
                     Test Now
                 </MudButton>
                 <MudButton Variant="Variant.Outlined"
                            Color="Color.Error"
                            StartIcon="@Icons.Material.Filled.Archive"
                            Size="Size.Large"
-                           Disabled="@(!isSubscriptionActive)"
+                           Disabled="@(!_isAdmin || !isSubscriptionActive)"
                            OnClick="@ArchiveSubscription">
                     Archive
                 </MudButton>
@@ -344,7 +326,8 @@
                             <MudButton Variant="Variant.Filled"
                                        Color="Color.Primary"
                                        StartIcon="@Icons.Material.Filled.Add"
-                                       OnClick="@AddRecipientsAsync">
+                                       OnClick="@AddRecipientsAsync"
+                                       Disabled="@(!_canWrite)">
                                 Add Recipient
                             </MudButton>
                         </MudStack>
@@ -365,7 +348,7 @@
                                                 <MudIconButton Icon="@Icons.Material.Filled.Delete"
                                                               Color="Color.Error"
                                                               Size="Size.Small"
-                                                              Disabled="@(Model.Recipients.Count <= 1)"
+                                                              Disabled="@(!_isAdmin || Model.Recipients.Count <= 1)"
                                                               OnClick="@(() => RemoveRecipientAsync(recipient))" />
                                             </MudStack>
 
@@ -634,6 +617,8 @@
 @inject IAnomalyDetectionService AnomalyDetectionService
 @inject IDialogService DialogService
 @inject IJSRuntime JSRuntime
+@inject Semantico.Core.Authorization.ISemanticoAuthorizationProvider AuthorizationProvider
+@inject Semantico.Core.Authorization.ISemanticoUserContext UserContext
 
 @code
 {
@@ -649,6 +634,8 @@
     MudDataGrid<QueryExecutionHistoryData>? _notificationsDataGrid;
 
     private bool isSubscriptionActive;
+    private bool _canWrite;
+    private bool _isAdmin;
 
     private string? _cronDescription;
     private string? _cronNextAt;
@@ -676,6 +663,10 @@
 
     protected override async Task OnInitializedAsync()
     {
+        _canWrite = await AuthorizationProvider.HasWritePermissionAsync();
+        _isAdmin = UserContext.HasClaim("role", "Admin") ||
+                   UserContext.HasClaim("http://schemas.microsoft.com/ws/2008/06/identity/claims/role", "Admin") ||
+                   UserContext.HasClaim("semantico:role", "Admin");
         await Load();
     }
 

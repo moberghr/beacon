@@ -12,9 +12,14 @@ public interface ISemanticoUserContext
     string? UserId { get; }
 
     /// <summary>
-    /// Current user's display name.
+    /// Current user's login username.
     /// </summary>
     string? UserName { get; }
+
+    /// <summary>
+    /// Current user's display name (may differ from username).
+    /// </summary>
+    string? DisplayName { get; }
 
     /// <summary>
     /// Current user's email address.

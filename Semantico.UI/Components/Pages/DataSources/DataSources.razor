@@ -2,12 +2,14 @@
 @inherits BasePageComponent
 @using Semantico.Core.Models.DataSources
 @using Semantico.Core.Services
-
+@inject IDataSourceService _service
+@inject IDialogService DialogService
+@inject Semantico.Core.Authorization.ISemanticoAuthorizationProvider AuthorizationProvider
 
 <SemanticoPageTitle Title="Data Sources"/>
 
 <MudContainer MaxWidth="MaxWidth.ExtraExtraLarge" Class="my-4 px-4">
-    <SemanticoPageHeader Icon="@Icons.Material.Filled.Folder" Title="Data Sources" ButtonText="New Data Source" OnClick="@AddDataSource"/>
+    <SemanticoPageHeader Icon="@Icons.Material.Filled.Folder" Title="Data Sources" ButtonText="New Data Source" OnClick="@AddDataSource" ButtonDisabled="@(!_canWrite)"/>
     <SemanticoPageAlert Text="Manage your database data sources and connections."/>
     <MudCard Elevation="2">
         <MudDataGrid @ref="_dataGrid" ServerData="ServerReload" T="DataSourceListData" Hover="true" Filterable="false" SortMode="SortMode.None" Bordered="false">
@@ -47,13 +49,16 @@
     </MudCard>
 </MudContainer>
 
-@inject IDataSourceService _service
-@inject IDialogService DialogService
-
 @code {
     private List<DataSourceListData> _list;
     MudDataGrid<DataSourceListData>? _dataGrid;
     private bool _loading;
+    private bool _canWrite;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _canWrite = await AuthorizationProvider.HasWritePermissionAsync();
+    }
 
     private async Task<GridData<DataSourceListData>> ServerReload(GridState<DataSourceListData> state)
     {
@@ -68,13 +73,7 @@
 
     private async Task AddDataSource()
     {
-        var breakpoint = await BrowserViewport.GetCurrentBreakpointAsync();
-        var options = new DialogOptions {
-            MaxWidth = MaxWidth.Small,
-            FullWidth = true,
-            FullScreen = breakpoint == Breakpoint.Xs,
-        };
-
+        var options = await CreateResponsiveDialogOptions();
         var dataSource = new DataSourceData();
 
         var parameters = new DialogParameters<AddDataSourceDialog> { { x => x.DataSource, dataSource } };

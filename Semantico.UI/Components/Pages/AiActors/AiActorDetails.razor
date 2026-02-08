@@ -51,17 +51,17 @@
                 }
                 @if (_actor.Status == AiActorStatus.Active)
                 {
-                    <MudButton Variant="Variant.Outlined" Color="Color.Warning" OnClick="@PauseActor">Pause</MudButton>
-                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@TriggerThinkCycle" Disabled="@_executingThinkCycle">
+                    <MudButton Variant="Variant.Outlined" Color="Color.Warning" OnClick="@PauseActor" Disabled="@(!_canWrite)">Pause</MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@TriggerThinkCycle" Disabled="@(!_canWrite || _executingThinkCycle)">
                         @(_executingThinkCycle ? "Thinking..." : "Trigger Think Cycle")
                     </MudButton>
                 }
                 else if (_actor.Status == AiActorStatus.Paused || _actor.Status == AiActorStatus.Failed)
                 {
-                    <MudButton Variant="Variant.Filled" Color="Color.Success" OnClick="@ResumeActor">Resume</MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Success" OnClick="@ResumeActor" Disabled="@(!_canWrite)">Resume</MudButton>
                 }
-                <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="@OpenRefineDialog">Refine</MudButton>
-                <MudIconButton Icon="@Icons.Material.Filled.Archive" Color="Color.Error" OnClick="@ArchiveActor" Title="Archive Actor" />
+                <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="@OpenRefineDialog" Disabled="@(!_canWrite)">Refine</MudButton>
+                <MudIconButton Icon="@Icons.Material.Filled.Archive" Color="Color.Error" OnClick="@ArchiveActor" Title="Archive Actor" Disabled="@(!_isAdmin)" />
             </MudStack>
         </MudStack>
 
@@ -150,6 +150,7 @@
                                         Color="@(context.IsLocked ? Color.Warning : Color.Default)"
                                         Size="Size.Small"
                                         OnClick="@(() => ToggleQueryLock(context))"
+                                        Disabled="@(!_isAdmin)"
                                     />
                                 </MudTooltip>
                             </MudTd>
@@ -276,6 +277,8 @@
 @inject IDialogService DialogService
 @inject NavigationManager NavigationManager
 @inject SemanticoConfiguration _configuration
+@inject Semantico.Core.Authorization.ISemanticoAuthorizationProvider AuthorizationProvider
+@inject Semantico.Core.Authorization.ISemanticoUserContext UserContext
 
 @code {
     [Parameter]
@@ -284,9 +287,15 @@
     private GetAiActorDetailsResult? _actor;
     private bool _loading = true;
     private bool _executingThinkCycle;
+    private bool _canWrite;
+    private bool _isAdmin;
 
     protected override async Task OnInitializedAsync()
     {
+        _canWrite = await AuthorizationProvider.HasWritePermissionAsync();
+        _isAdmin = UserContext.HasClaim("role", "Admin") ||
+                   UserContext.HasClaim("http://schemas.microsoft.com/ws/2008/06/identity/claims/role", "Admin") ||
+                   UserContext.HasClaim("semantico:role", "Admin");
         await LoadActorAsync();
     }
 

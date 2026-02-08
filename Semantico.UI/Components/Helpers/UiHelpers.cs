@@ -25,6 +25,14 @@ public static class UiHelpers
         };
     }
 
+    public static string FormatExecutionTime(double milliseconds)
+    {
+        if (milliseconds < 1000)
+            return $"{milliseconds:0} ms";
+
+        return $"{milliseconds / 1000:0.00} s";
+    }
+
     private static string ExtractJiraProject(string destination)
     {
         var parts = destination.Split(';');

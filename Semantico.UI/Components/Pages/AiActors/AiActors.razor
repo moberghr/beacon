@@ -40,7 +40,7 @@
             </MudSelect>
             <MudSwitch @bind-Checked="_includeArchived" T="bool" Color="Color.Primary" Label="Include Archived" />
         </MudStack>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="@OpenCreateDialog" Disabled="@(!_selectedDataSourceId.HasValue)">
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="@OpenCreateDialog" Disabled="@(!_canWrite || !_selectedDataSourceId.HasValue)">
             Create AI Actor
         </MudButton>
     </MudStack>
@@ -96,11 +96,11 @@
                             <MudButton Variant="Variant.Text" Color="Color.Primary" Href="@($"ai-actors/{actor.ActorId}")">Details</MudButton>
                             @if (actor.Status == AiActorStatus.Active)
                             {
-                                <MudButton Variant="Variant.Text" Color="Color.Warning" OnClick="@(() => PauseActor(actor.ActorId))">Pause</MudButton>
+                                <MudButton Variant="Variant.Text" Color="Color.Warning" OnClick="@(() => PauseActor(actor.ActorId))" Disabled="@(!_canWrite)">Pause</MudButton>
                             }
                             else if (actor.Status == AiActorStatus.Paused || actor.Status == AiActorStatus.Failed)
                             {
-                                <MudButton Variant="Variant.Text" Color="Color.Success" OnClick="@(() => ResumeActor(actor.ActorId))">Resume</MudButton>
+                                <MudButton Variant="Variant.Text" Color="Color.Success" OnClick="@(() => ResumeActor(actor.ActorId))" Disabled="@(!_canWrite)">Resume</MudButton>
                             }
                         </MudCardActions>
                     </MudCard>
@@ -130,6 +130,7 @@
 @inject IDataSourceService DataSourceService
 @inject NavigationManager NavigationManager
 @inject SemanticoConfiguration _configuration
+@inject Semantico.Core.Authorization.ISemanticoAuthorizationProvider AuthorizationProvider
 
 @code {
     [Parameter]
@@ -140,9 +141,11 @@
     private int? _selectedDataSourceId;
     private bool _includeArchived;
     private bool _loading;
+    private bool _canWrite;
 
     protected override async Task OnInitializedAsync()
     {
+        _canWrite = await AuthorizationProvider.HasWritePermissionAsync();
         await LoadDataSourcesAsync();
 
         if (DataSourceId.HasValue)

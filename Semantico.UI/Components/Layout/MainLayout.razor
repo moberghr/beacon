@@ -29,6 +29,7 @@
                 <MudIconButton Icon="@Icons.Material.Outlined.Settings"
                                Color="Color.Inherit"
                                Size="Size.Small"
+                               OnClick="@NavigateToSettings"
                                Class="appbar-icon-btn" />
             </MudTooltip>
             <MudDivider Vertical="true" FlexItem="true" Class="appbar-divider" />
@@ -38,12 +39,11 @@
                     <ActivatorContent>
                         <MudChip T="string" Color="Color.Primary" Variant="Variant.Filled" Size="Size.Small" Class="appbar-user-chip">
                             <MudAvatar Size="Size.Small" Style="height: 22px; width: 22px; font-size: 0.7rem;" Color="Color.Secondary">@GetUserInitial()</MudAvatar>
-                            <MudText Typo="Typo.body2" Class="ml-2">@(UserContext.UserName ?? "User")</MudText>
+                            <MudText Typo="Typo.body2" Class="ml-2">@(UserContext.DisplayName ?? UserContext.UserName ?? "User")</MudText>
                         </MudChip>
                     </ActivatorContent>
                     <ChildContent>
-                        <MudMenuItem Icon="@Icons.Material.Outlined.Person">Profile</MudMenuItem>
-                        <MudMenuItem Icon="@Icons.Material.Outlined.Settings">Settings</MudMenuItem>
+                        <MudMenuItem Icon="@Icons.Material.Outlined.Settings" OnClick="NavigateToSettings">Settings</MudMenuItem>
                         <MudDivider Class="my-1" />
                         <MudMenuItem Icon="@Icons.Material.Outlined.Logout" OnClick="HandleLogout">Logout</MudMenuItem>
                     </ChildContent>
@@ -88,6 +88,10 @@
                 <MudDivider Class="my-2"/>
                 <MudNavLink Href="@($"{GetBaseHref()}users")" Icon="@Icons.Material.Filled.AdminPanelSettings" IconColor="Color.Error">User Management</MudNavLink>
             }
+            @if (HasAdminRole())
+            {
+                <MudNavLink Href="@($"{GetBaseHref()}admin/settings")" Icon="@Icons.Material.Filled.Tune" IconColor="Color.Warning">Admin Settings</MudNavLink>
+            }
             <MudDivider Class="my-2"/>
             <MudNavLink Href="@($"{GetBaseHref()}about")" Icon="@Icons.Material.Filled.Info" IconColor="Color.Warning">About</MudNavLink>
         </MudNavMenu>
@@ -114,7 +118,7 @@
 
 @code
 {
-    private static bool _isDark = true;
+    private bool _isDark = true;
     private Breakpoint _breakpoint;
 
     private string GetBaseHref()
@@ -126,11 +130,11 @@
 
     private string GetUserInitial()
     {
-        var userName = UserContext.UserName;
-        if (string.IsNullOrWhiteSpace(userName))
+        var name = UserContext.DisplayName ?? UserContext.UserName;
+        if (string.IsNullOrWhiteSpace(name))
             return "?";
 
-        return userName.Substring(0, 1).ToUpperInvariant();
+        return name.Substring(0, 1).ToUpperInvariant();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -169,17 +173,7 @@
         try
         {
             var theme = _isDark ? "dark" : "default";
-            await JS.InvokeVoidAsync("eval", $@"
-                (function() {{
-                    if (typeof mermaid !== 'undefined') {{
-                        mermaid.initialize({{
-                            startOnLoad: false,
-                            theme: '{theme}'
-                        }});
-                        console.log('Mermaid theme updated to: {theme}');
-                    }}
-                }})();
-            ");
+            await JS.InvokeVoidAsync("updateMermaidTheme", theme);
         }
         catch
         {
@@ -189,7 +183,12 @@
 
     private void HandleLogout()
     {
-        NavigationManager.NavigateTo($"{GetBaseHref()}logout", forceLoad: true);
+        NavigationManager.NavigateTo($"{GetBaseHref()}api/auth/signout", forceLoad: true);
+    }
+
+    private void NavigateToSettings()
+    {
+        NavigationManager.NavigateTo($"{GetBaseHref()}settings");
     }
 
     private bool HasAdminRole()

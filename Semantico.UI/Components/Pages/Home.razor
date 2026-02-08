@@ -4,56 +4,10 @@
 @using Semantico.Core.Data.Enums
 @using Semantico.UI.Helpers
 @inherits BasePageComponent
+@inject Semantico.Core.Services.INotificationService notificationService
+@inject Semantico.Core.Services.IStatisticsService statisticsService
 
 <SemanticoPageTitle Title="Dashboard"/>
-
-<style>
-    /* Home-specific styles (not shared across pages) */
-    .activity-item {
-        padding: 12px;
-        border-radius: 8px;
-        transition: background-color 0.2s ease;
-        border-left: 3px solid transparent;
-    }
-
-    .activity-item:hover {
-        background-color: var(--mud-palette-background-grey);
-        border-left-color: var(--mud-palette-primary);
-    }
-
-    .channel-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        padding: 8px 16px;
-        border-radius: 20px;
-        font-weight: 500;
-        transition: transform 0.2s ease;
-    }
-
-    .channel-badge:hover {
-        transform: scale(1.05);
-    }
-
-    .top-subscription-item {
-        padding: 12px;
-        border-radius: 8px;
-        border: 1px solid var(--mud-palette-lines-default);
-        transition: all 0.2s ease;
-    }
-
-    .top-subscription-item:hover {
-        border-color: var(--mud-palette-primary);
-        background-color: rgba(var(--mud-palette-primary-rgb), 0.05);
-        transform: translateX(4px);
-    }
-
-    .metric-trend {
-        font-size: 0.85rem;
-        opacity: 0.9;
-        margin-top: 8px;
-    }
-</style>
 
 <MudContainer MaxWidth="MaxWidth.ExtraExtraLarge" Class="my-4 px-4">
     <!-- Page Header -->
@@ -73,118 +27,43 @@
     <!-- Hero Metrics -->
     <MudGrid Spacing="3" Class="mb-4">
         <MudItem xs="12" sm="6" lg="3">
-            <MudPaper Class="hero-stat-card pa-4" Elevation="4">
-                <MudStack Spacing="2">
-                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                        <MudIcon Icon="@Icons.Material.Filled.Subscriptions" Size="Size.Large" />
-                        <MudChip T="string" Size="Size.Small" Style="background: rgba(255,255,255,0.2); color: white;">Active</MudChip>
-                    </MudStack>
-                    <MudText Class="hero-stat-number">@(dashboardStatistics?.ActiveSubscriptions ?? 0)</MudText>
-                    <MudText Class="hero-stat-label">Active Subscriptions</MudText>
-                    <MudText Typo="Typo.caption" Class="metric-trend">
-                        @(dashboardStatistics?.TotalSubscriptions ?? 0) total configured
-                    </MudText>
-                </MudStack>
-            </MudPaper>
+            <HeroStatCard CardClass="hero-stat-card" Icon="@Icons.Material.Filled.Subscriptions" Badge="Active"
+                          Value="@((dashboardStatistics?.ActiveSubscriptions ?? 0).ToString())" Label="Active Subscriptions"
+                          Trend="@($"{dashboardStatistics?.TotalSubscriptions ?? 0} total configured")" />
         </MudItem>
-
         <MudItem xs="12" sm="6" lg="3">
-            <MudPaper Class="hero-stat-card-success pa-4" Elevation="4">
-                <MudStack Spacing="2">
-                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                        <MudIcon Icon="@Icons.Material.Filled.PlayArrow" Size="Size.Large" />
-                        <MudChip T="string" Size="Size.Small" Style="background: rgba(255,255,255,0.2); color: white;">Executed</MudChip>
-                    </MudStack>
-                    <MudText Class="hero-stat-number">@FormatNumber(dashboardStatistics?.TotalQueriesExecuted ?? 0)</MudText>
-                    <MudText Class="hero-stat-label">Query Executions</MudText>
-                    <MudText Typo="Typo.caption" Class="metric-trend">
-                        @(dashboardStatistics?.TotalQueries ?? 0) queries configured
-                    </MudText>
-                </MudStack>
-            </MudPaper>
+            <HeroStatCard CardClass="hero-stat-card-success" Icon="@Icons.Material.Filled.PlayArrow" Badge="Executed"
+                          Value="@FormatNumber(dashboardStatistics?.TotalQueriesExecuted ?? 0)" Label="Query Executions"
+                          Trend="@($"{dashboardStatistics?.TotalQueries ?? 0} queries configured")" />
         </MudItem>
-
         <MudItem xs="12" sm="6" lg="3">
-            <MudPaper Class="hero-stat-card-warning pa-4" Elevation="4">
-                <MudStack Spacing="2">
-                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                        <MudIcon Icon="@Icons.Material.Filled.Notifications" Size="Size.Large" />
-                        <MudChip T="string" Size="Size.Small" Style="background: rgba(255,255,255,0.2); color: white;">Sent</MudChip>
-                    </MudStack>
-                    <MudText Class="hero-stat-number">@FormatNumber(dashboardStatistics?.TotalNotificationsSent ?? 0)</MudText>
-                    <MudText Class="hero-stat-label">Notifications Sent</MudText>
-                    <MudText Typo="Typo.caption" Class="metric-trend">
-                        @(dashboardStatistics?.TotalRecipients ?? 0) recipients configured
-                    </MudText>
-                </MudStack>
-            </MudPaper>
+            <HeroStatCard CardClass="hero-stat-card-warning" Icon="@Icons.Material.Filled.Notifications" Badge="Sent"
+                          Value="@FormatNumber(dashboardStatistics?.TotalNotificationsSent ?? 0)" Label="Notifications Sent"
+                          Trend="@($"{dashboardStatistics?.TotalRecipients ?? 0} recipients configured")" />
         </MudItem>
-
         <MudItem xs="12" sm="6" lg="3">
-            <MudPaper Class="hero-stat-card-warning pa-4" Elevation="4">
-                <MudStack Spacing="2">
-                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                        <MudIcon Icon="@Icons.Material.Filled.Warning" Size="Size.Large" />
-                        <MudChip T="string" Size="Size.Small" Style="background: rgba(255,255,255,0.2); color: white;">24h</MudChip>
-                    </MudStack>
-                    <MudText Class="hero-stat-number">@(dashboardStatistics?.AnomaliesLast24Hours ?? 0)</MudText>
-                    <MudText Class="hero-stat-label">Anomalies Detected</MudText>
-                    <MudText Typo="Typo.caption" Class="metric-trend">
-                        @(dashboardStatistics?.TotalAnomaliesDetected ?? 0) total detected
-                    </MudText>
-                </MudStack>
-            </MudPaper>
+            <HeroStatCard CardClass="hero-stat-card-warning" Icon="@Icons.Material.Filled.Warning" Badge="24h"
+                          Value="@((dashboardStatistics?.AnomaliesLast24Hours ?? 0).ToString())" Label="Anomalies Detected"
+                          Trend="@($"{dashboardStatistics?.TotalAnomaliesDetected ?? 0} total detected")" />
         </MudItem>
     </MudGrid>
 
     <!-- Execution Time Metrics -->
     <MudGrid Spacing="3" Class="mb-4">
         <MudItem xs="12" sm="6" lg="4">
-            <MudPaper Class="hero-metric-card-primary pa-4" Elevation="4">
-                <MudStack Spacing="2">
-                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                        <MudIcon Icon="@Icons.Material.Filled.Speed" Size="Size.Large" />
-                        <MudChip T="string" Size="Size.Small" Style="background: rgba(255,255,255,0.2); color: white;">Average</MudChip>
-                    </MudStack>
-                    <MudText Class="hero-stat-number">@FormatExecutionTime(dashboardStatistics?.AvgExecutionTimeMs ?? 0)</MudText>
-                    <MudText Class="hero-stat-label">Avg Execution Time</MudText>
-                    <MudText Typo="Typo.caption" Class="metric-trend">
-                        Across all queries
-                    </MudText>
-                </MudStack>
-            </MudPaper>
+            <HeroStatCard CardClass="hero-metric-card-primary" Icon="@Icons.Material.Filled.Speed" Badge="Average"
+                          Value="@FormatExecutionTime(dashboardStatistics?.AvgExecutionTimeMs ?? 0)" Label="Avg Execution Time"
+                          Trend="Across all queries" />
         </MudItem>
-
         <MudItem xs="12" sm="6" lg="4">
-            <MudPaper Class="hero-metric-card-success pa-4" Elevation="4">
-                <MudStack Spacing="2">
-                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                        <MudIcon Icon="@Icons.Material.Filled.FlashOn" Size="Size.Large" />
-                        <MudChip T="string" Size="Size.Small" Style="background: rgba(255,255,255,0.2); color: white;">Fastest</MudChip>
-                    </MudStack>
-                    <MudText Class="hero-stat-number">@FormatExecutionTime(dashboardStatistics?.MinExecutionTimeMs ?? 0)</MudText>
-                    <MudText Class="hero-stat-label">Fastest Query</MudText>
-                    <MudText Typo="Typo.caption" Class="metric-trend">
-                        Best performance recorded
-                    </MudText>
-                </MudStack>
-            </MudPaper>
+            <HeroStatCard CardClass="hero-metric-card-success" Icon="@Icons.Material.Filled.FlashOn" Badge="Fastest"
+                          Value="@FormatExecutionTime(dashboardStatistics?.MinExecutionTimeMs ?? 0)" Label="Fastest Query"
+                          Trend="Best performance recorded" />
         </MudItem>
-
         <MudItem xs="12" sm="6" lg="4">
-            <MudPaper Class="hero-metric-card-error pa-4" Elevation="4">
-                <MudStack Spacing="2">
-                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                        <MudIcon Icon="@Icons.Material.Filled.HourglassTop" Size="Size.Large" />
-                        <MudChip T="string" Size="Size.Small" Style="background: rgba(255,255,255,0.2); color: white;">Slowest</MudChip>
-                    </MudStack>
-                    <MudText Class="hero-stat-number">@FormatExecutionTime(dashboardStatistics?.MaxExecutionTimeMs ?? 0)</MudText>
-                    <MudText Class="hero-stat-label">Slowest Query</MudText>
-                    <MudText Typo="Typo.caption" Class="metric-trend">
-                        Needs optimization attention
-                    </MudText>
-                </MudStack>
-            </MudPaper>
+            <HeroStatCard CardClass="hero-metric-card-error" Icon="@Icons.Material.Filled.HourglassTop" Badge="Slowest"
+                          Value="@FormatExecutionTime(dashboardStatistics?.MaxExecutionTimeMs ?? 0)" Label="Slowest Query"
+                          Trend="Needs optimization attention" />
         </MudItem>
     </MudGrid>
 
@@ -451,9 +330,6 @@
     </MudGrid>
 </MudContainer>
 
-@inject Semantico.Core.Services.INotificationService notificationService;
-@inject Semantico.Core.Services.IStatisticsService statisticsService;
-
 @code {
     private DashboardStatisticsData? dashboardStatistics;
     private List<ChartSeries> chartSeries = new();
@@ -610,38 +486,12 @@
         if (dashboardStatistics?.ExecutionTimeHistory == null || !dashboardStatistics.ExecutionTimeHistory.Any())
             return;
 
-        var data = dashboardStatistics.ExecutionTimeHistory.OrderBy(x => x.Date).ToList();
-
-        executionTimeXAxisLabels = data.Select(x => x.Date.ToShortDateWithoutYear()).ToArray();
-
-        executionTimeChartSeries = new List<ChartSeries>
-        {
-            new()
-            {
-                Name = "Average",
-                Data = data.Select(x => x.AvgExecutionTimeMs).ToArray()
-            },
-            new()
-            {
-                Name = "Minimum",
-                Data = data.Select(x => x.MinExecutionTimeMs).ToArray()
-            },
-            new()
-            {
-                Name = "Maximum",
-                Data = data.Select(x => x.MaxExecutionTimeMs).ToArray()
-            }
-        };
-
-        executionTimeChartOptions = ChartHelper.CreateMultiSeriesChartOptions();
-        executionTimeAxisChartOptions = ChartHelper.CreateDefaultAxisChartOptions();
+        var chart = ChartHelper.BuildExecutionTimeChart(dashboardStatistics.ExecutionTimeHistory);
+        executionTimeChartSeries = chart.Series;
+        executionTimeXAxisLabels = chart.Labels;
+        executionTimeChartOptions = chart.Options;
+        executionTimeAxisChartOptions = chart.AxisOptions;
     }
 
-    private string FormatExecutionTime(double milliseconds)
-    {
-        if (milliseconds < 1000)
-            return $"{milliseconds:0} ms";
-
-        return $"{milliseconds / 1000:0.00} s";
-    }
+    private string FormatExecutionTime(double milliseconds) => UiHelpers.FormatExecutionTime(milliseconds);
 }

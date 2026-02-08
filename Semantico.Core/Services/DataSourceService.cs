@@ -46,7 +46,13 @@ internal class DataSourceService(
             Name = dataSourceData.Name,
             DataSourceType = dataSourceData.DataSourceType,
             EncryptedConnectionData = encryptionService.Encrypt(dataSourceData.ConnectionString),
-            DatabaseEngineType = dataSourceData.DatabaseEngineType
+            DatabaseEngineType = dataSourceData.DatabaseEngineType,
+            MetadataLoadingEnabled = dataSourceData.MetadataLoadingEnabled,
+            MetadataMaxTables = dataSourceData.MetadataMaxTables,
+            MetadataMaxColumnsPerTable = dataSourceData.MetadataMaxColumnsPerTable,
+            MetadataLoadTableNamesOnly = dataSourceData.MetadataLoadTableNamesOnly,
+            MetadataExcludeSchemas = dataSourceData.MetadataExcludeSchemas.Count > 0 ? string.Join(",", dataSourceData.MetadataExcludeSchemas) : null,
+            MetadataIncludeSchemas = dataSourceData.MetadataIncludeSchemas.Count > 0 ? string.Join(",", dataSourceData.MetadataIncludeSchemas) : null,
         };
 
         context.DataSources.Add(dataSource);
@@ -115,6 +121,7 @@ internal class DataSourceService(
                 Name = x.Name,
                 DataSourceType = x.DataSourceType,
                 DatabaseEngineType = x.DatabaseEngineType,
+                MetadataLoadingEnabled = x.MetadataLoadingEnabled,
                 MigrationJobsCount = context.MigrationJobs
                     .Count(mj => (mj.DataSourceId == x.Id || mj.DestinationDataSourceId == x.Id)
                                  && mj.ArchivedTime == null),
@@ -163,6 +170,12 @@ internal class DataSourceService(
         dataSource.Name = dataSourceData.Name;
         dataSource.EncryptedConnectionData = encryptionService.Encrypt(dataSourceData.ConnectionString);
         dataSource.DatabaseEngineType = dataSourceData.DatabaseEngineType;
+        dataSource.MetadataLoadingEnabled = dataSourceData.MetadataLoadingEnabled;
+        dataSource.MetadataMaxTables = dataSourceData.MetadataMaxTables;
+        dataSource.MetadataMaxColumnsPerTable = dataSourceData.MetadataMaxColumnsPerTable;
+        dataSource.MetadataLoadTableNamesOnly = dataSourceData.MetadataLoadTableNamesOnly;
+        dataSource.MetadataExcludeSchemas = dataSourceData.MetadataExcludeSchemas.Count > 0 ? string.Join(",", dataSourceData.MetadataExcludeSchemas) : null;
+        dataSource.MetadataIncludeSchemas = dataSourceData.MetadataIncludeSchemas.Count > 0 ? string.Join(",", dataSourceData.MetadataIncludeSchemas) : null;
 
         await context.SaveChangesAsync(cancellationToken);
     }

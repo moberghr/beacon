@@ -120,6 +120,7 @@ public static class ServiceConfiguration
         services.TryAddTransient<IDatabaseMetadataService, DatabaseMetadataService>();
         services.TryAddTransient<IAnomalyDetectionService, AnomalyDetectionService>();
         services.TryAddTransient<IManualQueryExecutionLogger, ManualQueryExecutionLogger>();
+        services.TryAddTransient<IAppSettingsService, AppSettingsService>();
 
         services.TryAddTransient(typeof(ISemanticoScheduler), configurationOptions.SemanticoScheduler!);
 
@@ -167,6 +168,33 @@ public static class ServiceConfiguration
         }
 
         context.Database.Migrate();
+
+        // Hydrate configuration singletons from database settings
+        InitializeAppSettings(scope.ServiceProvider);
+    }
+
+    private static void InitializeAppSettings(IServiceProvider serviceProvider)
+    {
+        try
+        {
+            var settingsService = serviceProvider.GetRequiredService<IAppSettingsService>();
+            var settings = settingsService.GetSettingsAsync().GetAwaiter().GetResult();
+
+            // Hydrate SemanticoConfiguration
+            var config = serviceProvider.GetRequiredService<SemanticoConfiguration>();
+            if (settings.BaseUrl != null) config.BaseUrl = settings.BaseUrl;
+
+            // Hydrate LLM configuration if updater is available
+            var llmUpdater = serviceProvider.GetService<ILlmConfigurationUpdater>();
+            if (llmUpdater != null && settings.LlmProvider.HasValue)
+            {
+                llmUpdater.UpdateConfiguration(settings);
+            }
+        }
+        catch
+        {
+            // Settings table may not exist yet on first run before migration — continue with defaults
+        }
     }
 
     private static string GetSchemaFromContext(SemanticoContext context)

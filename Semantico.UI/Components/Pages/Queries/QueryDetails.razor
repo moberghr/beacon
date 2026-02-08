@@ -8,21 +8,13 @@
 @using Semantico.Core.Data.Enums
 @using Semantico.Core.Adapters
 @using Semantico.UI.Helpers
+@inject IQueryService Service
+@inject IQueryExecutionPreviewService PreviewService
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject Semantico.Core.Authorization.ISemanticoAuthorizationProvider AuthorizationProvider
 
 <SemanticoPageTitle Title="Query"/>
-
-<style>
-    /* QueryDetails-specific styles (not shared across pages) */
-    .step-card {
-        border-left: 4px solid var(--mud-palette-primary);
-        transition: all 0.3s ease;
-    }
-
-    .step-card:hover {
-        border-left-color: var(--mud-palette-secondary);
-        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-    }
-</style>
 
 <MudContainer Class="my-4 px-4" MaxWidth="MaxWidth.ExtraExtraLarge">
     <!-- Page Header -->
@@ -33,26 +25,7 @@
                     <MudIcon Icon="@Icons.Material.Filled.QueryStats" Class="mr-2" />
                     @(Model?.Name ?? "Query Details")
                 </MudText>
-                @if (Model?.AiActorId.HasValue == true)
-                {
-                    <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Filled">
-                        <MudIcon Icon="@Icons.Material.Filled.SmartToy" Size="Size.Small" Class="mr-1" />
-                        AI Managed
-                    </MudChip>
-                    @if (!string.IsNullOrEmpty(Model?.AiActorName))
-                    {
-                        <MudChip T="string" Size="Size.Small" Color="Color.Default" Variant="Variant.Outlined">
-                            @Model.AiActorName
-                        </MudChip>
-                    }
-                }
-                else
-                {
-                    <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Filled">
-                        <MudIcon Icon="@Icons.Material.Filled.Person" Size="Size.Small" Class="mr-1" />
-                        User Defined
-                    </MudChip>
-                }
+                <SourceChip AiActorId="@Model?.AiActorId" AiActorName="@Model?.AiActorName" Compact="false" />
                 @if (Model?.IsLocked == true)
                 {
                     <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Filled">
@@ -72,7 +45,7 @@
                 }
             </MudText>
         </MudStack>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="@AddSubscription">
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="@AddSubscription" Disabled="@(!_canWrite)">
             Add Subscription
         </MudButton>
     </MudStack>
@@ -86,107 +59,36 @@
         <!-- Hero Stats -->
         <MudGrid Spacing="3" Class="mb-4">
             <MudItem xs="12" sm="6" md="3">
-                <MudPaper Class="hero-stat-card pa-4" Elevation="4">
-                    <MudStack Spacing="2">
-                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                            <MudIcon Icon="@Icons.Material.Filled.PlayArrow" Size="Size.Large" />
-                            <MudChip T="string" Size="Size.Small" Style="background: rgba(255,255,255,0.2); color: white;">Total</MudChip>
-                        </MudStack>
-                        <MudText Class="hero-stat-number">@(Model?.TotalExecutions ?? 0)</MudText>
-                        <MudText Class="hero-stat-label">Executions</MudText>
-                    </MudStack>
-                </MudPaper>
+                <HeroStatCard CardClass="hero-stat-card" Icon="@Icons.Material.Filled.PlayArrow" Badge="Total"
+                              Value="@((Model?.TotalExecutions ?? 0).ToString())" Label="Executions" />
             </MudItem>
-
             <MudItem xs="12" sm="6" md="3">
-                <MudPaper Class="hero-stat-card hero-stat-card-success pa-4" Elevation="4">
-                    <MudStack Spacing="2">
-                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                            <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Large" />
-                            <MudChip T="string" Size="Size.Small" Style="background: rgba(255,255,255,0.2); color: white;">Rate</MudChip>
-                        </MudStack>
-                        <MudText Class="hero-stat-number">
-                            @if (Model?.TotalExecutions > 0)
-                            {
-                                var rate = (double)(Model?.SentNotifications ?? 0) / (Model?.TotalExecutions ?? 1) * 100;
-                                @($"{rate:F0}%")
-                            }
-                            else
-                            {
-                                <text>N/A</text>
-                            }
-                        </MudText>
-                        <MudText Class="hero-stat-label">Results Rate</MudText>
-                    </MudStack>
-                </MudPaper>
+                <HeroStatCard CardClass="hero-stat-card-success" Icon="@Icons.Material.Filled.CheckCircle" Badge="Rate"
+                              Value="@GetResultsRate()" Label="Results Rate" />
             </MudItem>
-
             <MudItem xs="12" sm="6" md="3">
-                <MudPaper Class="hero-stat-card hero-stat-card-info pa-4" Elevation="4">
-                    <MudStack Spacing="2">
-                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                            <MudIcon Icon="@Icons.Material.Filled.Subscriptions" Size="Size.Large" />
-                            <MudChip T="string" Size="Size.Small" Style="background: rgba(255,255,255,0.2); color: white;">Active</MudChip>
-                        </MudStack>
-                        <MudText Class="hero-stat-number">@(Model?.Subscriptions?.Count ?? 0)</MudText>
-                        <MudText Class="hero-stat-label">Subscriptions</MudText>
-                    </MudStack>
-                </MudPaper>
+                <HeroStatCard CardClass="hero-stat-card-info" Icon="@Icons.Material.Filled.Subscriptions" Badge="Active"
+                              Value="@((Model?.Subscriptions?.Count ?? 0).ToString())" Label="Subscriptions" />
             </MudItem>
-
             <MudItem xs="12" sm="6" md="3">
-                <MudPaper Class="hero-stat-card hero-stat-card-warning pa-4" Elevation="4">
-                    <MudStack Spacing="2">
-                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                            <MudIcon Icon="@Icons.Material.Filled.AccountTree" Size="Size.Large" />
-                            <MudChip T="string" Size="Size.Small" Style="background: rgba(255,255,255,0.2); color: white;">Steps</MudChip>
-                        </MudStack>
-                        <MudText Class="hero-stat-number">@(Model?.Steps?.Count ?? 0)</MudText>
-                        <MudText Class="hero-stat-label">Query Steps</MudText>
-                    </MudStack>
-                </MudPaper>
+                <HeroStatCard CardClass="hero-stat-card-warning" Icon="@Icons.Material.Filled.AccountTree" Badge="Steps"
+                              Value="@((Model?.Steps?.Count ?? 0).ToString())" Label="Query Steps" />
             </MudItem>
         </MudGrid>
 
         <!-- Execution Time Metrics -->
         <MudGrid Spacing="3" Class="mb-4">
             <MudItem xs="12" sm="6" md="4">
-                <MudPaper Class="hero-metric-card-primary pa-4" Elevation="4">
-                    <MudStack Spacing="2">
-                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                            <MudIcon Icon="@Icons.Material.Filled.Speed" Size="Size.Large" />
-                            <MudChip T="string" Size="Size.Small" Style="background: rgba(255,255,255,0.2); color: white;">Average</MudChip>
-                        </MudStack>
-                        <MudText Class="hero-stat-number">@FormatExecutionTime(Model?.AvgExecutionTimeMs ?? 0)</MudText>
-                        <MudText Class="hero-stat-label">Avg Execution Time</MudText>
-                    </MudStack>
-                </MudPaper>
+                <HeroStatCard CardClass="hero-metric-card-primary" Icon="@Icons.Material.Filled.Speed" Badge="Average"
+                              Value="@FormatExecutionTime(Model?.AvgExecutionTimeMs ?? 0)" Label="Avg Execution Time" />
             </MudItem>
-
             <MudItem xs="12" sm="6" md="4">
-                <MudPaper Class="hero-metric-card-success pa-4" Elevation="4">
-                    <MudStack Spacing="2">
-                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                            <MudIcon Icon="@Icons.Material.Filled.FlashOn" Size="Size.Large" />
-                            <MudChip T="string" Size="Size.Small" Style="background: rgba(255,255,255,0.2); color: white;">Fastest</MudChip>
-                        </MudStack>
-                        <MudText Class="hero-stat-number">@FormatExecutionTime(Model?.MinExecutionTimeMs ?? 0)</MudText>
-                        <MudText Class="hero-stat-label">Fastest Execution</MudText>
-                    </MudStack>
-                </MudPaper>
+                <HeroStatCard CardClass="hero-metric-card-success" Icon="@Icons.Material.Filled.FlashOn" Badge="Fastest"
+                              Value="@FormatExecutionTime(Model?.MinExecutionTimeMs ?? 0)" Label="Fastest Execution" />
             </MudItem>
-
             <MudItem xs="12" sm="6" md="4">
-                <MudPaper Class="hero-metric-card-error pa-4" Elevation="4">
-                    <MudStack Spacing="2">
-                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                            <MudIcon Icon="@Icons.Material.Filled.HourglassTop" Size="Size.Large" />
-                            <MudChip T="string" Size="Size.Small" Style="background: rgba(255,255,255,0.2); color: white;">Slowest</MudChip>
-                        </MudStack>
-                        <MudText Class="hero-stat-number">@FormatExecutionTime(Model?.MaxExecutionTimeMs ?? 0)</MudText>
-                        <MudText Class="hero-stat-label">Slowest Execution</MudText>
-                    </MudStack>
-                </MudPaper>
+                <HeroStatCard CardClass="hero-metric-card-error" Icon="@Icons.Material.Filled.HourglassTop" Badge="Slowest"
+                              Value="@FormatExecutionTime(Model?.MaxExecutionTimeMs ?? 0)" Label="Slowest Execution" />
             </MudItem>
         </MudGrid>
 
@@ -375,7 +277,8 @@
                     <MudButton Variant="Variant.Filled"
                                Color="Color.Primary"
                                StartIcon="@Icons.Material.Filled.PlayArrow"
-                               OnClick="@ExecuteQuery">
+                               OnClick="@ExecuteQuery"
+                               Disabled="@(!_canWrite)">
                         Execute Query
                     </MudButton>
                 </MudStack>
@@ -411,7 +314,8 @@
                                                 <MudButton Size="Size.Small"
                                                           Variant="Variant.Text"
                                                           StartIcon="@(_editingStepId == step.StepId ? Icons.Material.Filled.Visibility : Icons.Material.Filled.Edit)"
-                                                          OnClick="@(() => ToggleStepEdit(step.StepId))">
+                                                          OnClick="@(() => ToggleStepEdit(step.StepId))"
+                                                          Disabled="@(!_canWrite)">
                                                     @(_editingStepId == step.StepId ? "View Only" : "Edit")
                                                 </MudButton>
                                             </MudStack>
@@ -475,7 +379,8 @@
                                                    Color="Color.Primary"
                                                    Size="Size.Small"
                                                    Variant="Variant.Text"
-                                                   OnClick="@(() => ExecuteStep(step.StepOrder))">
+                                                   OnClick="@(() => ExecuteStep(step.StepOrder))"
+                                                   Disabled="@(!_canWrite)">
                                             Execute Step
                                         </MudButton>
                                     </MudCardActions>
@@ -530,7 +435,8 @@
                         <MudButton Size="Size.Small"
                                   Variant="Variant.Text"
                                   StartIcon="@(_editingFinalQuery ? Icons.Material.Filled.Visibility : Icons.Material.Filled.Edit)"
-                                  OnClick="@(() => _editingFinalQuery = !_editingFinalQuery)">
+                                  OnClick="@(() => _editingFinalQuery = !_editingFinalQuery)"
+                                  Disabled="@(!_canWrite)">
                             @(_editingFinalQuery ? "View Only" : "Edit")
                         </MudButton>
                     </MudStack>
@@ -597,11 +503,6 @@
     }
 </MudContainer>
 
-@inject IQueryService Service
-@inject IQueryExecutionPreviewService PreviewService
-@inject IDialogService DialogService
-@inject ISnackbar Snackbar
-
 @code
 {
     [Parameter]
@@ -615,6 +516,7 @@
     private QueryStepResult? _currentStepResult;
     private int? _editingStepId;
     private bool _editingFinalQuery;
+    private bool _canWrite;
 
     // Chart data
     private List<ChartSeries> _successRateSeriesData = new();
@@ -633,6 +535,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        _canWrite = await AuthorizationProvider.HasWritePermissionAsync();
         await Load();
     }
 
@@ -772,13 +675,7 @@
             // If step has parameters, show dialog to collect values
             if (step?.Parameters?.Any() == true)
             {
-                var breakpoint = await BrowserViewport.GetCurrentBreakpointAsync();
-                var options = new DialogOptions
-                {
-                    MaxWidth = MaxWidth.Small,
-                    FullWidth = true,
-                    FullScreen = breakpoint == Breakpoint.Xs,
-                };
+                var options = await CreateResponsiveDialogOptions();
 
                 var parameters = new DialogParameters<ExecuteStepParametersDialog>
                 {
@@ -892,38 +789,22 @@
         if (Model?.ExecutionTimeHistory == null || !Model.ExecutionTimeHistory.Any())
             return;
 
-        var data = Model.ExecutionTimeHistory.OrderBy(x => x.Date).ToList();
-
-        _executionTimeXAxisLabels = data.Select(x => x.Date.ToString("MM/dd")).ToArray();
-
-        _executionTimeChartSeries = new List<ChartSeries>
-        {
-            new()
-            {
-                Name = "Average",
-                Data = data.Select(x => x.AvgExecutionTimeMs).ToArray()
-            },
-            new()
-            {
-                Name = "Minimum",
-                Data = data.Select(x => x.MinExecutionTimeMs).ToArray()
-            },
-            new()
-            {
-                Name = "Maximum",
-                Data = data.Select(x => x.MaxExecutionTimeMs).ToArray()
-            }
-        };
-
-        _executionTimeChartOptions = ChartHelper.CreateMultiSeriesChartOptions();
-        _executionTimeAxisChartOptions = ChartHelper.CreateDefaultAxisChartOptions();
+        var chart = ChartHelper.BuildExecutionTimeChart(Model.ExecutionTimeHistory);
+        _executionTimeChartSeries = chart.Series;
+        _executionTimeXAxisLabels = chart.Labels;
+        _executionTimeChartOptions = chart.Options;
+        _executionTimeAxisChartOptions = chart.AxisOptions;
     }
 
-    private string FormatExecutionTime(double milliseconds)
+    private string GetResultsRate()
     {
-        if (milliseconds < 1000)
-            return $"{milliseconds:0} ms";
-
-        return $"{milliseconds / 1000:0.00} s";
+        if (Model?.TotalExecutions > 0)
+        {
+            var rate = (double)(Model?.SentNotifications ?? 0) / (Model?.TotalExecutions ?? 1) * 100;
+            return $"{rate:F0}%";
+        }
+        return "N/A";
     }
+
+    private string FormatExecutionTime(double milliseconds) => UiHelpers.FormatExecutionTime(milliseconds);
 }

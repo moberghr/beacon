@@ -79,6 +79,7 @@ internal class SubscriptionService(
             TimeoutSeconds = subscriptionData.TimeoutSeconds,
             StoreResults = subscriptionData.StoreResults,
             CreateTasks = subscriptionData.CreateTasks,
+            NotificationTrigger = subscriptionData.NotificationTrigger,
             Recipients = recipients,
             Parameters = ParameterEntityFactory.CreateSubscriptionParameters(subscriptionData.Parameters)
         };
@@ -211,6 +212,7 @@ internal class SubscriptionService(
         subscription.TimeoutSeconds = subscriptionData.TimeoutSeconds;
         subscription.StoreResults = subscriptionData.StoreResults;
         subscription.CreateTasks = subscriptionData.CreateTasks;
+        subscription.NotificationTrigger = subscriptionData.NotificationTrigger;
         subscription.Recipients = recipients;
 
         foreach (var subscriptionParameter in subscription.Parameters)

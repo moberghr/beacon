@@ -50,55 +50,20 @@
         <!-- Hero Statistics Cards -->
         <MudGrid Spacing="3" Class="mb-4">
             <MudItem xs="12" sm="6" md="3">
-                <MudPaper Class="hero-stat-card pa-4" Elevation="4">
-                    <MudStack Spacing="2">
-                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                            <MudIcon Icon="@Icons.Material.Filled.Timer" Size="Size.Large" />
-                            <MudChip T="string" Size="Size.Small" Style="background: rgba(255,255,255,0.2); color: white;">Time</MudChip>
-                        </MudStack>
-                        <MudText Class="hero-stat-number">@Model.ExecutionTimeMs.ToString("N0")</MudText>
-                        <MudText Class="hero-stat-label">Execution Time (ms)</MudText>
-                    </MudStack>
-                </MudPaper>
+                <HeroStatCard CardClass="hero-stat-card" Icon="@Icons.Material.Filled.Timer" Badge="Time"
+                              Value="@Model.ExecutionTimeMs.ToString("N0")" Label="Execution Time (ms)" />
             </MudItem>
-
             <MudItem xs="12" sm="6" md="3">
-                <MudPaper Class="hero-stat-card-success pa-4" Elevation="4">
-                    <MudStack Spacing="2">
-                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                            <MudIcon Icon="@Icons.Material.Filled.DataObject" Size="Size.Large" />
-                            <MudChip T="string" Size="Size.Small" Style="background: rgba(255,255,255,0.2); color: white;">Results</MudChip>
-                        </MudStack>
-                        <MudText Class="hero-stat-number">@Model.ResultCount</MudText>
-                        <MudText Class="hero-stat-label">Result Count</MudText>
-                    </MudStack>
-                </MudPaper>
+                <HeroStatCard CardClass="hero-stat-card-success" Icon="@Icons.Material.Filled.DataObject" Badge="Results"
+                              Value="@Model.ResultCount.ToString()" Label="Result Count" />
             </MudItem>
-
             <MudItem xs="12" sm="6" md="3">
-                <MudPaper Class="hero-stat-card-info pa-4" Elevation="4">
-                    <MudStack Spacing="2">
-                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                            <MudIcon Icon="@Icons.Material.Filled.Notifications" Size="Size.Large" />
-                            <MudChip T="string" Size="Size.Small" Style="background: rgba(255,255,255,0.2); color: white;">Sent</MudChip>
-                        </MudStack>
-                        <MudText Class="hero-stat-number">@Model.Notifications.Count</MudText>
-                        <MudText Class="hero-stat-label">Notifications</MudText>
-                    </MudStack>
-                </MudPaper>
+                <HeroStatCard CardClass="hero-stat-card-info" Icon="@Icons.Material.Filled.Notifications" Badge="Sent"
+                              Value="@Model.Notifications.Count.ToString()" Label="Notifications" />
             </MudItem>
-
             <MudItem xs="12" sm="6" md="3">
-                <MudPaper Class="hero-stat-card-warning pa-4" Elevation="4">
-                    <MudStack Spacing="2">
-                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                            <MudIcon Icon="@Icons.Material.Filled.Task" Size="Size.Large" />
-                            <MudChip T="string" Size="Size.Small" Style="background: rgba(255,255,255,0.2); color: white;">Created</MudChip>
-                        </MudStack>
-                        <MudText Class="hero-stat-number">@Model.Tasks.Count</MudText>
-                        <MudText Class="hero-stat-label">Tasks</MudText>
-                    </MudStack>
-                </MudPaper>
+                <HeroStatCard CardClass="hero-stat-card-warning" Icon="@Icons.Material.Filled.Task" Badge="Created"
+                              Value="@Model.Tasks.Count.ToString()" Label="Tasks" />
             </MudItem>
         </MudGrid>
 

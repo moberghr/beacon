@@ -2,8 +2,9 @@
 @inherits BasePageComponent 
 @using Semantico.Core.Models.Subscriptions
 @using Semantico.Core.Services
+@inject ISubscriptionService service
 
-<SemanticoPageTitle Title="Queries"/>
+<SemanticoPageTitle Title="Subscriptions"/>
 
 <MudContainer Class="my-4 px-4"  MaxWidth="MaxWidth.ExtraExtraLarge">
     <SemanticoPageHeader Icon="@Icons.Material.Filled.QueryBuilder" Title="Subscriptions"/>
@@ -30,20 +31,7 @@
             <PropertyColumn Property="x => x.CronExpression" Title="Cron Expression"/>
             <TemplateColumn Title="Source" Sortable="false">
                 <CellTemplate>
-                    @if (context.Item.AiActorId.HasValue)
-                    {
-                        <MudTooltip Text="@($"AI Managed by {context.Item.AiActorName}")">
-                            <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Filled">
-                                <MudIcon Icon="@Icons.Material.Filled.SmartToy" Size="Size.Small" Class="mr-1"/>AI
-                            </MudChip>
-                        </MudTooltip>
-                    }
-                    else
-                    {
-                        <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Filled">
-                            <MudIcon Icon="@Icons.Material.Filled.Person" Size="Size.Small" Class="mr-1"/>User
-                        </MudChip>
-                    }
+                    <SourceChip AiActorId="@context.Item.AiActorId" AiActorName="@context.Item.AiActorName" />
                 </CellTemplate>
             </TemplateColumn>
         </Columns>
@@ -52,8 +40,6 @@
         </PagerContent>
     </MudDataGrid>
 </MudContainer>
-
-@inject ISubscriptionService service;
 
 @code {
     private List<SubscriptionData> SubscriptionsList { get; set; } = new();
