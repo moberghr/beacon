@@ -44,6 +44,21 @@ AI features require:
 - Appropriate model access
 - Network connectivity to provider APIs
 
+### Runtime Configuration via Admin Settings (Recommended)
+
+The easiest way to configure AI is through the **Admin Settings** UI at runtime - no restart required:
+
+1. Navigate to **Admin Settings** > **AI Configuration**
+2. Select your provider (OpenAI, Anthropic, Azure OpenAI, Bedrock)
+3. Enter your API key and model name
+4. Configure rate limits and budget
+5. Click **Save**
+
+Changes take effect immediately. You can switch providers at runtime without restarting.
+
+{: .note }
+> Admin Settings requires the [User Management](user-management) system to be enabled with an Admin user. See the [Admin Settings Guide](admin-settings) for details.
+
 ### appsettings.json Configuration
 
 ```json
@@ -489,13 +504,24 @@ IAiAlertGenerationService
 └── RefineAlertAsync()
 
 ILlmProvider (interface)
+├── DelegatingLlmProvider (proxy - injected everywhere)
+│   └── Delegates to LlmProviderManager.CurrentProvider
 ├── OpenAiProvider
 ├── AnthropicProvider
-└── AzureOpenAiProvider
+├── AzureOpenAiProvider
+└── BedrockProvider
 
 LlmProviderFactory
 └── CreateProvider() -> ILlmProvider
+
+LlmProviderManager (implements ILlmConfigurationUpdater)
+├── CurrentProvider (hot-swappable)
+└── UpdateConfiguration() (called by Admin Settings)
 ```
+
+### Hot-Swap Flow
+
+All consumers inject `ILlmProvider`, which is registered as `DelegatingLlmProvider`. This proxy delegates to the current provider held by `LlmProviderManager`. When Admin Settings saves a new LLM configuration, `LlmProviderManager` recreates the provider and all subsequent requests use the new provider automatically.
 
 ### Data Model
 
@@ -528,6 +554,7 @@ AiAlertConfiguration
 
 ## Related Features
 
+- [Admin Settings](admin-settings) - Configure and hot-swap LLM providers at runtime
 - [Data Sources](data-sources) - Configure data sources for AI analysis
 - [Subscriptions](subscriptions) - Use AI-generated queries in subscriptions
 - [Anomaly Detection](anomaly-detection) - Statistical anomaly detection complement to AI
