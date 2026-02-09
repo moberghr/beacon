@@ -8,16 +8,20 @@ The authorization system consists of:
 
 - **ISemanticoUserContext** - Provides access to current user information
 - **ISemanticoAuthorizationProvider** - Enforces authorization policies
-- **Built-in Providers** - Ready-to-use implementations (Default, Role-Based)
+- **Built-in Providers** - Ready-to-use implementations (Default, Role-Based, Database-Backed)
 - **Custom Providers** - Plug in your own authorization logic
 
 ### Key Features
 
-- ✅ **Opt-in by default** - Authorization disabled unless explicitly enabled
-- ✅ **Pluggable architecture** - Integrate with any authentication system
-- ✅ **Multiple authorization levels** - Global permissions and resource-level permissions
-- ✅ **Backward compatible** - Existing installations work unchanged
-- ✅ **Framework agnostic** - Works with ASP.NET Core Identity, OAuth, custom auth, etc.
+- Opt-in by default - Authorization disabled unless explicitly enabled
+- Pluggable architecture - Integrate with any authentication system
+- Multiple authorization levels - Global permissions and resource-level permissions
+- Backward compatible - Existing installations work unchanged
+- Framework agnostic - Works with ASP.NET Core Identity, OAuth, custom auth, etc.
+- Database-backed roles - Built-in user management with Admin, Editor, Viewer roles
+
+{: .note }
+> For full user management (creating users, assigning roles, login form), see the [User Management Guide](user-management).
 
 ## Quick Start
 
@@ -163,6 +167,37 @@ options.AddAuthorizationProvider<RoleBasedAuthorizationProvider>();
 ```csharp
 identity.AddClaim(new Claim(SemanticoClaims.Role, "Admin")); // or "Editor", "Viewer"
 ```
+
+### DatabaseAuthorizationProvider
+
+Database-backed authorization that reads roles from Semantico's user management tables. This is the recommended provider when using the built-in [User Management](user-management) system.
+
+| Role | Level | Read | Create/Edit/Execute | Delete/Archive |
+|------|-------|------|---------------------|----------------|
+| **Admin** | 3 | Yes | Yes | Yes |
+| **Editor** | 2 | Yes | Yes | No |
+| **Viewer** | 1 | Yes | No | No |
+
+**Use case:** When using Semantico's built-in user management with login form and role assignment.
+
+```csharp
+options.Authorization.Enabled = true;
+
+// Enable user management + database auth
+options.Authentication.EnableLoginForm = true;
+options.AddAuthenticationProvider<DatabaseAuthenticationProvider>();
+
+options.UserManagement = new UserManagementOptions
+{
+    Enabled = true,
+    AllowInternalUsers = true
+};
+```
+
+No claims transformer needed - roles are loaded directly from the database.
+
+{: .note }
+> `DatabaseAuthorizationProvider` is automatically registered when user management is enabled. It also supports `IsSuperAdmin` to bypass all checks.
 
 ## Custom Authorization Provider
 
@@ -679,6 +714,7 @@ If you're upgrading from a version without authorization:
 
 ## See Also
 
+- [User Management](user-management) - Built-in user management with login form and role assignment
+- [Admin Settings](admin-settings) - Runtime configuration (Admin-only)
 - [Configuration Guide](../getting-started/configuration.md)
 - [Quick Start](../getting-started/quick-start.md)
-- [Sample Implementation](../../Semantico.SampleProject/AUTHORIZATION_EXAMPLE.md)

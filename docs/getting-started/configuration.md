@@ -278,9 +278,12 @@ public class MyAuthorizationProvider : ISemanticoAuthorizationProvider
 ## AI/LLM Configuration (Optional - Experimental)
 
 {: .warning }
-> **⚠️ Experimental Feature:** AI-powered features are experimental and may produce incorrect results. Configure only if you understand the limitations and will validate all AI-generated content.
+> **Experimental Feature:** AI-powered features are experimental and may produce incorrect results. Configure only if you understand the limitations and will validate all AI-generated content.
 
 Configure LLM providers for AI-powered features like documentation generation and natural language alert creation.
+
+{: .note }
+> LLM configuration can also be managed at runtime via the [Admin Settings](../features/admin-settings) UI. Settings saved there take precedence over `appsettings.json` values and support hot-swapping providers without restarting.
 
 ### Supported Providers
 
@@ -636,13 +639,29 @@ builder.Services.AddSemanticoServices(builder.Configuration, options =>
 
 ## UI Configuration
 
-### Basic Authentication
+### Basic Authentication (Simple)
 
-Configure username and password for UI access:
+For quick setups without user management:
 
 ```csharp
 app.UseSemanticoUI()
     .UseBasicAuthentication("admin", "secretpassword")
+    .AddBlazorUI("/semantico");
+```
+
+### Login Form Authentication (Recommended)
+
+For production deployments with user management:
+
+```csharp
+builder.Services.AddSemanticoCookieAuthentication("/semantico");
+
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.UseSemanticoUI()
+    .UseLoginForm()
+    .UseAuthorization()
     .AddBlazorUI("/semantico");
 ```
 
@@ -652,61 +671,96 @@ Change the UI path from default `/semantico`:
 
 ```csharp
 app.UseSemanticoUI()
-    .UseBasicAuthentication("admin", "admin")
+    .UseLoginForm()
     .AddBlazorUI("/alerts"); // Custom path
 ```
 
 Access UI at: `http://localhost:5000/alerts`
 
-### Authorization Provider
+## User Management Configuration (Optional)
+
+Enable built-in user management with login form, role-based access, and first-run setup.
+
+### Quick Start
+
+```csharp
+builder.Services.AddSemanticoServices(builder.Configuration, options =>
+{
+    options.AddSemanticoScheduler<SemanticoScheduler>();
+    options.BaseUrl = "https://your-domain.com/semantico";
+
+    // Enable authorization + user management
+    options.Authorization.Enabled = true;
+    options.Authentication.EnableLoginForm = true;
+    options.AddAuthenticationProvider<DatabaseAuthenticationProvider>();
+
+    options.UserManagement = new UserManagementOptions
+    {
+        Enabled = true,
+        AllowInternalUsers = true,
+        MinimumPasswordLength = 8,
+        RequirePasswordComplexity = true
+    };
+})
+.UsePostgreSql(connectionString, "semantico");
+
+builder.Services.AddSemanticoUI();
+builder.Services.AddSemanticoCookieAuthentication("/semantico");
+
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.UseSemanticoUI()
+    .UseLoginForm()
+    .UseAuthorization()
+    .AddBlazorUI("/semantico");
+```
+
+### User Management Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `Enabled` | Enable user management features | `false` |
+| `AllowInternalUsers` | Allow password-based users | `true` |
+| `MinimumPasswordLength` | Minimum password length | `8` |
+| `RequirePasswordComplexity` | Require mixed case, numbers, symbols | `true` |
+
+### Authentication Providers
+
+| Provider | Use Case |
+|----------|----------|
+| `DatabaseAuthenticationProvider` | Internal users with passwords in Semantico |
+| `JwtExternalApiAuthenticationProvider` | External JWT/OAuth identity provider |
+| `HybridAuthenticationProvider` | Both internal and external users |
+
+{: .note }
+> For complete user management documentation including external JWT setup, custom providers, and role details, see the [User Management Guide](../features/user-management).
+
+### Custom Authorization Provider
 
 Implement custom authorization logic:
 
 ```csharp
-using Semantico.UI.AspNet.Authentication;
-
 public class CustomAuthorizationProvider : ISemanticoAuthorizationProvider
 {
-    private readonly IUserService _userService;
+    private readonly ISemanticoUserContext _userContext;
 
-    public CustomAuthorizationProvider(IUserService userService)
+    public CustomAuthorizationProvider(ISemanticoUserContext userContext)
     {
-        _userService = userService;
+        _userContext = userContext;
     }
 
-    public async Task<bool> HasReadPermissionAsync(string username)
-    {
-        var user = await _userService.GetUserAsync(username);
-        return user?.HasRole("Viewer") ?? false;
-    }
+    public Task<bool> HasReadPermissionAsync(CancellationToken ct = default)
+        => Task.FromResult(_userContext.IsAuthenticated);
 
-    public async Task<bool> HasWritePermissionAsync(string username)
-    {
-        var user = await _userService.GetUserAsync(username);
-        return user?.HasRole("Admin") ?? false;
-    }
+    public Task<bool> HasWritePermissionAsync(CancellationToken ct = default)
+        => Task.FromResult(_userContext.HasClaim(SemanticoClaims.Role, "Admin"));
+
+    // Implement other methods...
 }
-```
 
-Register the provider:
-
-```csharp
-builder.Services.AddSemanticoServices(builder.Configuration, options =>
-    {
-        options.AddSemanticoScheduler<SemanticoScheduler>();
-    })
-    .UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
-
-builder.Services.AddSemanticoUI(options =>
-{
-    options.AddAuthorizationProvider<CustomAuthorizationProvider>();
-});
-
-// Enable authorization checks
-app.UseSemanticoUI()
-    .UseBasicAuthentication("admin", "admin")
-    .UseAuthorization() // Enable authorization checks
-    .AddBlazorUI("/semantico");
+// Register it
+options.AddAuthorizationProvider<CustomAuthorizationProvider>();
 ```
 
 ## Email Adapter
@@ -1181,11 +1235,14 @@ Configure logging in `appsettings.json`:
 
 ## Complete Configuration Example
 
+### With User Management (Recommended)
+
 ```csharp
 using Hangfire;
 using Hangfire.PostgreSql;
 using Semantico.AI;
 using Semantico.Core;
+using Semantico.Core.Authentication;
 using Semantico.Core.PostgreSql;
 using Semantico.UI;
 
@@ -1207,41 +1264,55 @@ builder.Services.AddHangfire((provider, config) => config
 
 builder.Services.AddHangfireServer(options =>
 {
-    options.WorkerCount = 10; // Adjust based on load
+    options.WorkerCount = 10;
 });
 
-// Step 1: Add Semantico core services and configure database provider
+// Step 1: Add Semantico core services with user management
 var schema = builder.Configuration["Semantico:Schema"] ?? "semantico";
 builder.Services.AddSemanticoServices(builder.Configuration, options =>
     {
         options.AddSemanticoScheduler<SemanticoScheduler>();
         options.AddEmailAdapter<SmtpEmailAdapter>();
         options.BaseUrl = builder.Configuration["Semantico:BaseUrl"];
-        options.UseAI = true; // Enable AI features (optional)
+        options.UseAI = true;
+
+        // Enable authorization and user management
+        options.Authorization.Enabled = true;
+        options.Authentication.EnableLoginForm = true;
+        options.AddAuthenticationProvider<DatabaseAuthenticationProvider>();
+
+        options.UserManagement = new UserManagementOptions
+        {
+            Enabled = true,
+            AllowInternalUsers = true,
+            MinimumPasswordLength = 8,
+            RequirePasswordComplexity = true
+        };
     })
     .UsePostgreSql(
         builder.Configuration.GetConnectionString("SemanticoContext")!,
         schema);
 
 // Step 2: Add UI components
-builder.Services.AddSemanticoUI(options =>
-{
-    options.AddAuthorizationProvider<CustomAuthorizationProvider>();
-});
+builder.Services.AddSemanticoUI();
 
-// Step 3: Add AI services (optional)
+// Step 3: Add cookie authentication
+builder.Services.AddSemanticoCookieAuthentication("/semantico");
+
+// Step 4: Add AI services (optional)
 builder.Services.AddSemanticoAI(builder.Configuration);
 
 var app = builder.Build();
 
 app.UseHttpsRedirection();
-app.UseStaticFiles(); // Required: Serves Semantico UI assets
+app.UseStaticFiles();
 
-// Semantico UI
+app.UseAuthentication();
+app.UseAuthorization();
+
+// Semantico UI with login form
 app.UseSemanticoUI()
-    .UseBasicAuthentication(
-        builder.Configuration["Semantico:AdminUsername"] ?? "admin",
-        builder.Configuration["Semantico:AdminPassword"] ?? "admin")
+    .UseLoginForm()
     .UseAuthorization()
     .AddBlazorUI("/semantico");
 
@@ -1251,6 +1322,23 @@ app.UseHangfireDashboard("/hangfire");
 app.Run();
 ```
 
+### Without User Management (Simple)
+
+```csharp
+builder.Services.AddSemanticoServices(builder.Configuration, options =>
+    {
+        options.AddSemanticoScheduler<SemanticoScheduler>();
+        options.BaseUrl = builder.Configuration["Semantico:BaseUrl"];
+    })
+    .UsePostgreSql(connectionString, schema);
+
+builder.Services.AddSemanticoUI();
+
+app.UseSemanticoUI()
+    .UseBasicAuthentication("admin", "secretpassword")
+    .AddBlazorUI("/semantico");
+```
+
 **Complete appsettings.json:**
 ```json
 {
@@ -1258,10 +1346,14 @@ app.Run();
     "SemanticoContext": "Host=localhost;Database=semantico;Username=semantico;Password=secretpass;Pooling=true;MaxPoolSize=50"
   },
   "Semantico": {
+    "EncryptionKey": "your-secure-32-character-key-here",
     "Schema": "semantico",
-    "AdminUsername": "admin",
-    "AdminPassword": "secretpassword",
-    "BaseUrl": "https://yourdomain.com/semantico"
+    "BaseUrl": "https://yourdomain.com/semantico",
+    "LLM": {
+      "Provider": "OpenAI",
+      "ApiKey": "sk-your-api-key",
+      "Model": "gpt-4o"
+    }
   },
   "Email": {
     "SmtpHost": "smtp.gmail.com",
@@ -1280,6 +1372,9 @@ app.Run();
   }
 }
 ```
+
+{: .note }
+> LLM settings in `appsettings.json` are optional startup defaults. Once configured via [Admin Settings](../features/admin-settings), database values take precedence.
 
 ## Next Steps
 

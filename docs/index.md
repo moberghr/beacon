@@ -266,6 +266,8 @@ Access Semantico UI at `http://localhost:5000/semantico`
 
 ### Advanced Features
 
+- **[User Management](features/user-management)**: Internal/external users, role-based access, first-run setup
+- **[Admin Settings](features/admin-settings)**: Runtime configuration, hot-swap LLM providers, audit trail
 - **[Query Chaining](advanced/query-chaining)**: Execute queries across multiple projects
 - **[Cross-Database Queries](advanced/cross-database)**: Combine data from different database types
 - **[Multi-Tenant Deployments](advanced/multi-tenant)**: Schema-agnostic configuration
@@ -332,6 +334,8 @@ Get help and contribute to the project.
 | **Notifications** | Email (with CSV attachments), Teams, Jira delivery |
 | **Full Dataset Attachments** | Email includes complete query results as CSV (unlimited rows) |
 | **Parameters** | Dynamic query values with placeholders |
+| **User Management** | Built-in users, roles, JWT/OAuth, first-run setup |
+| **Admin Settings** | Runtime config, hot-swap LLM providers, audit trail |
 | **Schema-Agnostic** | Multi-tenant deployments with runtime schema selection |
 | **Execution History** | Complete audit trail of all executions |
 | **Blazor UI** | Modern admin interface with MudBlazor |

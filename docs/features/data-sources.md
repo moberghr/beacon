@@ -103,6 +103,52 @@ The Data Sources page shows all configured data sources with:
 2. Confirm deletion in the dialog
 3. Data source is archived (soft delete)
 
+## Metadata Loading Options
+
+For database-type data sources, Semantico loads schema metadata (tables, columns, relationships) to power features like the ad-hoc query editor with IntelliSense and AI documentation generation. You can control this behavior when creating or editing a data source.
+
+### Configuration Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| **Metadata Loading Enabled** | Enable/disable automatic metadata loading | Enabled |
+| **Max Tables** | Limit the number of tables loaded (0 = unlimited) | 0 |
+| **Max Columns Per Table** | Limit columns per table (0 = unlimited) | 0 |
+| **Table Names Only** | Load only table names, skip column details | Off |
+| **Include Schemas** | Only load metadata from these schemas | All |
+| **Exclude Schemas** | Skip metadata from these schemas | None |
+
+### When to Disable Metadata Loading
+
+- **Very large databases** (1000+ tables) where loading metadata is slow
+- **Restricted access** databases where the user doesn't have schema read permissions
+- **CloudWatch or non-database** data sources (metadata is not applicable)
+
+### When to Use Schema Filters
+
+- **Exclude system schemas** like `information_schema`, `pg_catalog` to reduce noise
+- **Include only specific schemas** to focus on relevant tables
+- **Multi-schema databases** where you only need metadata from certain schemas
+
+### Viewing Metadata Status
+
+The data source details page shows the metadata loading status in the Overview section:
+- **Enabled** (green) - Metadata is loaded and available for IntelliSense
+- **Disabled** (red) - Metadata loading is turned off
+
+### Example: Large Database with Schema Filtering
+
+When adding a large production database, limit metadata to relevant schemas:
+
+```
+Metadata Loading: Enabled
+Max Tables: 200
+Include Schemas: public, app
+Exclude Schemas: pg_catalog, information_schema, pg_toast
+```
+
+This loads only tables from the `public` and `app` schemas, capped at 200 tables.
+
 ## Connection Best Practices
 
 ### Use Read-Only Users

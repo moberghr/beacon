@@ -28,8 +28,14 @@ Extract, transform, and load data between databases using multi-step ETL pipelin
 
 ## Advanced Features
 
+### [User Management](user-management)
+Built-in user management with internal (password) and external (JWT/OAuth) authentication. First-run setup wizard, role assignment, and account administration.
+
+### [Admin Settings](admin-settings)
+Runtime application configuration through the Admin Settings UI. Hot-swap LLM providers, manage base URL, and view change history - all without restarting.
+
 ### [Authorization](authorization)
-Secure your Semantico installation with flexible authorization. Support for role-based access control (RBAC) and custom authorization providers. Integrate with any authentication system.
+Secure your Semantico installation with flexible authorization. Support for role-based access control (RBAC), database-backed roles, and custom authorization providers. Integrate with any authentication system.
 
 ### [Multi-Step Queries](multi-step-queries)
 Chain multiple queries together and aggregate results. Query across different databases in a single workflow.
