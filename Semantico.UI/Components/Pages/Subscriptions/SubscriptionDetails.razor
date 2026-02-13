@@ -864,6 +864,7 @@
             NotificationStatus.NotificationSent => Color.Success,
             NotificationStatus.NoResults => Color.Info,
             NotificationStatus.Timeout => Color.Error,
+            NotificationStatus.Failed => Color.Error,
             NotificationStatus.NotificationSilenced => Color.Warning,
             _ => Color.Default
         };
@@ -876,6 +877,7 @@
             NotificationStatus.NotificationSent => Icons.Material.Filled.CheckCircle,
             NotificationStatus.NoResults => Icons.Material.Filled.Info,
             NotificationStatus.Timeout => Icons.Material.Filled.Error,
+            NotificationStatus.Failed => Icons.Material.Filled.Error,
             NotificationStatus.NotificationSilenced => Icons.Material.Filled.NotificationsOff,
             _ => Icons.Material.Filled.Circle
         };

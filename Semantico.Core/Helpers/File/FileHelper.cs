@@ -10,7 +10,12 @@ internal static class FileHelper
 
     public static (string ContentType, string Filename) GetContentTypeAndFilename(FileType exportType)
     {
-        var contentType = exportType.ToString();
+        var contentType = exportType switch
+        {
+            FileType.Csv => "text/csv",
+            FileType.Xlsx => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            _ => "application/octet-stream"
+        };
 
         var filename = $"{DateTime.UtcNow.ToString(_dateTimeFormat)}.{exportType.ToString().ToLowerInvariant()}";
 
