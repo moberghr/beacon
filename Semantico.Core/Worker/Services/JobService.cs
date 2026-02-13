@@ -180,9 +180,19 @@ internal class JobService(
             });
         }
 
-        foreach (var recipientQueryResult in recipientsQueryResults)
+        try
         {
-            await notificationService.SendNotification(recipientQueryResult, lastExecutedQuery?.ResultCount);
+            foreach (var recipientQueryResult in recipientsQueryResults)
+            {
+                await notificationService.SendNotification(recipientQueryResult, lastExecutedQuery?.ResultCount);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to send notification for subscription {SubscriptionId}", subscriptionId);
+            executedQuery.NotificationStatus = NotificationStatus.Failed;
+            await context.SaveChangesAsync();
+            throw;
         }
 
         // Trigger AI Actor think cycle if this subscription belongs to an actor

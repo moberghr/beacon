@@ -53,6 +53,19 @@ internal sealed class LoginFormAuthMiddleware(
             return true;
         }
 
+        // Allow setup page and API when user management is enabled (first-run scenario)
+        if (configuration.UserManagement.Enabled &&
+            path.Contains("/setup", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        // Allow auth API endpoints
+        if (path.Contains("/api/auth/", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
         return MiddlewarePathHelper.IsStaticOrFrameworkPath(path);
     }
 }
