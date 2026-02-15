@@ -53,6 +53,8 @@ builder.Services.AddSemanticoServices(builder.Configuration, options =>
         options.AddSemanticoScheduler<SemanticoScheduler>();
         options.BaseUrl = "https://localhost:7187/semantico"; // For notification links
         options.UseAI = true; // Enable AI features (requires LLM configuration)
+        
+        options.AddEmailAdapter<SemanticoMailSender>();
 
         // Enable authorization with role-based access control
         options.Authorization.Enabled = true;

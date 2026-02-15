@@ -43,7 +43,20 @@
                 <MudSelectItem Value="NotificationType.Teams">Teams</MudSelectItem>
                 <MudSelectItem Value="NotificationType.Slack">Slack</MudSelectItem>
                 <MudSelectItem Value="NotificationType.Jira">Jira</MudSelectItem>
+                <MudSelectItem Value="NotificationType.Webhook">Webhook</MudSelectItem>
             </MudSelect>
+
+            @if (Recipient.NotificationType == NotificationType.Webhook)
+            {
+                <MudTextField @bind-Value="@Recipient.HeadersJson"
+                              T="String"
+                              Label="Custom Headers (JSON)"
+                              HelperText="Optional JSON object of custom HTTP headers, e.g. {&quot;Authorization&quot;: &quot;Bearer token&quot;}"
+                              Variant="Variant.Outlined"
+                              Margin="Margin.Dense"
+                              Class="mt-2"
+                              Lines="3" />
+            }
         </MudForm>
     </DialogContent>
     <DialogActions>
