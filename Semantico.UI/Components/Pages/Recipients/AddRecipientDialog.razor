@@ -16,6 +16,7 @@
                 <MudSelectItem Value="NotificationType.Teams">Teams</MudSelectItem>
                 <MudSelectItem Value="NotificationType.Slack">Slack</MudSelectItem>
                 <MudSelectItem Value="NotificationType.Jira">Jira</MudSelectItem>
+                <MudSelectItem Value="NotificationType.Webhook">Webhook</MudSelectItem>
             </MudSelect>
 
             @if (Recipient.NotificationType == NotificationType.Jira)
@@ -25,6 +26,13 @@
                     <MudText Typo="Typo.caption" Style="font-family: monospace;">domain;project-key;email;api-key</MudText>
                     <MudText Typo="Typo.caption" Class="mt-1">Example: <code>your-domain;PROJ;user@example.com;your-api-key</code></MudText>
                     <MudText Typo="Typo.caption">Or full URL: <code>https://api.atlassian.com/ex/jira/cloudId;PROJ;email;key</code></MudText>
+                </MudAlert>
+            }
+
+            @if (Recipient.NotificationType == NotificationType.Webhook)
+            {
+                <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">
+                    <MudText Typo="Typo.body2"><strong>Webhook:</strong> A JSON payload will be POSTed to the URL on each notification.</MudText>
                 </MudAlert>
             }
 
@@ -55,6 +63,18 @@
             T="String"
             Label="Description"
             Required="false" />
+
+            @if (Recipient.NotificationType == NotificationType.Webhook)
+            {
+                <MudTextField @bind-Value="@Recipient.HeadersJson"
+                              T="String"
+                              Label="Custom Headers (JSON)"
+                              HelperText="Optional JSON object of custom HTTP headers, e.g. {&quot;Authorization&quot;: &quot;Bearer token&quot;}"
+                              Variant="Variant.Outlined"
+                              Margin="Margin.Dense"
+                              Class="mb-2"
+                              Lines="3" />
+            }
         </MudForm>
     </DialogContent>
     <DialogActions>
@@ -124,6 +144,7 @@
         NotificationType.Teams => "Teams Webhook URL",
         NotificationType.Slack => "Slack Webhook URL",
         NotificationType.Jira => "Jira Connection String",
+        NotificationType.Webhook => "Webhook URL",
         _ => "Destination"
     };
 
@@ -133,6 +154,7 @@
         NotificationType.Teams => "Enter the Teams incoming webhook URL",
         NotificationType.Slack => "Enter the Slack incoming webhook URL",
         NotificationType.Jira => "Format: domain;project;email;api-key",
+        NotificationType.Webhook => "Enter the URL to POST JSON payloads to",
         _ => ""
     };
 }

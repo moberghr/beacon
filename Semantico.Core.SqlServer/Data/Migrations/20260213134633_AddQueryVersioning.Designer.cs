@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Semantico.Core.SqlServer.Data;
 
@@ -11,9 +12,11 @@ using Semantico.Core.SqlServer.Data;
 namespace Semantico.Core.SqlServer.Data.Migrations
 {
     [DbContext(typeof(SqlServerSemanticoContext))]
-    partial class SqlServerSemanticoContextModelSnapshot : ModelSnapshot
+    [Migration("20260213134633_AddQueryVersioning")]
+    partial class AddQueryVersioning
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1631,66 +1634,6 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                     b.ToTable("Queries", "semantico");
                 });
 
-            modelBuilder.Entity("Semantico.Core.Data.Entities.QueryApprovalRequest", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("ChangeSummary")
-                        .HasMaxLength(2000)
-                        .HasColumnType("nvarchar(2000)");
-
-                    b.Property<DateTime>("CreatedTime")
-                        .HasColumnType("datetime2");
-
-                    b.Property<int>("QueryId")
-                        .HasColumnType("int");
-
-                    b.Property<int>("QueryVersionId")
-                        .HasColumnType("int");
-
-                    b.Property<string>("RequestedByUserId")
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.Property<string>("RequestedByUserName")
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<string>("ReviewComment")
-                        .HasMaxLength(2000)
-                        .HasColumnType("nvarchar(2000)");
-
-                    b.Property<DateTime?>("ReviewedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("ReviewedByUserId")
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.Property<string>("ReviewedByUserName")
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<int>("Status")
-                        .HasColumnType("int");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("QueryVersionId");
-
-                    b.HasIndex("Status");
-
-                    b.HasIndex("QueryId", "Status");
-
-                    b.HasIndex("Status", "CreatedTime");
-
-                    b.ToTable("QueryApprovalRequests", "semantico");
-                });
-
             modelBuilder.Entity("Semantico.Core.Data.Entities.QueryExecutionHistory", b =>
                 {
                     b.Property<int>("Id")
@@ -2684,25 +2627,6 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                     b.Navigation("AiActor");
 
                     b.Navigation("Folder");
-                });
-
-            modelBuilder.Entity("Semantico.Core.Data.Entities.QueryApprovalRequest", b =>
-                {
-                    b.HasOne("Semantico.Core.Data.Entities.Query", "Query")
-                        .WithMany()
-                        .HasForeignKey("QueryId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("Semantico.Core.Data.Entities.QueryVersion", "QueryVersion")
-                        .WithMany()
-                        .HasForeignKey("QueryVersionId")
-                        .OnDelete(DeleteBehavior.NoAction)
-                        .IsRequired();
-
-                    b.Navigation("Query");
-
-                    b.Navigation("QueryVersion");
                 });
 
             modelBuilder.Entity("Semantico.Core.Data.Entities.QueryExecutionHistory", b =>

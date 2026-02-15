@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Semantico.Core.PostgreSql.Data;
@@ -11,9 +12,11 @@ using Semantico.Core.PostgreSql.Data;
 namespace Semantico.Core.PostgreSql.Data.Migrations
 {
     [DbContext(typeof(PostgreSqlSemanticoContext))]
-    partial class PostgreSqlSemanticoContextModelSnapshot : ModelSnapshot
+    [Migration("20260213133723_AddWebhookSupport")]
+    partial class AddWebhookSupport
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -2034,10 +2037,6 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
-                    b.Property<int?>("ActiveVersionId")
-                        .HasColumnType("integer")
-                        .HasColumnName("active_version_id");
-
                     b.Property<int?>("AiActorId")
                         .HasColumnType("integer")
                         .HasColumnName("ai_actor_id");
@@ -2083,9 +2082,6 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                     b.HasKey("Id")
                         .HasName("pk_queries");
 
-                    b.HasIndex("ActiveVersionId")
-                        .HasDatabaseName("ix_queries_active_version_id");
-
                     b.HasIndex("AiActorId")
                         .HasDatabaseName("ix_queries_ai_actor_id");
 
@@ -2096,83 +2092,6 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                         .HasDatabaseName("ix_queries_is_locked");
 
                     b.ToTable("queries", "semantico");
-                });
-
-            modelBuilder.Entity("Semantico.Core.Data.Entities.QueryApprovalRequest", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("ChangeSummary")
-                        .HasMaxLength(2000)
-                        .HasColumnType("character varying(2000)")
-                        .HasColumnName("change_summary");
-
-                    b.Property<DateTime>("CreatedTime")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_time");
-
-                    b.Property<int>("QueryId")
-                        .HasColumnType("integer")
-                        .HasColumnName("query_id");
-
-                    b.Property<int>("QueryVersionId")
-                        .HasColumnType("integer")
-                        .HasColumnName("query_version_id");
-
-                    b.Property<string>("RequestedByUserId")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("requested_by_user_id");
-
-                    b.Property<string>("RequestedByUserName")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
-                        .HasColumnName("requested_by_user_name");
-
-                    b.Property<string>("ReviewComment")
-                        .HasMaxLength(2000)
-                        .HasColumnType("character varying(2000)")
-                        .HasColumnName("review_comment");
-
-                    b.Property<DateTime?>("ReviewedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("reviewed_at");
-
-                    b.Property<string>("ReviewedByUserId")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("reviewed_by_user_id");
-
-                    b.Property<string>("ReviewedByUserName")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
-                        .HasColumnName("reviewed_by_user_name");
-
-                    b.Property<int>("Status")
-                        .HasColumnType("integer")
-                        .HasColumnName("status");
-
-                    b.HasKey("Id")
-                        .HasName("pk_query_approval_requests");
-
-                    b.HasIndex("QueryVersionId")
-                        .HasDatabaseName("ix_query_approval_requests_query_version_id");
-
-                    b.HasIndex("Status")
-                        .HasDatabaseName("ix_query_approval_requests_status");
-
-                    b.HasIndex("QueryId", "Status")
-                        .HasDatabaseName("ix_query_approval_requests_query_id_status");
-
-                    b.HasIndex("Status", "CreatedTime")
-                        .HasDatabaseName("ix_query_approval_requests_status_created_time");
-
-                    b.ToTable("query_approval_requests", "semantico");
                 });
 
             modelBuilder.Entity("Semantico.Core.Data.Entities.QueryExecutionHistory", b =>
@@ -2569,83 +2488,6 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                         .HasDatabaseName("ix_query_tasks_resolved_created_time");
 
                     b.ToTable("query_tasks", "semantico");
-                });
-
-            modelBuilder.Entity("Semantico.Core.Data.Entities.QueryVersion", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("ChangeReason")
-                        .HasMaxLength(2000)
-                        .HasColumnType("character varying(2000)")
-                        .HasColumnName("change_reason");
-
-                    b.Property<string>("ChangeSource")
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)")
-                        .HasColumnName("change_source");
-
-                    b.Property<string>("CreatedByUserId")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("created_by_user_id");
-
-                    b.Property<DateTime>("CreatedTime")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_time");
-
-                    b.Property<string>("Description")
-                        .HasColumnType("text")
-                        .HasColumnName("description");
-
-                    b.Property<string>("FinalQuery")
-                        .HasColumnType("text")
-                        .HasColumnName("final_query");
-
-                    b.Property<string>("Label")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
-                        .HasColumnName("label");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
-                        .HasColumnName("name");
-
-                    b.Property<int>("QueryId")
-                        .HasColumnType("integer")
-                        .HasColumnName("query_id");
-
-                    b.Property<int>("Status")
-                        .HasColumnType("integer")
-                        .HasColumnName("status");
-
-                    b.Property<string>("StepsJson")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("steps_json");
-
-                    b.Property<int>("VersionNumber")
-                        .HasColumnType("integer")
-                        .HasColumnName("version_number");
-
-                    b.HasKey("Id")
-                        .HasName("pk_query_versions");
-
-                    b.HasIndex("QueryId", "Status")
-                        .HasDatabaseName("ix_query_versions_query_id_status");
-
-                    b.HasIndex("QueryId", "VersionNumber")
-                        .IsUnique()
-                        .HasDatabaseName("ix_query_versions_query_id_version_number");
-
-                    b.ToTable("query_versions", "semantico");
                 });
 
             modelBuilder.Entity("Semantico.Core.Data.Entities.Recipient", b =>
@@ -3360,12 +3202,6 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
 
             modelBuilder.Entity("Semantico.Core.Data.Entities.Query", b =>
                 {
-                    b.HasOne("Semantico.Core.Data.Entities.QueryVersion", "ActiveVersion")
-                        .WithMany()
-                        .HasForeignKey("ActiveVersionId")
-                        .OnDelete(DeleteBehavior.SetNull)
-                        .HasConstraintName("fk_queries_query_versions_active_version_id");
-
                     b.HasOne("Semantico.Core.Data.Entities.AiActor", "AiActor")
                         .WithMany("Queries")
                         .HasForeignKey("AiActorId")
@@ -3378,32 +3214,9 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                         .OnDelete(DeleteBehavior.SetNull)
                         .HasConstraintName("fk_queries_query_folders_folder_id");
 
-                    b.Navigation("ActiveVersion");
-
                     b.Navigation("AiActor");
 
                     b.Navigation("Folder");
-                });
-
-            modelBuilder.Entity("Semantico.Core.Data.Entities.QueryApprovalRequest", b =>
-                {
-                    b.HasOne("Semantico.Core.Data.Entities.Query", "Query")
-                        .WithMany()
-                        .HasForeignKey("QueryId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_query_approval_requests_queries_query_id");
-
-                    b.HasOne("Semantico.Core.Data.Entities.QueryVersion", "QueryVersion")
-                        .WithMany()
-                        .HasForeignKey("QueryVersionId")
-                        .OnDelete(DeleteBehavior.NoAction)
-                        .IsRequired()
-                        .HasConstraintName("fk_query_approval_requests_query_versions_query_version_id");
-
-                    b.Navigation("Query");
-
-                    b.Navigation("QueryVersion");
                 });
 
             modelBuilder.Entity("Semantico.Core.Data.Entities.QueryExecutionHistory", b =>
@@ -3522,18 +3335,6 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                     b.Navigation("Subscription");
                 });
 
-            modelBuilder.Entity("Semantico.Core.Data.Entities.QueryVersion", b =>
-                {
-                    b.HasOne("Semantico.Core.Data.Entities.Query", "Query")
-                        .WithMany("Versions")
-                        .HasForeignKey("QueryId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_query_versions_queries_query_id");
-
-                    b.Navigation("Query");
-                });
-
             modelBuilder.Entity("Semantico.Core.Data.Entities.SemanticoUserRole", b =>
                 {
                     b.HasOne("Semantico.Core.Data.Entities.SemanticoRole", "Role")
@@ -3643,8 +3444,6 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                     b.Navigation("Steps");
 
                     b.Navigation("Subscriptions");
-
-                    b.Navigation("Versions");
                 });
 
             modelBuilder.Entity("Semantico.Core.Data.Entities.QueryExecutionHistory", b =>

@@ -51,6 +51,8 @@ public class RecipientQueryResult
     public int? NotificationId { get; init; }
 
     public AnomalyEvaluationResult? AnomalyEvaluation { get; init; }
+
+    public string? HeadersJson { get; init; }
 }
 
 public class QueryResultFile
