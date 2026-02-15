@@ -177,7 +177,8 @@ internal class JobService(
                 QueryResultFile = resultFile,
                 NotificationId = notifications[i].Id,
                 AnomalyEvaluation = anomalyEvaluation?.IsAnomaly == true ? anomalyEvaluation : null,
-                HeadersJson = recipient.HeadersJson
+                HeadersJson = recipient.HeadersJson,
+                BodyTemplate = recipient.BodyTemplate
             });
         }
 

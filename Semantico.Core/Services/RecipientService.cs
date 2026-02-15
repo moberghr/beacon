@@ -30,7 +30,8 @@ internal class RecipientService(IDbContextFactory<SemanticoContext> contextFacto
             Description = recipientData.Description,
             Destination = recipientData.Destination,
             NotificationType = recipientData.NotificationType,
-            HeadersJson = recipientData.HeadersJson
+            HeadersJson = recipientData.HeadersJson,
+            BodyTemplate = recipientData.BodyTemplate
         };
 
         context.Recipients.Add(recipient);
@@ -75,7 +76,8 @@ internal class RecipientService(IDbContextFactory<SemanticoContext> contextFacto
                 Description = x.Description,
                 Destination = x.Destination,
                 NotificationType = x.NotificationType,
-                HeadersJson = x.HeadersJson
+                HeadersJson = x.HeadersJson,
+                BodyTemplate = x.BodyTemplate
             })
             .ToListAsync(cancellationToken);
     }
@@ -93,6 +95,7 @@ internal class RecipientService(IDbContextFactory<SemanticoContext> contextFacto
         recipient.Destination = recipientData.Destination;
         recipient.Description = recipientData.Description;
         recipient.HeadersJson = recipientData.HeadersJson;
+        recipient.BodyTemplate = recipientData.BodyTemplate;
 
         await context.SaveChangesAsync(cancellationToken);
 

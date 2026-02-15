@@ -56,6 +56,16 @@
                               Margin="Margin.Dense"
                               Class="mt-2"
                               Lines="3" />
+
+                <MudTextField @bind-Value="@Recipient.BodyTemplate"
+                              T="String"
+                              Label="Body Template (Optional)"
+                              HelperText="Use placeholders like {{Timestamp}}, {{SubscriptionName}}, {{TotalRecords}}, {{Records}}. Leave empty for default payload."
+                              Variant="Variant.Outlined"
+                              Margin="Margin.Dense"
+                              Class="mt-2"
+                              Lines="10"
+                              Placeholder='Example: { "alert": "{{SubscriptionName}}", "count": {{TotalRecords}}, "data": {{Records}} }' />
             }
         </MudForm>
     </DialogContent>

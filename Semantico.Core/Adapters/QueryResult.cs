@@ -53,6 +53,8 @@ public class RecipientQueryResult
     public AnomalyEvaluationResult? AnomalyEvaluation { get; init; }
 
     public string? HeadersJson { get; init; }
+
+    public string? BodyTemplate { get; init; }
 }
 
 public class QueryResultFile

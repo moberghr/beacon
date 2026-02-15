@@ -49,8 +49,26 @@ internal class WebhookAdapter(IHttpClientFactory httpClientFactory, SemanticoCon
             };
         }
 
-        var json = JsonSerializer.Serialize(payload, JsonOptions);
-        var content = new StringContent(json, Encoding.UTF8, System.Net.Mime.MediaTypeNames.Application.Json);
+        // Use body template if provided, otherwise use default JSON payload
+        string bodyContent;
+        if (!string.IsNullOrWhiteSpace(recipientQueryResult.BodyTemplate))
+        {
+            try
+            {
+                bodyContent = WebhookTemplateEngine.ProcessTemplate(recipientQueryResult.BodyTemplate, payload);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Failed to process webhook body template, falling back to default payload");
+                bodyContent = JsonSerializer.Serialize(payload, JsonOptions);
+            }
+        }
+        else
+        {
+            bodyContent = JsonSerializer.Serialize(payload, JsonOptions);
+        }
+
+        var content = new StringContent(bodyContent, Encoding.UTF8, System.Net.Mime.MediaTypeNames.Application.Json);
 
         // Parse and add custom headers
         if (!string.IsNullOrEmpty(recipientQueryResult.HeadersJson))
