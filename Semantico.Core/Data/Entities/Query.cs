@@ -43,11 +43,20 @@ public class Query : ArchivableBaseEntity, IMultiStepWorkflow
     /// </summary>
     public string? LockedByUserId { get; set; }
 
+    /// <summary>
+    /// ID of the currently active query version. Nullable for backward compat.
+    /// </summary>
+    public int? ActiveVersionId { get; set; }
+
     public List<Subscription> Subscriptions { get; set; } = new();
 
     public List<QueryStep> Steps { get; set; } = new();
 
+    public List<QueryVersion> Versions { get; set; } = new();
+
     // Navigation properties
+    public QueryVersion? ActiveVersion { get; set; }
+
     public QueryFolder? Folder { get; set; }
 
     public AiActor? AiActor { get; set; }

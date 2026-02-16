@@ -13,4 +13,8 @@ public class RecipientData
     public string Destination { get; set; }
 
     public NotificationType NotificationType { get; set; }
+
+    public string? HeadersJson { get; set; }
+
+    public string? BodyTemplate { get; set; }
 }

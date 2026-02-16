@@ -865,6 +865,161 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                     b.ToTable("Comments", "semantico");
                 });
 
+            modelBuilder.Entity("Semantico.Core.Data.Entities.Dashboard", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime?>("ArchivedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("CreatedByUserId")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("CreatedByUserName")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<bool>("IsDefault")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsShared")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("LayoutConfiguration")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<int?>("RefreshIntervalSeconds")
+                        .HasColumnType("int");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ArchivedTime");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("IsDefault");
+
+                    b.HasIndex("IsShared");
+
+                    b.ToTable("Dashboards", "semantico");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.DashboardPermission", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("DashboardId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("GrantedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("GrantedByUserId")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<int>("PermissionLevel")
+                        .HasColumnType("int");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DashboardId");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("DashboardId", "UserId")
+                        .IsUnique();
+
+                    b.ToTable("DashboardPermissions", "semantico");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.DashboardWidget", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ConfigurationJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("DashboardId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Height")
+                        .HasColumnType("int");
+
+                    b.Property<int>("PositionX")
+                        .HasColumnType("int");
+
+                    b.Property<int>("PositionY")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("RefreshIntervalSeconds")
+                        .HasColumnType("int");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<int>("WidgetType")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Width")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DashboardId");
+
+                    b.HasIndex("WidgetType");
+
+                    b.HasIndex("DashboardId", "SortOrder");
+
+                    b.ToTable("DashboardWidgets", "semantico");
+                });
+
             modelBuilder.Entity("Semantico.Core.Data.Entities.DataMigration.MigrationExecutionHistory", b =>
                 {
                     b.Property<int>("Id")
@@ -1583,6 +1738,9 @@ namespace Semantico.Core.SqlServer.Data.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<int?>("ActiveVersionId")
+                        .HasColumnType("int");
+
                     b.Property<int?>("AiActorId")
                         .HasColumnType("int");
 
@@ -1617,6 +1775,8 @@ namespace Semantico.Core.SqlServer.Data.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("ActiveVersionId");
+
                     b.HasIndex("AiActorId");
 
                     b.HasIndex("FolderId");
@@ -1626,6 +1786,66 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                     b.ToTable("Queries", "semantico");
                 });
 
+            modelBuilder.Entity("Semantico.Core.Data.Entities.QueryApprovalRequest", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ChangeSummary")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("QueryId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("QueryVersionId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("RequestedByUserId")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("RequestedByUserName")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("ReviewComment")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<DateTime?>("ReviewedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("ReviewedByUserId")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("ReviewedByUserName")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("QueryVersionId");
+
+                    b.HasIndex("Status");
+
+                    b.HasIndex("QueryId", "Status");
+
+                    b.HasIndex("Status", "CreatedTime");
+
+                    b.ToTable("QueryApprovalRequests", "semantico");
+                });
+
             modelBuilder.Entity("Semantico.Core.Data.Entities.QueryExecutionHistory", b =>
                 {
                     b.Property<int>("Id")
@@ -1633,6 +1853,9 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                         .HasColumnType("int");
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Comment")
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("CompiledSql")
                         .IsRequired()
@@ -1936,6 +2159,67 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                     b.ToTable("QueryTasks", "semantico");
                 });
 
+            modelBuilder.Entity("Semantico.Core.Data.Entities.QueryVersion", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ChangeReason")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<string>("ChangeSource")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("CreatedByUserId")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("FinalQuery")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Label")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<int>("QueryId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.Property<string>("StepsJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("VersionNumber")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("QueryId", "Status");
+
+                    b.HasIndex("QueryId", "VersionNumber")
+                        .IsUnique();
+
+                    b.ToTable("QueryVersions", "semantico");
+                });
+
             modelBuilder.Entity("Semantico.Core.Data.Entities.Recipient", b =>
                 {
                     b.Property<int>("Id")
@@ -1947,6 +2231,9 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                     b.Property<DateTime?>("ArchivedTime")
                         .HasColumnType("datetime2");
 
+                    b.Property<string>("BodyTemplate")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("datetime2");
 
@@ -1955,6 +2242,9 @@ namespace Semantico.Core.SqlServer.Data.Migrations
 
                     b.Property<string>("Destination")
                         .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("HeadersJson")
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("Name")
@@ -2376,6 +2666,28 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                     b.Navigation("Subscription");
                 });
 
+            modelBuilder.Entity("Semantico.Core.Data.Entities.DashboardPermission", b =>
+                {
+                    b.HasOne("Semantico.Core.Data.Entities.Dashboard", "Dashboard")
+                        .WithMany("Permissions")
+                        .HasForeignKey("DashboardId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Dashboard");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.DashboardWidget", b =>
+                {
+                    b.HasOne("Semantico.Core.Data.Entities.Dashboard", "Dashboard")
+                        .WithMany("Widgets")
+                        .HasForeignKey("DashboardId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Dashboard");
+                });
+
             modelBuilder.Entity("Semantico.Core.Data.Entities.DataMigration.MigrationExecutionHistory", b =>
                 {
                     b.HasOne("Semantico.Core.Data.Entities.DataMigration.MigrationJob", "MigrationJob")
@@ -2535,6 +2847,11 @@ namespace Semantico.Core.SqlServer.Data.Migrations
 
             modelBuilder.Entity("Semantico.Core.Data.Entities.Query", b =>
                 {
+                    b.HasOne("Semantico.Core.Data.Entities.QueryVersion", "ActiveVersion")
+                        .WithMany()
+                        .HasForeignKey("ActiveVersionId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("Semantico.Core.Data.Entities.AiActor", "AiActor")
                         .WithMany("Queries")
                         .HasForeignKey("AiActorId")
@@ -2545,9 +2862,30 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                         .HasForeignKey("FolderId")
                         .OnDelete(DeleteBehavior.SetNull);
 
+                    b.Navigation("ActiveVersion");
+
                     b.Navigation("AiActor");
 
                     b.Navigation("Folder");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.QueryApprovalRequest", b =>
+                {
+                    b.HasOne("Semantico.Core.Data.Entities.Query", "Query")
+                        .WithMany()
+                        .HasForeignKey("QueryId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Semantico.Core.Data.Entities.QueryVersion", "QueryVersion")
+                        .WithMany()
+                        .HasForeignKey("QueryVersionId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.Navigation("Query");
+
+                    b.Navigation("QueryVersion");
                 });
 
             modelBuilder.Entity("Semantico.Core.Data.Entities.QueryExecutionHistory", b =>
@@ -2655,6 +2993,17 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                     b.Navigation("Subscription");
                 });
 
+            modelBuilder.Entity("Semantico.Core.Data.Entities.QueryVersion", b =>
+                {
+                    b.HasOne("Semantico.Core.Data.Entities.Query", "Query")
+                        .WithMany("Versions")
+                        .HasForeignKey("QueryId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Query");
+                });
+
             modelBuilder.Entity("Semantico.Core.Data.Entities.SemanticoUserRole", b =>
                 {
                     b.HasOne("Semantico.Core.Data.Entities.SemanticoRole", "Role")
@@ -2730,6 +3079,13 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                     b.Navigation("ConversationHistory");
                 });
 
+            modelBuilder.Entity("Semantico.Core.Data.Entities.Dashboard", b =>
+                {
+                    b.Navigation("Permissions");
+
+                    b.Navigation("Widgets");
+                });
+
             modelBuilder.Entity("Semantico.Core.Data.Entities.DataMigration.MigrationJob", b =>
                 {
                     b.Navigation("Executions");
@@ -2759,6 +3115,8 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                     b.Navigation("Steps");
 
                     b.Navigation("Subscriptions");
+
+                    b.Navigation("Versions");
                 });
 
             modelBuilder.Entity("Semantico.Core.Data.Entities.QueryExecutionHistory", b =>

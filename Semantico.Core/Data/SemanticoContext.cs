@@ -94,10 +94,23 @@ public abstract partial class SemanticoContext : DbContext
 
     public DbSet<SemanticoUserRole> UserRoles => Set<SemanticoUserRole>();
 
+    // Query Versioning
+    public DbSet<QueryVersion> QueryVersions => Set<QueryVersion>();
+
+    // Approval Workflow
+    public DbSet<QueryApprovalRequest> QueryApprovalRequests => Set<QueryApprovalRequest>();
+
     // App Settings
     public DbSet<AppSetting> AppSettings => Set<AppSetting>();
 
     public DbSet<AppSettingHistory> AppSettingHistory => Set<AppSettingHistory>();
+
+    // Custom Dashboards
+    public DbSet<Dashboard> Dashboards => Set<Dashboard>();
+
+    public DbSet<DashboardWidget> DashboardWidgets => Set<DashboardWidget>();
+
+    public DbSet<DashboardPermission> DashboardPermissions => Set<DashboardPermission>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -116,6 +129,9 @@ public abstract partial class SemanticoContext : DbContext
         ConfigureManualQueryExecutionLogEntity(modelBuilder);
         ConfigureUserManagementEntities(modelBuilder);
         ConfigureAppSettingEntities(modelBuilder);
+        ConfigureQueryVersionEntities(modelBuilder);
+        ConfigureApprovalEntities(modelBuilder);
+        ConfigureDashboardEntities(modelBuilder);
         base.OnModelCreating(modelBuilder);
     }
 
@@ -805,6 +821,74 @@ public abstract partial class SemanticoContext : DbContext
         });
     }
 
+    protected static void ConfigureApprovalEntities(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<QueryApprovalRequest>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.RequestedByUserId).HasMaxLength(100);
+            entity.Property(e => e.RequestedByUserName).HasMaxLength(200);
+            entity.Property(e => e.ReviewedByUserId).HasMaxLength(100);
+            entity.Property(e => e.ReviewedByUserName).HasMaxLength(200);
+            entity.Property(e => e.ReviewComment).HasMaxLength(2000);
+            entity.Property(e => e.ChangeSummary).HasMaxLength(2000);
+
+            // Indexes
+            entity.HasIndex(e => new { e.QueryId, e.Status });
+            entity.HasIndex(e => new { e.Status, e.CreatedTime });
+            entity.HasIndex(e => e.Status);
+
+            // Relationships
+            entity.HasOne(e => e.Query)
+                .WithMany()
+                .HasForeignKey(e => e.QueryId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // NoAction to avoid cascade cycle through Query -> QueryVersion -> QueryApprovalRequest
+            entity.HasOne(e => e.QueryVersion)
+                .WithMany()
+                .HasForeignKey(e => e.QueryVersionId)
+                .OnDelete(DeleteBehavior.NoAction);
+        });
+    }
+
+    protected static void ConfigureQueryVersionEntities(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<QueryVersion>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Name).HasMaxLength(200).IsRequired();
+            entity.Property(e => e.Label).HasMaxLength(200);
+            entity.Property(e => e.StepsJson).IsRequired();
+            entity.Property(e => e.CreatedByUserId).HasMaxLength(100);
+            entity.Property(e => e.ChangeSource).HasMaxLength(50);
+            entity.Property(e => e.ChangeReason).HasMaxLength(2000);
+
+            // Unique version number per query
+            entity.HasIndex(e => new { e.QueryId, e.VersionNumber }).IsUnique();
+
+            // Index for filtering by status
+            entity.HasIndex(e => new { e.QueryId, e.Status });
+
+            // Relationship with Query (cascade delete versions when query is deleted)
+            entity.HasOne(e => e.Query)
+                .WithMany(q => q.Versions)
+                .HasForeignKey(e => e.QueryId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // Configure Query.ActiveVersionId FK (self-referencing via QueryVersion)
+        modelBuilder.Entity<Query>(entity =>
+        {
+            entity.HasOne(q => q.ActiveVersion)
+                .WithMany()
+                .HasForeignKey(q => q.ActiveVersionId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+    }
+
     protected static void ConfigureUserManagementEntities(ModelBuilder modelBuilder)
     {
         // SemanticoUser configuration
@@ -871,6 +955,62 @@ public abstract partial class SemanticoContext : DbContext
             entity.HasIndex(e => e.UserId);
             entity.HasIndex(e => e.RoleId);
             entity.HasIndex(e => e.AssignedAt);
+        });
+    }
+
+    protected static void ConfigureDashboardEntities(ModelBuilder modelBuilder)
+    {
+        // Dashboard configuration
+        modelBuilder.Entity<Dashboard>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Name).HasMaxLength(200).IsRequired();
+            entity.Property(e => e.Description).HasMaxLength(1000);
+            entity.Property(e => e.CreatedByUserId).HasMaxLength(100);
+            entity.Property(e => e.CreatedByUserName).HasMaxLength(200);
+            entity.Property(e => e.LayoutConfiguration);
+
+            entity.HasIndex(e => e.CreatedByUserId);
+            entity.HasIndex(e => e.IsShared);
+            entity.HasIndex(e => e.IsDefault);
+            entity.HasIndex(e => e.ArchivedTime);
+
+            entity.HasMany(e => e.Widgets)
+                .WithOne(w => w.Dashboard)
+                .HasForeignKey(w => w.DashboardId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasMany(e => e.Permissions)
+                .WithOne(p => p.Dashboard)
+                .HasForeignKey(p => p.DashboardId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // DashboardWidget configuration
+        modelBuilder.Entity<DashboardWidget>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Title).HasMaxLength(200).IsRequired();
+            entity.Property(e => e.ConfigurationJson).IsRequired();
+
+            entity.HasIndex(e => e.DashboardId);
+            entity.HasIndex(e => e.WidgetType);
+            entity.HasIndex(e => new { e.DashboardId, e.SortOrder });
+        });
+
+        // DashboardPermission configuration
+        modelBuilder.Entity<DashboardPermission>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.UserId).HasMaxLength(100).IsRequired();
+            entity.Property(e => e.GrantedByUserId).HasMaxLength(100);
+
+            entity.HasIndex(e => e.DashboardId);
+            entity.HasIndex(e => e.UserId);
+            entity.HasIndex(e => new { e.DashboardId, e.UserId }).IsUnique();
         });
     }
 }

@@ -70,6 +70,8 @@
         </div>
         <MudNavMenu Class="drawer-nav" Bordered="false">
             <MudNavLink Href="@($"{GetBaseHref()}dashboard")" Icon="@Icons.Material.Filled.Home" IconColor="Color.Primary">Home</MudNavLink>
+            <MudNavLink Href="@($"{GetBaseHref()}control-tower")" Icon="@Icons.Material.Filled.Dashboard" IconColor="Color.Info">Control Tower</MudNavLink>
+            <MudNavLink Href="@($"{GetBaseHref()}dashboards")" Icon="@Icons.Material.Filled.Widgets" IconColor="Color.Tertiary">Dashboards</MudNavLink>
             <MudNavLink Href="@($"{GetBaseHref()}data-sources")" Icon="@Icons.Material.Filled.Folder" IconColor="Color.Secondary">Data Sources</MudNavLink>
             @if (Configuration?.UseAI == true)
             {
@@ -83,6 +85,16 @@
                 <MudNavLink Href="@($"{GetBaseHref()}tasks")" Icon="@Icons.Material.Filled.Task" IconColor="Color.Primary">Tasks</MudNavLink>
             </MudNavGroup>
             <MudNavLink Href="@($"{GetBaseHref()}data-migration")" Icon="@Icons.Material.Filled.SwapHoriz" IconColor="Color.Error">Data Migration</MudNavLink>
+            @if (Configuration?.ApprovalWorkflow.Enabled == true && HasAdminRole())
+            {
+                <MudNavLink Href="@($"{GetBaseHref()}approvals")" Icon="@Icons.Material.Filled.Approval" IconColor="Color.Warning">
+                    Approvals
+                    @if (_pendingApprovalCount > 0)
+                    {
+                        <MudBadge Content="@_pendingApprovalCount" Color="Color.Error" Overlap="true" Class="ml-2" />
+                    }
+                </MudNavLink>
+            }
             @if (Configuration?.UserManagement.Enabled == true && HasAdminRole())
             {
                 <MudDivider Class="my-2"/>
@@ -116,10 +128,13 @@
 @inject SemanticoConfiguration Configuration
 @inject Semantico.Core.Authorization.ISemanticoUserContext UserContext
 
+@inject Semantico.Core.Services.IQueryApprovalService ApprovalService
+
 @code
 {
     private bool _isDark = true;
     private Breakpoint _breakpoint;
+    private int _pendingApprovalCount;
 
     private string GetBaseHref()
     {
@@ -144,6 +159,12 @@
             _breakpoint = await BrowserViewportService.GetCurrentBreakpointAsync();
             _isDark = await LocalStorage.GetItemAsync<string>("IsDark") == "True";
             await LoadTheme();
+
+            if (Configuration?.ApprovalWorkflow.Enabled == true && HasAdminRole())
+            {
+                _pendingApprovalCount = await ApprovalService.GetPendingCountAsync();
+            }
+
             StateHasChanged();
         }
 

@@ -7,6 +7,7 @@ using Semantico.Core.Adapters.Jira;
 using Semantico.Core.Adapters.Mail;
 using Semantico.Core.Adapters.Slack;
 using Semantico.Core.Adapters.Teams;
+using Semantico.Core.Adapters.Webhook;
 using Semantico.Core.Authentication;
 using Semantico.Core.Authentication.Providers;
 using Semantico.Core.Authorization;
@@ -93,6 +94,7 @@ public static class ServiceConfiguration
         services.TryAddSingleton<IJiraRestClientFactory, JiraRestClientFactory>();
         services.TryAddSingleton<IJiraApiAdapter, JiraApiAdapter>();
         services.AddSingleton<IAdapter, JiraAdapter>();
+        services.AddSingleton<IAdapter, WebhookAdapter>();
         services.TryAddSingleton<AdapterFactory>();
 
         // Shared services (for use by Query and Migration features)
@@ -116,11 +118,15 @@ public static class ServiceConfiguration
         services.TryAddTransient<IRecipientService, RecipientService>();
         services.TryAddTransient<ITaskService, TaskService>();
         services.TryAddTransient<IStatisticsService, StatisticsService>();
+        services.TryAddTransient<IControlTowerService, ControlTowerService>();
+        services.TryAddTransient<IDashboardService, DashboardService>();
         services.TryAddTransient<IMigrationService, MigrationService>();
         services.TryAddTransient<IDatabaseMetadataService, DatabaseMetadataService>();
         services.TryAddTransient<IAnomalyDetectionService, AnomalyDetectionService>();
         services.TryAddTransient<IManualQueryExecutionLogger, ManualQueryExecutionLogger>();
         services.TryAddTransient<IAppSettingsService, AppSettingsService>();
+        services.TryAddTransient<IQueryVersionService, QueryVersionService>();
+        services.TryAddTransient<IQueryApprovalService, QueryApprovalService>();
 
         services.TryAddTransient(typeof(ISemanticoScheduler), configurationOptions.SemanticoScheduler!);
 

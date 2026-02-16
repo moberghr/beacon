@@ -12,7 +12,8 @@ public enum ResourceType
     DataSourceDocumentation = 8,
     AiActor = 9,
     AiActorPlan = 10,
-    AiAlertConfiguration = 11
+    AiAlertConfiguration = 11,
+    QueryApprovalRequest = 12
 }
 
 public enum PermissionAction
