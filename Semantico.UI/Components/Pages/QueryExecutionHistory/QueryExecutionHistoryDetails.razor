@@ -113,6 +113,17 @@
                     </MudStack>
                 </MudItem>
             </MudGrid>
+
+            @if (!string.IsNullOrEmpty(Model.Comment))
+            {
+                <MudDivider Class="my-3" />
+                <MudStack Spacing="1">
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">Comment</MudText>
+                    <MudAlert Severity="@(status == NotificationStatus.NotificationSent ? Severity.Info : Severity.Warning)" Dense="true" Class="mt-2">
+                        @Model.Comment
+                    </MudAlert>
+                </MudStack>
+            }
         </MudPaper>
 
         @if (Model.Notifications.Any())

@@ -19,6 +19,42 @@ internal class TeamsAdapter(IHttpClientFactory httpClientFactory, SemanticoConfi
         var client = httpClientFactory.CreateClient();
         var queryResult = recipientQueryResult.QueryResult;
 
+        // If custom body template is provided, use shared template processor
+        string jsonPayload;
+        if (!string.IsNullOrWhiteSpace(recipientQueryResult.BodyTemplate))
+        {
+            try
+            {
+                var templateData = Shared.TemplateDataBuilder.BuildTemplateData(recipientQueryResult, lastNotificationResultCount, configuration.BaseUrl);
+                jsonPayload = Shared.AdapterTemplateProcessor.ProcessTemplate(recipientQueryResult.BodyTemplate, templateData);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to process custom Teams body template, falling back to default Adaptive Card");
+                jsonPayload = BuildDefaultAdaptiveCard(recipientQueryResult, queryResult);
+            }
+        }
+        else
+        {
+            // Use default Adaptive Card format
+            jsonPayload = BuildDefaultAdaptiveCard(recipientQueryResult, queryResult);
+        }
+
+        var content = new StringContent(jsonPayload, Encoding.UTF8, System.Net.Mime.MediaTypeNames.Application.Json);
+
+        var response = await client.PostAsync(recipientQueryResult.RecipientDestination, content);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorBody = await response.Content.ReadAsStringAsync();
+            logger.LogError("Microsoft Teams webhook returned error {StatusCode}: {ErrorBody}", response.StatusCode, errorBody);
+            throw new SemanticoException(
+                $"Failed to send Teams notification: {response.StatusCode}. {errorBody}");
+        }
+    }
+
+    private string BuildDefaultAdaptiveCard(RecipientQueryResult recipientQueryResult, QueryResult queryResult)
+    {
         var bodyElements = new List<AdaptiveCards.AdaptiveElement>
         {
             new AdaptiveCards.AdaptiveTextBlock()
@@ -86,18 +122,7 @@ internal class TeamsAdapter(IHttpClientFactory httpClientFactory, SemanticoConfi
                 }
         };
 
-        var jsonPayload = card.ToJson();
-        var content = new StringContent(jsonPayload, Encoding.UTF8, System.Net.Mime.MediaTypeNames.Application.Json);
-
-        var response = await client.PostAsync(recipientQueryResult.RecipientDestination, content);
-
-        if (!response.IsSuccessStatusCode)
-        {
-            var errorBody = await response.Content.ReadAsStringAsync();
-            logger.LogError("Microsoft Teams webhook returned error {StatusCode}: {ErrorBody}", response.StatusCode, errorBody);
-            throw new SemanticoException(
-                $"Failed to send Teams notification: {response.StatusCode}. {errorBody}");
-        }
+        return card.ToJson();
     }
 
     private AdaptiveCards.AdaptiveTable GenerateAdaptiveTableFromQueryResults(List<IDictionary<string, object?>> queryResults)

@@ -22,8 +22,12 @@ internal class RecipientService(IDbContextFactory<SemanticoContext> contextFacto
 {
     public async Task<BaseResponse> CreateRecipient(RecipientData recipientData, CancellationToken cancellationToken)
     {
+        var templateValidation = ValidateBodyTemplate(recipientData.BodyTemplate);
+        if (templateValidation != null && !templateValidation.Success)
+            return templateValidation;
+
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-        
+
         var recipient = new Recipient
         {
             Name = recipientData.Name,
@@ -39,7 +43,8 @@ internal class RecipientService(IDbContextFactory<SemanticoContext> contextFacto
 
         return new BaseResponse
         {
-            Success = true
+            Success = true,
+            Message = templateValidation?.Message
         };
     }
 
@@ -84,8 +89,12 @@ internal class RecipientService(IDbContextFactory<SemanticoContext> contextFacto
 
     public async Task<BaseResponse> UpdateRecipient(RecipientData recipientData, CancellationToken cancellationToken)
     {
+        var templateValidation = ValidateBodyTemplate(recipientData.BodyTemplate);
+        if (templateValidation != null && !templateValidation.Success)
+            return templateValidation;
+
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-        
+
         var recipient = await context.Recipients
             .Where(x => x.Id == recipientData.RecipientId)
             .SingleAsync(cancellationToken);
@@ -101,7 +110,36 @@ internal class RecipientService(IDbContextFactory<SemanticoContext> contextFacto
 
         return new BaseResponse
         {
-            Success = true
+            Success = true,
+            Message = templateValidation?.Message
         };
+    }
+
+    private static BaseResponse? ValidateBodyTemplate(string? bodyTemplate)
+    {
+        if (string.IsNullOrWhiteSpace(bodyTemplate))
+            return null;
+
+        var validationResult = Adapters.Shared.TemplateValidator.ValidateWithPlaceholderCheck(bodyTemplate);
+
+        if (!validationResult.IsValid)
+        {
+            return new BaseResponse
+            {
+                Success = false,
+                Message = $"Invalid body template: {validationResult.ErrorMessage}"
+            };
+        }
+
+        if (!string.IsNullOrWhiteSpace(validationResult.WarningMessage))
+        {
+            return new BaseResponse
+            {
+                Success = true,
+                Message = validationResult.WarningMessage
+            };
+        }
+
+        return null;
     }
 }

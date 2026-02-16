@@ -1,0 +1,381 @@
+@page "/control-tower"
+@using Semantico.Core.Services
+@using Semantico.Core.Models.ControlTower
+@using Semantico.Core.Data.Enums
+@using Semantico.UI.Components.Custom
+@inject IControlTowerService ControlTowerService
+@inject NavigationManager NavManager
+@inherits BasePageComponent
+@implements IDisposable
+
+<SemanticoPageTitle Title="Control Tower"/>
+
+<MudContainer MaxWidth="MaxWidth.ExtraExtraLarge" Class="my-4 px-4">
+    <MudStack Spacing="4">
+        @* Page Header *@
+        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+            <MudStack Spacing="1">
+                <MudText Typo="Typo.h4">Control Tower</MudText>
+                <MudText Typo="Typo.body2" Color="Color.Secondary">
+                    Monitor subscription health across your system
+                </MudText>
+            </MudStack>
+            <MudStack Row="true" Spacing="2">
+                <MudSwitch @bind-Value="@_autoRefreshEnabled" Color="Color.Primary" Label="Auto-refresh"/>
+                <MudIconButton Icon="@Icons.Material.Filled.Refresh"
+                               Color="Color.Primary"
+                               OnClick="@RefreshData"
+                               Title="Refresh now"/>
+            </MudStack>
+        </MudStack>
+
+        @* Summary Statistics *@
+        @if (_statistics != null)
+        {
+            <MudGrid>
+                <MudItem xs="12" sm="6" md="3">
+                    <HeroStatCard CardClass="hero-stat-card-primary"
+                                  Icon="@Icons.Material.Filled.Subscriptions"
+                                  Badge="Total"
+                                  Value="@_statistics.TotalSubscriptions.ToString()"
+                                  Label="Subscriptions"
+                                  Elevation="4"/>
+                </MudItem>
+                <MudItem xs="12" sm="6" md="3">
+                    <HeroStatCard CardClass="hero-stat-card-success"
+                                  Icon="@Icons.Material.Filled.CheckCircle"
+                                  Badge="Healthy"
+                                  Value="@_statistics.HealthySubscriptions.ToString()"
+                                  Label="Green Status"
+                                  Elevation="4"/>
+                </MudItem>
+                <MudItem xs="12" sm="6" md="3">
+                    <HeroStatCard CardClass="hero-stat-card-warning"
+                                  Icon="@Icons.Material.Filled.Warning"
+                                  Badge="Warning"
+                                  Value="@_statistics.WarningSubscriptions.ToString()"
+                                  Label="Amber Status"
+                                  Elevation="4"/>
+                </MudItem>
+                <MudItem xs="12" sm="6" md="3">
+                    <HeroStatCard CardClass="hero-stat-card-error"
+                                  Icon="@Icons.Material.Filled.Error"
+                                  Badge="Critical"
+                                  Value="@_statistics.CriticalSubscriptions.ToString()"
+                                  Label="Red Status"
+                                  Elevation="4"/>
+                </MudItem>
+            </MudGrid>
+        }
+
+        @* Filters *@
+        <MudPaper Elevation="2" Class="pa-4">
+            <MudStack Spacing="3">
+                <MudText Typo="Typo.h6">Filters</MudText>
+                <MudGrid>
+                    <MudItem xs="12" sm="6" md="3">
+                        <MudTextField @bind-Value="_searchKeyword"
+                                      Label="Search Query Name"
+                                      Variant="Variant.Outlined"
+                                      Adornment="Adornment.Start"
+                                      AdornmentIcon="@Icons.Material.Filled.Search"
+                                      Immediate="false"
+                                      DebounceInterval="300"
+                                      OnDebounceIntervalElapsed="@(async () => await ReloadGrid())"/>
+                    </MudItem>
+                    <MudItem xs="12" sm="6" md="3">
+                        <MudSelect @bind-Value="_selectedDataSourceId"
+                                   Label="Data Source"
+                                   Variant="Variant.Outlined"
+                                   T="int?"
+                                   Clearable="true"
+                                   OnClearButtonClick="@(async () => { _selectedDataSourceId = null; await ReloadGrid(); })">
+                            <MudSelectItem T="int?" Value="null">All Data Sources</MudSelectItem>
+                            @* TODO: Load data sources *@
+                        </MudSelect>
+                    </MudItem>
+                    <MudItem xs="12" sm="6" md="3">
+                        <MudChipSet T="object"
+                                    SelectedChip="_selectedHealthStatusChip"
+                                    SelectedChipChanged="OnHealthStatusFilterChanged"
+                                    Filter="true"
+                                    Mandatory="false"
+                                    SelectionMode="SelectionMode.SingleSelection"
+                                    CheckedIcon="@Icons.Material.Filled.Check">
+                            <MudChip T="object" Text="All" Value="@((object?)null)" Default="true" Color="Color.Default"/>
+                            <MudChip T="object" Text="Green" Value="@((object)HealthStatus.Green)" Color="Color.Success"/>
+                            <MudChip T="object" Text="Amber" Value="@((object)HealthStatus.Amber)" Color="Color.Warning"/>
+                            <MudChip T="object" Text="Red" Value="@((object)HealthStatus.Red)" Color="Color.Error"/>
+                        </MudChipSet>
+                    </MudItem>
+                    <MudItem xs="12" sm="6" md="3">
+                        <MudSwitch T="bool"
+                                   Value="_filterUnresolvedTasksOnly"
+                                   ValueChanged="@(async (bool value) => { _filterUnresolvedTasksOnly = value; await ReloadGrid(); })"
+                                   Color="Color.Warning"
+                                   Label="Has Unresolved Tasks"/>
+                    </MudItem>
+                </MudGrid>
+            </MudStack>
+        </MudPaper>
+
+        @* Main Data Grid *@
+        <MudDataGrid @ref="_dataGrid"
+                     T="ControlTowerSubscriptionHealthData"
+                     ServerData="ServerReload"
+                     Dense="true"
+                     Hover="true"
+                     Striped="true"
+                     FixedHeader="true"
+                     Height="calc(100vh - 550px)">
+            <Columns>
+                <TemplateColumn Title="Status" Sortable="false" Filterable="false">
+                    <CellTemplate>
+                        <MudTooltip Text="@GetHealthStatusTooltip(context.Item.HealthStatus)">
+                            <MudIcon Icon="@Icons.Material.Filled.Circle"
+                                     Color="@GetHealthColor(context.Item.HealthStatus)"
+                                     Size="Size.Medium"/>
+                        </MudTooltip>
+                    </CellTemplate>
+                </TemplateColumn>
+
+                <TemplateColumn Title="Query Name" Sortable="true" SortBy="@(x => x.QueryName)">
+                    <CellTemplate>
+                        <MudStack Spacing="0">
+                            <MudLink Href="@($"/subscriptions/{context.Item.SubscriptionId}")" Typo="Typo.body2">
+                                @context.Item.QueryName
+                            </MudLink>
+                            @if (context.Item.AiActorId.HasValue)
+                            {
+                                <MudChip T="string" Size="Size.Small" Color="Color.Info" Icon="@Icons.Material.Filled.AutoAwesome">
+                                    @context.Item.AiActorName
+                                </MudChip>
+                            }
+                        </MudStack>
+                    </CellTemplate>
+                </TemplateColumn>
+
+                <PropertyColumn Property="x => x.DataSourceName" Title="Data Source"/>
+
+                <TemplateColumn Title="Last Execution" Sortable="true" SortBy="@(x => x.LastExecutionTime ?? DateTime.MinValue)">
+                    <CellTemplate>
+                        @if (context.Item.LastExecutionTime.HasValue)
+                        {
+                            <MudStack Spacing="1">
+                                <MudText Typo="Typo.body2">
+                                    @context.Item.LastExecutionTime.Value.ToString("g")
+                                </MudText>
+                                <MudChip T="string"
+                                         Size="Size.Small"
+                                         Color="@GetStatusColor(context.Item.LastExecutionStatus)">
+                                    @context.Item.LastExecutionStatus
+                                </MudChip>
+                            </MudStack>
+                        }
+                        else
+                        {
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">Never</MudText>
+                        }
+                    </CellTemplate>
+                </TemplateColumn>
+
+                <TemplateColumn Title="Success Rate" Sortable="true" SortBy="@(x => x.SuccessRate)">
+                    <CellTemplate>
+                        <MudStack Spacing="0">
+                            <MudText Typo="Typo.body2">@($"{context.Item.SuccessRate:F1}%")</MudText>
+                            <MudProgressLinear Color="@GetSuccessRateColor(context.Item.SuccessRate)"
+                                               Value="@context.Item.SuccessRate"
+                                               Size="Size.Small"/>
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                @context.Item.SuccessfulExecutions / @context.Item.TotalExecutions
+                            </MudText>
+                        </MudStack>
+                    </CellTemplate>
+                </TemplateColumn>
+
+                <TemplateColumn Title="Tasks" Sortable="true" SortBy="@(x => x.UnresolvedTaskCount)">
+                    <CellTemplate>
+                        @if (context.Item.UnresolvedTaskCount > 0)
+                        {
+                            <MudBadge Content="@context.Item.UnresolvedTaskCount"
+                                      Color="Color.Warning"
+                                      Overlap="true">
+                                <MudIconButton Icon="@Icons.Material.Filled.Task"
+                                               Size="Size.Small"
+                                               Color="Color.Warning"
+                                               Href="@($"/subscriptions/{context.Item.SubscriptionId}")"/>
+                            </MudBadge>
+                        }
+                        else if (context.Item.TotalTaskCount > 0)
+                        {
+                            <MudChip T="string" Size="Size.Small" Color="Color.Success" Icon="@Icons.Material.Filled.CheckCircle">
+                                0
+                            </MudChip>
+                        }
+                        else
+                        {
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">-</MudText>
+                        }
+                    </CellTemplate>
+                </TemplateColumn>
+
+                <TemplateColumn Title="Anomaly Trend" Sortable="false">
+                    <CellTemplate>
+                        <AnomalySparkline Data="@context.Item.AnomalySparkline"/>
+                    </CellTemplate>
+                </TemplateColumn>
+
+                <TemplateColumn Title="Actions" Sortable="false">
+                    <CellTemplate>
+                        <MudIconButton Icon="@Icons.Material.Filled.OpenInNew"
+                                       Size="Size.Small"
+                                       Color="Color.Primary"
+                                       Href="@($"/subscriptions/{context.Item.SubscriptionId}")"
+                                       Title="View details"/>
+                    </CellTemplate>
+                </TemplateColumn>
+            </Columns>
+
+            <PagerContent>
+                <MudDataGridPager T="ControlTowerSubscriptionHealthData"/>
+            </PagerContent>
+        </MudDataGrid>
+    </MudStack>
+</MudContainer>
+
+@code {
+    private MudDataGrid<ControlTowerSubscriptionHealthData>? _dataGrid;
+    private ControlTowerStatistics? _statistics;
+
+    // Filters
+    private string? _searchKeyword;
+    private int? _selectedDataSourceId;
+    private MudChip<object>? _selectedHealthStatusChip;
+    private bool _filterUnresolvedTasksOnly;
+
+    // Auto-refresh
+    private System.Threading.Timer? _refreshTimer;
+    private bool _autoRefreshEnabled = true;
+    private readonly int _refreshIntervalSeconds = 30;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadStatistics();
+
+        // Setup auto-refresh timer
+        _refreshTimer = new System.Threading.Timer(
+            async _ => await RefreshDataCallback(),
+            null,
+            TimeSpan.FromSeconds(_refreshIntervalSeconds),
+            TimeSpan.FromSeconds(_refreshIntervalSeconds));
+    }
+
+    private async Task LoadStatistics()
+    {
+        _statistics = await ControlTowerService.GetControlTowerStatistics(CancellationToken.None);
+    }
+
+    private async Task<GridData<ControlTowerSubscriptionHealthData>> ServerReload(GridState<ControlTowerSubscriptionHealthData> state)
+    {
+        var request = new GetControlTowerDataRequest
+        {
+            Page = state.Page + 1, // MudBlazor is 0-indexed, our API is 1-indexed
+            PageSize = state.PageSize,
+            SearchKeyword = _searchKeyword,
+            DataSourceId = _selectedDataSourceId,
+            HealthStatus = _selectedHealthStatusChip?.Value as HealthStatus?,
+            HasUnresolvedTasks = _filterUnresolvedTasksOnly ? true : null
+        };
+
+        var result = await ControlTowerService.GetSubscriptionHealthOverview(request, CancellationToken.None);
+
+        return new GridData<ControlTowerSubscriptionHealthData>
+        {
+            TotalItems = result.TotalCount ?? 0,
+            Items = result.Data
+        };
+    }
+
+    private async Task ReloadGrid()
+    {
+        if (_dataGrid != null)
+        {
+            await _dataGrid.ReloadServerData();
+        }
+    }
+
+    private async Task RefreshData()
+    {
+        await LoadStatistics();
+        await ReloadGrid();
+    }
+
+    private async Task RefreshDataCallback()
+    {
+        if (_autoRefreshEnabled)
+        {
+            await InvokeAsync(async () =>
+            {
+                await RefreshData();
+                StateHasChanged();
+            });
+        }
+    }
+
+    private async Task OnHealthStatusFilterChanged(MudChip<object>? chip)
+    {
+        _selectedHealthStatusChip = chip;
+        await ReloadGrid();
+    }
+
+    private static Color GetHealthColor(HealthStatus status)
+    {
+        return status switch
+        {
+            HealthStatus.Green => Color.Success,
+            HealthStatus.Amber => Color.Warning,
+            HealthStatus.Red => Color.Error,
+            _ => Color.Default
+        };
+    }
+
+    private static string GetHealthStatusTooltip(HealthStatus status)
+    {
+        return status switch
+        {
+            HealthStatus.Green => "Healthy (>90% success rate)",
+            HealthStatus.Amber => "Warning (70-90% success rate)",
+            HealthStatus.Red => "Critical (<70% success rate)",
+            _ => "Unknown"
+        };
+    }
+
+    private static Color GetSuccessRateColor(double successRate)
+    {
+        return successRate switch
+        {
+            >= 90 => Color.Success,
+            >= 70 => Color.Warning,
+            _ => Color.Error
+        };
+    }
+
+    private static Color GetStatusColor(NotificationStatus? status)
+    {
+        return status switch
+        {
+            NotificationStatus.NotificationSent => Color.Success,
+            NotificationStatus.NoResults => Color.Info,
+            NotificationStatus.NotificationSilenced => Color.Default,
+            NotificationStatus.Failed => Color.Error,
+            NotificationStatus.Timeout => Color.Warning,
+            NotificationStatus.BelowThreshold => Color.Default,
+            _ => Color.Default
+        };
+    }
+
+    public void Dispose()
+    {
+        _refreshTimer?.Dispose();
+    }
+}

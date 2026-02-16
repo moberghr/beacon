@@ -118,6 +118,8 @@ public static class ServiceConfiguration
         services.TryAddTransient<IRecipientService, RecipientService>();
         services.TryAddTransient<ITaskService, TaskService>();
         services.TryAddTransient<IStatisticsService, StatisticsService>();
+        services.TryAddTransient<IControlTowerService, ControlTowerService>();
+        services.TryAddTransient<IDashboardService, DashboardService>();
         services.TryAddTransient<IMigrationService, MigrationService>();
         services.TryAddTransient<IDatabaseMetadataService, DatabaseMetadataService>();
         services.TryAddTransient<IAnomalyDetectionService, AnomalyDetectionService>();

@@ -41,6 +41,7 @@ internal class NotificationService(IDbContextFactory<SemanticoContext> contextFa
                     QueryName = x.Subscription.Query.Name,
                     SubscriptionId = x.SubscriptionId,
                     ExecutionTimeMs = x.ExecutionTimeMs,
+                    Comment = x.Comment,
                     AiActorId = x.Subscription.AiActorId,
                     AiActorName = x.Subscription.AiActor != null ? x.Subscription.AiActor.Name : null
                 })
@@ -145,6 +146,7 @@ internal class NotificationService(IDbContextFactory<SemanticoContext> contextFa
                 ResultCount = x.ResultCount,
                 CompiledSql = x.CompiledSql,
                 Results = x.Results,
+                Comment = x.Comment,
                 QueryName = x.Subscription.Query.Name,
                 QueryId = x.Subscription.QueryId,
                 SubscriptionId = x.SubscriptionId,
@@ -213,6 +215,7 @@ internal class NotificationService(IDbContextFactory<SemanticoContext> contextFa
             ResultCount = result.ResultCount,
             CompiledSql = result.CompiledSql,
             Results = resultsJson,
+            Comment = result.Comment,
             QueryName = result.QueryName,
             QueryId = result.QueryId,
             SubscriptionId = result.SubscriptionId,
