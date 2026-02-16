@@ -21,6 +21,11 @@ public class QueryExecutionHistory : BaseEntity, IExecutionHistory
     /// </summary>
     public string? Results { get; set; }
 
+    /// <summary>
+    /// Comment field for storing error messages or other notes
+    /// </summary>
+    public string? Comment { get; set; }
+
     public List<Notification> Notifications { get; set; } = new();
 
     public Subscription Subscription { get; set; } = null!;
@@ -30,9 +35,9 @@ public class QueryExecutionHistory : BaseEntity, IExecutionHistory
     DateTime? IExecutionHistory.CompletedAt => CreatedTime.AddMilliseconds(ExecutionTimeMs);
     TimeSpan IExecutionHistory.ExecutionDuration => TimeSpan.FromMilliseconds(ExecutionTimeMs);
     bool IExecutionHistory.Success => NotificationStatus == NotificationStatus.NotificationSent;
-    string? IExecutionHistory.ErrorMessage => NotificationStatus == NotificationStatus.Timeout
+    string? IExecutionHistory.ErrorMessage => Comment ?? (NotificationStatus == NotificationStatus.Timeout
         ? "Query execution timed out"
         : NotificationStatus != NotificationStatus.NotificationSent
             ? $"Notification status: {NotificationStatus}"
-            : null;
+            : null);
 }

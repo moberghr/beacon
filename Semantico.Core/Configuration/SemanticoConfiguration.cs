@@ -42,6 +42,11 @@ public class SemanticoConfiguration
     /// </summary>
     public UserManagementOptions UserManagement { get; set; } = new();
 
+    /// <summary>
+    /// Approval workflow configuration
+    /// </summary>
+    public ApprovalWorkflowOptions ApprovalWorkflow { get; set; } = new();
+
     public void AddSemanticoScheduler<T>() where T : class, ISemanticoScheduler
     {
         SemanticoScheduler = typeof(T);
@@ -71,6 +76,16 @@ public class SemanticoConfiguration
     {
         UserManagement.Enabled = true;
         configure?.Invoke(UserManagement);
+    }
+
+    /// <summary>
+    /// Enables approval workflow with optional configuration.
+    /// When enabled, SQL changes require admin approval before going live.
+    /// </summary>
+    public void EnableApprovalWorkflow(Action<ApprovalWorkflowOptions>? configure = null)
+    {
+        ApprovalWorkflow.Enabled = true;
+        configure?.Invoke(ApprovalWorkflow);
     }
 
     internal Type? SemanticoScheduler { get; set; }

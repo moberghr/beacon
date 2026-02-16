@@ -179,7 +179,7 @@ public class GetQueriesRequest : SortedListRequest
     public string? SearchTerm { get; set; }
 }
 
-internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, IEncryptionService encryptionService, IManualQueryExecutionLogger queryExecutionLogger, ILogger<QueryService> logger, ILoggerFactory loggerFactory) : IQueryService
+internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, IEncryptionService encryptionService, IManualQueryExecutionLogger queryExecutionLogger, ILogger<QueryService> logger, ILoggerFactory loggerFactory, IQueryVersionService queryVersionService, SemanticoConfiguration semanticoConfiguration) : IQueryService
 {
     public async Task<BaseResponse> CreateQuery(QueryData queryData, CancellationToken cancellationToken)
     {
@@ -512,7 +512,8 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
             Name = r.Name,
             Description = r.Description,
             Destination = r.Destination,
-            NotificationType = r.NotificationType
+            NotificationType = r.NotificationType,
+            HeadersJson = r.HeadersJson
         }).ToList();
 
         queryResult.MaxRows = subscription.MaxRows ?? Constants.Query.DefaultMaxRows;
@@ -546,12 +547,48 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
     public async Task<BaseResponse> UpdateQuery(QueryData queryData, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-        
+
         var query = await context.Queries
             .Include(x => x.Steps)
                 .ThenInclude(s => s.Parameters)
             .Where(x => x.Id == queryData.QueryId)
             .SingleAsync(cancellationToken);
+
+        // Determine if SQL has changed (for versioning)
+        var sqlChanged = HasSqlChanged(query, queryData);
+
+        // Snapshot current state before modifying (archive the old version)
+        if (sqlChanged)
+        {
+            // When approval workflow is enabled, create a PendingApproval version instead of applying changes directly
+            if (semanticoConfiguration.ApprovalWorkflow.Enabled)
+            {
+                var pendingVersion = await queryVersionService.CreateVersionAsync(
+                    query.Id, null, "UserEdit", "Submitted for approval",
+                    Data.Enums.QueryVersionStatus.PendingApproval, cancellationToken);
+
+                // Create the approval request
+                await using var approvalContext = await contextFactory.CreateDbContextAsync(cancellationToken);
+                approvalContext.QueryApprovalRequests.Add(new Data.Entities.QueryApprovalRequest
+                {
+                    QueryId = query.Id,
+                    QueryVersionId = pendingVersion.Id,
+                    Status = Data.Enums.ApprovalStatus.Pending,
+                    ChangeSummary = "SQL query modified"
+                });
+                await approvalContext.SaveChangesAsync(cancellationToken);
+
+                return new BaseResponse
+                {
+                    Message = "Changes submitted for approval",
+                    Success = true
+                };
+            }
+
+            await queryVersionService.CreateVersionAsync(
+                query.Id, null, "UserEdit", null,
+                Data.Enums.QueryVersionStatus.Archived, cancellationToken);
+        }
 
         // Update basic query properties
         query.Name = queryData.Name;
@@ -609,13 +646,45 @@ internal class QueryService(IDbContextFactory<SemanticoContext> contextFactory, 
 
         await context.SaveChangesAsync(cancellationToken);
 
+        // Create new Active version after applying edits
+        if (sqlChanged)
+        {
+            await queryVersionService.CreateVersionAsync(
+                query.Id, null, "UserEdit", null,
+                Data.Enums.QueryVersionStatus.Active, cancellationToken);
+        }
+
         return new BaseResponse
         {
             Message = "Saved successfully",
             Success = true
         };
     }
-    
+
+    private static bool HasSqlChanged(Query query, QueryData queryData)
+    {
+        // Check FinalQuery change
+        if (query.FinalQuery != queryData.FinalQuery) return true;
+
+        // Check step SQL changes
+        if (!queryData.Steps.Any() && !string.IsNullOrEmpty(queryData.SqlValue))
+        {
+            // Legacy single-step mode
+            var firstStep = query.Steps.OrderBy(s => s.StepOrder).FirstOrDefault();
+            return firstStep == null || firstStep.SqlValue != queryData.SqlValue || firstStep.DataSourceId != queryData.DataSourceId;
+        }
+
+        foreach (var stepData in queryData.Steps)
+        {
+            var existingStep = query.Steps.FirstOrDefault(s => s.Id == stepData.StepId);
+            if (existingStep == null) return true;
+            if (existingStep.SqlValue != stepData.SqlValue) return true;
+            if (existingStep.DataSourceId != stepData.DataSourceId) return true;
+        }
+
+        return false;
+    }
+
     private async Task<(List<IDictionary<string, object?>> Results, double ExecutionTimeMs, bool TimedOut)> ExecuteQueryAsync(
         DatabaseEngineType dbEngineType,
         string connectionString,

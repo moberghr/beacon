@@ -1109,6 +1109,205 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                     b.ToTable("comments", "semantico");
                 });
 
+            modelBuilder.Entity("Semantico.Core.Data.Entities.Dashboard", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime?>("ArchivedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("archived_time");
+
+                    b.Property<string>("CreatedByUserId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("created_by_user_id");
+
+                    b.Property<string>("CreatedByUserName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("created_by_user_name");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_time");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("description");
+
+                    b.Property<bool>("IsDefault")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_default");
+
+                    b.Property<bool>("IsShared")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_shared");
+
+                    b.Property<string>("LayoutConfiguration")
+                        .HasColumnType("text")
+                        .HasColumnName("layout_configuration");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("name");
+
+                    b.Property<int?>("RefreshIntervalSeconds")
+                        .HasColumnType("integer")
+                        .HasColumnName("refresh_interval_seconds");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("sort_order");
+
+                    b.HasKey("Id")
+                        .HasName("pk_dashboards");
+
+                    b.HasIndex("ArchivedTime")
+                        .HasDatabaseName("ix_dashboards_archived_time");
+
+                    b.HasIndex("CreatedByUserId")
+                        .HasDatabaseName("ix_dashboards_created_by_user_id");
+
+                    b.HasIndex("IsDefault")
+                        .HasDatabaseName("ix_dashboards_is_default");
+
+                    b.HasIndex("IsShared")
+                        .HasDatabaseName("ix_dashboards_is_shared");
+
+                    b.ToTable("dashboards", "semantico");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.DashboardPermission", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_time");
+
+                    b.Property<int>("DashboardId")
+                        .HasColumnType("integer")
+                        .HasColumnName("dashboard_id");
+
+                    b.Property<DateTime>("GrantedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("granted_at");
+
+                    b.Property<string>("GrantedByUserId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("granted_by_user_id");
+
+                    b.Property<int>("PermissionLevel")
+                        .HasColumnType("integer")
+                        .HasColumnName("permission_level");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_dashboard_permissions");
+
+                    b.HasIndex("DashboardId")
+                        .HasDatabaseName("ix_dashboard_permissions_dashboard_id");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("ix_dashboard_permissions_user_id");
+
+                    b.HasIndex("DashboardId", "UserId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_dashboard_permissions_dashboard_id_user_id");
+
+                    b.ToTable("dashboard_permissions", "semantico");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.DashboardWidget", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ConfigurationJson")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("configuration_json");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_time");
+
+                    b.Property<int>("DashboardId")
+                        .HasColumnType("integer")
+                        .HasColumnName("dashboard_id");
+
+                    b.Property<int>("Height")
+                        .HasColumnType("integer")
+                        .HasColumnName("height");
+
+                    b.Property<int>("PositionX")
+                        .HasColumnType("integer")
+                        .HasColumnName("position_x");
+
+                    b.Property<int>("PositionY")
+                        .HasColumnType("integer")
+                        .HasColumnName("position_y");
+
+                    b.Property<int?>("RefreshIntervalSeconds")
+                        .HasColumnType("integer")
+                        .HasColumnName("refresh_interval_seconds");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("sort_order");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("title");
+
+                    b.Property<int>("WidgetType")
+                        .HasColumnType("integer")
+                        .HasColumnName("widget_type");
+
+                    b.Property<int>("Width")
+                        .HasColumnType("integer")
+                        .HasColumnName("width");
+
+                    b.HasKey("Id")
+                        .HasName("pk_dashboard_widgets");
+
+                    b.HasIndex("DashboardId")
+                        .HasDatabaseName("ix_dashboard_widgets_dashboard_id");
+
+                    b.HasIndex("WidgetType")
+                        .HasDatabaseName("ix_dashboard_widgets_widget_type");
+
+                    b.HasIndex("DashboardId", "SortOrder")
+                        .HasDatabaseName("ix_dashboard_widgets_dashboard_id_sort_order");
+
+                    b.ToTable("dashboard_widgets", "semantico");
+                });
+
             modelBuilder.Entity("Semantico.Core.Data.Entities.DataMigration.MigrationExecutionHistory", b =>
                 {
                     b.Property<int>("Id")
@@ -2034,6 +2233,10 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<int?>("ActiveVersionId")
+                        .HasColumnType("integer")
+                        .HasColumnName("active_version_id");
+
                     b.Property<int?>("AiActorId")
                         .HasColumnType("integer")
                         .HasColumnName("ai_actor_id");
@@ -2079,6 +2282,9 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                     b.HasKey("Id")
                         .HasName("pk_queries");
 
+                    b.HasIndex("ActiveVersionId")
+                        .HasDatabaseName("ix_queries_active_version_id");
+
                     b.HasIndex("AiActorId")
                         .HasDatabaseName("ix_queries_ai_actor_id");
 
@@ -2091,6 +2297,83 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                     b.ToTable("queries", "semantico");
                 });
 
+            modelBuilder.Entity("Semantico.Core.Data.Entities.QueryApprovalRequest", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ChangeSummary")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("change_summary");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_time");
+
+                    b.Property<int>("QueryId")
+                        .HasColumnType("integer")
+                        .HasColumnName("query_id");
+
+                    b.Property<int>("QueryVersionId")
+                        .HasColumnType("integer")
+                        .HasColumnName("query_version_id");
+
+                    b.Property<string>("RequestedByUserId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("requested_by_user_id");
+
+                    b.Property<string>("RequestedByUserName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("requested_by_user_name");
+
+                    b.Property<string>("ReviewComment")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("review_comment");
+
+                    b.Property<DateTime?>("ReviewedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("reviewed_at");
+
+                    b.Property<string>("ReviewedByUserId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("reviewed_by_user_id");
+
+                    b.Property<string>("ReviewedByUserName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("reviewed_by_user_name");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
+                    b.HasKey("Id")
+                        .HasName("pk_query_approval_requests");
+
+                    b.HasIndex("QueryVersionId")
+                        .HasDatabaseName("ix_query_approval_requests_query_version_id");
+
+                    b.HasIndex("Status")
+                        .HasDatabaseName("ix_query_approval_requests_status");
+
+                    b.HasIndex("QueryId", "Status")
+                        .HasDatabaseName("ix_query_approval_requests_query_id_status");
+
+                    b.HasIndex("Status", "CreatedTime")
+                        .HasDatabaseName("ix_query_approval_requests_status_created_time");
+
+                    b.ToTable("query_approval_requests", "semantico");
+                });
+
             modelBuilder.Entity("Semantico.Core.Data.Entities.QueryExecutionHistory", b =>
                 {
                     b.Property<int>("Id")
@@ -2099,6 +2382,10 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                         .HasColumnName("id");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Comment")
+                        .HasColumnType("text")
+                        .HasColumnName("comment");
 
                     b.Property<string>("CompiledSql")
                         .IsRequired()
@@ -2487,6 +2774,83 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                     b.ToTable("query_tasks", "semantico");
                 });
 
+            modelBuilder.Entity("Semantico.Core.Data.Entities.QueryVersion", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ChangeReason")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("change_reason");
+
+                    b.Property<string>("ChangeSource")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("change_source");
+
+                    b.Property<string>("CreatedByUserId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("created_by_user_id");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_time");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
+                    b.Property<string>("FinalQuery")
+                        .HasColumnType("text")
+                        .HasColumnName("final_query");
+
+                    b.Property<string>("Label")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("label");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("name");
+
+                    b.Property<int>("QueryId")
+                        .HasColumnType("integer")
+                        .HasColumnName("query_id");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
+                    b.Property<string>("StepsJson")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("steps_json");
+
+                    b.Property<int>("VersionNumber")
+                        .HasColumnType("integer")
+                        .HasColumnName("version_number");
+
+                    b.HasKey("Id")
+                        .HasName("pk_query_versions");
+
+                    b.HasIndex("QueryId", "Status")
+                        .HasDatabaseName("ix_query_versions_query_id_status");
+
+                    b.HasIndex("QueryId", "VersionNumber")
+                        .IsUnique()
+                        .HasDatabaseName("ix_query_versions_query_id_version_number");
+
+                    b.ToTable("query_versions", "semantico");
+                });
+
             modelBuilder.Entity("Semantico.Core.Data.Entities.Recipient", b =>
                 {
                     b.Property<int>("Id")
@@ -2500,6 +2864,10 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("archived_time");
 
+                    b.Property<string>("BodyTemplate")
+                        .HasColumnType("text")
+                        .HasColumnName("body_template");
+
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_time");
@@ -2512,6 +2880,10 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                         .IsRequired()
                         .HasColumnType("text")
                         .HasColumnName("destination");
+
+                    b.Property<string>("HeadersJson")
+                        .HasColumnType("text")
+                        .HasColumnName("headers_json");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -3020,6 +3392,30 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                     b.Navigation("Subscription");
                 });
 
+            modelBuilder.Entity("Semantico.Core.Data.Entities.DashboardPermission", b =>
+                {
+                    b.HasOne("Semantico.Core.Data.Entities.Dashboard", "Dashboard")
+                        .WithMany("Permissions")
+                        .HasForeignKey("DashboardId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_dashboard_permissions_dashboards_dashboard_id");
+
+                    b.Navigation("Dashboard");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.DashboardWidget", b =>
+                {
+                    b.HasOne("Semantico.Core.Data.Entities.Dashboard", "Dashboard")
+                        .WithMany("Widgets")
+                        .HasForeignKey("DashboardId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_dashboard_widgets_dashboards_dashboard_id");
+
+                    b.Navigation("Dashboard");
+                });
+
             modelBuilder.Entity("Semantico.Core.Data.Entities.DataMigration.MigrationExecutionHistory", b =>
                 {
                     b.HasOne("Semantico.Core.Data.Entities.DataMigration.MigrationJob", "MigrationJob")
@@ -3195,6 +3591,12 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
 
             modelBuilder.Entity("Semantico.Core.Data.Entities.Query", b =>
                 {
+                    b.HasOne("Semantico.Core.Data.Entities.QueryVersion", "ActiveVersion")
+                        .WithMany()
+                        .HasForeignKey("ActiveVersionId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_queries_query_versions_active_version_id");
+
                     b.HasOne("Semantico.Core.Data.Entities.AiActor", "AiActor")
                         .WithMany("Queries")
                         .HasForeignKey("AiActorId")
@@ -3207,9 +3609,32 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                         .OnDelete(DeleteBehavior.SetNull)
                         .HasConstraintName("fk_queries_query_folders_folder_id");
 
+                    b.Navigation("ActiveVersion");
+
                     b.Navigation("AiActor");
 
                     b.Navigation("Folder");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.QueryApprovalRequest", b =>
+                {
+                    b.HasOne("Semantico.Core.Data.Entities.Query", "Query")
+                        .WithMany()
+                        .HasForeignKey("QueryId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_query_approval_requests_queries_query_id");
+
+                    b.HasOne("Semantico.Core.Data.Entities.QueryVersion", "QueryVersion")
+                        .WithMany()
+                        .HasForeignKey("QueryVersionId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired()
+                        .HasConstraintName("fk_query_approval_requests_query_versions_query_version_id");
+
+                    b.Navigation("Query");
+
+                    b.Navigation("QueryVersion");
                 });
 
             modelBuilder.Entity("Semantico.Core.Data.Entities.QueryExecutionHistory", b =>
@@ -3328,6 +3753,18 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                     b.Navigation("Subscription");
                 });
 
+            modelBuilder.Entity("Semantico.Core.Data.Entities.QueryVersion", b =>
+                {
+                    b.HasOne("Semantico.Core.Data.Entities.Query", "Query")
+                        .WithMany("Versions")
+                        .HasForeignKey("QueryId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_query_versions_queries_query_id");
+
+                    b.Navigation("Query");
+                });
+
             modelBuilder.Entity("Semantico.Core.Data.Entities.SemanticoUserRole", b =>
                 {
                     b.HasOne("Semantico.Core.Data.Entities.SemanticoRole", "Role")
@@ -3408,6 +3845,13 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                     b.Navigation("ConversationHistory");
                 });
 
+            modelBuilder.Entity("Semantico.Core.Data.Entities.Dashboard", b =>
+                {
+                    b.Navigation("Permissions");
+
+                    b.Navigation("Widgets");
+                });
+
             modelBuilder.Entity("Semantico.Core.Data.Entities.DataMigration.MigrationJob", b =>
                 {
                     b.Navigation("Executions");
@@ -3437,6 +3881,8 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                     b.Navigation("Steps");
 
                     b.Navigation("Subscriptions");
+
+                    b.Navigation("Versions");
                 });
 
             modelBuilder.Entity("Semantico.Core.Data.Entities.QueryExecutionHistory", b =>

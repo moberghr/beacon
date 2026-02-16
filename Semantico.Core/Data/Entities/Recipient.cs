@@ -13,6 +13,10 @@ public class Recipient : ArchivableBaseEntity
 
     public NotificationType NotificationType { get; set; }
 
+    public string? HeadersJson { get; set; }
+
+    public string? BodyTemplate { get; set; }
+
     public List<Subscription> Subscriptions { get; set; } = new();
     
     public List<Notification> Notifications { get; set; } = new();
