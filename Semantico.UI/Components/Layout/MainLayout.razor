@@ -70,6 +70,8 @@
         </div>
         <MudNavMenu Class="drawer-nav" Bordered="false">
             <MudNavLink Href="@($"{GetBaseHref()}dashboard")" Icon="@Icons.Material.Filled.Home" IconColor="Color.Primary">Home</MudNavLink>
+            <MudNavLink Href="@($"{GetBaseHref()}control-tower")" Icon="@Icons.Material.Filled.Dashboard" IconColor="Color.Info">Control Tower</MudNavLink>
+            <MudNavLink Href="@($"{GetBaseHref()}dashboards")" Icon="@Icons.Material.Filled.Widgets" IconColor="Color.Tertiary">Dashboards</MudNavLink>
             <MudNavLink Href="@($"{GetBaseHref()}data-sources")" Icon="@Icons.Material.Filled.Folder" IconColor="Color.Secondary">Data Sources</MudNavLink>
             @if (Configuration?.UseAI == true)
             {

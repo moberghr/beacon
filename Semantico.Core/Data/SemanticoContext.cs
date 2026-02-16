@@ -105,6 +105,13 @@ public abstract partial class SemanticoContext : DbContext
 
     public DbSet<AppSettingHistory> AppSettingHistory => Set<AppSettingHistory>();
 
+    // Custom Dashboards
+    public DbSet<Dashboard> Dashboards => Set<Dashboard>();
+
+    public DbSet<DashboardWidget> DashboardWidgets => Set<DashboardWidget>();
+
+    public DbSet<DashboardPermission> DashboardPermissions => Set<DashboardPermission>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         // Set default schema for all entities
@@ -124,6 +131,7 @@ public abstract partial class SemanticoContext : DbContext
         ConfigureAppSettingEntities(modelBuilder);
         ConfigureQueryVersionEntities(modelBuilder);
         ConfigureApprovalEntities(modelBuilder);
+        ConfigureDashboardEntities(modelBuilder);
         base.OnModelCreating(modelBuilder);
     }
 
@@ -947,6 +955,62 @@ public abstract partial class SemanticoContext : DbContext
             entity.HasIndex(e => e.UserId);
             entity.HasIndex(e => e.RoleId);
             entity.HasIndex(e => e.AssignedAt);
+        });
+    }
+
+    protected static void ConfigureDashboardEntities(ModelBuilder modelBuilder)
+    {
+        // Dashboard configuration
+        modelBuilder.Entity<Dashboard>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Name).HasMaxLength(200).IsRequired();
+            entity.Property(e => e.Description).HasMaxLength(1000);
+            entity.Property(e => e.CreatedByUserId).HasMaxLength(100);
+            entity.Property(e => e.CreatedByUserName).HasMaxLength(200);
+            entity.Property(e => e.LayoutConfiguration);
+
+            entity.HasIndex(e => e.CreatedByUserId);
+            entity.HasIndex(e => e.IsShared);
+            entity.HasIndex(e => e.IsDefault);
+            entity.HasIndex(e => e.ArchivedTime);
+
+            entity.HasMany(e => e.Widgets)
+                .WithOne(w => w.Dashboard)
+                .HasForeignKey(w => w.DashboardId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasMany(e => e.Permissions)
+                .WithOne(p => p.Dashboard)
+                .HasForeignKey(p => p.DashboardId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // DashboardWidget configuration
+        modelBuilder.Entity<DashboardWidget>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Title).HasMaxLength(200).IsRequired();
+            entity.Property(e => e.ConfigurationJson).IsRequired();
+
+            entity.HasIndex(e => e.DashboardId);
+            entity.HasIndex(e => e.WidgetType);
+            entity.HasIndex(e => new { e.DashboardId, e.SortOrder });
+        });
+
+        // DashboardPermission configuration
+        modelBuilder.Entity<DashboardPermission>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.UserId).HasMaxLength(100).IsRequired();
+            entity.Property(e => e.GrantedByUserId).HasMaxLength(100);
+
+            entity.HasIndex(e => e.DashboardId);
+            entity.HasIndex(e => e.UserId);
+            entity.HasIndex(e => new { e.DashboardId, e.UserId }).IsUnique();
         });
     }
 }

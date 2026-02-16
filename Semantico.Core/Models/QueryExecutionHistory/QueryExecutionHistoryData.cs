@@ -20,6 +20,8 @@ public class QueryExecutionHistoryData
 
     public double ExecutionTimeMs { get; set; }
 
+    public string? Comment { get; set; }
+
     /// <summary>
     /// AI Actor ID if the subscription is managed by an AI Actor, null if user-created
     /// </summary>

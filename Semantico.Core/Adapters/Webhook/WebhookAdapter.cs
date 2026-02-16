@@ -22,50 +22,24 @@ internal class WebhookAdapter(IHttpClientFactory httpClientFactory, SemanticoCon
         var client = httpClientFactory.CreateClient();
         var queryResult = recipientQueryResult.QueryResult;
 
-        var payload = new WebhookPayload
-        {
-            Timestamp = DateTime.UtcNow,
-            SubscriptionName = queryResult.SubscriptionName,
-            SubscriptionId = queryResult.SubscriptionId,
-            DataSourceName = queryResult.DataSourceName,
-            SqlQuery = queryResult.ShowQuery ? queryResult.SqlQuery : null!,
-            TotalRecords = queryResult.TotalRecords,
-            ExecutionTimeMs = queryResult.ExecutionTimeMs,
-            PreviousResultCount = lastNotificationResultCount,
-            TimedOut = queryResult.TimedOut,
-            Records = queryResult.TopRecords,
-            NotificationUrl = !string.IsNullOrEmpty(configuration.BaseUrl) && recipientQueryResult.NotificationId.HasValue
-                ? $"{configuration.BaseUrl.TrimEnd('/')}/notifications/{recipientQueryResult.NotificationId}"
-                : null
-        };
-
-        if (recipientQueryResult.AnomalyEvaluation != null)
-        {
-            payload.Anomaly = new WebhookAnomalyData
-            {
-                IsAnomaly = recipientQueryResult.AnomalyEvaluation.IsAnomaly,
-                Severity = recipientQueryResult.AnomalyEvaluation.Severity,
-                Explanation = recipientQueryResult.AnomalyEvaluation.Explanation
-            };
-        }
-
         // Use body template if provided, otherwise use default JSON payload
         string bodyContent;
         if (!string.IsNullOrWhiteSpace(recipientQueryResult.BodyTemplate))
         {
             try
             {
-                bodyContent = WebhookTemplateEngine.ProcessTemplate(recipientQueryResult.BodyTemplate, payload);
+                var templateData = Shared.TemplateDataBuilder.BuildTemplateData(recipientQueryResult, lastNotificationResultCount, configuration.BaseUrl);
+                bodyContent = Shared.AdapterTemplateProcessor.ProcessTemplate(recipientQueryResult.BodyTemplate, templateData);
             }
             catch (Exception ex)
             {
                 logger.LogError(ex, "Failed to process webhook body template, falling back to default payload");
-                bodyContent = JsonSerializer.Serialize(payload, JsonOptions);
+                bodyContent = BuildDefaultPayload(recipientQueryResult, lastNotificationResultCount);
             }
         }
         else
         {
-            bodyContent = JsonSerializer.Serialize(payload, JsonOptions);
+            bodyContent = BuildDefaultPayload(recipientQueryResult, lastNotificationResultCount);
         }
 
         var content = new StringContent(bodyContent, Encoding.UTF8, System.Net.Mime.MediaTypeNames.Application.Json);
@@ -99,5 +73,39 @@ internal class WebhookAdapter(IHttpClientFactory httpClientFactory, SemanticoCon
             throw new SemanticoException(
                 $"Failed to send Webhook notification: {response.StatusCode}. {errorBody}");
         }
+    }
+
+    private string BuildDefaultPayload(RecipientQueryResult recipientQueryResult, int? lastNotificationResultCount)
+    {
+        var queryResult = recipientQueryResult.QueryResult;
+
+        var payload = new WebhookPayload
+        {
+            Timestamp = DateTime.UtcNow,
+            SubscriptionName = queryResult.SubscriptionName,
+            SubscriptionId = queryResult.SubscriptionId,
+            DataSourceName = queryResult.DataSourceName,
+            SqlQuery = queryResult.ShowQuery ? queryResult.SqlQuery : null!,
+            TotalRecords = queryResult.TotalRecords,
+            ExecutionTimeMs = queryResult.ExecutionTimeMs,
+            PreviousResultCount = lastNotificationResultCount,
+            TimedOut = queryResult.TimedOut,
+            Records = queryResult.TopRecords,
+            NotificationUrl = !string.IsNullOrEmpty(configuration.BaseUrl) && recipientQueryResult.NotificationId.HasValue
+                ? $"{configuration.BaseUrl.TrimEnd('/')}/notifications/{recipientQueryResult.NotificationId}"
+                : null
+        };
+
+        if (recipientQueryResult.AnomalyEvaluation != null)
+        {
+            payload.Anomaly = new WebhookAnomalyData
+            {
+                IsAnomaly = recipientQueryResult.AnomalyEvaluation.IsAnomaly,
+                Severity = recipientQueryResult.AnomalyEvaluation.Severity,
+                Explanation = recipientQueryResult.AnomalyEvaluation.Explanation
+            };
+        }
+
+        return JsonSerializer.Serialize(payload, JsonOptions);
     }
 }

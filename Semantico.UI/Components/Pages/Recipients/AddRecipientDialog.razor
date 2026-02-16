@@ -75,15 +75,34 @@
                               Class="mb-2"
                               Lines="3" />
 
+                <div class="d-flex align-center gap-2 mb-2">
+                    <MudText Typo="Typo.body2" Class="flex-grow-1">
+                        <strong>Body Template (Optional)</strong> - Customize the webhook payload
+                    </MudText>
+                    <MudButton Size="Size.Small"
+                               Variant="Variant.Text"
+                               Color="Color.Primary"
+                               OnClick="@ShowTemplateHelp">
+                        Show Examples
+                    </MudButton>
+                </div>
                 <MudTextField @bind-Value="@Recipient.BodyTemplate"
                               T="String"
-                              Label="Body Template (Optional)"
-                              HelperText="Use placeholders like {{Timestamp}}, {{SubscriptionName}}, {{TotalRecords}}, {{Records}}. Leave empty for default payload."
+                              HelperText="Use placeholders like {{Timestamp}}, {{SubscriptionName}}, {{TotalRecords}}, {{Records}}. Leave empty for default."
                               Variant="Variant.Outlined"
                               Margin="Margin.Dense"
                               Class="mb-2"
-                              Lines="10"
-                              Placeholder='Example: { "alert": "{{SubscriptionName}}", "count": {{TotalRecords}}, "data": {{Records}} }' />
+                              Lines="12"
+                              OnBlur="@ValidateTemplate"
+                              Error="@_templateHasError"
+                              ErrorText="@_templateErrorText" />
+
+                @if (!string.IsNullOrWhiteSpace(_templateWarning))
+                {
+                    <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">
+                        @_templateWarning
+                    </MudAlert>
+                }
             }
         </MudForm>
     </DialogContent>
@@ -102,6 +121,7 @@
 
 @inject ISnackbar Snackbar
 @inject IRecipientService Service
+@inject IDialogService DialogService
 
 @code
 {
@@ -115,6 +135,9 @@
     private bool _loading;
     bool _isFormValid = false;
     string[] errors = { };
+    private bool _templateHasError = false;
+    private string? _templateErrorText = null;
+    private string? _templateWarning = null;
 
     async Task Submit()
     {
@@ -167,4 +190,52 @@
         NotificationType.Webhook => "Enter the URL to POST JSON payloads to",
         _ => ""
     };
+
+    private void ValidateTemplate()
+    {
+        _templateHasError = false;
+        _templateErrorText = null;
+        _templateWarning = null;
+
+        if (string.IsNullOrWhiteSpace(Recipient.BodyTemplate))
+        {
+            return;
+        }
+
+        var result = Semantico.Core.Adapters.Shared.TemplateValidator.ValidateWithPlaceholderCheck(Recipient.BodyTemplate);
+
+        if (!result.IsValid)
+        {
+            _templateHasError = true;
+            _templateErrorText = result.ErrorMessage;
+        }
+        else if (!string.IsNullOrWhiteSpace(result.WarningMessage))
+        {
+            _templateWarning = result.WarningMessage;
+        }
+    }
+
+    private async Task ShowTemplateHelp()
+    {
+        var exampleTemplate = Semantico.Core.Adapters.Shared.AdapterTemplateExamples.GetExample(Recipient.NotificationType);
+        var placeholders = Semantico.Core.Adapters.Shared.AdapterTemplateExamples.GetAvailablePlaceholders();
+
+        var message = $"**Example Template:**\n```json\n{exampleTemplate}\n```\n\n{placeholders}";
+
+        var parameters = new DialogParameters
+        {
+            { "Message", message }
+        };
+
+        var options = new DialogOptions
+        {
+            MaxWidth = MaxWidth.Large,
+            CloseButton = true
+        };
+
+        await DialogService.ShowMessageBox(
+            "Body Template Examples & Placeholders",
+            new MarkupString(message.Replace("\n", "<br/>")),
+            options: options);
+    }
 }

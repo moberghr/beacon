@@ -18,6 +18,8 @@ public class QueryExecutionHistoryDetailsData
 
     public string? Results { get; set; }
 
+    public string? Comment { get; set; }
+
     // Query and Subscription info
     public string QueryName { get; set; } = null!;
 

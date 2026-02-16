@@ -15,6 +15,7 @@ internal class SlackAdapter : IAdapter
 {
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly SlackMessageBuilder _messageBuilder;
+    private readonly SemanticoConfiguration _configuration;
     private readonly ILogger<SlackAdapter> _logger;
 
     public SlackAdapter(
@@ -23,6 +24,7 @@ internal class SlackAdapter : IAdapter
         ILogger<SlackAdapter> logger)
     {
         _httpClientFactory = httpClientFactory;
+        _configuration = configuration;
         _logger = logger;
 
         // Initialize message builder with table formatter
@@ -37,18 +39,27 @@ internal class SlackAdapter : IAdapter
         var client = _httpClientFactory.CreateClient();
         var queryResult = recipientQueryResult.QueryResult;
 
-        // Build Slack message with blocks (including anomaly context if present)
-        var message = _messageBuilder.BuildNotificationMessage(
-            queryResult,
-            recipientQueryResult.NotificationId,
-            recipientQueryResult.AnomalyEvaluation);
+        string jsonPayload;
 
-        // Serialize to JSON with snake_case naming
-        var jsonPayload = JsonSerializer.Serialize(message, new JsonSerializerOptions
+        // If custom body template is provided, use shared template processor
+        if (!string.IsNullOrWhiteSpace(recipientQueryResult.BodyTemplate))
         {
-            PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
-            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
-        });
+            try
+            {
+                var templateData = Shared.TemplateDataBuilder.BuildTemplateData(recipientQueryResult, lastNotificationResultCount, _configuration.BaseUrl);
+                jsonPayload = Shared.AdapterTemplateProcessor.ProcessTemplate(recipientQueryResult.BodyTemplate, templateData);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to process custom Slack body template, falling back to default message");
+                jsonPayload = BuildDefaultSlackMessage(recipientQueryResult, queryResult);
+            }
+        }
+        else
+        {
+            // Use default Slack message format
+            jsonPayload = BuildDefaultSlackMessage(recipientQueryResult, queryResult);
+        }
 
         // Send to Slack webhook
         var content = new StringContent(jsonPayload, Encoding.UTF8, System.Net.Mime.MediaTypeNames.Application.Json);
@@ -62,6 +73,22 @@ internal class SlackAdapter : IAdapter
             throw new SemanticoException(
                 $"Failed to send Slack notification: {response.StatusCode}. {errorBody}");
         }
+    }
+
+    private string BuildDefaultSlackMessage(RecipientQueryResult recipientQueryResult, QueryResult queryResult)
+    {
+        // Build Slack message with blocks (including anomaly context if present)
+        var message = _messageBuilder.BuildNotificationMessage(
+            queryResult,
+            recipientQueryResult.NotificationId,
+            recipientQueryResult.AnomalyEvaluation);
+
+        // Serialize to JSON with snake_case naming
+        return JsonSerializer.Serialize(message, new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+        });
     }
 }
 

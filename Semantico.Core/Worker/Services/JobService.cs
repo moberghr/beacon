@@ -193,6 +193,7 @@ internal class JobService(
         {
             logger.LogError(ex, "Failed to send notification for subscription {SubscriptionId}", subscriptionId);
             executedQuery.NotificationStatus = NotificationStatus.Failed;
+            executedQuery.Comment = ex.Message;
             await context.SaveChangesAsync();
             throw;
         }
