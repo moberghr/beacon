@@ -2670,7 +2670,7 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                     b.HasOne("Semantico.Core.Data.Entities.QueryVersion", "ActiveVersion")
                         .WithMany()
                         .HasForeignKey("ActiveVersionId")
-                        .OnDelete(DeleteBehavior.SetNull);
+                        .OnDelete(DeleteBehavior.NoAction);
 
                     b.HasOne("Semantico.Core.Data.Entities.AiActor", "AiActor")
                         .WithMany("Queries")

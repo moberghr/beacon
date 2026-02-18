@@ -77,7 +77,7 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                 principalSchema: "semantico",
                 principalTable: "QueryVersions",
                 principalColumn: "Id",
-                onDelete: ReferentialAction.SetNull);
+                onDelete: ReferentialAction.NoAction);
         }
 
         /// <inheritdoc />
