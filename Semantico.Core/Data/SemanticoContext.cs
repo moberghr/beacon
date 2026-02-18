@@ -880,12 +880,14 @@ public abstract partial class SemanticoContext : DbContext
         });
 
         // Configure Query.ActiveVersionId FK (self-referencing via QueryVersion)
+        // SQL Server doesn't allow SetNull here due to the circular cascade path with QueryVersions->Queries.
+        // ActiveVersionId must be nulled manually in application code before deleting a QueryVersion.
         modelBuilder.Entity<Query>(entity =>
         {
             entity.HasOne(q => q.ActiveVersion)
                 .WithMany()
                 .HasForeignKey(q => q.ActiveVersionId)
-                .OnDelete(DeleteBehavior.SetNull);
+                .OnDelete(DeleteBehavior.NoAction);
         });
     }
 
