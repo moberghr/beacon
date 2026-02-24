@@ -1,0 +1,330 @@
+@page "/data-quality/{Id:int}"
+@using Semantico.Core.Data.Enums
+@using Semantico.Core.Handlers.DataQuality.GetDataContractDetail
+@using Semantico.Core.Handlers.DataQuality.EvaluateDataContract
+@using Semantico.Core.Handlers.DataQuality.DeleteDataContract
+@using Semantico.Core.Models.DataQuality
+@using Semantico.Core.Services
+@using MediatR
+@inject IMediator Mediator
+@inject IDataQualityEvaluationService EvaluationService
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject NavigationManager NavManager
+@inherits BasePageComponent
+
+<SemanticoPageTitle Title="Contract Details"/>
+
+<MudContainer MaxWidth="MaxWidth.ExtraExtraLarge" Class="mt-4">
+    @if (_loading)
+    {
+        <MudGrid Spacing="3">
+            <MudItem xs="12"><MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="60px"/></MudItem>
+            <MudItem xs="12" md="3"><MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="120px"/></MudItem>
+            <MudItem xs="12" md="3"><MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="120px"/></MudItem>
+            <MudItem xs="12" md="3"><MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="120px"/></MudItem>
+            <MudItem xs="12" md="3"><MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="120px"/></MudItem>
+        </MudGrid>
+    }
+    else if (_contract != null)
+    {
+        @* Header *@
+        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-4">
+            <MudStack Spacing="1">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                    <MudIconButton Icon="@Icons.Material.Filled.ArrowBack" OnClick="@(() => NavManager.NavigateTo("data-quality"))"/>
+                    <MudIcon Icon="@Icons.Material.Filled.VerifiedUser" Size="Size.Large" Color="Color.Primary"/>
+                    <MudText Typo="Typo.h4" Style="font-weight: 700;">@_contract.Name</MudText>
+                    @if (_contract.IsEnabled)
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Success">Active</MudChip>
+                    }
+                    else
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Default">Disabled</MudChip>
+                    }
+                </MudStack>
+                <MudText Typo="Typo.body2" Color="Color.Secondary">
+                    @_contract.DataSourceName / @_contract.SchemaName.@_contract.TableName
+                </MudText>
+            </MudStack>
+            <MudStack Row="true" Spacing="2">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                           StartIcon="@Icons.Material.Filled.PlayArrow"
+                           OnClick="RunEvaluation" Disabled="_evaluating">
+                    @if (_evaluating)
+                    {
+                        <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2"/>
+                        <text>Evaluating...</text>
+                    }
+                    else
+                    {
+                        <text>Evaluate Now</text>
+                    }
+                </MudButton>
+                <MudButton Variant="Variant.Outlined" Color="Color.Error"
+                           StartIcon="@Icons.Material.Filled.Delete"
+                           OnClick="DeleteContract">
+                    Delete
+                </MudButton>
+            </MudStack>
+        </MudStack>
+
+        @* Hero Metrics *@
+        <MudGrid Spacing="3" Class="mb-4">
+            <MudItem xs="12" sm="6" md="3">
+                <MudPaper Elevation="2" Class="pa-4" Style="border-radius: 12px;">
+                    <MudStack Spacing="1">
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">Latest Score</MudText>
+                        <MudText Typo="Typo.h4" Style="font-weight: 700;"
+                                 Color="@(_contract.LatestScore.HasValue ? GetScoreColor(_contract.LatestScore.Value) : Color.Default)">
+                            @(_contract.LatestScore.HasValue ? $"{_contract.LatestScore.Value:F0}%" : "N/A")
+                        </MudText>
+                    </MudStack>
+                </MudPaper>
+            </MudItem>
+            <MudItem xs="12" sm="6" md="3">
+                <MudPaper Elevation="2" Class="pa-4" Style="border-radius: 12px;">
+                    <MudStack Spacing="1">
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">Rules</MudText>
+                        <MudText Typo="Typo.h4" Style="font-weight: 700;">@_contract.Rules.Count</MudText>
+                    </MudStack>
+                </MudPaper>
+            </MudItem>
+            <MudItem xs="12" sm="6" md="3">
+                <MudPaper Elevation="2" Class="pa-4" Style="border-radius: 12px;">
+                    <MudStack Spacing="1">
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">Schedule</MudText>
+                        <MudText Typo="Typo.h6" Style="font-weight: 700;">@_contract.CronExpression</MudText>
+                    </MudStack>
+                </MudPaper>
+            </MudItem>
+            <MudItem xs="12" sm="6" md="3">
+                <MudPaper Elevation="2" Class="pa-4" Style="border-radius: 12px;">
+                    <MudStack Spacing="1">
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">Failure Threshold</MudText>
+                        <MudText Typo="Typo.h4" Style="font-weight: 700;">@_contract.FailureThresholdScore%</MudText>
+                    </MudStack>
+                </MudPaper>
+            </MudItem>
+        </MudGrid>
+
+        @* Tabs *@
+        <MudPaper Elevation="2" Class="pa-0" Style="border-radius: 12px; overflow: hidden;">
+            <MudTabs Elevation="0" Rounded="false" PanelClass="pa-4"
+                     ApplyEffectsToContainer="true" Color="Color.Primary" SliderColor="Color.Primary">
+
+                @* Rules Tab *@
+                <MudTabPanel Text="Rules" Icon="@Icons.Material.Filled.Rule" BadgeData="@_contract.Rules.Count" BadgeColor="Color.Primary">
+                    <MudDataGrid T="DataContractRuleData" Items="_contract.Rules" Dense="true" Hover="true">
+                        <Columns>
+                            <PropertyColumn Property="x => x.Name" Title="Name"/>
+                            <TemplateColumn Title="Type">
+                                <CellTemplate>
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Info">@context.Item.RuleType</MudChip>
+                                </CellTemplate>
+                            </TemplateColumn>
+                            <PropertyColumn Property="x => x.ColumnName" Title="Column"/>
+                            <TemplateColumn Title="Severity">
+                                <CellTemplate>
+                                    <MudChip T="string" Size="Size.Small" Color="@GetSeverityColor(context.Item.Severity)">
+                                        @context.Item.Severity
+                                    </MudChip>
+                                </CellTemplate>
+                            </TemplateColumn>
+                            <PropertyColumn Property="x => x.Weight" Title="Weight"/>
+                            <TemplateColumn Title="Enabled">
+                                <CellTemplate>
+                                    <MudIcon Icon="@(context.Item.IsEnabled ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.Cancel)"
+                                             Color="@(context.Item.IsEnabled ? Color.Success : Color.Error)" Size="Size.Small"/>
+                                </CellTemplate>
+                            </TemplateColumn>
+                        </Columns>
+                    </MudDataGrid>
+                </MudTabPanel>
+
+                @* Evaluation History Tab *@
+                <MudTabPanel Text="Evaluations" Icon="@Icons.Material.Filled.History">
+                    @if (_evaluations.Count == 0)
+                    {
+                        <MudAlert Severity="Severity.Info" Class="my-4">No evaluations yet. Click "Evaluate Now" to run the first check.</MudAlert>
+                    }
+                    else
+                    {
+                        <MudDataGrid T="DataQualityEvaluationData" Items="_evaluations" Dense="true" Hover="true">
+                            <Columns>
+                                <PropertyColumn Property="x => x.CreatedTime" Title="Time" Format="g"/>
+                                <TemplateColumn Title="Score">
+                                    <CellTemplate>
+                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Filled"
+                                                 Color="@GetScoreColor(context.Item.OverallScore)">
+                                            @context.Item.OverallScore.ToString("F1")%
+                                        </MudChip>
+                                    </CellTemplate>
+                                </TemplateColumn>
+                                <TemplateColumn Title="Passed">
+                                    <CellTemplate>
+                                        <MudText Color="Color.Success">@context.Item.PassedRules / @context.Item.TotalRules</MudText>
+                                    </CellTemplate>
+                                </TemplateColumn>
+                                <TemplateColumn Title="Failed">
+                                    <CellTemplate>
+                                        @if (context.Item.FailedRules > 0)
+                                        {
+                                            <MudText Color="Color.Error">@context.Item.FailedRules</MudText>
+                                        }
+                                        else
+                                        {
+                                            <MudText Color="Color.Success">0</MudText>
+                                        }
+                                    </CellTemplate>
+                                </TemplateColumn>
+                                <TemplateColumn Title="Duration">
+                                    <CellTemplate>
+                                        @context.Item.ExecutionTimeMs.ToString("F0") ms
+                                    </CellTemplate>
+                                </TemplateColumn>
+                            </Columns>
+                        </MudDataGrid>
+                    }
+                </MudTabPanel>
+
+                @* Latest Results Tab *@
+                @if (_latestEvaluation != null)
+                {
+                    <MudTabPanel Text="Latest Results" Icon="@Icons.Material.Filled.Assessment">
+                        <MudDataGrid T="DataQualityRuleResultData" Items="_latestEvaluation.RuleResults" Dense="true" Hover="true">
+                            <Columns>
+                                <PropertyColumn Property="x => x.RuleName" Title="Rule"/>
+                                <TemplateColumn Title="Status">
+                                    <CellTemplate>
+                                        @if (context.Item.Passed)
+                                        {
+                                            <MudChip T="string" Size="Size.Small" Color="Color.Success" Icon="@Icons.Material.Filled.Check">Pass</MudChip>
+                                        }
+                                        else
+                                        {
+                                            <MudChip T="string" Size="Size.Small" Color="Color.Error" Icon="@Icons.Material.Filled.Close">Fail</MudChip>
+                                        }
+                                    </CellTemplate>
+                                </TemplateColumn>
+                                <TemplateColumn Title="Score">
+                                    <CellTemplate>
+                                        <MudText Color="@GetScoreColor(context.Item.Score)">@context.Item.Score.ToString("F1")%</MudText>
+                                    </CellTemplate>
+                                </TemplateColumn>
+                                <PropertyColumn Property="x => x.ActualValue" Title="Actual"/>
+                                <PropertyColumn Property="x => x.ExpectedValue" Title="Expected"/>
+                                <PropertyColumn Property="x => x.Message" Title="Message"/>
+                                <TemplateColumn Title="Duration">
+                                    <CellTemplate>
+                                        @context.Item.ExecutionTimeMs.ToString("F0") ms
+                                    </CellTemplate>
+                                </TemplateColumn>
+                            </Columns>
+                        </MudDataGrid>
+                    </MudTabPanel>
+                }
+            </MudTabs>
+        </MudPaper>
+    }
+    else
+    {
+        <MudAlert Severity="Severity.Error">Contract not found.</MudAlert>
+    }
+</MudContainer>
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private DataContractData? _contract;
+    private List<DataQualityEvaluationData> _evaluations = new();
+    private DataQualityEvaluationData? _latestEvaluation;
+    private bool _loading = true;
+    private bool _evaluating;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Load();
+    }
+
+    private async Task Load()
+    {
+        _loading = true;
+        try
+        {
+            _contract = await Mediator.Send(new GetDataContractDetailQuery(Id));
+            _evaluations = await EvaluationService.GetEvaluationHistoryAsync(Id);
+            _latestEvaluation = _evaluations.FirstOrDefault();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error loading contract: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task RunEvaluation()
+    {
+        _evaluating = true;
+        StateHasChanged();
+
+        try
+        {
+            var result = await Mediator.Send(new EvaluateDataContractCommand(Id));
+            Snackbar.Add($"Evaluation complete: {result.OverallScore:F1}% ({result.PassedRules}/{result.TotalRules} passed)", Severity.Success);
+            await Load();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Evaluation failed: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _evaluating = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task DeleteContract()
+    {
+        bool? confirm = await DialogService.ShowMessageBox(
+            "Delete Contract",
+            $"Are you sure you want to delete '{_contract?.Name}'?",
+            yesText: "Delete",
+            cancelText: "Cancel");
+
+        if (confirm == true)
+        {
+            try
+            {
+                await Mediator.Send(new DeleteDataContractCommand(Id));
+                Snackbar.Add("Contract deleted", Severity.Success);
+                NavManager.NavigateTo("data-quality");
+            }
+            catch (Exception ex)
+            {
+                Snackbar.Add($"Error: {ex.Message}", Severity.Error);
+            }
+        }
+    }
+
+    private static Color GetScoreColor(double score) => score switch
+    {
+        >= 90 => Color.Success,
+        >= 70 => Color.Warning,
+        _ => Color.Error
+    };
+
+    private static Color GetSeverityColor(DataContractSeverity severity) => severity switch
+    {
+        DataContractSeverity.Critical => Color.Error,
+        DataContractSeverity.High => Color.Warning,
+        DataContractSeverity.Medium => Color.Info,
+        DataContractSeverity.Low => Color.Default,
+        _ => Color.Default
+    };
+}

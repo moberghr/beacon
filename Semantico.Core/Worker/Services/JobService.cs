@@ -15,6 +15,7 @@ internal class JobService(
     INotificationService notificationService,
     ITaskService taskService,
     IAnomalyDetectionService anomalyDetectionService,
+    IDataQualityEvaluationService dataQualityEvaluationService,
     ILogger<JobService> logger,
     IAiActorService? aiActorService = null)
     : IJobService
@@ -200,6 +201,19 @@ internal class JobService(
 
         // Trigger AI Actor think cycle if this subscription belongs to an actor
         await TriggerAiActorIfApplicableAsync(subscriptionId, queryResult.TotalRecords);
+    }
+
+    public async Task EvaluateDataContract(int contractId)
+    {
+        try
+        {
+            await dataQualityEvaluationService.EvaluateContractAsync(contractId);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to evaluate data contract {ContractId}", contractId);
+            throw;
+        }
     }
 
     private async Task TriggerAiActorIfApplicableAsync(int subscriptionId, int rowCount)

@@ -123,6 +123,8 @@ public static class ServiceConfiguration
         services.TryAddTransient<IMigrationService, MigrationService>();
         services.TryAddTransient<IDatabaseMetadataService, DatabaseMetadataService>();
         services.TryAddTransient<IAnomalyDetectionService, AnomalyDetectionService>();
+        services.TryAddTransient<IDataQualitySqlGenerator, DataQualitySqlGenerator>();
+        services.TryAddTransient<IDataQualityEvaluationService, DataQualityEvaluationService>();
         services.TryAddTransient<IManualQueryExecutionLogger, ManualQueryExecutionLogger>();
         services.TryAddTransient<IAppSettingsService, AppSettingsService>();
         services.TryAddTransient<IQueryVersionService, QueryVersionService>();
