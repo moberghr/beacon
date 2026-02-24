@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Semantico.Core.Data.Entities;
 using Semantico.Core.Data.Entities.Base;
@@ -8,7 +9,7 @@ using System.Linq.Expressions;
 
 namespace Semantico.Core.Data;
 
-public abstract partial class SemanticoContext : DbContext
+public abstract partial class SemanticoContext : DbContext, IDataProtectionKeyContext
 {
     private readonly string _defaultSchema;
     protected SemanticoContext(DbContextOptions options, string defaultSchema = "semantico")
@@ -123,6 +124,9 @@ public abstract partial class SemanticoContext : DbContext
     public DbSet<DataQualityRuleResult> DataQualityRuleResults => Set<DataQualityRuleResult>();
 
     public DbSet<DataQualityScore> DataQualityScores => Set<DataQualityScore>();
+
+    // Data Protection Keys (for cookie authentication)
+    public DbSet<DataProtectionKey> DataProtectionKeys => Set<DataProtectionKey>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

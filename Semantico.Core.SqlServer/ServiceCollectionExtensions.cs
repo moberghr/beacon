@@ -28,6 +28,10 @@ public static class ServiceCollectionExtensions
             return new SemanticoContextFactoryAdapter(factory);
         });
 
+        // Register SemanticoContext as scoped (required for Data Protection key persistence)
+        builder.Services.AddScoped<SemanticoContext>(sp =>
+            sp.GetRequiredService<IDbContextFactory<SemanticoContext>>().CreateDbContext());
+
         return builder.Services;
     }
 
