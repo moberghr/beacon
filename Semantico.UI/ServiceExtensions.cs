@@ -2,6 +2,7 @@ using Blazored.LocalStorage;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -13,6 +14,7 @@ using Semantico.Core.Authentication;
 using Semantico.Core.Authentication.Providers;
 using Semantico.Core.Authorization;
 using Semantico.Core.Authorization.Providers;
+using Semantico.Core.Data;
 using Semantico.UI.Authentication;
 using Semantico.UI.Components;
 using Semantico.UI.Components.Shared;
@@ -70,8 +72,10 @@ public static class ServiceExtensions
     /// </summary>
     public static IServiceCollection AddSemanticoCookieAuthentication(this IServiceCollection services, string basePath = "/semantico")
     {
-        services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
-            .AddCookie(options =>
+        // Register the cookie scheme without changing the host app's default authentication scheme.
+        // Semantico routes explicitly authenticate with the cookie scheme via middleware.
+        services.AddAuthentication()
+            .AddCookie(CookieAuthenticationDefaults.AuthenticationScheme, options =>
             {
                 options.LoginPath = new PathString($"{basePath}/login");
                 options.LogoutPath = new PathString($"{basePath}/logout");
@@ -82,6 +86,12 @@ public static class ServiceExtensions
                 options.Cookie.SameSite = SameSiteMode.Lax;
                 options.SlidingExpiration = true;
             });
+
+        // Persist Data Protection keys to the database so cookies survive app restarts
+        // and work across multiple instances
+        services.AddDataProtection()
+            .SetApplicationName("Semantico")
+            .PersistKeysToDbContext<SemanticoContext>();
 
         return services;
     }
@@ -227,6 +237,12 @@ public class SemanticoUIBuilder
             if (_basicAuthConfiguration.Enabled)
             {
                 semanticoApp.UseMiddleware<BasicAuthMiddleware>(_basicAuthConfiguration);
+            }
+
+            // Authenticate Semantico routes with the cookie scheme without affecting the host app's default scheme
+            if (_useLoginForm)
+            {
+                semanticoApp.UseMiddleware<SemanticoCookieAuthMiddleware>();
             }
 
             // JWT bearer authentication (stateless) - before login form redirect
