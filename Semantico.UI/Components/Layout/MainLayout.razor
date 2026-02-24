@@ -84,6 +84,10 @@
                 <MudNavLink Href="@($"{GetBaseHref()}notifications")" Icon="@Icons.Material.Filled.Notifications" IconColor="Color.Warning">Notifications</MudNavLink>
                 <MudNavLink Href="@($"{GetBaseHref()}tasks")" Icon="@Icons.Material.Filled.Task" IconColor="Color.Primary">Tasks</MudNavLink>
             </MudNavGroup>
+            <MudNavLink Href="@($"{GetBaseHref()}data-quality")" Icon="@Icons.Material.Filled.VerifiedUser" IconColor="Color.Success">
+                Data Quality
+                <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Filled" Style="font-size: 0.6rem; height: 18px; margin-left: 4px;">BETA</MudChip>
+            </MudNavLink>
             <MudNavLink Href="@($"{GetBaseHref()}data-migration")" Icon="@Icons.Material.Filled.SwapHoriz" IconColor="Color.Error">Data Migration</MudNavLink>
             @if (Configuration?.ApprovalWorkflow.Enabled == true && HasAdminRole())
             {

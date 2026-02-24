@@ -25,8 +25,26 @@ public class SemanticoScheduler : ISemanticoScheduler
         _recurringJobManager.RemoveIfExists(CompileSubscriptionJobKey(subscriptionId, subscriptionName));
     }
 
+    public void AddOrUpdateDataQualityJob(int contractId, string contractName, string cron)
+    {
+        _recurringJobManager.AddOrUpdate<IJobService>(
+            CompileDataQualityJobKey(contractId, contractName),
+            x => x.EvaluateDataContract(contractId),
+            cron);
+    }
+
+    public void RemoveDataQualityJob(int contractId, string contractName)
+    {
+        _recurringJobManager.RemoveIfExists(CompileDataQualityJobKey(contractId, contractName));
+    }
+
     private static string CompileSubscriptionJobKey(int subscriptionId, string subscriptionName)
     {
         return $"{subscriptionId} - {subscriptionName}";
+    }
+
+    private static string CompileDataQualityJobKey(int contractId, string contractName)
+    {
+        return $"dq-{contractId} - {contractName}";
     }
 }

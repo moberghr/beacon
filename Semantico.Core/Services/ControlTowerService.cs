@@ -23,11 +23,8 @@ internal class ControlTowerService(
         var thirtyDaysAgo = DateTime.UtcNow.AddDays(-30);
 
         // Build query with filters
-        var query = context.Subscriptions
-            .Where(s => s.ArchivedTime == null) // Only active subscriptions
-            .AsQueryable();
+        var query = context.Subscriptions.AsQueryable();
 
-        // Apply filters
         if (request.FolderId.HasValue)
         {
             query = query.Where(s => s.Query.FolderId == request.FolderId.Value);
@@ -38,91 +35,146 @@ internal class ControlTowerService(
             query = query.Where(s => s.Query.Name.Contains(request.SearchKeyword));
         }
 
-        // Project to health data
-        var healthDataQuery = query.Select(s => new
+        // Get base subscription data (simple projection that EF Core can translate reliably)
+        var subscriptions = await query.Select(s => new
         {
             s.Id,
             s.QueryId,
             QueryName = s.Query.Name,
-            DataSourceName = (string?)null, // Multi-step queries can have multiple data sources
             FolderPath = s.Query.Folder != null ? s.Query.Folder.Path : null,
             s.CreateTasks,
             s.StoreResults,
             s.AiActorId,
-            AiActorName = s.AiActor != null ? s.AiActor.Name : null,
+            AiActorName = s.AiActor != null ? s.AiActor.Name : null
+        }).ToListAsync(cancellationToken);
 
-            // Execution history (last 30 days)
-            Executions = s.QueryExecutionHistory!
-                .Where(h => h.CreatedTime >= thirtyDaysAgo)
-                .Select(h => new
-                {
-                    h.NotificationStatus,
-                    h.CreatedTime,
-                    h.ResultCount
-                })
-                .ToList(),
+        var subscriptionIds = subscriptions.Select(s => s.Id).ToList();
 
-            // Task metrics
-            UnresolvedTaskCount = context.QueryTasks
-                .Count(t => t.SubscriptionId == s.Id && !t.Resolved),
-            TotalTaskCount = context.QueryTasks
-                .Count(t => t.SubscriptionId == s.Id),
+        // Load execution history separately (last 30 days for success rate)
+        var executions = await context.QueryExecutionHistory
+            .Where(h => subscriptionIds.Contains(h.SubscriptionId) && h.CreatedTime >= thirtyDaysAgo)
+            .Select(h => new { h.SubscriptionId, h.NotificationStatus, h.CreatedTime, h.ResultCount })
+            .ToListAsync(cancellationToken);
 
-            // Anomaly metrics
-            AnomalyCount30Days = context.AnomalyEvents
-                .Count(a => a.SubscriptionId == s.Id && a.DetectedTime >= thirtyDaysAgo),
+        var executionsBySubscription = executions
+            .GroupBy(h => h.SubscriptionId)
+            .ToDictionary(g => g.Key, g => g.ToList());
 
-            AnomalySparkline = context.AnomalyEvents
-                .Where(a => a.SubscriptionId == s.Id && a.DetectedTime >= thirtyDaysAgo)
-                .GroupBy(a => a.DetectedTime.Date)
-                .Select(g => new AnomalySparklinePoint
-                {
-                    Date = g.Key,
-                    AnomalyCount = g.Count()
-                })
-                .OrderBy(x => x.Date)
-                .ToList(),
+        // Load last execution per subscription (regardless of time window)
+        // Use Max aggregates instead of First() which EF Core can't translate in GroupBy
+        var lastExecutionTimes = await context.QueryExecutionHistory
+            .Where(h => subscriptionIds.Contains(h.SubscriptionId))
+            .GroupBy(h => h.SubscriptionId)
+            .Select(g => new
+            {
+                SubscriptionId = g.Key,
+                LastCreatedTime = g.Max(h => h.CreatedTime)
+            })
+            .ToListAsync(cancellationToken);
 
-            HasAnomalyDetection = context.AnomalyConfigs
-                .Any(c => c.SubscriptionId == s.Id && c.Enabled)
-        });
+        // Load the actual last execution details by matching on the max timestamp
+        var lastExecFilters = lastExecutionTimes
+            .Select(x => new { x.SubscriptionId, x.LastCreatedTime })
+            .ToList();
 
-        // Get all data first (we'll filter and paginate after health calculation)
-        var allData = await healthDataQuery.ToListAsync(cancellationToken);
-
-        // Calculate health metrics for each subscription
-        var healthData = allData.Select(item =>
+        var lastExecutionDetails = new List<(int SubscriptionId, NotificationStatus NotificationStatus, DateTime CreatedTime, int ResultCount)>();
+        if (lastExecFilters.Count > 0)
         {
-            var totalExecutions = item.Executions.Count;
-            var successfulExecutions = CountSuccessfulExecutions(item.Executions);
+            var allLastExecs = await context.QueryExecutionHistory
+                .Where(h => subscriptionIds.Contains(h.SubscriptionId))
+                .OrderByDescending(h => h.CreatedTime)
+                .Select(h => new { h.SubscriptionId, h.NotificationStatus, h.CreatedTime, h.ResultCount })
+                .ToListAsync(cancellationToken);
+
+            lastExecutionDetails = allLastExecs
+                .GroupBy(h => h.SubscriptionId)
+                .Select(g => g.First())
+                .Select(h => (h.SubscriptionId, h.NotificationStatus, h.CreatedTime, h.ResultCount))
+                .ToList();
+        }
+
+        var lastExecutionBySubscription = lastExecutionDetails
+            .ToDictionary(x => x.SubscriptionId);
+
+        // Load task metrics separately
+        var taskMetrics = await context.QueryTasks
+            .Where(t => subscriptionIds.Contains(t.SubscriptionId))
+            .GroupBy(t => t.SubscriptionId)
+            .Select(g => new
+            {
+                SubscriptionId = g.Key,
+                UnresolvedCount = g.Count(t => !t.Resolved),
+                TotalCount = g.Count()
+            })
+            .ToDictionaryAsync(x => x.SubscriptionId, cancellationToken);
+
+        // Load anomaly metrics separately
+        var anomalyCountsBySubscription = await context.AnomalyEvents
+            .Where(a => subscriptionIds.Contains(a.SubscriptionId) && a.DetectedTime >= thirtyDaysAgo)
+            .GroupBy(a => a.SubscriptionId)
+            .Select(g => new { SubscriptionId = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.SubscriptionId, x => x.Count, cancellationToken);
+
+        // Load anomaly sparkline data separately
+        var anomalySparklineData = await context.AnomalyEvents
+            .Where(a => subscriptionIds.Contains(a.SubscriptionId) && a.DetectedTime >= thirtyDaysAgo)
+            .GroupBy(a => new { a.SubscriptionId, Date = a.DetectedTime.Date })
+            .Select(g => new { g.Key.SubscriptionId, g.Key.Date, Count = g.Count() })
+            .ToListAsync(cancellationToken);
+
+        var sparklineBySubscription = anomalySparklineData
+            .GroupBy(x => x.SubscriptionId)
+            .ToDictionary(
+                g => g.Key,
+                g => g.OrderBy(x => x.Date)
+                    .Select(x => new AnomalySparklinePoint { Date = x.Date, AnomalyCount = x.Count })
+                    .ToList());
+
+        // Load anomaly detection configs
+        var anomalyEnabledSubscriptions = await context.AnomalyConfigs
+            .Where(c => subscriptionIds.Contains(c.SubscriptionId) && c.Enabled)
+            .Select(c => c.SubscriptionId)
+            .ToListAsync(cancellationToken);
+
+        var anomalyEnabledSet = anomalyEnabledSubscriptions.ToHashSet();
+
+        // Build health data
+        var healthData = subscriptions.Select(item =>
+        {
+            var itemExecutions = executionsBySubscription.GetValueOrDefault(item.Id, []);
+            var totalExecutions = itemExecutions.Count;
+            var successfulExecutions = itemExecutions.Count(e =>
+                e.NotificationStatus == NotificationStatus.NotificationSent ||
+                e.NotificationStatus == NotificationStatus.NoResults ||
+                e.NotificationStatus == NotificationStatus.NotificationSilenced);
             var failedExecutions = totalExecutions - successfulExecutions;
             var successRate = totalExecutions > 0 ? (double)successfulExecutions / totalExecutions * 100 : 100;
             var healthStatus = CalculateHealthStatus(successfulExecutions, totalExecutions);
-
-            var lastExecution = item.Executions.OrderByDescending(e => e.CreatedTime).FirstOrDefault();
+            var hasLastExecution = lastExecutionBySubscription.TryGetValue(item.Id, out var lastExecution);
+            var tasks = taskMetrics.GetValueOrDefault(item.Id);
 
             return new ControlTowerSubscriptionHealthData
             {
                 SubscriptionId = item.Id,
                 QueryName = item.QueryName,
-                DataSourceName = item.DataSourceName,
+                DataSourceName = null, // Multi-step queries can have multiple data sources
                 FolderPath = item.FolderPath,
                 HealthStatus = healthStatus,
                 TotalExecutions = totalExecutions,
                 SuccessfulExecutions = successfulExecutions,
                 FailedExecutions = failedExecutions,
                 SuccessRate = successRate,
-                LastExecutionTime = lastExecution?.CreatedTime,
-                LastExecutionStatus = lastExecution?.NotificationStatus,
-                LastResultCount = lastExecution?.ResultCount,
-                UnresolvedTaskCount = item.UnresolvedTaskCount,
-                TotalTaskCount = item.TotalTaskCount,
-                AnomalyCount30Days = item.AnomalyCount30Days,
-                AnomalySparkline = item.AnomalySparkline,
+                LastExecutionTime = hasLastExecution ? lastExecution.CreatedTime : null,
+                LastExecutionStatus = hasLastExecution ? lastExecution.NotificationStatus : null,
+                LastResultCount = hasLastExecution ? lastExecution.ResultCount : null,
+                UnresolvedTaskCount = tasks?.UnresolvedCount ?? 0,
+                TotalTaskCount = tasks?.TotalCount ?? 0,
+                AnomalyCount30Days = anomalyCountsBySubscription.GetValueOrDefault(item.Id, 0),
+                AnomalySparkline = sparklineBySubscription.GetValueOrDefault(item.Id, []),
                 IsActive = true,
                 CreateTasks = item.CreateTasks,
                 StoreResults = item.StoreResults,
-                HasAnomalyDetection = item.HasAnomalyDetection,
+                HasAnomalyDetection = anomalyEnabledSet.Contains(item.Id),
                 AiActorId = item.AiActorId,
                 AiActorName = item.AiActorName
             };
@@ -167,18 +219,23 @@ internal class ControlTowerService(
 
         var thirtyDaysAgo = DateTime.UtcNow.AddDays(-30);
 
-        // Get all active subscriptions with their execution history
-        var subscriptions = await context.Subscriptions
-            .Where(s => s.ArchivedTime == null)
-            .Select(s => new
+        // Get all active subscription IDs
+        var subscriptionIds = await context.Subscriptions
+            .Select(s => s.Id)
+            .ToListAsync(cancellationToken);
+
+        // Get execution history for the last 30 days, grouped by subscription
+        var executionsBySubscription = await context.QueryExecutionHistory
+            .Where(h => h.CreatedTime >= thirtyDaysAgo && subscriptionIds.Contains(h.SubscriptionId))
+            .GroupBy(h => h.SubscriptionId)
+            .Select(g => new
             {
-                s.Id,
-                Executions = s.QueryExecutionHistory!
-                    .Where(h => h.CreatedTime >= thirtyDaysAgo)
-                    .Select(h => h.NotificationStatus)
-                    .ToList()
+                SubscriptionId = g.Key,
+                Statuses = g.Select(h => h.NotificationStatus).ToList()
             })
             .ToListAsync(cancellationToken);
+
+        var executionLookup = executionsBySubscription.ToDictionary(x => x.SubscriptionId, x => x.Statuses);
 
         var healthyCount = 0;
         var warningCount = 0;
@@ -186,10 +243,11 @@ internal class ControlTowerService(
         var totalSuccessful = 0;
         var totalExecutions = 0;
 
-        foreach (var subscription in subscriptions)
+        foreach (var subscriptionId in subscriptionIds)
         {
-            var executions = subscription.Executions.Count;
-            var successful = CountSuccessfulExecutions(subscription.Executions);
+            var statuses = executionLookup.GetValueOrDefault(subscriptionId, []);
+            var executions = statuses.Count;
+            var successful = CountSuccessfulExecutions(statuses);
 
             totalExecutions += executions;
             totalSuccessful += successful;
@@ -218,7 +276,7 @@ internal class ControlTowerService(
 
         var statistics = new ControlTowerStatistics
         {
-            TotalSubscriptions = subscriptions.Count,
+            TotalSubscriptions = subscriptionIds.Count,
             HealthySubscriptions = healthyCount,
             WarningSubscriptions = warningCount,
             CriticalSubscriptions = criticalCount,
@@ -258,13 +316,6 @@ internal class ControlTowerService(
             status == NotificationStatus.NotificationSilenced);
     }
 
-    private static int CountSuccessfulExecutions(IEnumerable<dynamic> executions)
-    {
-        return executions.Count(e =>
-            e.NotificationStatus == NotificationStatus.NotificationSent ||
-            e.NotificationStatus == NotificationStatus.NoResults ||
-            e.NotificationStatus == NotificationStatus.NotificationSilenced);
-    }
 }
 
 public interface IControlTowerService

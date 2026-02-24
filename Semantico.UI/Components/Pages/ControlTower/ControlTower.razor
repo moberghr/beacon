@@ -1,9 +1,11 @@
 @page "/control-tower"
 @using Semantico.Core.Services
 @using Semantico.Core.Models.ControlTower
+@using Semantico.Core.Models.DataSources
 @using Semantico.Core.Data.Enums
 @using Semantico.UI.Components.Custom
 @inject IControlTowerService ControlTowerService
+@inject IDataSourceService DataSourceService
 @inject NavigationManager NavManager
 @inherits BasePageComponent
 @implements IDisposable
@@ -91,7 +93,10 @@
                                    Clearable="true"
                                    OnClearButtonClick="@(async () => { _selectedDataSourceId = null; await ReloadGrid(); })">
                             <MudSelectItem T="int?" Value="null">All Data Sources</MudSelectItem>
-                            @* TODO: Load data sources *@
+                            @foreach (var ds in _dataSources)
+                            {
+                                <MudSelectItem T="int?" Value="@ds.Id">@ds.Name</MudSelectItem>
+                            }
                         </MudSelect>
                     </MudItem>
                     <MudItem xs="12" sm="6" md="3">
@@ -142,7 +147,7 @@
                 <TemplateColumn Title="Query Name" Sortable="true" SortBy="@(x => x.QueryName)">
                     <CellTemplate>
                         <MudStack Spacing="0">
-                            <MudLink Href="@($"/subscriptions/{context.Item.SubscriptionId}")" Typo="Typo.body2">
+                            <MudLink Href="@($"subscriptions/{context.Item.SubscriptionId}")" Typo="Typo.body2">
                                 @context.Item.QueryName
                             </MudLink>
                             @if (context.Item.AiActorId.HasValue)
@@ -203,7 +208,7 @@
                                 <MudIconButton Icon="@Icons.Material.Filled.Task"
                                                Size="Size.Small"
                                                Color="Color.Warning"
-                                               Href="@($"/subscriptions/{context.Item.SubscriptionId}")"/>
+                                               Href="@($"subscriptions/{context.Item.SubscriptionId}")"/>
                             </MudBadge>
                         }
                         else if (context.Item.TotalTaskCount > 0)
@@ -230,7 +235,7 @@
                         <MudIconButton Icon="@Icons.Material.Filled.OpenInNew"
                                        Size="Size.Small"
                                        Color="Color.Primary"
-                                       Href="@($"/subscriptions/{context.Item.SubscriptionId}")"
+                                       Href="@($"subscriptions/{context.Item.SubscriptionId}")"
                                        Title="View details"/>
                     </CellTemplate>
                 </TemplateColumn>
@@ -246,6 +251,7 @@
 @code {
     private MudDataGrid<ControlTowerSubscriptionHealthData>? _dataGrid;
     private ControlTowerStatistics? _statistics;
+    private List<DataSourceListData> _dataSources = [];
 
     // Filters
     private string? _searchKeyword;
@@ -260,6 +266,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        _dataSources = await DataSourceService.GetDataSources(null, CancellationToken.None);
         await LoadStatistics();
 
         // Setup auto-refresh timer

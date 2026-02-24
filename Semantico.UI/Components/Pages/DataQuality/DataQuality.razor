@@ -1,0 +1,295 @@
+@page "/data-quality"
+@using Semantico.Core.Data.Enums
+@using Semantico.Core.Handlers.DataQuality.GetDataContracts
+@using Semantico.Core.Handlers.DataQuality.GetDataQualityOverview
+@using Semantico.Core.Handlers.DataQuality.DeleteDataContract
+@using Semantico.Core.Models.DataQuality
+@using MediatR
+@inject IMediator Mediator
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject NavigationManager NavManager
+@inherits BasePageComponent
+
+<SemanticoPageTitle Title="Data Quality"/>
+
+<MudContainer MaxWidth="MaxWidth.ExtraExtraLarge" Class="my-4 px-4">
+    <MudStack Spacing="4">
+        @* Page Header *@
+        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+            <MudStack Spacing="1">
+                <MudText Typo="Typo.h4">Data Quality</MudText>
+                <MudText Typo="Typo.body2" Color="Color.Secondary">
+                    Monitor data quality across your data sources with automated contracts and checks
+                </MudText>
+            </MudStack>
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       StartIcon="@Icons.Material.Filled.Add"
+                       OnClick="OpenCreateContractDialog">
+                New Contract
+            </MudButton>
+        </MudStack>
+
+        @* Overview Cards *@
+        @if (_overviews.Count > 0)
+        {
+            <MudGrid Spacing="3">
+                @foreach (var overview in _overviews)
+                {
+                    <MudItem xs="12" sm="6" md="4" lg="3">
+                        <MudPaper Elevation="2" Class="pa-4" Style="border-radius: 12px;">
+                            <MudStack Spacing="2">
+                                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                                    <MudText Typo="Typo.subtitle1" Style="font-weight: 600;">@overview.DataSourceName</MudText>
+                                    <MudChip T="string" Size="Size.Small"
+                                             Color="@GetScoreColor(overview.AverageScore)"
+                                             Variant="Variant.Filled">
+                                        @overview.AverageScore.ToString("F0")%
+                                    </MudChip>
+                                </MudStack>
+                                <MudStack Row="true" Spacing="3">
+                                    <MudStack Spacing="0">
+                                        <MudText Typo="Typo.h5" Style="font-weight: 700;" Color="Color.Success">@overview.HealthyTables</MudText>
+                                        <MudText Typo="Typo.caption" Color="Color.Secondary">Healthy</MudText>
+                                    </MudStack>
+                                    <MudStack Spacing="0">
+                                        <MudText Typo="Typo.h5" Style="font-weight: 700;" Color="Color.Error">@overview.DegradingTables</MudText>
+                                        <MudText Typo="Typo.caption" Color="Color.Secondary">Degrading</MudText>
+                                    </MudStack>
+                                    <MudStack Spacing="0">
+                                        <MudText Typo="Typo.h5" Style="font-weight: 700;">@overview.ActiveContracts</MudText>
+                                        <MudText Typo="Typo.caption" Color="Color.Secondary">Contracts</MudText>
+                                    </MudStack>
+                                </MudStack>
+                                @if (overview.TableScores.Count > 0)
+                                {
+                                    <MudDivider Class="my-1"/>
+                                    @foreach (var score in overview.TableScores.Take(5))
+                                    {
+                                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                                            <MudText Typo="Typo.body2">@score.SchemaName.@score.TableName</MudText>
+                                            <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                                                <MudIcon Icon="@GetTrendIcon(score.TrendDirection)" Size="Size.Small"
+                                                         Color="@GetTrendColor(score.TrendDirection)"/>
+                                                <MudText Typo="Typo.body2" Style="font-weight: 600;"
+                                                         Color="@GetScoreColor(score.Score)">
+                                                    @score.Score.ToString("F0")%
+                                                </MudText>
+                                            </MudStack>
+                                        </MudStack>
+                                    }
+                                }
+                            </MudStack>
+                        </MudPaper>
+                    </MudItem>
+                }
+            </MudGrid>
+        }
+
+        @* Contracts Table *@
+        <MudText Typo="Typo.h5" Class="mt-4">Contracts</MudText>
+        <MudDataGrid @ref="_dataGrid"
+                     T="DataContractData"
+                     ServerData="ServerReload"
+                     Dense="true"
+                     Hover="true"
+                     Striped="true"
+                     FixedHeader="true"
+                     Height="calc(100vh - 500px)">
+            <Columns>
+                <PropertyColumn Property="x => x.Name" Title="Name"/>
+
+                <TemplateColumn Title="Table">
+                    <CellTemplate>
+                        <MudText Typo="Typo.body2">@context.Item.SchemaName.@context.Item.TableName</MudText>
+                    </CellTemplate>
+                </TemplateColumn>
+
+                <TemplateColumn Title="Data Source">
+                    <CellTemplate>
+                        <MudChip T="string" Size="Size.Small" Icon="@Icons.Material.Filled.Storage">
+                            @context.Item.DataSourceName
+                        </MudChip>
+                    </CellTemplate>
+                </TemplateColumn>
+
+                <TemplateColumn Title="Score">
+                    <CellTemplate>
+                        @if (context.Item.LatestScore.HasValue)
+                        {
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Filled"
+                                     Color="@GetScoreColor(context.Item.LatestScore.Value)">
+                                @context.Item.LatestScore.Value.ToString("F0")%
+                            </MudChip>
+                        }
+                        else
+                        {
+                            <MudText Typo="Typo.body2" Color="Color.Secondary">Not evaluated</MudText>
+                        }
+                    </CellTemplate>
+                </TemplateColumn>
+
+                <TemplateColumn Title="Status">
+                    <CellTemplate>
+                        @if (context.Item.IsEnabled)
+                        {
+                            <MudChip T="string" Size="Size.Small" Color="Color.Success" Icon="@Icons.Material.Filled.CheckCircle">Active</MudChip>
+                        }
+                        else
+                        {
+                            <MudChip T="string" Size="Size.Small" Color="Color.Default" Icon="@Icons.Material.Filled.PauseCircle">Disabled</MudChip>
+                        }
+                    </CellTemplate>
+                </TemplateColumn>
+
+                <PropertyColumn Property="x => x.CronExpression" Title="Schedule"/>
+
+                <TemplateColumn Title="Actions" Sortable="false">
+                    <CellTemplate>
+                        <MudStack Row="true" Spacing="1">
+                            <MudIconButton Icon="@Icons.Material.Filled.Visibility"
+                                           Size="Size.Small"
+                                           Color="Color.Primary"
+                                           OnClick="@(() => ViewContract(context.Item.Id))"
+                                           Title="View contract"/>
+                            <MudIconButton Icon="@Icons.Material.Filled.Edit"
+                                           Size="Size.Small"
+                                           Color="Color.Info"
+                                           OnClick="@(() => EditContract(context.Item))"
+                                           Title="Edit contract"/>
+                            <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                           Size="Size.Small"
+                                           Color="Color.Error"
+                                           OnClick="@(() => DeleteContract(context.Item))"
+                                           Title="Delete contract"/>
+                        </MudStack>
+                    </CellTemplate>
+                </TemplateColumn>
+            </Columns>
+
+            <PagerContent>
+                <MudDataGridPager T="DataContractData"/>
+            </PagerContent>
+        </MudDataGrid>
+    </MudStack>
+</MudContainer>
+
+@code {
+    private MudDataGrid<DataContractData>? _dataGrid;
+    private List<DataQualityOverviewData> _overviews = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadOverview();
+    }
+
+    private async Task LoadOverview()
+    {
+        try
+        {
+            _overviews = await Mediator.Send(new GetDataQualityOverviewQuery());
+        }
+        catch
+        {
+            // Overview may be empty on first load
+        }
+    }
+
+    private async Task<GridData<DataContractData>> ServerReload(GridState<DataContractData> state)
+    {
+        var contracts = await Mediator.Send(new GetDataContractsQuery());
+
+        return new GridData<DataContractData>
+        {
+            TotalItems = contracts.Count,
+            Items = contracts.Skip(state.Page * state.PageSize).Take(state.PageSize)
+        };
+    }
+
+    private async Task OpenCreateContractDialog()
+    {
+        var options = await CreateResponsiveDialogOptions(MaxWidth.Medium);
+        var dialog = await DialogService.ShowAsync<CreateDataContractDialog>("New Data Contract", options);
+        var result = await dialog.Result;
+
+        if (result is { Canceled: false })
+        {
+            Snackbar.Add("Contract created successfully", Severity.Success);
+            await _dataGrid!.ReloadServerData();
+            await LoadOverview();
+            StateHasChanged();
+        }
+    }
+
+    private void ViewContract(int contractId)
+    {
+        NavManager.NavigateTo($"data-quality/{contractId}");
+    }
+
+    private async Task EditContract(DataContractData contract)
+    {
+        var parameters = new DialogParameters<CreateDataContractDialog>
+        {
+            { x => x.EditContractId, contract.Id }
+        };
+
+        var options = await CreateResponsiveDialogOptions(MaxWidth.Medium);
+        var dialog = await DialogService.ShowAsync<CreateDataContractDialog>("Edit Data Contract", parameters, options);
+        var result = await dialog.Result;
+
+        if (result is { Canceled: false })
+        {
+            Snackbar.Add("Contract updated successfully", Severity.Success);
+            await _dataGrid!.ReloadServerData();
+            await LoadOverview();
+            StateHasChanged();
+        }
+    }
+
+    private async Task DeleteContract(DataContractData contract)
+    {
+        bool? confirm = await DialogService.ShowMessageBox(
+            "Delete Contract",
+            $"Are you sure you want to delete '{contract.Name}'?",
+            yesText: "Delete",
+            cancelText: "Cancel");
+
+        if (confirm == true)
+        {
+            try
+            {
+                await Mediator.Send(new DeleteDataContractCommand(contract.Id));
+                Snackbar.Add("Contract deleted", Severity.Success);
+                await _dataGrid!.ReloadServerData();
+                await LoadOverview();
+                StateHasChanged();
+            }
+            catch (Exception ex)
+            {
+                Snackbar.Add($"Error: {ex.Message}", Severity.Error);
+            }
+        }
+    }
+
+    private static Color GetScoreColor(double score) => score switch
+    {
+        >= 90 => Color.Success,
+        >= 70 => Color.Warning,
+        _ => Color.Error
+    };
+
+    private static string GetTrendIcon(DataQualityTrendDirection trend) => trend switch
+    {
+        DataQualityTrendDirection.Improving => Icons.Material.Filled.TrendingUp,
+        DataQualityTrendDirection.Degrading => Icons.Material.Filled.TrendingDown,
+        _ => Icons.Material.Filled.TrendingFlat
+    };
+
+    private static Color GetTrendColor(DataQualityTrendDirection trend) => trend switch
+    {
+        DataQualityTrendDirection.Improving => Color.Success,
+        DataQualityTrendDirection.Degrading => Color.Error,
+        _ => Color.Default
+    };
+}
