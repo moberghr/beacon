@@ -41,6 +41,14 @@ internal sealed class CreateDataContractHandler(
             }).ToList()
         };
 
+        if (request.RecipientIds is { Count: > 0 })
+        {
+            var recipients = await context.Recipients
+                .Where(r => request.RecipientIds.Contains(r.Id))
+                .ToListAsync(cancellationToken);
+            contract.Recipients = recipients;
+        }
+
         context.DataContracts.Add(contract);
         await context.SaveChangesAsync(cancellationToken);
 
@@ -64,7 +72,8 @@ public record CreateDataContractCommand(
     string? OwnerUserId,
     bool AlertOnFailure,
     int FailureThresholdScore,
-    List<DataContractRuleData> Rules
+    List<DataContractRuleData> Rules,
+    List<int>? RecipientIds = null
 ) : IRequest<CreateDataContractResult>;
 
 public record CreateDataContractResult

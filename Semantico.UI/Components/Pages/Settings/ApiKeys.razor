@@ -1,0 +1,238 @@
+@page "/semantico/settings/api-keys"
+@namespace Semantico.UI.Components.Pages.ApiKeys
+@inherits BasePageComponent
+@using MediatR
+@using Semantico.Core.Handlers.ApiKeys
+@inject IMediator Mediator
+
+<SemanticoPageTitle Title="API Keys"/>
+
+<MudContainer MaxWidth="MaxWidth.ExtraExtraLarge" Class="my-4 px-4">
+    <MudStack Spacing="4">
+        @* Page Header *@
+        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+            <MudStack Spacing="1">
+                <MudText Typo="Typo.h4">API Keys</MudText>
+                <MudText Typo="Typo.body2" Color="Color.Secondary">
+                    Manage programmatic access to the Semantico API
+                </MudText>
+            </MudStack>
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       StartIcon="@Icons.Material.Filled.VpnKey"
+                       OnClick="OpenGenerateKeyDialog">
+                Generate New Key
+            </MudButton>
+        </MudStack>
+
+        @* Warning Banner *@
+        <MudAlert Severity="Severity.Warning" Icon="@Icons.Material.Filled.Security">
+            API keys grant programmatic access to Semantico. Keep them secret and rotate them regularly. Revoke any key that may have been exposed.
+        </MudAlert>
+
+        @* Loading *@
+        @if (_loading)
+        {
+            <MudProgressLinear Color="Color.Primary" Indeterminate="true"/>
+        }
+        @* Empty *@
+        else if (_keys.Count == 0)
+        {
+            <MudPaper Elevation="0" Class="pa-8 text-center"
+                      Style="border: 2px dashed var(--mud-palette-lines-default); border-radius: 12px;">
+                <MudIcon Icon="@Icons.Material.Filled.VpnKey" Size="Size.Large" Color="Color.Secondary" Class="mb-3"/>
+                <MudText Typo="Typo.h6" Color="Color.Secondary">No API keys yet</MudText>
+                <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-4">
+                    Generate an API key to enable programmatic access to Semantico.
+                </MudText>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                           StartIcon="@Icons.Material.Filled.VpnKey"
+                           OnClick="OpenGenerateKeyDialog">
+                    Generate First Key
+                </MudButton>
+            </MudPaper>
+        }
+        @* Keys Table *@
+        else
+        {
+            <MudDataGrid T="ApiKeyEntry"
+                         Items="@_keys"
+                         Dense="true"
+                         Hover="true"
+                         Striped="true"
+                         FixedHeader="true"
+                         Height="calc(100vh - 400px)">
+                <Columns>
+                    <TemplateColumn Title="Name">
+                        <CellTemplate>
+                            <MudText Typo="Typo.body2" Style="font-weight: 600;">@context.Item.Name</MudText>
+                        </CellTemplate>
+                    </TemplateColumn>
+
+                    <TemplateColumn Title="Key Prefix">
+                        <CellTemplate>
+                            <code style="font-size: 0.85rem; background: var(--mud-palette-background-grey); padding: 2px 6px; border-radius: 4px;">
+                                @context.Item.Prefix...
+                            </code>
+                        </CellTemplate>
+                    </TemplateColumn>
+
+                    <TemplateColumn Title="Scopes">
+                        <CellTemplate>
+                            <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap">
+                                @foreach (var scope in context.Item.Scopes)
+                                {
+                                    <MudChip T="string" Size="Size.Small"
+                                             Color="@GetScopeColor(scope)"
+                                             Variant="Variant.Outlined">
+                                        @scope
+                                    </MudChip>
+                                }
+                            </MudStack>
+                        </CellTemplate>
+                    </TemplateColumn>
+
+                    <TemplateColumn Title="Created">
+                        <CellTemplate>
+                            <MudText Typo="Typo.caption">@context.Item.CreatedAt.ToString("yyyy-MM-dd")</MudText>
+                        </CellTemplate>
+                    </TemplateColumn>
+
+                    <TemplateColumn Title="Last Used">
+                        <CellTemplate>
+                            @if (context.Item.LastUsedAt.HasValue)
+                            {
+                                <MudText Typo="Typo.caption">@context.Item.LastUsedAt.Value.ToString("yyyy-MM-dd HH:mm")</MudText>
+                            }
+                            else
+                            {
+                                <MudText Typo="Typo.caption" Color="Color.Secondary">Never</MudText>
+                            }
+                        </CellTemplate>
+                    </TemplateColumn>
+
+                    <TemplateColumn Title="Expires">
+                        <CellTemplate>
+                            @if (context.Item.ExpiresAt.HasValue)
+                            {
+                                var isExpired = context.Item.ExpiresAt.Value < DateTime.UtcNow;
+                                <MudChip T="string" Size="Size.Small"
+                                         Color="@(isExpired ? Color.Error : Color.Default)"
+                                         Variant="Variant.Outlined">
+                                    @(isExpired ? "Expired" : context.Item.ExpiresAt.Value.ToString("yyyy-MM-dd"))
+                                </MudChip>
+                            }
+                            else
+                            {
+                                <MudText Typo="Typo.caption" Color="Color.Secondary">Never</MudText>
+                            }
+                        </CellTemplate>
+                    </TemplateColumn>
+
+                    <TemplateColumn Title="Status">
+                        <CellTemplate>
+                            @if (context.Item.IsActive)
+                            {
+                                <MudChip T="string" Size="Size.Small" Color="Color.Success" Icon="@Icons.Material.Filled.CheckCircle">Active</MudChip>
+                            }
+                            else
+                            {
+                                <MudChip T="string" Size="Size.Small" Color="Color.Error" Icon="@Icons.Material.Filled.Cancel">Revoked</MudChip>
+                            }
+                        </CellTemplate>
+                    </TemplateColumn>
+
+                    <TemplateColumn Title="Actions" Sortable="false">
+                        <CellTemplate>
+                            @if (context.Item.IsActive)
+                            {
+                                <MudButton Size="Size.Small"
+                                           Variant="Variant.Outlined"
+                                           Color="Color.Error"
+                                           StartIcon="@Icons.Material.Filled.Block"
+                                           OnClick="@(() => RevokeKey(context.Item))">
+                                    Revoke
+                                </MudButton>
+                            }
+                        </CellTemplate>
+                    </TemplateColumn>
+                </Columns>
+                <PagerContent>
+                    <MudDataGridPager T="ApiKeyEntry"/>
+                </PagerContent>
+            </MudDataGrid>
+        }
+    </MudStack>
+</MudContainer>
+
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+
+@code {
+    private List<ApiKeyEntry> _keys = new();
+    private bool _loading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadKeys();
+    }
+
+    private async Task LoadKeys()
+    {
+        _loading = true;
+        try
+        {
+            var result = await Mediator.Send(new GetApiKeysQuery());
+            _keys = result.Entries;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task OpenGenerateKeyDialog()
+    {
+        var options = await CreateResponsiveDialogOptions(MaxWidth.Small);
+        var dialog = await DialogService.ShowAsync<GenerateApiKeyDialog>("Generate API Key", options);
+        var result = await dialog.Result;
+
+        if (result is { Canceled: false })
+        {
+            await LoadKeys();
+            Snackbar.Add("API key generated successfully", Severity.Success);
+        }
+    }
+
+    private async Task RevokeKey(ApiKeyEntry key)
+    {
+        bool? confirm = await DialogService.ShowMessageBox(
+            "Revoke API Key",
+            $"Are you sure you want to revoke '{key.Name}'? This action cannot be undone and any integrations using this key will stop working immediately.",
+            yesText: "Revoke Key",
+            cancelText: "Cancel");
+
+        if (confirm == true)
+        {
+            try
+            {
+                await Mediator.Send(new RevokeApiKeyCommand(key.Id));
+                await LoadKeys();
+                Snackbar.Add("API key revoked", Severity.Warning);
+            }
+            catch (Exception ex)
+            {
+                Snackbar.Add($"Error: {ex.Message}", Severity.Error);
+            }
+        }
+    }
+
+    private static Color GetScopeColor(string scope) => scope switch
+    {
+        "Admin" => Color.Error,
+        "Execute" => Color.Warning,
+        "Read" => Color.Info,
+        _ => Color.Default
+    };
+
+}

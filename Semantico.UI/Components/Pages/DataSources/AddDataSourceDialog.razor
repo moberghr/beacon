@@ -1,6 +1,8 @@
 @using Semantico.Core.Data.Enums
 @using Semantico.Core.Models.DataSources
+@using Semantico.Core.Models.Providers.CloudWatch
 @using Semantico.Core.Services
+@using Semantico.Core.Services.Providers
 @using System.Text.Json
 <MudDialog Class="pb-2">
     <TitleContent>
@@ -12,16 +14,23 @@
     <DialogContent>
         <MudForm @ref="@_form" Class="pt-1" @bind-Errors="@errors" @bind-IsValid="_isFormValid">
             <MudSelect T="DataSourceType" Label="Data Source Type" @bind-Value="_selectedDataSourceType" Required="true" Class="mb-4">
-                <MudSelectItem Value="DataSourceType.Database">Database (PostgreSQL, MSSQL, MySQL)</MudSelectItem>
-                <MudSelectItem Value="DataSourceType.CloudWatch">AWS CloudWatch</MudSelectItem>
+                @if (_registeredEngines.Any())
+                {
+                    <MudSelectItem Value="DataSourceType.Database">Database (@string.Join(", ", _registeredEngines.Values))</MudSelectItem>
+                }
+                @foreach (var dsType in _registeredDataSourceTypes)
+                {
+                    <MudSelectItem Value="@dsType.Key">@dsType.Value</MudSelectItem>
+                }
             </MudSelect>
 
             @if (_selectedDataSourceType == DataSourceType.Database)
             {
                 <MudSelect T="DatabaseEngineType" Label="Database Engine Type" @bind-Value="@_selectedDatabaseEngine" Required="true" Class="mb-4">
-                    <MudSelectItem Value="DatabaseEngineType.PostgreSQL">PostgreSQL</MudSelectItem>
-                    <MudSelectItem Value="DatabaseEngineType.MSSQL">MSSQL</MudSelectItem>
-                    <MudSelectItem Value="DatabaseEngineType.MySQL">MySQL</MudSelectItem>
+                    @foreach (var engine in _registeredEngines)
+                    {
+                        <MudSelectItem Value="@engine.Key">@engine.Value</MudSelectItem>
+                    }
                 </MudSelect>
 
                 <MudTextField
@@ -94,6 +103,111 @@
                     T="string"
                     Label="AWS Profile Name (optional)"
                     HelperText="Use profile from ~/.aws/credentials"
+                />
+            }
+            else if (_selectedDataSourceType == DataSourceType.Databricks)
+            {
+                <MudTextField
+                    Margin="Margin.Dense"
+                    Variant="Variant.Outlined"
+                    Class="mb-2"
+                    @bind-Value="@_databricksHost"
+                    T="string"
+                    Label="Host"
+                    Required="true"
+                    HelperText="e.g., adb-1234567890123456.7.azuredatabricks.net"
+                />
+
+                <MudTextField
+                    Margin="Margin.Dense"
+                    Variant="Variant.Outlined"
+                    Class="mb-2"
+                    @bind-Value="@_databricksHttpPath"
+                    T="string"
+                    Label="HTTP Path"
+                    Required="true"
+                    HelperText="e.g., /sql/1.0/warehouses/abc123def456"
+                />
+
+                <MudTextField
+                    Margin="Margin.Dense"
+                    Variant="Variant.Outlined"
+                    Class="mb-2"
+                    @bind-Value="@_databricksToken"
+                    T="string"
+                    Label="Personal Access Token"
+                    Required="true"
+                    InputType="InputType.Password"
+                    Adornment="Adornment.End"
+                    AdornmentIcon="@Icons.Material.Filled.Lock"
+                />
+
+                <MudTextField
+                    Margin="Margin.Dense"
+                    Variant="Variant.Outlined"
+                    Class="mb-2"
+                    @bind-Value="@_databricksCatalog"
+                    T="string"
+                    Label="Catalog (optional)"
+                    HelperText="Unity Catalog name"
+                />
+
+                <MudTextField
+                    Margin="Margin.Dense"
+                    Variant="Variant.Outlined"
+                    Class="mb-2"
+                    @bind-Value="@_databricksSchema"
+                    T="string"
+                    Label="Schema (optional)"
+                    HelperText="Default schema"
+                />
+            }
+            else if (_selectedDataSourceType == DataSourceType.BigQuery)
+            {
+                <MudTextField
+                    Margin="Margin.Dense"
+                    Variant="Variant.Outlined"
+                    Class="mb-2"
+                    @bind-Value="@_bigQueryProjectId"
+                    T="string"
+                    Label="Project ID"
+                    Required="true"
+                    HelperText="Google Cloud project ID"
+                />
+
+                <MudTextField
+                    Margin="Margin.Dense"
+                    Variant="Variant.Outlined"
+                    Class="mb-2"
+                    @bind-Value="@_bigQueryDatasetId"
+                    T="string"
+                    Label="Dataset ID (optional)"
+                    HelperText="Default dataset for queries"
+                />
+
+                <MudTextField
+                    Margin="Margin.Dense"
+                    Variant="Variant.Outlined"
+                    Class="mb-2"
+                    @bind-Value="@_bigQueryLocation"
+                    T="string"
+                    Label="Location (optional)"
+                    HelperText="e.g., US, EU, us-central1"
+                />
+
+                <MudTextField
+                    Margin="Margin.Dense"
+                    Variant="Variant.Outlined"
+                    Class="mb-2"
+                    @bind-Value="@_bigQueryServiceAccountJson"
+                    T="string"
+                    Label="Service Account JSON Key"
+                    Required="true"
+                    Lines="4"
+                    InputType="InputType.Password"
+                    Adornment="Adornment.End"
+                    AdornmentIcon="@Icons.Material.Filled.Lock"
+                    HelperText="Paste the full JSON key file content"
                 />
             }
 
@@ -223,9 +337,13 @@
     bool _isFormValid = false;
     string[] errors = { };
 
+    // Registered connectors (populated from ConnectorRegistry)
+    private IReadOnlyDictionary<DatabaseEngineType, string> _registeredEngines = ConnectorRegistry.GetRegisteredDatabaseEngines();
+    private IReadOnlyDictionary<DataSourceType, string> _registeredDataSourceTypes = ConnectorRegistry.GetRegisteredDataSourceTypes();
+
     // Data source type selection
     private DataSourceType _selectedDataSourceType = DataSourceType.Database;
-    private DatabaseEngineType _selectedDatabaseEngine = DatabaseEngineType.PostgreSQL;
+    private DatabaseEngineType _selectedDatabaseEngine = ConnectorRegistry.GetRegisteredDatabaseEngines().Keys.FirstOrDefault();
 
     // CloudWatch fields
     private string _cloudWatchRegion = "";
@@ -234,21 +352,33 @@
     private string _cloudWatchLogGroups = "";
     private string _cloudWatchProfileName = "";
 
+    // Databricks fields
+    private string _databricksHost = "";
+    private string _databricksHttpPath = "";
+    private string _databricksToken = "";
+    private string _databricksCatalog = "";
+    private string _databricksSchema = "";
+
+    // BigQuery fields
+    private string _bigQueryProjectId = "";
+    private string _bigQueryDatasetId = "";
+    private string _bigQueryLocation = "";
+    private string _bigQueryServiceAccountJson = "";
+
     // Metadata loading fields
     private string _metadataExcludeSchemas = "";
     private string _metadataIncludeSchemas = "";
 
     bool CanTestConnection()
     {
-        if (_selectedDataSourceType == DataSourceType.Database)
+        return _selectedDataSourceType switch
         {
-            return !string.IsNullOrWhiteSpace(DataSource.ConnectionString);
-        }
-        else if (_selectedDataSourceType == DataSourceType.CloudWatch)
-        {
-            return !string.IsNullOrWhiteSpace(_cloudWatchRegion) && !string.IsNullOrWhiteSpace(_cloudWatchLogGroups);
-        }
-        return false;
+            DataSourceType.Database => !string.IsNullOrWhiteSpace(DataSource.ConnectionString),
+            DataSourceType.CloudWatch => !string.IsNullOrWhiteSpace(_cloudWatchRegion) && !string.IsNullOrWhiteSpace(_cloudWatchLogGroups),
+            DataSourceType.Databricks => !string.IsNullOrWhiteSpace(_databricksHost) && !string.IsNullOrWhiteSpace(_databricksHttpPath) && !string.IsNullOrWhiteSpace(_databricksToken),
+            DataSourceType.BigQuery => !string.IsNullOrWhiteSpace(_bigQueryProjectId) && !string.IsNullOrWhiteSpace(_bigQueryServiceAccountJson),
+            _ => false
+        };
     }
 
     async Task TestConnection()
@@ -262,13 +392,11 @@
         _connectionTested = false;
         _connectionErrorMessage = string.Empty;
 
-        // For database type, use existing test connection
-        if (_selectedDataSourceType == DataSourceType.Database)
+        try
         {
-            var response = await Service.TestConnection(
-                DataSource.ConnectionString,
-                _selectedDatabaseEngine,
-                CancellationToken.None);
+            // Build a temporary DataSourceData with the current form values for testing
+            var testData = BuildDataSourceData();
+            var response = await Service.TestConnectionAsync(testData, CancellationToken.None);
 
             _connectionTested = true;
             _connectionSuccess = response.Success;
@@ -283,15 +411,71 @@
                 Snackbar.Add(response.Message, Severity.Error);
             }
         }
-        else
+        catch (Exception ex)
         {
-            // For CloudWatch, we'll implement test connection later via provider
             _connectionTested = true;
-            _connectionSuccess = true;
-            Snackbar.Add("CloudWatch connection test not yet implemented. Configuration will be validated on save.", Severity.Info);
+            _connectionSuccess = false;
+            _connectionErrorMessage = ex.Message;
+            Snackbar.Add($"Test failed: {ex.Message}", Severity.Error);
         }
 
         _testingConnection = false;
+    }
+
+    private DataSourceData BuildDataSourceData()
+    {
+        var data = new DataSourceData
+        {
+            DataSourceType = _selectedDataSourceType,
+            Name = DataSource.Name ?? "test"
+        };
+
+        switch (_selectedDataSourceType)
+        {
+            case DataSourceType.Database:
+                data.DatabaseEngineType = _selectedDatabaseEngine;
+                data.ConnectionString = DataSource.ConnectionString;
+                break;
+
+            case DataSourceType.CloudWatch:
+                data.ConnectionString = JsonSerializer.Serialize(new CloudWatchConfiguration
+                {
+                    Region = _cloudWatchRegion,
+                    AccessKeyId = NullIfEmpty(_cloudWatchAccessKeyId),
+                    SecretAccessKey = NullIfEmpty(_cloudWatchSecretAccessKey),
+                    LogGroups = _cloudWatchLogGroups.Split(',').Select(lg => lg.Trim()).Where(lg => !string.IsNullOrEmpty(lg)).ToList(),
+                    ProfileName = NullIfEmpty(_cloudWatchProfileName),
+                    QueryTimeoutSeconds = 300
+                });
+                break;
+
+            case DataSourceType.Databricks:
+                // Config class is in Semantico.Connector.Databricks (not referenced by UI)
+                data.ConnectionString = JsonSerializer.Serialize(new
+                {
+                    Host = _databricksHost,
+                    HttpPath = _databricksHttpPath,
+                    Token = _databricksToken,
+                    Catalog = NullIfEmpty(_databricksCatalog),
+                    Schema = NullIfEmpty(_databricksSchema),
+                    QueryTimeoutSeconds = 300
+                });
+                break;
+
+            case DataSourceType.BigQuery:
+                // Config class is in Semantico.Connector.BigQuery (not referenced by UI)
+                data.ConnectionString = JsonSerializer.Serialize(new
+                {
+                    ProjectId = _bigQueryProjectId,
+                    DatasetId = NullIfEmpty(_bigQueryDatasetId),
+                    Location = NullIfEmpty(_bigQueryLocation),
+                    ServiceAccountJson = _bigQueryServiceAccountJson,
+                    QueryTimeoutSeconds = 300
+                });
+                break;
+        }
+
+        return data;
     }
 
     async Task Submit()
@@ -308,32 +492,16 @@
             return;
         }
 
-        // Prepare data source based on type
-        DataSource.DataSourceType = _selectedDataSourceType;
+        // Prepare data source based on type (reuse BuildDataSourceData for connection string serialization)
+        var built = BuildDataSourceData();
+        DataSource.DataSourceType = built.DataSourceType;
+        DataSource.ConnectionString = built.ConnectionString ?? DataSource.ConnectionString;
+        DataSource.DatabaseEngineType = built.DatabaseEngineType;
 
         if (_selectedDataSourceType == DataSourceType.Database)
         {
-            DataSource.DatabaseEngineType = _selectedDatabaseEngine;
-            // ConnectionString is already bound
-            // Parse comma-separated schema lists
             DataSource.MetadataExcludeSchemas = ParseSchemaList(_metadataExcludeSchemas);
             DataSource.MetadataIncludeSchemas = ParseSchemaList(_metadataIncludeSchemas);
-        }
-        else if (_selectedDataSourceType == DataSourceType.CloudWatch)
-        {
-            // Create CloudWatch configuration JSON
-            var cloudWatchConfig = new
-            {
-                Region = _cloudWatchRegion,
-                AccessKeyId = string.IsNullOrWhiteSpace(_cloudWatchAccessKeyId) ? null : _cloudWatchAccessKeyId,
-                SecretAccessKey = string.IsNullOrWhiteSpace(_cloudWatchSecretAccessKey) ? null : _cloudWatchSecretAccessKey,
-                LogGroups = _cloudWatchLogGroups.Split(',').Select(lg => lg.Trim()).Where(lg => !string.IsNullOrEmpty(lg)).ToList(),
-                ProfileName = string.IsNullOrWhiteSpace(_cloudWatchProfileName) ? null : _cloudWatchProfileName,
-                QueryTimeoutSeconds = 300
-            };
-
-            DataSource.ConnectionString = JsonSerializer.Serialize(cloudWatchConfig);
-            DataSource.DatabaseEngineType = null; // Not applicable for CloudWatch
         }
 
         _loading = true;
@@ -361,6 +529,8 @@
     }
 
     void Cancel() => MudDialog.Cancel();
+
+    static string? NullIfEmpty(string? value) => string.IsNullOrWhiteSpace(value) ? null : value;
 
     static List<string> ParseSchemaList(string text)
     {

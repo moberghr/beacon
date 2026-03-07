@@ -6,7 +6,13 @@ using Semantico.AI.Services.Ai;
 using Semantico.AI.Services.Ai.AiActor;
 using Semantico.AI.Services.Ai.DocumentationAgent;
 using Semantico.AI.Services.Ai.MultiAgent;
+using Semantico.AI.Services.DbtIntegration;
+using Semantico.AI.Services.GitHub;
+using Semantico.AI.Services.Knowledge;
 using Semantico.AI.Services.LlmProviders;
+using Semantico.AI.Services.Reports;
+using Semantico.AI.Services.SchemaChangeDetection;
+using Semantico.AI.Services.SemanticSearch;
 using Semantico.Core.Services;
 
 namespace Semantico.AI;
@@ -66,6 +72,26 @@ public static class ServiceConfiguration
         // Register both interfaces to the same implementation instance
         services.TryAddScoped<IAiActorServiceExtended>(sp => sp.GetRequiredService<AiActorService>());
         services.TryAddScoped<Core.Services.IAiActorService>(sp => sp.GetRequiredService<AiActorService>());
+
+        // GitHub Scanner
+        services.TryAddTransient<GitHubApiClient>();
+        services.AddTransient<ICodeAnalyzer, CSharpCodeAnalyzer>();
+        services.TryAddTransient<IGitHubScannerService, GitHubScannerService>();
+
+        // Knowledge Graph
+        services.TryAddTransient<IKnowledgeGraphService, KnowledgeGraphService>();
+
+        // Schema Change Detection
+        services.TryAddTransient<ISchemaChangeDetectionService, SchemaChangeDetectionService>();
+
+        // Project Reports
+        services.TryAddTransient<IProjectReportService, ProjectReportService>();
+
+        // Semantic Search
+        services.TryAddTransient<ISemanticSearchService, SemanticSearchService>();
+
+        // dbt Integration
+        services.TryAddTransient<IDbtIntegrationService, DbtIntegrationService>();
 
         return services;
     }

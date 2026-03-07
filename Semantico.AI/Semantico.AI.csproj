@@ -9,8 +9,8 @@
 		<Version>2.0.5.0</Version>
 		<Authors>https://github.com/MiBu</Authors>
 		<Description>Semantico AI extensions library providing LLM-powered documentation generation, alert creation, and AI actors. Optional add-on for Semantico core.</Description>
-		<PackageProjectUrl>https://github.com/moberghr/semantico</PackageProjectUrl>
-		<RepositoryUrl>https://github.com/moberghr/semantico</RepositoryUrl>
+		<PackageProjectUrl>https://github.com/MiBu/semantico</PackageProjectUrl>
+		<RepositoryUrl>https://github.com/MiBu/semantico</RepositoryUrl>
 		<RepositoryType>git</RepositoryType>
 		<PackageLicenseExpression>MIT</PackageLicenseExpression>
 		<PackageTags>semantico;ai;llm;openai;anthropic;documentation;database</PackageTags>

@@ -101,7 +101,7 @@ tags:
 {
   "id": "docker-compose-basic",
   "language": "yaml",
-  "code": "services:\n  semantico:\n    image: 'ghcr.io/moberghr/semantico:latest'\n    ports:\n      - 8080:80\n    environment:\n      - ConnectionStrings__SemanticoContext=...",
+  "code": "services:\n  semantico:\n    image: 'ghcr.io/MiBu/semantico:latest'\n    ports:\n      - 8080:80\n    environment:\n      - ConnectionStrings__SemanticoContext=...",
   "description": "Basic Docker Compose configuration for Semantico",
   "context": "Use this for quick local deployment without SendGrid",
   "validated": true
@@ -223,7 +223,7 @@ nav:
 - `title` (string, required): "Semantico Documentation"
 - `description` (string, required): Meta description for SEO
 - `baseurl` (string, required): "" (empty for root-level deployment)
-- `url` (string, required): "https://moberghr.github.io/semantico"
+- `url` (string, required): "https://mibu.github.io/semantico"
 - `theme` (string, required): "just-the-docs" (or similar)
 - `markdown` (string, required): "kramdown"
 - `plugins` (array): ["jekyll-feed", "jekyll-seo-tag"]
@@ -236,7 +236,7 @@ nav:
 color_scheme: high-contrast
 aux_links:
   "GitHub":
-    - "https://github.com/moberghr/semantico"
+    - "https://github.com/MiBu/semantico"
 skip_to_content: true  # Skip navigation link for screen readers
 ```
 
@@ -261,7 +261,7 @@ skip_to_content: true  # Skip navigation link for screen readers
 ```markdown
 # Semantico
 
-[![Build Status](https://github.com/moberghr/semantico/workflows/CI/badge.svg)](...)
+[![Build Status](https://github.com/MiBu/semantico/workflows/CI/badge.svg)](...)
 [![Documentation](https://img.shields.io/badge/docs-github.io-blue)](...)
 
 Semantico is a dockerized semantic alerting and notification system that enables...
@@ -272,18 +272,18 @@ Get your first database alert running in under 30 minutes:
 
 1. Deploy with Docker Compose
 2. Create a project...
-3. [View detailed quick start guide →](https://moberghr.github.io/semantico/getting-started/quick-start)
+3. [View detailed quick start guide →](https://mibu.github.io/semantico/getting-started/quick-start)
 
 ## 📚 Documentation
 
-- [Installation Guide](https://moberghr.github.io/semantico/getting-started/installation)
-- [Feature Documentation](https://moberghr.github.io/semantico/features/)
-- [API Reference](https://moberghr.github.io/semantico/api/)
+- [Installation Guide](https://mibu.github.io/semantico/getting-started/installation)
+- [Feature Documentation](https://mibu.github.io/semantico/features/)
+- [API Reference](https://mibu.github.io/semantico/api/)
 
 ## 🤝 Support
 
-- [GitHub Issues](https://github.com/moberghr/semantico/issues)
-- [Contributing Guide](https://moberghr.github.io/semantico/contributing/)
+- [GitHub Issues](https://github.com/MiBu/semantico/issues)
+- [Contributing Guide](https://mibu.github.io/semantico/contributing/)
 ```
 
 ---

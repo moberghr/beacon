@@ -10,8 +10,8 @@
         <Version>2.0.5.0</Version>
         <Authors>https://github.com/MiBu</Authors>
         <Description>Blazor UI and ASP.NET Core integration for Semantico. Provides MudBlazor-based admin interface with middleware and service extensions for managing projects, queries, subscriptions, and notifications.</Description>
-        <PackageProjectUrl>https://github.com/moberghr/semantico</PackageProjectUrl>
-        <RepositoryUrl>https://github.com/moberghr/semantico</RepositoryUrl>
+        <PackageProjectUrl>https://github.com/MiBu/semantico</PackageProjectUrl>
+        <RepositoryUrl>https://github.com/MiBu/semantico</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
         <PackageLicenseExpression>MIT</PackageLicenseExpression>
         <PackageTags>semantico;blazor;ui;mudblazor;admin;dashboard;aspnet</PackageTags>

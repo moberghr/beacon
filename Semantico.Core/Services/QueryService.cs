@@ -1,11 +1,8 @@
 ﻿using System.Data.Common;
-using System.Data.SqlClient;
 using System.Text.Json;
 using Dapper;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using MySql.Data.MySqlClient;
-using Npgsql;
 using Semantico.Core.Adapters;
 using Semantico.Core.Data;
 using Semantico.Core.Data.Entities;

@@ -6,5 +6,7 @@ public enum DataSourceType
     CloudWatch = 2,
     Prometheus = 3,
     Datadog = 4,
-    ElasticSearch = 5
+    ElasticSearch = 5,
+    Databricks = 6,
+    BigQuery = 7
 }

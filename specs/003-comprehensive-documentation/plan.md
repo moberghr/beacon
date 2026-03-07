@@ -497,7 +497,7 @@ bundle exec jekyll serve
 
 ### 3. Post-Deployment Validation
 
-- Visit https://moberghr.github.io/semantico
+- Visit https://mibu.github.io/semantico
 - Test navigation on mobile and desktop
 - Verify all use cases display
 - Check homepage CTA links

@@ -1,0 +1,61 @@
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3">
+            <MudText Typo="Typo.body1">
+                Data Quality lets you define <strong>contracts</strong> on your database tables to automatically monitor
+                data health. Each contract runs on a schedule and evaluates a set of rules against your data.
+            </MudText>
+
+            <MudText Typo="Typo.subtitle1" Style="font-weight: 600;">What is a Data Contract?</MudText>
+            <MudText Typo="Typo.body2">
+                A data contract is a set of expectations (rules) about a specific table. You define what "healthy" data
+                looks like, and Semantico checks it automatically on your chosen schedule.
+            </MudText>
+
+            <MudText Typo="Typo.subtitle1" Style="font-weight: 600;">Rule Types</MudText>
+            <MudList T="string" Dense="true">
+                <MudListItem Icon="@Icons.Material.Filled.Update" Text="Freshness — Checks that data has been updated recently (e.g. within the last 6 hours)"/>
+                <MudListItem Icon="@Icons.Material.Filled.Storage" Text="Volume — Validates row count is within expected range (min/max rows)"/>
+                <MudListItem Icon="@Icons.Material.Filled.RemoveCircleOutline" Text="Null Rate — Ensures null values in a column don't exceed a threshold percentage"/>
+                <MudListItem Icon="@Icons.Material.Filled.Fingerprint" Text="Uniqueness — Verifies values in a column are unique (no duplicates)"/>
+                <MudListItem Icon="@Icons.Material.Filled.Link" Text="Referential — Checks foreign key relationships exist in a reference table"/>
+                <MudListItem Icon="@Icons.Material.Filled.LinearScale" Text="Range — Validates values fall within a min/max range"/>
+                <MudListItem Icon="@Icons.Material.Filled.TextFormat" Text="Pattern — Matches column values against a regex pattern"/>
+                <MudListItem Icon="@Icons.Material.Filled.Code" Text="Custom SQL — Run any SQL query that returns a passed/failed result"/>
+            </MudList>
+
+            <MudText Typo="Typo.subtitle1" Style="font-weight: 600;">How Scoring Works</MudText>
+            <MudText Typo="Typo.body2">
+                Each rule produces a score from 0% to 100%. The overall contract score is a <strong>weighted average</strong>
+                of all rule scores, factoring in each rule's weight and severity multiplier. Critical rules have a higher
+                impact on the overall score than low-severity rules.
+            </MudText>
+
+            <MudText Typo="Typo.subtitle1" Style="font-weight: 600;">Thresholds &amp; Alerting</MudText>
+            <MudText Typo="Typo.body2">
+                Each contract has a <strong>failure threshold</strong> (default 80%). When "Alert on Failure" is enabled
+                and the overall score drops below this threshold, notifications are sent to the configured recipients
+                via Email, Webhook, Slack, Teams, or Jira — the same channels used by subscriptions.
+            </MudText>
+
+            <MudText Typo="Typo.subtitle1" Style="font-weight: 600;">Score Colors</MudText>
+            <MudStack Row="true" Spacing="3" AlignItems="AlignItems.Center">
+                <MudChip T="string" Color="Color.Success" Size="Size.Small" Variant="Variant.Filled">90%+</MudChip>
+                <MudText Typo="Typo.body2">Healthy</MudText>
+                <MudChip T="string" Color="Color.Warning" Size="Size.Small" Variant="Variant.Filled">70-89%</MudChip>
+                <MudText Typo="Typo.body2">Warning</MudText>
+                <MudChip T="string" Color="Color.Error" Size="Size.Small" Variant="Variant.Filled">&lt;70%</MudChip>
+                <MudText Typo="Typo.body2">Critical</MudText>
+            </MudStack>
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Close" Color="Color.Primary">Got it</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+
+    private void Close() => MudDialog.Close();
+}

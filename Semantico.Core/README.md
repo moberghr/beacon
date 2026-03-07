@@ -46,10 +46,10 @@ builder.Services.AddSemantico(builder.Configuration, options =>
 
 ## Documentation
 
-- [Full Documentation](https://moberghr.github.io/semantico)
-- [Getting Started Guide](https://moberghr.github.io/semantico/getting-started/quick-start)
-- [Configuration Guide](https://moberghr.github.io/semantico/getting-started/configuration)
+- [Full Documentation](https://mibu.github.io/semantico)
+- [Getting Started Guide](https://mibu.github.io/semantico/getting-started/quick-start)
+- [Configuration Guide](https://mibu.github.io/semantico/getting-started/configuration)
 
 ## License
 
-MIT License - see [LICENSE](https://github.com/moberghr/semantico/blob/main/LICENSE)
+MIT License - see [LICENSE](https://github.com/MiBu/semantico/blob/main/LICENSE)

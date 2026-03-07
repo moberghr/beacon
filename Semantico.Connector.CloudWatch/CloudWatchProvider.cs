@@ -10,11 +10,13 @@ using Semantico.Core.Data.Enums;
 using Semantico.Core.Models;
 using Semantico.Core.Models.Providers;
 using Semantico.Core.Models.Providers.CloudWatch;
+using Semantico.Core.Services;
+using Semantico.Core.Services.Providers;
 using DataSourceEntity = Semantico.Core.Data.Entities.DataSource;
 
-namespace Semantico.Core.Services.Providers;
+namespace Semantico.Connector.CloudWatch;
 
-internal class CloudWatchProvider(
+public class CloudWatchProvider(
     IEncryptionService encryptionService,
     ILogger<CloudWatchProvider> logger) : IDataSourceProvider
 {

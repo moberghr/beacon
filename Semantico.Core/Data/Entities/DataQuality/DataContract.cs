@@ -4,6 +4,8 @@ namespace Semantico.Core.Data.Entities.DataQuality;
 
 public class DataContract : ArchivableBaseEntity
 {
+    public List<Recipient> Recipients { get; set; } = new();
+
     public int DataSourceId { get; set; }
 
     public required string SchemaName { get; set; }

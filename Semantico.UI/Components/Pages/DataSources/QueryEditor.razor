@@ -198,6 +198,9 @@
                                     <MudMenuItem Icon="@Icons.Material.Filled.PictureAsPdf" OnClick="@(() => ExportPdf(context.Id))">
                                         Export PDF
                                     </MudMenuItem>
+                                    <MudMenuItem Icon="@Icons.Material.Filled.Archive" OnClick="@(() => ArchiveDocumentation(context.Id))">
+                                        Archive
+                                    </MudMenuItem>
                                 </MudMenu>
                             </MudTd>
                         </RowTemplate>
@@ -803,6 +806,31 @@
         catch (Exception ex)
         {
             Snackbar.Add($"Failed to export PDF: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task ArchiveDocumentation(int documentationId)
+    {
+        var confirm = await DialogService.ShowMessageBox(
+            "Archive Documentation",
+            "Are you sure you want to archive this documentation? It will no longer appear in the list.",
+            yesText: "Archive",
+            cancelText: "Cancel");
+
+        if (confirm != true) return;
+
+        try
+        {
+            await Mediator.Send(new Semantico.Core.Handlers.Ai.ArchiveDocumentation.ArchiveDocumentationCommand
+            {
+                DocumentationId = documentationId
+            });
+            _documentations = await Mediator.Send(new GetDocumentationsCommand { DataSourceId = DataSourceId });
+            Snackbar.Add("Documentation archived", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to archive documentation: {ex.Message}", Severity.Error);
         }
     }
 

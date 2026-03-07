@@ -47,6 +47,13 @@ internal sealed class GetDataContractDetailHandler(
                     Severity = r.Severity,
                     Weight = r.Weight,
                     IsEnabled = r.IsEnabled
+                }).ToList(),
+                Recipients = c.Recipients.Select(r => new DataContractRecipientData
+                {
+                    Id = r.Id,
+                    Name = r.Name,
+                    Destination = r.Destination,
+                    NotificationType = r.NotificationType
                 }).ToList()
             })
             .FirstOrDefaultAsync(cancellationToken)

@@ -53,7 +53,7 @@ Create `docs/_config.yml`:
 title: "Semantico Documentation"
 description: "Comprehensive documentation for Semantico - semantic database alerting and notification system"
 baseurl: "" # Leave empty for root deployment
-url: "https://moberghr.github.io/semantico"
+url: "https://mibu.github.io/semantico"
 
 # Build settings
 markdown: kramdown
@@ -71,12 +71,12 @@ logo: "/assets/images/logo.png"
 # Navigation
 nav_external_links:
   - title: GitHub
-    url: https://github.com/moberghr/semantico
+    url: https://github.com/MiBu/semantico
 
 # Accessibility
 aux_links:
   "View on GitHub":
-    - "https://github.com/moberghr/semantico"
+    - "https://github.com/MiBu/semantico"
 
 # SEO
 lang: en-US
@@ -158,7 +158,7 @@ Powerful semantic alerts and notifications for your databases
 {: .fs-6 .fw-300 }
 
 [Get Started](getting-started/quick-start){: .btn .btn-primary .fs-5 .mb-4 .mb-md-0 .mr-2 }
-[View on GitHub](https://github.com/moberghr/semantico){: .btn .fs-5 .mb-4 .mb-md-0 }
+[View on GitHub](https://github.com/MiBu/semantico){: .btn .fs-5 .mb-4 .mb-md-0 }
 
 ---
 
@@ -289,7 +289,7 @@ Deploy Semantico with Docker Compose in under 10 minutes.
 ```yaml
 services:
   semantico:
-    image: 'ghcr.io/moberghr/semantico:latest'
+    image: 'ghcr.io/MiBu/semantico:latest'
     ports:
       - 8080:80
     environment:
@@ -582,7 +582,7 @@ git push origin main
 
 ### 4. Verify GitHub Pages Deployment
 
-- Visit https://moberghr.github.io/semantico
+- Visit https://mibu.github.io/semantico
 - Verify site loads in < 2 seconds (SC-010)
 - Test navigation on mobile
 - Verify all use cases display correctly

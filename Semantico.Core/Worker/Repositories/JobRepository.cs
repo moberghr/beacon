@@ -1,10 +1,8 @@
-﻿using Dapper;
-using MySql.Data.MySqlClient;
-using Npgsql;
+using Dapper;
 using Semantico.Core.Data.Enums;
+using Semantico.Core.Helpers;
 using Semantico.Core.Models;
 using System.Data.Common;
-using System.Data.SqlClient;
 
 namespace Semantico.Core.Worker.Repositories;
 
@@ -17,7 +15,7 @@ internal class JobRepository : IJobRepository
 {
     public async Task<List<object>> ExecuteQueryAsync(DatabaseEngineType dbEngineType, string connectionString, string sqlQuery)
     {
-        using var connection = GetDbConnection(dbEngineType, connectionString);
+        using var connection = DbConnectionFactory.CreateConnection(dbEngineType, connectionString);
         await connection.OpenAsync();
 
         // Replace newline, carriage return, and tab characters with a space
@@ -30,12 +28,4 @@ internal class JobRepository : IJobRepository
 
         return results.ToList();
     }
-
-    private static DbConnection GetDbConnection(DatabaseEngineType dbEngineType, string connectionString) => dbEngineType switch
-    {
-        DatabaseEngineType.PostgreSQL => new NpgsqlConnection(connectionString),
-        DatabaseEngineType.MSSQL => new SqlConnection(connectionString),
-        DatabaseEngineType.MySQL => new MySqlConnection(connectionString),
-        _ => throw new SemanticoException($"Unsupported database engine.")
-    };
 }

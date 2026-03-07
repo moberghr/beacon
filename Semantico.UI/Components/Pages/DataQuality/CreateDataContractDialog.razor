@@ -3,10 +3,11 @@
 @using Semantico.Core.Handlers.DataQuality.UpdateDataContract
 @using Semantico.Core.Handlers.DataQuality.GetDataContractDetail
 @using Semantico.Core.Models.DataQuality
+@using Semantico.Core.Models.Recipients
 @using Semantico.Core.Services
 @using MediatR
 @inject IMediator Mediator
-@inject IDataSourceService DataSourceService
+@inject IRecipientService RecipientService
 @inject ISnackbar Snackbar
 
 <MudDialog>
@@ -31,13 +32,10 @@
                 <MudTextField @bind-Value="_description" Label="Description" Lines="2"
                               MaxLength="1000" Variant="Variant.Outlined"/>
 
-                <MudSelect T="int?" @bind-Value="_dataSourceId" Label="Data Source" Required="true"
-                           RequiredError="Data source is required" Variant="Variant.Outlined">
-                    @foreach (var ds in _dataSources)
-                    {
-                        <MudSelectItem T="int?" Value="@((int?)ds.Id)">@ds.Name</MudSelectItem>
-                    }
-                </MudSelect>
+                <DataSourceSelect @bind-Value="_dataSourceId"
+                                   Label="Data Source"
+                                   Required="true"
+                                   RequiredError="Data source is required"/>
 
                 <MudGrid Spacing="2">
                     <MudItem xs="6">
@@ -66,6 +64,23 @@
                     <MudSwitch @bind-Value="_isEnabled" Color="Color.Success" Label="Enabled"/>
                     <MudSwitch @bind-Value="_alertOnFailure" Color="Color.Warning" Label="Alert on Failure"/>
                 </MudStack>
+
+                @* Recipients (visible when Alert on Failure is on) *@
+                @if (_alertOnFailure)
+                {
+                    <MudSelect T="int" Label="Notification Recipients" MultiSelection="true"
+                               @bind-SelectedValues="_selectedRecipientIds"
+                               Variant="Variant.Outlined"
+                               AdornmentIcon="@Icons.Material.Filled.NotificationsActive"
+                               HelperText="Select recipients to notify when the score drops below the threshold">
+                        @foreach (var recipient in _recipients)
+                        {
+                            <MudSelectItem T="int" Value="@recipient.RecipientId!.Value">
+                                @recipient.Name (@recipient.NotificationType)
+                            </MudSelectItem>
+                        }
+                    </MudSelect>
+                }
 
                 @* Rules *@
                 <MudDivider Class="my-2"/>
@@ -170,11 +185,12 @@
     private int _failureThreshold = 80;
 
     private List<RuleEditModel> _rules = new();
-    private List<Semantico.Core.Models.DataSources.DataSourceListData> _dataSources = new();
+    private List<RecipientData> _recipients = new();
+    private IEnumerable<int> _selectedRecipientIds = new HashSet<int>();
 
     protected override async Task OnInitializedAsync()
     {
-        _dataSources = await DataSourceService.GetDataSources(null, CancellationToken.None);
+        _recipients = await RecipientService.GetRecipients(null, null, CancellationToken.None);
 
         if (EditContractId.HasValue)
         {
@@ -189,6 +205,7 @@
             _isEnabled = contract.IsEnabled;
             _alertOnFailure = contract.AlertOnFailure;
             _failureThreshold = contract.FailureThresholdScore;
+            _selectedRecipientIds = contract.Recipients.Select(r => r.Id).ToHashSet();
             _rules = contract.Rules.Select(r => new RuleEditModel
             {
                 Name = r.Name,
@@ -257,11 +274,6 @@
             }
         };
 
-        if (_dataSources.Count > 0)
-        {
-            _dataSourceId = _dataSources.First().Id;
-        }
-
         StateHasChanged();
     }
 
@@ -304,10 +316,13 @@
                 IsEnabled = r.IsEnabled
             }).ToList();
 
+            var recipientIds = _alertOnFailure ? _selectedRecipientIds.ToList() : null;
+
             if (_isEdit)
             {
                 await Mediator.Send(new UpdateDataContractCommand(
                     DataContractId: EditContractId!.Value,
+                    DataSourceId: _dataSourceId.Value,
                     SchemaName: _schemaName,
                     TableName: _tableName,
                     Name: _name,
@@ -317,7 +332,8 @@
                     OwnerUserId: null,
                     AlertOnFailure: _alertOnFailure,
                     FailureThresholdScore: _failureThreshold,
-                    Rules: rulesData
+                    Rules: rulesData,
+                    RecipientIds: recipientIds
                 ));
                 MudDialog.Close(DialogResult.Ok(EditContractId.Value));
             }
@@ -334,7 +350,8 @@
                     OwnerUserId: null,
                     AlertOnFailure: _alertOnFailure,
                     FailureThresholdScore: _failureThreshold,
-                    Rules: rulesData
+                    Rules: rulesData,
+                    RecipientIds: recipientIds
                 ));
                 MudDialog.Close(DialogResult.Ok(result.DataContractId));
             }

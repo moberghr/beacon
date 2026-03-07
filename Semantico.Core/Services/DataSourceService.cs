@@ -27,6 +27,8 @@ public interface IDataSourceService
 
     Task<BaseResponse> TestConnection(string connectionString, Data.Enums.DatabaseEngineType databaseEngineType, CancellationToken cancellationToken);
 
+    Task<BaseResponse> TestConnectionAsync(DataSourceData dataSourceData, CancellationToken cancellationToken);
+
     Task<string> GetDecryptedConnectionData(int dataSourceId, CancellationToken cancellationToken);
 }
 
@@ -304,6 +306,44 @@ internal class DataSourceService(
             {
                 Success = true,
                 Message = "Connection successful"
+            };
+        }
+        catch (Exception ex)
+        {
+            return new BaseResponse
+            {
+                Success = false,
+                Message = $"Connection failed: {ex.Message}"
+            };
+        }
+    }
+
+    public async Task<BaseResponse> TestConnectionAsync(DataSourceData dataSourceData, CancellationToken cancellationToken)
+    {
+        try
+        {
+            // For database types, use the connection factory directly
+            if (dataSourceData.DataSourceType == DataSourceType.Database && dataSourceData.DatabaseEngineType.HasValue)
+            {
+                return await TestConnection(dataSourceData.ConnectionString, dataSourceData.DatabaseEngineType.Value, cancellationToken);
+            }
+
+            // For non-database types (CloudWatch, Databricks, BigQuery), use the provider pattern
+            var provider = providerFactory.GetProvider(dataSourceData.DataSourceType);
+            var tempDataSource = new DataSource
+            {
+                Name = dataSourceData.Name ?? "connection-test",
+                DataSourceType = dataSourceData.DataSourceType,
+                DatabaseEngineType = dataSourceData.DatabaseEngineType,
+                EncryptedConnectionData = encryptionService.Encrypt(dataSourceData.ConnectionString)
+            };
+
+            var result = await provider.TestConnectionAsync(tempDataSource, cancellationToken);
+
+            return new BaseResponse
+            {
+                Success = result.Success,
+                Message = result.Success ? "Connection successful" : $"Connection failed: {result.ErrorMessage}"
             };
         }
         catch (Exception ex)

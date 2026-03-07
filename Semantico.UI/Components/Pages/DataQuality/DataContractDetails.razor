@@ -49,6 +49,9 @@
                 </MudText>
             </MudStack>
             <MudStack Row="true" Spacing="2">
+                <MudIconButton Icon="@Icons.Material.Filled.HelpOutline"
+                               Size="Size.Medium" Color="Color.Default"
+                               OnClick="OpenHelpDialog" Title="How it works"/>
                 <MudButton Variant="Variant.Filled" Color="Color.Primary"
                            StartIcon="@Icons.Material.Filled.PlayArrow"
                            OnClick="RunEvaluation" Disabled="_evaluating">
@@ -246,6 +249,12 @@
     protected override async Task OnInitializedAsync()
     {
         await Load();
+    }
+
+    private async Task OpenHelpDialog()
+    {
+        var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true };
+        await DialogService.ShowAsync<DataQualityHelpDialog>("How Data Quality Works", options);
     }
 
     private async Task Load()

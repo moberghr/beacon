@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Version>2.0.5.0</Version>
+    <IsPackable>true</IsPackable>
+    <Description>PostgreSQL connector for Semantico</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Semantico.Core\Semantico.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Npgsql" Version="9.0.4" />
+    <PackageReference Include="Dapper" Version="2.1.66" />
+  </ItemGroup>
+</Project>

@@ -10,6 +10,7 @@
 @using MediatR
 @using Semantico.Core.Handlers.Ai.ArchiveDocumentation
 @using Markdig
+@using Semantico.Core.Helpers
 
 <SemanticoPageTitle Title="@_documentation?.Title"/>
 
@@ -584,12 +585,15 @@
             return "<p><em>No content available</em></p>";
         }
 
+        // If the content is JSON, extract readable text from it
+        var content = DocumentationContentParser.ExtractMarkdownFromContent(markdown);
+
         // Use Markdig to convert markdown to HTML
         var pipeline = new MarkdownPipelineBuilder()
             .UseAdvancedExtensions()
             .Build();
 
-        return Markdown.ToHtml(markdown, pipeline);
+        return Markdown.ToHtml(content, pipeline);
     }
 
     private Color GetStatusColor(DocumentationStatus status)
