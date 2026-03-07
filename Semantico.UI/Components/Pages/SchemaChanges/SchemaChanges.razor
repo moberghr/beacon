@@ -1,0 +1,281 @@
+@page "/semantico/schema-changes"
+@inherits BasePageComponent
+@using MediatR
+@using Semantico.Core.Data.Enums
+@using Semantico.Core.Handlers.SchemaChanges
+@inject IMediator Mediator
+
+<SemanticoPageTitle Title="Schema Changes"/>
+
+<MudContainer MaxWidth="MaxWidth.ExtraExtraLarge" Class="my-4 px-4">
+    <MudStack Spacing="4">
+        @* Page Header *@
+        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+            <MudStack Spacing="1">
+                <MudText Typo="Typo.h4">Schema Changes</MudText>
+                <MudText Typo="Typo.body2" Color="Color.Secondary">
+                    Timeline of detected schema changes across all data sources
+                </MudText>
+            </MudStack>
+            <MudChip T="string" Color="Color.Primary" Variant="Variant.Outlined">
+                @_filteredChanges.Count changes
+            </MudChip>
+        </MudStack>
+
+        @* Filters *@
+        <MudPaper Elevation="1" Class="pa-4" Style="border-radius: 12px;">
+            <MudGrid Spacing="3" AlignItems="AlignItems.Center">
+                <MudItem xs="12" sm="6" md="3">
+                    <MudSelect T="string"
+                               @bind-Value="_selectedDataSource"
+                               @bind-Value:after="ApplyFilters"
+                               Label="Data Source"
+                               Placeholder="All Data Sources"
+                               Variant="Variant.Outlined"
+                               Clearable="true"
+                               AnchorOrigin="Origin.BottomLeft">
+                        @foreach (var ds in _dataSources)
+                        {
+                            <MudSelectItem T="string" Value="@ds">@ds</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" sm="6" md="3">
+                    <MudSelect T="SchemaChangeType?"
+                               @bind-Value="_selectedChangeType"
+                               @bind-Value:after="ApplyFilters"
+                               Label="Change Type"
+                               Placeholder="All Types"
+                               Variant="Variant.Outlined"
+                               Clearable="true"
+                               AnchorOrigin="Origin.BottomLeft">
+                        @foreach (var type in _changeTypes)
+                        {
+                            <MudSelectItem T="SchemaChangeType?" Value="@type">@FormatChangeType(type)</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" sm="6" md="3">
+                    <MudDatePicker @bind-Date="_dateFrom"
+                                   @bind-Date:after="ApplyFilters"
+                                   Label="From Date"
+                                   Variant="Variant.Outlined"
+                                   Clearable="true"/>
+                </MudItem>
+                <MudItem xs="12" sm="6" md="3">
+                    <MudDatePicker @bind-Date="_dateTo"
+                                   @bind-Date:after="ApplyFilters"
+                                   Label="To Date"
+                                   Variant="Variant.Outlined"
+                                   Clearable="true"/>
+                </MudItem>
+            </MudGrid>
+        </MudPaper>
+
+        @* Loading *@
+        @if (_loading)
+        {
+            <MudProgressLinear Color="Color.Primary" Indeterminate="true"/>
+        }
+        @* Empty *@
+        else if (_filteredChanges.Count == 0)
+        {
+            <MudPaper Elevation="0" Class="pa-8 text-center"
+                      Style="border: 2px dashed var(--mud-palette-lines-default); border-radius: 12px;">
+                <MudIcon Icon="@Icons.Material.Filled.CompareArrows" Size="Size.Large" Color="Color.Secondary" Class="mb-3"/>
+                <MudText Typo="Typo.h6" Color="Color.Secondary">No schema changes found</MudText>
+                <MudText Typo="Typo.body2" Color="Color.Secondary">
+                    Schema changes are detected automatically during data source scans.
+                </MudText>
+            </MudPaper>
+        }
+        @* Timeline *@
+        else
+        {
+            @* Group by date *@
+            @foreach (var dayGroup in _filteredChanges.GroupBy(c => c.DetectedAt.Date).OrderByDescending(g => g.Key))
+            {
+                <MudStack Spacing="2">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                        <MudChip T="string" Size="Size.Small" Color="Color.Default" Variant="Variant.Outlined">
+                            @dayGroup.Key.ToString("dddd, MMMM dd yyyy")
+                        </MudChip>
+                        <MudDivider Style="flex: 1;"/>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">@dayGroup.Count() change(s)</MudText>
+                    </MudStack>
+
+                    @foreach (var change in dayGroup.OrderByDescending(c => c.DetectedAt))
+                    {
+                        <MudPaper Elevation="1" Class="pa-4" Style="@GetChangeCardStyle(change.ChangeType)">
+                            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap">
+                                @* Left: type chip + table info *@
+                                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Wrap="Wrap.Wrap">
+                                    <MudChip T="string"
+                                             Size="Size.Small"
+                                             Color="@GetChangeTypeColor(change.ChangeType)"
+                                             Variant="Variant.Filled"
+                                             Icon="@GetChangeTypeIcon(change.ChangeType)">
+                                        @FormatChangeType(change.ChangeType)
+                                    </MudChip>
+                                    <MudStack Spacing="0">
+                                        <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                                            <MudText Typo="Typo.body2" Style="font-weight: 600;">
+                                                @change.SchemaName.@change.TableName
+                                            </MudText>
+                                            @if (!string.IsNullOrEmpty(change.ColumnName))
+                                            {
+                                                <MudText Typo="Typo.body2" Color="Color.Secondary">/</MudText>
+                                                <MudText Typo="Typo.body2" Color="Color.Info">@change.ColumnName</MudText>
+                                            }
+                                        </MudStack>
+                                        <MudChip T="string" Size="Size.Small" Icon="@Icons.Material.Filled.Storage" Class="mt-1">
+                                            @change.DataSourceName
+                                        </MudChip>
+                                    </MudStack>
+                                </MudStack>
+
+                                @* Right: old→new value + time *@
+                                <MudStack AlignItems="AlignItems.End" Spacing="1">
+                                    @if (!string.IsNullOrEmpty(change.OldValue) || !string.IsNullOrEmpty(change.NewValue))
+                                    {
+                                        <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                                            @if (!string.IsNullOrEmpty(change.OldValue))
+                                            {
+                                                <MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="Variant.Outlined">
+                                                    @change.OldValue
+                                                </MudChip>
+                                                <MudIcon Icon="@Icons.Material.Filled.ArrowForward" Size="Size.Small" Color="Color.Secondary"/>
+                                            }
+                                            @if (!string.IsNullOrEmpty(change.NewValue))
+                                            {
+                                                <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Outlined">
+                                                    @change.NewValue
+                                                </MudChip>
+                                            }
+                                        </MudStack>
+                                    }
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                        @change.DetectedAt.ToString("HH:mm:ss")
+                                    </MudText>
+                                </MudStack>
+                            </MudStack>
+
+                            @if (!string.IsNullOrWhiteSpace(change.Notes))
+                            {
+                                <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-2">
+                                    @change.Notes
+                                </MudText>
+                            }
+                        </MudPaper>
+                    }
+                </MudStack>
+            }
+        }
+    </MudStack>
+</MudContainer>
+
+@code {
+    private List<SchemaChangeEntry> _allChanges = new();
+    private List<SchemaChangeEntry> _filteredChanges = new();
+    private List<string> _dataSources = new();
+    private List<SchemaChangeType> _changeTypes = new();
+
+    private string? _selectedDataSource;
+    private SchemaChangeType? _selectedChangeType;
+    private DateTime? _dateFrom;
+    private DateTime? _dateTo;
+    private bool _loading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadChanges();
+    }
+
+    private async Task LoadChanges()
+    {
+        _loading = true;
+        try
+        {
+            var result = await Mediator.Send(new GetSchemaChangesQuery());
+            _allChanges = result.Entries;
+            _dataSources = _allChanges.Select(c => c.DataSourceName).Distinct().OrderBy(x => x).ToList();
+            _changeTypes = _allChanges.Select(c => c.ChangeType).Distinct().OrderBy(x => x).ToList();
+            _filteredChanges = _allChanges;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void ApplyFilters()
+    {
+        var result = _allChanges.AsEnumerable();
+
+        if (!string.IsNullOrWhiteSpace(_selectedDataSource))
+            result = result.Where(c => c.DataSourceName == _selectedDataSource);
+
+        if (_selectedChangeType.HasValue)
+            result = result.Where(c => c.ChangeType == _selectedChangeType.Value);
+
+        if (_dateFrom.HasValue)
+            result = result.Where(c => c.DetectedAt.Date >= _dateFrom.Value.Date);
+
+        if (_dateTo.HasValue)
+            result = result.Where(c => c.DetectedAt.Date <= _dateTo.Value.Date);
+
+        _filteredChanges = result.ToList();
+        StateHasChanged();
+    }
+
+    private static Color GetChangeTypeColor(SchemaChangeType changeType) => changeType switch
+    {
+        SchemaChangeType.ColumnAdded or SchemaChangeType.TableAdded or SchemaChangeType.ConstraintAdded => Color.Success,
+        SchemaChangeType.ColumnDropped or SchemaChangeType.TableDropped or SchemaChangeType.ConstraintDropped => Color.Error,
+        SchemaChangeType.ColumnTypeChanged or SchemaChangeType.ColumnDefaultChanged => Color.Warning,
+        SchemaChangeType.IndexAdded or SchemaChangeType.IndexDropped => Color.Info,
+        _ => Color.Default
+    };
+
+    private static string GetChangeTypeIcon(SchemaChangeType changeType) => changeType switch
+    {
+        SchemaChangeType.ColumnAdded => Icons.Material.Filled.AddBox,
+        SchemaChangeType.ColumnDropped => Icons.Material.Filled.IndeterminateCheckBox,
+        SchemaChangeType.TableAdded => Icons.Material.Filled.TableChart,
+        SchemaChangeType.TableDropped => Icons.Material.Filled.DeleteForever,
+        SchemaChangeType.ColumnTypeChanged => Icons.Material.Filled.Transform,
+        SchemaChangeType.ColumnDefaultChanged => Icons.Material.Filled.WarningAmber,
+        SchemaChangeType.IndexAdded => Icons.Material.Filled.PlaylistAdd,
+        SchemaChangeType.IndexDropped => Icons.Material.Filled.PlaylistRemove,
+        SchemaChangeType.ConstraintAdded => Icons.Material.Filled.Lock,
+        SchemaChangeType.ConstraintDropped => Icons.Material.Filled.LockOpen,
+        _ => Icons.Material.Filled.CompareArrows
+    };
+
+    private static string FormatChangeType(SchemaChangeType changeType) => changeType switch
+    {
+        SchemaChangeType.ColumnAdded => "Column Added",
+        SchemaChangeType.ColumnDropped => "Column Dropped",
+        SchemaChangeType.TableAdded => "Table Added",
+        SchemaChangeType.TableDropped => "Table Dropped",
+        SchemaChangeType.ColumnTypeChanged => "Type Changed",
+        SchemaChangeType.ColumnDefaultChanged => "Default Changed",
+        SchemaChangeType.IndexAdded => "Index Added",
+        SchemaChangeType.IndexDropped => "Index Dropped",
+        SchemaChangeType.ConstraintAdded => "Constraint Added",
+        SchemaChangeType.ConstraintDropped => "Constraint Dropped",
+        _ => changeType.ToString()
+    };
+
+    private static string GetChangeCardStyle(SchemaChangeType changeType)
+    {
+        var borderColor = changeType switch
+        {
+            SchemaChangeType.ColumnAdded or SchemaChangeType.TableAdded or SchemaChangeType.ConstraintAdded => "var(--mud-palette-success)",
+            SchemaChangeType.ColumnDropped or SchemaChangeType.TableDropped or SchemaChangeType.ConstraintDropped => "var(--mud-palette-error)",
+            SchemaChangeType.ColumnTypeChanged or SchemaChangeType.ColumnDefaultChanged => "var(--mud-palette-warning)",
+            _ => "var(--mud-palette-lines-default)"
+        };
+        return $"border-radius: 8px; border-left: 3px solid {borderColor};";
+    }
+}

@@ -19,9 +19,11 @@ internal sealed class UpdateDataContractHandler(
 
         var contract = await context.DataContracts
             .Include(c => c.Rules)
+            .Include(c => c.Recipients)
             .FirstOrDefaultAsync(c => c.Id == request.DataContractId, cancellationToken)
             ?? throw new SemanticoException($"Data contract {request.DataContractId} not found");
 
+        contract.DataSourceId = request.DataSourceId;
         contract.Name = request.Name;
         contract.Description = request.Description;
         contract.SchemaName = request.SchemaName;
@@ -31,6 +33,15 @@ internal sealed class UpdateDataContractHandler(
         contract.OwnerUserId = request.OwnerUserId;
         contract.AlertOnFailure = request.AlertOnFailure;
         contract.FailureThresholdScore = request.FailureThresholdScore;
+
+        // Delete rule results that reference the old rules before removing them
+        var oldRuleIds = contract.Rules.Select(r => r.Id).ToList();
+        if (oldRuleIds.Count > 0)
+        {
+            await context.DataQualityRuleResults
+                .Where(rr => oldRuleIds.Contains(rr.DataContractRuleId))
+                .ExecuteDeleteAsync(cancellationToken);
+        }
 
         // Replace rules: remove existing, add new
         context.DataContractRules.RemoveRange(contract.Rules);
@@ -47,6 +58,16 @@ internal sealed class UpdateDataContractHandler(
             IsEnabled = r.IsEnabled
         }).ToList();
 
+        // Replace recipients
+        contract.Recipients.Clear();
+        if (request.RecipientIds is { Count: > 0 })
+        {
+            var recipients = await context.Recipients
+                .Where(r => request.RecipientIds.Contains(r.Id))
+                .ToListAsync(cancellationToken);
+            contract.Recipients = recipients;
+        }
+
         await context.SaveChangesAsync(cancellationToken);
 
         if (contract.IsEnabled)
@@ -62,6 +83,7 @@ internal sealed class UpdateDataContractHandler(
 
 public record UpdateDataContractCommand(
     int DataContractId,
+    int DataSourceId,
     string SchemaName,
     string TableName,
     string Name,
@@ -71,5 +93,6 @@ public record UpdateDataContractCommand(
     string? OwnerUserId,
     bool AlertOnFailure,
     int FailureThresholdScore,
-    List<DataContractRuleData> Rules
+    List<DataContractRuleData> Rules,
+    List<int>? RecipientIds = null
 ) : IRequest;

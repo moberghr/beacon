@@ -102,9 +102,9 @@ public static class ServiceConfiguration
         services.TryAddTransient<ParameterResolver>();
         services.TryAddTransient<SchedulingService>();
 
-        // Data source providers (use AddTransient to register multiple implementations)
+        // Data source providers — DatabaseProvider is always registered (connector projects register connection factories and engine types)
+        // Non-database providers (CloudWatch, Databricks, BigQuery) are registered by their connector projects
         services.AddTransient<Services.Providers.IDataSourceProvider, Services.Providers.DatabaseProvider>();
-        services.AddTransient<Services.Providers.IDataSourceProvider, Services.Providers.CloudWatchProvider>();
         services.TryAddTransient<Services.Providers.IDataSourceProviderFactory, Services.Providers.DataSourceProviderFactory>();
 
         // Domain services
@@ -131,6 +131,18 @@ public static class ServiceConfiguration
         services.TryAddTransient<IQueryApprovalService, QueryApprovalService>();
 
         services.TryAddTransient(typeof(ISemanticoScheduler), configurationOptions.SemanticoScheduler!);
+
+        // MCP settings provider (cached reads for MCP tool configuration)
+        services.TryAddTransient<IMcpSettingsProvider, McpSettingsProvider>();
+
+        // API key service (always registered — used for stateless API authentication)
+        services.TryAddTransient<Services.Security.IApiKeyService, Services.Security.ApiKeyService>();
+
+        // Query guardrail service (always registered — enforces read-only access and PII detection)
+        services.TryAddTransient<Services.Security.IQueryGuardrailService, Services.Security.QueryGuardrailService>();
+
+        // Rate limiter (singleton so the in-memory sliding windows are shared across requests)
+        services.TryAddSingleton<Services.Security.RateLimiter>();
 
         // User Management services (opt-in feature)
         if (configurationOptions.UserManagement.Enabled)

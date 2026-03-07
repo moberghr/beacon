@@ -138,7 +138,7 @@ Current deployment method uses Docker Compose (example in README.md):
 ```yaml
 services:
   semantico:
-    image: 'ghcr.io/moberghr/semantico:latest'
+    image: 'ghcr.io/MiBu/semantico:latest'
     ports:
       - 8080:80
     environment:

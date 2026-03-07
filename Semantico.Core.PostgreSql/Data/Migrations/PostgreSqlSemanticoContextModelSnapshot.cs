@@ -23,6 +23,25 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("DataContractRecipient", b =>
+                {
+                    b.Property<int>("DataContractsId")
+                        .HasColumnType("integer")
+                        .HasColumnName("data_contracts_id");
+
+                    b.Property<int>("RecipientsId")
+                        .HasColumnType("integer")
+                        .HasColumnName("recipients_id");
+
+                    b.HasKey("DataContractsId", "RecipientsId")
+                        .HasName("pk_data_contract_recipient");
+
+                    b.HasIndex("RecipientsId")
+                        .HasDatabaseName("ix_data_contract_recipient_recipients_id");
+
+                    b.ToTable("data_contract_recipient", "semantico");
+                });
+
             modelBuilder.Entity("Microsoft.AspNetCore.DataProtection.EntityFrameworkCore.DataProtectionKey", b =>
                 {
                     b.Property<int>("Id")
@@ -984,6 +1003,86 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                         .HasDatabaseName("ix_anomaly_events_subscription_id_detected_time");
 
                     b.ToTable("anomaly_events", "semantico");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.ApiKeyCredential", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("AllowedDataSourceIds")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("allowed_data_source_ids");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_time");
+
+                    b.Property<DateTime?>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<bool>("IsRevoked")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_revoked");
+
+                    b.Property<string>("KeyHash")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("key_hash");
+
+                    b.Property<string>("KeyPrefix")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("key_prefix");
+
+                    b.Property<DateTime?>("LastUsedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_used_at");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("name");
+
+                    b.Property<DateTime?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("revoked_at");
+
+                    b.Property<string>("Scopes")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("scopes");
+
+                    b.Property<int?>("UserId")
+                        .HasColumnType("integer")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_api_key_credentials");
+
+                    b.HasIndex("IsRevoked")
+                        .HasDatabaseName("ix_api_key_credentials_is_revoked");
+
+                    b.HasIndex("KeyHash")
+                        .IsUnique()
+                        .HasDatabaseName("ix_api_key_credentials_key_hash");
+
+                    b.HasIndex("KeyPrefix")
+                        .HasDatabaseName("ix_api_key_credentials_key_prefix");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("ix_api_key_credentials_user_id");
+
+                    b.ToTable("api_key_credentials", "semantico");
                 });
 
             modelBuilder.Entity("Semantico.Core.Data.Entities.AppSetting", b =>
@@ -2326,6 +2425,205 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                     b.ToTable("manual_query_execution_logs", "semantico");
                 });
 
+            modelBuilder.Entity("Semantico.Core.Data.Entities.McpAuditLog", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_time");
+
+                    b.Property<int?>("DataSourceId")
+                        .HasColumnType("integer")
+                        .HasColumnName("data_source_id");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)")
+                        .HasColumnName("error_message");
+
+                    b.Property<int>("ExecutionTimeMs")
+                        .HasColumnType("integer")
+                        .HasColumnName("execution_time_ms");
+
+                    b.Property<string>("Parameters")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)")
+                        .HasColumnName("parameters");
+
+                    b.Property<int?>("ResultRowCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("result_row_count");
+
+                    b.Property<int?>("SessionId")
+                        .HasColumnType("integer")
+                        .HasColumnName("session_id");
+
+                    b.Property<string>("Tool")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("tool");
+
+                    b.Property<int?>("UserId")
+                        .HasColumnType("integer")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_mcp_audit_logs");
+
+                    b.HasIndex("CreatedTime")
+                        .HasDatabaseName("ix_mcp_audit_logs_created_time");
+
+                    b.HasIndex("SessionId")
+                        .HasDatabaseName("ix_mcp_audit_logs_session_id");
+
+                    b.HasIndex("Tool")
+                        .HasDatabaseName("ix_mcp_audit_logs_tool");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("ix_mcp_audit_logs_user_id");
+
+                    b.ToTable("mcp_audit_logs", "semantico");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.McpSession", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int?>("ApiKeyId")
+                        .HasColumnType("integer")
+                        .HasColumnName("api_key_id");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_time");
+
+                    b.Property<DateTime>("LastActivityAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_activity_at");
+
+                    b.Property<int>("QueriesExecuted")
+                        .HasColumnType("integer")
+                        .HasColumnName("queries_executed");
+
+                    b.Property<string>("SessionId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("session_id");
+
+                    b.Property<DateTime>("StartedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("started_at");
+
+                    b.Property<string>("TablesExplored")
+                        .HasColumnType("text")
+                        .HasColumnName("tables_explored");
+
+                    b.Property<int>("TokensUsed")
+                        .HasColumnType("integer")
+                        .HasColumnName("tokens_used");
+
+                    b.Property<int?>("UserId")
+                        .HasColumnType("integer")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_mcp_sessions");
+
+                    b.HasIndex("ApiKeyId")
+                        .HasDatabaseName("ix_mcp_sessions_api_key_id");
+
+                    b.HasIndex("LastActivityAt")
+                        .HasDatabaseName("ix_mcp_sessions_last_activity_at");
+
+                    b.HasIndex("SessionId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_mcp_sessions_session_id");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("ix_mcp_sessions_user_id");
+
+                    b.ToTable("mcp_sessions", "semantico");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.McpSettings", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("AskDescription")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("ask_description");
+
+                    b.Property<string>("AskSystemPrompt")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)")
+                        .HasColumnName("ask_system_prompt");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_time");
+
+                    b.Property<string>("CustomPiiPatterns")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)")
+                        .HasColumnName("custom_pii_patterns");
+
+                    b.Property<bool>("EnablePiiDetection")
+                        .HasColumnType("boolean")
+                        .HasColumnName("enable_pii_detection");
+
+                    b.Property<bool>("EnforceReadOnly")
+                        .HasColumnType("boolean")
+                        .HasColumnName("enforce_read_only");
+
+                    b.Property<string>("GetDocumentationDescription")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("get_documentation_description");
+
+                    b.Property<string>("GlobalInstruction")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)")
+                        .HasColumnName("global_instruction");
+
+                    b.Property<string>("ListDataSourcesDescription")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("list_data_sources_description");
+
+                    b.Property<int>("MaxRowLimit")
+                        .HasColumnType("integer")
+                        .HasColumnName("max_row_limit");
+
+                    b.Property<string>("QueryDescription")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("query_description");
+
+                    b.HasKey("Id")
+                        .HasName("pk_mcp_settings");
+
+                    b.ToTable("mcp_settings", "semantico");
+                });
+
             modelBuilder.Entity("Semantico.Core.Data.Entities.Metadata.ColumnMetadata", b =>
                 {
                     b.Property<int>("Id")
@@ -2560,6 +2858,383 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                         .HasDatabaseName("ix_notifications_task_id");
 
                     b.ToTable("notifications", "semantico");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.Projects.CodeReference", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ClassName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("class_name");
+
+                    b.Property<string>("CodeSnippet")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)")
+                        .HasColumnName("code_snippet");
+
+                    b.Property<string>("ColumnName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("column_name");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_time");
+
+                    b.Property<string>("FilePath")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("file_path");
+
+                    b.Property<int>("GitHubRepositoryId")
+                        .HasColumnType("integer")
+                        .HasColumnName("git_hub_repository_id");
+
+                    b.Property<int?>("LineNumber")
+                        .HasColumnType("integer")
+                        .HasColumnName("line_number");
+
+                    b.Property<string>("MethodName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("method_name");
+
+                    b.Property<int>("ReferenceType")
+                        .HasColumnType("integer")
+                        .HasColumnName("reference_type");
+
+                    b.Property<string>("SchemaName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("schema_name");
+
+                    b.Property<string>("TableName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("table_name");
+
+                    b.HasKey("Id")
+                        .HasName("pk_code_references");
+
+                    b.HasIndex("GitHubRepositoryId")
+                        .HasDatabaseName("ix_code_references_git_hub_repository_id");
+
+                    b.HasIndex("ReferenceType")
+                        .HasDatabaseName("ix_code_references_reference_type");
+
+                    b.HasIndex("SchemaName", "TableName")
+                        .HasDatabaseName("ix_code_references_schema_name_table_name");
+
+                    b.ToTable("code_references", "semantico");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.Projects.GitHubRepository", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Branch")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("branch");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_time");
+
+                    b.Property<string>("EncryptedAccessToken")
+                        .HasColumnType("text")
+                        .HasColumnName("encrypted_access_token");
+
+                    b.Property<DateTime?>("LastScanAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_scan_at");
+
+                    b.Property<string>("LastScanError")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)")
+                        .HasColumnName("last_scan_error");
+
+                    b.Property<int>("ProjectId")
+                        .HasColumnType("integer")
+                        .HasColumnName("project_id");
+
+                    b.Property<string>("RepositoryUrl")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("repository_url");
+
+                    b.Property<string>("ScanCronExpression")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("scan_cron_expression");
+
+                    b.Property<int>("ScanStatus")
+                        .HasColumnType("integer")
+                        .HasColumnName("scan_status");
+
+                    b.Property<int>("TotalFilesScanned")
+                        .HasColumnType("integer")
+                        .HasColumnName("total_files_scanned");
+
+                    b.Property<int>("TotalReferencesFound")
+                        .HasColumnType("integer")
+                        .HasColumnName("total_references_found");
+
+                    b.HasKey("Id")
+                        .HasName("pk_git_hub_repositories");
+
+                    b.HasIndex("ProjectId")
+                        .HasDatabaseName("ix_git_hub_repositories_project_id");
+
+                    b.HasIndex("ScanStatus")
+                        .HasDatabaseName("ix_git_hub_repositories_scan_status");
+
+                    b.ToTable("git_hub_repositories", "semantico");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.Projects.Project", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime?>("ArchivedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("archived_time");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_time");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("description");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("name");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_projects");
+
+                    b.HasIndex("Name")
+                        .HasDatabaseName("ix_projects_name");
+
+                    b.ToTable("projects", "semantico");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.Projects.ProjectDataSource", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_time");
+
+                    b.Property<int>("DataSourceId")
+                        .HasColumnType("integer")
+                        .HasColumnName("data_source_id");
+
+                    b.Property<int>("ProjectId")
+                        .HasColumnType("integer")
+                        .HasColumnName("project_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_project_data_sources");
+
+                    b.HasIndex("DataSourceId")
+                        .HasDatabaseName("ix_project_data_sources_data_source_id");
+
+                    b.HasIndex("ProjectId", "DataSourceId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_project_data_sources_project_id_data_source_id");
+
+                    b.ToTable("project_data_sources", "semantico");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.Projects.ProjectReport", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Content")
+                        .HasColumnType("text")
+                        .HasColumnName("content");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_time");
+
+                    b.Property<DateTime>("GeneratedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("generated_at");
+
+                    b.Property<int>("ProjectId")
+                        .HasColumnType("integer")
+                        .HasColumnName("project_id");
+
+                    b.Property<int>("ReportFormat")
+                        .HasColumnType("integer")
+                        .HasColumnName("report_format");
+
+                    b.Property<int>("ReportType")
+                        .HasColumnType("integer")
+                        .HasColumnName("report_type");
+
+                    b.HasKey("Id")
+                        .HasName("pk_project_reports");
+
+                    b.HasIndex("GeneratedAt")
+                        .HasDatabaseName("ix_project_reports_generated_at");
+
+                    b.HasIndex("ProjectId")
+                        .HasDatabaseName("ix_project_reports_project_id");
+
+                    b.ToTable("project_reports", "semantico");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.Projects.SchemaChange", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("ChangeType")
+                        .HasColumnType("integer")
+                        .HasColumnName("change_type");
+
+                    b.Property<string>("ColumnName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("column_name");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_time");
+
+                    b.Property<int>("DataSourceId")
+                        .HasColumnType("integer")
+                        .HasColumnName("data_source_id");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("description");
+
+                    b.Property<DateTime>("DetectedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("detected_at");
+
+                    b.Property<string>("NewValue")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("new_value");
+
+                    b.Property<string>("OldValue")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("old_value");
+
+                    b.Property<string>("SchemaName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("schema_name");
+
+                    b.Property<string>("TableName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("table_name");
+
+                    b.HasKey("Id")
+                        .HasName("pk_schema_changes");
+
+                    b.HasIndex("ChangeType")
+                        .HasDatabaseName("ix_schema_changes_change_type");
+
+                    b.HasIndex("DataSourceId")
+                        .HasDatabaseName("ix_schema_changes_data_source_id");
+
+                    b.HasIndex("DetectedAt")
+                        .HasDatabaseName("ix_schema_changes_detected_at");
+
+                    b.ToTable("schema_changes", "semantico");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.Projects.SchemaSnapshot", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CapturedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("captured_at");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_time");
+
+                    b.Property<int>("DataSourceId")
+                        .HasColumnType("integer")
+                        .HasColumnName("data_source_id");
+
+                    b.Property<string>("SchemaJson")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("schema_json");
+
+                    b.HasKey("Id")
+                        .HasName("pk_schema_snapshots");
+
+                    b.HasIndex("CapturedAt")
+                        .HasDatabaseName("ix_schema_snapshots_captured_at");
+
+                    b.HasIndex("DataSourceId")
+                        .HasDatabaseName("ix_schema_snapshots_data_source_id");
+
+                    b.ToTable("schema_snapshots", "semantico");
                 });
 
             modelBuilder.Entity("Semantico.Core.Data.Entities.Query", b =>
@@ -3540,6 +4215,23 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                     b.ToTable("subscription_parameters", "semantico");
                 });
 
+            modelBuilder.Entity("DataContractRecipient", b =>
+                {
+                    b.HasOne("Semantico.Core.Data.Entities.DataQuality.DataContract", null)
+                        .WithMany()
+                        .HasForeignKey("DataContractsId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_data_contract_recipient_data_contracts_data_contracts_id");
+
+                    b.HasOne("Semantico.Core.Data.Entities.Recipient", null)
+                        .WithMany()
+                        .HasForeignKey("RecipientsId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_data_contract_recipient_recipients_recipients_id");
+                });
+
             modelBuilder.Entity("RecipientSubscription", b =>
                 {
                     b.HasOne("Semantico.Core.Data.Entities.Recipient", null)
@@ -3728,6 +4420,17 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                     b.Navigation("Notification");
 
                     b.Navigation("Subscription");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.ApiKeyCredential", b =>
+                {
+                    b.HasOne("Semantico.Core.Data.Entities.SemanticoUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_api_key_credentials_users_user_id");
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("Semantico.Core.Data.Entities.DashboardPermission", b =>
@@ -3931,6 +4634,44 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                     b.Navigation("DataSource");
                 });
 
+            modelBuilder.Entity("Semantico.Core.Data.Entities.McpAuditLog", b =>
+                {
+                    b.HasOne("Semantico.Core.Data.Entities.McpSession", "Session")
+                        .WithMany()
+                        .HasForeignKey("SessionId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_mcp_audit_logs_mcp_sessions_session_id");
+
+                    b.HasOne("Semantico.Core.Data.Entities.SemanticoUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_mcp_audit_logs_users_user_id");
+
+                    b.Navigation("Session");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.McpSession", b =>
+                {
+                    b.HasOne("Semantico.Core.Data.Entities.ApiKeyCredential", "ApiKey")
+                        .WithMany()
+                        .HasForeignKey("ApiKeyId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_mcp_sessions_api_key_credentials_api_key_id");
+
+                    b.HasOne("Semantico.Core.Data.Entities.SemanticoUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_mcp_sessions_users_user_id");
+
+                    b.Navigation("ApiKey");
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("Semantico.Core.Data.Entities.Metadata.ColumnMetadata", b =>
                 {
                     b.HasOne("Semantico.Core.Data.Entities.Metadata.DatabaseMetadata", "DatabaseMetadata")
@@ -3994,6 +4735,87 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                     b.Navigation("Recipient");
 
                     b.Navigation("Task");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.Projects.CodeReference", b =>
+                {
+                    b.HasOne("Semantico.Core.Data.Entities.Projects.GitHubRepository", "GitHubRepository")
+                        .WithMany("CodeReferences")
+                        .HasForeignKey("GitHubRepositoryId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_code_references_git_hub_repositories_git_hub_repository_id");
+
+                    b.Navigation("GitHubRepository");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.Projects.GitHubRepository", b =>
+                {
+                    b.HasOne("Semantico.Core.Data.Entities.Projects.Project", "Project")
+                        .WithMany("Repositories")
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_git_hub_repositories_projects_project_id");
+
+                    b.Navigation("Project");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.Projects.ProjectDataSource", b =>
+                {
+                    b.HasOne("Semantico.Core.Data.Entities.DataSource", "DataSource")
+                        .WithMany()
+                        .HasForeignKey("DataSourceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_project_data_sources_data_sources_data_source_id");
+
+                    b.HasOne("Semantico.Core.Data.Entities.Projects.Project", "Project")
+                        .WithMany("DataSources")
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_project_data_sources_projects_project_id");
+
+                    b.Navigation("DataSource");
+
+                    b.Navigation("Project");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.Projects.ProjectReport", b =>
+                {
+                    b.HasOne("Semantico.Core.Data.Entities.Projects.Project", "Project")
+                        .WithMany("Reports")
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_project_reports_projects_project_id");
+
+                    b.Navigation("Project");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.Projects.SchemaChange", b =>
+                {
+                    b.HasOne("Semantico.Core.Data.Entities.DataSource", "DataSource")
+                        .WithMany()
+                        .HasForeignKey("DataSourceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_schema_changes_data_sources_data_source_id");
+
+                    b.Navigation("DataSource");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.Projects.SchemaSnapshot", b =>
+                {
+                    b.HasOne("Semantico.Core.Data.Entities.DataSource", "DataSource")
+                        .WithMany()
+                        .HasForeignKey("DataSourceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_schema_snapshots_data_sources_data_source_id");
+
+                    b.Navigation("DataSource");
                 });
 
             modelBuilder.Entity("Semantico.Core.Data.Entities.Query", b =>
@@ -4293,6 +5115,20 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                     b.Navigation("Columns");
 
                     b.Navigation("Indexes");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.Projects.GitHubRepository", b =>
+                {
+                    b.Navigation("CodeReferences");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.Projects.Project", b =>
+                {
+                    b.Navigation("DataSources");
+
+                    b.Navigation("Reports");
+
+                    b.Navigation("Repositories");
                 });
 
             modelBuilder.Entity("Semantico.Core.Data.Entities.Query", b =>

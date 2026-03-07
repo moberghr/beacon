@@ -27,8 +27,8 @@
     <Version>2.0.5.0</Version>
     <Authors>https://github.com/MiBu</Authors>
     <Description>PostgreSQL database provider for Semantico. Provides Entity Framework Core configuration and migrations for PostgreSQL databases with snake_case naming conventions.</Description>
-    <PackageProjectUrl>https://github.com/moberghr/semantico</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/moberghr/semantico</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/MiBu/semantico</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/MiBu/semantico</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageTags>semantico;database;postgresql;efcore;alerts;notifications</PackageTags>

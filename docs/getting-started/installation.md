@@ -593,4 +593,4 @@ Now that Semantico is installed:
 - 📚 [Configuration Guide](configuration) - Detailed configuration options
 - 🚀 [Quick Start](quick-start) - 5-minute quickstart guide
 - 🎓 [Features Overview](../features/) - Complete feature documentation
-- 🐛 [Report Issues](https://github.com/moberghr/semantico/issues)
+- 🐛 [Report Issues](https://github.com/MiBu/semantico/issues)

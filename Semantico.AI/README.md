@@ -169,7 +169,7 @@ This package includes:
 
 ## Documentation
 
-For complete documentation, visit: https://github.com/moberghr/semantico
+For complete documentation, visit: https://github.com/MiBu/semantico
 
 ## License
 
@@ -177,8 +177,8 @@ MIT License - see LICENSE file for details
 
 ## Support
 
-- GitHub Issues: https://github.com/moberghr/semantico/issues
-- Documentation: https://github.com/moberghr/semantico/wiki
+- GitHub Issues: https://github.com/MiBu/semantico/issues
+- Documentation: https://github.com/MiBu/semantico/wiki
 
 ## Related Packages
 

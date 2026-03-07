@@ -25,6 +25,16 @@
       <ProjectReference Include="..\Semantico.UI\Semantico.UI.csproj" />
       <ProjectReference Include="..\Semantico.Core.PostgreSql\Semantico.Core.PostgreSql.csproj" />
       <ProjectReference Include="..\Semantico.AI\Semantico.AI.csproj" />
+      <ProjectReference Include="..\Semantico.MCP\Semantico.MCP.csproj" />
+      <!-- Data source connectors -->
+      <ProjectReference Include="..\Semantico.Connector.PostgreSql\Semantico.Connector.PostgreSql.csproj" />
+      <ProjectReference Include="..\Semantico.Connector.SqlServer\Semantico.Connector.SqlServer.csproj" />
+      <ProjectReference Include="..\Semantico.Connector.MySql\Semantico.Connector.MySql.csproj" />
+      <ProjectReference Include="..\Semantico.Connector.CloudWatch\Semantico.Connector.CloudWatch.csproj" />
+      <ProjectReference Include="..\Semantico.Connector.AzureSynapse\Semantico.Connector.AzureSynapse.csproj" />
+      <ProjectReference Include="..\Semantico.Connector.Snowflake\Semantico.Connector.Snowflake.csproj" />
+      <ProjectReference Include="..\Semantico.Connector.Databricks\Semantico.Connector.Databricks.csproj" />
+      <ProjectReference Include="..\Semantico.Connector.BigQuery\Semantico.Connector.BigQuery.csproj" />
     </ItemGroup>
 
 </Project>

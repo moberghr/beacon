@@ -1,0 +1,400 @@
+@page "/semantico/projects/{ProjectId:int}"
+@inherits BasePageComponent
+@using MediatR
+@using Semantico.Core.Data.Enums
+@using Semantico.Core.Handlers.Projects
+@inject IMediator Mediator
+
+<SemanticoPageTitle Title="@(_project?.Name ?? "Project Details")"/>
+
+<MudContainer MaxWidth="MaxWidth.ExtraExtraLarge" Class="my-4 px-4">
+    @if (_loading)
+    {
+        <MudProgressLinear Color="Color.Primary" Indeterminate="true"/>
+    }
+    else if (_project == null)
+    {
+        <MudAlert Severity="Severity.Error">Project not found.</MudAlert>
+    }
+    else
+    {
+        <MudStack Spacing="4">
+            @* Back + Header *@
+            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                    <MudIconButton Icon="@Icons.Material.Filled.ArrowBack"
+                                   OnClick="@(() => NavManager.NavigateTo("semantico/projects"))"/>
+                    <MudIcon Icon="@Icons.Material.Filled.FolderSpecial" Size="Size.Large" Color="Color.Primary"/>
+                    <MudStack Spacing="0">
+                        <MudText Typo="Typo.h5" Style="font-weight: 600;">@_project.Name</MudText>
+                        @if (!string.IsNullOrWhiteSpace(_project.Description))
+                        {
+                            <MudText Typo="Typo.body2" Color="Color.Secondary">@_project.Description</MudText>
+                        }
+                    </MudStack>
+                </MudStack>
+                <MudStack Row="true" Spacing="2">
+                    <MudButton Variant="Variant.Outlined"
+                               Color="Color.Info"
+                               StartIcon="@Icons.Material.Filled.PlayArrow"
+                               OnClick="ScanAll">
+                        Scan All
+                    </MudButton>
+                    <MudButton Variant="Variant.Filled"
+                               Color="Color.Primary"
+                               StartIcon="@Icons.Material.Filled.Assessment"
+                               OnClick="GenerateReport">
+                        Generate Report
+                    </MudButton>
+                </MudStack>
+            </MudStack>
+
+            @* Overview Summary Cards *@
+            <MudGrid Spacing="3">
+                <MudItem xs="6" sm="3">
+                    <MudPaper Elevation="2" Class="pa-4" Style="border-radius: 12px; text-align: center;">
+                        <MudText Typo="Typo.h4" Style="font-weight: 700;" Color="Color.Primary">@_project.TotalTables</MudText>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">Total Tables</MudText>
+                    </MudPaper>
+                </MudItem>
+                <MudItem xs="6" sm="3">
+                    <MudPaper Elevation="2" Class="pa-4" Style="border-radius: 12px; text-align: center;">
+                        <MudText Typo="Typo.h4" Style="font-weight: 700;"
+                                 Color="@GetScoreColor(_project.QualityScore)">
+                            @(_project.QualityScore.HasValue ? $"{_project.QualityScore:F0}%" : "N/A")
+                        </MudText>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">Quality Score</MudText>
+                    </MudPaper>
+                </MudItem>
+                <MudItem xs="6" sm="3">
+                    <MudPaper Elevation="2" Class="pa-4" Style="border-radius: 12px; text-align: center;">
+                        <MudText Typo="Typo.h4" Style="font-weight: 700;" Color="Color.Info">@_project.CodeReferenceCount</MudText>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">Code References</MudText>
+                    </MudPaper>
+                </MudItem>
+                <MudItem xs="6" sm="3">
+                    <MudPaper Elevation="2" Class="pa-4" Style="border-radius: 12px; text-align: center;">
+                        <MudText Typo="Typo.body1" Style="font-weight: 600;">
+                            @(_project.LastScanAt.HasValue ? _project.LastScanAt.Value.ToString("MMM dd HH:mm") : "Never")
+                        </MudText>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">Last Scan</MudText>
+                    </MudPaper>
+                </MudItem>
+            </MudGrid>
+
+            @* Tabs *@
+            <MudTabs Elevation="0" Rounded="true" ApplyEffectsToContainer="true" @bind-ActivePanelIndex="_activeTab">
+
+                @* Overview Tab *@
+                <MudTabPanel Text="Overview" Icon="@Icons.Material.Filled.Dashboard">
+                    <MudGrid Spacing="3" Class="mt-3">
+                        <MudItem xs="12" md="6">
+                            <MudPaper Elevation="1" Class="pa-4" Style="border-radius: 8px;">
+                                <MudText Typo="Typo.subtitle1" Style="font-weight: 600;" Class="mb-3">Data Sources</MudText>
+                                @if (_project.DataSources.Count == 0)
+                                {
+                                    <MudText Typo="Typo.body2" Color="Color.Secondary">No data sources linked.</MudText>
+                                }
+                                else
+                                {
+                                    foreach (var ds in _project.DataSources)
+                                    {
+                                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-2">
+                                            <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+                                                <MudIcon Icon="@Icons.Material.Filled.Storage" Size="Size.Small" Color="Color.Secondary"/>
+                                                <MudText Typo="Typo.body2">@ds.Name</MudText>
+                                            </MudStack>
+                                            <MudChip T="string" Size="Size.Small" Color="@GetScoreColor(ds.QualityScore)" Variant="Variant.Filled">
+                                                @(ds.QualityScore.HasValue ? $"{ds.QualityScore:F0}%" : "N/A")
+                                            </MudChip>
+                                        </MudStack>
+                                    }
+                                }
+                            </MudPaper>
+                        </MudItem>
+                        <MudItem xs="12" md="6">
+                            <MudPaper Elevation="1" Class="pa-4" Style="border-radius: 8px;">
+                                <MudText Typo="Typo.subtitle1" Style="font-weight: 600;" Class="mb-3">Repositories</MudText>
+                                @if (_project.Repositories.Count == 0)
+                                {
+                                    <MudText Typo="Typo.body2" Color="Color.Secondary">No repositories linked.</MudText>
+                                }
+                                else
+                                {
+                                    foreach (var repo in _project.Repositories)
+                                    {
+                                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-2">
+                                            <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+                                                <MudIcon Icon="@Icons.Material.Filled.Code" Size="Size.Small" Color="Color.Secondary"/>
+                                                <MudText Typo="Typo.body2">@repo.Name</MudText>
+                                            </MudStack>
+                                            <MudChip T="string" Size="Size.Small"
+                                                     Color="@GetScanStatusColor(repo.ScanStatus)"
+                                                     Variant="Variant.Outlined">
+                                                @(repo.ScanStatus ?? "Not scanned")
+                                            </MudChip>
+                                        </MudStack>
+                                    }
+                                }
+                            </MudPaper>
+                        </MudItem>
+                    </MudGrid>
+                </MudTabPanel>
+
+                @* Data Sources Tab *@
+                <MudTabPanel Text="Data Sources" Icon="@Icons.Material.Filled.Storage" BadgeData="@_project.DataSources.Count" BadgeColor="Color.Primary">
+                    <MudStack Spacing="2" Class="mt-3">
+                        @if (_project.DataSources.Count == 0)
+                        {
+                            <MudAlert Severity="Severity.Info">No data sources linked to this project.</MudAlert>
+                        }
+                        else
+                        {
+                            <MudTable Items="@_project.DataSources" Dense="true" Hover="true" Striped="true">
+                                <HeaderContent>
+                                    <MudTh>Name</MudTh>
+                                    <MudTh>Type</MudTh>
+                                    <MudTh>Tables</MudTh>
+                                    <MudTh>Quality Score</MudTh>
+                                </HeaderContent>
+                                <RowTemplate>
+                                    <MudTd><MudText Typo="Typo.body2">@context.Name</MudText></MudTd>
+                                    <MudTd><MudChip T="string" Size="Size.Small" Icon="@Icons.Material.Filled.Storage">@context.Type</MudChip></MudTd>
+                                    <MudTd><MudText Typo="Typo.body2">@context.TableCount</MudText></MudTd>
+                                    <MudTd>
+                                        @if (context.QualityScore.HasValue)
+                                        {
+                                            <MudChip T="string" Size="Size.Small" Variant="Variant.Filled" Color="@GetScoreColor(context.QualityScore)">
+                                                @($"{context.QualityScore:F0}%")
+                                            </MudChip>
+                                        }
+                                        else
+                                        {
+                                            <MudText Typo="Typo.body2" Color="Color.Secondary">Not evaluated</MudText>
+                                        }
+                                    </MudTd>
+                                </RowTemplate>
+                            </MudTable>
+                        }
+                    </MudStack>
+                </MudTabPanel>
+
+                @* Repositories Tab *@
+                <MudTabPanel Text="Repositories" Icon="@Icons.Material.Filled.Code" BadgeData="@_project.Repositories.Count" BadgeColor="Color.Primary">
+                    <MudStack Spacing="2" Class="mt-3">
+                        @if (_project.Repositories.Count == 0)
+                        {
+                            <MudAlert Severity="Severity.Info">No repositories linked.</MudAlert>
+                        }
+                        else
+                        {
+                            <MudTable Items="@_project.Repositories" Dense="true" Hover="true" Striped="true">
+                                <HeaderContent>
+                                    <MudTh>Name</MudTh>
+                                    <MudTh>URL</MudTh>
+                                    <MudTh>Scan Status</MudTh>
+                                    <MudTh>Last Scan</MudTh>
+                                    <MudTh>References Found</MudTh>
+                                </HeaderContent>
+                                <RowTemplate>
+                                    <MudTd><MudText Typo="Typo.body2" Style="font-weight: 600;">@context.Name</MudText></MudTd>
+                                    <MudTd>
+                                        <MudLink Href="@context.Url" Target="_blank" Typo="Typo.caption">
+                                            @(context.Url.Length > 40 ? context.Url[..40] + "..." : context.Url)
+                                        </MudLink>
+                                    </MudTd>
+                                    <MudTd>
+                                        <MudChip T="string" Size="Size.Small"
+                                                 Color="@GetScanStatusColor(context.ScanStatus)"
+                                                 Variant="Variant.Filled">
+                                            @(context.ScanStatus ?? "Not scanned")
+                                        </MudChip>
+                                    </MudTd>
+                                    <MudTd><MudText Typo="Typo.caption">@(context.LastScanAt?.ToString("MMM dd HH:mm") ?? "—")</MudText></MudTd>
+                                    <MudTd><MudText Typo="Typo.body2">@context.ReferenceCount</MudText></MudTd>
+                                </RowTemplate>
+                            </MudTable>
+                        }
+                    </MudStack>
+                </MudTabPanel>
+
+                @* Reports Tab *@
+                <MudTabPanel Text="Reports" Icon="@Icons.Material.Filled.Assessment" BadgeData="@_project.Reports.Count" BadgeColor="Color.Primary">
+                    <MudStack Spacing="2" Class="mt-3">
+                        <MudStack Row="true" Justify="Justify.FlexEnd">
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                                       StartIcon="@Icons.Material.Filled.Add"
+                                       OnClick="GenerateReport">
+                                Generate New Report
+                            </MudButton>
+                        </MudStack>
+                        @if (_project.Reports.Count == 0)
+                        {
+                            <MudAlert Severity="Severity.Info">No reports generated yet. Generate a report to get a full snapshot of your project health.</MudAlert>
+                        }
+                        else
+                        {
+                            <MudTable Items="@_project.Reports" Dense="true" Hover="true" Striped="true">
+                                <HeaderContent>
+                                    <MudTh>Generated At</MudTh>
+                                    <MudTh>Quality Score</MudTh>
+                                    <MudTh>Tables Checked</MudTh>
+                                    <MudTh>Issues Found</MudTh>
+                                    <MudTh>Actions</MudTh>
+                                </HeaderContent>
+                                <RowTemplate>
+                                    <MudTd><MudText Typo="Typo.body2">@context.GeneratedAt.ToString("yyyy-MM-dd HH:mm")</MudText></MudTd>
+                                    <MudTd>
+                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Filled" Color="@GetScoreColor(context.QualityScore)">
+                                            @($"{context.QualityScore:F0}%")
+                                        </MudChip>
+                                    </MudTd>
+                                    <MudTd><MudText Typo="Typo.body2">@context.TablesChecked</MudText></MudTd>
+                                    <MudTd>
+                                        <MudChip T="string" Size="Size.Small"
+                                                 Color="@(context.IssuesFound > 0 ? Color.Warning : Color.Success)"
+                                                 Variant="Variant.Outlined">
+                                            @context.IssuesFound
+                                        </MudChip>
+                                    </MudTd>
+                                    <MudTd>
+                                        <MudIconButton Icon="@Icons.Material.Filled.Download"
+                                                       Size="Size.Small"
+                                                       Color="Color.Primary"
+                                                       Title="Download report"/>
+                                    </MudTd>
+                                </RowTemplate>
+                            </MudTable>
+                        }
+                    </MudStack>
+                </MudTabPanel>
+
+                @* Schema Changes Tab *@
+                <MudTabPanel Text="Schema Changes" Icon="@Icons.Material.Filled.CompareArrows">
+                    <MudStack Spacing="2" Class="mt-3">
+                        @if (_project.SchemaChanges.Count == 0)
+                        {
+                            <MudAlert Severity="Severity.Info">No schema changes detected for this project.</MudAlert>
+                        }
+                        else
+                        {
+                            foreach (var change in _project.SchemaChanges)
+                            {
+                                <MudPaper Elevation="1" Class="pa-3" Style="border-radius: 8px; border-left: 3px solid var(--mud-palette-primary);">
+                                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                                            <MudChip T="string" Size="Size.Small"
+                                                     Color="@GetChangeTypeColor(change.ChangeType)"
+                                                     Variant="Variant.Filled">
+                                                @change.ChangeType
+                                            </MudChip>
+                                            <MudText Typo="Typo.body2" Style="font-weight: 600;">
+                                                @change.SchemaName.@change.TableName
+                                                @if (!string.IsNullOrEmpty(change.ColumnName))
+                                                {
+                                                    <span> / @change.ColumnName</span>
+                                                }
+                                            </MudText>
+                                        </MudStack>
+                                        <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                            @change.DetectedAt.ToString("yyyy-MM-dd HH:mm")
+                                        </MudText>
+                                    </MudStack>
+                                    @if (!string.IsNullOrEmpty(change.OldValue) || !string.IsNullOrEmpty(change.NewValue))
+                                    {
+                                        <MudStack Row="true" Spacing="2" Class="mt-1">
+                                            @if (!string.IsNullOrEmpty(change.OldValue))
+                                            {
+                                                <MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="Variant.Outlined">
+                                                    was: @change.OldValue
+                                                </MudChip>
+                                            }
+                                            @if (!string.IsNullOrEmpty(change.NewValue))
+                                            {
+                                                <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Outlined">
+                                                    now: @change.NewValue
+                                                </MudChip>
+                                            }
+                                        </MudStack>
+                                    }
+                                </MudPaper>
+                            }
+                        }
+                    </MudStack>
+                </MudTabPanel>
+
+            </MudTabs>
+        </MudStack>
+    }
+</MudContainer>
+
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+
+@code {
+    [Parameter]
+    public int ProjectId { get; set; }
+
+    private ProjectDetailEntry? _project;
+    private bool _loading = true;
+    private int _activeTab;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadProject();
+    }
+
+    private async Task LoadProject()
+    {
+        _loading = true;
+        try
+        {
+            var result = await Mediator.Send(new GetProjectDetailQuery(ProjectId));
+            _project = result.Project;
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to load project: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task ScanAll()
+    {
+        Snackbar.Add("Scanning all repositories...", Severity.Info);
+        await Task.CompletedTask;
+    }
+
+    private async Task GenerateReport()
+    {
+        Snackbar.Add("Generating report...", Severity.Info);
+        await Task.CompletedTask;
+    }
+
+    private static Color GetScoreColor(double? score) => score switch
+    {
+        >= 90 => Color.Success,
+        >= 70 => Color.Warning,
+        < 70 => Color.Error,
+        _ => Color.Default
+    };
+
+    private static Color GetScanStatusColor(string? status) => status switch
+    {
+        "Completed" => Color.Success,
+        "InProgress" => Color.Info,
+        "Failed" => Color.Error,
+        _ => Color.Default
+    };
+
+    private static Color GetChangeTypeColor(SchemaChangeType changeType) => changeType switch
+    {
+        SchemaChangeType.ColumnAdded or SchemaChangeType.TableAdded or SchemaChangeType.ConstraintAdded => Color.Success,
+        SchemaChangeType.ColumnDropped or SchemaChangeType.TableDropped or SchemaChangeType.ConstraintDropped => Color.Error,
+        SchemaChangeType.ColumnTypeChanged or SchemaChangeType.ColumnDefaultChanged => Color.Warning,
+        _ => Color.Default
+    };
+}

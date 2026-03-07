@@ -5,6 +5,7 @@ using Semantico.Core.Data.Entities.Base;
 using Semantico.Core.Data.Entities.DataMigration;
 using Semantico.Core.Data.Entities.DataQuality;
 using Semantico.Core.Data.Entities.Metadata;
+using Semantico.Core.Data.Entities.Projects;
 using System.Linq.Expressions;
 
 namespace Semantico.Core.Data;
@@ -128,6 +129,30 @@ public abstract partial class SemanticoContext : DbContext, IDataProtectionKeyCo
     // Data Protection Keys (for cookie authentication)
     public DbSet<DataProtectionKey> DataProtectionKeys => Set<DataProtectionKey>();
 
+    // Projects & Knowledge Graph
+    public DbSet<Project> Projects => Set<Project>();
+
+    public DbSet<ProjectDataSource> ProjectDataSources => Set<ProjectDataSource>();
+
+    public DbSet<GitHubRepository> GitHubRepositories => Set<GitHubRepository>();
+
+    public DbSet<CodeReference> CodeReferences => Set<CodeReference>();
+
+    public DbSet<ProjectReport> ProjectReports => Set<ProjectReport>();
+
+    public DbSet<SchemaSnapshot> SchemaSnapshots => Set<SchemaSnapshot>();
+
+    public DbSet<SchemaChange> SchemaChanges => Set<SchemaChange>();
+
+    // API Keys & MCP
+    public DbSet<ApiKeyCredential> ApiKeyCredentials => Set<ApiKeyCredential>();
+
+    public DbSet<McpSession> McpSessions => Set<McpSession>();
+
+    public DbSet<McpAuditLog> McpAuditLogs => Set<McpAuditLog>();
+
+    public DbSet<McpSettings> McpSettings => Set<McpSettings>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         // Set default schema for all entities
@@ -149,6 +174,9 @@ public abstract partial class SemanticoContext : DbContext, IDataProtectionKeyCo
         ConfigureApprovalEntities(modelBuilder);
         ConfigureDashboardEntities(modelBuilder);
         ConfigureDataQualityEntities(modelBuilder);
+        ConfigureProjectEntities(modelBuilder);
+        ConfigureApiKeyEntities(modelBuilder);
+        ConfigureMcpEntities(modelBuilder);
         base.OnModelCreating(modelBuilder);
     }
 
@@ -1129,6 +1157,198 @@ public abstract partial class SemanticoContext : DbContext, IDataProtectionKeyCo
 
             entity.HasIndex(e => new { e.DataSourceId, e.SchemaName, e.TableName }).IsUnique();
             entity.HasIndex(e => e.EvaluatedAt);
+        });
+    }
+
+    protected static void ConfigureProjectEntities(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<Project>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Name).HasMaxLength(200).IsRequired();
+            entity.Property(e => e.Description).HasMaxLength(2000);
+
+            entity.HasMany(e => e.DataSources)
+                .WithOne(e => e.Project)
+                .HasForeignKey(e => e.ProjectId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasMany(e => e.Repositories)
+                .WithOne(e => e.Project)
+                .HasForeignKey(e => e.ProjectId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasMany(e => e.Reports)
+                .WithOne(e => e.Project)
+                .HasForeignKey(e => e.ProjectId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(e => e.Name);
+        });
+
+        modelBuilder.Entity<ProjectDataSource>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+
+            entity.HasOne(e => e.DataSource)
+                .WithMany()
+                .HasForeignKey(e => e.DataSourceId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasIndex(e => new { e.ProjectId, e.DataSourceId }).IsUnique();
+        });
+
+        modelBuilder.Entity<GitHubRepository>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.RepositoryUrl).HasMaxLength(500).IsRequired();
+            entity.Property(e => e.Branch).HasMaxLength(200);
+            entity.Property(e => e.ScanCronExpression).HasMaxLength(100);
+            entity.Property(e => e.LastScanError).HasMaxLength(4000);
+
+            entity.HasMany(e => e.CodeReferences)
+                .WithOne(e => e.GitHubRepository)
+                .HasForeignKey(e => e.GitHubRepositoryId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(e => e.ProjectId);
+            entity.HasIndex(e => e.ScanStatus);
+        });
+
+        modelBuilder.Entity<CodeReference>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.FilePath).HasMaxLength(1000).IsRequired();
+            entity.Property(e => e.SchemaName).HasMaxLength(200);
+            entity.Property(e => e.TableName).HasMaxLength(200);
+            entity.Property(e => e.ColumnName).HasMaxLength(200);
+            entity.Property(e => e.CodeSnippet).HasMaxLength(4000);
+            entity.Property(e => e.ClassName).HasMaxLength(200);
+            entity.Property(e => e.MethodName).HasMaxLength(200);
+
+            entity.HasIndex(e => e.GitHubRepositoryId);
+            entity.HasIndex(e => new { e.SchemaName, e.TableName });
+            entity.HasIndex(e => e.ReferenceType);
+        });
+
+        modelBuilder.Entity<ProjectReport>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.ProjectId);
+            entity.HasIndex(e => e.GeneratedAt);
+        });
+
+        modelBuilder.Entity<SchemaSnapshot>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+
+            entity.HasOne(e => e.DataSource)
+                .WithMany()
+                .HasForeignKey(e => e.DataSourceId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(e => e.DataSourceId);
+            entity.HasIndex(e => e.CapturedAt);
+        });
+
+        modelBuilder.Entity<SchemaChange>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.SchemaName).HasMaxLength(200).IsRequired();
+            entity.Property(e => e.TableName).HasMaxLength(200).IsRequired();
+            entity.Property(e => e.ColumnName).HasMaxLength(200);
+            entity.Property(e => e.OldValue).HasMaxLength(2000);
+            entity.Property(e => e.NewValue).HasMaxLength(2000);
+            entity.Property(e => e.Description).HasMaxLength(2000);
+
+            entity.HasOne(e => e.DataSource)
+                .WithMany()
+                .HasForeignKey(e => e.DataSourceId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(e => e.DataSourceId);
+            entity.HasIndex(e => e.DetectedAt);
+            entity.HasIndex(e => e.ChangeType);
+        });
+    }
+
+    protected static void ConfigureApiKeyEntities(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<ApiKeyCredential>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Name).HasMaxLength(200).IsRequired();
+            entity.Property(e => e.KeyHash).HasMaxLength(128).IsRequired();
+            entity.Property(e => e.KeyPrefix).HasMaxLength(16).IsRequired();
+            entity.Property(e => e.Scopes).HasMaxLength(500);
+            entity.Property(e => e.AllowedDataSourceIds).HasMaxLength(500);
+
+            entity.HasOne(e => e.User)
+                .WithMany()
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasIndex(e => e.KeyHash).IsUnique();
+            entity.HasIndex(e => e.KeyPrefix);
+            entity.HasIndex(e => e.UserId);
+            entity.HasIndex(e => e.IsRevoked);
+        });
+    }
+
+    protected static void ConfigureMcpEntities(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<McpSession>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.SessionId).HasMaxLength(100).IsRequired();
+
+            entity.HasOne(e => e.ApiKey)
+                .WithMany()
+                .HasForeignKey(e => e.ApiKeyId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasOne(e => e.User)
+                .WithMany()
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasIndex(e => e.SessionId).IsUnique();
+            entity.HasIndex(e => e.LastActivityAt);
+        });
+
+        modelBuilder.Entity<McpAuditLog>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Tool).HasMaxLength(200).IsRequired();
+            entity.Property(e => e.Parameters).HasMaxLength(4000);
+            entity.Property(e => e.ErrorMessage).HasMaxLength(4000);
+
+            entity.HasOne(e => e.Session)
+                .WithMany()
+                .HasForeignKey(e => e.SessionId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasOne(e => e.User)
+                .WithMany()
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasIndex(e => e.SessionId);
+            entity.HasIndex(e => e.UserId);
+            entity.HasIndex(e => e.CreatedTime);
+            entity.HasIndex(e => e.Tool);
+        });
+
+        modelBuilder.Entity<McpSettings>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.AskSystemPrompt).HasMaxLength(4000);
+            entity.Property(e => e.GlobalInstruction).HasMaxLength(4000);
+            entity.Property(e => e.ListDataSourcesDescription).HasMaxLength(1000);
+            entity.Property(e => e.QueryDescription).HasMaxLength(1000);
+            entity.Property(e => e.GetDocumentationDescription).HasMaxLength(1000);
+            entity.Property(e => e.AskDescription).HasMaxLength(1000);
+            entity.Property(e => e.CustomPiiPatterns).HasMaxLength(4000);
         });
     }
 }

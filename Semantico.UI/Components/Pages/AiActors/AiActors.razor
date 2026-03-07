@@ -31,13 +31,9 @@
 
     <MudStack Row="true" Class="mb-4" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
         <MudStack Row="true" Class="gap-4">
-            <MudSelect T="int?" Label="Data Source" @bind-Value="_selectedDataSourceId" Variant="Variant.Outlined" AnchorOrigin="Origin.BottomCenter" Style="min-width: 250px;">
-                <MudSelectItem T="int?" Value="@((int?)null)">All Data Sources</MudSelectItem>
-                @foreach (var ds in _dataSources)
-                {
-                    <MudSelectItem T="int?" Value="@ds.Id">@ds.Name</MudSelectItem>
-                }
-            </MudSelect>
+            <DataSourceSelect @bind-Value="_selectedDataSourceId"
+                               Label="Data Source"
+                               ShowAllOption="true"/>
             <MudSwitch @bind-Checked="_includeArchived" T="bool" Color="Color.Primary" Label="Include Archived" />
         </MudStack>
         <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="@OpenCreateDialog" Disabled="@(!_canWrite || !_selectedDataSourceId.HasValue)">
@@ -137,7 +133,6 @@
     public int? DataSourceId { get; set; }
 
     private List<AiActorListItem> _actors = new();
-    private List<Semantico.Core.Models.DataSources.DataSourceListData> _dataSources = new();
     private int? _selectedDataSourceId;
     private bool _includeArchived;
     private bool _loading;
@@ -146,15 +141,16 @@
     protected override async Task OnInitializedAsync()
     {
         _canWrite = await AuthorizationProvider.HasWritePermissionAsync();
-        await LoadDataSourcesAsync();
 
         if (DataSourceId.HasValue)
         {
             _selectedDataSourceId = DataSourceId;
         }
-        else if (_dataSources.Any())
+        else
         {
-            _selectedDataSourceId = _dataSources.First().Id;
+            var dataSources = await DataSourceService.GetDataSources(null, CancellationToken.None);
+            if (dataSources.Count > 0)
+                _selectedDataSourceId = dataSources[0].Id;
         }
 
         await LoadActorsAsync();
@@ -167,12 +163,6 @@
             _selectedDataSourceId = DataSourceId;
             await LoadActorsAsync();
         }
-    }
-
-    private async Task LoadDataSourcesAsync()
-    {
-        var dataSources = await DataSourceService.GetDataSources(null, CancellationToken.None);
-        _dataSources = dataSources.ToList();
     }
 
     private async Task LoadActorsAsync()

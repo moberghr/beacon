@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Semantico.Core.Adapters;
 using Semantico.Core.Data;
 using Semantico.Core.Data.Entities;
+using Semantico.Core.Data.Entities.DataQuality;
 using Semantico.Core.Data.Enums;
 using Semantico.Core.Helpers.File;
 using Semantico.Core.Services;
@@ -207,12 +208,132 @@ internal class JobService(
     {
         try
         {
-            await dataQualityEvaluationService.EvaluateContractAsync(contractId);
+            var evaluationResult = await dataQualityEvaluationService.EvaluateContractAsync(contractId);
+
+            await SendDataQualityNotificationsIfNeeded(contractId, evaluationResult);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Failed to evaluate data contract {ContractId}", contractId);
             throw;
+        }
+    }
+
+    private async Task SendDataQualityNotificationsIfNeeded(int contractId, Models.DataQuality.DataQualityEvaluationData evaluationResult)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync();
+
+        var contract = await context.DataContracts
+            .Where(c => c.Id == contractId)
+            .Select(c => new
+            {
+                c.Name,
+                c.AlertOnFailure,
+                c.FailureThresholdScore,
+                c.SchemaName,
+                c.TableName,
+                DataSourceName = c.DataSource.Name,
+                Recipients = c.Recipients.Select(r => new
+                {
+                    r.Id,
+                    r.Name,
+                    r.Destination,
+                    r.NotificationType,
+                    r.HeadersJson,
+                    r.BodyTemplate
+                }).ToList()
+            })
+            .FirstOrDefaultAsync();
+
+        if (contract == null)
+        {
+            logger.LogWarning("Data contract {ContractId} not found for notification check", contractId);
+            return;
+        }
+
+        if (!contract.AlertOnFailure)
+        {
+            logger.LogDebug("AlertOnFailure is disabled for contract {ContractId} '{ContractName}', skipping notifications",
+                contractId, contract.Name);
+            return;
+        }
+
+        if (contract.Recipients.Count == 0)
+        {
+            logger.LogDebug("No recipients configured for contract {ContractId} '{ContractName}', skipping notifications",
+                contractId, contract.Name);
+            return;
+        }
+
+        if (evaluationResult.OverallScore >= contract.FailureThresholdScore)
+        {
+            logger.LogDebug("Contract {ContractId} '{ContractName}' score {Score:F1}% is above threshold {Threshold}%, no notification needed",
+                contractId, contract.Name, evaluationResult.OverallScore, contract.FailureThresholdScore);
+            return;
+        }
+
+        logger.LogInformation("Contract {ContractId} '{ContractName}' score {Score:F1}% is below threshold {Threshold}%, sending notifications to {RecipientCount} recipients",
+            contractId, contract.Name, evaluationResult.OverallScore, contract.FailureThresholdScore, contract.Recipients.Count);
+
+        // Build a summary of failed rules
+        var failedRules = evaluationResult.RuleResults
+            .Where(r => !r.Passed)
+            .ToList();
+
+        var failedRulesSummary = failedRules
+            .Select(r => (IDictionary<string, object?>)new Dictionary<string, object?>
+            {
+                ["Rule"] = r.RuleName,
+                ["Score"] = $"{r.Score:F1}%",
+                ["Expected"] = r.ExpectedValue,
+                ["Actual"] = r.ActualValue,
+                ["Message"] = r.Message
+            })
+            .ToList();
+
+        var queryResult = new QueryResult
+        {
+            SubscriptionName = $"[Data Quality] {contract.Name}",
+            SubscriptionId = null,
+            DataSourceName = contract.DataSourceName,
+            TotalRecords = failedRules.Count,
+            SqlQuery = string.Empty,
+            QueryResults = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                ContractName = contract.Name,
+                OverallScore = $"{evaluationResult.OverallScore:F1}%",
+                Threshold = $"{contract.FailureThresholdScore}%",
+                Table = $"{contract.SchemaName}.{contract.TableName}",
+                PassedRules = evaluationResult.PassedRules,
+                FailedRules = evaluationResult.FailedRules,
+                TotalRules = evaluationResult.TotalRules,
+                FailedRuleDetails = failedRules.Select(r => new { r.RuleName, r.Score, r.Message })
+            }),
+            TopRecords = failedRulesSummary,
+            AllRecords = failedRulesSummary,
+            ShowQuery = false
+        };
+
+        foreach (var recipient in contract.Recipients)
+        {
+            var recipientQueryResult = new RecipientQueryResult
+            {
+                RecipientDestination = recipient.Destination,
+                RecipientNotificationType = recipient.NotificationType,
+                QueryResult = queryResult,
+                HeadersJson = recipient.HeadersJson,
+                BodyTemplate = recipient.BodyTemplate
+            };
+
+            try
+            {
+                await notificationService.SendNotification(recipientQueryResult, null);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Failed to send data quality notification to recipient {RecipientId} '{RecipientName}' for contract {ContractId}",
+                    recipient.Id, recipient.Name, contractId);
+            }
         }
     }
 

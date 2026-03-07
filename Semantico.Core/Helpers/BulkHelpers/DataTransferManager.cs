@@ -1,8 +1,8 @@
 ﻿using System.Collections;
 using System.Data;
-using System.Data.SqlClient;
 using System.Diagnostics;
 using System.Text;
+using Microsoft.Data.SqlClient;
 
 namespace Semantico.Core.Helpers.BulkHelpers;
 

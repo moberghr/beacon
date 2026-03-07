@@ -1,11 +1,9 @@
 @page "/control-tower"
 @using Semantico.Core.Services
 @using Semantico.Core.Models.ControlTower
-@using Semantico.Core.Models.DataSources
 @using Semantico.Core.Data.Enums
 @using Semantico.UI.Components.Custom
 @inject IControlTowerService ControlTowerService
-@inject IDataSourceService DataSourceService
 @inject NavigationManager NavManager
 @inherits BasePageComponent
 @implements IDisposable
@@ -86,18 +84,9 @@
                                       OnDebounceIntervalElapsed="@(async () => await ReloadGrid())"/>
                     </MudItem>
                     <MudItem xs="12" sm="6" md="3">
-                        <MudSelect @bind-Value="_selectedDataSourceId"
-                                   Label="Data Source"
-                                   Variant="Variant.Outlined"
-                                   T="int?"
-                                   Clearable="true"
-                                   OnClearButtonClick="@(async () => { _selectedDataSourceId = null; await ReloadGrid(); })">
-                            <MudSelectItem T="int?" Value="null">All Data Sources</MudSelectItem>
-                            @foreach (var ds in _dataSources)
-                            {
-                                <MudSelectItem T="int?" Value="@ds.Id">@ds.Name</MudSelectItem>
-                            }
-                        </MudSelect>
+                        <DataSourceSelect @bind-Value="_selectedDataSourceId"
+                                           Label="Data Source"
+                                           ShowAllOption="true"/>
                     </MudItem>
                     <MudItem xs="12" sm="6" md="3">
                         <MudChipSet T="object"
@@ -251,8 +240,6 @@
 @code {
     private MudDataGrid<ControlTowerSubscriptionHealthData>? _dataGrid;
     private ControlTowerStatistics? _statistics;
-    private List<DataSourceListData> _dataSources = [];
-
     // Filters
     private string? _searchKeyword;
     private int? _selectedDataSourceId;
@@ -266,7 +253,6 @@
 
     protected override async Task OnInitializedAsync()
     {
-        _dataSources = await DataSourceService.GetDataSources(null, CancellationToken.None);
         await LoadStatistics();
 
         // Setup auto-refresh timer

@@ -51,17 +51,28 @@ internal class RecipientService(IDbContextFactory<SemanticoContext> contextFacto
     public async Task DeleteRecipient(int recipientId, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-        
+
         var recipient = await context.Recipients
             .Where(x => x.Id == recipientId)
+            .Select(r => new
+            {
+                Entity = r,
+                HasSubscriptions = r.Subscriptions.Any(),
+                HasDataContracts = r.DataContracts.Any()
+            })
             .SingleAsync(cancellationToken);
 
-        if (recipient.Subscriptions.Count > 0)
+        if (recipient.HasSubscriptions)
         {
             throw new SemanticoException($"Unable to remove recipient due to existing subscriptions");
         }
 
-        recipient.Archive();
+        if (recipient.HasDataContracts)
+        {
+            throw new SemanticoException($"Unable to remove recipient due to existing data contracts");
+        }
+
+        recipient.Entity.Archive();
         await context.SaveChangesAsync(cancellationToken);
     }
 

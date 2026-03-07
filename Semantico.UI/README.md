@@ -51,10 +51,10 @@ Access the UI at: `http://localhost:5000/semantico`
 
 ## Documentation
 
-- [Full Documentation](https://moberghr.github.io/semantico)
-- [Quick Start Guide](https://moberghr.github.io/semantico/getting-started/quick-start)
-- [Features Overview](https://moberghr.github.io/semantico/features/)
+- [Full Documentation](https://mibu.github.io/semantico)
+- [Quick Start Guide](https://mibu.github.io/semantico/getting-started/quick-start)
+- [Features Overview](https://mibu.github.io/semantico/features/)
 
 ## License
 
-MIT License - see [LICENSE](https://github.com/moberghr/semantico/blob/main/LICENSE)
+MIT License - see [LICENSE](https://github.com/MiBu/semantico/blob/main/LICENSE)

@@ -23,12 +23,17 @@
                     Monitor data quality across your data sources with automated contracts and checks
                 </MudText>
             </MudStack>
-            <MudButton Variant="Variant.Filled"
-                       Color="Color.Primary"
-                       StartIcon="@Icons.Material.Filled.Add"
-                       OnClick="OpenCreateContractDialog">
-                New Contract
-            </MudButton>
+            <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+                <MudIconButton Icon="@Icons.Material.Filled.HelpOutline"
+                               Size="Size.Medium" Color="Color.Default"
+                               OnClick="OpenHelpDialog" Title="How it works"/>
+                <MudButton Variant="Variant.Filled"
+                           Color="Color.Primary"
+                           StartIcon="@Icons.Material.Filled.Add"
+                           OnClick="OpenCreateContractDialog">
+                    New Contract
+                </MudButton>
+            </MudStack>
         </MudStack>
 
         @* Overview Cards *@
@@ -205,6 +210,12 @@
             TotalItems = contracts.Count,
             Items = contracts.Skip(state.Page * state.PageSize).Take(state.PageSize)
         };
+    }
+
+    private async Task OpenHelpDialog()
+    {
+        var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true };
+        await DialogService.ShowAsync<DataQualityHelpDialog>("How Data Quality Works", options);
     }
 
     private async Task OpenCreateContractDialog()

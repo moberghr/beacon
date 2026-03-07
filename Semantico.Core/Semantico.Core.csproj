@@ -9,8 +9,8 @@
 		<Version>2.0.5.0</Version>
 		<Authors>https://github.com/MiBu</Authors>
 		<Description>Semantico core library providing semantic alerts and notifications for databases. Includes domain models, services, and data access abstractions for PostgreSQL, SQL Server, and MySQL support.</Description>
-		<PackageProjectUrl>https://github.com/moberghr/semantico</PackageProjectUrl>
-		<RepositoryUrl>https://github.com/moberghr/semantico</RepositoryUrl>
+		<PackageProjectUrl>https://github.com/MiBu/semantico</PackageProjectUrl>
+		<RepositoryUrl>https://github.com/MiBu/semantico</RepositoryUrl>
 		<RepositoryType>git</RepositoryType>
 		<PackageLicenseExpression>MIT</PackageLicenseExpression>
 		<PackageTags>semantico;database;alerts;notifications;postgresql;sqlserver;mysql;blazor</PackageTags>
@@ -28,7 +28,6 @@
 
 	<ItemGroup>
 		<PackageReference Include="AdaptiveCards" Version="3.1.0" />
-		<PackageReference Include="AWSSDK.CloudWatchLogs" Version="4.0.14.4" />
 		<PackageReference Include="ClosedXML" Version="0.105.0" />
 		<PackageReference Include="CronExpressionDescriptor" Version="2.44.0" />
 		<PackageReference Include="Cronos" Version="0.11.1" />
@@ -45,10 +44,7 @@
 		<PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="9.0.11" />
 		<PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="9.0.11" />
 		<PackageReference Include="Microsoft.Extensions.Http" Version="9.0.11" />
-		<PackageReference Include="MySql.Data" Version="9.5.0" />
-		<PackageReference Include="Npgsql" Version="9.0.4" />
 		<PackageReference Include="Refit" Version="9.0.2" />
-		<PackageReference Include="System.Data.SqlClient" Version="4.9.0" />
 		<PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.11" />
 		<PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.3.1" />
 		<PackageReference Include="Microsoft.IdentityModel.Tokens" Version="8.3.1" />

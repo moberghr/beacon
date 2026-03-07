@@ -66,6 +66,12 @@ internal sealed class LoginFormAuthMiddleware(
             return true;
         }
 
+        // Allow MCP endpoints (authenticated via API key)
+        if (path.Contains("/semantico/mcp/", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
         return MiddlewarePathHelper.IsStaticOrFrameworkPath(path);
     }
 }

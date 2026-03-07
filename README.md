@@ -1,7 +1,7 @@
 # Semantico
 
 [![NuGet](https://img.shields.io/badge/NuGet-available-blue)](https://www.nuget.org/)
-[![Documentation](https://img.shields.io/badge/docs-github.io-blue)](https://moberghr.github.io/semantico)
+[![Documentation](https://img.shields.io/badge/docs-github.io-blue)](https://mibu.github.io/semantico)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![.NET](https://img.shields.io/badge/.NET-9.0-purple)](https://dotnet.microsoft.com/)
 
@@ -72,7 +72,7 @@ Add Semantico to your ASP.NET application in under 30 minutes:
 
 4. **Access the UI** at `http://localhost:5000/semantico`
 
-📚 [View detailed quick start guide →](https://moberghr.github.io/semantico/getting-started/quick-start)
+📚 [View detailed quick start guide →](https://mibu.github.io/semantico/getting-started/quick-start)
 
 ## 🏗️ System Architecture
 
@@ -268,7 +268,7 @@ flowchart LR
 - Related tasks discovery from same query
 - Manual resolution with notes and user tracking
 
-[Explore all features →](https://moberghr.github.io/semantico/features/)
+[Explore all features →](https://mibu.github.io/semantico/features/)
 
 ## 📦 Installation
 
@@ -360,31 +360,31 @@ openssl rand -base64 32
 
 ⚠️ **Important:** The `EncryptionKey` is required for encrypting sensitive data like connection strings.
 
-📚 [View detailed installation guide →](https://moberghr.github.io/semantico/getting-started/installation)
+📚 [View detailed installation guide →](https://mibu.github.io/semantico/getting-started/installation)
 
 ## 📖 Documentation
 
 - **Getting Started**
-  - [Installation Guide](https://moberghr.github.io/semantico/getting-started/installation) - NuGet package setup
-  - [Quick Start](https://moberghr.github.io/semantico/getting-started/quick-start) - First query in 30 minutes
-  - [Configuration](https://moberghr.github.io/semantico/getting-started/configuration) - Connection strings and options
+  - [Installation Guide](https://mibu.github.io/semantico/getting-started/installation) - NuGet package setup
+  - [Quick Start](https://mibu.github.io/semantico/getting-started/quick-start) - First query in 30 minutes
+  - [Configuration](https://mibu.github.io/semantico/getting-started/configuration) - Connection strings and options
 
 - **Features**
-  - [Projects](https://moberghr.github.io/semantico/features/projects) - Database connection management
-  - [Queries](https://moberghr.github.io/semantico/features/queries) - Query creation and parameters
-  - [Multi-Step Queries](https://moberghr.github.io/semantico/features/multi-step-queries) - Advanced query chaining
-  - [Subscriptions](https://moberghr.github.io/semantico/features/subscriptions) - Scheduled execution
-  - [Notifications](https://moberghr.github.io/semantico/features/notifications) - Email, Teams, Jira delivery
-  - [Tasks](https://moberghr.github.io/semantico/features/tasks) - Alerting task management
+  - [Projects](https://mibu.github.io/semantico/features/projects) - Database connection management
+  - [Queries](https://mibu.github.io/semantico/features/queries) - Query creation and parameters
+  - [Multi-Step Queries](https://mibu.github.io/semantico/features/multi-step-queries) - Advanced query chaining
+  - [Subscriptions](https://mibu.github.io/semantico/features/subscriptions) - Scheduled execution
+  - [Notifications](https://mibu.github.io/semantico/features/notifications) - Email, Teams, Jira delivery
+  - [Tasks](https://mibu.github.io/semantico/features/tasks) - Alerting task management
 
 - **Advanced**
-  - [Query Chaining](https://moberghr.github.io/semantico/advanced/query-chaining) - Cross-project queries
-  - [Multi-Tenant Deployments](https://moberghr.github.io/semantico/advanced/multi-tenant) - Schema-agnostic configuration
-  - [Architecture](https://moberghr.github.io/semantico/advanced/architecture) - Clean Architecture deep-dive
+  - [Query Chaining](https://mibu.github.io/semantico/advanced/query-chaining) - Cross-project queries
+  - [Multi-Tenant Deployments](https://mibu.github.io/semantico/advanced/multi-tenant) - Schema-agnostic configuration
+  - [Architecture](https://mibu.github.io/semantico/advanced/architecture) - Clean Architecture deep-dive
 
 - **Reference**
-  - [API Services](https://moberghr.github.io/semantico/api/services) - Service interfaces
-  - [Troubleshooting](https://moberghr.github.io/semantico/troubleshooting/common-issues) - Common issues and solutions
+  - [API Services](https://mibu.github.io/semantico/api/services) - Service interfaces
+  - [Troubleshooting](https://mibu.github.io/semantico/troubleshooting/common-issues) - Common issues and solutions
 
 ## 🎯 Common Use Cases
 
@@ -484,16 +484,16 @@ Enable task creation to track issues, add comments, and manage the resolution li
 
 ## 🤝 Support and Contributing
 
-- **Issues** - [Report bugs or request features](https://github.com/moberghr/semantico/issues)
-- **Discussions** - [Ask questions and share ideas](https://github.com/moberghr/semantico/discussions)
-- **Contributing** - [Contribution guidelines](https://moberghr.github.io/semantico/contributing/guidelines)
+- **Issues** - [Report bugs or request features](https://github.com/MiBu/semantico/issues)
+- **Discussions** - [Ask questions and share ideas](https://github.com/MiBu/semantico/discussions)
+- **Contributing** - [Contribution guidelines](https://mibu.github.io/semantico/contributing/guidelines)
 
 ---
 
 ## 📚 Resources
 
-**Documentation**: [https://moberghr.github.io/semantico](https://moberghr.github.io/semantico)
-**Repository**: [https://github.com/moberghr/semantico](https://github.com/moberghr/semantico)
+**Documentation**: [https://mibu.github.io/semantico](https://mibu.github.io/semantico)
+**Repository**: [https://github.com/MiBu/semantico](https://github.com/MiBu/semantico)
 **Version**: 1.0
 **Copyright**: © 2025
 

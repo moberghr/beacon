@@ -32,7 +32,9 @@ internal static class QueryLimitHelper
             DatabaseEngineType.PostgreSQL => AddPostgreSqlLimit(trimmedQuery, maxRows),
             DatabaseEngineType.MySQL => AddMySqlLimit(trimmedQuery, maxRows),
             DatabaseEngineType.MSSQL => AddSqlServerTop(trimmedQuery, maxRows),
+            DatabaseEngineType.AzureSynapse => AddSqlServerTop(trimmedQuery, maxRows),
             DatabaseEngineType.SQLite => AddSqliteLimit(trimmedQuery, maxRows),
+            DatabaseEngineType.Snowflake => AddPostgreSqlLimit(trimmedQuery, maxRows),
             _ => query // Unknown engine, return original
         };
     }
@@ -43,10 +45,10 @@ internal static class QueryLimitHelper
 
         return databaseEngine switch
         {
-            DatabaseEngineType.PostgreSQL or DatabaseEngineType.MySQL or DatabaseEngineType.SQLite =>
+            DatabaseEngineType.PostgreSQL or DatabaseEngineType.MySQL or DatabaseEngineType.SQLite or DatabaseEngineType.Snowflake =>
                 Regex.IsMatch(upperQuery, @"\bLIMIT\s+\d+", RegexOptions.IgnoreCase),
 
-            DatabaseEngineType.MSSQL =>
+            DatabaseEngineType.MSSQL or DatabaseEngineType.AzureSynapse =>
                 Regex.IsMatch(upperQuery, @"\bTOP\s+\d+", RegexOptions.IgnoreCase) ||
                 Regex.IsMatch(upperQuery, @"\bFETCH\s+(FIRST|NEXT)\s+\d+\s+ROWS?\s+ONLY", RegexOptions.IgnoreCase),
 

@@ -269,10 +269,11 @@ public class MultiAgentDocumentationService : IMultiAgentDocumentationService
         MultiAgentGenerationOptions options)
     {
         // Ensure all tables are assigned to a domain
-        var assignedTables = result.DomainGroups.SelectMany(d => d.Tables).Distinct().ToList();
+        // The LLM may return table names as schema.table or just table, so we need to match both formats
+        var assignedTables = result.DomainGroups.SelectMany(d => d.Tables).Distinct().ToHashSet(StringComparer.OrdinalIgnoreCase);
         var unassignedTables = allTables
-            .Select(t => t.TableName)
-            .Except(assignedTables)
+            .Where(t => !assignedTables.Contains(t.TableName) && !assignedTables.Contains($"{t.SchemaName}.{t.TableName}"))
+            .Select(t => $"{t.SchemaName}.{t.TableName}")
             .ToList();
 
         if (unassignedTables.Any())
@@ -392,8 +393,10 @@ public class MultiAgentDocumentationService : IMultiAgentDocumentationService
         CancellationToken cancellationToken)
     {
         // Filter tables for this domain
+        // The LLM may return table names as schema.table or just table, so match both formats
+        var domainTableSet = domain.Tables.ToHashSet(StringComparer.OrdinalIgnoreCase);
         var domainTables = allTables
-            .Where(t => domain.Tables.Contains(t.TableName))
+            .Where(t => domainTableSet.Contains(t.TableName) || domainTableSet.Contains($"{t.SchemaName}.{t.TableName}"))
             .ToList();
 
         if (domainTables.Count == 0)

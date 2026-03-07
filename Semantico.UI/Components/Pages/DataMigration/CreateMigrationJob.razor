@@ -64,18 +64,11 @@
                     
                     <!-- Destination Configuration -->
                     <MudItem xs="12" md="6">
-                        <MudSelect @bind-Value="_model.DestinationDataSourceId"
-                                  Label="Destination Data Source"
-                                  Required="true"
-                                  >
-                            @if (_dataSources != null)
-                            {
-                                @foreach (var dataSource in _dataSources)
-                                {
-                                    <MudSelectItem Value="dataSource.Id">@dataSource.Name (@dataSource.DatabaseEngineType)</MudSelectItem>
-                                }
-                            }
-                        </MudSelect>
+                        <DataSourceSelect Value="@((int?)_model.DestinationDataSourceId)"
+                                           ValueChanged="@(v => _model.DestinationDataSourceId = v ?? 0)"
+                                           Label="Destination Data Source"
+                                           Required="true"
+                                           ShowEngineType="true"/>
                     </MudItem>
                     
                     <MudItem xs="12" md="6">

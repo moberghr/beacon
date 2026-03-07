@@ -1,4 +1,5 @@
 ﻿using Semantico.Core.Data.Entities.Base;
+using Semantico.Core.Data.Entities.DataQuality;
 using Semantico.Core.Data.Enums;
 
 namespace Semantico.Core.Data.Entities;
@@ -18,6 +19,8 @@ public class Recipient : ArchivableBaseEntity
     public string? BodyTemplate { get; set; }
 
     public List<Subscription> Subscriptions { get; set; } = new();
-    
+
+    public List<DataContract> DataContracts { get; set; } = new();
+
     public List<Notification> Notifications { get; set; } = new();
 }

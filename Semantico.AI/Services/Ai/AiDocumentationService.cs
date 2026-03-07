@@ -42,7 +42,7 @@ public class AiDocumentationService : IAiDocumentationService
     {
         using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
         return await context.DataSourceDocumentations
-            .Where(d => d.DataSourceId == dataSourceId)
+            .Where(d => d.DataSourceId == dataSourceId && d.ArchivedTime == null)
             .OrderByDescending(d => d.GeneratedAt)
             .ToListAsync(cancellationToken);
     }

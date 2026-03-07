@@ -1,3 +1,5 @@
+using Semantico.Core.Data.Enums;
+
 namespace Semantico.Core.Models.DataQuality;
 
 public record DataContractData
@@ -17,4 +19,13 @@ public record DataContractData
     public DateTime CreatedTime { get; init; }
     public double? LatestScore { get; init; }
     public List<DataContractRuleData> Rules { get; init; } = new();
+    public List<DataContractRecipientData> Recipients { get; init; } = new();
+}
+
+public record DataContractRecipientData
+{
+    public int Id { get; init; }
+    public string Name { get; init; } = null!;
+    public string Destination { get; init; } = null!;
+    public NotificationType NotificationType { get; init; }
 }

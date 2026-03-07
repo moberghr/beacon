@@ -1,0 +1,295 @@
+@page "/semantico/settings/mcp"
+@namespace Semantico.UI.Components.Pages.McpConfig
+@inherits BasePageComponent
+@using MediatR
+@using Semantico.Core.Handlers.McpSettings
+@using Semantico.Core.Models
+@using Semantico.Core.Services
+@inject IMediator Mediator
+@inject ISnackbar Snackbar
+@inject IServiceProvider ServiceProvider
+@inject IDataSourceService DataSourceService
+
+<SemanticoPageTitle Title="MCP Settings"/>
+
+<MudContainer MaxWidth="MaxWidth.ExtraExtraLarge" Class="my-4 px-4">
+    <MudStack Spacing="4">
+        @* Page Header *@
+        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+            <MudStack Spacing="1">
+                <MudText Typo="Typo.h4">MCP Settings</MudText>
+                <MudText Typo="Typo.body2" Color="Color.Secondary">
+                    Configure the Model Context Protocol server behavior, tool descriptions, and guardrails.
+                </MudText>
+            </MudStack>
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       StartIcon="@Icons.Material.Filled.Save"
+                       OnClick="SaveSettings"
+                       Disabled="_saving">
+                @if (_saving)
+                {
+                    <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2"/>
+                }
+                Save Settings
+            </MudButton>
+        </MudStack>
+
+        @if (_loading)
+        {
+            <MudProgressLinear Color="Color.Primary" Indeterminate="true"/>
+        }
+        else
+        {
+            <MudTabs Elevation="0" Rounded="true" ApplyEffectsToContainer="true" PanelClass="pa-4">
+
+                @* Tab 1: Pre-prompt *@
+                <MudTabPanel Text="Pre-prompt" Icon="@Icons.Material.Filled.Psychology">
+                    <MudStack Spacing="3">
+                        <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">
+                            The <strong>Ask System Prompt</strong> controls how the AI generates SQL from natural language questions.
+                            The <strong>Global Instruction</strong> is prepended to every tool's user context.
+                        </MudAlert>
+
+                        <MudTextField @bind-Value="_data.AskSystemPrompt"
+                                      Label="Ask Tool System Prompt"
+                                      Placeholder="You are a SQL expert. Based on the provided database schema and context, generate a SQL query to answer the user's question..."
+                                      Lines="8"
+                                      Variant="Variant.Outlined"
+                                      HelperText="Leave blank to use the default system prompt."/>
+
+                        <MudTextField @bind-Value="_data.GlobalInstruction"
+                                      Label="Global Instruction"
+                                      Placeholder="e.g. Always use UTC timestamps. Prefer LEFT JOIN over INNER JOIN."
+                                      Lines="4"
+                                      Variant="Variant.Outlined"
+                                      HelperText="Prepended to user messages in all tools that interact with the LLM."/>
+                    </MudStack>
+                </MudTabPanel>
+
+                @* Tab 2: Tools *@
+                <MudTabPanel Text="Tools" Icon="@Icons.Material.Filled.Build">
+                    <MudStack Spacing="2">
+                        <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">
+                            Override tool descriptions returned by <code>tools/list</code>. Leave blank to use defaults.
+                        </MudAlert>
+
+                        <MudExpansionPanels MultiExpansion="true">
+                            <MudExpansionPanel Text="list_datasources">
+                                <MudTextField @bind-Value="_data.ListDataSourcesDescription"
+                                              Label="Description Override"
+                                              Placeholder="List all data sources, or list all tables in a specific data source grouped by schema."
+                                              Lines="3"
+                                              Variant="Variant.Outlined"/>
+                            </MudExpansionPanel>
+
+                            <MudExpansionPanel Text="query">
+                                <MudTextField @bind-Value="_data.QueryDescription"
+                                              Label="Description Override"
+                                              Placeholder="Execute a read-only SQL query against a data source. Queries are validated for safety and limited in row count."
+                                              Lines="3"
+                                              Variant="Variant.Outlined"/>
+                            </MudExpansionPanel>
+
+                            <MudExpansionPanel Text="get_documentation">
+                                <MudTextField @bind-Value="_data.GetDocumentationDescription"
+                                              Label="Description Override"
+                                              Placeholder="Get documentation for a data source or a specific table, including schema details, AI-generated descriptions, relationships, code references, quality scores, and lineage."
+                                              Lines="3"
+                                              Variant="Variant.Outlined"/>
+                            </MudExpansionPanel>
+
+                            <MudExpansionPanel Text="ask">
+                                <MudTextField @bind-Value="_data.AskDescription"
+                                              Label="Description Override"
+                                              Placeholder="Ask a natural language question about your data. Semantico uses its knowledge of your schema, documentation, and data quality to generate and execute a SQL query."
+                                              Lines="3"
+                                              Variant="Variant.Outlined"/>
+                            </MudExpansionPanel>
+                        </MudExpansionPanels>
+                    </MudStack>
+                </MudTabPanel>
+
+                @* Tab 3: Context Preview *@
+                <MudTabPanel Text="Context Preview" Icon="@Icons.Material.Filled.Preview">
+                    <MudStack Spacing="3">
+                        <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">
+                            Preview the documentation context that gets sent to the LLM for a given data source.
+                        </MudAlert>
+
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                            <MudSelect T="int?" @bind-Value="_selectedDataSourceId"
+                                       Label="Data Source"
+                                       Variant="Variant.Outlined"
+                                       Placeholder="Select a data source"
+                                       Clearable="true"
+                                       Style="max-width: 400px;">
+                                @foreach (var ds in _dataSources)
+                                {
+                                    <MudSelectItem T="int?" Value="@((int?)ds.Id)">@ds.Name</MudSelectItem>
+                                }
+                            </MudSelect>
+                            <MudButton Variant="Variant.Outlined"
+                                       Color="Color.Primary"
+                                       StartIcon="@Icons.Material.Filled.Refresh"
+                                       OnClick="LoadContextPreview"
+                                       Disabled="_loadingPreview || _selectedDataSourceId == null">
+                                Load Preview
+                            </MudButton>
+                        </MudStack>
+
+                        @if (_loadingPreview)
+                        {
+                            <MudProgressLinear Color="Color.Primary" Indeterminate="true"/>
+                        }
+
+                        @if (!string.IsNullOrEmpty(_contextPreview))
+                        {
+                            <MudPaper Elevation="0" Class="pa-4" Style="background: var(--mud-palette-background-grey); border-radius: 8px; max-height: 500px; overflow-y: auto;">
+                                <pre style="white-space: pre-wrap; word-wrap: break-word; font-size: 0.85rem; margin: 0;">@_contextPreview</pre>
+                            </MudPaper>
+                        }
+                    </MudStack>
+                </MudTabPanel>
+
+                @* Tab 4: Guardrails *@
+                <MudTabPanel Text="Guardrails" Icon="@Icons.Material.Filled.Shield">
+                    <MudStack Spacing="3">
+                        <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">
+                            Configure query execution guardrails applied to MCP tool calls.
+                        </MudAlert>
+
+                        <MudNumericField @bind-Value="_data.MaxRowLimit"
+                                         Label="Max Row Limit"
+                                         Min="1"
+                                         Max="100000"
+                                         Variant="Variant.Outlined"
+                                         HelperText="Maximum number of rows returned by the query tool."
+                                         Style="max-width: 300px;"/>
+
+                        <MudSwitch @bind-Value="_data.EnforceReadOnly"
+                                   Color="Color.Primary"
+                                   Label="Enforce Read-Only Queries"/>
+
+                        <MudSwitch @bind-Value="_data.EnablePiiDetection"
+                                   Color="Color.Primary"
+                                   Label="Enable PII Detection"/>
+
+                        <MudTextField @bind-Value="_customPiiPatternsText"
+                                      Label="Custom PII Patterns"
+                                      Placeholder="customer_name&#10;account_number&#10;\biban\b"
+                                      Lines="6"
+                                      Variant="Variant.Outlined"
+                                      HelperText="One regex pattern per line. Matched column names will be masked in query results."/>
+                    </MudStack>
+                </MudTabPanel>
+
+            </MudTabs>
+        }
+    </MudStack>
+</MudContainer>
+
+@code {
+    private McpSettingsData _data = new();
+    private bool _loading = true;
+    private bool _saving;
+    private bool _loadingPreview;
+    private int? _selectedDataSourceId;
+    private string? _contextPreview;
+    private string _customPiiPatternsText = "";
+    private List<Semantico.Core.Models.DataSources.DataSourceListData> _dataSources = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await Task.WhenAll(LoadSettings(), LoadDataSources());
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task LoadSettings()
+    {
+        _data = await Mediator.Send(new GetMcpSettingsQuery());
+        _customPiiPatternsText = string.Join("\n", _data.CustomPiiPatterns);
+    }
+
+    private async Task LoadDataSources()
+    {
+        _dataSources = await DataSourceService.GetDataSources(null, CancellationToken.None);
+    }
+
+    private async Task SaveSettings()
+    {
+        _saving = true;
+        try
+        {
+            _data.CustomPiiPatterns = _customPiiPatternsText
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .ToList();
+
+            await Mediator.Send(new UpdateMcpSettingsCommand(_data));
+            Snackbar.Add("MCP settings saved successfully", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error saving settings: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task LoadContextPreview()
+    {
+        if (_selectedDataSourceId == null) return;
+
+        _loadingPreview = true;
+        _contextPreview = null;
+        StateHasChanged();
+
+        try
+        {
+            // Resolve IKnowledgeGraphService dynamically (registered by Semantico.AI)
+            var knowledgeGraphType = Type.GetType("Semantico.AI.Services.Knowledge.IKnowledgeGraphService, Semantico.AI");
+            if (knowledgeGraphType == null)
+            {
+                _contextPreview = "Knowledge graph service not available. Ensure Semantico.AI is configured.";
+                return;
+            }
+
+            var service = ServiceProvider.GetService(knowledgeGraphType);
+            if (service == null)
+            {
+                _contextPreview = "Knowledge graph service not registered. Ensure AI features are enabled.";
+                return;
+            }
+
+            // Call GetContextForLlmAsync via reflection
+            var method = knowledgeGraphType.GetMethod("GetContextForLlmAsync");
+            if (method == null)
+            {
+                _contextPreview = "GetContextForLlmAsync method not found.";
+                return;
+            }
+
+            var task = (Task<string>)method.Invoke(service, [_selectedDataSourceId.Value, null, null, CancellationToken.None])!;
+            _contextPreview = await task;
+
+            if (string.IsNullOrWhiteSpace(_contextPreview))
+                _contextPreview = "(No context available for this data source. Generate documentation first.)";
+        }
+        catch (Exception ex)
+        {
+            _contextPreview = $"Error loading context: {ex.Message}";
+        }
+        finally
+        {
+            _loadingPreview = false;
+        }
+    }
+}

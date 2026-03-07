@@ -5,8 +5,18 @@ using Semantico.Core;
 using Semantico.Core.PostgreSql;
 using Semantico.Core.SqlServer;
 using Semantico.Core.Authentication.Providers;
+using Semantico.Connector.PostgreSql;
+using Semantico.Connector.SqlServer;
+using Semantico.Connector.MySql;
+using Semantico.Connector.CloudWatch;
+using Semantico.Connector.AzureSynapse;
+using Semantico.Connector.Snowflake;
+using Semantico.Connector.Databricks;
+using Semantico.Connector.BigQuery;
+using Semantico.MCP;
 using Semantico.SampleProject.Services;
 using Semantico.UI;
+using Semantico.UI.Authentication;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -70,6 +80,16 @@ builder.Services.AddSemanticoServices(builder.Configuration, options =>
             
         };
     })
+    // Register data source connectors (enables each engine type)
+    .AddPostgreSqlConnector()
+    .AddSqlServerConnector()
+    .AddMySqlConnector()
+    .AddCloudWatchConnector()
+    .AddAzureSynapseConnector()
+    .AddSnowflakeConnector()
+    .AddDatabricksConnector()
+    .AddBigQueryConnector()
+    // Configure EF Core database provider for Semantico's own data store
     .UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico")
     //.UseSqlServer(builder.Configuration.GetConnectionString("SemanticoContextSql")!, "semantico")
     ;
@@ -98,6 +118,9 @@ builder.Services.AddScoped<Microsoft.AspNetCore.Authentication.IClaimsTransforma
 // Step 4: Add Semantico AI services (required for AI features)
 builder.Services.AddSemanticoAI(builder.Configuration);
 
+// Step 5: Add Semantico MCP server (exposes data to AI tools via SSE)
+builder.Services.AddSemanticoMcp();
+
 var app = builder.Build();
 
 // ============================================================================
@@ -110,9 +133,16 @@ app.UseHttpsRedirection();
 // to serve _content files from Razor Class Libraries
 app.UseStaticFiles();
 
+// API key auth must run before cookie auth to prevent redirect for MCP clients
+app.UseMiddleware<ApiKeyAuthMiddleware>();
+
 // Authentication must be before authorization
 app.UseAuthentication();
 app.UseAuthorization();
+
+// Semantico MCP Server - available at /semantico/mcp/sse (SSE) and /semantico/mcp/message (POST)
+// AI tools like Claude Code connect here via API key authentication
+app.MapSemanticoMcp("/semantico/mcp");
 
 // Semantico Admin UI - available at /semantico
 // Using login form instead of basic authentication

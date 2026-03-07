@@ -3,20 +3,20 @@ using Dapper;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
-using Npgsql;
 using Semantico.Core.Data;
 using Semantico.Core.Data.Entities;
 using Semantico.Core.Data.Entities.Metadata;
 using Semantico.Core.Data.Enums;
 using Semantico.Core.Models;
 using Semantico.Core.Models.Metadata;
-using System.Data.SqlClient;
+using Semantico.Core.Services.Providers;
 
 namespace Semantico.Core.Services;
 
 public class DatabaseMetadataService(
     IDbContextFactory<SemanticoContext> contextFactory,
     IEncryptionService encryptionService,
+    IEnumerable<IDatabaseMetadataExtractor> metadataExtractors,
     IMemoryCache cache,
     ILogger<DatabaseMetadataService> logger)
     : IDatabaseMetadataService
@@ -55,14 +55,11 @@ public class DatabaseMetadataService(
             if (!dataSource.DatabaseEngineType.HasValue)
                 throw new SemanticoException($"Data source {dataSourceId} is not a database type");
 
-            // Extract metadata based on database type
+            // Extract metadata based on database type using registered extractors
             var connectionString = encryptionService.Decrypt(dataSource.EncryptedConnectionData);
-            var tables = dataSource.DatabaseEngineType.Value switch
-            {
-                DatabaseEngineType.PostgreSQL => await GetPostgreSqlMetadataAsync(connectionString, cancellationToken),
-                DatabaseEngineType.MSSQL => await GetSqlServerMetadataAsync(connectionString, cancellationToken),
-                _ => throw new NotSupportedException($"Database type {dataSource.DatabaseEngineType} not supported for metadata extraction")
-            };
+            var extractor = metadataExtractors.FirstOrDefault(e => e.SupportedEngineType == dataSource.DatabaseEngineType.Value)
+                ?? throw new NotSupportedException($"No metadata extractor registered for database type {dataSource.DatabaseEngineType}. Make sure to register the appropriate connector.");
+            var tables = await extractor.ExtractMetadataAsync(connectionString, cancellationToken);
 
             // Apply per-datasource filters
             tables = ApplyMetadataFilters(tables, dataSource);
@@ -217,261 +214,6 @@ public class DatabaseMetadataService(
         );
 
         return table?.Columns ?? Enumerable.Empty<ColumnMetadataDto>();
-    }
-
-    private async Task<IReadOnlyList<TableMetadataDto>> GetPostgreSqlMetadataAsync(string connectionString, CancellationToken cancellationToken)
-    {
-        await using var connection = new NpgsqlConnection(connectionString);
-        await connection.OpenAsync(cancellationToken);
-
-        // Get tables and columns using pg_catalog for better performance
-        const string tablesQuery = @"
-            SELECT
-                n.nspname AS table_schema,
-                c.relname AS table_name,
-                a.attname AS column_name,
-                pg_catalog.format_type(a.atttypid, a.atttypmod) AS data_type,
-                CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END AS is_nullable,
-                pg_get_expr(ad.adbin, ad.adrelid) AS column_default,
-                CASE
-                    WHEN t.typname IN ('varchar', 'char', 'bpchar') THEN
-                        CASE WHEN a.atttypmod > 0 THEN a.atttypmod - 4 ELSE NULL END
-                    ELSE NULL
-                END AS character_maximum_length,
-                a.attnum AS ordinal_position,
-                EXISTS(
-                    SELECT 1
-                    FROM pg_constraint con
-                    WHERE con.conrelid = c.oid
-                    AND con.contype = 'p'
-                    AND a.attnum = ANY(con.conkey)
-                ) AS is_primary_key
-            FROM pg_class c
-            JOIN pg_namespace n ON n.oid = c.relnamespace
-            JOIN pg_attribute a ON a.attrelid = c.oid
-            JOIN pg_type t ON a.atttypid = t.oid
-            LEFT JOIN pg_attrdef ad ON a.attrelid = ad.adrelid AND a.attnum = ad.adnum
-            WHERE c.relkind = 'r'
-                AND n.nspname NOT IN ('pg_catalog', 'information_schema')
-                AND a.attnum > 0
-                AND NOT a.attisdropped";
-
-        var columnsData = await connection.QueryAsync(tablesQuery, commandTimeout:180);
-
-        // Get foreign keys using pg_catalog for better performance
-        const string foreignKeysQuery = @"
-            SELECT
-                n.nspname AS table_schema,
-                c.relname AS table_name,
-                a.attname AS column_name,
-                fn.nspname AS foreign_schema_name,
-                fc.relname AS foreign_table_name,
-                fa.attname AS foreign_column_name
-            FROM pg_constraint con
-            JOIN pg_class c ON con.conrelid = c.oid
-            JOIN pg_namespace n ON c.relnamespace = n.oid
-            JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = ANY(con.conkey)
-            JOIN pg_class fc ON con.confrelid = fc.oid
-            JOIN pg_namespace fn ON fc.relnamespace = fn.oid
-            JOIN pg_attribute fa ON fa.attrelid = fc.oid AND fa.attnum = ANY(con.confkey)
-            WHERE con.contype = 'f'
-                AND n.nspname NOT IN ('pg_catalog', 'information_schema')
-                AND array_position(con.conkey, a.attnum) = array_position(con.confkey, fa.attnum)";
-
-        var foreignKeys = await connection.QueryAsync(foreignKeysQuery, commandTimeout:180);
-        // Use GroupBy + First to handle duplicate keys (can happen with multiple FK constraints on same column)
-        var fkLookup = foreignKeys
-            .GroupBy(fk => $"{fk.table_schema}.{fk.table_name}.{fk.column_name}")
-            .ToDictionary(
-                g => g.Key,
-                g => (TableName: (string)g.First().foreign_table_name, ColumnName: (string)g.First().foreign_column_name)
-            );
-
-        // Get indexes
-        const string indexesQuery = @"
-            SELECT
-                schemaname AS table_schema,
-                tablename AS table_name,
-                indexname AS index_name,
-                indexdef
-            FROM pg_indexes
-            WHERE schemaname NOT IN ('pg_catalog', 'information_schema')";
-
-        var indexesData = await connection.QueryAsync(indexesQuery, commandTimeout:180);
-
-        // Group by table
-        var tables = columnsData
-            .GroupBy(c => new { schema = (string)c.table_schema, table = (string)c.table_name })
-            .Select(g =>
-            {
-                var columns = g.Select(c =>
-                {
-                    var fkKey = $"{g.Key.schema}.{g.Key.table}.{c.column_name}";
-                    var hasFk = fkLookup.TryGetValue(fkKey, out var fkInfo);
-
-                    return new ColumnMetadataDto(
-                        ColumnName: (string)c.column_name,
-                        DataType: (string)c.data_type,
-                        IsNullable: ((string)c.is_nullable).Equals("YES", StringComparison.OrdinalIgnoreCase),
-                        IsPrimaryKey: (bool)c.is_primary_key,
-                        IsForeignKey: hasFk,
-                        OrdinalPosition: (int)c.ordinal_position,
-                        ForeignKeyTable: hasFk ? fkInfo.TableName : null,
-                        ForeignKeyColumn: hasFk ? fkInfo.ColumnName : null,
-                        DefaultValue: c.column_default?.ToString(),
-                        MaxLength: c.character_maximum_length as int?,
-                        Description: null
-                    );
-                }).ToList();
-
-                var indexes = indexesData
-                    .Where(i => (string)i.table_schema == g.Key.schema && (string)i.table_name == g.Key.table)
-                    .Select(i =>
-                    {
-                        var indexDef = (string)i.indexdef;
-                        var isPrimaryKey = indexDef.Contains("PRIMARY KEY", StringComparison.OrdinalIgnoreCase);
-                        var isUnique = indexDef.Contains("UNIQUE", StringComparison.OrdinalIgnoreCase) || isPrimaryKey;
-
-                        // Extract column names from index definition
-                        var columnsMatch = System.Text.RegularExpressions.Regex.Match(indexDef, @"\((.*?)\)");
-                        var columnNames = columnsMatch.Success
-                            ? columnsMatch.Groups[1].Value.Split(',').Select(c => c.Trim()).ToArray()
-                            : Array.Empty<string>();
-
-                        return new IndexMetadataDto(
-                            IndexName: (string)i.index_name,
-                            IsUnique: isUnique,
-                            IsPrimaryKey: isPrimaryKey,
-                            Columns: columnNames
-                        );
-                    }).ToList();
-
-                return new TableMetadataDto(
-                    SchemaName: g.Key.schema,
-                    TableName: g.Key.table,
-                    Columns: columns,
-                    Indexes: indexes,
-                    Description: null
-                );
-            })
-            .ToList();
-
-        return tables;
-    }
-
-    private async Task<IReadOnlyList<TableMetadataDto>> GetSqlServerMetadataAsync(string connectionString, CancellationToken cancellationToken)
-    {
-        using var connection = new SqlConnection(connectionString);
-        await connection.OpenAsync(cancellationToken);
-
-        // Get tables and columns
-        const string tablesQuery = @"
-            SELECT
-                s.name AS table_schema,
-                t.name AS table_name,
-                c.name AS column_name,
-                ty.name AS data_type,
-                c.is_nullable,
-                c.max_length,
-                c.column_id AS ordinal_position,
-                CASE WHEN ic.column_id IS NOT NULL THEN 1 ELSE 0 END as is_primary_key
-            FROM sys.tables t
-            JOIN sys.schemas s ON t.schema_id = s.schema_id
-            JOIN sys.columns c ON t.object_id = c.object_id
-            JOIN sys.types ty ON c.user_type_id = ty.user_type_id
-            LEFT JOIN sys.indexes i ON t.object_id = i.object_id AND i.is_primary_key = 1
-            LEFT JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id AND c.column_id = ic.column_id";
-
-        var columnsData = await connection.QueryAsync(tablesQuery);
-
-        // Get foreign keys
-        const string foreignKeysQuery = @"
-            SELECT
-                s.name AS table_schema,
-                t.name AS table_name,
-                c.name AS column_name,
-                rt.name AS foreign_table_name,
-                rc.name AS foreign_column_name
-            FROM sys.foreign_key_columns fk
-            JOIN sys.tables t ON fk.parent_object_id = t.object_id
-            JOIN sys.schemas s ON t.schema_id = s.schema_id
-            JOIN sys.columns c ON fk.parent_object_id = c.object_id AND fk.parent_column_id = c.column_id
-            JOIN sys.tables rt ON fk.referenced_object_id = rt.object_id
-            JOIN sys.columns rc ON fk.referenced_object_id = rc.object_id AND fk.referenced_column_id = rc.column_id";
-
-        var foreignKeys = await connection.QueryAsync(foreignKeysQuery);
-        // Use GroupBy + First to handle duplicate keys (can happen with multiple FK constraints on same column)
-        var fkLookup = foreignKeys
-            .GroupBy(fk => $"{fk.table_schema}.{fk.table_name}.{fk.column_name}")
-            .ToDictionary(
-                g => g.Key,
-                g => (TableName: (string)g.First().foreign_table_name, ColumnName: (string)g.First().foreign_column_name)
-            );
-
-        // Get indexes
-        const string indexesQuery = @"
-            SELECT
-                s.name AS table_schema,
-                t.name AS table_name,
-                i.name AS index_name,
-                i.is_unique,
-                i.is_primary_key,
-                STRING_AGG(c.name, ',') WITHIN GROUP (ORDER BY ic.key_ordinal) AS column_names
-            FROM sys.indexes i
-            JOIN sys.tables t ON i.object_id = t.object_id
-            JOIN sys.schemas s ON t.schema_id = s.schema_id
-            JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id
-            JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
-            WHERE i.name IS NOT NULL
-            GROUP BY s.name, t.name, i.name, i.is_unique, i.is_primary_key";
-
-        var indexesData = await connection.QueryAsync(indexesQuery);
-
-        // Group by table
-        var tables = columnsData
-            .GroupBy(c => new { schema = (string)c.table_schema, table = (string)c.table_name })
-            .Select(g =>
-            {
-                var columns = g.Select(c =>
-                {
-                    var fkKey = $"{g.Key.schema}.{g.Key.table}.{c.column_name}";
-                    var hasFk = fkLookup.TryGetValue(fkKey, out var fkInfo);
-
-                    return new ColumnMetadataDto(
-                        ColumnName: (string)c.column_name,
-                        DataType: (string)c.data_type,
-                        IsNullable: (bool)c.is_nullable,
-                        IsPrimaryKey: (int)c.is_primary_key == 1,
-                        IsForeignKey: hasFk,
-                        OrdinalPosition: (int)c.ordinal_position,
-                        ForeignKeyTable: hasFk ? fkInfo.TableName : null,
-                        ForeignKeyColumn: hasFk ? fkInfo.ColumnName : null,
-                        DefaultValue: null,
-                        MaxLength: c.max_length as int?,
-                        Description: null
-                    );
-                }).ToList();
-
-                var indexes = indexesData
-                    .Where(i => (string)i.table_schema == g.Key.schema && (string)i.table_name == g.Key.table)
-                    .Select(i => new IndexMetadataDto(
-                        IndexName: (string)i.index_name,
-                        IsUnique: (bool)i.is_unique,
-                        IsPrimaryKey: (bool)i.is_primary_key,
-                        Columns: ((string)i.column_names).Split(',')
-                    )).ToList();
-
-                return new TableMetadataDto(
-                    SchemaName: g.Key.schema,
-                    TableName: g.Key.table,
-                    Columns: columns,
-                    Indexes: indexes,
-                    Description: null
-                );
-            })
-            .ToList();
-
-        return tables;
     }
 
     private async Task StoreMetadataAsync(int dataSourceId, IReadOnlyList<TableMetadataDto> tables, CancellationToken cancellationToken)

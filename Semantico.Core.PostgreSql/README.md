@@ -68,10 +68,10 @@ GRANT ALL ON SCHEMA semantico TO postgres;
 
 ## Documentation
 
-- [Full Documentation](https://moberghr.github.io/semantico)
-- [Installation Guide](https://moberghr.github.io/semantico/getting-started/installation)
-- [Configuration Guide](https://moberghr.github.io/semantico/getting-started/configuration)
+- [Full Documentation](https://mibu.github.io/semantico)
+- [Installation Guide](https://mibu.github.io/semantico/getting-started/installation)
+- [Configuration Guide](https://mibu.github.io/semantico/getting-started/configuration)
 
 ## License
 
-MIT License - see [LICENSE](https://github.com/moberghr/semantico/blob/main/LICENSE)
+MIT License - see [LICENSE](https://github.com/MiBu/semantico/blob/main/LICENSE)

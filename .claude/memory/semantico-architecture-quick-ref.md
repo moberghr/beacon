@@ -537,7 +537,7 @@ dotnet ef migrations add MigrationName \
 
 ## URLs & Resources
 
-- **GitHub**: https://github.com/moberghr/semantico
-- **Docs**: https://moberghr.github.io/semantico
+- **GitHub**: https://github.com/MiBu/semantico
+- **Docs**: https://mibu.github.io/semantico
 - **Sample Project**: Semantico.SampleProject/Program.cs
 - **Architecture Docs**: docs/advanced/architecture.md
