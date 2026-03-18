@@ -6,6 +6,24 @@ namespace Semantico.AI.Services.GitHub;
 internal sealed class GitHubApiClient(IHttpClientFactory httpClientFactory)
 {
     private const string GitHubApiBase = "https://api.github.com";
+    private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
+
+    public async Task<string> GetDefaultBranchAsync(string owner, string repo, string? accessToken, CancellationToken ct)
+    {
+        var client = CreateClient(accessToken);
+        var response = await client.GetAsync($"{GitHubApiBase}/repos/{owner}/{repo}", ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync(ct);
+            throw new HttpRequestException(
+                $"GitHub API returned {(int)response.StatusCode} for {owner}/{repo}. " +
+                $"If this is a private repo, ensure the token has the 'repo' scope. Response: {body}");
+        }
+
+        var json = await response.Content.ReadAsStringAsync(ct);
+        var repoInfo = JsonSerializer.Deserialize<GitHubRepoResponse>(json, JsonOptions);
+        return repoInfo?.DefaultBranch ?? "main";
+    }
 
     public async Task<List<GitHubTreeItem>> GetRepositoryTreeAsync(string owner, string repo, string branch, string? accessToken, CancellationToken ct)
     {
@@ -15,7 +33,7 @@ internal sealed class GitHubApiClient(IHttpClientFactory httpClientFactory)
         response.EnsureSuccessStatusCode();
 
         var json = await response.Content.ReadAsStringAsync(ct);
-        var tree = JsonSerializer.Deserialize<GitHubTreeResponse>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        var tree = JsonSerializer.Deserialize<GitHubTreeResponse>(json, JsonOptions);
         return tree?.Tree?.Where(t => t.Type == "blob").ToList() ?? new();
     }
 
@@ -26,7 +44,7 @@ internal sealed class GitHubApiClient(IHttpClientFactory httpClientFactory)
         response.EnsureSuccessStatusCode();
 
         var json = await response.Content.ReadAsStringAsync(ct);
-        var file = JsonSerializer.Deserialize<GitHubFileResponse>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        var file = JsonSerializer.Deserialize<GitHubFileResponse>(json, JsonOptions);
 
         if (file?.Content == null) return string.Empty;
         // GitHub returns base64-encoded content
@@ -42,7 +60,7 @@ internal sealed class GitHubApiClient(IHttpClientFactory httpClientFactory)
         response.EnsureSuccessStatusCode();
 
         var json = await response.Content.ReadAsStringAsync(ct);
-        return JsonSerializer.Deserialize<List<GitHubCommit>>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new();
+        return JsonSerializer.Deserialize<List<GitHubCommit>>(json, JsonOptions) ?? new();
     }
 
     private HttpClient CreateClient(string? accessToken)
@@ -51,12 +69,17 @@ internal sealed class GitHubApiClient(IHttpClientFactory httpClientFactory)
         client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("Semantico", "1.0"));
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github.v3+json"));
         if (!string.IsNullOrEmpty(accessToken))
-            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        {
+            // Classic PATs (ghp_) use "token" scheme; fine-grained (github_pat_) use "Bearer"
+            var scheme = accessToken.StartsWith("github_pat_") ? "Bearer" : "token";
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(scheme, accessToken);
+        }
         return client;
     }
 }
 
 // GitHub API response models
+public record GitHubRepoResponse(string? DefaultBranch);
 public record GitHubTreeResponse(List<GitHubTreeItem>? Tree, bool Truncated);
 public record GitHubTreeItem(string Path, string Type, string? Sha, int? Size);
 public record GitHubFileResponse(string? Content, string? Encoding, string? Sha);

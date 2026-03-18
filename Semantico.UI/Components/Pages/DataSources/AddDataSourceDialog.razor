@@ -210,6 +210,127 @@
                     HelperText="Paste the full JSON key file content"
                 />
             }
+            else if (_selectedDataSourceType == DataSourceType.Api)
+            {
+                <MudTextField
+                    Margin="Margin.Dense"
+                    Variant="Variant.Outlined"
+                    Class="mb-2"
+                    @bind-Value="@_apiBaseUrl"
+                    T="string"
+                    Label="Base URL"
+                    Required="true"
+                    HelperText="e.g., https://api.example.com"
+                />
+
+                <MudTextField
+                    Margin="Margin.Dense"
+                    Variant="Variant.Outlined"
+                    Class="mb-2"
+                    @bind-Value="@_apiSpecUrl"
+                    T="string"
+                    Label="OpenAPI Spec URL"
+                    Required="true"
+                    HelperText="e.g., https://api.example.com/swagger/v1/swagger.json"
+                />
+
+                <MudSelect T="string" Label="Authentication" @bind-Value="_apiAuthType" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-2">
+                    <MudSelectItem Value="@("none")">None</MudSelectItem>
+                    <MudSelectItem Value="@("apiKey")">API Key</MudSelectItem>
+                    <MudSelectItem Value="@("bearer")">Bearer Token</MudSelectItem>
+                    <MudSelectItem Value="@("basic")">Basic Auth</MudSelectItem>
+                </MudSelect>
+
+                @if (_apiAuthType == "apiKey")
+                {
+                    <MudTextField
+                        Margin="Margin.Dense"
+                        Variant="Variant.Outlined"
+                        Class="mb-2"
+                        @bind-Value="@_apiKeyName"
+                        T="string"
+                        Label="Header / Parameter Name"
+                        Required="true"
+                        HelperText="e.g., X-Api-Key"
+                    />
+                    <MudTextField
+                        Margin="Margin.Dense"
+                        Variant="Variant.Outlined"
+                        Class="mb-2"
+                        @bind-Value="@_apiKeyValue"
+                        T="string"
+                        Label="API Key Value"
+                        Required="true"
+                        InputType="InputType.Password"
+                        Adornment="Adornment.End"
+                        AdornmentIcon="@Icons.Material.Filled.Lock"
+                    />
+                    <MudSelect T="string" Label="Key Location" @bind-Value="_apiKeyLocation" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-2">
+                        <MudSelectItem Value="@("header")">Header</MudSelectItem>
+                        <MudSelectItem Value="@("query")">Query Parameter</MudSelectItem>
+                    </MudSelect>
+                }
+                else if (_apiAuthType == "bearer")
+                {
+                    <MudTextField
+                        Margin="Margin.Dense"
+                        Variant="Variant.Outlined"
+                        Class="mb-2"
+                        @bind-Value="@_apiBearerToken"
+                        T="string"
+                        Label="Bearer Token"
+                        Required="true"
+                        InputType="InputType.Password"
+                        Adornment="Adornment.End"
+                        AdornmentIcon="@Icons.Material.Filled.Lock"
+                    />
+                }
+                else if (_apiAuthType == "basic")
+                {
+                    <MudTextField
+                        Margin="Margin.Dense"
+                        Variant="Variant.Outlined"
+                        Class="mb-2"
+                        @bind-Value="@_apiBasicUsername"
+                        T="string"
+                        Label="Username"
+                        Required="true"
+                    />
+                    <MudTextField
+                        Margin="Margin.Dense"
+                        Variant="Variant.Outlined"
+                        Class="mb-2"
+                        @bind-Value="@_apiBasicPassword"
+                        T="string"
+                        Label="Password"
+                        Required="true"
+                        InputType="InputType.Password"
+                        Adornment="Adornment.End"
+                        AdornmentIcon="@Icons.Material.Filled.Lock"
+                    />
+                }
+
+                <MudExpansionPanels Class="mb-4" Elevation="0">
+                    <MudExpansionPanel Text="Endpoint Filter (optional)" IsInitiallyExpanded="false">
+                        <MudGrid Spacing="2">
+                            <MudItem xs="12" sm="6">
+                                <MudTextField @bind-Value="_apiIncludePatterns"
+                                              Label="Include Path Patterns"
+                                              HelperText="Comma-separated (e.g., /api/v2/**)"
+                                              Variant="Variant.Outlined"
+                                              Margin="Margin.Dense" />
+                            </MudItem>
+                            <MudItem xs="12" sm="6">
+                                <MudTextField @bind-Value="_apiExcludePatterns"
+                                              Label="Exclude Path Patterns"
+                                              HelperText="Comma-separated (e.g., /api/internal/**)"
+                                              Variant="Variant.Outlined"
+                                              Margin="Margin.Dense" />
+                            </MudItem>
+                        </MudGrid>
+                    </MudExpansionPanel>
+                </MudExpansionPanels>
+            }
 
             @if (_selectedDataSourceType == DataSourceType.Database)
             {
@@ -365,6 +486,19 @@
     private string _bigQueryLocation = "";
     private string _bigQueryServiceAccountJson = "";
 
+    // API fields
+    private string _apiBaseUrl = "";
+    private string _apiSpecUrl = "";
+    private string _apiAuthType = "none";
+    private string _apiKeyName = "";
+    private string _apiKeyValue = "";
+    private string _apiKeyLocation = "header";
+    private string _apiBearerToken = "";
+    private string _apiBasicUsername = "";
+    private string _apiBasicPassword = "";
+    private string _apiIncludePatterns = "";
+    private string _apiExcludePatterns = "";
+
     // Metadata loading fields
     private string _metadataExcludeSchemas = "";
     private string _metadataIncludeSchemas = "";
@@ -377,6 +511,7 @@
             DataSourceType.CloudWatch => !string.IsNullOrWhiteSpace(_cloudWatchRegion) && !string.IsNullOrWhiteSpace(_cloudWatchLogGroups),
             DataSourceType.Databricks => !string.IsNullOrWhiteSpace(_databricksHost) && !string.IsNullOrWhiteSpace(_databricksHttpPath) && !string.IsNullOrWhiteSpace(_databricksToken),
             DataSourceType.BigQuery => !string.IsNullOrWhiteSpace(_bigQueryProjectId) && !string.IsNullOrWhiteSpace(_bigQueryServiceAccountJson),
+            DataSourceType.Api => !string.IsNullOrWhiteSpace(_apiBaseUrl) && !string.IsNullOrWhiteSpace(_apiSpecUrl),
             _ => false
         };
     }
@@ -471,6 +606,28 @@
                     Location = NullIfEmpty(_bigQueryLocation),
                     ServiceAccountJson = _bigQueryServiceAccountJson,
                     QueryTimeoutSeconds = 300
+                });
+                break;
+
+            case DataSourceType.Api:
+                var auth = _apiAuthType switch
+                {
+                    "apiKey" => new { Type = "ApiKey", ApiKeyName = _apiKeyName, ApiKeyValue = _apiKeyValue, ApiKeyLocation = _apiKeyLocation, Token = (string?)null, Username = (string?)null, Password = (string?)null },
+                    "bearer" => new { Type = "Bearer", ApiKeyName = (string?)null, ApiKeyValue = (string?)null, ApiKeyLocation = (string?)null, Token = _apiBearerToken, Username = (string?)null, Password = (string?)null },
+                    "basic" => new { Type = "Basic", ApiKeyName = (string?)null, ApiKeyValue = (string?)null, ApiKeyLocation = (string?)null, Token = (string?)null, Username = _apiBasicUsername, Password = _apiBasicPassword },
+                    _ => (object?)null
+                };
+                var includePatterns = ParseSchemaList(_apiIncludePatterns);
+                var excludePatterns = ParseSchemaList(_apiExcludePatterns);
+                data.ConnectionString = JsonSerializer.Serialize(new
+                {
+                    BaseUrl = _apiBaseUrl,
+                    OpenApiSpecUrl = _apiSpecUrl,
+                    Auth = auth,
+                    EndpointFilter = (includePatterns.Count > 0 || excludePatterns.Count > 0)
+                        ? new { IncludePathPatterns = includePatterns, ExcludePathPatterns = excludePatterns }
+                        : null,
+                    TimeoutSeconds = 30
                 });
                 break;
         }

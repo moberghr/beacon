@@ -9,7 +9,7 @@ public enum ResourceType
     Recipient = 5,
     QueryTask = 6,
     MigrationJob = 7,
-    DataSourceDocumentation = 8,
+    ProjectDocumentation = 8,
     AiActor = 9,
     AiActorPlan = 10,
     AiAlertConfiguration = 11,

@@ -56,14 +56,29 @@
                         <MudAlert Severity="Severity.Warning" Dense="true">Select at least one scope.</MudAlert>
                     }
 
-                    @* Data Source Restrictions *@
+                    @* Project Restrictions *@
                     <MudDivider Class="my-1"/>
-                    <MudText Typo="Typo.subtitle2" Style="font-weight: 600;">Data Source Restrictions (optional)</MudText>
-                    <DataSourceSelect Label="Restrict to Data Sources"
-                                       MultiSelection="true"
-                                       SelectedValues="_selectedDataSourceIds"
-                                       SelectedValuesChanged="@(ids => _selectedDataSourceIds = ids)"
-                                       HelperText="Leave empty to allow access to all data sources"/>
+                    <MudText Typo="Typo.subtitle2" Style="font-weight: 600;">Project Restrictions</MudText>
+                    <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-2">
+                        Select which projects this API key can access via MCP.
+                    </MudText>
+                    @if (_projects.Count == 0)
+                    {
+                        <MudAlert Severity="Severity.Warning" Dense="true">No projects found. Create a project first.</MudAlert>
+                    }
+                    else
+                    {
+                        <MudSelect T="int" MultiSelection="true" @bind-SelectedValues="_selectedProjectIds"
+                                   Label="Projects"
+                                   MultiSelectionTextFunc="@(ids => $"{ids.Count()} project(s) selected")"
+                                   Variant="Variant.Outlined"
+                                   HelperText="Select at least one project for MCP access.">
+                            @foreach (var project in _projects)
+                            {
+                                <MudSelectItem T="int" Value="@project.Id">@project.Name</MudSelectItem>
+                            }
+                        </MudSelect>
+                    }
 
                     @* Expiration *@
                     <MudDivider Class="my-1"/>
@@ -176,10 +191,22 @@
     private bool _scopeRead = true;
     private bool _scopeExecute;
     private bool _scopeAdmin;
-    private IEnumerable<int> _selectedDataSourceIds = [];
+    private IEnumerable<int> _selectedProjectIds = [];
+    private List<ProjectEntry> _projects = [];
     private DateTime? _expiresAt;
 
     private string? _generatedKey;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadProjects();
+    }
+
+    private async Task LoadProjects()
+    {
+        var result = await Mediator.Send(new Semantico.Core.Handlers.Projects.GetProjectsQuery());
+        _projects = result.Entries.Select(p => new ProjectEntry(p.Id, p.Name)).ToList();
+    }
 
     private bool HasScope() => _scopeRead || _scopeExecute || _scopeAdmin;
 
@@ -201,12 +228,12 @@
         _submitting = true;
         try
         {
-            var dsIds = _selectedDataSourceIds.ToArray();
+            var projectIds = _selectedProjectIds.ToArray();
 
             var result = await Mediator.Send(new CreateApiKeyCommand(
                 _name,
                 GetSelectedScopes().ToArray(),
-                dsIds.Length > 0 ? dsIds : null,
+                projectIds.Length > 0 ? projectIds : null,
                 _expiresAt));
 
             _generatedKey = result.PlainTextKey;
@@ -249,4 +276,6 @@
         "Read" => Color.Info,
         _ => Color.Default
     };
+
+    private record ProjectEntry(int Id, string Name);
 }

@@ -29,4 +29,10 @@ public static class ConnectorRegistry
 
     public static bool IsDataSourceTypeRegistered(DataSourceType dataSourceType) =>
         _registeredDataSourceTypes.ContainsKey(dataSourceType);
+
+    public static string GetDisplayName(DataSourceType dataSourceType) =>
+        _registeredDataSourceTypes.GetValueOrDefault(dataSourceType, dataSourceType.ToString());
+
+    public static string GetDisplayName(DatabaseEngineType engineType) =>
+        _registeredEngines.GetValueOrDefault(engineType, engineType.ToString());
 }

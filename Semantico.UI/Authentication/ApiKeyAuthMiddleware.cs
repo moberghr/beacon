@@ -56,10 +56,10 @@ public sealed class ApiKeyAuthMiddleware(RequestDelegate next)
             }
         }
 
-        // Add data source restriction claims
-        if (credential.AllowedDataSourceIds != null)
+        // Add project restriction claims
+        if (credential.AllowedProjectIds != null)
         {
-            claims.Add(new Claim("allowed_datasources", credential.AllowedDataSourceIds));
+            claims.Add(new Claim("allowed_projects", credential.AllowedProjectIds));
         }
 
         // Add user claims if linked to a user

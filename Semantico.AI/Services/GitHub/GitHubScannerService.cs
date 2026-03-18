@@ -38,8 +38,16 @@ internal sealed class GitHubScannerService(
                 ? encryptionService.Decrypt(repo.EncryptedAccessToken)
                 : null;
 
+            // Auto-detect default branch from GitHub API
+            var branch = await gitHubApiClient.GetDefaultBranchAsync(owner, repoName, accessToken, cancellationToken);
+            if (repo.Branch != branch)
+            {
+                repo.Branch = branch;
+                await context.SaveChangesAsync(cancellationToken);
+            }
+
             // Get all files in the repo
-            var tree = await gitHubApiClient.GetRepositoryTreeAsync(owner, repoName, repo.Branch, accessToken, cancellationToken);
+            var tree = await gitHubApiClient.GetRepositoryTreeAsync(owner, repoName, branch, accessToken, cancellationToken);
             var relevantFiles = tree
                 .Where(f => RelevantExtensions.Any(ext => f.Path.EndsWith(ext, StringComparison.OrdinalIgnoreCase)))
                 .ToList();

@@ -8,7 +8,6 @@
 @inject IMediator Mediator
 @inject ISnackbar Snackbar
 @inject IServiceProvider ServiceProvider
-@inject IDataSourceService DataSourceService
 
 <SemanticoPageTitle Title="MCP Settings"/>
 
@@ -75,26 +74,10 @@
                         </MudAlert>
 
                         <MudExpansionPanels MultiExpansion="true">
-                            <MudExpansionPanel Text="list_datasources">
-                                <MudTextField @bind-Value="_data.ListDataSourcesDescription"
+                            <MudExpansionPanel Text="get_context">
+                                <MudTextField @bind-Value="_data.GetContextDescription"
                                               Label="Description Override"
-                                              Placeholder="List all data sources, or list all tables in a specific data source grouped by schema."
-                                              Lines="3"
-                                              Variant="Variant.Outlined"/>
-                            </MudExpansionPanel>
-
-                            <MudExpansionPanel Text="query">
-                                <MudTextField @bind-Value="_data.QueryDescription"
-                                              Label="Description Override"
-                                              Placeholder="Execute a read-only SQL query against a data source. Queries are validated for safety and limited in row count."
-                                              Lines="3"
-                                              Variant="Variant.Outlined"/>
-                            </MudExpansionPanel>
-
-                            <MudExpansionPanel Text="get_documentation">
-                                <MudTextField @bind-Value="_data.GetDocumentationDescription"
-                                              Label="Description Override"
-                                              Placeholder="Get documentation for a data source or a specific table, including schema details, AI-generated descriptions, relationships, code references, quality scores, and lineage."
+                                              Placeholder="Get an overview of the project: its data sources, schemas, tables, quality scores, and documentation status."
                                               Lines="3"
                                               Variant="Variant.Outlined"/>
                             </MudExpansionPanel>
@@ -102,7 +85,31 @@
                             <MudExpansionPanel Text="ask">
                                 <MudTextField @bind-Value="_data.AskDescription"
                                               Label="Description Override"
-                                              Placeholder="Ask a natural language question about your data. Semantico uses its knowledge of your schema, documentation, and data quality to generate and execute a SQL query."
+                                              Placeholder="Ask a natural language question about your data. Auto-detects the right data source, generates SQL, executes it, and explains reasoning."
+                                              Lines="3"
+                                              Variant="Variant.Outlined"/>
+                            </MudExpansionPanel>
+
+                            <MudExpansionPanel Text="query">
+                                <MudTextField @bind-Value="_data.QueryDescription"
+                                              Label="Description Override"
+                                              Placeholder="Execute a query against a specific data source within the project."
+                                              Lines="3"
+                                              Variant="Variant.Outlined"/>
+                            </MudExpansionPanel>
+
+                            <MudExpansionPanel Text="get_documentation">
+                                <MudTextField @bind-Value="_data.GetDocumentationDescription"
+                                              Label="Description Override"
+                                              Placeholder="Get AI-generated documentation for the project, a specific data source, or a specific table."
+                                              Lines="3"
+                                              Variant="Variant.Outlined"/>
+                            </MudExpansionPanel>
+
+                            <MudExpansionPanel Text="search">
+                                <MudTextField @bind-Value="_data.SearchDescription"
+                                              Label="Description Override"
+                                              Placeholder="Search tables, columns, and documentation across all project data sources by keyword."
                                               Lines="3"
                                               Variant="Variant.Outlined"/>
                             </MudExpansionPanel>
@@ -114,26 +121,26 @@
                 <MudTabPanel Text="Context Preview" Icon="@Icons.Material.Filled.Preview">
                     <MudStack Spacing="3">
                         <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">
-                            Preview the documentation context that gets sent to the LLM for a given data source.
+                            Preview the project context that gets sent to the LLM when the ask tool routes a question.
                         </MudAlert>
 
                         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-                            <MudSelect T="int?" @bind-Value="_selectedDataSourceId"
-                                       Label="Data Source"
+                            <MudSelect T="int?" @bind-Value="_selectedProjectId"
+                                       Label="Project"
                                        Variant="Variant.Outlined"
-                                       Placeholder="Select a data source"
+                                       Placeholder="Select a project"
                                        Clearable="true"
                                        Style="max-width: 400px;">
-                                @foreach (var ds in _dataSources)
+                                @foreach (var p in _projects)
                                 {
-                                    <MudSelectItem T="int?" Value="@((int?)ds.Id)">@ds.Name</MudSelectItem>
+                                    <MudSelectItem T="int?" Value="@((int?)p.Id)">@p.Name</MudSelectItem>
                                 }
                             </MudSelect>
                             <MudButton Variant="Variant.Outlined"
                                        Color="Color.Primary"
                                        StartIcon="@Icons.Material.Filled.Refresh"
                                        OnClick="LoadContextPreview"
-                                       Disabled="_loadingPreview || _selectedDataSourceId == null">
+                                       Disabled="_loadingPreview || _selectedProjectId == null">
                                 Load Preview
                             </MudButton>
                         </MudStack>
@@ -194,16 +201,16 @@
     private bool _loading = true;
     private bool _saving;
     private bool _loadingPreview;
-    private int? _selectedDataSourceId;
+    private int? _selectedProjectId;
     private string? _contextPreview;
     private string _customPiiPatternsText = "";
-    private List<Semantico.Core.Models.DataSources.DataSourceListData> _dataSources = [];
+    private List<ProjectPreviewEntry> _projects = [];
 
     protected override async Task OnInitializedAsync()
     {
         try
         {
-            await Task.WhenAll(LoadSettings(), LoadDataSources());
+            await Task.WhenAll(LoadSettings(), LoadProjects());
         }
         finally
         {
@@ -217,9 +224,10 @@
         _customPiiPatternsText = string.Join("\n", _data.CustomPiiPatterns);
     }
 
-    private async Task LoadDataSources()
+    private async Task LoadProjects()
     {
-        _dataSources = await DataSourceService.GetDataSources(null, CancellationToken.None);
+        var result = await Mediator.Send(new Semantico.Core.Handlers.Projects.GetProjectsQuery());
+        _projects = result.Entries.Select(p => new ProjectPreviewEntry(p.Id, p.Name)).ToList();
     }
 
     private async Task SaveSettings()
@@ -246,7 +254,7 @@
 
     private async Task LoadContextPreview()
     {
-        if (_selectedDataSourceId == null) return;
+        if (_selectedProjectId == null) return;
 
         _loadingPreview = true;
         _contextPreview = null;
@@ -269,19 +277,19 @@
                 return;
             }
 
-            // Call GetContextForLlmAsync via reflection
-            var method = knowledgeGraphType.GetMethod("GetContextForLlmAsync");
+            // Call GetProjectContextForLlmAsync via reflection
+            var method = knowledgeGraphType.GetMethod("GetProjectContextForLlmAsync");
             if (method == null)
             {
-                _contextPreview = "GetContextForLlmAsync method not found.";
+                _contextPreview = "GetProjectContextForLlmAsync method not found.";
                 return;
             }
 
-            var task = (Task<string>)method.Invoke(service, [_selectedDataSourceId.Value, null, null, CancellationToken.None])!;
+            var task = (Task<string>)method.Invoke(service, [_selectedProjectId.Value, CancellationToken.None])!;
             _contextPreview = await task;
 
             if (string.IsNullOrWhiteSpace(_contextPreview))
-                _contextPreview = "(No context available for this data source. Generate documentation first.)";
+                _contextPreview = "(No context available for this project. Add data sources and generate documentation first.)";
         }
         catch (Exception ex)
         {
@@ -292,4 +300,6 @@
             _loadingPreview = false;
         }
     }
+
+    private record ProjectPreviewEntry(int Id, string Name);
 }

@@ -22,6 +22,11 @@ public class DataSourceMetadata
     /// </summary>
     public List<MetricMetadata>? Metrics { get; set; }
 
+    /// <summary>
+    /// For API types: discovered endpoints from OpenAPI spec
+    /// </summary>
+    public List<ApiEndpointMetadata>? Endpoints { get; set; }
+
     public DateTime LastRefreshed { get; set; }
 }
 
@@ -39,4 +44,31 @@ public class MetricMetadata
     public string Namespace { get; set; } = null!;
     public List<string> Dimensions { get; set; } = new();
     public string Unit { get; set; } = null!;
+}
+
+public class ApiEndpointMetadata
+{
+    public string Method { get; set; } = null!;
+    public string Path { get; set; } = null!;
+    public string? Summary { get; set; }
+    public string? Description { get; set; }
+    public string? Tag { get; set; }
+    public List<ApiParameterMetadata> Parameters { get; set; } = new();
+    public List<ApiResponseFieldMetadata> ResponseFields { get; set; } = new();
+}
+
+public class ApiParameterMetadata
+{
+    public string Name { get; set; } = null!;
+    public string In { get; set; } = null!; // "query", "path", "header"
+    public string Type { get; set; } = "string";
+    public bool Required { get; set; }
+    public string? Description { get; set; }
+}
+
+public class ApiResponseFieldMetadata
+{
+    public string Name { get; set; } = null!;
+    public string Type { get; set; } = "string";
+    public string? Description { get; set; }
 }

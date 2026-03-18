@@ -26,7 +26,8 @@ internal sealed class UpdateMcpSettingsHandler(
         var data = request.Data;
         entity.AskSystemPrompt = data.AskSystemPrompt;
         entity.GlobalInstruction = data.GlobalInstruction;
-        entity.ListDataSourcesDescription = data.ListDataSourcesDescription;
+        entity.GetContextDescription = data.GetContextDescription;
+        entity.SearchDescription = data.SearchDescription;
         entity.QueryDescription = data.QueryDescription;
         entity.GetDocumentationDescription = data.GetDocumentationDescription;
         entity.AskDescription = data.AskDescription;

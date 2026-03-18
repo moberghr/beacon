@@ -15,7 +15,8 @@ internal sealed class GetDataCatalogHandler(SemanticoContext context)
         var entries = await (
             from dm in context.DatabaseMetadata
             join ds in context.DataSources on dm.DataSourceId equals ds.Id
-            where ds.DataSourceType == DataSourceType.Database && dm.ArchivedTime == null && ds.ArchivedTime == null
+            where (ds.DataSourceType == DataSourceType.Database || ds.DataSourceType == DataSourceType.Api)
+                && dm.ArchivedTime == null && ds.ArchivedTime == null
             select new
             {
                 ds.Name,
@@ -24,6 +25,7 @@ internal sealed class GetDataCatalogHandler(SemanticoContext context)
                 dm.TableDescription,
                 dm.DataSourceId,
                 ColumnCount = dm.Columns.Count,
+                DataSourceType = ds.DataSourceType
             }
         ).ToListAsync(cancellationToken);
 
@@ -52,7 +54,8 @@ internal sealed class GetDataCatalogHandler(SemanticoContext context)
             e.TableDescription,
             e.ColumnCount,
             qualityLookup.GetValueOrDefault((e.DataSourceId, e.SchemaName, e.TableName)),
-            codeRefLookup.GetValueOrDefault((e.SchemaName, e.TableName))
+            codeRefLookup.GetValueOrDefault((e.SchemaName, e.TableName)),
+            e.DataSourceType
         )).ToList();
 
         return new GetDataCatalogResult(catalog);
@@ -70,4 +73,5 @@ public record DataCatalogEntry(
     string? Description,
     int ColumnCount,
     double? QualityScore,
-    int CodeReferenceCount);
+    int CodeReferenceCount,
+    DataSourceType DataSourceType = DataSourceType.Database);

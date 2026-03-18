@@ -96,6 +96,12 @@ public class DatabaseMetadataService(
         if (dataSource == null)
             throw new SemanticoException($"Data source {dataSourceId} not found");
 
+        // For API data sources, load stored endpoint metadata directly
+        if (dataSource.DataSourceType == Data.Enums.DataSourceType.Api)
+        {
+            return await LoadApiMetadataAsync(context, dataSourceId, cancellationToken);
+        }
+
         if (!dataSource.DatabaseEngineType.HasValue)
             throw new SemanticoException($"Data source {dataSourceId} is not a database type");
 
@@ -337,6 +343,34 @@ public class DatabaseMetadataService(
         }
 
         return result;
+    }
+
+    private async Task<DatabaseMetadataSnapshot> LoadApiMetadataAsync(
+        SemanticoContext context,
+        int dataSourceId,
+        CancellationToken cancellationToken)
+    {
+        var metadata = await context.DatabaseMetadata
+            .Where(m => m.DataSourceId == dataSourceId && m.ArchivedTime == null)
+            .Include(m => m.Columns)
+            .ToListAsync(cancellationToken);
+
+        var tables = metadata.Select(m => new TableMetadataDto(
+            m.SchemaName,
+            m.TableName,
+            m.Columns.OrderBy(c => c.OrdinalPosition).Select(c => new ColumnMetadataDto(
+                c.ColumnName, c.DataType, c.IsNullable, c.IsPrimaryKey, c.IsForeignKey,
+                c.OrdinalPosition, c.ForeignKeyTable, c.ForeignKeyColumn,
+                c.DefaultValue, c.MaxLength, c.Description
+            )).ToList(),
+            new List<IndexMetadataDto>(),
+            m.TableDescription
+        )).ToList();
+
+        var refreshedAt = metadata.Count > 0 ? metadata.Max(m => m.LastRefreshed) : DateTime.UtcNow;
+        var snapshot = new DatabaseMetadataSnapshot(dataSourceId, null, tables, refreshedAt);
+        cache.Set(GetCacheKey(dataSourceId), snapshot, CacheExpiration);
+        return snapshot;
     }
 
     private static List<string> ParseSchemaList(string? commaSeparated)

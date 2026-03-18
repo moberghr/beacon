@@ -8,5 +8,6 @@ public enum DataSourceType
     Datadog = 4,
     ElasticSearch = 5,
     Databricks = 6,
-    BigQuery = 7
+    BigQuery = 7,
+    Api = 8
 }

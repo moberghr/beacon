@@ -43,9 +43,13 @@
                 <MudGrid>
                     <MudItem xs="12" sm="6" md="3">
                         <MudPaper Elevation="0" Class="pa-4 d-flex flex-column align-center">
-                            <MudIcon Icon="@(_dataSourceInfo?.DataSourceType == DataSourceType.CloudWatch ? Icons.Material.Filled.Cloud : Icons.Material.Filled.Storage)" Color="Color.Primary" Size="Size.Large" Class="mb-2"/>
+                            <MudIcon Icon="@GetDataSourceIcon()" Color="Color.Primary" Size="Size.Large" Class="mb-2"/>
                             <MudText Typo="Typo.h4">
-                                @if (_dataSourceInfo?.DataSourceType == DataSourceType.CloudWatch)
+                                @if (_dataSourceInfo?.DataSourceType == DataSourceType.Api)
+                                {
+                                    <text>REST API</text>
+                                }
+                                else if (_dataSourceInfo?.DataSourceType == DataSourceType.CloudWatch)
                                 {
                                     <text>CloudWatch</text>
                                 }
@@ -98,119 +102,16 @@
                     }
                 </MudGrid>
 
-                @if (_configuration?.UseAI == true && _dataSourceInfo?.DataSourceType == DataSourceType.Database)
-                {
-                    <MudDivider Class="my-4" />
-                    <div class="d-flex flex-column align-center gap-2">
-                        <MudText Typo="Typo.subtitle2" Color="Color.Secondary">Generate Documentation</MudText>
-                        <div class="d-flex justify-center gap-4">
-                            <MudButton Variant="Variant.Filled"
-                                      Color="Color.Primary"
-                                      StartIcon="@Icons.Material.Filled.Hub"
-                                      OnClick="GenerateDocumentation"
-                                      Size="Size.Large">
-                                Multi-Agent Workflow
-                            </MudButton>
-                            <MudButton Variant="Variant.Outlined"
-                                      Color="Color.Default"
-                                      StartIcon="@Icons.Material.Filled.SmartToy"
-                                      OnClick="StartDocumentationAgent"
-                                      Size="Size.Large">
-                                Background Agent
-                            </MudButton>
-                        </div>
-                        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-1">
-                            Multi-Agent: Orchestrator identifies domains → Parallel agents document each → Aggregator synthesizes
-                        </MudText>
-                    </div>
-                }
             </MudCardContent>
         </MudCard>
 
-        <!-- Active Agent Runs -->
-        @if (_configuration?.UseAI == true && _dataSourceInfo?.DataSourceType == DataSourceType.Database && _activeAgentRuns?.Count > 0)
-        {
-            <MudCard Elevation="2" Class="mb-4">
-                <MudCardHeader>
-                    <CardHeaderContent>
-                        <MudText Typo="Typo.h6">
-                            <MudIcon Icon="@Icons.Material.Filled.SmartToy" Class="mr-2" />
-                            Active Documentation Agent Runs
-                        </MudText>
-                    </CardHeaderContent>
-                </MudCardHeader>
-                <MudCardContent>
-                    @foreach (var agentRun in _activeAgentRuns)
-                    {
-                        <DocumentationAgentProgress
-                            AgentRunId="@agentRun.Id"
-                            OnCompleted="@OnAgentCompleted" />
-                    }
-                </MudCardContent>
-            </MudCard>
-        }
-
-        <!-- AI Documentation History -->
-        @if (_configuration?.UseAI == true && _dataSourceInfo?.DataSourceType == DataSourceType.Database && _documentations?.Count > 0)
-        {
-            <MudCard Elevation="2" Class="mb-4">
-                <MudCardHeader>
-                    <CardHeaderContent>
-                        <MudText Typo="Typo.h6">
-                            <MudIcon Icon="@Icons.Material.Filled.AutoAwesome" Class="mr-2" />
-                            AI Documentation History
-                        </MudText>
-                    </CardHeaderContent>
-                </MudCardHeader>
-                <MudCardContent>
-                    <MudTable Items="@_documentations" Hover="true" Dense="true" Striped="true">
-                        <HeaderContent>
-                            <MudTh>Title</MudTh>
-                            <MudTh>Generated</MudTh>
-                            <MudTh>Tables</MudTh>
-                            <MudTh>Model</MudTh>
-                            <MudTh>Status</MudTh>
-                            <MudTh>Actions</MudTh>
-                        </HeaderContent>
-                        <RowTemplate>
-                            <MudTd DataLabel="Title">@context.Title</MudTd>
-                            <MudTd DataLabel="Generated">@context.GeneratedAt.ToString("g")</MudTd>
-                            <MudTd DataLabel="Tables">@context.TablesAnalyzed</MudTd>
-                            <MudTd DataLabel="Model">@context.GeneratedByModel</MudTd>
-                            <MudTd DataLabel="Status">
-                                <MudChip T="string" Size="Size.Small" Color="@GetStatusColor(context.Status)">
-                                    @context.Status
-                                </MudChip>
-                            </MudTd>
-                            <MudTd DataLabel="Actions">
-                                <MudIconButton Icon="@Icons.Material.Filled.Visibility"
-                                              Color="Color.Primary"
-                                              Size="Size.Small"
-                                              Href="@($"data-sources/{DataSourceId}/documentation/{context.Id}")"
-                                              Title="View Documentation"/>
-                                <MudMenu Icon="@Icons.Material.Filled.MoreVert" Size="Size.Small">
-                                    <MudMenuItem Icon="@Icons.Material.Filled.FileDownload" OnClick="@(() => ExportMarkdown(context.Id))">
-                                        Export Markdown
-                                    </MudMenuItem>
-                                    <MudMenuItem Icon="@Icons.Material.Filled.FileDownload" OnClick="@(() => ExportHtml(context.Id))">
-                                        Export HTML
-                                    </MudMenuItem>
-                                    <MudMenuItem Icon="@Icons.Material.Filled.PictureAsPdf" OnClick="@(() => ExportPdf(context.Id))">
-                                        Export PDF
-                                    </MudMenuItem>
-                                    <MudMenuItem Icon="@Icons.Material.Filled.Archive" OnClick="@(() => ArchiveDocumentation(context.Id))">
-                                        Archive
-                                    </MudMenuItem>
-                                </MudMenu>
-                            </MudTd>
-                        </RowTemplate>
-                    </MudTable>
-                </MudCardContent>
-            </MudCard>
-        }
-
         <!-- Query Editor - conditional based on data source type -->
-        @if (_dataSourceInfo?.DataSourceType == DataSourceType.CloudWatch)
+        @if (_dataSourceInfo?.DataSourceType == DataSourceType.Api)
+        {
+            <ApiQueryEditor DataSourceId="@DataSourceId"
+                           ExecuteAdHocQuery="@ExecuteAdHocQueryWrapper" />
+        }
+        else if (_dataSourceInfo?.DataSourceType == DataSourceType.CloudWatch)
         {
             <CloudWatchQueryEditor DataSourceId="@DataSourceId"
                                   Config="@_cloudWatchConfig"
@@ -354,9 +255,6 @@
 @inject NavigationManager Navigation
 @inject ISnackbar Snackbar
 @inject IJSRuntime JSRuntime
-@inject IDialogService DialogService
-@inject SemanticoConfiguration _configuration
-@inject MediatR.IMediator Mediator
 
 @code {
     [Parameter]
@@ -376,8 +274,6 @@
     private string _currentQuery = "";
     private bool _completionProviderRegistered = false;
     private bool _monacoReady = false;
-    private List<DataSourceDocumentation>? _documentations;
-    private List<Semantico.Core.Data.Entities.DocumentationAgentRun>? _activeAgentRuns;
     private CloudWatchConfiguration? _cloudWatchConfig;
 
     protected override async Task OnInitializedAsync()
@@ -423,15 +319,6 @@
                         LogGroups = new List<string> { ex.Message }
                     };
                 }
-            }
-
-            // Load AI documentation history if AI is enabled (only for database sources)
-            if (_configuration?.UseAI == true && _dataSourceInfo?.DataSourceType == DataSourceType.Database)
-            {
-                _documentations = await Mediator.Send(new GetDocumentationsCommand { DataSourceId = DataSourceId });
-
-                // Load active agent runs
-                await LoadActiveAgentRuns();
             }
 
             _error = null;
@@ -725,184 +612,13 @@
         }
     }
 
-    private async Task GenerateDocumentation()
+    private string GetDataSourceIcon() => _dataSourceInfo?.DataSourceType switch
     {
+        DataSourceType.Api => Icons.Material.Filled.Api,
+        DataSourceType.CloudWatch => Icons.Material.Filled.Cloud,
+        _ => Icons.Material.Filled.Storage
+    };
 
-        var options = new DialogOptions
-        {
-            MaxWidth = MaxWidth.Medium,
-            FullWidth = true
-        };
-
-        var parameters = new DialogParameters<GenerateDocumentationDialog>
-        {
-            { x => x.DataSourceId, DataSourceId }
-        };
-
-        var dialog = await DialogService.ShowAsync<GenerateDocumentationDialog>("", parameters, options);
-
-        var result = await dialog.Result;
-
-        if (!result!.Canceled)
-        {
-            // Reload documentations
-            if (_configuration?.UseAI == true)
-            {
-                _documentations = await Mediator.Send(new GetDocumentationsCommand { DataSourceId = DataSourceId });
-            }
-            Snackbar.Add("Documentation generated successfully!", Severity.Success);
-        }
-    }
-
-    private Color GetStatusColor(DocumentationStatus status)
-    {
-        return status switch
-        {
-            DocumentationStatus.Draft => Color.Default,
-            DocumentationStatus.Published => Color.Success,
-            _ => Color.Default
-        };
-    }
-
-    private async Task ExportMarkdown(int documentationId)
-    {
-
-        try
-        {
-            var markdown = await Mediator.Send(new ExportDocumentationToMarkdownCommand { DocumentationId = documentationId });
-            await DownloadFile($"documentation-{documentationId}.md", markdown, "text/markdown");
-            Snackbar.Add("Markdown exported successfully", Severity.Success);
-        }
-        catch (Exception ex)
-        {
-            Snackbar.Add($"Failed to export markdown: {ex.Message}", Severity.Error);
-        }
-    }
-
-    private async Task ExportHtml(int documentationId)
-    {
-
-        try
-        {
-            var html = await Mediator.Send(new ExportDocumentationToHtmlCommand { DocumentationId = documentationId });
-            await DownloadFile($"documentation-{documentationId}.html", html, "text/html");
-            Snackbar.Add("HTML exported successfully", Severity.Success);
-        }
-        catch (Exception ex)
-        {
-            Snackbar.Add($"Failed to export HTML: {ex.Message}", Severity.Error);
-        }
-    }
-
-    private async Task ExportPdf(int documentationId)
-    {
-
-        try
-        {
-            var pdf = await Mediator.Send(new ExportDocumentationToPdfCommand { DocumentationId = documentationId });
-            await DownloadFile($"documentation-{documentationId}.pdf", pdf, "application/pdf");
-            Snackbar.Add("PDF exported successfully", Severity.Success);
-        }
-        catch (Exception ex)
-        {
-            Snackbar.Add($"Failed to export PDF: {ex.Message}", Severity.Error);
-        }
-    }
-
-    private async Task ArchiveDocumentation(int documentationId)
-    {
-        var confirm = await DialogService.ShowMessageBox(
-            "Archive Documentation",
-            "Are you sure you want to archive this documentation? It will no longer appear in the list.",
-            yesText: "Archive",
-            cancelText: "Cancel");
-
-        if (confirm != true) return;
-
-        try
-        {
-            await Mediator.Send(new Semantico.Core.Handlers.Ai.ArchiveDocumentation.ArchiveDocumentationCommand
-            {
-                DocumentationId = documentationId
-            });
-            _documentations = await Mediator.Send(new GetDocumentationsCommand { DataSourceId = DataSourceId });
-            Snackbar.Add("Documentation archived", Severity.Success);
-        }
-        catch (Exception ex)
-        {
-            Snackbar.Add($"Failed to archive documentation: {ex.Message}", Severity.Error);
-        }
-    }
-
-    private async Task DownloadFile(string fileName, string content, string contentType)
-    {
-        var bytes = System.Text.Encoding.UTF8.GetBytes(content);
-        await DownloadFile(fileName, bytes, contentType);
-    }
-
-    private async Task DownloadFile(string fileName, byte[] bytes, string contentType)
-    {
-        var base64 = Convert.ToBase64String(bytes);
-        await JSRuntime.InvokeVoidAsync("downloadFile", fileName, base64, contentType);
-    }
-
-    private async Task StartDocumentationAgent()
-    {
-
-        var options = new DialogOptions
-        {
-            MaxWidth = MaxWidth.Medium,
-            FullWidth = true
-        };
-
-        var parameters = new DialogParameters<StartDocumentationAgentDialog>
-        {
-            { x => x.DataSourceId, DataSourceId },
-            { x => x.UserId, 1 } // TODO: Get from auth context
-        };
-
-        var dialog = await DialogService.ShowAsync<StartDocumentationAgentDialog>("", parameters, options);
-
-        var result = await dialog.Result;
-
-        if (!result!.Canceled && result.Data is Semantico.Core.Handlers.Ai.DocumentationAgent.StartDocumentationAgentResult agentResult)
-        {
-            // Reload active agent runs
-            await LoadActiveAgentRuns();
-            Snackbar.Add($"Documentation agent started! Run ID: {agentResult.AgentRunId}", Severity.Success);
-        }
-    }
-
-    private async Task LoadActiveAgentRuns()
-    {
-        try
-        {
-            var query = new Semantico.Core.Handlers.Ai.DocumentationAgent.GetActiveAgentRunsQuery
-            {
-                DataSourceId = DataSourceId
-            };
-            _activeAgentRuns = await Mediator.Send(query);
-        }
-        catch (Exception ex)
-        {
-            // Silently fail - agent runs are optional
-            _activeAgentRuns = null;
-        }
-    }
-
-    private async Task OnAgentCompleted()
-    {
-        // Reload documentation history
-        if (_configuration?.UseAI == true)
-        {
-            _documentations = await Mediator.Send(new GetDocumentationsCommand { DataSourceId = DataSourceId });
-        }
-
-        // Reload active runs
-        await LoadActiveAgentRuns();
-
-        StateHasChanged();
-    }
 
     private async Task<AdHocQueryResult> ExecuteAdHocQueryWrapper(int dataSourceId, string query, CancellationToken cancellationToken)
     {

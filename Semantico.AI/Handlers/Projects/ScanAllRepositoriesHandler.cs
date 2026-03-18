@@ -1,0 +1,43 @@
+using MediatR;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using Semantico.AI.Services.GitHub;
+using Semantico.Core.Handlers.Projects;
+
+namespace Semantico.AI.Handlers.Projects;
+
+internal sealed class ScanAllRepositoriesHandler(
+    SemanticoContext context,
+    IGitHubScannerService scanner,
+    ILogger<ScanAllRepositoriesHandler> logger)
+    : IRequestHandler<ScanAllRepositoriesCommand, ScanAllRepositoriesResult>
+{
+    public async Task<ScanAllRepositoriesResult> Handle(
+        ScanAllRepositoriesCommand request,
+        CancellationToken cancellationToken)
+    {
+        var repoIds = await context.GitHubRepositories
+            .Where(r => r.ProjectId == request.ProjectId)
+            .Select(r => r.Id)
+            .ToListAsync(cancellationToken);
+
+        var errors = new List<string>();
+        var scanned = 0;
+
+        foreach (var repoId in repoIds)
+        {
+            try
+            {
+                await scanner.ScanRepositoryAsync(repoId, cancellationToken);
+                scanned++;
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Failed to scan repository {RepositoryId}", repoId);
+                errors.Add($"Repository {repoId}: {ex.Message}");
+            }
+        }
+
+        return new ScanAllRepositoriesResult(scanned, errors);
+    }
+}

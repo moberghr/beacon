@@ -3,10 +3,12 @@ using Dapper;
 using Microsoft.EntityFrameworkCore;
 using Semantico.Core.Data;
 using Semantico.Core.Data.Entities;
+using Semantico.Core.Data.Entities.Metadata;
 using Semantico.Core.Data.Enums;
 using Semantico.Core.Helpers;
 using Semantico.Core.Models;
 using Semantico.Core.Models.DataSources;
+using Semantico.Core.Models.Providers;
 using Semantico.Core.Models.Queries;
 using Semantico.Core.Services.Providers;
 using Microsoft.Extensions.Logging;
@@ -60,10 +62,67 @@ internal class DataSourceService(
         context.DataSources.Add(dataSource);
         await context.SaveChangesAsync(cancellationToken);
 
+        // For API data sources, import endpoint metadata from OpenAPI spec
+        if (dataSourceData.DataSourceType == DataSourceType.Api)
+        {
+            try
+            {
+                var provider = providerFactory.GetProvider(DataSourceType.Api);
+                var metadata = await provider.GetMetadataAsync(dataSource, cancellationToken);
+                if (metadata.Endpoints?.Count > 0)
+                {
+                    await StoreApiEndpointsAsMetadata(context, dataSource.Id, metadata.Endpoints, cancellationToken);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to import API metadata for data source {Id}. Can be retried via metadata refresh.", dataSource.Id);
+            }
+        }
+
         return new BaseResponse
         {
             Success = true
         };
+    }
+
+    private static async Task StoreApiEndpointsAsMetadata(
+        SemanticoContext context,
+        int dataSourceId,
+        List<ApiEndpointMetadata> endpoints,
+        CancellationToken cancellationToken)
+    {
+        foreach (var endpoint in endpoints)
+        {
+            var schemaName = endpoint.Tag ?? "default";
+            var tableName = $"{endpoint.Method} {endpoint.Path}";
+
+            var metadata = new DatabaseMetadata
+            {
+                DataSourceId = dataSourceId,
+                SchemaName = schemaName,
+                TableName = tableName,
+                TableDescription = endpoint.Summary ?? endpoint.Description,
+                LastRefreshed = DateTime.UtcNow
+            };
+
+            // Add response fields as columns
+            foreach (var (field, index) in endpoint.ResponseFields.Select((f, i) => (f, i)))
+            {
+                metadata.Columns.Add(new ColumnMetadata
+                {
+                    ColumnName = field.Name,
+                    DataType = field.Type,
+                    IsNullable = true,
+                    OrdinalPosition = index,
+                    Description = field.Description
+                });
+            }
+
+            context.DatabaseMetadata.Add(metadata);
+        }
+
+        await context.SaveChangesAsync(cancellationToken);
     }
 
     public async Task DeleteDataSource(int dataSourceId, CancellationToken cancellationToken)

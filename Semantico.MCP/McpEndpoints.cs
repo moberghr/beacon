@@ -45,7 +45,7 @@ public static class McpEndpoints
         var apiKeyId = GetApiKeyId(context);
 
         var session = sessionManager.CreateSession(userId, apiKeyId);
-        session.AllowedDataSourceIds = GetAllowedDataSourceIds(context);
+        session.AllowedProjectIds = GetAllowedProjectIds(context);
 
         logger.LogInformation("MCP SSE connection opened: {SessionId} (User: {UserId})", session.SessionId, userId);
 
@@ -164,9 +164,9 @@ public static class McpEndpoints
         return claim != null && int.TryParse(claim.Value, out var id) ? id : null;
     }
 
-    private static List<int>? GetAllowedDataSourceIds(HttpContext context)
+    private static List<int>? GetAllowedProjectIds(HttpContext context)
     {
-        var claim = context.User?.FindFirst("allowed_datasources");
+        var claim = context.User?.FindFirst("allowed_projects");
         if (claim == null || string.IsNullOrEmpty(claim.Value)) return null;
 
         try

@@ -82,45 +82,4 @@ public class QueryTranslationTests : QueryTranslationTestBase
             }));
     }
 
-    [Test]
-    public void GetProjectDetail_SchemaChangesQuery_Translates()
-    {
-        AssertQueryTranslates(ctx => ctx.SchemaChanges
-            .Where(sc => ctx.ProjectDataSources
-                .Where(pds => pds.ProjectId == 1)
-                .Select(pds => pds.DataSourceId)
-                .Contains(sc.DataSourceId))
-            .OrderByDescending(sc => sc.DetectedAt)
-            .Select(sc => new
-            {
-                sc.ChangeType,
-                sc.SchemaName,
-                sc.TableName,
-                sc.ColumnName,
-                sc.OldValue,
-                sc.NewValue,
-                sc.DetectedAt
-            }));
-    }
-
-    // ─── Schema Changes ──────────────────────────────────────────────
-
-    [Test]
-    public void GetSchemaChangesQuery_Translates()
-    {
-        AssertQueryTranslates(ctx => ctx.SchemaChanges
-            .OrderByDescending(sc => sc.DetectedAt)
-            .Select(sc => new
-            {
-                DataSourceName = sc.DataSource.Name,
-                sc.SchemaName,
-                sc.TableName,
-                sc.ColumnName,
-                sc.ChangeType,
-                sc.OldValue,
-                sc.NewValue,
-                sc.Description,
-                sc.DetectedAt
-            }));
-    }
 }

@@ -4,16 +4,13 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Semantico.AI.Models.Configuration;
 using Semantico.AI.Services.Ai;
 using Semantico.AI.Services.Ai.AiActor;
-using Semantico.AI.Services.Ai.DocumentationAgent;
-using Semantico.AI.Services.Ai.MultiAgent;
 using Semantico.AI.Services.DbtIntegration;
+using Semantico.AI.Services.Documentation;
 using Semantico.AI.Services.GitHub;
 using Semantico.AI.Services.Knowledge;
 using Semantico.AI.Services.LlmProviders;
-using Semantico.AI.Services.Reports;
-using Semantico.AI.Services.SchemaChangeDetection;
+
 using Semantico.AI.Services.SemanticSearch;
-using Semantico.Core.Services;
 
 namespace Semantico.AI;
 
@@ -55,21 +52,10 @@ public static class ServiceConfiguration
         });
 
         // AI services
-        services.TryAddScoped<IAiDocumentationService, AiDocumentationService>();
         services.TryAddScoped<IAiAlertGenerationService, AiAlertGenerationService>();
 
-        // Multi-agent documentation service
-        services.TryAddScoped<IMultiAgentDocumentationService, MultiAgentDocumentationService>();
-
-        // Documentation Agent services (new agent-based approach)
-        services.TryAddTransient<DocumentationAgentTools>();
-        services.TryAddTransient<IDocumentationAgentService, DocumentationAgentService>();
-
         // AI Actor services (autonomous monitoring)
-        // Register the concrete implementation
         services.TryAddScoped<AiActorService>();
-
-        // Register both interfaces to the same implementation instance
         services.TryAddScoped<IAiActorServiceExtended>(sp => sp.GetRequiredService<AiActorService>());
         services.TryAddScoped<Core.Services.IAiActorService>(sp => sp.GetRequiredService<AiActorService>());
 
@@ -81,11 +67,8 @@ public static class ServiceConfiguration
         // Knowledge Graph
         services.TryAddTransient<IKnowledgeGraphService, KnowledgeGraphService>();
 
-        // Schema Change Detection
-        services.TryAddTransient<ISchemaChangeDetectionService, SchemaChangeDetectionService>();
-
-        // Project Reports
-        services.TryAddTransient<IProjectReportService, ProjectReportService>();
+        // Project Documentation (living knowledge base)
+        services.TryAddTransient<IProjectDocumentationService, ProjectDocumentationService>();
 
         // Semantic Search
         services.TryAddTransient<ISemanticSearchService, SemanticSearchService>();

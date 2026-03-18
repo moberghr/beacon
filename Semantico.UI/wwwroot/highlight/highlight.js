@@ -33,6 +33,20 @@ window.updateMermaidTheme = (theme) => {
     }
 };
 
+window.renderMermaidDiagrams = async () => {
+    if (typeof mermaid === 'undefined') return;
+    // Find all code blocks with language-mermaid class that haven't been rendered yet
+    const codeBlocks = document.querySelectorAll('pre code.language-mermaid');
+    for (const code of codeBlocks) {
+        const pre = code.parentElement;
+        const container = document.createElement('div');
+        container.className = 'mermaid';
+        container.textContent = code.textContent;
+        pre.replaceWith(container);
+    }
+    await mermaid.run({ nodes: document.querySelectorAll('.mermaid') });
+};
+
 
 /*!
   Highlight.js v11.10.0 (git: 366a8bd012)

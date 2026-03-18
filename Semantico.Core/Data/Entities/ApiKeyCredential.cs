@@ -10,7 +10,7 @@ public class ApiKeyCredential : BaseEntity
     public required string KeyPrefix { get; set; }
 
     public string? Scopes { get; set; }
-    public string? AllowedDataSourceIds { get; set; }
+    public string? AllowedProjectIds { get; set; }
 
     public DateTime? ExpiresAt { get; set; }
     public DateTime? LastUsedAt { get; set; }

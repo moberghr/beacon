@@ -1,7 +1,6 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
 using Semantico.Core.Data.Enums;
-using Semantico.AI.Models.Ai;
 using Semantico.AI.Services.Ai;
 using Semantico.Core.Handlers.Ai.GenerateAlert;
 

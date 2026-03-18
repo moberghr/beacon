@@ -10,6 +10,7 @@ public class McpAuditLog : BaseEntity
     public string? Parameters { get; set; }
 
     public int? DataSourceId { get; set; }
+    public int? ProjectId { get; set; }
     public int ExecutionTimeMs { get; set; }
     public int? ResultRowCount { get; set; }
     public string? ErrorMessage { get; set; }

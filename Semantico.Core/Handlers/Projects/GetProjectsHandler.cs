@@ -13,7 +13,6 @@ internal sealed class GetProjectsHandler(SemanticoContext context)
         CancellationToken cancellationToken)
     {
         var rows = await context.Projects
-            .Where(p => p.ArchivedTime == null)
             .OrderByDescending(p => p.CreatedTime)
             .Select(p => new
             {
@@ -22,10 +21,13 @@ internal sealed class GetProjectsHandler(SemanticoContext context)
                 p.Description,
                 DataSourceCount = p.DataSources.Count,
                 RepositoryCount = p.Repositories.Count,
-                LastScannedRepo = p.Repositories
+                LastScanAt = p.Repositories
+                    .Where(r => r.LastScanAt != null)
+                    .Max(r => (DateTime?)r.LastScanAt),
+                LastScanStatus = p.Repositories
                     .Where(r => r.LastScanAt != null)
                     .OrderByDescending(r => r.LastScanAt)
-                    .Select(r => new { r.LastScanAt, r.ScanStatus })
+                    .Select(r => (ScanStatus?)r.ScanStatus)
                     .FirstOrDefault(),
                 p.CreatedTime
             })
@@ -38,8 +40,8 @@ internal sealed class GetProjectsHandler(SemanticoContext context)
             r.DataSourceCount,
             r.RepositoryCount,
             null, // QualityScore - computed from DataQualityScores if needed later
-            r.LastScannedRepo?.ScanStatus.ToString(),
-            r.LastScannedRepo?.LastScanAt,
+            r.LastScanStatus?.ToString(),
+            r.LastScanAt,
             r.CreatedTime)).ToList();
 
         return new GetProjectsResult(entries);
