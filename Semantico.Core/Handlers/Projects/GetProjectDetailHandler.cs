@@ -1,7 +1,6 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Semantico.Core.Data;
-using Semantico.Core.Data.Enums;
 
 namespace Semantico.Core.Handlers.Projects;
 
@@ -48,10 +47,12 @@ internal sealed class GetProjectDetailHandler(SemanticoContext context)
             .Where(r => r.ProjectId == request.ProjectId)
             .Select(r => new
             {
+                r.Id,
                 r.RepositoryUrl,
                 r.ScanStatus,
                 r.LastScanAt,
-                r.TotalReferencesFound
+                r.TotalReferencesFound,
+                HasAccessToken = r.EncryptedAccessToken != null
             })
             .ToListAsync(cancellationToken);
 
@@ -59,56 +60,17 @@ internal sealed class GetProjectDetailHandler(SemanticoContext context)
         {
             var name = ExtractRepoName(r.RepositoryUrl);
             return new ProjectRepositoryEntry(
+                r.Id,
                 name,
                 r.RepositoryUrl,
                 r.ScanStatus.ToString(),
                 r.LastScanAt,
-                r.TotalReferencesFound);
+                r.TotalReferencesFound,
+                r.HasAccessToken);
         }).ToList();
 
-        var reports = await context.ProjectReports
-            .Where(r => r.ProjectId == request.ProjectId)
-            .OrderByDescending(r => r.GeneratedAt)
-            .Select(r => new
-            {
-                r.GeneratedAt,
-                r.ReportType
-            })
-            .ToListAsync(cancellationToken);
-
-        var reportEntries = reports.Select(r => new ProjectReportEntry(
-            r.GeneratedAt,
-            0, // QualityScore - not stored on ProjectReport entity
-            0, // TablesChecked - not stored
-            0  // IssuesFound - not stored
-        )).ToList();
-
-        var schemaChanges = await context.SchemaChanges
-            .Where(sc => context.ProjectDataSources
-                .Where(pds => pds.ProjectId == request.ProjectId)
-                .Select(pds => pds.DataSourceId)
-                .Contains(sc.DataSourceId))
-            .OrderByDescending(sc => sc.DetectedAt)
-            .Select(sc => new
-            {
-                sc.ChangeType,
-                sc.SchemaName,
-                sc.TableName,
-                sc.ColumnName,
-                sc.OldValue,
-                sc.NewValue,
-                sc.DetectedAt
-            })
-            .ToListAsync(cancellationToken);
-
-        var changeEntries = schemaChanges.Select(c => new ProjectSchemaChangeEntry(
-            c.ChangeType,
-            c.SchemaName,
-            c.TableName,
-            c.ColumnName,
-            c.OldValue,
-            c.NewValue,
-            c.DetectedAt)).ToList();
+        var hasDocumentation = await context.ProjectDocumentations
+            .AnyAsync(d => d.ProjectId == request.ProjectId, cancellationToken);
 
         var totalTables = dsEntries.Sum(d => d.TableCount);
         var codeRefCount = repos.Sum(r => r.TotalReferencesFound);
@@ -128,8 +90,7 @@ internal sealed class GetProjectDetailHandler(SemanticoContext context)
             lastScan,
             dsEntries,
             repoEntries,
-            reportEntries,
-            changeEntries);
+            hasDocumentation);
 
         return new GetProjectDetailResult(detail);
     }
@@ -156,20 +117,8 @@ public record ProjectDetailEntry(
     DateTime? LastScanAt,
     List<ProjectDataSourceEntry> DataSources,
     List<ProjectRepositoryEntry> Repositories,
-    List<ProjectReportEntry> Reports,
-    List<ProjectSchemaChangeEntry> SchemaChanges);
+    bool HasDocumentation);
 
 public record ProjectDataSourceEntry(string Name, string Type, int TableCount, double? QualityScore);
 
-public record ProjectRepositoryEntry(string Name, string Url, string? ScanStatus, DateTime? LastScanAt, int ReferenceCount);
-
-public record ProjectReportEntry(DateTime GeneratedAt, double QualityScore, int TablesChecked, int IssuesFound);
-
-public record ProjectSchemaChangeEntry(
-    SchemaChangeType ChangeType,
-    string SchemaName,
-    string TableName,
-    string? ColumnName,
-    string? OldValue,
-    string? NewValue,
-    DateTime DetectedAt);
+public record ProjectRepositoryEntry(int Id, string Name, string Url, string? ScanStatus, DateTime? LastScanAt, int ReferenceCount, bool HasAccessToken);

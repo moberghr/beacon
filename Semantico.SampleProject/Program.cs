@@ -12,6 +12,7 @@ using Semantico.Connector.CloudWatch;
 using Semantico.Connector.AzureSynapse;
 using Semantico.Connector.Snowflake;
 using Semantico.Connector.Databricks;
+using Semantico.Connector.Api;
 using Semantico.Connector.BigQuery;
 using Semantico.MCP;
 using Semantico.SampleProject.Services;
@@ -89,6 +90,7 @@ builder.Services.AddSemanticoServices(builder.Configuration, options =>
     .AddSnowflakeConnector()
     .AddDatabricksConnector()
     .AddBigQueryConnector()
+    .AddApiConnector()
     // Configure EF Core database provider for Semantico's own data store
     .UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico")
     //.UseSqlServer(builder.Configuration.GetConnectionString("SemanticoContextSql")!, "semantico")
@@ -127,7 +129,10 @@ var app = builder.Build();
 // MIDDLEWARE PIPELINE
 // ============================================================================
 
-app.UseHttpsRedirection();
+// Skip HTTPS redirect for MCP endpoints (allows local dev tools to connect over HTTP)
+app.UseWhen(
+    context => !context.Request.Path.StartsWithSegments("/semantico/mcp"),
+    appBuilder => appBuilder.UseHttpsRedirection());
 
 // IMPORTANT: UseStaticFiles must be called before UseSemanticoUI
 // to serve _content files from Razor Class Libraries

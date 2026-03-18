@@ -10,5 +10,5 @@ public class Project : ArchivableBaseEntity
 
     public List<ProjectDataSource> DataSources { get; set; } = new();
     public List<GitHubRepository> Repositories { get; set; } = new();
-    public List<ProjectReport> Reports { get; set; } = new();
+    public List<ProjectDocumentation> Documentations { get; set; } = new();
 }

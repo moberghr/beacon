@@ -35,10 +35,6 @@ namespace Semantico.Core.Helpers;
     /// </summary>
     public string[] OnlyUpdateColumns { get; set; } = [];
 
-    /// <summary>
-    /// Result should include rows with the following columns from entity
-    /// </summary>
-    // public string[] ReturnColumnsForAffectedRows = [];
 }
 
 public static class BulkExtension
@@ -106,17 +102,6 @@ public static class BulkExtension
                                .Where(x => !options.OnlyUpdateColumns.Any() || options.OnlyUpdateColumns.Contains(x))
                                .Where(x => !options.DoNotUpdateColumns.Contains(x));
 
-        // merge data from temp table with target table
-        // var outputColumns =
-        //     $"returning merge_action() as merge_action, {JoinColumns(", ", options.MatchOnColumns.Union(options.IgnoredProperties.Select(x => x.ToLower())), col => $"t.{col}")}";
-
-        // var outputColumns = allColumns.Where(x => options.ReturnColumnsForAffectedRows.Contains(x.GetColumnName())).ToList();
-        // var outputColumnList = "";
-        // if (options.ReturnColumnsForAffectedRows.Any())
-        // {
-        //     // outputColumnList = string.Join("", outputColumns.Select(col => $", t.{Escape(col.GetColumnName())} as {Escape(col.Name)}"));
-        // }
-
         var mergeQuery = $"""
                           merge into {targetTable} as t 
                           using {tempTable} as s on {JoinColumns(" AND ", options.MatchOnColumns, col => $"s.{col} = t.{col}")}
@@ -128,19 +113,7 @@ public static class BulkExtension
                                  {JoinColumns(", ", columnsForUpdate, col => $"{col} = s.{col}")}
                           """;
 
-        // IEnumerable<BulkAction<T>> rowsQuery;
-        // if (options.ReturnColumnsForAffectedRows.Any())
-        // {
-        //     rowsQuery = await conn.QueryAsync<BulkAction<T>, T, BulkAction<T>>(mergeQuery, (a, b) =>
-        //     {
-        //         a.Item = b;
-        //         return a;
-        //     }, splitOn: outputColumns.First().Name);
-        // }
-        // else
-        // {
         int rowsChanged = await conn.ExecuteAsync(mergeQuery);
-        // }
 
         var mergeTime = sw.Elapsed;
         sw.Stop();
@@ -151,34 +124,12 @@ public static class BulkExtension
             await conn.CloseAsync();
         }
 
-        // var rows = rowsQuery.ToList();
-
-        // count affected rows
-        // var stats = rows.GroupBy(x => x.Action)
-        //                 .Select(x => new
-        //                 {
-        //                     Action = x.Key,
-        //                     Count = x.Count(),
-        //                 })
-        //                 .ToDictionary(x => x.Action, x => x.Count);
-
-        // update keys on original items
-        // foreach (var (k, i) in from r in rows.Select(r => r.Item)
-        //                        join i in items on keySelector(r) equals keySelector(i)
-        //                        select (pkSelector(r), i))
-        // {
-        //     pkSetter(i, k);
-        // }
-
         return new BulkResult<T>
         {
-            // Inserted = stats.GetValueOrDefault("INSERT", 0),
-            // Updated = stats.GetValueOrDefault("UPDATE", 0),
             Inserted = rowsChanged,
             Updated = 0,
             InsertTime = bulkInsertTime,
             MergeTime = mergeTime,
-            // RowsChanged = options.ReturnColumnsForAffectedRows.Any() ? rows : null,
         };
     }
 
@@ -213,17 +164,10 @@ public static class BulkExtension
     }
 }
 
-public class BulkAction<T>
-{
-    public string Action { get; set; }
-    public T Item { get; set; }
-}
-
 public class BulkResult<T>
 {
     public int Inserted { get; init; }
     public int Updated { get; init; }
-    // public IEnumerable<BulkAction<T>>? RowsChanged { get; init; }
     public TimeSpan InsertTime { get; set; }
     public TimeSpan MergeTime { get; set; }
 }

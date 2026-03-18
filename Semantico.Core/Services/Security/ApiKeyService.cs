@@ -15,7 +15,7 @@ internal sealed class ApiKeyService(
     private const string KeyPrefix = "sk-sem_";
 
     public async Task<(ApiKeyCredential Credential, string PlainTextKey)> GenerateApiKeyAsync(
-        int? userId, string name, string[]? scopes = null, int[]? allowedDataSourceIds = null, DateTime? expiresAt = null, CancellationToken ct = default)
+        int? userId, string name, string[]? scopes = null, int[]? allowedProjectIds = null, DateTime? expiresAt = null, CancellationToken ct = default)
     {
         await using var context = await contextFactory.CreateDbContextAsync(ct);
 
@@ -32,7 +32,7 @@ internal sealed class ApiKeyService(
             KeyHash = keyHash,
             KeyPrefix = keyPrefixStr,
             Scopes = scopes != null ? JsonSerializer.Serialize(scopes) : null,
-            AllowedDataSourceIds = allowedDataSourceIds != null ? JsonSerializer.Serialize(allowedDataSourceIds) : null,
+            AllowedProjectIds = allowedProjectIds != null ? JsonSerializer.Serialize(allowedProjectIds) : null,
             ExpiresAt = expiresAt.HasValue ? DateTime.SpecifyKind(expiresAt.Value, DateTimeKind.Utc) : null
         };
 

@@ -45,6 +45,7 @@ public record DataSourceKnowledge
 {
     public int DataSourceId { get; init; }
     public required string Name { get; init; }
+    public DataSourceType DataSourceType { get; init; }
     public string? DatabaseEngine { get; init; }
     public int TableCount { get; init; }
     public double? OverallQualityScore { get; init; }
@@ -58,6 +59,7 @@ public record SchemaOverview(string SchemaName, int TableCount, double? AvgQuali
 public record SearchResult
 {
     public required string Type { get; init; } // "table", "column", "documentation"
+    public int DataSourceId { get; init; }
     public required string DataSourceName { get; init; }
     public required string SchemaName { get; init; }
     public required string TableName { get; init; }
@@ -76,3 +78,11 @@ public record LineageInfo
 }
 
 public record LineageNode(string Type, string Name, string? Detail);
+
+public record SmartSchemaContext
+{
+    public required string FullContext { get; init; }
+    public bool UsedSmartRetrieval { get; init; }
+    public List<string> RelevantTables { get; init; } = [];
+    public int TotalTableCount { get; init; }
+}

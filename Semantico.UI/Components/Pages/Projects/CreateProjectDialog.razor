@@ -43,6 +43,15 @@
                     </MudButton>
                 </MudStack>
 
+                <MudTextField @bind-Value="_accessToken"
+                              Label="GitHub Access Token"
+                              Placeholder="ghp_..."
+                              InputType="InputType.Password"
+                              Variant="Variant.Outlined"
+                              Adornment="Adornment.Start"
+                              AdornmentIcon="@Icons.Material.Filled.Key"
+                              HelperText="Required for private repositories. Token is encrypted at rest."/>
+
                 @if (_repoUrls.Count == 0)
                 {
                     <MudText Typo="Typo.body2" Color="Color.Secondary">
@@ -105,6 +114,7 @@
     private string? _description;
     private IEnumerable<int> _selectedDataSourceIds = [];
     private List<string> _repoUrls = new();
+    private string? _accessToken;
 
     private void AddRepoField()
     {
@@ -130,7 +140,8 @@
                 _name,
                 _description,
                 _selectedDataSourceIds.ToList(),
-                _repoUrls));
+                _repoUrls,
+                _accessToken));
 
             MudDialog.Close(DialogResult.Ok(true));
         }

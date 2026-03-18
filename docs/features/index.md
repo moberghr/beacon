@@ -26,6 +26,9 @@ Deliver query results via Email, Microsoft Teams, or Jira. Configure recipients 
 ### [Data Migration](data-migration)
 Extract, transform, and load data between databases using multi-step ETL pipelines. Support for cross-database migrations with scheduling and retry capabilities.
 
+### [MCP Server](mcp-server)
+Connect AI assistants (Claude, Cursor, Windsurf) to your data through the Model Context Protocol. Natural language queries, schema search, and documentation — all project-scoped with API key authentication.
+
 ## Advanced Features
 
 ### [User Management](user-management)

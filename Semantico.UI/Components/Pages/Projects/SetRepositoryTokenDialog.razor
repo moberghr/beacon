@@ -1,0 +1,101 @@
+@using MediatR
+@using Semantico.Core.Handlers.Projects
+@inject IMediator Mediator
+
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3">
+            <MudText Typo="Typo.body2" Color="Color.Secondary">
+                Set a GitHub Personal Access Token to scan private repository <strong>@RepositoryName</strong>.
+            </MudText>
+
+            @if (HasExistingToken)
+            {
+                <MudAlert Severity="Severity.Info" Dense="true" Class="mb-0">
+                    A token is already configured. Enter a new token to replace it, or clear to remove.
+                </MudAlert>
+            }
+
+            <MudTextField @bind-Value="_token"
+                          Label="GitHub Access Token"
+                          Placeholder="ghp_..."
+                          InputType="InputType.Password"
+                          Variant="Variant.Outlined"
+                          Adornment="Adornment.Start"
+                          AdornmentIcon="@Icons.Material.Filled.Key"
+                          Immediate="true"
+                          HelperText="Token is encrypted at rest. Leave empty to remove."/>
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancel</MudButton>
+        @if (HasExistingToken)
+        {
+            <MudButton Color="Color.Error"
+                       Variant="Variant.Text"
+                       OnClick="RemoveToken"
+                       Disabled="_saving">
+                Remove Token
+            </MudButton>
+        }
+        <MudButton Color="Color.Primary"
+                   Variant="Variant.Filled"
+                   OnClick="Submit"
+                   Disabled="@(string.IsNullOrWhiteSpace(_token) || _saving)">
+            @(_saving ? "Saving..." : "Save")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@inject ISnackbar Snackbar
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+
+    [Parameter] public int RepositoryId { get; set; }
+    [Parameter] public string RepositoryName { get; set; } = string.Empty;
+    [Parameter] public bool HasExistingToken { get; set; }
+
+    private string? _token;
+    private bool _saving;
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task Submit()
+    {
+        _saving = true;
+        try
+        {
+            await Mediator.Send(new UpdateRepositoryTokenCommand(RepositoryId, _token));
+            Snackbar.Add("Access token saved.", Severity.Success);
+            MudDialog.Close(DialogResult.Ok(true));
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task RemoveToken()
+    {
+        _saving = true;
+        try
+        {
+            await Mediator.Send(new UpdateRepositoryTokenCommand(RepositoryId, null));
+            Snackbar.Add("Access token removed.", Severity.Success);
+            MudDialog.Close(DialogResult.Ok(true));
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+}

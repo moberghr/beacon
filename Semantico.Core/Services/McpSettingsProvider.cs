@@ -57,7 +57,8 @@ internal sealed class McpSettingsProvider(
         {
             AskSystemPrompt = entity.AskSystemPrompt,
             GlobalInstruction = entity.GlobalInstruction,
-            ListDataSourcesDescription = entity.ListDataSourcesDescription,
+            GetContextDescription = entity.GetContextDescription,
+            SearchDescription = entity.SearchDescription,
             QueryDescription = entity.QueryDescription,
             GetDocumentationDescription = entity.GetDocumentationDescription,
             AskDescription = entity.AskDescription,

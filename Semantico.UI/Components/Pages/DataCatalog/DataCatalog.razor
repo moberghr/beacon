@@ -1,6 +1,7 @@
 @page "/semantico/data-catalog"
 @inherits BasePageComponent
 @using MediatR
+@using Semantico.Core.Data.Enums
 @using Semantico.Core.Handlers.DataCatalog
 @inject IMediator Mediator
 
@@ -132,9 +133,15 @@
                                         }
                                     </MudStack>
 
-                                    <MudChip T="string" Size="Size.Small" Icon="@Icons.Material.Filled.Storage">
-                                        @entry.DataSourceName
-                                    </MudChip>
+                                    <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                                        <MudChip T="string" Size="Size.Small" Icon="@(entry.DataSourceType == DataSourceType.Api ? Icons.Material.Filled.Api : Icons.Material.Filled.Storage)">
+                                            @entry.DataSourceName
+                                        </MudChip>
+                                        @if (entry.DataSourceType == DataSourceType.Api)
+                                        {
+                                            <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Outlined">API</MudChip>
+                                        }
+                                    </MudStack>
 
                                     <MudDivider/>
 

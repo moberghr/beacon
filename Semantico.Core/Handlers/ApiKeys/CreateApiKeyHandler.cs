@@ -14,7 +14,7 @@ internal sealed class CreateApiKeyHandler(IApiKeyService apiKeyService)
             userId: null, // TODO: pass current user ID
             name: request.Name,
             scopes: request.Scopes,
-            allowedDataSourceIds: request.AllowedDataSourceIds,
+            allowedProjectIds: request.AllowedProjectIds,
             expiresAt: request.ExpiresAt,
             ct: cancellationToken);
 
@@ -25,7 +25,7 @@ internal sealed class CreateApiKeyHandler(IApiKeyService apiKeyService)
 public record CreateApiKeyCommand(
     string Name,
     string[] Scopes,
-    int[]? AllowedDataSourceIds,
+    int[]? AllowedProjectIds,
     DateTime? ExpiresAt) : IRequest<CreateApiKeyResult>;
 
 public record CreateApiKeyResult(string PlainTextKey);

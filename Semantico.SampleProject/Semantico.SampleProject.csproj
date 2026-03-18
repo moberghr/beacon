@@ -35,6 +35,7 @@
       <ProjectReference Include="..\Semantico.Connector.Snowflake\Semantico.Connector.Snowflake.csproj" />
       <ProjectReference Include="..\Semantico.Connector.Databricks\Semantico.Connector.Databricks.csproj" />
       <ProjectReference Include="..\Semantico.Connector.BigQuery\Semantico.Connector.BigQuery.csproj" />
+      <ProjectReference Include="..\Semantico.Connector.Api\Semantico.Connector.Api.csproj" />
     </ItemGroup>
 
 </Project>

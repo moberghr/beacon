@@ -6,7 +6,8 @@ public class McpSettings : BaseEntity
 {
     public string? AskSystemPrompt { get; set; }
     public string? GlobalInstruction { get; set; }
-    public string? ListDataSourcesDescription { get; set; }
+    public string? GetContextDescription { get; set; }
+    public string? SearchDescription { get; set; }
     public string? QueryDescription { get; set; }
     public string? GetDocumentationDescription { get; set; }
     public string? AskDescription { get; set; }

@@ -86,10 +86,11 @@ internal sealed class McpRequestHandler(
     {
         var custom = tool.Name switch
         {
-            "list_datasources" => settings.ListDataSourcesDescription,
+            "get_context" => settings.GetContextDescription,
             "query" => settings.QueryDescription,
             "get_documentation" => settings.GetDocumentationDescription,
             "ask" => settings.AskDescription,
+            "search" => settings.SearchDescription,
             _ => null
         };
         return !string.IsNullOrWhiteSpace(custom) ? custom : tool.Description;
@@ -115,6 +116,7 @@ internal sealed class McpRequestHandler(
         var dbSession = await auditService.GetOrCreateSessionAsync(session.SessionId, session.UserId, session.ApiKeyId, ct);
         var argsJson = arguments?.GetRawText();
         var dataSourceId = arguments.HasValue ? ToolHelper.GetInt(arguments, "datasource_id") : null;
+        var projectId = session.ActiveProjectId;
         var sw = Stopwatch.StartNew();
         string? errorMessage = null;
         int? resultRowCount = null;
@@ -131,13 +133,13 @@ internal sealed class McpRequestHandler(
             sw.Stop();
             errorMessage = ex.Message;
             _ = auditService.LogToolCallAsync(dbSession?.Id, session.UserId, toolName, argsJson,
-                dataSourceId, (int)sw.ElapsedMilliseconds, null, errorMessage, ct);
+                dataSourceId, projectId, (int)sw.ElapsedMilliseconds, null, errorMessage, ct);
             throw;
         }
 
         sw.Stop();
         await auditService.LogToolCallAsync(dbSession?.Id, session.UserId, toolName, argsJson,
-            dataSourceId, (int)sw.ElapsedMilliseconds, resultRowCount, errorMessage, ct);
+            dataSourceId, projectId, (int)sw.ElapsedMilliseconds, resultRowCount, errorMessage, ct);
         await auditService.UpdateSessionActivityAsync(session.SessionId, ct);
 
         return result;

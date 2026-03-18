@@ -10,7 +10,7 @@ internal sealed class McpAuditService(
     ILogger<McpAuditService> logger)
 {
     public async Task LogToolCallAsync(int? sessionId, int? userId, string tool, string? parameters,
-        int? dataSourceId, int executionTimeMs, int? resultRowCount, string? errorMessage, CancellationToken ct = default)
+        int? dataSourceId, int? projectId, int executionTimeMs, int? resultRowCount, string? errorMessage, CancellationToken ct = default)
     {
         try
         {
@@ -22,6 +22,7 @@ internal sealed class McpAuditService(
                 Tool = tool,
                 Parameters = parameters?.Length > 4000 ? parameters[..4000] : parameters,
                 DataSourceId = dataSourceId,
+                ProjectId = projectId,
                 ExecutionTimeMs = executionTimeMs,
                 ResultRowCount = resultRowCount,
                 ErrorMessage = errorMessage?.Length > 4000 ? errorMessage[..4000] : errorMessage

@@ -30,6 +30,7 @@
 		<!-- LLM Provider packages -->
 		<PackageReference Include="Anthropic" Version="12.0.1" />
 		<PackageReference Include="Azure.AI.OpenAI" Version="2.0.0" />
+		<PackageReference Include="Hangfire.Core" Version="1.8.22" />
 		<PackageReference Include="OpenAI" Version="2.8.0" />
 		<PackageReference Include="Microsoft.Agents.AI" Version="1.0.0-preview.260108.1" />
 		<PackageReference Include="Microsoft.Agents.AI.OpenAI" Version="1.0.0-preview.260108.1" />

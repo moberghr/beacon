@@ -64,19 +64,11 @@ public abstract partial class SemanticoContext : DbContext, IDataProtectionKeyCo
 
     public DbSet<AiUsageMetrics> AiUsageMetrics => Set<AiUsageMetrics>();
 
-    public DbSet<DataSourceDocumentation> DataSourceDocumentations => Set<DataSourceDocumentation>();
-
-    public DbSet<DocumentationSection> DocumentationSections => Set<DocumentationSection>();
-
-    public DbSet<DocumentationVersion> DocumentationVersions => Set<DocumentationVersion>();
-
     public DbSet<AiPromptTemplate> AiPromptTemplates => Set<AiPromptTemplate>();
 
     public DbSet<AiAlertConfiguration> AiAlertConfigurations => Set<AiAlertConfiguration>();
 
     public DbSet<AiConversationHistory> AiConversationHistories => Set<AiConversationHistory>();
-
-    public DbSet<DocumentationAgentRun> DocumentationAgentRuns => Set<DocumentationAgentRun>();
 
     public DbSet<AiActor> AiActors => Set<AiActor>();
 
@@ -138,11 +130,9 @@ public abstract partial class SemanticoContext : DbContext, IDataProtectionKeyCo
 
     public DbSet<CodeReference> CodeReferences => Set<CodeReference>();
 
-    public DbSet<ProjectReport> ProjectReports => Set<ProjectReport>();
+    public DbSet<ProjectDocumentation> ProjectDocumentations => Set<ProjectDocumentation>();
 
-    public DbSet<SchemaSnapshot> SchemaSnapshots => Set<SchemaSnapshot>();
-
-    public DbSet<SchemaChange> SchemaChanges => Set<SchemaChange>();
+    public DbSet<ProjectDocumentationSection> ProjectDocumentationSections => Set<ProjectDocumentationSection>();
 
     // API Keys & MCP
     public DbSet<ApiKeyCredential> ApiKeyCredentials => Set<ApiKeyCredential>();
@@ -476,47 +466,6 @@ public abstract partial class SemanticoContext : DbContext, IDataProtectionKeyCo
             entity.HasIndex(e => e.DataSourceId);
         });
 
-        // DataSourceDocumentation configuration
-        modelBuilder.Entity<DataSourceDocumentation>(entity =>
-        {
-            entity.HasKey(e => e.Id);
-            // Note: Don't add explicit HasIndex for DataSourceId - EF Core creates one automatically for the FK
-            entity.HasIndex(e => e.Status);
-            entity.HasIndex(e => e.GeneratedAt);
-
-            entity.HasOne(e => e.DataSource)
-                .WithMany()
-                .HasForeignKey(e => e.DataSourceId)
-                .OnDelete(DeleteBehavior.Cascade);
-        });
-
-        // DocumentationSection configuration
-        modelBuilder.Entity<DocumentationSection>(entity =>
-        {
-            entity.HasKey(e => e.Id);
-            // Note: Don't add explicit HasIndex for DocumentationId - EF Core creates one automatically for the FK
-            entity.HasIndex(e => e.TableName);
-            entity.HasIndex(e => e.SectionType);
-
-            entity.HasOne(e => e.Documentation)
-                .WithMany(d => d.Sections)
-                .HasForeignKey(e => e.DocumentationId)
-                .OnDelete(DeleteBehavior.Cascade);
-        });
-
-        // DocumentationVersion configuration
-        modelBuilder.Entity<DocumentationVersion>(entity =>
-        {
-            entity.HasKey(e => e.Id);
-            // Note: Don't add explicit HasIndex for DocumentationId - EF Core creates one automatically for the FK
-            entity.HasIndex(e => e.CreatedTime);
-
-            entity.HasOne(e => e.Documentation)
-                .WithMany(d => d.Versions)
-                .HasForeignKey(e => e.DocumentationId)
-                .OnDelete(DeleteBehavior.Cascade);
-        });
-
         // AiPromptTemplate configuration
         modelBuilder.Entity<AiPromptTemplate>(entity =>
         {
@@ -557,34 +506,6 @@ public abstract partial class SemanticoContext : DbContext, IDataProtectionKeyCo
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
-        // DocumentationAgentRun configuration
-        modelBuilder.Entity<DocumentationAgentRun>(entity =>
-        {
-            entity.HasKey(e => e.Id);
-
-            entity.Property(e => e.ProgressMessage).HasMaxLength(500);
-            entity.Property(e => e.LastError).HasMaxLength(4000);
-
-            // Indexes for querying
-            // Note: Don't add explicit HasIndex for DataSourceId/DocumentationId - EF Core creates indexes automatically for FKs
-            entity.HasIndex(e => e.Status);
-            entity.HasIndex(e => e.CurrentPhase);
-            entity.HasIndex(e => e.StartedAt);
-            entity.HasIndex(e => new { e.DataSourceId, e.Status });
-
-            // Relationships
-            // Restrict prevents SQL Server cascade cycle (DataSource -> Documentation -> AgentRun -> DataSource)
-            // Application code should explicitly clean up AgentRuns when deleting DataSources
-            entity.HasOne(e => e.DataSource)
-                .WithMany()
-                .HasForeignKey(e => e.DataSourceId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            entity.HasOne(e => e.Documentation)
-                .WithMany()
-                .HasForeignKey(e => e.DocumentationId)
-                .OnDelete(DeleteBehavior.SetNull);
-        });
     }
 
     protected static void ConfigureAiActorEntities(ModelBuilder modelBuilder)
@@ -1178,7 +1099,7 @@ public abstract partial class SemanticoContext : DbContext, IDataProtectionKeyCo
                 .HasForeignKey(e => e.ProjectId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            entity.HasMany(e => e.Reports)
+            entity.HasMany(e => e.Documentations)
                 .WithOne(e => e.Project)
                 .HasForeignKey(e => e.ProjectId)
                 .OnDelete(DeleteBehavior.Cascade);
@@ -1231,45 +1152,24 @@ public abstract partial class SemanticoContext : DbContext, IDataProtectionKeyCo
             entity.HasIndex(e => e.ReferenceType);
         });
 
-        modelBuilder.Entity<ProjectReport>(entity =>
+        modelBuilder.Entity<ProjectDocumentation>(entity =>
         {
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => e.ProjectId);
             entity.HasIndex(e => e.GeneratedAt);
         });
 
-        modelBuilder.Entity<SchemaSnapshot>(entity =>
+        modelBuilder.Entity<ProjectDocumentationSection>(entity =>
         {
             entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.SectionType);
 
-            entity.HasOne(e => e.DataSource)
-                .WithMany()
-                .HasForeignKey(e => e.DataSourceId)
+            entity.HasOne(e => e.Documentation)
+                .WithMany(d => d.Sections)
+                .HasForeignKey(e => e.ProjectDocumentationId)
                 .OnDelete(DeleteBehavior.Cascade);
-
-            entity.HasIndex(e => e.DataSourceId);
-            entity.HasIndex(e => e.CapturedAt);
         });
 
-        modelBuilder.Entity<SchemaChange>(entity =>
-        {
-            entity.HasKey(e => e.Id);
-            entity.Property(e => e.SchemaName).HasMaxLength(200).IsRequired();
-            entity.Property(e => e.TableName).HasMaxLength(200).IsRequired();
-            entity.Property(e => e.ColumnName).HasMaxLength(200);
-            entity.Property(e => e.OldValue).HasMaxLength(2000);
-            entity.Property(e => e.NewValue).HasMaxLength(2000);
-            entity.Property(e => e.Description).HasMaxLength(2000);
-
-            entity.HasOne(e => e.DataSource)
-                .WithMany()
-                .HasForeignKey(e => e.DataSourceId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            entity.HasIndex(e => e.DataSourceId);
-            entity.HasIndex(e => e.DetectedAt);
-            entity.HasIndex(e => e.ChangeType);
-        });
     }
 
     protected static void ConfigureApiKeyEntities(ModelBuilder modelBuilder)
@@ -1281,7 +1181,7 @@ public abstract partial class SemanticoContext : DbContext, IDataProtectionKeyCo
             entity.Property(e => e.KeyHash).HasMaxLength(128).IsRequired();
             entity.Property(e => e.KeyPrefix).HasMaxLength(16).IsRequired();
             entity.Property(e => e.Scopes).HasMaxLength(500);
-            entity.Property(e => e.AllowedDataSourceIds).HasMaxLength(500);
+            entity.Property(e => e.AllowedProjectIds).HasMaxLength(500);
 
             entity.HasOne(e => e.User)
                 .WithMany()
@@ -1344,7 +1244,8 @@ public abstract partial class SemanticoContext : DbContext, IDataProtectionKeyCo
             entity.HasKey(e => e.Id);
             entity.Property(e => e.AskSystemPrompt).HasMaxLength(4000);
             entity.Property(e => e.GlobalInstruction).HasMaxLength(4000);
-            entity.Property(e => e.ListDataSourcesDescription).HasMaxLength(1000);
+            entity.Property(e => e.GetContextDescription).HasMaxLength(1000);
+            entity.Property(e => e.SearchDescription).HasMaxLength(1000);
             entity.Property(e => e.QueryDescription).HasMaxLength(1000);
             entity.Property(e => e.GetDocumentationDescription).HasMaxLength(1000);
             entity.Property(e => e.AskDescription).HasMaxLength(1000);

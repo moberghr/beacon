@@ -1,9 +1,10 @@
 @page "/semantico/projects/{ProjectId:int}"
 @inherits BasePageComponent
 @using MediatR
-@using Semantico.Core.Data.Enums
 @using Semantico.Core.Handlers.Projects
+@using Markdig
 @inject IMediator Mediator
+@inject IJSRuntime JS
 
 <SemanticoPageTitle Title="@(_project?.Name ?? "Project Details")"/>
 
@@ -37,14 +38,16 @@
                     <MudButton Variant="Variant.Outlined"
                                Color="Color.Info"
                                StartIcon="@Icons.Material.Filled.PlayArrow"
-                               OnClick="ScanAll">
-                        Scan All
+                               OnClick="ScanAll"
+                               Disabled="_scanning">
+                        @(_scanning ? "Scanning..." : "Scan All")
                     </MudButton>
                     <MudButton Variant="Variant.Filled"
                                Color="Color.Primary"
-                               StartIcon="@Icons.Material.Filled.Assessment"
-                               OnClick="GenerateReport">
-                        Generate Report
+                               StartIcon="@Icons.Material.Filled.MenuBook"
+                               OnClick="GenerateDocumentation"
+                               Disabled="_generatingDocs">
+                        @(_generatingDocs ? "Generating..." : "Generate Documentation")
                     </MudButton>
                 </MudStack>
             </MudStack>
@@ -83,7 +86,7 @@
             </MudGrid>
 
             @* Tabs *@
-            <MudTabs Elevation="0" Rounded="true" ApplyEffectsToContainer="true" @bind-ActivePanelIndex="_activeTab">
+            <MudTabs Elevation="0" Rounded="true" ApplyEffectsToContainer="true" ActivePanelIndex="_activeTab" ActivePanelIndexChanged="OnTabChanged">
 
                 @* Overview Tab *@
                 <MudTabPanel Text="Overview" Icon="@Icons.Material.Filled.Dashboard">
@@ -192,9 +195,11 @@
                                 <HeaderContent>
                                     <MudTh>Name</MudTh>
                                     <MudTh>URL</MudTh>
+                                    <MudTh>Auth</MudTh>
                                     <MudTh>Scan Status</MudTh>
                                     <MudTh>Last Scan</MudTh>
                                     <MudTh>References Found</MudTh>
+                                    <MudTh Style="width: 50px;"></MudTh>
                                 </HeaderContent>
                                 <RowTemplate>
                                     <MudTd><MudText Typo="Typo.body2" Style="font-weight: 600;">@context.Name</MudText></MudTd>
@@ -205,6 +210,13 @@
                                     </MudTd>
                                     <MudTd>
                                         <MudChip T="string" Size="Size.Small"
+                                                 Color="@(context.HasAccessToken ? Color.Success : Color.Default)"
+                                                 Variant="Variant.Outlined">
+                                            @(context.HasAccessToken ? "Token set" : "Public")
+                                        </MudChip>
+                                    </MudTd>
+                                    <MudTd>
+                                        <MudChip T="string" Size="Size.Small"
                                                  Color="@GetScanStatusColor(context.ScanStatus)"
                                                  Variant="Variant.Filled">
                                             @(context.ScanStatus ?? "Not scanned")
@@ -212,56 +224,12 @@
                                     </MudTd>
                                     <MudTd><MudText Typo="Typo.caption">@(context.LastScanAt?.ToString("MMM dd HH:mm") ?? "—")</MudText></MudTd>
                                     <MudTd><MudText Typo="Typo.body2">@context.ReferenceCount</MudText></MudTd>
-                                </RowTemplate>
-                            </MudTable>
-                        }
-                    </MudStack>
-                </MudTabPanel>
-
-                @* Reports Tab *@
-                <MudTabPanel Text="Reports" Icon="@Icons.Material.Filled.Assessment" BadgeData="@_project.Reports.Count" BadgeColor="Color.Primary">
-                    <MudStack Spacing="2" Class="mt-3">
-                        <MudStack Row="true" Justify="Justify.FlexEnd">
-                            <MudButton Variant="Variant.Filled" Color="Color.Primary"
-                                       StartIcon="@Icons.Material.Filled.Add"
-                                       OnClick="GenerateReport">
-                                Generate New Report
-                            </MudButton>
-                        </MudStack>
-                        @if (_project.Reports.Count == 0)
-                        {
-                            <MudAlert Severity="Severity.Info">No reports generated yet. Generate a report to get a full snapshot of your project health.</MudAlert>
-                        }
-                        else
-                        {
-                            <MudTable Items="@_project.Reports" Dense="true" Hover="true" Striped="true">
-                                <HeaderContent>
-                                    <MudTh>Generated At</MudTh>
-                                    <MudTh>Quality Score</MudTh>
-                                    <MudTh>Tables Checked</MudTh>
-                                    <MudTh>Issues Found</MudTh>
-                                    <MudTh>Actions</MudTh>
-                                </HeaderContent>
-                                <RowTemplate>
-                                    <MudTd><MudText Typo="Typo.body2">@context.GeneratedAt.ToString("yyyy-MM-dd HH:mm")</MudText></MudTd>
                                     <MudTd>
-                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Filled" Color="@GetScoreColor(context.QualityScore)">
-                                            @($"{context.QualityScore:F0}%")
-                                        </MudChip>
-                                    </MudTd>
-                                    <MudTd><MudText Typo="Typo.body2">@context.TablesChecked</MudText></MudTd>
-                                    <MudTd>
-                                        <MudChip T="string" Size="Size.Small"
-                                                 Color="@(context.IssuesFound > 0 ? Color.Warning : Color.Success)"
-                                                 Variant="Variant.Outlined">
-                                            @context.IssuesFound
-                                        </MudChip>
-                                    </MudTd>
-                                    <MudTd>
-                                        <MudIconButton Icon="@Icons.Material.Filled.Download"
+                                        <MudIconButton Icon="@Icons.Material.Filled.Key"
                                                        Size="Size.Small"
                                                        Color="Color.Primary"
-                                                       Title="Download report"/>
+                                                       Title="Set access token"
+                                                       OnClick="@(() => SetRepoToken(context))"/>
                                     </MudTd>
                                 </RowTemplate>
                             </MudTable>
@@ -269,56 +237,105 @@
                     </MudStack>
                 </MudTabPanel>
 
-                @* Schema Changes Tab *@
-                <MudTabPanel Text="Schema Changes" Icon="@Icons.Material.Filled.CompareArrows">
-                    <MudStack Spacing="2" Class="mt-3">
-                        @if (_project.SchemaChanges.Count == 0)
+                @* Documentation Tab *@
+                <MudTabPanel Text="Documentation" Icon="@Icons.Material.Filled.MenuBook">
+                    <MudStack Spacing="3" Class="mt-3">
+                        @if (_loadingDocs)
                         {
-                            <MudAlert Severity="Severity.Info">No schema changes detected for this project.</MudAlert>
+                            <MudProgressLinear Color="Color.Primary" Indeterminate="true"/>
+                        }
+                        else if (_documentation?.Latest == null)
+                        {
+                            <MudAlert Severity="Severity.Info" Class="mb-2">
+                                No documentation generated yet. Click the button below to generate comprehensive AI-powered documentation
+                                covering business domains, data model, data flows, code lineage, and more.
+                            </MudAlert>
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                                       StartIcon="@Icons.Material.Filled.AutoAwesome"
+                                       OnClick="GenerateDocumentation"
+                                       Disabled="_generatingDocs" Size="Size.Large">
+                                @(_generatingDocs ? "Generating Documentation..." : "Generate Documentation")
+                            </MudButton>
                         }
                         else
                         {
-                            foreach (var change in _project.SchemaChanges)
-                            {
-                                <MudPaper Elevation="1" Class="pa-3" Style="border-radius: 8px; border-left: 3px solid var(--mud-palette-primary);">
-                                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-                                            <MudChip T="string" Size="Size.Small"
-                                                     Color="@GetChangeTypeColor(change.ChangeType)"
-                                                     Variant="Variant.Filled">
-                                                @change.ChangeType
-                                            </MudChip>
-                                            <MudText Typo="Typo.body2" Style="font-weight: 600;">
-                                                @change.SchemaName.@change.TableName
-                                                @if (!string.IsNullOrEmpty(change.ColumnName))
-                                                {
-                                                    <span> / @change.ColumnName</span>
-                                                }
-                                            </MudText>
-                                        </MudStack>
+                            @* Stats bar *@
+                            <MudPaper Elevation="1" Class="pa-3" Style="border-radius: 8px;">
+                                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                                    <MudStack Row="true" Spacing="3" AlignItems="AlignItems.Center">
                                         <MudText Typo="Typo.caption" Color="Color.Secondary">
-                                            @change.DetectedAt.ToString("yyyy-MM-dd HH:mm")
+                                            Generated @_documentation.Latest.GeneratedAt.ToString("yyyy-MM-dd HH:mm") UTC
+                                        </MudText>
+                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">
+                                            @_documentation.Latest.GeneratedByModel
+                                        </MudChip>
+                                        <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                            @(_documentation.Latest.DataSourcesAnalyzed) sources · @(_documentation.Latest.TablesAnalyzed) tables · @(_documentation.Latest.CodeReferencesAnalyzed) refs
+                                        </MudText>
+                                        <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                            @((_documentation.Latest.InputTokens + _documentation.Latest.OutputTokens).ToString("N0")) tokens · @("$" + _documentation.Latest.EstimatedCost.ToString("F4"))
                                         </MudText>
                                     </MudStack>
-                                    @if (!string.IsNullOrEmpty(change.OldValue) || !string.IsNullOrEmpty(change.NewValue))
+                                    <MudStack Row="true" Spacing="1">
+                                        <MudIconButton Icon="@Icons.Material.Filled.Download"
+                                                       Size="Size.Small" Color="Color.Primary"
+                                                       Title="Export as Markdown"
+                                                       OnClick="@(() => ExportDocumentation(false))"/>
+                                        <MudIconButton Icon="@Icons.Material.Filled.Html"
+                                                       Size="Size.Small" Color="Color.Primary"
+                                                       Title="Export as HTML"
+                                                       OnClick="@(() => ExportDocumentation(true))"/>
+                                        <MudButton Variant="Variant.Outlined" Color="Color.Primary"
+                                                   Size="Size.Small"
+                                                   StartIcon="@Icons.Material.Filled.Refresh"
+                                                   OnClick="GenerateDocumentation"
+                                                   Disabled="_generatingDocs">
+                                            Regenerate
+                                        </MudButton>
+                                    </MudStack>
+                                </MudStack>
+                            </MudPaper>
+
+                            @* Section navigation + content *@
+                            <MudGrid Spacing="3">
+                                @* Left nav *@
+                                <MudItem xs="12" md="3">
+                                    <MudPaper Elevation="1" Class="pa-3" Style="border-radius: 8px; position: sticky; top: 80px;">
+                                        <MudText Typo="Typo.subtitle2" Style="font-weight: 600;" Class="mb-2">Sections</MudText>
+                                        <MudNavMenu Dense="true">
+                                            @foreach (var navSection in _documentation.Latest.Sections)
+                                            {
+                                                <MudNavLink OnClick="@(() => ScrollToSection(navSection.SectionType.ToString()))">
+                                                    @navSection.Title
+                                                </MudNavLink>
+                                            }
+                                        </MudNavMenu>
+
+                                        @if (_documentation.History.Count > 1)
+                                        {
+                                            <MudDivider Class="my-3"/>
+                                            <MudText Typo="Typo.subtitle2" Style="font-weight: 600;" Class="mb-2">History</MudText>
+                                            @foreach (var entry in _documentation.History.Skip(1).Take(5))
+                                            {
+                                                <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-1">
+                                                    @entry.GeneratedAt.ToString("MMM dd HH:mm") — @entry.TablesAnalyzed tables
+                                                </MudText>
+                                            }
+                                        }
+                                    </MudPaper>
+                                </MudItem>
+
+                                @* Content *@
+                                <MudItem xs="12" md="9">
+                                    @foreach (var docSection in _documentation.Latest.Sections)
                                     {
-                                        <MudStack Row="true" Spacing="2" Class="mt-1">
-                                            @if (!string.IsNullOrEmpty(change.OldValue))
-                                            {
-                                                <MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="Variant.Outlined">
-                                                    was: @change.OldValue
-                                                </MudChip>
-                                            }
-                                            @if (!string.IsNullOrEmpty(change.NewValue))
-                                            {
-                                                <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Outlined">
-                                                    now: @change.NewValue
-                                                </MudChip>
-                                            }
-                                        </MudStack>
+                                        <MudPaper Elevation="1" Class="pa-4 mb-3" Style="border-radius: 8px;" id="@docSection.SectionType.ToString()">
+                                            <MudText Typo="Typo.h6" Style="font-weight: 600;" Class="mb-3">@docSection.Title</MudText>
+                                            @((MarkupString)RenderMarkdown(docSection.Content))
+                                        </MudPaper>
                                     }
-                                </MudPaper>
-                            }
+                                </MudItem>
+                            </MudGrid>
                         }
                     </MudStack>
                 </MudTabPanel>
@@ -336,8 +353,14 @@
     public int ProjectId { get; set; }
 
     private ProjectDetailEntry? _project;
+    private GetProjectDocumentationResult? _documentation;
     private bool _loading = true;
+    private bool _loadingDocs;
     private int _activeTab;
+
+    private static readonly MarkdownPipeline MarkdownPipeline = new MarkdownPipelineBuilder()
+        .UseAdvancedExtensions()
+        .Build();
 
     protected override async Task OnInitializedAsync()
     {
@@ -351,6 +374,9 @@
         {
             var result = await Mediator.Send(new GetProjectDetailQuery(ProjectId));
             _project = result.Project;
+
+            if (_project?.HasDocumentation == true)
+                await LoadDocumentation();
         }
         catch (Exception ex)
         {
@@ -362,16 +388,159 @@
         }
     }
 
-    private async Task ScanAll()
+    private async Task OnTabChanged(int index)
     {
-        Snackbar.Add("Scanning all repositories...", Severity.Info);
-        await Task.CompletedTask;
+        _activeTab = index;
+        if (index == 3 && _documentation?.Latest != null)
+        {
+            await Task.Delay(300);
+            await JS.InvokeVoidAsync("renderMermaidDiagrams");
+        }
     }
 
-    private async Task GenerateReport()
+    private async Task LoadDocumentation()
     {
-        Snackbar.Add("Generating report...", Severity.Info);
-        await Task.CompletedTask;
+        _loadingDocs = true;
+        try
+        {
+            _documentation = await Mediator.Send(new GetProjectDocumentationQuery(ProjectId));
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to load documentation: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _loadingDocs = false;
+        }
+    }
+
+    private bool _scanning;
+    private bool _generatingDocs;
+
+    private async Task ScanAll()
+    {
+        if (_project?.Repositories is not { Count: > 0 })
+        {
+            Snackbar.Add("No repositories to scan.", Severity.Warning);
+            return;
+        }
+
+        _scanning = true;
+        StateHasChanged();
+        try
+        {
+            Snackbar.Add("Scanning all repositories...", Severity.Info);
+            var result = await Mediator.Send(new ScanAllRepositoriesCommand(ProjectId));
+
+            if (result.Errors.Count > 0)
+            {
+                foreach (var error in result.Errors)
+                    Snackbar.Add(error, Severity.Warning);
+            }
+
+            await LoadProject();
+            Snackbar.Add($"Scanned {result.ScannedCount} repositories.", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Scan failed: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _scanning = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task GenerateDocumentation()
+    {
+        _generatingDocs = true;
+        StateHasChanged();
+        try
+        {
+            await Mediator.Send(new GenerateProjectDocumentationCommand(ProjectId, 0));
+            Snackbar.Add("Documentation generation started in the background. This page will refresh when complete.", Severity.Info);
+            _ = PollForDocumentationCompletion();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Documentation generation failed: {ex.Message}", Severity.Error);
+            _generatingDocs = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task PollForDocumentationCompletion()
+    {
+        var existingDocId = _documentation?.Latest?.Id;
+        for (var i = 0; i < 120; i++) // poll for up to 10 minutes
+        {
+            await Task.Delay(5000);
+            try
+            {
+                var result = await Mediator.Send(new GetProjectDocumentationQuery(ProjectId));
+                if (result.Latest != null && result.Latest.Id != existingDocId)
+                {
+                    _documentation = result;
+                    _generatingDocs = false;
+                    Snackbar.Add("Documentation generated successfully.", Severity.Success);
+                    await InvokeAsync(StateHasChanged);
+                    await Task.Delay(300);
+                    await JS.InvokeVoidAsync("renderMermaidDiagrams");
+                    return;
+                }
+            }
+            catch
+            {
+                // ignore polling errors
+            }
+        }
+
+        _generatingDocs = false;
+        Snackbar.Add("Documentation generation is taking longer than expected. Check back later.", Severity.Warning);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task ExportDocumentation(bool asHtml)
+    {
+        if (_documentation?.Latest == null) return;
+        try
+        {
+            var result = await Mediator.Send(new ExportProjectDocumentationCommand(_documentation.Latest.Id, asHtml));
+            // TODO: Trigger file download via JS interop
+            Snackbar.Add($"Export ready: {result.FileName}", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Export failed: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private static string RenderMarkdown(string markdown)
+    {
+        return Markdig.Markdown.ToHtml(markdown, MarkdownPipeline);
+    }
+
+    private async Task ScrollToSection(string sectionId)
+    {
+        // Scroll to the section element by ID
+        await Task.CompletedTask; // JS interop would be needed for actual scrolling
+    }
+
+    private async Task SetRepoToken(ProjectRepositoryEntry repo)
+    {
+        var parameters = new DialogParameters<SetRepositoryTokenDialog>
+        {
+            { x => x.RepositoryId, repo.Id },
+            { x => x.RepositoryName, repo.Name },
+            { x => x.HasExistingToken, repo.HasAccessToken }
+        };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
+        var dialog = await DialogService.ShowAsync<SetRepositoryTokenDialog>("Set Access Token", parameters, options);
+        var result = await dialog.Result;
+        if (result is { Canceled: false })
+            await LoadProject();
     }
 
     private static Color GetScoreColor(double? score) => score switch
@@ -390,11 +559,4 @@
         _ => Color.Default
     };
 
-    private static Color GetChangeTypeColor(SchemaChangeType changeType) => changeType switch
-    {
-        SchemaChangeType.ColumnAdded or SchemaChangeType.TableAdded or SchemaChangeType.ConstraintAdded => Color.Success,
-        SchemaChangeType.ColumnDropped or SchemaChangeType.TableDropped or SchemaChangeType.ConstraintDropped => Color.Error,
-        SchemaChangeType.ColumnTypeChanged or SchemaChangeType.ColumnDefaultChanged => Color.Warning,
-        _ => Color.Default
-    };
 }

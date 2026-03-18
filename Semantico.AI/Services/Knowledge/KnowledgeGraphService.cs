@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Semantico.Core.Data;
 using Semantico.Core.Data.Enums;
+using Semantico.Core.Services.Providers;
 using System.Text;
 
 namespace Semantico.AI.Services.Knowledge;
@@ -26,9 +27,12 @@ internal sealed class KnowledgeGraphService(
             .Where(m => m.DataSourceId == dataSourceId && m.SchemaName == schemaName && m.TableName == tableName)
             .FirstOrDefaultAsync(ct);
 
-        // Get documentation - use GetDisplayContent() pattern; DocumentationSection has no SchemaName
-        var docSection = await context.DocumentationSections
-            .Where(d => d.Documentation.DataSourceId == dataSourceId && d.TableName == tableName)
+        // Get documentation from project documentation (DataModel section)
+        var docContent = await context.ProjectDocumentationSections
+            .Where(s => s.Documentation.Project.DataSources.Any(ds => ds.DataSourceId == dataSourceId)
+                && s.SectionType == ProjectDocSectionType.DataModel)
+            .OrderByDescending(s => s.Documentation.GeneratedAt)
+            .Select(s => s.Content)
             .FirstOrDefaultAsync(ct);
 
         // Get code references (from GitHub scanner)
@@ -105,8 +109,7 @@ internal sealed class KnowledgeGraphService(
             Columns = columns,
             Indexes = indexes,
             Relationships = relationships,
-            // DocumentationSection uses GetDisplayContent() to return the active content
-            Description = docSection?.GetDisplayContent(),
+            Description = docContent != null ? ExtractTableDoc(docContent, tableName) : null,
             BusinessPurpose = metadata?.TableDescription,
             CodeReferences = codeRefs.Select(r => new CodeReferenceInfo(
                 r.FilePath, r.LineNumber, r.ReferenceType, r.ClassName, r.MethodName, r.CodeSnippet
@@ -139,8 +142,8 @@ internal sealed class KnowledgeGraphService(
         var codeRefCount = await context.CodeReferences
             .CountAsync(r => r.GitHubRepository.Project.DataSources.Any(ds => ds.DataSourceId == dataSourceId), ct);
 
-        var hasDoc = await context.DataSourceDocumentations
-            .AnyAsync(d => d.DataSourceId == dataSourceId, ct);
+        var hasDoc = await context.ProjectDocumentations
+            .AnyAsync(d => d.Project.DataSources.Any(ds => ds.DataSourceId == dataSourceId), ct);
 
         // DataQualityScore property is Score, not OverallScore
         var schemas = tables
@@ -156,7 +159,10 @@ internal sealed class KnowledgeGraphService(
         {
             DataSourceId = dataSourceId,
             Name = dataSource.Name,
-            DatabaseEngine = dataSource.DatabaseEngineType?.ToString(),
+            DataSourceType = dataSource.DataSourceType,
+            DatabaseEngine = dataSource.DataSourceType == DataSourceType.Api
+                ? ConnectorRegistry.GetDisplayName(DataSourceType.Api)
+                : dataSource.DatabaseEngineType?.ToString(),
             TableCount = tables.Count,
             OverallQualityScore = qualityScores.Count != 0 ? qualityScores.Average(q => q.Score) : null,
             CodeReferenceCount = codeRefCount,
@@ -189,6 +195,7 @@ internal sealed class KnowledgeGraphService(
             results.Add(new SearchResult
             {
                 Type = "table",
+                DataSourceId = table.DataSourceId,
                 DataSourceName = table.DataSourceName,
                 SchemaName = table.SchemaName,
                 TableName = table.TableName,
@@ -207,6 +214,7 @@ internal sealed class KnowledgeGraphService(
                         (c.Description != null && c.Description.ToLower().Contains(queryLower)))
             .Select(c => new
             {
+                c.DatabaseMetadata.DataSourceId,
                 DataSourceName = c.DatabaseMetadata.DataSource.Name,
                 c.DatabaseMetadata.SchemaName,
                 c.DatabaseMetadata.TableName,
@@ -221,6 +229,7 @@ internal sealed class KnowledgeGraphService(
             results.Add(new SearchResult
             {
                 Type = "column",
+                DataSourceId = col.DataSourceId,
                 DataSourceName = col.DataSourceName,
                 SchemaName = col.SchemaName,
                 TableName = col.TableName,
@@ -230,31 +239,27 @@ internal sealed class KnowledgeGraphService(
             });
         }
 
-        // Search documentation sections - content is in AiGeneratedContent / UserEditedContent
-        var docSections = await context.DocumentationSections
-            .Where(d => d.AiGeneratedContent.ToLower().Contains(queryLower) ||
-                        (d.UserEditedContent != null && d.UserEditedContent.ToLower().Contains(queryLower)))
-            .Select(d => new
+        // Search project documentation sections
+        var docSections = await context.ProjectDocumentationSections
+            .Where(s => s.Content.ToLower().Contains(queryLower))
+            .Select(s => new
             {
-                DataSourceName = d.Documentation.DataSource.Name,
-                d.TableName,
-                d.AiGeneratedContent,
-                d.UserEditedContent,
-                d.IsUserEdited
+                ProjectName = s.Documentation.Project.Name,
+                s.Title,
+                s.Content
             })
             .Take(maxResults / 2)
             .ToListAsync(ct);
 
-        foreach (var section in docSections)
+        foreach (var docSection in docSections)
         {
-            var content = section.IsUserEdited ? section.UserEditedContent : section.AiGeneratedContent;
             results.Add(new SearchResult
             {
                 Type = "documentation",
-                DataSourceName = section.DataSourceName,
+                DataSourceName = docSection.ProjectName,
                 SchemaName = string.Empty,
-                TableName = section.TableName ?? string.Empty,
-                Description = TruncateContent(content, 200),
+                TableName = string.Empty,
+                Description = TruncateContent(docSection.Content, 200),
                 Relevance = 0.5
             });
         }
@@ -318,39 +323,76 @@ internal sealed class KnowledgeGraphService(
 
     public async Task<string> GetContextForLlmAsync(int dataSourceId, string? schemaName = null, string? tableName = null, CancellationToken ct = default)
     {
+        await using var context = await contextFactory.CreateDbContextAsync(ct);
+        var dataSource = await context.DataSources.FirstOrDefaultAsync(ds => ds.Id == dataSourceId, ct)
+            ?? throw new InvalidOperationException($"Data source {dataSourceId} not found");
+
+        var isApi = dataSource.DataSourceType == DataSourceType.Api;
         var sb = new StringBuilder();
 
         if (tableName != null && schemaName != null)
         {
             var knowledge = await GetTableKnowledgeAsync(dataSourceId, schemaName, tableName, ct);
-            sb.AppendLine($"# Table: {schemaName}.{tableName}");
-            if (knowledge.Description != null) sb.AppendLine($"Description: {knowledge.Description}");
-            if (knowledge.BusinessPurpose != null) sb.AppendLine($"Business Purpose: {knowledge.BusinessPurpose}");
-            sb.AppendLine("\n## Columns:");
-            foreach (var col in knowledge.Columns)
+
+            if (isApi)
             {
-                sb.Append($"  - {col.Name} ({col.DataType})");
-                if (col.IsPrimaryKey) sb.Append(" [PK]");
-                if (!col.IsNullable) sb.Append(" NOT NULL");
-                if (col.ForeignKeyTable != null) sb.Append($" -> {col.ForeignKeyTable}.{col.ForeignKeyColumn}");
-                if (col.Description != null) sb.Append($" -- {col.Description}");
-                sb.AppendLine();
+                sb.AppendLine($"# Endpoint: {tableName}");
+                if (knowledge.Description != null) sb.AppendLine($"Description: {knowledge.Description}");
+                if (knowledge.BusinessPurpose != null) sb.AppendLine($"Summary: {knowledge.BusinessPurpose}");
+                sb.AppendLine("\n## Response Fields:");
+                foreach (var col in knowledge.Columns)
+                {
+                    sb.Append($"  - {col.Name} ({col.DataType})");
+                    if (col.Description != null) sb.Append($" -- {col.Description}");
+                    sb.AppendLine();
+                }
             }
+            else
+            {
+                sb.AppendLine($"# Table: {schemaName}.{tableName}");
+                if (knowledge.Description != null) sb.AppendLine($"Description: {knowledge.Description}");
+                if (knowledge.BusinessPurpose != null) sb.AppendLine($"Business Purpose: {knowledge.BusinessPurpose}");
+                sb.AppendLine("\n## Columns:");
+                foreach (var col in knowledge.Columns)
+                {
+                    sb.Append($"  - {col.Name} ({col.DataType})");
+                    if (col.IsPrimaryKey) sb.Append(" [PK]");
+                    if (!col.IsNullable) sb.Append(" NOT NULL");
+                    if (col.ForeignKeyTable != null) sb.Append($" -> {col.ForeignKeyTable}.{col.ForeignKeyColumn}");
+                    if (col.Description != null) sb.Append($" -- {col.Description}");
+                    sb.AppendLine();
+                }
+            }
+
             if (knowledge.QualityScore.HasValue)
                 sb.AppendLine($"\nData Quality Score: {knowledge.QualityScore:F0}% ({knowledge.QualityTrend})");
         }
         else
         {
             var dsKnowledge = await GetDataSourceKnowledgeAsync(dataSourceId, ct);
-            sb.AppendLine($"# Data Source: {dsKnowledge.Name} ({dsKnowledge.DatabaseEngine})");
-            sb.AppendLine($"Tables: {dsKnowledge.TableCount}");
+
+            if (isApi)
+            {
+                sb.AppendLine($"# REST API: {dsKnowledge.Name}");
+                sb.AppendLine($"Endpoints: {dsKnowledge.TableCount}");
+            }
+            else
+            {
+                sb.AppendLine($"# Data Source: {dsKnowledge.Name} ({dsKnowledge.DatabaseEngine})");
+                sb.AppendLine($"Tables: {dsKnowledge.TableCount}");
+            }
+
             if (dsKnowledge.OverallQualityScore.HasValue)
                 sb.AppendLine($"Overall Quality: {dsKnowledge.OverallQualityScore:F0}%");
-            sb.AppendLine("\n## Schemas:");
-            foreach (var schema in dsKnowledge.Schemas)
-                sb.AppendLine($"  - {schema.SchemaName}: {schema.TableCount} tables");
 
-            await using var context = await contextFactory.CreateDbContextAsync(ct);
+            var groupLabel = isApi ? "Tags" : "Schemas";
+            sb.AppendLine($"\n## {groupLabel}:");
+            foreach (var schema in dsKnowledge.Schemas)
+            {
+                var itemLabel = isApi ? "endpoints" : "tables";
+                sb.AppendLine($"  - {schema.SchemaName}: {schema.TableCount} {itemLabel}");
+            }
+
             var tablesQuery = context.DatabaseMetadata
                 .Where(m => m.DataSourceId == dataSourceId);
             if (schemaName != null)
@@ -369,29 +411,46 @@ internal sealed class KnowledgeGraphService(
                         c.DataType,
                         c.IsPrimaryKey,
                         c.ForeignKeyTable,
-                        c.ForeignKeyColumn
+                        c.ForeignKeyColumn,
+                        c.Description
                     }).ToList()
                 })
                 .ToListAsync(ct);
 
-            sb.AppendLine("\n## Tables:");
+            sb.AppendLine(isApi ? "\n## Endpoints:" : "\n## Tables:");
             var charBudget = 8000;
             foreach (var t in tables)
             {
-                sb.Append($"  - {t.SchemaName}.{t.TableName}");
-                if (t.TableDescription != null) sb.Append($" -- {t.TableDescription}");
-
-                // Include columns in compact format if within budget
-                if (t.Columns.Count > 0 && sb.Length < charBudget)
+                if (isApi)
                 {
-                    var colParts = t.Columns.Select(c =>
+                    sb.Append($"  - {t.TableName}");
+                    if (t.TableDescription != null) sb.Append($" -- {t.TableDescription}");
+                    if (t.Columns.Count > 0 && sb.Length < charBudget)
                     {
-                        var part = $"{c.ColumnName} {c.DataType}";
-                        if (c.IsPrimaryKey) part += " PK";
-                        if (c.ForeignKeyTable != null) part += $" FK→{c.ForeignKeyTable}.{c.ForeignKeyColumn}";
-                        return part;
-                    });
-                    sb.Append($" ({string.Join(", ", colParts)})");
+                        var fieldParts = t.Columns.Select(c =>
+                        {
+                            var part = $"{c.ColumnName} {c.DataType}";
+                            if (c.Description != null) part += $": {c.Description}";
+                            return part;
+                        });
+                        sb.Append($" → returns ({string.Join(", ", fieldParts)})");
+                    }
+                }
+                else
+                {
+                    sb.Append($"  - {t.SchemaName}.{t.TableName}");
+                    if (t.TableDescription != null) sb.Append($" -- {t.TableDescription}");
+                    if (t.Columns.Count > 0 && sb.Length < charBudget)
+                    {
+                        var colParts = t.Columns.Select(c =>
+                        {
+                            var part = $"{c.ColumnName} {c.DataType}";
+                            if (c.IsPrimaryKey) part += " PK";
+                            if (c.ForeignKeyTable != null) part += $" FK→{c.ForeignKeyTable}.{c.ForeignKeyColumn}";
+                            return part;
+                        });
+                        sb.Append($" ({string.Join(", ", colParts)})");
+                    }
                 }
                 sb.AppendLine();
             }
@@ -400,9 +459,381 @@ internal sealed class KnowledgeGraphService(
         return sb.ToString();
     }
 
+    public async Task<List<SearchResult>> SearchProjectAsync(string query, int projectId, int maxResults = 20, CancellationToken ct = default)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(ct);
+
+        // Get all data source IDs for this project
+        var dsIds = await context.ProjectDataSources
+            .Where(pds => pds.ProjectId == projectId)
+            .Select(pds => pds.DataSourceId)
+            .ToListAsync(ct);
+
+        if (dsIds.Count == 0) return [];
+
+        var results = new List<SearchResult>();
+        var queryLower = query.ToLower();
+
+        // Search tables
+        var matchingTables = await context.DatabaseMetadata
+            .Where(m => dsIds.Contains(m.DataSourceId))
+            .Where(m => m.TableName.ToLower().Contains(queryLower) ||
+                        (m.TableDescription != null && m.TableDescription.ToLower().Contains(queryLower)))
+            .Select(m => new { m.DataSourceId, DataSourceName = m.DataSource.Name, m.SchemaName, m.TableName, m.TableDescription })
+            .Take(maxResults)
+            .ToListAsync(ct);
+
+        foreach (var table in matchingTables)
+        {
+            results.Add(new SearchResult
+            {
+                Type = "table",
+                DataSourceId = table.DataSourceId,
+                DataSourceName = table.DataSourceName,
+                SchemaName = table.SchemaName,
+                TableName = table.TableName,
+                Description = table.TableDescription,
+                Relevance = table.TableName.Equals(query, StringComparison.OrdinalIgnoreCase) ? 1.0 : 0.8
+            });
+        }
+
+        // Search columns
+        var matchingColumns = await context.ColumnMetadata
+            .Where(c => dsIds.Contains(c.DatabaseMetadata.DataSourceId))
+            .Where(c => c.ColumnName.ToLower().Contains(queryLower) ||
+                        (c.Description != null && c.Description.ToLower().Contains(queryLower)))
+            .Select(c => new
+            {
+                c.DatabaseMetadata.DataSourceId,
+                DataSourceName = c.DatabaseMetadata.DataSource.Name,
+                c.DatabaseMetadata.SchemaName,
+                c.DatabaseMetadata.TableName,
+                c.ColumnName,
+                c.Description
+            })
+            .Take(maxResults)
+            .ToListAsync(ct);
+
+        foreach (var col in matchingColumns)
+        {
+            results.Add(new SearchResult
+            {
+                Type = "column",
+                DataSourceId = col.DataSourceId,
+                DataSourceName = col.DataSourceName,
+                SchemaName = col.SchemaName,
+                TableName = col.TableName,
+                ColumnName = col.ColumnName,
+                Description = col.Description,
+                Relevance = col.ColumnName.Equals(query, StringComparison.OrdinalIgnoreCase) ? 0.9 : 0.6
+            });
+        }
+
+        // Search project documentation
+        var docSections = await context.ProjectDocumentationSections
+            .Where(s => s.Documentation.ProjectId == projectId)
+            .Where(s => s.Content.ToLower().Contains(queryLower))
+            .Select(s => new { ProjectName = s.Documentation.Project.Name, s.Title, s.Content })
+            .Take(maxResults / 2)
+            .ToListAsync(ct);
+
+        foreach (var doc in docSections)
+        {
+            results.Add(new SearchResult
+            {
+                Type = "documentation",
+                DataSourceName = doc.ProjectName,
+                SchemaName = string.Empty,
+                TableName = string.Empty,
+                Description = TruncateContent(doc.Content, 200),
+                Relevance = 0.5
+            });
+        }
+
+        return results.OrderByDescending(r => r.Relevance).Take(maxResults).ToList();
+    }
+
+    public async Task<string> GetProjectContextForLlmAsync(int projectId, CancellationToken ct = default)
+    {
+        var dataSources = await GetProjectDataSourcesAsync(projectId, ct);
+        var sb = new StringBuilder();
+
+        await using var context = await contextFactory.CreateDbContextAsync(ct);
+        var project = await context.Projects
+            .Where(p => p.Id == projectId)
+            .Select(p => new { p.Name, p.Description })
+            .FirstOrDefaultAsync(ct);
+
+        if (project == null)
+            throw new InvalidOperationException($"Project {projectId} not found");
+
+        sb.AppendLine($"# Project: {project.Name}");
+        if (!string.IsNullOrEmpty(project.Description))
+            sb.AppendLine(project.Description);
+        sb.AppendLine($"\nData Sources: {dataSources.Count}");
+        sb.AppendLine();
+
+        foreach (var ds in dataSources)
+        {
+            sb.AppendLine($"## Data Source: {ds.Name} (ID: {ds.DataSourceId})");
+            sb.AppendLine($"Type: {ds.DatabaseEngine ?? ds.DataSourceType.ToString()}, Tables: {ds.TableCount}");
+            if (ds.OverallQualityScore.HasValue)
+                sb.AppendLine($"Quality: {ds.OverallQualityScore:F0}%");
+
+            // Get the full LLM context for this data source
+            var dsContext = await GetContextForLlmAsync(ds.DataSourceId, ct: ct);
+            sb.AppendLine(dsContext);
+            sb.AppendLine();
+        }
+
+        return sb.ToString();
+    }
+
+    public async Task<List<DataSourceKnowledge>> GetProjectDataSourcesAsync(int projectId, CancellationToken ct = default)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(ct);
+        var dsIds = await context.ProjectDataSources
+            .Where(pds => pds.ProjectId == projectId)
+            .Select(pds => pds.DataSourceId)
+            .ToListAsync(ct);
+
+        var results = new List<DataSourceKnowledge>();
+        foreach (var dsId in dsIds)
+            results.Add(await GetDataSourceKnowledgeAsync(dsId, ct));
+
+        return results;
+    }
+
+    public async Task<SmartSchemaContext> GetSmartContextForAskAsync(int dataSourceId, string question, CancellationToken ct = default)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(ct);
+        var dataSource = await context.DataSources.FirstOrDefaultAsync(ds => ds.Id == dataSourceId, ct)
+            ?? throw new InvalidOperationException($"Data source {dataSourceId} not found");
+
+        var isApi = dataSource.DataSourceType == DataSourceType.Api;
+
+        // Load all tables + columns in one query
+        var allTables = await context.DatabaseMetadata
+            .Where(m => m.DataSourceId == dataSourceId)
+            .OrderBy(m => m.SchemaName).ThenBy(m => m.TableName)
+            .Select(m => new
+            {
+                m.SchemaName,
+                m.TableName,
+                m.TableDescription,
+                Columns = m.Columns.Select(c => new SchemaColumn(
+                    c.ColumnName, c.DataType, c.IsPrimaryKey, c.IsNullable,
+                    c.ForeignKeyTable, c.ForeignKeyColumn, c.Description
+                )).ToList()
+            })
+            .ToListAsync(ct);
+
+        var totalColumns = allTables.Sum(t => t.Columns.Count);
+
+        // Small schema fast path: send everything
+        if (allTables.Count <= 40 || totalColumns <= 300)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine(isApi
+                ? $"# REST API: {dataSource.Name}"
+                : $"# Data Source: {dataSource.Name} ({dataSource.DatabaseEngineType})");
+            sb.AppendLine($"Tables: {allTables.Count}\n");
+
+            foreach (var t in allTables)
+                AppendTableWithFullColumns(sb, t.SchemaName, t.TableName, t.TableDescription, t.Columns, isApi);
+
+            return new SmartSchemaContext
+            {
+                FullContext = sb.ToString(),
+                UsedSmartRetrieval = false,
+                TotalTableCount = allTables.Count
+            };
+        }
+
+        // Smart path: search for relevant tables
+        var searchResults = await SearchAsync(question, dataSourceId, maxResults: 15, ct);
+
+        var matchedTableNames = searchResults
+            .Where(r => r.Type is "table" or "column")
+            .Select(r => $"{r.SchemaName}.{r.TableName}")
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        // Expand one FK hop: tables that matched tables reference + tables that reference matched tables
+        var fkConnected = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var t in allTables.Where(t => matchedTableNames.Contains($"{t.SchemaName}.{t.TableName}")))
+        {
+            foreach (var col in t.Columns.Where(c => c.ForeignKeyTable != null))
+            {
+                // Find the schema for the FK target
+                var fkTarget = allTables.FirstOrDefault(at =>
+                    at.TableName.Equals(col.ForeignKeyTable, StringComparison.OrdinalIgnoreCase));
+                if (fkTarget != null)
+                    fkConnected.Add($"{fkTarget.SchemaName}.{fkTarget.TableName}");
+            }
+        }
+
+        // Reverse FK: tables that reference matched tables
+        foreach (var t in allTables)
+        {
+            var qualifiedName = $"{t.SchemaName}.{t.TableName}";
+            if (matchedTableNames.Contains(qualifiedName)) continue;
+
+            foreach (var col in t.Columns.Where(c => c.ForeignKeyTable != null))
+            {
+                if (allTables.Any(at =>
+                    matchedTableNames.Contains($"{at.SchemaName}.{at.TableName}") &&
+                    at.TableName.Equals(col.ForeignKeyTable, StringComparison.OrdinalIgnoreCase)))
+                {
+                    fkConnected.Add(qualifiedName);
+                    break;
+                }
+            }
+        }
+
+        // Remove already-matched from FK set
+        fkConnected.ExceptWith(matchedTableNames);
+
+        // Cap detailed tables at ~20 (prioritize search matches over FK connections)
+        var detailedTables = new HashSet<string>(matchedTableNames, StringComparer.OrdinalIgnoreCase);
+        var remainingSlots = 20 - detailedTables.Count;
+        if (remainingSlots > 0)
+        {
+            foreach (var fk in fkConnected.Take(remainingSlots))
+                detailedTables.Add(fk);
+        }
+
+        // Build two-section context
+        var smartSb = new StringBuilder();
+        smartSb.AppendLine(isApi
+            ? $"# REST API: {dataSource.Name}"
+            : $"# Data Source: {dataSource.Name} ({dataSource.DatabaseEngineType})");
+        smartSb.AppendLine($"Total tables: {allTables.Count}\n");
+
+        // Section 1: Relevant tables with full schema
+        smartSb.AppendLine("## Relevant Tables (full schema)\n");
+        foreach (var t in allTables.Where(t => detailedTables.Contains($"{t.SchemaName}.{t.TableName}")))
+            AppendTableWithFullColumns(smartSb, t.SchemaName, t.TableName, t.TableDescription, t.Columns, isApi);
+
+        // Section 2: Other tables compact
+        var otherTables = allTables.Where(t => !detailedTables.Contains($"{t.SchemaName}.{t.TableName}")).ToList();
+        if (otherTables.Count > 0)
+        {
+            smartSb.AppendLine("\n## Other Tables (name and primary keys only)\n");
+            foreach (var t in otherTables)
+                AppendTableCompact(smartSb, t.SchemaName, t.TableName, t.TableDescription, t.Columns, isApi);
+        }
+
+        return new SmartSchemaContext
+        {
+            FullContext = smartSb.ToString(),
+            UsedSmartRetrieval = true,
+            RelevantTables = [.. detailedTables],
+            TotalTableCount = allTables.Count
+        };
+    }
+
+    public async Task<string> GetTablesContextAsync(int dataSourceId, IEnumerable<string> tableNames, CancellationToken ct = default)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(ct);
+        var dataSource = await context.DataSources.FirstOrDefaultAsync(ds => ds.Id == dataSourceId, ct)
+            ?? throw new InvalidOperationException($"Data source {dataSourceId} not found");
+
+        var isApi = dataSource.DataSourceType == DataSourceType.Api;
+        var nameSet = tableNames.Select(n => n.ToLower()).ToHashSet();
+
+        var tables = await context.DatabaseMetadata
+            .Where(m => m.DataSourceId == dataSourceId)
+            .Select(m => new
+            {
+                m.SchemaName,
+                m.TableName,
+                m.TableDescription,
+                Columns = m.Columns.Select(c => new SchemaColumn(
+                    c.ColumnName, c.DataType, c.IsPrimaryKey, c.IsNullable,
+                    c.ForeignKeyTable, c.ForeignKeyColumn, c.Description
+                )).ToList()
+            })
+            .ToListAsync(ct);
+
+        // Match by table name or schema.table
+        var matched = tables.Where(t =>
+            nameSet.Contains(t.TableName.ToLower()) ||
+            nameSet.Contains($"{t.SchemaName}.{t.TableName}".ToLower()))
+            .ToList();
+
+        var sb = new StringBuilder();
+        sb.AppendLine("# Table Schemas\n");
+        foreach (var t in matched)
+            AppendTableWithFullColumns(sb, t.SchemaName, t.TableName, t.TableDescription, t.Columns, isApi);
+
+        return sb.ToString();
+    }
+
+    private static void AppendTableWithFullColumns(
+        StringBuilder sb, string schemaName, string tableName, string? description,
+        IEnumerable<SchemaColumn> columns, bool isApi)
+    {
+        if (isApi)
+        {
+            sb.AppendLine($"### {tableName}");
+            if (description != null) sb.AppendLine($"  {description}");
+        }
+        else
+        {
+            sb.AppendLine($"### {schemaName}.{tableName}");
+            if (description != null) sb.AppendLine($"  {description}");
+        }
+
+        sb.AppendLine("  Columns:");
+        foreach (var col in columns)
+        {
+            sb.Append($"    - {col.ColumnName} ({col.DataType})");
+            if (col.IsPrimaryKey) sb.Append(" [PK]");
+            if (!col.IsNullable) sb.Append(" NOT NULL");
+            if (col.ForeignKeyTable != null) sb.Append($" FK→{col.ForeignKeyTable}.{col.ForeignKeyColumn}");
+            if (col.Description != null) sb.Append($" -- {col.Description}");
+            sb.AppendLine();
+        }
+        sb.AppendLine();
+    }
+
+    private static void AppendTableCompact(
+        StringBuilder sb, string schemaName, string tableName, string? description,
+        IEnumerable<SchemaColumn> columns, bool isApi)
+    {
+        var pks = columns.Where(c => c.IsPrimaryKey).Select(c => c.ColumnName).ToList();
+        var pkStr = pks.Count > 0 ? $"PK: {string.Join(", ", pks)}" : "no PK";
+        var label = isApi ? tableName : $"{schemaName}.{tableName}";
+        sb.Append($"  - {label} ({pkStr})");
+        if (description != null) sb.Append($" -- {description}");
+        sb.AppendLine();
+    }
+
+    private record SchemaColumn(
+        string ColumnName, string DataType, bool IsPrimaryKey, bool IsNullable,
+        string? ForeignKeyTable, string? ForeignKeyColumn, string? Description);
+
     private static string? TruncateContent(string? content, int maxLength)
     {
         if (content == null) return null;
         return content.Length <= maxLength ? content : content[..maxLength] + "...";
+    }
+
+    private static string? ExtractTableDoc(string dataModelContent, string tableName)
+    {
+        // Try to find the section about this specific table in the DataModel content
+        var marker = tableName;
+        var idx = dataModelContent.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        if (idx < 0) return null;
+
+        // Extract a chunk of text around the table name (up to 500 chars after)
+        var start = idx;
+        var end = Math.Min(dataModelContent.Length, idx + 500);
+        // Try to end at a paragraph boundary
+        var nextBlank = dataModelContent.IndexOf("\n\n", start + marker.Length, StringComparison.Ordinal);
+        if (nextBlank > 0 && nextBlank < end) end = nextBlank;
+
+        return TruncateContent(dataModelContent[start..end], 400);
     }
 }

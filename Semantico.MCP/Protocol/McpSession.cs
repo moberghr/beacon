@@ -11,7 +11,8 @@ internal sealed class McpClientSession : IAsyncDisposable
     public string SessionId { get; } = Guid.NewGuid().ToString("N");
     public int? UserId { get; set; }
     public int? ApiKeyId { get; set; }
-    public List<int>? AllowedDataSourceIds { get; set; }
+    public List<int>? AllowedProjectIds { get; set; }
+    public int? ActiveProjectId { get; set; }
     public DateTime CreatedAt { get; } = DateTime.UtcNow;
     public DateTime LastActivityAt { get; set; } = DateTime.UtcNow;
     public bool IsInitialized { get; set; }

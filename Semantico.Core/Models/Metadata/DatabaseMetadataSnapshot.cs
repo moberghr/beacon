@@ -4,7 +4,7 @@ namespace Semantico.Core.Models.Metadata;
 
 public record DatabaseMetadataSnapshot(
     int DataSourceId,
-    DatabaseEngineType DatabaseEngineType,
+    DatabaseEngineType? DatabaseEngineType,
     IReadOnlyList<TableMetadataDto> Tables,
     DateTime RefreshedAt
 );

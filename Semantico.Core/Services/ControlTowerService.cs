@@ -112,8 +112,13 @@ internal class ControlTowerService(
             var lastExecs = await context.QueryExecutionHistory
                 .Where(h => pageIds.Contains(h.SubscriptionId))
                 .GroupBy(h => h.SubscriptionId)
-                .Select(g => g.OrderByDescending(h => h.CreatedTime).First())
-                .Select(h => new { h.SubscriptionId, h.NotificationStatus, h.CreatedTime, h.ResultCount })
+                .Select(g => new
+                {
+                    SubscriptionId = g.Key,
+                    NotificationStatus = g.OrderByDescending(h => h.CreatedTime).Select(h => h.NotificationStatus).First(),
+                    CreatedTime = g.OrderByDescending(h => h.CreatedTime).Select(h => h.CreatedTime).First(),
+                    ResultCount = g.OrderByDescending(h => h.CreatedTime).Select(h => h.ResultCount).First()
+                })
                 .ToListAsync(cancellationToken);
 
             foreach (var exec in lastExecs)
