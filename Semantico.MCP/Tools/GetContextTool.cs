@@ -1,49 +1,56 @@
-using System.Text.Json;
+using System.ComponentModel;
+using System.Diagnostics;
 using Microsoft.EntityFrameworkCore;
-using Semantico.AI.Services.Documentation;
+using ModelContextProtocol.Server;
 using Semantico.AI.Services.Knowledge;
 using Semantico.Core.Data;
 using Semantico.Core.Data.Enums;
-using Semantico.MCP.Protocol;
+using Semantico.MCP.Services;
 
 namespace Semantico.MCP.Tools;
 
+[McpServerToolType]
 internal sealed class GetContextTool(
     IKnowledgeGraphService knowledgeGraph,
-    IDbContextFactory<SemanticoContext> contextFactory) : IMcpTool
+    IDbContextFactory<SemanticoContext> contextFactory,
+    IProjectContext projectContext,
+    McpProjectContextManager sessionManager,
+    McpAuditService auditService)
 {
-    public string Name => "get_context";
-    public string Description => "Get an overview of the project: its data sources, schemas, tables, quality scores, and documentation status. This is the starting point for understanding what data is available.";
-    public object InputSchema => ToolHelper.SchemaObject(
-        new Dictionary<string, object>
-        {
-            ["project_id"] = ToolHelper.IntProp("Optional. If your API key has access to multiple projects, specify which one.")
-        });
-
-    public async Task<McpToolResult> ExecuteAsync(JsonElement? arguments, McpClientSession session, CancellationToken ct)
+    [McpServerTool(Name = "get_context")]
+    [Description("Get an overview of the project: its data sources, schemas, tables, quality scores, and documentation status. This is the starting point for understanding what data is available.")]
+    public async Task<string> ExecuteAsync(
+        [Description("Optional. If your API key has access to multiple projects, specify which one.")]
+        int? project_id = null,
+        CancellationToken cancellationToken = default)
     {
-        var requestedProjectId = ToolHelper.GetInt(arguments, "project_id");
-        var resolveError = ToolHelper.ResolveProjectId(session, requestedProjectId, out var projectId);
+        var sw = Stopwatch.StartNew();
+        var resolveError = ToolHelper.ResolveProjectId(projectContext, sessionManager, project_id, out var projectId);
         if (resolveError != null) return resolveError;
 
         try
         {
-            await using var context = await contextFactory.CreateDbContextAsync(ct);
+            await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
             var project = await context.Projects
                 .Where(p => p.Id == projectId)
                 .Select(p => new { p.Name, p.Description })
-                .FirstOrDefaultAsync(ct);
+                .FirstOrDefaultAsync(cancellationToken);
 
             if (project == null)
-                return ToolHelper.ErrorResult($"Project {projectId} not found.");
+            {
+                sw.Stop();
+                _ = auditService.LogToolCallAsync(null, projectContext.UserId, "get_context",
+                    project_id?.ToString(), null, projectId, (int)sw.ElapsedMilliseconds, null, $"Project {projectId} not found.");
+                return $"Project {projectId} not found.";
+            }
 
-            var dataSources = await knowledgeGraph.GetProjectDataSourcesAsync(projectId, ct);
+            var dataSources = await knowledgeGraph.GetProjectDataSourcesAsync(projectId, cancellationToken);
 
             var hasDoc = await context.ProjectDocumentations
-                .AnyAsync(d => d.ProjectId == projectId, ct);
+                .AnyAsync(d => d.ProjectId == projectId, cancellationToken);
 
             var repoCount = await context.GitHubRepositories
-                .CountAsync(r => r.ProjectId == projectId, ct);
+                .CountAsync(r => r.ProjectId == projectId, cancellationToken);
 
             var text = $"# Project: {project.Name}\n";
             if (!string.IsNullOrEmpty(project.Description))
@@ -75,11 +82,17 @@ internal sealed class GetContextTool(
                 text += "\n";
             }
 
-            return ToolHelper.TextResult(text);
+            sw.Stop();
+            _ = auditService.LogToolCallAsync(null, projectContext.UserId, "get_context",
+                project_id?.ToString(), null, projectId, (int)sw.ElapsedMilliseconds, null, null);
+            return text;
         }
         catch (Exception ex)
         {
-            return ToolHelper.ErrorResult($"Error: {ex.Message}");
+            sw.Stop();
+            _ = auditService.LogToolCallAsync(null, projectContext.UserId, "get_context",
+                project_id?.ToString(), null, projectId == 0 ? null : projectId, (int)sw.ElapsedMilliseconds, null, ex.Message);
+            return $"Error: {ex.Message}";
         }
     }
 }

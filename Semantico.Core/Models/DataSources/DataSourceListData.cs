@@ -18,4 +18,6 @@ public class DataSourceListData
     public List<QueryData> Queries { get; init; } = new();
 
     public int MigrationJobsCount { get; init; }
+
+    public DateTime? ArchivedTime { get; init; }
 }

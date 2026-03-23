@@ -629,6 +629,8 @@ internal sealed class KnowledgeGraphService(
             .ToListAsync(ct);
 
         var totalColumns = allTables.Sum(t => t.Columns.Count);
+        var catalog = BuildSchemaCatalog(allTables.Select(t => (t.SchemaName, t.TableName, (IEnumerable<SchemaColumn>)t.Columns)));
+        var dialect = dataSource.DatabaseEngineType?.ToString();
 
         // Small schema fast path: send everything
         if (allTables.Count <= 40 || totalColumns <= 300)
@@ -646,7 +648,9 @@ internal sealed class KnowledgeGraphService(
             {
                 FullContext = sb.ToString(),
                 UsedSmartRetrieval = false,
-                TotalTableCount = allTables.Count
+                TotalTableCount = allTables.Count,
+                DatabaseDialect = dialect,
+                SchemaCatalog = catalog
             };
         }
 
@@ -729,7 +733,9 @@ internal sealed class KnowledgeGraphService(
             FullContext = smartSb.ToString(),
             UsedSmartRetrieval = true,
             RelevantTables = [.. detailedTables],
-            TotalTableCount = allTables.Count
+            TotalTableCount = allTables.Count,
+            DatabaseDialect = dialect,
+            SchemaCatalog = catalog
         };
     }
 
@@ -818,6 +824,19 @@ internal sealed class KnowledgeGraphService(
     {
         if (content == null) return null;
         return content.Length <= maxLength ? content : content[..maxLength] + "...";
+    }
+
+    private static Dictionary<string, HashSet<string>> BuildSchemaCatalog(
+        IEnumerable<(string SchemaName, string TableName, IEnumerable<SchemaColumn> Columns)> tables)
+    {
+        var catalog = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (schema, table, columns) in tables)
+        {
+            var cols = columns.Select(c => c.ColumnName.ToLowerInvariant()).ToHashSet();
+            catalog[table.ToLowerInvariant()] = cols;
+            catalog[$"{schema}.{table}".ToLowerInvariant()] = cols;
+        }
+        return catalog;
     }
 
     private static string? ExtractTableDoc(string dataModelContent, string tableName)

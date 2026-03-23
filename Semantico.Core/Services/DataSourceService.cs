@@ -175,7 +175,7 @@ internal class DataSourceService(
             .Include(x => x.QuerySteps)
                 .ThenInclude(qs => qs.Parameters)
             .WhereIf(dataSourceId.HasValue, x => x.Id == dataSourceId)
-//            .Where(x => x.ArchivedTime == null)
+            .Where(x => x.ArchivedTime == null)
             .Select(x => new DataSourceListData
             {
                 Id = x.Id,
@@ -183,6 +183,7 @@ internal class DataSourceService(
                 DataSourceType = x.DataSourceType,
                 DatabaseEngineType = x.DatabaseEngineType,
                 MetadataLoadingEnabled = x.MetadataLoadingEnabled,
+                ArchivedTime = x.ArchivedTime,
                 MigrationJobsCount = context.MigrationJobs
                     .Count(mj => (mj.DataSourceId == x.Id || mj.DestinationDataSourceId == x.Id)
                                  && mj.ArchivedTime == null),

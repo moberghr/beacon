@@ -1,40 +1,49 @@
-using System.Text.Json;
+using System.ComponentModel;
+using System.Diagnostics;
+using ModelContextProtocol.Server;
 using Semantico.AI.Services.Knowledge;
-using Semantico.MCP.Protocol;
+using Semantico.MCP.Services;
 
 namespace Semantico.MCP.Tools;
 
-internal sealed class ProjectSearchTool(IKnowledgeGraphService knowledgeGraph) : IMcpTool
+[McpServerToolType]
+internal sealed class ProjectSearchTool(
+    IKnowledgeGraphService knowledgeGraph,
+    IProjectContext projectContext,
+    McpProjectContextManager sessionManager,
+    McpAuditService auditService)
 {
-    public string Name => "search";
-    public string Description => "Search tables, columns, and documentation across all data sources in the project by keyword. Returns matching items with descriptions, quality scores, and relevance.";
-    public object InputSchema => ToolHelper.SchemaObject(
-        new Dictionary<string, object>
-        {
-            ["query"] = ToolHelper.StringProp("Search keyword (e.g., 'customer', 'order_date', 'revenue')"),
-            ["project_id"] = ToolHelper.IntProp("Optional. Specify project if your API key has access to multiple projects."),
-            ["max_results"] = ToolHelper.IntProp("Maximum results to return (default: 20, max: 50)")
-        },
-        ["query"]);
-
-    public async Task<McpToolResult> ExecuteAsync(JsonElement? arguments, McpClientSession session, CancellationToken ct)
+    [McpServerTool(Name = "search")]
+    [Description("Search tables, columns, and documentation across all data sources in the project by keyword. Returns matching items with descriptions, quality scores, and relevance.")]
+    public async Task<string> ExecuteAsync(
+        [Description("Search keyword (e.g., 'customer', 'order_date', 'revenue')")]
+        string query,
+        [Description("Optional. Specify project if your API key has access to multiple projects.")]
+        int? project_id = null,
+        [Description("Maximum results to return (default: 20, max: 50)")]
+        int? max_results = null,
+        CancellationToken cancellationToken = default)
     {
-        var query = ToolHelper.GetString(arguments, "query");
-        var requestedProjectId = ToolHelper.GetInt(arguments, "project_id");
-        var maxResults = Math.Min(ToolHelper.GetInt(arguments, "max_results") ?? 20, 50);
+        var sw = Stopwatch.StartNew();
+        var maxResults = Math.Min(max_results ?? 20, 50);
 
         if (string.IsNullOrEmpty(query))
-            return ToolHelper.ErrorResult("Missing required parameter: query");
+            return "Missing required parameter: query";
 
-        var resolveError = ToolHelper.ResolveProjectId(session, requestedProjectId, out var projectId);
+        var resolveError = ToolHelper.ResolveProjectId(projectContext, sessionManager, project_id, out var projectId);
         if (resolveError != null) return resolveError;
 
         try
         {
-            var results = await knowledgeGraph.SearchProjectAsync(query, projectId, maxResults, ct);
+            var results = await knowledgeGraph.SearchProjectAsync(query, projectId, maxResults, cancellationToken);
 
             if (results.Count == 0)
-                return ToolHelper.TextResult($"No results found for '{query}'.");
+            {
+                sw.Stop();
+                _ = auditService.LogToolCallAsync(null, projectContext.UserId, "search",
+                    query, null, projectId, (int)sw.ElapsedMilliseconds, 0, null);
+                return $"No results found for '{query}'.";
+            }
 
             var text = $"# Search Results for '{query}'\n\n";
             text += $"**{results.Count} results found**\n\n";
@@ -57,11 +66,17 @@ internal sealed class ProjectSearchTool(IKnowledgeGraphService knowledgeGraph) :
                 text += "\n";
             }
 
-            return ToolHelper.TextResult(text);
+            sw.Stop();
+            _ = auditService.LogToolCallAsync(null, projectContext.UserId, "search",
+                query, null, projectId, (int)sw.ElapsedMilliseconds, results.Count, null);
+            return text;
         }
         catch (Exception ex)
         {
-            return ToolHelper.ErrorResult($"Error: {ex.Message}");
+            sw.Stop();
+            _ = auditService.LogToolCallAsync(null, projectContext.UserId, "search",
+                query, null, projectId == 0 ? null : projectId, (int)sw.ElapsedMilliseconds, null, ex.Message);
+            return $"Error: {ex.Message}";
         }
     }
 }

@@ -1,7 +1,10 @@
+using System.ComponentModel;
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using ModelContextProtocol.Server;
 using Semantico.AI.Services.Documentation;
 using Semantico.AI.Services.Knowledge;
 using Semantico.AI.Services.LlmProviders;
@@ -10,10 +13,11 @@ using Semantico.Core.Data.Enums;
 using Semantico.Core.Services;
 using Semantico.Core.Services.Providers;
 using Semantico.Core.Services.Security;
-using Semantico.MCP.Protocol;
+using Semantico.MCP.Services;
 
 namespace Semantico.MCP.Tools;
 
+[McpServerToolType]
 internal sealed class ProjectAskTool(
     IDbContextFactory<SemanticoContext> contextFactory,
     IKnowledgeGraphService knowledgeGraph,
@@ -21,87 +25,102 @@ internal sealed class ProjectAskTool(
     IQueryGuardrailService guardrailService,
     IMcpSettingsProvider settingsProvider,
     IServiceProvider serviceProvider,
-    ILogger<ProjectAskTool> logger) : IMcpTool
+    IProjectContext projectContext,
+    McpProjectContextManager sessionManager,
+    McpAuditService auditService,
+    SqlSchemaValidator schemaValidator,
+    ILogger<ProjectAskTool> logger)
 {
-    public string Name => "ask";
-    public string Description => "Ask a natural language question about your data or project. For data queries, Semantico auto-detects the right data source(s), generates SQL, and executes it. For conceptual questions (e.g., 'how do notifications work?'), it answers from project documentation and knowledge base.";
-    public object InputSchema => ToolHelper.SchemaObject(
-        new Dictionary<string, object>
-        {
-            ["question"] = ToolHelper.StringProp("Your question in natural language (e.g., 'How many orders were placed last week?')"),
-            ["project_id"] = ToolHelper.IntProp("Optional. Specify project if your API key has access to multiple projects."),
-            ["execute"] = ToolHelper.BoolProp("Whether to execute the generated SQL (default: true)")
-        },
-        ["question"]);
-
-    public async Task<McpToolResult> ExecuteAsync(JsonElement? arguments, McpClientSession session, CancellationToken ct)
+    [McpServerTool(Name = "ask")]
+    [Description("Ask a natural language question about your data or project. For data queries, Semantico auto-detects the right data source(s), generates SQL, and executes it. For conceptual questions (e.g., 'how do notifications work?'), it answers from project documentation and knowledge base.")]
+    public async Task<string> ExecuteAsync(
+        [Description("Your question in natural language (e.g., 'How many orders were placed last week?')")]
+        string question,
+        [Description("Optional. Specify project if your API key has access to multiple projects.")]
+        int? project_id = null,
+        [Description("Whether to execute the generated SQL (default: true)")]
+        bool execute = true,
+        CancellationToken cancellationToken = default)
     {
-        var question = ToolHelper.GetString(arguments, "question");
-        var requestedProjectId = ToolHelper.GetInt(arguments, "project_id");
-        var execute = ToolHelper.GetBool(arguments, "execute", true);
+        var sw = Stopwatch.StartNew();
 
         if (string.IsNullOrEmpty(question))
-            return ToolHelper.ErrorResult("Missing required parameter: question");
+            return "Missing required parameter: question";
 
-        var resolveError = ToolHelper.ResolveProjectId(session, requestedProjectId, out var projectId);
+        var resolveError = ToolHelper.ResolveProjectId(projectContext, sessionManager, project_id, out var projectId);
         if (resolveError != null) return resolveError;
 
         try
         {
             var llmProvider = serviceProvider.GetService(typeof(ILlmProvider)) as ILlmProvider;
             if (llmProvider == null)
-                return ToolHelper.ErrorResult("AI features not configured. Add LLM configuration to use the 'ask' tool.");
+            {
+                sw.Stop();
+                _ = auditService.LogToolCallAsync(null, projectContext.UserId, "ask",
+                    question, null, projectId, (int)sw.ElapsedMilliseconds, null, "LLM not configured");
+                return "AI features not configured. Add LLM configuration to use the 'ask' tool.";
+            }
 
-            var settings = await settingsProvider.GetSettingsAsync(ct);
+            var settings = await settingsProvider.GetSettingsAsync(cancellationToken);
 
             // Phase 0: Classify intent — data query vs knowledge question
-            var intent = await ClassifyIntentAsync(llmProvider, question, ct);
+            var intent = await ClassifyIntentAsync(llmProvider, question, cancellationToken);
 
             if (intent == QuestionIntent.Knowledge)
-                return await AnswerFromKnowledgeAsync(llmProvider, projectId, question, settings, ct);
+            {
+                var knowledgeResult = await AnswerFromKnowledgeAsync(llmProvider, projectId, question, settings, cancellationToken);
+                sw.Stop();
+                _ = auditService.LogToolCallAsync(null, projectContext.UserId, "ask",
+                    question, null, projectId, (int)sw.ElapsedMilliseconds, null, null);
+                return knowledgeResult;
+            }
 
-            var dataSources = await knowledgeGraph.GetProjectDataSourcesAsync(projectId, ct);
+            var dataSources = await knowledgeGraph.GetProjectDataSourcesAsync(projectId, cancellationToken);
 
             if (dataSources.Count == 0)
-                return ToolHelper.ErrorResult("This project has no data sources configured.");
+                return "This project has no data sources configured.";
 
             // Phase 1: Route to the right data source(s)
-            var routing = await RouteQuestionAsync(llmProvider, dataSources, question, projectId, settings, ct);
+            var routing = await RouteQuestionAsync(llmProvider, dataSources, question, projectId, settings, cancellationToken);
 
             var text = $"# Question: {question}\n\n";
 
             if (routing.Sources.Count == 0)
-                return ToolHelper.ErrorResult("Could not determine which data source to query for this question.");
+                return "Could not determine which data source to query for this question.";
 
             // Phase 2: Generate and execute SQL for each source
             if (routing.Sources.Count == 1)
             {
-                // Single source — straightforward
                 var source = routing.Sources[0];
                 text += $"## Data Source: {source.DataSourceName}\n";
                 text += $"**Reasoning:** {source.Reason}\n\n";
 
                 var sqlResult = await GenerateAndExecuteSqlAsync(
-                    llmProvider, source.DataSourceId, question, settings, execute, ct);
+                    llmProvider, source.DataSourceId, question, settings, execute, cancellationToken);
                 text += sqlResult;
             }
             else
             {
-                // Cross-source — generate SQL per source, join in SQLite
                 text += "## Cross-Source Query\n\n";
                 foreach (var source in routing.Sources)
                     text += $"- **{source.DataSourceName}** (ID: {source.DataSourceId}): {source.Reason}\n";
                 text += "\n";
 
                 text += await ExecuteCrossSourceQueryAsync(
-                    llmProvider, routing.Sources, question, settings, execute, ct);
+                    llmProvider, routing.Sources, question, settings, execute, cancellationToken);
             }
 
-            return ToolHelper.TextResult(text);
+            sw.Stop();
+            _ = auditService.LogToolCallAsync(null, projectContext.UserId, "ask",
+                question, null, projectId, (int)sw.ElapsedMilliseconds, null, null);
+            return text;
         }
         catch (Exception ex)
         {
-            return ToolHelper.ErrorResult($"Error: {ex.Message}");
+            sw.Stop();
+            _ = auditService.LogToolCallAsync(null, projectContext.UserId, "ask",
+                question, null, projectId == 0 ? null : projectId, (int)sw.ElapsedMilliseconds, null, ex.Message);
+            return $"Error: {ex.Message}";
         }
     }
 
@@ -113,7 +132,6 @@ internal sealed class ProjectAskTool(
         Core.Models.McpSettingsData settings,
         CancellationToken ct)
     {
-        // If single data source, skip routing LLM call
         if (dataSources.Count == 1)
         {
             return new RoutingResult
@@ -130,7 +148,6 @@ internal sealed class ProjectAskTool(
             };
         }
 
-        // Build data source summaries for routing
         var summaries = string.Join("\n\n", dataSources.Select(ds =>
         {
             var schemas = string.Join(", ", ds.Schemas.Select(s => $"{s.SchemaName} ({s.TableCount} tables)"));
@@ -168,7 +185,6 @@ internal sealed class ProjectAskTool(
 
         var response = await llmProvider.CompleteAsync(request, ct);
         var json = response.Content.Trim();
-        // Strip markdown code fences if present
         if (json.StartsWith("```")) json = json[(json.IndexOf('\n') + 1)..];
         if (json.EndsWith("```")) json = json[..json.LastIndexOf("```")];
         json = json.Trim();
@@ -182,7 +198,6 @@ internal sealed class ProjectAskTool(
 
             if (parsed?.Sources == null || parsed.Sources.Count == 0)
             {
-                // Fallback: use the first data source
                 return new RoutingResult
                 {
                     Sources = [new RoutedSource
@@ -207,7 +222,6 @@ internal sealed class ProjectAskTool(
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Failed to parse routing response: {Json}", json);
-            // Fallback
             return new RoutingResult
             {
                 Sources = [new RoutedSource
@@ -239,7 +253,8 @@ internal sealed class ProjectAskTool(
             - Use proper quoting for identifiers
             - Limit results to 100 rows unless the question implies aggregation
             - The schema may have two sections: "Relevant Tables" with full columns, and "Other Tables" with names/PKs only.
-            - Use exact column names from the schema. Do not guess column names.
+            - CRITICAL: Use ONLY the exact column names listed in the schema. NEVER guess or infer column names. If a column you need is not listed, use the FK relationships to find the correct join path.
+            - CRITICAL: If a table is in "Other Tables" with only PKs listed, do NOT assume it has any other columns — join through it using only its PK.
             """;
 
         var userMessage = "";
@@ -265,7 +280,6 @@ internal sealed class ProjectAskTool(
 
         var text = $"### Generated SQL\n```sql\n{generatedSql}\n```\n\n";
 
-        // Validate
         var validation = guardrailService.ValidateQuery(generatedSql, new QueryGuardrailOptions
         {
             ReadOnly = settings.EnforceReadOnly,
@@ -278,46 +292,50 @@ internal sealed class ProjectAskTool(
             return text;
         }
 
+        // Pre-execution schema validation — catch wrong columns before hitting the DB
+        var schemaCheck = schemaValidator.Validate(generatedSql, smartContext.SchemaCatalog, smartContext.DatabaseDialect);
+        if (!schemaCheck.IsValid)
+        {
+            logger.LogInformation("Schema pre-validation failed, retrying. Error: {Error}", schemaCheck.Error);
+            var preValidationRetry = await RetryWithErrorAsync(
+                llmProvider, systemPrompt, generatedSql, schemaCheck.Error!,
+                smartContext.FullContext, null, question, ct);
+
+            if (preValidationRetry != null)
+            {
+                var retryGuardrail = guardrailService.ValidateQuery(preValidationRetry, new QueryGuardrailOptions
+                {
+                    ReadOnly = settings.EnforceReadOnly,
+                    DetectPii = settings.EnablePiiDetection,
+                    CustomPiiPatterns = settings.CustomPiiPatterns.Count > 0 ? settings.CustomPiiPatterns : null
+                });
+                if (retryGuardrail.IsValid)
+                {
+                    text += $"*Initial query had schema errors ({schemaCheck.Error}), retried.*\n\n";
+                    text += $"### Corrected SQL\n```sql\n{preValidationRetry}\n```\n\n";
+                    generatedSql = preValidationRetry;
+                }
+            }
+        }
+
         if (execute)
         {
             var (result, errorMessage) = await ExecuteQueryWithErrorAsync(dataSourceId, generatedSql, settings, ct);
 
-            if (errorMessage != null && IsSchemaError(errorMessage))
+            if (errorMessage != null)
             {
-                // Retry: extract table names from SQL, fetch full schemas, re-prompt
-                logger.LogInformation("Schema error detected, retrying with full table context. Error: {Error}", errorMessage);
+                logger.LogInformation("SQL error detected, retrying. Error: {Error}", errorMessage);
                 var tableNames = ExtractTableNamesFromSql(generatedSql);
-                if (tableNames.Count > 0)
+                var tablesContext = tableNames.Count > 0
+                    ? await knowledgeGraph.GetTablesContextAsync(dataSourceId, tableNames, ct)
+                    : null;
+
+                var retriedSql = await RetryWithErrorAsync(
+                    llmProvider, systemPrompt, generatedSql, errorMessage,
+                    smartContext.FullContext, tablesContext, question, ct);
+
+                if (retriedSql != null)
                 {
-                    var tablesContext = await knowledgeGraph.GetTablesContextAsync(dataSourceId, tableNames, ct);
-
-                    var retryMessage = $"""
-                        Your previous SQL query failed. Here are the correct schemas for the tables involved.
-
-                        PREVIOUS SQL:
-                        {generatedSql}
-
-                        ERROR: {errorMessage}
-
-                        CORRECT TABLE SCHEMAS:
-                        {tablesContext}
-
-                        USER QUESTION: {question}
-
-                        Generate a corrected SQL query. Return ONLY the SQL.
-                        """;
-
-                    var retryRequest = new LlmRequest
-                    {
-                        SystemPrompt = systemPrompt,
-                        Messages = [new ChatMessage(ConversationRole.User, retryMessage)],
-                        Temperature = 0.1m,
-                        MaxTokens = 1024
-                    };
-
-                    var retryResponse = await llmProvider.CompleteAsync(retryRequest, ct);
-                    var retriedSql = CleanSqlResponse(retryResponse.Content);
-
                     var retryValidation = guardrailService.ValidateQuery(retriedSql, new QueryGuardrailOptions
                     {
                         ReadOnly = settings.EnforceReadOnly,
@@ -327,7 +345,7 @@ internal sealed class ProjectAskTool(
 
                     if (retryValidation.IsValid)
                     {
-                        text += $"*Initial query failed ({errorMessage}), retried with corrected schema.*\n\n";
+                        text += $"*Initial query failed ({errorMessage}), retried with corrected SQL.*\n\n";
                         text += $"### Corrected SQL\n```sql\n{retriedSql}\n```\n\n";
                         var retryResult = await ExecuteQueryOnSourceAsync(dataSourceId, retriedSql, settings, ct);
                         text += retryResult;
@@ -340,6 +358,57 @@ internal sealed class ProjectAskTool(
         }
 
         return text;
+    }
+
+    private async Task<string?> RetryWithErrorAsync(
+        ILlmProvider llmProvider,
+        string systemPrompt,
+        string previousSql,
+        string error,
+        string fullContext,
+        string? tablesContext,
+        string question,
+        CancellationToken ct)
+    {
+        var schemaSection = tablesContext != null
+            ? $"""
+
+                EXACT SCHEMAS FOR TABLES IN YOUR QUERY:
+                {tablesContext}
+                """
+            : "";
+
+        var retryMessage = $"""
+            Your previous SQL query failed.
+
+            PREVIOUS SQL:
+            {previousSql}
+
+            ERROR: {error}
+
+            FULL DATABASE SCHEMA (authoritative source):
+            {fullContext}
+            {schemaSection}
+            USER QUESTION: {question}
+
+            CRITICAL RULES:
+            - Use ONLY column names listed in the schemas above. Do NOT guess or infer column names.
+            - Check every column reference against the schema before including it.
+            - Use FK relationships shown in the schema to find correct join paths.
+            - Ensure non-aggregate SELECT columns appear in GROUP BY when using aggregate functions.
+            - Return ONLY the corrected SQL query, nothing else.
+            """;
+
+        var retryRequest = new LlmRequest
+        {
+            SystemPrompt = systemPrompt,
+            Messages = [new ChatMessage(ConversationRole.User, retryMessage)],
+            Temperature = 0.1m,
+            MaxTokens = 1024
+        };
+
+        var retryResponse = await llmProvider.CompleteAsync(retryRequest, ct);
+        return CleanSqlResponse(retryResponse.Content);
     }
 
     private async Task<(string? Result, string? ErrorMessage)> ExecuteQueryWithErrorAsync(
@@ -371,11 +440,8 @@ internal sealed class ProjectAskTool(
     internal static bool IsSchemaError(string errorMessage)
     {
         var msg = errorMessage;
-        // PostgreSQL error codes
         if (msg.Contains("42703") || msg.Contains("42P01")) return true;
-        // SQL Server
         if (msg.Contains("Invalid column name") || msg.Contains("Invalid object name")) return true;
-        // Generic
         if (msg.Contains("does not exist") || msg.Contains("column") && msg.Contains("not found"))
             return true;
         return false;
@@ -384,13 +450,11 @@ internal sealed class ProjectAskTool(
     internal static List<string> ExtractTableNamesFromSql(string sql)
     {
         var tables = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        // Match FROM/JOIN followed by optional schema-qualified table name
         var pattern = @"(?:FROM|JOIN)\s+(?:""?(\w+)""?\.)?""?(\w+)""?";
         foreach (Match match in Regex.Matches(sql, pattern, RegexOptions.IgnoreCase))
         {
             var schema = match.Groups[1].Value;
             var table = match.Groups[2].Value;
-            // Skip SQL keywords that might follow FROM/JOIN in subqueries
             if (table.Equals("SELECT", StringComparison.OrdinalIgnoreCase) ||
                 table.Equals("LATERAL", StringComparison.OrdinalIgnoreCase))
                 continue;
@@ -436,7 +500,6 @@ internal sealed class ProjectAskTool(
     {
         var text = "";
 
-        // Generate SQL for each source
         var sourceQueries = new List<(RoutedSource Source, string Sql)>();
         foreach (var source in sources)
         {
@@ -471,7 +534,6 @@ internal sealed class ProjectAskTool(
         if (!execute)
             return text + "*Execution skipped (execute=false)*\n";
 
-        // Execute each source query and load into in-memory SQLite
         var loggerFactory = serviceProvider.GetService(typeof(ILoggerFactory)) as ILoggerFactory;
         using var memDb = new InMemoryDatabaseManager(loggerFactory!.CreateLogger<InMemoryDatabaseManager>());
 
@@ -523,7 +585,6 @@ internal sealed class ProjectAskTool(
             }
         }
 
-        // Generate the join query
         var analysis = memDb.AnalyzeDatabase();
         var tablesInfo = string.Join("\n", analysis.Tables.Values.Select(t =>
             $"Table: {t.TableName} ({t.RowCount} rows, {t.ColumnCount} columns, from {t.SourceProject})"));
@@ -603,11 +664,10 @@ internal sealed class ProjectAskTool(
         return result.Contains("KNOWLEDGE") ? QuestionIntent.Knowledge : QuestionIntent.DataQuery;
     }
 
-    private async Task<McpToolResult> AnswerFromKnowledgeAsync(
+    private async Task<string> AnswerFromKnowledgeAsync(
         ILlmProvider llmProvider, int projectId, string question,
         Core.Models.McpSettingsData settings, CancellationToken ct)
     {
-        // Gather knowledge context: project documentation + search results
         var docService = serviceProvider.GetService(typeof(IProjectDocumentationService)) as IProjectDocumentationService;
 
         var projectContextTask = knowledgeGraph.GetProjectContextForLlmAsync(projectId, ct);
@@ -623,12 +683,10 @@ internal sealed class ProjectAskTool(
         var searchResults = searchTask.Result;
         var documentation = docTask?.Result;
 
-        // Build context for the LLM
         var context = "";
 
         if (!string.IsNullOrEmpty(documentation))
         {
-            // Trim large docs to avoid token overflow — use first ~4000 chars + relevant sections
             context += "## Project Documentation\n\n";
             context += documentation.Length > 6000 ? documentation[..6000] + "\n\n[... truncated ...]\n" : documentation;
             context += "\n\n";
@@ -654,7 +712,7 @@ internal sealed class ProjectAskTool(
         }
 
         if (string.IsNullOrWhiteSpace(context))
-            return ToolHelper.ErrorResult("No documentation or knowledge base available for this project. Generate project documentation first.");
+            return "No documentation or knowledge base available for this project. Generate project documentation first.";
 
         var systemPrompt = """
             You are a knowledgeable assistant for a data project. Answer the user's question based on the provided project documentation, schema information, and knowledge base.
@@ -684,19 +742,17 @@ internal sealed class ProjectAskTool(
         var text = $"# {question}\n\n";
         text += response.Content;
 
-        return ToolHelper.TextResult(text);
+        return text;
     }
 
     private static string CleanSqlResponse(string content)
     {
         var sql = content.Trim();
 
-        // Strip markdown code fences
         if (sql.Contains("```"))
         {
             var startIdx = sql.IndexOf("```", StringComparison.Ordinal);
             var afterFence = sql[(startIdx + 3)..];
-            // Skip language identifier (e.g., "sql\n")
             var newlineIdx = afterFence.IndexOf('\n');
             if (newlineIdx >= 0)
                 afterFence = afterFence[(newlineIdx + 1)..];
@@ -705,8 +761,6 @@ internal sealed class ProjectAskTool(
         }
         else
         {
-            // No code fences — extract the SQL statement from any surrounding text
-            // Find the first SQL keyword that starts a statement
             var keywords = new[] { "SELECT ", "WITH ", "EXPLAIN " };
             var bestIdx = -1;
             foreach (var kw in keywords)
@@ -720,7 +774,6 @@ internal sealed class ProjectAskTool(
                 sql = sql[bestIdx..].Trim();
         }
 
-        // Remove trailing non-SQL text after the final semicolon
         var lastSemicolon = sql.LastIndexOf(';');
         if (lastSemicolon >= 0)
             sql = sql[..(lastSemicolon + 1)].Trim();
