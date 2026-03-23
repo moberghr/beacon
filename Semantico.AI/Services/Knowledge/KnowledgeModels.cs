@@ -85,4 +85,13 @@ public record SmartSchemaContext
     public bool UsedSmartRetrieval { get; init; }
     public List<string> RelevantTables { get; init; } = [];
     public int TotalTableCount { get; init; }
+    /// <summary>
+    /// Database engine dialect string (e.g. "PostgreSQL", "SqlServer") for SQL parsing.
+    /// </summary>
+    public string? DatabaseDialect { get; init; }
+    /// <summary>
+    /// Schema catalog for pre-execution validation.
+    /// Keys: lowercase table name AND lowercase "schema.table". Values: lowercase column names.
+    /// </summary>
+    public Dictionary<string, HashSet<string>> SchemaCatalog { get; init; } = [];
 }

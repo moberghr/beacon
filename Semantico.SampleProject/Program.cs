@@ -145,9 +145,9 @@ app.UseMiddleware<ApiKeyAuthMiddleware>();
 app.UseAuthentication();
 app.UseAuthorization();
 
-// Semantico MCP Server - available at /semantico/mcp/sse (SSE) and /semantico/mcp/message (POST)
+// Semantico MCP Server - available at /semantico/mcp (Streamable HTTP, SDK transport)
 // AI tools like Claude Code connect here via API key authentication
-app.MapSemanticoMcp("/semantico/mcp");
+app.MapMcp("/semantico/mcp").RequireAuthorization();
 
 // Semantico Admin UI - available at /semantico
 // Using login form instead of basic authentication

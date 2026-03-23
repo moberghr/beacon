@@ -38,8 +38,19 @@
     {
         <!-- Data Source Statistics -->
         <MudCard Elevation="2" Class="mb-4">
+            <MudCardHeader>
+                <CardHeaderContent>
+                    <MudText Typo="Typo.h6">Overview</MudText>
+                </CardHeaderContent>
+                <CardHeaderActions>
+                    <MudIconButton Icon="@Icons.Material.Filled.Archive"
+                                   Color="Color.Error"
+                                   OnClick="@ArchiveDataSource"
+                                   Title="Archive Data Source"
+                                   Disabled="@(!_canWrite)"/>
+                </CardHeaderActions>
+            </MudCardHeader>
             <MudCardContent>
-                <MudText Typo="Typo.h6" Class="mb-4">Overview</MudText>
                 <MudGrid>
                     <MudItem xs="12" sm="6" md="3">
                         <MudPaper Elevation="0" Class="pa-4 d-flex flex-column align-center">
@@ -255,11 +266,14 @@
 @inject NavigationManager Navigation
 @inject ISnackbar Snackbar
 @inject IJSRuntime JSRuntime
+@inject IDialogService DialogService
+@inject Semantico.Core.Authorization.ISemanticoAuthorizationProvider AuthorizationProvider
 
 @code {
     [Parameter]
     public int DataSourceId { get; set; }
 
+    private bool _canWrite;
     private StandaloneCodeEditor? _editor;
     private DatabaseMetadataSnapshot? _metadata;
     private DataSourceListData? _dataSourceInfo;
@@ -278,6 +292,8 @@
 
     protected override async Task OnInitializedAsync()
     {
+        _canWrite = await AuthorizationProvider.HasWritePermissionAsync();
+
         try
         {
             _loading = true;
@@ -623,5 +639,28 @@
     private async Task<AdHocQueryResult> ExecuteAdHocQueryWrapper(int dataSourceId, string query, CancellationToken cancellationToken)
     {
         return await DataSourceService.ExecuteAdHocQuery(dataSourceId, query, cancellationToken);
+    }
+
+    private async Task ArchiveDataSource()
+    {
+        var confirmed = await DialogService.ShowMessageBox(
+            "Archive Data Source",
+            "Are you sure you want to archive this data source? All associated queries and migration jobs must be archived first.",
+            yesText: "Archive",
+            cancelText: "Cancel");
+
+        if (confirmed != true)
+            return;
+
+        try
+        {
+            await DataSourceService.DeleteDataSource(DataSourceId, CancellationToken.None);
+            Snackbar.Add("Data source archived", Severity.Success);
+            Navigation.NavigateTo("data-sources");
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
     }
 }

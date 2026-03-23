@@ -1,78 +1,97 @@
-using System.Text.Json;
+using System.ComponentModel;
+using System.Diagnostics;
 using Microsoft.EntityFrameworkCore;
+using ModelContextProtocol.Server;
 using Semantico.AI.Services.Documentation;
 using Semantico.AI.Services.Knowledge;
 using Semantico.Core.Data;
 using Semantico.Core.Data.Enums;
-using Semantico.MCP.Protocol;
+using Semantico.MCP.Services;
 
 namespace Semantico.MCP.Tools;
 
+[McpServerToolType]
 internal sealed class ProjectGetDocumentationTool(
     IKnowledgeGraphService knowledgeGraph,
     IProjectDocumentationService documentationService,
-    IDbContextFactory<SemanticoContext> contextFactory) : IMcpTool
+    IDbContextFactory<SemanticoContext> contextFactory,
+    IProjectContext projectContext,
+    McpProjectContextManager sessionManager,
+    McpAuditService auditService)
 {
-    public string Name => "get_documentation";
-    public string Description => "Get AI-generated documentation for the project, a specific data source, or a specific table/endpoint. Includes schema details, relationships, code references, quality scores, and lineage.";
-    public object InputSchema => ToolHelper.SchemaObject(
-        new Dictionary<string, object>
-        {
-            ["project_id"] = ToolHelper.IntProp("Optional. Specify project if your API key has access to multiple projects."),
-            ["datasource_name"] = ToolHelper.StringProp("Optional. Get documentation for a specific data source by name."),
-            ["table_name"] = ToolHelper.StringProp("Optional. Table name or API endpoint to get detailed documentation."),
-            ["schema_name"] = ToolHelper.StringProp("Optional. Schema name or API tag to narrow scope.")
-        });
-
-    public async Task<McpToolResult> ExecuteAsync(JsonElement? arguments, McpClientSession session, CancellationToken ct)
+    [McpServerTool(Name = "get_documentation")]
+    [Description("Get AI-generated documentation for the project, a specific data source, or a specific table/endpoint. Includes schema details, relationships, code references, quality scores, and lineage.")]
+    public async Task<string> ExecuteAsync(
+        [Description("Optional. Specify project if your API key has access to multiple projects.")]
+        int? project_id = null,
+        [Description("Optional. Get documentation for a specific data source by name.")]
+        string? datasource_name = null,
+        [Description("Optional. Table name or API endpoint to get detailed documentation.")]
+        string? table_name = null,
+        [Description("Optional. Schema name or API tag to narrow scope.")]
+        string? schema_name = null,
+        CancellationToken cancellationToken = default)
     {
-        var requestedProjectId = ToolHelper.GetInt(arguments, "project_id");
-        var resolveError = ToolHelper.ResolveProjectId(session, requestedProjectId, out var projectId);
+        var sw = Stopwatch.StartNew();
+        var resolveError = ToolHelper.ResolveProjectId(projectContext, sessionManager, project_id, out var projectId);
         if (resolveError != null) return resolveError;
-
-        var dsName = ToolHelper.GetString(arguments, "datasource_name");
-        var tableName = ToolHelper.GetString(arguments, "table_name");
-        var schemaName = ToolHelper.GetString(arguments, "schema_name");
 
         try
         {
             // If no data source specified, return full project documentation
-            if (string.IsNullOrEmpty(dsName) && string.IsNullOrEmpty(tableName))
-                return await GetProjectDocumentationAsync(projectId, ct);
+            if (string.IsNullOrEmpty(datasource_name) && string.IsNullOrEmpty(table_name))
+            {
+                var docResult = await GetProjectDocumentationAsync(projectId, cancellationToken);
+                sw.Stop();
+                _ = auditService.LogToolCallAsync(null, projectContext.UserId, "get_documentation",
+                    null, null, projectId, (int)sw.ElapsedMilliseconds, null, null);
+                return docResult;
+            }
 
             // Resolve data source
             int? dsId = null;
-            if (!string.IsNullOrEmpty(dsName))
+            if (!string.IsNullOrEmpty(datasource_name))
             {
-                var (resolvedId, nameError) = await ToolHelper.ResolveDataSourceByNameAsync(contextFactory, projectId, dsName, ct);
+                var (resolvedId, nameError) = await ToolHelper.ResolveDataSourceByNameAsync(contextFactory, projectId, datasource_name, cancellationToken);
                 if (nameError != null) return nameError;
                 dsId = resolvedId;
             }
 
             // If we have a table name but no data source, try to find which data source has that table
-            if (dsId == null && !string.IsNullOrEmpty(tableName))
+            if (dsId == null && !string.IsNullOrEmpty(table_name))
             {
-                dsId = await FindDataSourceForTableAsync(projectId, tableName, schemaName, ct);
+                dsId = await FindDataSourceForTableAsync(projectId, table_name, schema_name, cancellationToken);
                 if (dsId == null)
-                    return ToolHelper.ErrorResult($"Could not find table '{tableName}' in any data source of this project.");
+                    return $"Could not find table '{table_name}' in any data source of this project.";
             }
 
             if (dsId == null)
-                return ToolHelper.ErrorResult("Could not resolve data source.");
+                return "Could not resolve data source.";
 
-            if (!string.IsNullOrEmpty(tableName))
+            string result;
+            if (!string.IsNullOrEmpty(table_name))
             {
-                var (resolvedSchema, isApi) = await ResolveSchemaAndTypeAsync(dsId.Value, ct);
-                if (string.IsNullOrEmpty(schemaName))
-                    schemaName = resolvedSchema;
-                return await GetTableDocumentationAsync(dsId.Value, schemaName, tableName, isApi, ct);
+                var (resolvedSchema, isApi) = await ResolveSchemaAndTypeAsync(dsId.Value, cancellationToken);
+                if (string.IsNullOrEmpty(schema_name))
+                    schema_name = resolvedSchema;
+                result = await GetTableDocumentationAsync(dsId.Value, schema_name, table_name, isApi, cancellationToken);
+            }
+            else
+            {
+                result = await GetDataSourceDocumentationAsync(dsId.Value, cancellationToken);
             }
 
-            return await GetDataSourceDocumentationAsync(dsId.Value, ct);
+            sw.Stop();
+            _ = auditService.LogToolCallAsync(null, projectContext.UserId, "get_documentation",
+                datasource_name ?? table_name, dsId, projectId, (int)sw.ElapsedMilliseconds, null, null);
+            return result;
         }
         catch (Exception ex)
         {
-            return ToolHelper.ErrorResult($"Error: {ex.Message}");
+            sw.Stop();
+            _ = auditService.LogToolCallAsync(null, projectContext.UserId, "get_documentation",
+                datasource_name ?? table_name, null, projectId == 0 ? null : projectId, (int)sw.ElapsedMilliseconds, null, ex.Message);
+            return $"Error: {ex.Message}";
         }
     }
 
@@ -112,15 +131,13 @@ internal sealed class ProjectGetDocumentationTool(
         return (schema, isApi);
     }
 
-    private async Task<McpToolResult> GetProjectDocumentationAsync(int projectId, CancellationToken ct)
+    private async Task<string> GetProjectDocumentationAsync(int projectId, CancellationToken ct)
     {
         var markdown = await documentationService.ExportLatestToMarkdownAsync(projectId, ct);
-        return markdown != null
-            ? ToolHelper.TextResult(markdown)
-            : ToolHelper.TextResult($"No documentation has been generated for this project yet. Use the Semantico UI to generate project documentation.");
+        return markdown ?? "No documentation has been generated for this project yet. Use the Semantico UI to generate project documentation.";
     }
 
-    private async Task<McpToolResult> GetTableDocumentationAsync(int dataSourceId, string schemaName, string tableName, bool isApi, CancellationToken ct)
+    private async Task<string> GetTableDocumentationAsync(int dataSourceId, string schemaName, string tableName, bool isApi, CancellationToken ct)
     {
         var knowledgeTask = knowledgeGraph.GetTableKnowledgeAsync(dataSourceId, schemaName, tableName, ct);
         var lineageTask = knowledgeGraph.GetLineageAsync(dataSourceId, schemaName, tableName, ct);
@@ -129,13 +146,9 @@ internal sealed class ProjectGetDocumentationTool(
         var knowledge = knowledgeTask.Result;
         var lineage = lineageTask.Result;
 
-        string text;
-        if (isApi)
-            text = FormatApiEndpointDocumentation(knowledge, lineage);
-        else
-            text = FormatTableDocumentation(knowledge, lineage);
-
-        return ToolHelper.TextResult(text);
+        return isApi
+            ? FormatApiEndpointDocumentation(knowledge, lineage)
+            : FormatTableDocumentation(knowledge, lineage);
     }
 
     private static string FormatApiEndpointDocumentation(TableKnowledge knowledge, LineageInfo lineage)
@@ -273,7 +286,7 @@ internal sealed class ProjectGetDocumentationTool(
         return text;
     }
 
-    private async Task<McpToolResult> GetDataSourceDocumentationAsync(int dataSourceId, CancellationToken ct)
+    private async Task<string> GetDataSourceDocumentationAsync(int dataSourceId, CancellationToken ct)
     {
         var knowledgeTask = knowledgeGraph.GetDataSourceKnowledgeAsync(dataSourceId, ct);
         var llmContextTask = knowledgeGraph.GetContextForLlmAsync(dataSourceId, ct: ct);
@@ -311,6 +324,6 @@ internal sealed class ProjectGetDocumentationTool(
             text += llmContext + "\n";
         }
 
-        return ToolHelper.TextResult(text);
+        return text;
     }
 }
