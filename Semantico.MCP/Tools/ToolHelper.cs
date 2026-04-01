@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore;
+using ModelContextProtocol.Protocol;
 using Semantico.Core.Data;
 using Semantico.MCP.Services;
 
@@ -112,6 +113,12 @@ internal static class ToolHelper
     {
         return FormatResultsAsMarkdownInternal(rows, maxRows);
     }
+
+    public static CallToolResult Success(string text) =>
+        new() { Content = [new TextContentBlock { Text = text }] };
+
+    public static CallToolResult Error(string message) =>
+        new() { Content = [new TextContentBlock { Text = message }], IsError = true };
 
     private static string FormatResultsAsMarkdownInternal<T>(IReadOnlyList<T> rows, int maxRows) where T : IDictionary<string, object?>
     {

@@ -18,9 +18,26 @@ window.renderMermaidDiagrams = async () => {
         block.textContent = block.textContent;
     }
 
-    try {
-        await window.mermaid.run({ nodes: blocks });
-    } catch (e) {
-        console.error('Mermaid rendering failed:', e);
+    // Render each diagram individually so one broken diagram doesn't block others
+    for (const block of blocks) {
+        try {
+            await window.mermaid.run({ nodes: [block] });
+        } catch (e) {
+            console.error('Mermaid rendering failed for diagram:', e);
+            const originalSource = block.textContent;
+            block.classList.add('mermaid-error');
+            // Clear and rebuild using safe DOM methods
+            while (block.firstChild) block.removeChild(block.firstChild);
+            const wrapper = document.createElement('div');
+            wrapper.style.cssText = 'color: #e57373; padding: 1rem; border: 1px solid #e57373; border-radius: 4px; font-family: monospace; font-size: 0.85rem;';
+            const label = document.createElement('strong');
+            label.textContent = 'Diagram rendering failed';
+            wrapper.appendChild(label);
+            const source = document.createElement('pre');
+            source.style.cssText = 'white-space: pre-wrap; margin-top: 0.5rem; color: #aaa;';
+            source.textContent = originalSource;
+            wrapper.appendChild(source);
+            block.appendChild(wrapper);
+        }
     }
 };

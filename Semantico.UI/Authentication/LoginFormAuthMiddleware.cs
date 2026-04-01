@@ -67,7 +67,8 @@ internal sealed class LoginFormAuthMiddleware(
         }
 
         // Allow MCP endpoints (authenticated via API key)
-        if (path.Contains("/semantico/mcp/", StringComparison.OrdinalIgnoreCase))
+        // Inside the Map("/semantico") branch, the prefix is stripped so path is "/mcp/..."
+        if (path.StartsWith("/mcp", StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }

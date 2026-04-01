@@ -10,7 +10,6 @@ public class McpSession : BaseEntity
     public DateTime StartedAt { get; set; } = DateTime.UtcNow;
     public DateTime LastActivityAt { get; set; } = DateTime.UtcNow;
 
-    public string? TablesExplored { get; set; }
     public int QueriesExecuted { get; set; }
     public int TokensUsed { get; set; }
 

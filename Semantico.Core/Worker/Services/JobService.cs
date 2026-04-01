@@ -18,7 +18,8 @@ internal class JobService(
     IAnomalyDetectionService anomalyDetectionService,
     IDataQualityEvaluationService dataQualityEvaluationService,
     ILogger<JobService> logger,
-    IAiActorService? aiActorService = null)
+    IAiActorService? aiActorService = null,
+    IMcpLearningAggregationService? mcpLearningService = null)
     : IJobService
 {
     // AI Actor service is optional - only available if Semantico.AI is added
@@ -335,6 +336,28 @@ internal class JobService(
                     recipient.Id, recipient.Name, contractId);
             }
         }
+    }
+
+    public async Task AggregateLearnedPatterns()
+    {
+        if (mcpLearningService == null)
+        {
+            logger.LogDebug("MCP Learning service not available, skipping aggregation");
+            return;
+        }
+
+        await mcpLearningService.AggregateLearnedPatternsAsync();
+    }
+
+    public async Task CleanupOldSignals()
+    {
+        if (mcpLearningService == null)
+        {
+            logger.LogDebug("MCP Learning service not available, skipping signal cleanup");
+            return;
+        }
+
+        await mcpLearningService.CleanupOldSignalsAsync();
     }
 
     private async Task TriggerAiActorIfApplicableAsync(int subscriptionId, int rowCount)

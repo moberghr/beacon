@@ -10,6 +10,7 @@ using Semantico.AI.Services.GitHub;
 using Semantico.AI.Services.Knowledge;
 using Semantico.AI.Services.LlmProviders;
 
+using Semantico.AI.Services.Mcp;
 using Semantico.AI.Services.SemanticSearch;
 
 namespace Semantico.AI;
@@ -75,6 +76,15 @@ public static class ServiceConfiguration
 
         // dbt Integration
         services.TryAddTransient<IDbtIntegrationService, DbtIntegrationService>();
+
+        // MCP Learning Aggregation
+        services.TryAddTransient<Core.Services.IMcpLearningAggregationService, Services.Learning.McpLearningAggregationService>();
+
+        // MCP pipeline services (used by ProjectAskTool orchestrator)
+        services.TryAddTransient<IIntentClassifier, IntentClassifier>();
+        services.TryAddTransient<IDataSourceRouter, DataSourceRouter>();
+        services.TryAddTransient<ISqlGenerationService, SqlGenerationService>();
+        services.TryAddTransient<IKnowledgeAnswerService, KnowledgeAnswerService>();
 
         return services;
     }

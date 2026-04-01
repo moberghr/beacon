@@ -38,6 +38,12 @@ internal sealed class UpdateMcpSettingsHandler(
             ? JsonSerializer.Serialize(data.CustomPiiPatterns)
             : null;
 
+        // Learning settings
+        entity.EnableLearning = data.EnableLearning;
+        entity.LearningAutoApproveThreshold = data.LearningAutoApproveThreshold;
+        entity.LearningInjectionBudgetChars = data.LearningInjectionBudgetChars;
+        entity.LearningSignalRetentionDays = data.LearningSignalRetentionDays;
+
         await context.SaveChangesAsync(cancellationToken);
         settingsProvider.InvalidateCache();
     }

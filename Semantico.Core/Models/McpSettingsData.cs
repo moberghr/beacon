@@ -13,4 +13,10 @@ public class McpSettingsData
     public bool EnforceReadOnly { get; set; } = true;
     public bool EnablePiiDetection { get; set; } = true;
     public List<string> CustomPiiPatterns { get; set; } = [];
+
+    // Learning settings
+    public bool EnableLearning { get; set; } = true;
+    public double LearningAutoApproveThreshold { get; set; } = 0.7;
+    public int LearningInjectionBudgetChars { get; set; } = 1500;
+    public int LearningSignalRetentionDays { get; set; } = 90;
 }

@@ -6,4 +6,7 @@ public interface IJobService
 
     Task EvaluateDataContract(int contractId);
 
+    Task AggregateLearnedPatterns();
+
+    Task CleanupOldSignals();
 }

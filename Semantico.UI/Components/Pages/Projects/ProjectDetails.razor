@@ -330,7 +330,14 @@
                                     @foreach (var docSection in _documentation.Latest.Sections)
                                     {
                                         <MudPaper Elevation="1" Class="pa-4 mb-3" Style="border-radius: 8px;" id="@docSection.SectionType.ToString()">
-                                            <MudText Typo="Typo.h6" Style="font-weight: 600;" Class="mb-3">@docSection.Title</MudText>
+                                            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-3">
+                                                <MudText Typo="Typo.h6" Style="font-weight: 600;">@docSection.Title</MudText>
+                                                <MudIconButton Icon="@Icons.Material.Filled.Edit"
+                                                               Size="Size.Small"
+                                                               Color="Color.Primary"
+                                                               Title="Edit section"
+                                                               OnClick="@(() => EditSection(docSection))"/>
+                                            </MudStack>
                                             @((MarkupString)RenderMarkdown(docSection.Content))
                                         </MudPaper>
                                     }
@@ -541,6 +548,31 @@
         var result = await dialog.Result;
         if (result is { Canceled: false })
             await LoadProject();
+    }
+
+    private async Task EditSection(ProjectDocSectionEntry section)
+    {
+        var parameters = new DialogParameters<EditDocumentationSectionDialog>
+        {
+            { x => x.SectionId, section.Id },
+            { x => x.SectionTitle, section.Title },
+            { x => x.InitialContent, section.Content }
+        };
+        var options = new DialogOptions
+        {
+            MaxWidth = MaxWidth.Large,
+            FullWidth = true,
+            CloseOnEscapeKey = true
+        };
+        var dialog = await DialogService.ShowAsync<EditDocumentationSectionDialog>(
+            $"Edit: {section.Title}", parameters, options);
+        var result = await dialog.Result;
+
+        if (result is { Canceled: false })
+        {
+            await LoadDocumentation();
+            StateHasChanged();
+        }
     }
 
     private static Color GetScoreColor(double? score) => score switch

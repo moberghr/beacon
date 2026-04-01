@@ -1,7 +1,7 @@
-using System.Collections.Concurrent;
 using System.Security.Claims;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Semantico.MCP.Services;
@@ -29,13 +29,21 @@ internal sealed class ProjectSessionState
 
 internal sealed class McpProjectContextManager
 {
-    private readonly ConcurrentDictionary<string, ProjectSessionState> _sessions = new();
+    private static readonly TimeSpan SlidingExpiration = TimeSpan.FromMinutes(30);
+    private readonly MemoryCache _cache = new(new MemoryCacheOptions());
 
     public ProjectSessionState GetOrCreate(string key)
-        => _sessions.GetOrAdd(key, _ => new());
+    {
+        return _cache.GetOrCreate(key, entry =>
+        {
+            entry.SlidingExpiration = SlidingExpiration;
+
+            return new ProjectSessionState();
+        })!;
+    }
 
     public void Remove(string key)
-        => _sessions.TryRemove(key, out _);
+        => _cache.Remove(key);
 
     public static string MakeKey(int? userId, int? apiKeyId)
         => $"u{userId}-k{apiKeyId}";

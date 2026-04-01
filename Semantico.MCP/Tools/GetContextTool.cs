@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using Microsoft.EntityFrameworkCore;
+using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Semantico.AI.Services.Knowledge;
 using Semantico.Core.Data;
@@ -19,14 +20,14 @@ internal sealed class GetContextTool(
 {
     [McpServerTool(Name = "get_context")]
     [Description("Get an overview of the project: its data sources, schemas, tables, quality scores, and documentation status. This is the starting point for understanding what data is available.")]
-    public async Task<string> ExecuteAsync(
+    public async Task<CallToolResult> ExecuteAsync(
         [Description("Optional. If your API key has access to multiple projects, specify which one.")]
         int? project_id = null,
         CancellationToken cancellationToken = default)
     {
         var sw = Stopwatch.StartNew();
         var resolveError = ToolHelper.ResolveProjectId(projectContext, sessionManager, project_id, out var projectId);
-        if (resolveError != null) return resolveError;
+        if (resolveError != null) return ToolHelper.Error(resolveError);
 
         try
         {
@@ -39,9 +40,9 @@ internal sealed class GetContextTool(
             if (project == null)
             {
                 sw.Stop();
-                _ = auditService.LogToolCallAsync(null, projectContext.UserId, "get_context",
-                    project_id?.ToString(), null, projectId, (int)sw.ElapsedMilliseconds, null, $"Project {projectId} not found.");
-                return $"Project {projectId} not found.";
+                await auditService.LogToolCallAsync(null, projectContext.UserId, "get_context",
+                    project_id?.ToString(), null, projectId, (int)sw.ElapsedMilliseconds, null, $"Project {projectId} not found.", cancellationToken);
+                return ToolHelper.Error($"Project {projectId} not found.");
             }
 
             var dataSources = await knowledgeGraph.GetProjectDataSourcesAsync(projectId, cancellationToken);
@@ -83,16 +84,16 @@ internal sealed class GetContextTool(
             }
 
             sw.Stop();
-            _ = auditService.LogToolCallAsync(null, projectContext.UserId, "get_context",
-                project_id?.ToString(), null, projectId, (int)sw.ElapsedMilliseconds, null, null);
-            return text;
+            await auditService.LogToolCallAsync(null, projectContext.UserId, "get_context",
+                project_id?.ToString(), null, projectId, (int)sw.ElapsedMilliseconds, null, null, cancellationToken);
+            return ToolHelper.Success(text);
         }
         catch (Exception ex)
         {
             sw.Stop();
-            _ = auditService.LogToolCallAsync(null, projectContext.UserId, "get_context",
-                project_id?.ToString(), null, projectId == 0 ? null : projectId, (int)sw.ElapsedMilliseconds, null, ex.Message);
-            return $"Error: {ex.Message}";
+            await auditService.LogToolCallAsync(null, projectContext.UserId, "get_context",
+                project_id?.ToString(), null, projectId == 0 ? null : projectId, (int)sw.ElapsedMilliseconds, null, ex.Message, CancellationToken.None);
+            return ToolHelper.Error(ex.Message);
         }
     }
 }

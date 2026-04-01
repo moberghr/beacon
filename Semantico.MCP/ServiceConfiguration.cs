@@ -33,8 +33,15 @@ public static class ServiceConfiguration
         // SQL schema validator (pre-execution column check)
         services.AddSingleton<SqlSchemaValidator>();
 
-        // Audit
+        // Query execution
+        services.TryAddTransient<IQueryExecutionService, QueryExecutionService>();
+
+        // Cross-source query service
+        services.TryAddTransient<ICrossSourceQueryService, CrossSourceQueryService>();
+
+        // Audit & Learning
         services.TryAddTransient<McpAuditService>();
+        services.TryAddTransient<McpSignalService>();
 
         // MCP Server via official SDK
         services

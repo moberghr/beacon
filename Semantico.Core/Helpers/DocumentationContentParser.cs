@@ -19,6 +19,77 @@ public static partial class DocumentationContentParser
     [GeneratedRegex(@"""(\w+)""\s*:\s*""((?:[^""\\]|\\.)*)""", RegexOptions.Singleline)]
     private static partial Regex JsonStringValueRegex();
 
+    [GeneratedRegex(@"```mermaid\s*\n(.*?)```", RegexOptions.Singleline)]
+    private static partial Regex MermaidBlockRegex();
+
+    /// <summary>
+    /// Finds all ```mermaid blocks in markdown content and fixes common syntax issues
+    /// caused by LLM output truncation (unclosed braces, unclosed quotes, incomplete lines).
+    /// </summary>
+    public static string SanitizeMermaidDiagrams(string content)
+    {
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            return content;
+        }
+
+        return MermaidBlockRegex().Replace(content, match =>
+        {
+            var diagram = match.Groups[1].Value;
+            var sanitized = SanitizeSingleDiagram(diagram);
+
+            return $"```mermaid\n{sanitized}```";
+        });
+    }
+
+    private static string SanitizeSingleDiagram(string diagram)
+    {
+        var lines = diagram.Split('\n').ToList();
+
+        // Remove trailing incomplete lines (lines that end mid-token or mid-string)
+        while (lines.Count > 0)
+        {
+            var lastLine = lines[^1].TrimEnd();
+            if (string.IsNullOrWhiteSpace(lastLine))
+            {
+                lines.RemoveAt(lines.Count - 1);
+                continue;
+            }
+
+            // Check for incomplete quoted strings (odd number of unescaped quotes)
+            var quoteCount = lastLine.Count(c => c == '"');
+            if (quoteCount % 2 != 0)
+            {
+                lines.RemoveAt(lines.Count - 1);
+                continue;
+            }
+
+            break;
+        }
+
+        // Balance braces — close any unclosed { blocks
+        var openBraces = 0;
+        foreach (var line in lines)
+        {
+            openBraces += line.Count(c => c == '{');
+            openBraces -= line.Count(c => c == '}');
+        }
+
+        while (openBraces > 0)
+        {
+            lines.Add("    }");
+            openBraces--;
+        }
+
+        // Ensure diagram ends with a newline
+        if (lines.Count > 0 && !string.IsNullOrWhiteSpace(lines[^1]))
+        {
+            lines.Add("");
+        }
+
+        return string.Join('\n', lines);
+    }
+
     /// <summary>
     /// If the content contains JSON (raw or fenced), extracts readable markdown from it.
     /// Returns the original content unchanged if it is not JSON.

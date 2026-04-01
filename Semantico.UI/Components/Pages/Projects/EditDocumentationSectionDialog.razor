@@ -1,0 +1,127 @@
+@using MediatR
+@using Semantico.Core.Handlers.Projects
+@inject IMediator Mediator
+
+<MudDialog Style="max-height: 90vh;">
+    <DialogContent>
+        <MudStack Spacing="3">
+            @* AI Instruction *@
+            <MudPaper Elevation="0" Class="pa-3" Style="border-radius: 8px; background: var(--mud-palette-background-grey);">
+                <MudText Typo="Typo.subtitle2" Style="font-weight: 600;" Class="mb-2">AI Instruction</MudText>
+                <MudStack Row="true" Spacing="2" AlignItems="AlignItems.End">
+                    <MudTextField @bind-Value="_instruction"
+                                  Placeholder="e.g. Archive tables card_archive and legacy_payments — they are deprecated and should not be queried"
+                                  Variant="Variant.Outlined"
+                                  Lines="2"
+                                  Style="flex: 1;"
+                                  Disabled="_applying"/>
+                    <MudButton Variant="Variant.Filled"
+                               Color="Color.Primary"
+                               StartIcon="@Icons.Material.Filled.AutoAwesome"
+                               OnClick="ApplyInstruction"
+                               Disabled="@(string.IsNullOrWhiteSpace(_instruction) || _applying)"
+                               Style="height: 56px;">
+                        @if (_applying)
+                        {
+                            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2"/>
+                            <text>Applying...</text>
+                        }
+                        else
+                        {
+                            <text>Apply with AI</text>
+                        }
+                    </MudButton>
+                </MudStack>
+            </MudPaper>
+
+            @* Content Editor *@
+            <MudTextField @bind-Value="_content"
+                          Label="@SectionTitle"
+                          Variant="Variant.Outlined"
+                          Lines="20"
+                          Style="font-family: monospace; font-size: 0.85rem;"
+                          Disabled="_applying"/>
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary"
+                   Variant="Variant.Filled"
+                   OnClick="Save"
+                   Disabled="@(_saving || _applying)">
+            @if (_saving)
+            {
+                <MudProgressCircular Size="Size.Small" Indeterminate="true"/>
+                <span class="ml-2">Saving...</span>
+            }
+            else
+            {
+                <text>Save</text>
+            }
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@inject ISnackbar Snackbar
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+
+    [Parameter] public int SectionId { get; set; }
+    [Parameter] public string SectionTitle { get; set; } = null!;
+    [Parameter] public string InitialContent { get; set; } = null!;
+
+    private string _content = string.Empty;
+    private string _instruction = string.Empty;
+    private bool _applying;
+    private bool _saving;
+
+    protected override void OnParametersSet()
+    {
+        _content = InitialContent;
+    }
+
+    private async Task ApplyInstruction()
+    {
+        _applying = true;
+        StateHasChanged();
+        try
+        {
+            var result = await Mediator.Send(
+                new InstructDocumentationCommand(SectionId, _instruction));
+
+            _content = result.UpdatedContent;
+            _instruction = string.Empty;
+            Snackbar.Add("AI instruction applied. Review the changes and click Save.", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"AI instruction failed: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _applying = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task Save()
+    {
+        _saving = true;
+        try
+        {
+            await Mediator.Send(new UpdateDocumentationSectionCommand(SectionId, _content));
+            MudDialog.Close(DialogResult.Ok(true));
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Save failed: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+}

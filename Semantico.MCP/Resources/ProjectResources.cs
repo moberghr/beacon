@@ -4,6 +4,7 @@ using ModelContextProtocol.Server;
 using Semantico.AI.Services.Documentation;
 using Semantico.AI.Services.Knowledge;
 using Semantico.Core.Data;
+using Semantico.MCP.Services;
 
 namespace Semantico.MCP.Resources;
 
@@ -11,12 +12,14 @@ namespace Semantico.MCP.Resources;
 internal sealed class ProjectResources(
     IDbContextFactory<SemanticoContext> contextFactory,
     IKnowledgeGraphService knowledgeGraph,
-    IProjectDocumentationService documentationService)
+    IProjectDocumentationService documentationService,
+    IProjectContext projectContext)
 {
     [McpServerResource(UriTemplate = "semantico://project/{projectId}/documentation",
         Name = "Project Documentation", MimeType = "text/markdown")]
     public async Task<string> ReadDocumentationAsync(int projectId, CancellationToken cancellationToken = default)
     {
+        EnsureProjectAccess(projectId);
         var markdown = await documentationService.ExportLatestToMarkdownAsync(projectId, cancellationToken);
         return markdown ?? "No documentation generated yet. Use the Semantico UI to generate project documentation.";
     }
@@ -25,6 +28,7 @@ internal sealed class ProjectResources(
         Name = "Project Schema", MimeType = "text/markdown")]
     public async Task<string> ReadSchemaAsync(int projectId, CancellationToken cancellationToken = default)
     {
+        EnsureProjectAccess(projectId);
         return await knowledgeGraph.GetProjectContextForLlmAsync(projectId, cancellationToken);
     }
 
@@ -32,6 +36,7 @@ internal sealed class ProjectResources(
         Name = "Data Quality Report", MimeType = "text/markdown")]
     public async Task<string> ReadQualityAsync(int projectId, CancellationToken cancellationToken = default)
     {
+        EnsureProjectAccess(projectId);
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
         var dsIds = await context.ProjectDataSources
             .Where(pds => pds.ProjectId == projectId)
@@ -63,6 +68,7 @@ internal sealed class ProjectResources(
         Name = "Project Report", MimeType = "text/markdown")]
     public async Task<string> ReadReportAsync(int projectId, CancellationToken cancellationToken = default)
     {
+        EnsureProjectAccess(projectId);
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
         var project = await context.Projects
             .Where(p => p.Id == projectId)
@@ -103,5 +109,13 @@ internal sealed class ProjectResources(
         }
 
         return sb.ToString();
+    }
+
+    private void EnsureProjectAccess(int projectId)
+    {
+        if (projectContext.AllowedProjectIds is { } allowed && !allowed.Contains(projectId))
+        {
+            throw new InvalidOperationException($"Access denied: your API key does not have access to project {projectId}.");
+        }
     }
 }

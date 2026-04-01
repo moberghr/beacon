@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using Semantico.AI.Services.Knowledge;
 using Semantico.AI.Services.LlmProviders;
 using Semantico.Core.Data.Entities.Projects;
+using Semantico.Core.Helpers;
 using Semantico.Core.Services.Providers;
 
 namespace Semantico.AI.Services.Documentation;
@@ -14,6 +15,7 @@ internal sealed class ProjectDocumentationService(
     IDbContextFactory<SemanticoContext> contextFactory,
     IKnowledgeGraphService knowledgeGraphService,
     ILlmProvider llmProvider,
+    IDataSourceProviderFactory dataSourceProviderFactory,
     ILogger<ProjectDocumentationService> logger) : IProjectDocumentationService
 {
     public async Task<ProjectDocumentation> GenerateDocumentationAsync(
@@ -91,7 +93,7 @@ internal sealed class ProjectDocumentationService(
             {
                 SectionType = result.Type,
                 Title = result.Title,
-                Content = result.Content,
+                Content = DocumentationContentParser.SanitizeMermaidDiagrams(result.Content),
                 SortOrder = result.SortOrder
             });
             totalInput += result.InputTokens;
@@ -109,7 +111,7 @@ internal sealed class ProjectDocumentationService(
             {
                 SectionType = ProjectDocSectionType.Glossary,
                 Title = "Glossary",
-                Content = glossaryResponse.Content,
+                Content = DocumentationContentParser.SanitizeMermaidDiagrams(glossaryResponse.Content),
                 SortOrder = 7
             });
             totalInput += glossaryResponse.InputTokens;
@@ -184,6 +186,40 @@ internal sealed class ProjectDocumentationService(
             sb.AppendLine();
         }
 
+        // Append learned patterns from usage
+        var dsIds = await context.ProjectDataSources
+            .Where(pds => pds.ProjectId == doc.ProjectId)
+            .Select(pds => pds.DataSourceId)
+            .ToListAsync(ct);
+
+        var learnedPatterns = await context.McpLearnedPatterns
+            .Where(p => dsIds.Contains(p.DataSourceId)
+                && (p.Status == McpPatternStatus.Approved || p.Status == McpPatternStatus.AutoApproved))
+            .OrderByDescending(p => p.Confidence)
+            .Take(30)
+            .ToListAsync(ct);
+
+        if (learnedPatterns.Count > 0)
+        {
+            sb.AppendLine("## Usage-Learned Insights");
+            sb.AppendLine();
+            sb.AppendLine("*The following insights were automatically learned from MCP query patterns.*");
+            sb.AppendLine();
+
+            var byType = learnedPatterns.GroupBy(p => p.PatternType);
+            foreach (var group in byType)
+            {
+                sb.AppendLine($"### {group.Key}");
+                foreach (var p in group)
+                {
+                    sb.AppendLine($"- **{p.SchemaName}.{p.TableName}**{(p.ColumnName != null ? $".{p.ColumnName}" : "")}: {p.PatternContent}");
+                    if (!string.IsNullOrEmpty(p.ExampleSql))
+                        sb.AppendLine($"  - Example: `{p.ExampleSql}`");
+                }
+                sb.AppendLine();
+            }
+        }
+
         return sb.ToString();
     }
 
@@ -236,14 +272,19 @@ internal sealed class ProjectDocumentationService(
         var qualityTask = GetQualityScoresAsync(dsIds, ct);
         var contractsTask = GetContractsAsync(dsIds, ct);
         var reposTask = GetRepositoriesAsync(projectId, ct);
+        var patternsTask = GetLearnedPatternsForDocAsync(dsIds, ct);
 
-        await Task.WhenAll(tablesTask, codeRefsTask, qualityTask, contractsTask, reposTask);
+        await Task.WhenAll(tablesTask, codeRefsTask, qualityTask, contractsTask, reposTask, patternsTask);
 
         var tables = tablesTask.Result;
         var codeReferences = codeRefsTask.Result;
         var qualityScores = qualityTask.Result;
         var contracts = contractsTask.Result;
         var repositories = reposTask.Result;
+        var learnedPatterns = patternsTask.Result;
+
+        // Phase 2: Discover enum/status values from external data sources
+        var enumValues = await DiscoverEnumValuesAsync(dsIds, tables, ct);
 
         return new DocumentationContext
         {
@@ -254,7 +295,9 @@ internal sealed class ProjectDocumentationService(
             CodeReferences = codeReferences,
             QualityScores = qualityScores,
             Contracts = contracts,
-            Repositories = repositories
+            Repositories = repositories,
+            LearnedPatterns = learnedPatterns,
+            EnumValues = enumValues
         };
     }
 
@@ -312,6 +355,11 @@ internal sealed class ProjectDocumentationService(
                 C -->|No| E[Step 3b]
             ```
 
+            CRITICAL Mermaid syntax rules:
+            - Node IDs must use only letters, numbers, and underscores — no spaces or special characters.
+            - Text inside brackets `[]`, braces `{}`, or parentheses `()` must not contain unescaped special mermaid characters. Use `#quot;` for quotes if needed.
+            - Keep diagrams to 15 nodes or fewer. If a process is complex, show the high-level flow only.
+
             Group ALL tables into domains. If a table doesn't clearly fit, create an "Infrastructure / Shared" domain.
             Be thorough — analyze FK relationships to understand how domains connect.
             Reference actual table names, column names, and class names from the context.
@@ -343,8 +391,18 @@ internal sealed class ProjectDocumentationService(
                 }
             ```
 
+            CRITICAL Mermaid syntax rules for erDiagram:
+            - Keep diagrams concise: show ONLY PK, FK columns and 2-3 key business columns per table. Document remaining columns in the per-table section below, NOT in the diagram.
+            - If a group has more than 8 tables, split into multiple smaller diagrams or show only relationships without column blocks.
+            - Entity names must use only letters, numbers, and underscores — no spaces, dots, or special characters.
+            - Relationship labels must be simple quoted strings — no parentheses, colons, or special characters inside quotes.
+            - Always close every opening brace `{` with a closing brace `}`.
+            - Column type must be a single word (use `string` not `varchar(255)`, use `int` not `integer`).
+
             Be thorough and specific. Explain columns in business terms, not just their data types.
             If a column name is ambiguous, infer its purpose from context (FK targets, naming patterns, associated code).
+            For columns with known enum/status values, document what each value means in business terms.
+            Use the provided distinct values and their row counts to infer the meaning of each value.
             Output only the Markdown content for this section, no section header.
             """,
 
@@ -380,6 +438,12 @@ internal sealed class ProjectDocumentationService(
                 Service->>Database: INSERT INTO orders
             ```
 
+            CRITICAL Mermaid syntax rules:
+            - Participant names and aliases must use only letters, numbers, and underscores.
+            - Arrow labels must not contain unescaped special characters like `[`, `]`, `{`, `}`.
+            - Keep sequence diagrams to 6 participants and 15 interactions or fewer.
+            - For flowcharts, keep to 15 nodes or fewer. Node IDs must be alphanumeric.
+
             Base everything on actual code references and table names from the context.
             Identify write paths (DapperQuery, RawSql, Migration) vs read paths (EntityModel, ApiEndpoint).
             Output only the Markdown content for this section, no section header.
@@ -404,6 +468,8 @@ internal sealed class ProjectDocumentationService(
                - **Impact analysis** — what would break if this table's schema changed
 
             Include a Mermaid diagram showing the high-level service-to-table dependency graph.
+            Keep the diagram concise (max 20 nodes). Use `graph LR` or `flowchart LR`.
+            Node IDs must use only letters, numbers, and underscores. Use subgraphs to group related items.
 
             Be specific — use actual file paths, class names, method names, and table names from the context.
             Output only the Markdown content for this section, no section header.
@@ -449,7 +515,7 @@ internal sealed class ProjectDocumentationService(
             - Business domain terms identified in the documentation
             - Key entity names and what they represent
             - Abbreviations or codes used in column names
-            - Status values or enum-like patterns found in the schema
+            - Status values and enum columns — use the actual distinct values provided to define what each value means in business terms
 
             Sort alphabetically. Be concise but precise in definitions.
             Output only the Markdown table, no section header.
@@ -517,6 +583,16 @@ internal sealed class ProjectDocumentationService(
 
                 // All columns (brief)
                 sb.AppendLine($"  Columns: {string.Join(", ", table.Columns.Select(c => c.Name))}");
+
+                var tableEnums = ctx.GetEnumValuesForTable(table.SchemaName, table.TableName);
+                if (tableEnums.Count > 0)
+                {
+                    foreach (var enumCol in tableEnums)
+                    {
+                        var values = string.Join(", ", enumCol.Values.Select(x => x.Value));
+                        sb.AppendLine($"  - {enumCol.ColumnName} values: [{values}]");
+                    }
+                }
             }
             sb.AppendLine();
         }
@@ -566,6 +642,19 @@ internal sealed class ProjectDocumentationService(
                     foreach (var idx in table.Indexes)
                         sb.AppendLine($"  - {idx.Name} ({idx.Columns}){(idx.IsUnique ? " UNIQUE" : "")}");
                 }
+
+                var tableEnums = ctx.GetEnumValuesForTable(table.SchemaName, table.TableName);
+                if (tableEnums.Count > 0)
+                {
+                    sb.AppendLine("Enum/Status Values:");
+                    foreach (var enumCol in tableEnums)
+                    {
+                        var values = string.Join(", ",
+                            enumCol.Values.Select(x => $"{x.Value} ({x.Count:N0} rows)"));
+                        sb.AppendLine($"  - {enumCol.ColumnName}: [{values}]");
+                    }
+                }
+
                 sb.AppendLine();
             }
         }
@@ -759,6 +848,17 @@ internal sealed class ProjectDocumentationService(
             sb.AppendLine($"- {table.SchemaName}.{table.TableName}: {string.Join(", ", table.Columns.Select(c => c.Name))}");
         }
 
+        if (ctx.EnumValues.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine("## Enum/Status Column Values:");
+            foreach (var enumCol in ctx.EnumValues)
+            {
+                var values = string.Join(", ", enumCol.Values.Select(x => x.Value));
+                sb.AppendLine($"- {enumCol.SchemaName}.{enumCol.TableName}.{enumCol.ColumnName}: [{values}]");
+            }
+        }
+
         sb.AppendLine();
         sb.AppendLine("## Key Terms from Generated Documentation:");
         // Include excerpts from previously generated sections for the glossary to reference
@@ -791,7 +891,7 @@ internal sealed class ProjectDocumentationService(
                     .OrderBy(c => c.OrdinalPosition)
                     .Select(c => new ColumnDetail(
                         c.ColumnName, c.DataType, c.IsNullable, c.IsPrimaryKey,
-                        c.ForeignKeyTable, c.ForeignKeyColumn, c.Description))
+                        c.ForeignKeyTable, c.ForeignKeyColumn, c.Description, c.MaxLength))
                     .ToList(),
                 Indexes = m.Indexes
                     .Select(i => new IndexDetail(i.IndexName, string.Join(", ", i.Columns), i.IsUnique))
@@ -841,6 +941,199 @@ internal sealed class ProjectDocumentationService(
             .Where(r => r.ProjectId == projectId)
             .Select(r => new RepoInfo(r.RepositoryUrl, r.Branch, r.TotalFilesScanned, r.TotalReferencesFound))
             .ToListAsync(ct);
+    }
+
+    private async Task<List<LearnedPatternForDoc>> GetLearnedPatternsForDocAsync(List<int> dataSourceIds, CancellationToken ct)
+    {
+        await using var ctx = await contextFactory.CreateDbContextAsync(ct);
+        return await ctx.McpLearnedPatterns
+            .Where(p => dataSourceIds.Contains(p.DataSourceId)
+                && (p.Status == McpPatternStatus.Approved || p.Status == McpPatternStatus.AutoApproved))
+            .OrderByDescending(p => p.Confidence)
+            .Take(30)
+            .Select(p => new LearnedPatternForDoc(
+                p.PatternType.ToString(), p.TableName, p.ColumnName,
+                p.PatternContent, p.ExampleQuestion, p.ExampleSql))
+            .ToListAsync(ct);
+    }
+
+    // --- Enum/Status Discovery ---
+
+    private static readonly HashSet<string> EnumNameHints = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "status", "type", "kind", "category", "level", "state", "role",
+        "priority", "flag", "code", "tier", "grade", "phase", "mode", "stage", "class"
+    };
+
+    private static readonly HashSet<string> IntegerTypeNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "int", "integer", "smallint", "tinyint", "bigint",
+        "int2", "int4", "int8", "number", "numeric"
+    };
+
+    private static readonly HashSet<string> StringTypeNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "varchar", "nvarchar", "char", "nchar", "text",
+        "character varying", "character", "bpchar"
+    };
+
+    private static bool IsEnumCandidate(ColumnDetail col)
+    {
+        if (col.IsPrimaryKey || col.ForeignKeyTable != null)
+        {
+            return false;
+        }
+
+        var baseType = col.DataType.Split('(')[0].Trim().ToLowerInvariant();
+
+        if (IntegerTypeNames.Contains(baseType))
+        {
+            return true;
+        }
+
+        if (StringTypeNames.Contains(baseType))
+        {
+            return col.MaxLength is null or <= 50;
+        }
+
+        return false;
+    }
+
+    private static bool HasEnumNameHint(string columnName)
+    {
+        return EnumNameHints.Any(hint =>
+            columnName.Contains(hint, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private async Task<List<EnumColumnValues>> DiscoverEnumValuesAsync(
+        List<int> dataSourceIds, List<TableInfo> tables, CancellationToken ct)
+    {
+        await using var ctx = await contextFactory.CreateDbContextAsync(ct);
+
+        var dataSources = await ctx.DataSources
+            .Where(x => dataSourceIds.Contains(x.Id))
+            .Where(x => x.DataSourceType == DataSourceType.Database)
+            .Where(x => x.DatabaseEngineType != null)
+            .ToListAsync(ct);
+
+        if (dataSources.Count == 0)
+        {
+            return [];
+        }
+
+        var tasks = dataSources.Select(async ds =>
+        {
+            try
+            {
+                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                timeoutCts.CancelAfter(TimeSpan.FromSeconds(15));
+
+                return await DiscoverEnumValuesForDataSourceAsync(ds, tables, timeoutCts.Token);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex,
+                    "Enum value discovery failed for data source {DataSourceId} ({DataSourceName})",
+                    ds.Id, ds.Name);
+
+                return new List<EnumColumnValues>();
+            }
+        });
+
+        var results = await Task.WhenAll(tasks);
+
+        return results.SelectMany(x => x).ToList();
+    }
+
+    private async Task<List<EnumColumnValues>> DiscoverEnumValuesForDataSourceAsync(
+        DataSource dataSource, List<TableInfo> tables, CancellationToken ct)
+    {
+        var provider = dataSourceProviderFactory.GetProvider(dataSource.DataSourceType);
+        var engineType = dataSource.DatabaseEngineType!.Value;
+        var dsTables = tables.Where(x => x.DataSourceId == dataSource.Id).ToList();
+        var result = new List<EnumColumnValues>();
+
+        foreach (var table in dsTables)
+        {
+            var candidates = table.Columns
+                .Where(IsEnumCandidate)
+                .OrderByDescending(x => HasEnumNameHint(x.Name))
+                .Take(5)
+                .ToList();
+
+            if (candidates.Count == 0)
+            {
+                continue;
+            }
+
+            var sql = BuildEnumDiscoveryQuery(engineType, table.SchemaName, table.TableName, candidates);
+
+            var queryResult = await provider.ExecuteQueryAsync(
+                dataSource, sql, new Dictionary<string, object?>(), ct);
+
+            if (!queryResult.Success)
+            {
+                logger.LogWarning(
+                    "Enum discovery query failed for {Schema}.{Table}: {Error}",
+                    table.SchemaName, table.TableName, queryResult.ErrorMessage);
+
+                continue;
+            }
+
+            var grouped = queryResult.Rows
+                .Where(x => x.GetValueOrDefault("val") != null)
+                .GroupBy(x => x.GetValueOrDefault("col")?.ToString() ?? "")
+                .Where(x => x.Key.Length > 0)
+                .Where(x => x.Count() <= 25);
+
+            foreach (var group in grouped)
+            {
+                var values = group
+                    .Select(x =>
+                    {
+                        var rawVal = x.GetValueOrDefault("val")?.ToString() ?? "NULL";
+                        var val = rawVal.Length > 100 ? rawVal[..100] + "..." : rawVal;
+                        var cnt = long.TryParse(x.GetValueOrDefault("cnt")?.ToString(), out var c) ? c : 0;
+
+                        return new EnumValueCount(val, cnt);
+                    })
+                    .OrderByDescending(x => x.Count)
+                    .ToList();
+
+                result.Add(new EnumColumnValues(
+                    dataSource.Id, table.SchemaName, table.TableName, group.Key, values));
+            }
+        }
+
+        return result;
+    }
+
+    private static string BuildEnumDiscoveryQuery(
+        DatabaseEngineType engineType, string schemaName, string tableName,
+        List<ColumnDetail> columns)
+    {
+        var qualifiedTable = $"\"{schemaName}\".\"{tableName}\"";
+        var usesTop = engineType is DatabaseEngineType.MSSQL or DatabaseEngineType.AzureSynapse;
+        var castType = engineType switch
+        {
+            DatabaseEngineType.MSSQL or DatabaseEngineType.AzureSynapse => "VARCHAR(MAX)",
+            _ => "TEXT"
+        };
+
+        var parts = columns.Select(col =>
+        {
+            var colName = $"\"{col.Name}\"";
+            var selectClause = usesTop ? "SELECT TOP 50" : "SELECT";
+
+            return $"{selectClause} '{col.Name}' AS col, CAST({colName} AS {castType}) AS val, COUNT(*) AS cnt " +
+                   $"FROM {qualifiedTable} " +
+                   $"GROUP BY {colName} " +
+                   $"HAVING COUNT(DISTINCT {colName}) <= 25 " +
+                   $"ORDER BY cnt DESC" +
+                   (usesTop ? "" : " LIMIT 50");
+        });
+
+        return string.Join(" UNION ALL ", parts);
     }
 
     // --- HTML Conversion ---
@@ -894,10 +1187,23 @@ internal sealed class ProjectDocumentationService(
         public List<ContractInfo> Contracts { get; init; } = new();
         public List<RepoInfo> Repositories { get; init; } = new();
 
+        public List<LearnedPatternForDoc> LearnedPatterns { get; init; } = new();
+        public List<EnumColumnValues> EnumValues { get; init; } = new();
+
         public int DataSourceCount => DataSources.Count;
         public int TableCount => Tables.Count;
         public int CodeReferenceCount => CodeReferences.Count;
+
+        public List<EnumColumnValues> GetEnumValuesForTable(string schemaName, string tableName) =>
+            EnumValues
+                .Where(x => x.SchemaName == schemaName)
+                .Where(x => x.TableName == tableName)
+                .ToList();
     }
+
+    private sealed record LearnedPatternForDoc(
+        string PatternType, string TableName, string? ColumnName,
+        string Content, string? ExampleQuestion, string? ExampleSql);
 
     private sealed record DataSourceInfo(int Id, string Name, DataSourceType Type, DatabaseEngineType? EngineType);
     private sealed record RepoInfo(string Url, string Branch, int FilesScanned, int ReferencesFound);
@@ -915,7 +1221,8 @@ internal sealed class ProjectDocumentationService(
 
     private sealed record ColumnDetail(
         string Name, string DataType, bool IsNullable, bool IsPrimaryKey,
-        string? ForeignKeyTable, string? ForeignKeyColumn, string? Description);
+        string? ForeignKeyTable, string? ForeignKeyColumn, string? Description,
+        int? MaxLength);
 
     private sealed record IndexDetail(string Name, string Columns, bool IsUnique);
 
@@ -932,5 +1239,11 @@ internal sealed class ProjectDocumentationService(
 
     private sealed record ContractRuleInfo(
         DataContractRuleType RuleType, string? ColumnName, string? Configuration);
+
+    private sealed record EnumColumnValues(
+        int DataSourceId, string SchemaName, string TableName,
+        string ColumnName, List<EnumValueCount> Values);
+
+    private sealed record EnumValueCount(string Value, long Count);
 
 }

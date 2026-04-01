@@ -9,6 +9,7 @@ namespace Semantico.AI.Services.Knowledge;
 
 internal sealed class KnowledgeGraphService(
     IDbContextFactory<SemanticoContext> contextFactory,
+    IMcpSettingsProvider settingsProvider,
     ILogger<KnowledgeGraphService> logger) : IKnowledgeGraphService
 {
     public async Task<TableKnowledge> GetTableKnowledgeAsync(int dataSourceId, string schemaName, string tableName, CancellationToken ct = default)
@@ -631,6 +632,7 @@ internal sealed class KnowledgeGraphService(
         var totalColumns = allTables.Sum(t => t.Columns.Count);
         var catalog = BuildSchemaCatalog(allTables.Select(t => (t.SchemaName, t.TableName, (IEnumerable<SchemaColumn>)t.Columns)));
         var dialect = dataSource.DatabaseEngineType?.ToString();
+        var mcpSettings = await settingsProvider.GetSettingsAsync(ct);
 
         // Small schema fast path: send everything
         if (allTables.Count <= 40 || totalColumns <= 300)
@@ -643,6 +645,15 @@ internal sealed class KnowledgeGraphService(
 
             foreach (var t in allTables)
                 AppendTableWithFullColumns(sb, t.SchemaName, t.TableName, t.TableDescription, t.Columns, isApi);
+
+            // Inject learned patterns
+            if (mcpSettings.EnableLearning)
+            {
+                var allTableNames = allTables.Select(t => $"{t.SchemaName}.{t.TableName}").ToList();
+                var learnedPatterns = await GetRelevantPatternsAsync(dataSourceId, allTableNames, question,
+                    budgetChars: mcpSettings.LearningInjectionBudgetChars, ct: ct);
+                sb.Append(FormatLearnedPatternsForLlm(learnedPatterns));
+            }
 
             return new SmartSchemaContext
             {
@@ -728,6 +739,15 @@ internal sealed class KnowledgeGraphService(
                 AppendTableCompact(smartSb, t.SchemaName, t.TableName, t.TableDescription, t.Columns, isApi);
         }
 
+        // Inject learned patterns for relevant tables
+        if (mcpSettings.EnableLearning)
+        {
+            var relevantTableNames = detailedTables.ToList();
+            var smartPatterns = await GetRelevantPatternsAsync(dataSourceId, relevantTableNames, question,
+                budgetChars: mcpSettings.LearningInjectionBudgetChars, ct: ct);
+            smartSb.Append(FormatLearnedPatternsForLlm(smartPatterns));
+        }
+
         return new SmartSchemaContext
         {
             FullContext = smartSb.ToString(),
@@ -808,12 +828,20 @@ internal sealed class KnowledgeGraphService(
         StringBuilder sb, string schemaName, string tableName, string? description,
         IEnumerable<SchemaColumn> columns, bool isApi)
     {
-        var pks = columns.Where(c => c.IsPrimaryKey).Select(c => c.ColumnName).ToList();
+        var columnList = columns.ToList();
+        var pks = columnList.Where(c => c.IsPrimaryKey).Select(c => c.ColumnName).ToList();
         var pkStr = pks.Count > 0 ? $"PK: {string.Join(", ", pks)}" : "no PK";
         var label = isApi ? tableName : $"{schemaName}.{tableName}";
         sb.Append($"  - {label} ({pkStr})");
         if (description != null) sb.Append($" -- {description}");
         sb.AppendLine();
+
+        // Show all column names so LLM never has to guess
+        var colNames = columnList.Select(c => c.ColumnName).ToList();
+        if (colNames.Count > 0)
+        {
+            sb.AppendLine($"    Columns: {string.Join(", ", colNames)}");
+        }
     }
 
     private record SchemaColumn(
@@ -854,5 +882,146 @@ internal sealed class KnowledgeGraphService(
         if (nextBlank > 0 && nextBlank < end) end = nextBlank;
 
         return TruncateContent(dataModelContent[start..end], 400);
+    }
+
+    public async Task<List<LearnedPatternInfo>> GetRelevantPatternsAsync(
+        int dataSourceId, List<string> tableNames, string? question = null,
+        int maxPatterns = 10, int budgetChars = 1500, CancellationToken ct = default)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(ct);
+
+        var lowerTables = tableNames.Select(t => t.ToLowerInvariant()).ToHashSet();
+
+        var patterns = await context.McpLearnedPatterns
+            .Where(p => p.DataSourceId == dataSourceId
+                && (p.Status == McpPatternStatus.Approved || p.Status == McpPatternStatus.AutoApproved))
+            .OrderByDescending(p => p.Confidence)
+            .ThenByDescending(p => p.SignalCount)
+            .Take(100)
+            .Select(p => new
+            {
+                p.PatternType,
+                p.TableName,
+                p.SchemaName,
+                p.ColumnName,
+                p.PatternContent,
+                p.ExampleQuestion,
+                p.ExampleSql,
+                p.Confidence
+            })
+            .ToListAsync(ct);
+
+        // Rank by relevance: table overlap + pattern type priority
+        var ranked = patterns
+            .Select(p =>
+            {
+                var tableFull = $"{p.SchemaName}.{p.TableName}".ToLowerInvariant();
+                var tableOnly = p.TableName.ToLowerInvariant();
+                var tableMatch = lowerTables.Contains(tableFull) || lowerTables.Contains(tableOnly);
+                var typePriority = p.PatternType switch
+                {
+                    McpPatternType.SchemaCorrection => 4,
+                    McpPatternType.ColumnClarification => 3,
+                    McpPatternType.JoinPattern => 2,
+                    McpPatternType.CommonQuery => 1,
+                    _ => 0
+                };
+                var score = (tableMatch ? 10 : 0) + typePriority + p.Confidence;
+                return (Pattern: p, Score: score);
+            })
+            .OrderByDescending(x => x.Score)
+            .ToList();
+
+        // Apply budget cap
+        var result = new List<LearnedPatternInfo>();
+        var totalChars = 0;
+
+        foreach (var (p, _) in ranked)
+        {
+            if (result.Count >= maxPatterns) break;
+            var contentLen = p.PatternContent.Length + (p.ExampleSql?.Length ?? 0) + 20;
+            if (totalChars + contentLen > budgetChars && result.Count > 0) break;
+
+            totalChars += contentLen;
+            result.Add(new LearnedPatternInfo(
+                p.PatternType.ToString(), p.TableName, p.ColumnName,
+                p.PatternContent, p.ExampleQuestion, p.ExampleSql, p.Confidence));
+        }
+
+        return result;
+    }
+
+    internal static string FormatLearnedPatternsForLlm(List<LearnedPatternInfo> patterns)
+    {
+        if (patterns.Count == 0) return "";
+
+        var sb = new StringBuilder();
+        sb.AppendLine("\n## Learned Patterns (from usage)\n");
+
+        var corrections = patterns.Where(p => p.PatternType == "SchemaCorrection").ToList();
+        if (corrections.Count > 0)
+        {
+            sb.AppendLine("### Known Corrections");
+            foreach (var p in corrections)
+                sb.AppendLine($"- {p.PatternContent}");
+            sb.AppendLine();
+        }
+
+        var clarifications = patterns.Where(p => p.PatternType == "ColumnClarification").ToList();
+        if (clarifications.Count > 0)
+        {
+            sb.AppendLine("### Column Clarifications");
+            foreach (var p in clarifications)
+            {
+                var colPart = p.ColumnName != null ? $".{p.ColumnName}" : "";
+                sb.AppendLine($"- {p.TableName}{colPart}: {p.PatternContent}");
+            }
+            sb.AppendLine();
+        }
+
+        var joins = patterns.Where(p => p.PatternType == "JoinPattern").ToList();
+        if (joins.Count > 0)
+        {
+            sb.AppendLine("### Join Patterns");
+            foreach (var p in joins)
+                sb.AppendLine($"- {p.PatternContent}");
+            sb.AppendLine();
+        }
+
+        var commonQueries = patterns.Where(p => p.PatternType == "CommonQuery").ToList();
+        if (commonQueries.Count > 0)
+        {
+            sb.AppendLine("### Common Queries");
+            foreach (var p in commonQueries)
+            {
+                if (!string.IsNullOrEmpty(p.ExampleQuestion))
+                    sb.AppendLine($"- \"{p.ExampleQuestion}\"");
+                else
+                    sb.AppendLine($"- {p.PatternContent}");
+                if (!string.IsNullOrEmpty(p.ExampleSql))
+                    sb.AppendLine($"  → `{p.ExampleSql}`");
+            }
+            sb.AppendLine();
+        }
+
+        var mappings = patterns.Where(p => p.PatternType == "BusinessTermMapping").ToList();
+        if (mappings.Count > 0)
+        {
+            sb.AppendLine("### Business Term Mappings");
+            foreach (var p in mappings)
+                sb.AppendLine($"- {p.PatternContent}");
+            sb.AppendLine();
+        }
+
+        var gaps = patterns.Where(p => p.PatternType == "DocumentationGap").ToList();
+        if (gaps.Count > 0)
+        {
+            sb.AppendLine("### Documentation Gaps (caution)");
+            foreach (var p in gaps)
+                sb.AppendLine($"- {p.PatternContent}");
+            sb.AppendLine();
+        }
+
+        return sb.ToString();
     }
 }

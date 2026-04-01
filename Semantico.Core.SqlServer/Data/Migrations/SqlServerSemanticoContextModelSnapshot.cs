@@ -544,10 +544,6 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                     b.Property<decimal>("Temperature")
                         .HasColumnType("decimal(18,2)");
 
-                    b.Property<string>("VariableDefinitions")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
                     b.Property<int>("Version")
                         .HasColumnType("int");
 
@@ -567,9 +563,6 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                         .HasColumnType("int");
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<int?>("AlertConfigId")
-                        .HasColumnType("int");
 
                     b.Property<DateTime?>("ArchivedTime")
                         .HasColumnType("datetime2");
@@ -610,9 +603,6 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                         .HasColumnType("nvarchar(450)");
 
                     b.Property<int?>("QueryId")
-                        .HasColumnType("int");
-
-                    b.Property<int>("ResponseTimeMs")
                         .HasColumnType("int");
 
                     b.Property<bool>("Success")
@@ -732,9 +722,6 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                     b.Property<string>("AcknowledgedBy")
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
-
-                    b.Property<DateTime?>("AcknowledgedTime")
-                        .HasColumnType("datetime2");
 
                     b.Property<decimal?>("BaselineMean")
                         .HasColumnType("decimal(18,2)");
@@ -1174,9 +1161,6 @@ namespace Semantico.Core.SqlServer.Data.Migrations
 
                     b.Property<int>("Status")
                         .HasColumnType("int");
-
-                    b.Property<string>("TransformationApplied")
-                        .HasColumnType("nvarchar(max)");
 
                     b.HasKey("Id");
 
@@ -1679,6 +1663,227 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                     b.ToTable("McpAuditLogs", "semantico");
                 });
 
+            modelBuilder.Entity("Semantico.Core.Data.Entities.McpDocumentationPatch", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime?>("AppliedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int?>("AppliedByUserId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("CurrentContent")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("DataSourceId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("ProjectId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("ProposedContent")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Reasoning")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.Property<int>("SupportingSignalCount")
+                        .HasColumnType("int");
+
+                    b.Property<string>("TargetIdentifier")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<int>("TargetType")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DataSourceId");
+
+                    b.HasIndex("ProjectId", "Status");
+
+                    b.ToTable("McpDocumentationPatches", "semantico");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.McpLearnedPattern", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ColumnName")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<double>("Confidence")
+                        .HasColumnType("float");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("DataSourceId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("ExampleQuestion")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<string>("ExampleSql")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("LastRefreshedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("PatternContent")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("PatternType")
+                        .HasColumnType("int");
+
+                    b.Property<int>("ProjectId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("ReviewedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int?>("ReviewedByUserId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("SchemaName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<int>("SignalCount")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.Property<string>("TableName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProjectId");
+
+                    b.HasIndex("DataSourceId", "Status", "TableName");
+
+                    b.ToTable("McpLearnedPatterns", "semantico");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.McpQuerySignal", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ColumnsUsed")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("CorrectedSql")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int?>("DataSourceId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("ExecutionError")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<bool>("ExecutionFailed")
+                        .HasColumnType("bit");
+
+                    b.Property<int>("ExecutionTimeMs")
+                        .HasColumnType("int");
+
+                    b.Property<string>("GeneratedSql")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("IntentClassification")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<bool>("IsSuccessful")
+                        .HasColumnType("bit");
+
+                    b.Property<int?>("ProjectId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Question")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<int?>("ResultRowCount")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("RetryAttempted")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("RetrySucceeded")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("RoutingDecision")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("SchemaValidationError")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<bool>("SchemaValidationFailed")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("TablesUsed")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Tool")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<int?>("UserId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedTime");
+
+                    b.HasIndex("DataSourceId");
+
+                    b.HasIndex("IsSuccessful");
+
+                    b.HasIndex("ProjectId");
+
+                    b.ToTable("McpQuerySignals", "semantico");
+                });
+
             modelBuilder.Entity("Semantico.Core.Data.Entities.McpSession", b =>
                 {
                     b.Property<int>("Id")
@@ -1706,9 +1911,6 @@ namespace Semantico.Core.SqlServer.Data.Migrations
 
                     b.Property<DateTime>("StartedAt")
                         .HasColumnType("datetime2");
-
-                    b.Property<string>("TablesExplored")
-                        .HasColumnType("nvarchar(max)");
 
                     b.Property<int>("TokensUsed")
                         .HasColumnType("int");
@@ -1753,6 +1955,9 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                         .HasMaxLength(4000)
                         .HasColumnType("nvarchar(4000)");
 
+                    b.Property<bool>("EnableLearning")
+                        .HasColumnType("bit");
+
                     b.Property<bool>("EnablePiiDetection")
                         .HasColumnType("bit");
 
@@ -1770,6 +1975,15 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                     b.Property<string>("GlobalInstruction")
                         .HasMaxLength(4000)
                         .HasColumnType("nvarchar(4000)");
+
+                    b.Property<double>("LearningAutoApproveThreshold")
+                        .HasColumnType("float");
+
+                    b.Property<int>("LearningInjectionBudgetChars")
+                        .HasColumnType("int");
+
+                    b.Property<int>("LearningSignalRetentionDays")
+                        .HasColumnType("int");
 
                     b.Property<int>("MaxRowLimit")
                         .HasColumnType("int");
@@ -2111,9 +2325,6 @@ namespace Semantico.Core.SqlServer.Data.Migrations
                         .IsRequired()
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("datetime2");
 
                     b.HasKey("Id");
 
