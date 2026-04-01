@@ -695,11 +695,6 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                         .HasColumnType("numeric")
                         .HasColumnName("temperature");
 
-                    b.Property<string>("VariableDefinitions")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("variable_definitions");
-
                     b.Property<int>("Version")
                         .HasColumnType("integer")
                         .HasColumnName("version");
@@ -724,10 +719,6 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                         .HasColumnName("id");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<int?>("AlertConfigId")
-                        .HasColumnType("integer")
-                        .HasColumnName("alert_config_id");
 
                     b.Property<DateTime?>("ArchivedTime")
                         .HasColumnType("timestamp with time zone")
@@ -782,10 +773,6 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                     b.Property<int?>("QueryId")
                         .HasColumnType("integer")
                         .HasColumnName("query_id");
-
-                    b.Property<int>("ResponseTimeMs")
-                        .HasColumnType("integer")
-                        .HasColumnName("response_time_ms");
 
                     b.Property<bool>("Success")
                         .HasColumnType("boolean")
@@ -939,10 +926,6 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)")
                         .HasColumnName("acknowledged_by");
-
-                    b.Property<DateTime?>("AcknowledgedTime")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("acknowledged_time");
 
                     b.Property<decimal?>("BaselineMean")
                         .HasColumnType("numeric")
@@ -1504,10 +1487,6 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                     b.Property<int>("Status")
                         .HasColumnType("integer")
                         .HasColumnName("status");
-
-                    b.Property<string>("TransformationApplied")
-                        .HasColumnType("text")
-                        .HasColumnName("transformation_applied");
 
                     b.HasKey("Id")
                         .HasName("pk_migration_executions");
@@ -2151,6 +2130,290 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                     b.ToTable("mcp_audit_logs", "semantico");
                 });
 
+            modelBuilder.Entity("Semantico.Core.Data.Entities.McpDocumentationPatch", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime?>("AppliedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("applied_at");
+
+                    b.Property<int?>("AppliedByUserId")
+                        .HasColumnType("integer")
+                        .HasColumnName("applied_by_user_id");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_time");
+
+                    b.Property<string>("CurrentContent")
+                        .HasColumnType("text")
+                        .HasColumnName("current_content");
+
+                    b.Property<int>("DataSourceId")
+                        .HasColumnType("integer")
+                        .HasColumnName("data_source_id");
+
+                    b.Property<int>("ProjectId")
+                        .HasColumnType("integer")
+                        .HasColumnName("project_id");
+
+                    b.Property<string>("ProposedContent")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("proposed_content");
+
+                    b.Property<string>("Reasoning")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("reasoning");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
+                    b.Property<int>("SupportingSignalCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("supporting_signal_count");
+
+                    b.Property<string>("TargetIdentifier")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("target_identifier");
+
+                    b.Property<int>("TargetType")
+                        .HasColumnType("integer")
+                        .HasColumnName("target_type");
+
+                    b.HasKey("Id")
+                        .HasName("pk_mcp_documentation_patches");
+
+                    b.HasIndex("DataSourceId")
+                        .HasDatabaseName("ix_mcp_documentation_patches_data_source_id");
+
+                    b.HasIndex("ProjectId", "Status")
+                        .HasDatabaseName("ix_mcp_documentation_patches_project_id_status");
+
+                    b.ToTable("mcp_documentation_patches", "semantico");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.McpLearnedPattern", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ColumnName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("column_name");
+
+                    b.Property<double>("Confidence")
+                        .HasColumnType("double precision")
+                        .HasColumnName("confidence");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_time");
+
+                    b.Property<int>("DataSourceId")
+                        .HasColumnType("integer")
+                        .HasColumnName("data_source_id");
+
+                    b.Property<string>("ExampleQuestion")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)")
+                        .HasColumnName("example_question");
+
+                    b.Property<string>("ExampleSql")
+                        .HasColumnType("text")
+                        .HasColumnName("example_sql");
+
+                    b.Property<DateTime?>("LastRefreshedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_refreshed_at");
+
+                    b.Property<string>("PatternContent")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("pattern_content");
+
+                    b.Property<int>("PatternType")
+                        .HasColumnType("integer")
+                        .HasColumnName("pattern_type");
+
+                    b.Property<int>("ProjectId")
+                        .HasColumnType("integer")
+                        .HasColumnName("project_id");
+
+                    b.Property<DateTime?>("ReviewedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("reviewed_at");
+
+                    b.Property<int?>("ReviewedByUserId")
+                        .HasColumnType("integer")
+                        .HasColumnName("reviewed_by_user_id");
+
+                    b.Property<string>("SchemaName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("schema_name");
+
+                    b.Property<int>("SignalCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("signal_count");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
+                    b.Property<string>("TableName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("table_name");
+
+                    b.HasKey("Id")
+                        .HasName("pk_mcp_learned_patterns");
+
+                    b.HasIndex("ProjectId")
+                        .HasDatabaseName("ix_mcp_learned_patterns_project_id");
+
+                    b.HasIndex("DataSourceId", "Status", "TableName")
+                        .HasDatabaseName("ix_mcp_learned_patterns_data_source_id_status_table_name");
+
+                    b.ToTable("mcp_learned_patterns", "semantico");
+                });
+
+            modelBuilder.Entity("Semantico.Core.Data.Entities.McpQuerySignal", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ColumnsUsed")
+                        .HasColumnType("text")
+                        .HasColumnName("columns_used");
+
+                    b.Property<string>("CorrectedSql")
+                        .HasColumnType("text")
+                        .HasColumnName("corrected_sql");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_time");
+
+                    b.Property<int?>("DataSourceId")
+                        .HasColumnType("integer")
+                        .HasColumnName("data_source_id");
+
+                    b.Property<string>("ExecutionError")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)")
+                        .HasColumnName("execution_error");
+
+                    b.Property<bool>("ExecutionFailed")
+                        .HasColumnType("boolean")
+                        .HasColumnName("execution_failed");
+
+                    b.Property<int>("ExecutionTimeMs")
+                        .HasColumnType("integer")
+                        .HasColumnName("execution_time_ms");
+
+                    b.Property<string>("GeneratedSql")
+                        .HasColumnType("text")
+                        .HasColumnName("generated_sql");
+
+                    b.Property<string>("IntentClassification")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("intent_classification");
+
+                    b.Property<bool>("IsSuccessful")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_successful");
+
+                    b.Property<int?>("ProjectId")
+                        .HasColumnType("integer")
+                        .HasColumnName("project_id");
+
+                    b.Property<string>("Question")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)")
+                        .HasColumnName("question");
+
+                    b.Property<int?>("ResultRowCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("result_row_count");
+
+                    b.Property<bool>("RetryAttempted")
+                        .HasColumnType("boolean")
+                        .HasColumnName("retry_attempted");
+
+                    b.Property<bool>("RetrySucceeded")
+                        .HasColumnType("boolean")
+                        .HasColumnName("retry_succeeded");
+
+                    b.Property<string>("RoutingDecision")
+                        .HasColumnType("text")
+                        .HasColumnName("routing_decision");
+
+                    b.Property<string>("SchemaValidationError")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)")
+                        .HasColumnName("schema_validation_error");
+
+                    b.Property<bool>("SchemaValidationFailed")
+                        .HasColumnType("boolean")
+                        .HasColumnName("schema_validation_failed");
+
+                    b.Property<string>("TablesUsed")
+                        .HasColumnType("text")
+                        .HasColumnName("tables_used");
+
+                    b.Property<string>("Tool")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("tool");
+
+                    b.Property<int?>("UserId")
+                        .HasColumnType("integer")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_mcp_query_signals");
+
+                    b.HasIndex("CreatedTime")
+                        .HasDatabaseName("ix_mcp_query_signals_created_time");
+
+                    b.HasIndex("DataSourceId")
+                        .HasDatabaseName("ix_mcp_query_signals_data_source_id");
+
+                    b.HasIndex("IsSuccessful")
+                        .HasDatabaseName("ix_mcp_query_signals_is_successful");
+
+                    b.HasIndex("ProjectId")
+                        .HasDatabaseName("ix_mcp_query_signals_project_id");
+
+                    b.ToTable("mcp_query_signals", "semantico");
+                });
+
             modelBuilder.Entity("Semantico.Core.Data.Entities.McpSession", b =>
                 {
                     b.Property<int>("Id")
@@ -2185,10 +2448,6 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                     b.Property<DateTime>("StartedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("started_at");
-
-                    b.Property<string>("TablesExplored")
-                        .HasColumnType("text")
-                        .HasColumnName("tables_explored");
 
                     b.Property<int>("TokensUsed")
                         .HasColumnType("integer")
@@ -2245,6 +2504,10 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                         .HasColumnType("character varying(4000)")
                         .HasColumnName("custom_pii_patterns");
 
+                    b.Property<bool>("EnableLearning")
+                        .HasColumnType("boolean")
+                        .HasColumnName("enable_learning");
+
                     b.Property<bool>("EnablePiiDetection")
                         .HasColumnType("boolean")
                         .HasColumnName("enable_pii_detection");
@@ -2267,6 +2530,18 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                         .HasMaxLength(4000)
                         .HasColumnType("character varying(4000)")
                         .HasColumnName("global_instruction");
+
+                    b.Property<double>("LearningAutoApproveThreshold")
+                        .HasColumnType("double precision")
+                        .HasColumnName("learning_auto_approve_threshold");
+
+                    b.Property<int>("LearningInjectionBudgetChars")
+                        .HasColumnType("integer")
+                        .HasColumnName("learning_injection_budget_chars");
+
+                    b.Property<int>("LearningSignalRetentionDays")
+                        .HasColumnType("integer")
+                        .HasColumnName("learning_signal_retention_days");
 
                     b.Property<int>("MaxRowLimit")
                         .HasColumnType("integer")
@@ -2698,10 +2973,6 @@ namespace Semantico.Core.PostgreSql.Data.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)")
                         .HasColumnName("name");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_at");
 
                     b.HasKey("Id")
                         .HasName("pk_projects");

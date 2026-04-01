@@ -13,7 +13,6 @@ public class AiPromptTemplate : BaseEntity
     public bool IsActive { get; set; }
     public decimal Temperature { get; set; }
     public int MaxTokens { get; set; }
-    public string VariableDefinitions { get; set; } = null!;
     public string? Description { get; set; }
     public string CreatedBy { get; set; } = null!;
     public string ModifiedBy { get; set; } = null!;

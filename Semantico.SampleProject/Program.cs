@@ -2,6 +2,7 @@ using Hangfire;
 using Hangfire.PostgreSql;
 using Semantico.AI;
 using Semantico.Core;
+using Semantico.Core.Worker;
 using Semantico.Core.PostgreSql;
 using Semantico.Core.SqlServer;
 using Semantico.Core.Authentication.Providers;
@@ -161,5 +162,9 @@ app.UseHangfireDashboard("/hangfire", new DashboardOptions
 {
     IgnoreAntiforgeryToken = true,
 });
+
+// MCP Learning: aggregate patterns every 6 hours, cleanup old signals daily
+RecurringJob.AddOrUpdate<IJobService>("mcp-learning-aggregate", x => x.AggregateLearnedPatterns(), "0 */6 * * *");
+RecurringJob.AddOrUpdate<IJobService>("mcp-learning-cleanup", x => x.CleanupOldSignals(), "0 3 * * *");
 
 app.Run();

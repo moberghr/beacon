@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using Microsoft.EntityFrameworkCore;
+using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Semantico.AI.Services.Documentation;
 using Semantico.AI.Services.Knowledge;
@@ -21,7 +22,7 @@ internal sealed class ProjectGetDocumentationTool(
 {
     [McpServerTool(Name = "get_documentation")]
     [Description("Get AI-generated documentation for the project, a specific data source, or a specific table/endpoint. Includes schema details, relationships, code references, quality scores, and lineage.")]
-    public async Task<string> ExecuteAsync(
+    public async Task<CallToolResult> ExecuteAsync(
         [Description("Optional. Specify project if your API key has access to multiple projects.")]
         int? project_id = null,
         [Description("Optional. Get documentation for a specific data source by name.")]
@@ -34,7 +35,7 @@ internal sealed class ProjectGetDocumentationTool(
     {
         var sw = Stopwatch.StartNew();
         var resolveError = ToolHelper.ResolveProjectId(projectContext, sessionManager, project_id, out var projectId);
-        if (resolveError != null) return resolveError;
+        if (resolveError != null) return ToolHelper.Error(resolveError);
 
         try
         {
@@ -43,9 +44,9 @@ internal sealed class ProjectGetDocumentationTool(
             {
                 var docResult = await GetProjectDocumentationAsync(projectId, cancellationToken);
                 sw.Stop();
-                _ = auditService.LogToolCallAsync(null, projectContext.UserId, "get_documentation",
-                    null, null, projectId, (int)sw.ElapsedMilliseconds, null, null);
-                return docResult;
+                await auditService.LogToolCallAsync(null, projectContext.UserId, "get_documentation",
+                    null, null, projectId, (int)sw.ElapsedMilliseconds, null, null, cancellationToken);
+                return ToolHelper.Success(docResult);
             }
 
             // Resolve data source
@@ -53,7 +54,7 @@ internal sealed class ProjectGetDocumentationTool(
             if (!string.IsNullOrEmpty(datasource_name))
             {
                 var (resolvedId, nameError) = await ToolHelper.ResolveDataSourceByNameAsync(contextFactory, projectId, datasource_name, cancellationToken);
-                if (nameError != null) return nameError;
+                if (nameError != null) return ToolHelper.Error(nameError);
                 dsId = resolvedId;
             }
 
@@ -62,11 +63,11 @@ internal sealed class ProjectGetDocumentationTool(
             {
                 dsId = await FindDataSourceForTableAsync(projectId, table_name, schema_name, cancellationToken);
                 if (dsId == null)
-                    return $"Could not find table '{table_name}' in any data source of this project.";
+                    return ToolHelper.Error($"Could not find table '{table_name}' in any data source of this project.");
             }
 
             if (dsId == null)
-                return "Could not resolve data source.";
+                return ToolHelper.Error("Could not resolve data source.");
 
             string result;
             if (!string.IsNullOrEmpty(table_name))
@@ -82,16 +83,16 @@ internal sealed class ProjectGetDocumentationTool(
             }
 
             sw.Stop();
-            _ = auditService.LogToolCallAsync(null, projectContext.UserId, "get_documentation",
-                datasource_name ?? table_name, dsId, projectId, (int)sw.ElapsedMilliseconds, null, null);
-            return result;
+            await auditService.LogToolCallAsync(null, projectContext.UserId, "get_documentation",
+                datasource_name ?? table_name, dsId, projectId, (int)sw.ElapsedMilliseconds, null, null, cancellationToken);
+            return ToolHelper.Success(result);
         }
         catch (Exception ex)
         {
             sw.Stop();
-            _ = auditService.LogToolCallAsync(null, projectContext.UserId, "get_documentation",
-                datasource_name ?? table_name, null, projectId == 0 ? null : projectId, (int)sw.ElapsedMilliseconds, null, ex.Message);
-            return $"Error: {ex.Message}";
+            await auditService.LogToolCallAsync(null, projectContext.UserId, "get_documentation",
+                datasource_name ?? table_name, null, projectId == 0 ? null : projectId, (int)sw.ElapsedMilliseconds, null, ex.Message, CancellationToken.None);
+            return ToolHelper.Error(ex.Message);
         }
     }
 

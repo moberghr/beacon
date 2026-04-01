@@ -28,8 +28,7 @@ public class MigrationExecutionHistory : BaseEntity, IExecutionHistory
     // Query Context (following QueryExecutionHistory pattern)
     public required string ExecutedQuery { get; set; }
     public string? QueryParameters { get; set; }  // JSON
-    public string? TransformationApplied { get; set; }
-    
+
     // Retry Information
     public int RetryAttempt { get; set; } = 0;
     public int? ParentExecutionId { get; set; }  // For retry tracking

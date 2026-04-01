@@ -63,11 +63,6 @@ public class AnomalyEvent : BaseEntity
     /// </summary>
     public string? AcknowledgedBy { get; set; }
 
-    /// <summary>
-    /// When the anomaly was acknowledged
-    /// </summary>
-    public DateTime? AcknowledgedTime { get; set; }
-
     // Navigation properties
     public Subscription Subscription { get; set; } = null!;
     public Notification? Notification { get; set; }

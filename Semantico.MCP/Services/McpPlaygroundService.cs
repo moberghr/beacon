@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using ModelContextProtocol.Protocol;
 using Semantico.Core.Services;
 using Semantico.MCP.Tools;
 
@@ -21,7 +22,7 @@ internal sealed class McpPlaygroundService(IServiceProvider serviceProvider) : I
 
         try
         {
-            string result = toolName switch
+            var result = toolName switch
             {
                 "get_context" => await sp.GetRequiredService<GetContextTool>().ExecuteAsync(
                     project_id: projectId, cancellationToken: ct),
@@ -54,10 +55,12 @@ internal sealed class McpPlaygroundService(IServiceProvider serviceProvider) : I
                     max_results: arguments.GetValueOrDefault("max_results") is int maxR ? maxR : null,
                     cancellationToken: ct),
 
-                _ => $"Unknown tool: {toolName}"
+                _ => ToolHelper.Error($"Unknown tool: {toolName}")
             };
 
-            return new McpPlaygroundResult(result, false);
+            var text = string.Join("\n", result.Content.OfType<TextContentBlock>().Select(x => x.Text));
+
+            return new McpPlaygroundResult(text, result.IsError == true);
         }
         catch (Exception ex)
         {

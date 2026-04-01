@@ -65,7 +65,11 @@ internal sealed class McpSettingsProvider(
             MaxRowLimit = entity.MaxRowLimit,
             EnforceReadOnly = entity.EnforceReadOnly,
             EnablePiiDetection = entity.EnablePiiDetection,
-            CustomPiiPatterns = piiPatterns
+            CustomPiiPatterns = piiPatterns,
+            EnableLearning = entity.EnableLearning,
+            LearningAutoApproveThreshold = entity.LearningAutoApproveThreshold,
+            LearningInjectionBudgetChars = entity.LearningInjectionBudgetChars,
+            LearningSignalRetentionDays = entity.LearningSignalRetentionDays
         };
     }
 }

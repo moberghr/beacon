@@ -95,3 +95,12 @@ public record SmartSchemaContext
     /// </summary>
     public Dictionary<string, HashSet<string>> SchemaCatalog { get; init; } = [];
 }
+
+public record LearnedPatternInfo(
+    string PatternType,
+    string TableName,
+    string? ColumnName,
+    string PatternContent,
+    string? ExampleQuestion,
+    string? ExampleSql,
+    double Confidence);

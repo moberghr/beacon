@@ -82,4 +82,28 @@ public class QueryTranslationTests : QueryTranslationTestBase
             }));
     }
 
+    // ─── Documentation Editing ───────────────────────────────────────
+
+    [Test]
+    public void UpdateDocumentationSection_Query_Translates()
+    {
+        AssertQueryTranslates(ctx => ctx.ProjectDocumentationSections
+            .Where(x => x.Id == 1));
+    }
+
+    [Test]
+    public void InstructDocumentation_SectionQuery_Translates()
+    {
+        AssertQueryTranslates(ctx => ctx.ProjectDocumentationSections
+            .Where(x => x.Id == 1)
+            .Select(x =>
+                new
+                {
+                    x.Id,
+                    x.Title,
+                    x.Content,
+                    x.SectionType
+                }));
+    }
+
 }

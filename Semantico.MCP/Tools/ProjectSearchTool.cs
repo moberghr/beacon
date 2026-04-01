@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Semantico.AI.Services.Knowledge;
 using Semantico.MCP.Services;
@@ -15,7 +16,7 @@ internal sealed class ProjectSearchTool(
 {
     [McpServerTool(Name = "search")]
     [Description("Search tables, columns, and documentation across all data sources in the project by keyword. Returns matching items with descriptions, quality scores, and relevance.")]
-    public async Task<string> ExecuteAsync(
+    public async Task<CallToolResult> ExecuteAsync(
         [Description("Search keyword (e.g., 'customer', 'order_date', 'revenue')")]
         string query,
         [Description("Optional. Specify project if your API key has access to multiple projects.")]
@@ -28,10 +29,10 @@ internal sealed class ProjectSearchTool(
         var maxResults = Math.Min(max_results ?? 20, 50);
 
         if (string.IsNullOrEmpty(query))
-            return "Missing required parameter: query";
+            return ToolHelper.Error("Missing required parameter: query");
 
         var resolveError = ToolHelper.ResolveProjectId(projectContext, sessionManager, project_id, out var projectId);
-        if (resolveError != null) return resolveError;
+        if (resolveError != null) return ToolHelper.Error(resolveError);
 
         try
         {
@@ -40,9 +41,9 @@ internal sealed class ProjectSearchTool(
             if (results.Count == 0)
             {
                 sw.Stop();
-                _ = auditService.LogToolCallAsync(null, projectContext.UserId, "search",
-                    query, null, projectId, (int)sw.ElapsedMilliseconds, 0, null);
-                return $"No results found for '{query}'.";
+                await auditService.LogToolCallAsync(null, projectContext.UserId, "search",
+                    query, null, projectId, (int)sw.ElapsedMilliseconds, 0, null, cancellationToken);
+                return ToolHelper.Success($"No results found for '{query}'.");
             }
 
             var text = $"# Search Results for '{query}'\n\n";
@@ -67,16 +68,16 @@ internal sealed class ProjectSearchTool(
             }
 
             sw.Stop();
-            _ = auditService.LogToolCallAsync(null, projectContext.UserId, "search",
-                query, null, projectId, (int)sw.ElapsedMilliseconds, results.Count, null);
-            return text;
+            await auditService.LogToolCallAsync(null, projectContext.UserId, "search",
+                query, null, projectId, (int)sw.ElapsedMilliseconds, results.Count, null, cancellationToken);
+            return ToolHelper.Success(text);
         }
         catch (Exception ex)
         {
             sw.Stop();
-            _ = auditService.LogToolCallAsync(null, projectContext.UserId, "search",
-                query, null, projectId == 0 ? null : projectId, (int)sw.ElapsedMilliseconds, null, ex.Message);
-            return $"Error: {ex.Message}";
+            await auditService.LogToolCallAsync(null, projectContext.UserId, "search",
+                query, null, projectId == 0 ? null : projectId, (int)sw.ElapsedMilliseconds, null, ex.Message, CancellationToken.None);
+            return ToolHelper.Error(ex.Message);
         }
     }
 }

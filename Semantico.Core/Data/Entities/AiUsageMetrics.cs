@@ -9,7 +9,6 @@ public class AiUsageMetrics : ArchivableBaseEntity
     public int? DataSourceId { get; set; }
     public int? QueryId { get; set; }
     public int? DocumentationId { get; set; }
-    public int? AlertConfigId { get; set; }
     public string Provider { get; set; } = null!;
     public string Model { get; set; } = null!;
     public OperationType OperationType { get; set; }
@@ -18,7 +17,6 @@ public class AiUsageMetrics : ArchivableBaseEntity
     public int TotalTokens { get; set; }
     public decimal EstimatedCost { get; set; }
     public bool PromptCacheHit { get; set; }
-    public int ResponseTimeMs { get; set; }
     public bool Success { get; set; }
     public string? ErrorMessage { get; set; }
     public DateTime Timestamp { get; set; }
