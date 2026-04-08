@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Semantico.Core.Data.Entities.Metadata;
 using Semantico.Core.Services;
 
 namespace Semantico.AI.Services.Learning;
@@ -329,6 +330,108 @@ internal sealed class McpLearningAggregationService(
                 Status = status,
                 LastRefreshedAt = DateTime.UtcNow
             });
+        }
+    }
+
+    public async Task GenerateDocumentationPatchesAsync(CancellationToken ct = default)
+    {
+        var settings = await settingsProvider.GetSettingsAsync(ct);
+        if (!settings.EnableLearning) return;
+
+        await using var context = await contextFactory.CreateDbContextAsync(ct);
+
+        var approvedPatterns = await context.McpLearnedPatterns
+            .Where(x => x.Status == McpPatternStatus.Approved || x.Status == McpPatternStatus.AutoApproved)
+            .Where(x => x.PatternType == McpPatternType.SchemaCorrection || x.PatternType == McpPatternType.DocumentationGap)
+            .ToListAsync(ct);
+
+        if (approvedPatterns.Count == 0) return;
+
+        var existingTargets = await context.McpDocumentationPatches
+            .Where(x => x.Status == McpDocPatchStatus.Proposed || x.Status == McpDocPatchStatus.Applied)
+            .Select(x => new { x.DataSourceId, x.TargetType, x.TargetIdentifier })
+            .ToListAsync(ct);
+
+        var existingSet = existingTargets
+            .Select(x => $"{x.DataSourceId}:{x.TargetType}:{x.TargetIdentifier}")
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var patchCount = 0;
+
+        foreach (var pattern in approvedPatterns)
+        {
+            switch (pattern.PatternType)
+            {
+                case McpPatternType.SchemaCorrection:
+                {
+                    var targetId = $"{pattern.SchemaName}.{pattern.TableName}.{pattern.ColumnName}";
+                    var key = $"{pattern.DataSourceId}:{McpDocPatchTarget.ColumnDescription}:{targetId}";
+                    if (existingSet.Contains(key)) continue;
+
+                    var currentDesc = await context.ColumnMetadata
+                        .Where(c => c.DatabaseMetadata.DataSourceId == pattern.DataSourceId)
+                        .Where(c => c.DatabaseMetadata.SchemaName == pattern.SchemaName)
+                        .Where(c => c.DatabaseMetadata.TableName == pattern.TableName)
+                        .Where(c => c.ColumnName == pattern.ColumnName)
+                        .Select(c => c.Description)
+                        .FirstOrDefaultAsync(ct);
+
+                    context.McpDocumentationPatches.Add(new McpDocumentationPatch
+                    {
+                        ProjectId = pattern.ProjectId,
+                        DataSourceId = pattern.DataSourceId,
+                        TargetType = McpDocPatchTarget.ColumnDescription,
+                        TargetIdentifier = targetId,
+                        CurrentContent = currentDesc,
+                        ProposedContent = pattern.PatternContent,
+                        Reasoning = $"Learned from {pattern.SignalCount} query signals (confidence: {pattern.Confidence:P0}). {pattern.PatternContent}",
+                        SupportingSignalCount = pattern.SignalCount,
+                        Status = McpDocPatchStatus.Proposed
+                    });
+                    existingSet.Add(key);
+                    patchCount++;
+                    break;
+                }
+                case McpPatternType.DocumentationGap:
+                {
+                    var targetId = $"{pattern.SchemaName}.{pattern.TableName}";
+                    var key = $"{pattern.DataSourceId}:{McpDocPatchTarget.TableDescription}:{targetId}";
+                    if (existingSet.Contains(key)) continue;
+
+                    var currentDesc = await context.DatabaseMetadata
+                        .Where(m => m.DataSourceId == pattern.DataSourceId)
+                        .Where(m => m.SchemaName == pattern.SchemaName)
+                        .Where(m => m.TableName == pattern.TableName)
+                        .Select(m => m.TableDescription)
+                        .FirstOrDefaultAsync(ct);
+
+                    var proposed = string.IsNullOrEmpty(currentDesc)
+                        ? $"[Auto-generated] {pattern.PatternContent}"
+                        : $"{currentDesc}\n\n⚠️ {pattern.PatternContent}";
+
+                    context.McpDocumentationPatches.Add(new McpDocumentationPatch
+                    {
+                        ProjectId = pattern.ProjectId,
+                        DataSourceId = pattern.DataSourceId,
+                        TargetType = McpDocPatchTarget.TableDescription,
+                        TargetIdentifier = targetId,
+                        CurrentContent = currentDesc,
+                        ProposedContent = proposed,
+                        Reasoning = $"Learned from {pattern.SignalCount} query signals. {pattern.PatternContent}",
+                        SupportingSignalCount = pattern.SignalCount,
+                        Status = McpDocPatchStatus.Proposed
+                    });
+                    existingSet.Add(key);
+                    patchCount++;
+                    break;
+                }
+            }
+        }
+
+        if (patchCount > 0)
+        {
+            await context.SaveChangesAsync(ct);
+            logger.LogInformation("Generated {Count} documentation patches from learned patterns", patchCount);
         }
     }
 
