@@ -349,6 +349,17 @@ internal class JobService(
         await mcpLearningService.AggregateLearnedPatternsAsync();
     }
 
+    public async Task GenerateDocumentationPatches()
+    {
+        if (mcpLearningService == null)
+        {
+            logger.LogDebug("MCP Learning service not available, skipping patch generation");
+            return;
+        }
+
+        await mcpLearningService.GenerateDocumentationPatchesAsync();
+    }
+
     public async Task CleanupOldSignals()
     {
         if (mcpLearningService == null)

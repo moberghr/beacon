@@ -8,5 +8,7 @@ public interface IJobService
 
     Task AggregateLearnedPatterns();
 
+    Task GenerateDocumentationPatches();
+
     Task CleanupOldSignals();
 }
