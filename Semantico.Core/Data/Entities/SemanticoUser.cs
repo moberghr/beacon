@@ -15,6 +15,8 @@ public class SemanticoUser : ArchivableBaseEntity
     /// </summary>
     public string ExternalId { get; set; } = null!;
 
+    public string? IdentityProvider { get; set; }
+
     /// <summary>
     /// Username used for authentication (internal users) or display (external users).
     /// </summary>

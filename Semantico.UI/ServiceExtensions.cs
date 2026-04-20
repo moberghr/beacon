@@ -1,5 +1,6 @@
 using Blazored.LocalStorage;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.DataProtection;
@@ -8,6 +9,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using MudBlazor.Services;
 using Semantico.Core;
 using Semantico.Core.Authentication;
@@ -107,6 +109,59 @@ public static class ServiceExtensions
         return services;
     }
 
+    public static IServiceCollection AddSemanticoOidcAuthentication(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        var section = configuration.GetSection("Semantico:Authentication:Oidc");
+        var options = section.Get<OidcAuthenticationOptions>() ?? new OidcAuthenticationOptions();
+
+        services.Configure<OidcAuthenticationOptions>(section);
+
+        if (!options.Enabled)
+        {
+            return services;
+        }
+
+        if (string.IsNullOrWhiteSpace(options.Authority)
+            || string.IsNullOrWhiteSpace(options.ClientId)
+            || string.IsNullOrWhiteSpace(options.ClientSecret))
+        {
+            throw new InvalidOperationException(
+                "Semantico:Authentication:Oidc is Enabled but Authority, ClientId, or ClientSecret is missing.");
+        }
+
+        services.AddAuthentication()
+            .AddOpenIdConnect(OpenIdConnectDefaults.AuthenticationScheme, oidc =>
+            {
+                oidc.Authority = options.Authority;
+                oidc.ClientId = options.ClientId;
+                oidc.ClientSecret = options.ClientSecret;
+                oidc.CallbackPath = options.CallbackPath;
+                oidc.SignInScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+                oidc.SignOutScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+                oidc.ResponseType = OpenIdConnectResponseType.Code;
+                oidc.UsePkce = true;
+                oidc.SaveTokens = false;
+                oidc.GetClaimsFromUserInfoEndpoint = true;
+                oidc.MapInboundClaims = false;
+
+                oidc.Scope.Clear();
+                foreach (var scope in options.Scopes)
+                {
+                    oidc.Scope.Add(scope);
+                }
+
+                oidc.Events = new OpenIdConnectEvents
+                {
+                    OnTokenValidated = OidcEventHandlers.HandleTokenValidatedAsync,
+                    OnRemoteFailure = OidcEventHandlers.HandleRemoteFailureAsync
+                };
+            });
+
+        return services;
+    }
+
     /// <summary>
     /// Adds JWT authentication support for Semantico.
     /// Supports both login form flow (external API) and bearer token flow.
@@ -140,6 +195,17 @@ public static class ServiceExtensions
     public static SemanticoUIBuilder UseSemanticoUI(this WebApplication app)
     {
         return new SemanticoUIBuilder(app);
+    }
+
+    public static IApplicationBuilder UseSemanticoJwtBearerAuthentication(this IApplicationBuilder app)
+    {
+        var options = app.ApplicationServices.GetService<JwtAuthenticationOptions>();
+        if (options?.EnableBearerAuthentication == true)
+        {
+            app.UseMiddleware<JwtBearerAuthMiddleware>(options);
+        }
+
+        return app;
     }
 }
 

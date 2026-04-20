@@ -23,6 +23,11 @@
             </MudAlert>
         }
 
+        <!-- Single sign-on (renders nothing when OIDC is not configured) -->
+        <div style="width: 100%;">
+            <SsoLoginButton Disabled="@_isLoading" />
+        </div>
+
         <!-- Login Form -->
         <MudForm @ref="_form" Style="width: 100%;">
             <MudStack Spacing="3">
@@ -112,6 +117,13 @@
         if (UserContext.IsAuthenticated)
         {
             NavigateToDashboard();
+        }
+
+        var uri = NavigationManager.ToAbsoluteUri(NavigationManager.Uri);
+        var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(uri.Query);
+        if (query.ContainsKey("ssoError"))
+        {
+            _errorMessage = "Single sign-on failed. Please try again or sign in with username and password.";
         }
     }
 

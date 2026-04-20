@@ -9,6 +9,10 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    </ItemGroup>
+
+    <ItemGroup>
         <PackageReference Include="NUnit" Version="4.2.2" />
         <PackageReference Include="NUnit3TestAdapter" Version="4.6.0" />
         <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
@@ -19,6 +23,7 @@
         <PackageReference Include="EFCore.NamingConventions" Version="9.0.0" />
         <PackageReference Include="MediatR" Version="12.4.1" />
         <PackageReference Include="bunit" Version="1.30.3" />
+        <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="9.*" />
     </ItemGroup>
 
     <ItemGroup>

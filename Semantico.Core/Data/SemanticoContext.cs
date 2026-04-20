@@ -871,6 +871,7 @@ public abstract partial class SemanticoContext : DbContext, IDataProtectionKeyCo
             entity.HasKey(e => e.Id);
 
             entity.Property(e => e.ExternalId).HasMaxLength(200).IsRequired();
+            entity.Property(e => e.IdentityProvider).HasMaxLength(500);
             entity.Property(e => e.UserName).HasMaxLength(100).IsRequired();
             entity.Property(e => e.Email).HasMaxLength(255);
             entity.Property(e => e.DisplayName).HasMaxLength(200);
@@ -879,6 +880,7 @@ public abstract partial class SemanticoContext : DbContext, IDataProtectionKeyCo
 
             // Unique constraint on ExternalId
             entity.HasIndex(e => e.ExternalId).IsUnique();
+            entity.HasIndex(e => new { e.IdentityProvider, e.ExternalId });
 
             // Unique constraint on UserName (only for non-archived users)
             entity.HasIndex(e => new { e.UserName, e.ArchivedTime });

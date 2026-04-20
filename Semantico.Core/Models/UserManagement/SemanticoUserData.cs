@@ -9,6 +9,8 @@ public class SemanticoUserData
 
     public string ExternalId { get; set; } = null!;
 
+    public string? IdentityProvider { get; set; }
+
     public string UserName { get; set; } = null!;
 
     public string? Email { get; set; }

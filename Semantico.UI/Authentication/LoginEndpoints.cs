@@ -1,9 +1,11 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.Options;
 using Semantico.Core;
 using Semantico.Core.Authentication;
 
@@ -81,7 +83,63 @@ public static class LoginEndpoints
             return Results.Redirect(loginPath);
         }).AllowAnonymous();
 
+        var loginRedirectFallback = $"{basePath}{configuration.Authentication.LoginRedirectPath}";
+        endpoints.MapGet($"{basePath}/api/auth/sso/challenge", (
+            HttpContext context,
+            string? returnUrl,
+            IOptions<OidcAuthenticationOptions> oidcOptions) =>
+        {
+            if (!oidcOptions.Value.Enabled)
+            {
+                return Results.NotFound();
+            }
+
+            var safeReturnUrl = IsSafeReturnUrl(returnUrl, basePath)
+                ? returnUrl!
+                : loginRedirectFallback;
+
+            var properties = new AuthenticationProperties
+            {
+                RedirectUri = safeReturnUrl,
+                IsPersistent = true
+            };
+
+            return Results.Challenge(properties, new[] { OpenIdConnectDefaults.AuthenticationScheme });
+        }).AllowAnonymous();
+
         return endpoints;
+    }
+
+    internal static bool IsSafeReturnUrl(string? returnUrl, string basePath)
+    {
+        if (string.IsNullOrWhiteSpace(returnUrl))
+        {
+            return false;
+        }
+
+        if (!returnUrl.StartsWith('/'))
+        {
+            return false;
+        }
+
+        if (returnUrl.StartsWith("//", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (returnUrl.StartsWith("/\\", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var normalizedBase = basePath.TrimEnd('/');
+        if (string.IsNullOrEmpty(normalizedBase))
+        {
+            return true;
+        }
+
+        return returnUrl.Equals(normalizedBase, StringComparison.OrdinalIgnoreCase)
+            || returnUrl.StartsWith($"{normalizedBase}/", StringComparison.OrdinalIgnoreCase);
     }
 }
 

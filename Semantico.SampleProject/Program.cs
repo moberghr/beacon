@@ -115,6 +115,28 @@ builder.Services.AddSemanticoUI();
 // Step 3: Add cookie authentication for login form
 builder.Services.AddSemanticoCookieAuthentication("/semantico");
 
+// Step 3b: Add OIDC authentication (SSO)
+builder.Services.AddSemanticoOidcAuthentication(builder.Configuration);
+
+// Step 3c: Add MCP bearer JWT authentication if OIDC is enabled with a JWKS endpoint
+var oidcSection = builder.Configuration.GetSection("Semantico:Authentication:Oidc");
+var oidcEnabled = oidcSection.GetValue<bool>("Enabled");
+var mcpJwksEndpoint = oidcSection.GetValue<string>("McpJwksEndpoint");
+if (oidcEnabled && !string.IsNullOrWhiteSpace(mcpJwksEndpoint))
+{
+    var oidcAuthority = oidcSection.GetValue<string>("Authority")?.TrimEnd('/');
+    var oidcClientId = oidcSection.GetValue<string>("ClientId");
+    builder.Services.AddSemanticoJwtAuthentication(jwt =>
+    {
+        jwt.EnableBearerAuthentication = true;
+        jwt.Validation.JwksEndpoint = mcpJwksEndpoint;
+        jwt.Validation.ValidIssuer = oidcAuthority;
+        jwt.Validation.ValidAudience = oidcClientId;
+        jwt.Validation.ValidateIssuer = true;
+        jwt.Validation.ValidateAudience = !string.IsNullOrEmpty(oidcClientId);
+    });
+}
+
 // Register claims transformer to add role claims after authentication
 builder.Services.AddScoped<Microsoft.AspNetCore.Authentication.IClaimsTransformation, SampleClaimsTransformation>();
 
@@ -141,6 +163,9 @@ app.UseStaticFiles();
 
 // API key auth must run before cookie auth to prevent redirect for MCP clients
 app.UseMiddleware<ApiKeyAuthMiddleware>();
+
+// JWT bearer authentication for MCP clients using OIDC tokens
+app.UseSemanticoJwtBearerAuthentication();
 
 // Authentication must be before authorization
 app.UseAuthentication();
