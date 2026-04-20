@@ -106,4 +106,46 @@ public class QueryTranslationTests : QueryTranslationTestBase
                 }));
     }
 
+    // ─── User management / SSO ───────────────────────────────────────
+
+    [Test]
+    public void GetUserByExternalIdAndProviderQuery_Translates()
+    {
+        const string externalId = "sub-abc-123";
+        const string identityProvider = "https://login.example.com/";
+
+        AssertQueryTranslates(ctx => ctx.Users
+            .Where(x => x.ExternalId == externalId)
+            .Where(x => x.IdentityProvider == identityProvider)
+            .Select(x =>
+                new
+                {
+                    x.Id,
+                    x.ExternalId,
+                    x.IdentityProvider,
+                    x.UserName,
+                    x.Email,
+                    x.IsEnabled,
+                    Roles = x.UserRoles.Select(y => y.Role.Name).ToList()
+                }));
+    }
+
+    [Test]
+    public void GetUserByExternalIdAndProviderQuery_WithNullProvider_Translates()
+    {
+        const string externalId = "guid-internal-user";
+        string? identityProvider = null;
+
+        AssertQueryTranslates(ctx => ctx.Users
+            .Where(x => x.ExternalId == externalId)
+            .Where(x => x.IdentityProvider == identityProvider)
+            .Select(x =>
+                new
+                {
+                    x.Id,
+                    x.ExternalId,
+                    x.IdentityProvider
+                }));
+    }
+
 }

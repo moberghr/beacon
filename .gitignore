@@ -355,3 +355,5 @@ docs/.jekyll-cache/
 docs/Gemfile.lock
 .gitnexus
 settings.local.json
+docs/specs/
+docs/plans/

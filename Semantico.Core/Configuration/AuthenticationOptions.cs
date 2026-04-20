@@ -53,4 +53,6 @@ public class AuthenticationOptions
     /// and/or bearer token authentication (stateless API access).
     /// </summary>
     public JwtAuthenticationOptions? Jwt { get; set; }
+
+    public OidcAuthenticationOptions? Oidc { get; set; }
 }

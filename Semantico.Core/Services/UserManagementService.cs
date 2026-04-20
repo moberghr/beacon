@@ -115,6 +115,7 @@ internal class UserManagementService(
             {
                 Id = u.Id,
                 ExternalId = u.ExternalId,
+                IdentityProvider = u.IdentityProvider,
                 UserName = u.UserName,
                 Email = u.Email,
                 DisplayName = u.DisplayName,
@@ -145,6 +146,7 @@ internal class UserManagementService(
             {
                 Id = u.Id,
                 ExternalId = u.ExternalId,
+                IdentityProvider = u.IdentityProvider,
                 UserName = u.UserName,
                 Email = u.Email,
                 DisplayName = u.DisplayName,
@@ -175,6 +177,7 @@ internal class UserManagementService(
             {
                 Id = u.Id,
                 ExternalId = u.ExternalId,
+                IdentityProvider = u.IdentityProvider,
                 UserName = u.UserName,
                 Email = u.Email,
                 DisplayName = u.DisplayName,
@@ -195,6 +198,40 @@ internal class UserManagementService(
             .FirstOrDefaultAsync(ct);
     }
 
+    public async Task<SemanticoUserData?> GetUserByExternalIdAndProviderAsync(string externalId, string? identityProvider, CancellationToken ct = default)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(ct);
+
+        return await context.Users
+            .Where(x => x.ExternalId == externalId)
+            .Where(x => x.IdentityProvider == identityProvider)
+            .Select(x =>
+                new SemanticoUserData
+                {
+                    Id = x.Id,
+                    ExternalId = x.ExternalId,
+                    IdentityProvider = x.IdentityProvider,
+                    UserName = x.UserName,
+                    Email = x.Email,
+                    DisplayName = x.DisplayName,
+                    IsInternalUser = x.IsInternalUser,
+                    IsSuperAdmin = x.IsSuperAdmin,
+                    IsEnabled = x.IsEnabled,
+                    LastLoginAt = x.LastLoginAt,
+                    CreatedTime = x.CreatedTime,
+                    Roles = x.UserRoles.Select(y =>
+                        new SemanticoRoleData
+                        {
+                            Id = y.Role.Id,
+                            Name = y.Role.Name,
+                            Description = y.Role.Description,
+                            IsSystemRole = y.Role.IsSystemRole,
+                            Level = y.Role.Level
+                        }).ToList()
+                })
+            .FirstOrDefaultAsync(ct);
+    }
+
     public async Task<SemanticoUserData?> GetUserByUserNameAsync(string userName, CancellationToken ct = default)
     {
         await using var context = await contextFactory.CreateDbContextAsync(ct);
@@ -205,6 +242,7 @@ internal class UserManagementService(
             {
                 Id = u.Id,
                 ExternalId = u.ExternalId,
+                IdentityProvider = u.IdentityProvider,
                 UserName = u.UserName,
                 Email = u.Email,
                 DisplayName = u.DisplayName,
@@ -286,6 +324,140 @@ internal class UserManagementService(
         await context.SaveChangesAsync(ct);
 
         return new BaseResponse { Success = true, Message = "User created successfully." };
+    }
+
+    public async Task<SemanticoUserData> GetOrCreateExternalUserAsync(
+        string externalId,
+        string identityProvider,
+        string userName,
+        string? email,
+        string? displayName,
+        string defaultRoleName,
+        CancellationToken ct = default)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(ct);
+
+        var existingData = await context.Users
+            .Where(x => x.ExternalId == externalId)
+            .Where(x => x.IdentityProvider == identityProvider)
+            .Select(x =>
+                new
+                {
+                    x.Id,
+                    x.ExternalId,
+                    x.IdentityProvider,
+                    x.UserName,
+                    x.Email,
+                    x.DisplayName,
+                    x.IsInternalUser,
+                    x.IsSuperAdmin,
+                    x.IsEnabled,
+                    x.ArchivedTime,
+                    x.CreatedTime,
+                    Roles = x.UserRoles.Select(y =>
+                        new SemanticoRoleData
+                        {
+                            Id = y.Role.Id,
+                            Name = y.Role.Name,
+                            Description = y.Role.Description,
+                            IsSystemRole = y.Role.IsSystemRole,
+                            Level = y.Role.Level
+                        }).ToList()
+                })
+            .FirstOrDefaultAsync(ct);
+
+        if (existingData != null)
+        {
+            if (existingData.ArchivedTime.HasValue)
+            {
+                throw new SemanticoException("This account has been archived.");
+            }
+
+            if (!existingData.IsEnabled)
+            {
+                throw new SemanticoException("This account has been disabled.");
+            }
+
+            var now = DateTime.UtcNow;
+            await context.Users
+                .Where(x => x.Id == existingData.Id)
+                .ExecuteUpdateAsync(x => x.SetProperty(u => u.LastLoginAt, now), ct);
+
+            return new SemanticoUserData
+            {
+                Id = existingData.Id,
+                ExternalId = existingData.ExternalId,
+                IdentityProvider = existingData.IdentityProvider,
+                UserName = existingData.UserName,
+                Email = existingData.Email,
+                DisplayName = existingData.DisplayName,
+                IsInternalUser = existingData.IsInternalUser,
+                IsSuperAdmin = existingData.IsSuperAdmin,
+                IsEnabled = existingData.IsEnabled,
+                LastLoginAt = now,
+                CreatedTime = existingData.CreatedTime,
+                Roles = existingData.Roles
+            };
+        }
+
+        await roleService.SeedSystemRolesAsync(ct);
+
+        var defaultRole = await context.Roles
+            .Where(x => x.Name == defaultRoleName)
+            .FirstOrDefaultAsync(ct)
+            ?? throw new SemanticoException($"Default role '{defaultRoleName}' does not exist.");
+
+        var newUser = new SemanticoUser
+        {
+            ExternalId = externalId,
+            IdentityProvider = identityProvider,
+            UserName = userName,
+            Email = email,
+            DisplayName = displayName ?? userName,
+            IsInternalUser = false,
+            IsSuperAdmin = false,
+            IsEnabled = true,
+            LastLoginAt = DateTime.UtcNow
+        };
+
+        context.Users.Add(newUser);
+        await context.SaveChangesAsync(ct);
+
+        var userRole = new SemanticoUserRole
+        {
+            UserId = newUser.Id,
+            RoleId = defaultRole.Id,
+            AssignedAt = DateTime.UtcNow
+        };
+
+        context.UserRoles.Add(userRole);
+        await context.SaveChangesAsync(ct);
+
+        return new SemanticoUserData
+        {
+            Id = newUser.Id,
+            ExternalId = newUser.ExternalId,
+            IdentityProvider = newUser.IdentityProvider,
+            UserName = newUser.UserName,
+            Email = newUser.Email,
+            DisplayName = newUser.DisplayName,
+            IsInternalUser = newUser.IsInternalUser,
+            IsSuperAdmin = newUser.IsSuperAdmin,
+            IsEnabled = newUser.IsEnabled,
+            LastLoginAt = newUser.LastLoginAt,
+            CreatedTime = newUser.CreatedTime,
+            Roles = new List<SemanticoRoleData>
+            {
+                new()
+                {
+                    Id = defaultRole.Id,
+                    Name = defaultRole.Name,
+                    Description = defaultRole.Description,
+                    IsSystemRole = defaultRole.IsSystemRole,
+                    Level = defaultRole.Level
+                }
+            }
+        };
     }
 
     public async Task<BaseResponse> CreateExternalUserAsync(CreateExternalUserRequest request, CancellationToken ct = default)

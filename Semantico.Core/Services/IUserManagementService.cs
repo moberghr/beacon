@@ -36,6 +36,8 @@ public interface IUserManagementService
     /// </summary>
     Task<SemanticoUserData?> GetUserByExternalIdAsync(string externalId, CancellationToken ct = default);
 
+    Task<SemanticoUserData?> GetUserByExternalIdAndProviderAsync(string externalId, string? identityProvider, CancellationToken ct = default);
+
     /// <summary>
     /// Gets a user by their username.
     /// </summary>
@@ -50,6 +52,15 @@ public interface IUserManagementService
     /// Creates a new external user (authenticated via JWT/OAuth).
     /// </summary>
     Task<BaseResponse> CreateExternalUserAsync(CreateExternalUserRequest request, CancellationToken ct = default);
+
+    Task<SemanticoUserData> GetOrCreateExternalUserAsync(
+        string externalId,
+        string identityProvider,
+        string userName,
+        string? email,
+        string? displayName,
+        string defaultRoleName,
+        CancellationToken ct = default);
 
     /// <summary>
     /// Updates an existing user.
