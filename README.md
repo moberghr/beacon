@@ -1,7 +1,7 @@
-# Semantico
+# Beacon
 
 [![NuGet](https://img.shields.io/badge/NuGet-available-blue)](https://www.nuget.org/)
-[![Documentation](https://img.shields.io/badge/docs-github.io-blue)](https://mibu.github.io/semantico)
+[![Documentation](https://img.shields.io/badge/docs-github.io-blue)](https://moberghr.github.io/beacon)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![.NET](https://img.shields.io/badge/.NET-9.0-purple)](https://dotnet.microsoft.com/)
 
@@ -9,7 +9,7 @@
 
 **Transform your database monitoring through intelligent queries, flexible alerting, and cross-database orchestration**
 
-**Semantico** is a powerful .NET library that enables semantic alerts and notifications for databases with robust data orchestration capabilities. Monitor data quality, enforce business rules, automate reporting, and orchestrate complex ETL workflows across PostgreSQL, SQL Server, and MySQL databases.
+**Beacon** is a powerful .NET library that enables semantic alerts and notifications for databases with robust data orchestration capabilities. Monitor data quality, enforce business rules, automate reporting, and orchestrate complex ETL workflows across PostgreSQL, SQL Server, and MySQL databases.
 
 ## 🎯 Core Capabilities
 
@@ -36,47 +36,47 @@ Flexible, pluggable authorization system with role-based access control and cust
 
 ## 🚀 Quick Start
 
-Add Semantico to your ASP.NET application in under 30 minutes:
+Add Beacon to your ASP.NET application in under 30 minutes:
 
 1. **Install NuGet packages**
    ```bash
-   dotnet add package Semantico.Core.PostgreSql
-   dotnet add package Semantico.UI.AspNet
+   dotnet add package Beacon.Core.PostgreSql
+   dotnet add package Beacon.UI.AspNet
    ```
 
 2. **Configure in Program.cs**
    ```csharp
    // Step 1: Add core services and configure database provider
-   builder.Services.AddSemanticoServices(builder.Configuration, options =>
+   builder.Services.AddBeaconServices(builder.Configuration, options =>
        {
-           options.AddSemanticoScheduler<YourScheduler>();
-           options.BaseUrl = "https://your-domain.com/semantico"; // For notification links
+           options.AddBeaconScheduler<YourScheduler>();
+           options.BaseUrl = "https://your-domain.com/beacon"; // For notification links
            options.UseAI = true; // Enable AI features (optional)
        })
-       .UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
+       .UsePostgreSql(builder.Configuration.GetConnectionString("BeaconContext")!, "beacon");
 
    // Step 2: Add UI components
-   builder.Services.AddSemanticoUI();
+   builder.Services.AddBeaconUI();
 
    // Step 3: Add AI services (optional, requires LLM configuration)
-   builder.Services.AddSemanticoAI(builder.Configuration);
+   builder.Services.AddBeaconAI(builder.Configuration);
    ```
 
 3. **Add UI middleware**
    ```csharp
-   app.UseStaticFiles(); // Required for Semantico UI assets
-   app.UseSemanticoUI()
+   app.UseStaticFiles(); // Required for Beacon UI assets
+   app.UseBeaconUI()
        .UseBasicAuthentication("admin", "admin")
-       .AddBlazorUI("/semantico");
+       .AddBlazorUI("/beacon");
    ```
 
-4. **Access the UI** at `http://localhost:5000/semantico`
+4. **Access the UI** at `http://localhost:5000/beacon`
 
-📚 [View detailed quick start guide →](https://mibu.github.io/semantico/getting-started/quick-start)
+📚 [View detailed quick start guide →](https://moberghr.github.io/beacon/getting-started/quick-start)
 
 ## 🏗️ System Architecture
 
-Semantico follows Clean Architecture principles with clear separation of concerns:
+Beacon follows Clean Architecture principles with clear separation of concerns:
 
 ```mermaid
 graph TB
@@ -94,12 +94,12 @@ graph TB
     end
 
     subgraph Data["Data Access Layer"]
-        EFCore[Entity Framework Core<br/>SemanticoContext] ~~~ Dapper[Dapper<br/>Metadata Queries]
+        EFCore[Entity Framework Core<br/>BeaconContext] ~~~ Dapper[Dapper<br/>Metadata Queries]
     end
 
     subgraph Infrastructure["Infrastructure Layer"]
         PgSQL[(PostgreSQL)] ~~~ MSSQL[(SQL Server)] ~~~ MySQL[(MySQL)]
-        Scheduler[Job Scheduler<br/>via ISemanticoScheduler] ~~~ SQLiteVM[SQLite Virtual Tables<br/>Cross-DB Joins]
+        Scheduler[Job Scheduler<br/>via IBeaconScheduler] ~~~ SQLiteVM[SQLite Virtual Tables<br/>Cross-DB Joins]
     end
 
     BlazorUI --> Core
@@ -209,7 +209,7 @@ flowchart LR
 
 ### ⏱️ Scheduling & Automation
 - Cron expression support (every 5 min to monthly)
-- Pluggable scheduler via `ISemanticoScheduler` interface
+- Pluggable scheduler via `IBeaconScheduler` interface
 - Configurable timeouts and retry policies
 - Next execution time calculation
 
@@ -268,24 +268,24 @@ flowchart LR
 - Related tasks discovery from same query
 - Manual resolution with notes and user tracking
 
-[Explore all features →](https://mibu.github.io/semantico/features/)
+[Explore all features →](https://moberghr.github.io/beacon/features/)
 
 ## 📦 Installation
 
 ### NuGet Packages
 
-Semantico is distributed as NuGet packages. Install the database provider package for your needs:
+Beacon is distributed as NuGet packages. Install the database provider package for your needs:
 
 **For PostgreSQL (recommended):**
 ```bash
-dotnet add package Semantico.Core.PostgreSql
-dotnet add package Semantico.UI.AspNet
+dotnet add package Beacon.Core.PostgreSql
+dotnet add package Beacon.UI.AspNet
 ```
 
 **For SQL Server:**
 ```bash
-dotnet add package Semantico.Core.SqlServer
-dotnet add package Semantico.UI.AspNet
+dotnet add package Beacon.Core.SqlServer
+dotnet add package Beacon.UI.AspNet
 ```
 
 ### Basic Setup
@@ -293,38 +293,38 @@ dotnet add package Semantico.UI.AspNet
 Add to your ASP.NET Core `Program.cs`:
 
 ```csharp
-using Semantico.Core;
-using Semantico.Core.PostgreSql;
-using Semantico.UI;
+using Beacon.Core;
+using Beacon.Core.PostgreSql;
+using Beacon.UI;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Step 1: Add core services and configure database provider
-builder.Services.AddSemanticoServices(builder.Configuration, options =>
+builder.Services.AddBeaconServices(builder.Configuration, options =>
     {
-        options.AddSemanticoScheduler<YourScheduler>();
-        options.BaseUrl = "https://your-domain.com/semantico"; // For notification links
+        options.AddBeaconScheduler<YourScheduler>();
+        options.BaseUrl = "https://your-domain.com/beacon"; // For notification links
         options.UseAI = true; // Enable AI features (optional)
     })
-    .UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
+    .UsePostgreSql(builder.Configuration.GetConnectionString("BeaconContext")!, "beacon");
 // Or use SQL Server:
-// .UseSqlServer(builder.Configuration.GetConnectionString("SemanticoContextSql")!, "semantico");
+// .UseSqlServer(builder.Configuration.GetConnectionString("BeaconContextSql")!, "beacon");
 
 // Step 2: Add UI components
-builder.Services.AddSemanticoUI();
+builder.Services.AddBeaconUI();
 
 // Step 3: Add AI services (optional, requires LLM configuration)
-builder.Services.AddSemanticoAI(builder.Configuration);
+builder.Services.AddBeaconAI(builder.Configuration);
 
 var app = builder.Build();
 
 app.UseHttpsRedirection();
-app.UseStaticFiles(); // Required: Serves Semantico UI assets
+app.UseStaticFiles(); // Required: Serves Beacon UI assets
 
-// Configure Semantico UI
-app.UseSemanticoUI()
+// Configure Beacon UI
+app.UseBeaconUI()
     .UseBasicAuthentication("admin", "admin")
-    .AddBlazorUI("/semantico");
+    .AddBlazorUI("/beacon");
 
 app.Run();
 ```
@@ -334,9 +334,9 @@ Add connection strings and encryption key to `appsettings.json`:
 ```json
 {
   "ConnectionStrings": {
-    "SemanticoContext": "Host=localhost;Database=semantico;Username=postgres;Password=yourpassword"
+    "BeaconContext": "Host=localhost;Database=beacon;Username=postgres;Password=yourpassword"
   },
-  "Semantico": {
+  "Beacon": {
     "EncryptionKey": "your-secure-32-character-key-here",
     "LLM": {
       "Provider": "OpenAI",
@@ -360,31 +360,31 @@ openssl rand -base64 32
 
 ⚠️ **Important:** The `EncryptionKey` is required for encrypting sensitive data like connection strings.
 
-📚 [View detailed installation guide →](https://mibu.github.io/semantico/getting-started/installation)
+📚 [View detailed installation guide →](https://moberghr.github.io/beacon/getting-started/installation)
 
 ## 📖 Documentation
 
 - **Getting Started**
-  - [Installation Guide](https://mibu.github.io/semantico/getting-started/installation) - NuGet package setup
-  - [Quick Start](https://mibu.github.io/semantico/getting-started/quick-start) - First query in 30 minutes
-  - [Configuration](https://mibu.github.io/semantico/getting-started/configuration) - Connection strings and options
+  - [Installation Guide](https://moberghr.github.io/beacon/getting-started/installation) - NuGet package setup
+  - [Quick Start](https://moberghr.github.io/beacon/getting-started/quick-start) - First query in 30 minutes
+  - [Configuration](https://moberghr.github.io/beacon/getting-started/configuration) - Connection strings and options
 
 - **Features**
-  - [Projects](https://mibu.github.io/semantico/features/projects) - Database connection management
-  - [Queries](https://mibu.github.io/semantico/features/queries) - Query creation and parameters
-  - [Multi-Step Queries](https://mibu.github.io/semantico/features/multi-step-queries) - Advanced query chaining
-  - [Subscriptions](https://mibu.github.io/semantico/features/subscriptions) - Scheduled execution
-  - [Notifications](https://mibu.github.io/semantico/features/notifications) - Email, Teams, Jira delivery
-  - [Tasks](https://mibu.github.io/semantico/features/tasks) - Alerting task management
+  - [Projects](https://moberghr.github.io/beacon/features/projects) - Database connection management
+  - [Queries](https://moberghr.github.io/beacon/features/queries) - Query creation and parameters
+  - [Multi-Step Queries](https://moberghr.github.io/beacon/features/multi-step-queries) - Advanced query chaining
+  - [Subscriptions](https://moberghr.github.io/beacon/features/subscriptions) - Scheduled execution
+  - [Notifications](https://moberghr.github.io/beacon/features/notifications) - Email, Teams, Jira delivery
+  - [Tasks](https://moberghr.github.io/beacon/features/tasks) - Alerting task management
 
 - **Advanced**
-  - [Query Chaining](https://mibu.github.io/semantico/advanced/query-chaining) - Cross-project queries
-  - [Multi-Tenant Deployments](https://mibu.github.io/semantico/advanced/multi-tenant) - Schema-agnostic configuration
-  - [Architecture](https://mibu.github.io/semantico/advanced/architecture) - Clean Architecture deep-dive
+  - [Query Chaining](https://moberghr.github.io/beacon/advanced/query-chaining) - Cross-project queries
+  - [Multi-Tenant Deployments](https://moberghr.github.io/beacon/advanced/multi-tenant) - Schema-agnostic configuration
+  - [Architecture](https://moberghr.github.io/beacon/advanced/architecture) - Clean Architecture deep-dive
 
 - **Reference**
-  - [API Services](https://mibu.github.io/semantico/api/services) - Service interfaces
-  - [Troubleshooting](https://mibu.github.io/semantico/troubleshooting/common-issues) - Common issues and solutions
+  - [API Services](https://moberghr.github.io/beacon/api/services) - Service interfaces
+  - [Troubleshooting](https://moberghr.github.io/beacon/troubleshooting/common-issues) - Common issues and solutions
 
 ## 🎯 Common Use Cases
 
@@ -440,7 +440,7 @@ Monitor subscriptions for unusual patterns using statistical methods (Z-score, I
 - MySql.Data
 
 ### Job Scheduling
-- ISemanticoScheduler interface (implement with Hangfire, Quartz.NET, or custom)
+- IBeaconScheduler interface (implement with Hangfire, Quartz.NET, or custom)
 - Cronos (cron expression parsing)
 
 ### AI & Machine Learning
@@ -462,8 +462,8 @@ Monitor subscriptions for unusual patterns using statistical methods (Z-score, I
 ## 🔧 Requirements
 
 - **.NET 9.0** or later
-- **PostgreSQL 12+** or **SQL Server 2019+** for Semantico metadata database
-- **Job scheduler** implementing `ISemanticoScheduler` (e.g., Hangfire, Quartz.NET, or custom)
+- **PostgreSQL 12+** or **SQL Server 2019+** for Beacon metadata database
+- **Job scheduler** implementing `IBeaconScheduler` (e.g., Hangfire, Quartz.NET, or custom)
 - **Encryption key** (32-character key for AES-256 encryption) - **Required**
 - **(Optional)** LLM API key (OpenAI, Anthropic, or Azure OpenAI) for AI-powered features
 - **(Optional)** Email provider for email notifications (built-in support for any SMTP-compatible service)
@@ -484,17 +484,17 @@ Enable task creation to track issues, add comments, and manage the resolution li
 
 ## 🤝 Support and Contributing
 
-- **Issues** - [Report bugs or request features](https://github.com/MiBu/semantico/issues)
-- **Discussions** - [Ask questions and share ideas](https://github.com/MiBu/semantico/discussions)
-- **Contributing** - [Contribution guidelines](https://mibu.github.io/semantico/contributing/guidelines)
+- **Issues** - [Report bugs or request features](https://github.com/moberghr/beacon/issues)
+- **Discussions** - [Ask questions and share ideas](https://github.com/moberghr/beacon/discussions)
+- **Contributing** - [Contribution guidelines](https://moberghr.github.io/beacon/contributing/guidelines)
 
 ---
 
 ## 📚 Resources
 
-**Documentation**: [https://mibu.github.io/semantico](https://mibu.github.io/semantico)
-**Repository**: [https://github.com/MiBu/semantico](https://github.com/MiBu/semantico)
+**Documentation**: [https://moberghr.github.io/beacon](https://moberghr.github.io/beacon)
+**Repository**: [https://github.com/moberghr/beacon](https://github.com/moberghr/beacon)
 **Version**: 1.0
 **Copyright**: © 2025
 
-Thank you for choosing Semantico! We hope you find it invaluable for managing your database monitoring, alerting, and orchestration needs.
+Thank you for choosing Beacon! We hope you find it invaluable for managing your database monitoring, alerting, and orchestration needs.

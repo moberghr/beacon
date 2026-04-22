@@ -1,0 +1,397 @@
+@using Beacon.Core.Models.Queries
+@using Beacon.Core.Data.Enums
+@using System.Text
+@using Microsoft.JSInterop
+
+@inject IJSRuntime JS
+
+<MudPaper Class="pa-4" Outlined="true">
+    <MudStack Spacing="3">
+        <MudText Typo="Typo.h6">
+            <MudIcon Icon="@Icons.Material.Filled.AccountTree" Class="mr-2" />
+            Query Flow Diagram
+        </MudText>
+        
+        @if (Query?.Steps?.Any() == true)
+        {
+            <div id="@_mermaidId" class="mermaid-container" style="min-height: 300px;">
+                @GetMermaidDiagram()
+            </div>
+        }
+        else
+        {
+            <MudAlert Severity="Severity.Info" Dense="true">
+                Add query steps to see the data flow diagram
+            </MudAlert>
+        }
+    </MudStack>
+</MudPaper>
+
+@code {
+    [Parameter] public QueryData? Query { get; set; }
+
+    [CascadingParameter(Name = "IsDarkMode")]
+    public bool IsDarkMode { get; set; }
+
+    private readonly string _mermaidId = $"mermaid-{Guid.NewGuid():N}";
+    private bool _lastDarkMode = false;
+    private bool _needsRerender = false;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _lastDarkMode = IsDarkMode;
+        }
+
+        if ((firstRender || _needsRerender) && Query?.Steps?.Any() == true)
+        {
+            _needsRerender = false;
+            await RenderMermaidDiagram();
+        }
+    }
+
+    protected override void OnParametersSet()
+    {
+        // Detect dark mode change
+        if (IsDarkMode != _lastDarkMode)
+        {
+            _lastDarkMode = IsDarkMode;
+            _needsRerender = true;
+            // Force re-render on next render cycle
+            StateHasChanged();
+        }
+    }
+
+    private async Task RenderMermaidDiagram()
+    {
+        try
+        {
+            var mermaidCode = GetMermaidDiagram();
+            var theme = IsDarkMode ? "dark" : "default";
+            await JS.InvokeVoidAsync("renderMermaid", _mermaidId, mermaidCode, theme);
+        }
+        catch
+        {
+            // Silently ignore Mermaid rendering errors
+        }
+    }
+
+    private string GetMermaidDiagram()
+    {
+        if (Query?.Steps == null || !Query.Steps.Any())
+        {
+            return "";
+        }
+
+        var sb = new StringBuilder();
+        sb.AppendLine("graph TD");
+        
+        // Add steps with source tables
+        var orderedSteps = Query.Steps.OrderBy(s => s.StepOrder).ToList();
+        
+        for (var i = 0; i < orderedSteps.Count; i++)
+        {
+            var step = orderedSteps[i];
+            var stepId = $"step{step.StepOrder}";
+            var projectColor = GetProjectColor(step.DatabaseEngineType);
+            var sourceTables = ExtractSourceTables(step.SqlValue);
+            
+            // Add source table nodes
+            foreach (var table in sourceTables)
+            {
+                var tableId = $"table_{step.StepOrder}_{SanitizeId(table)}";
+                sb.AppendLine($"    {tableId}[\"{table}<br/>Source Table\"]");
+                sb.AppendLine($"    class {tableId} sourceTable");
+            }
+            
+            // Step node with more details
+            var stepLabel = $"{step.Name}<br/>({step.DataSourceName})<br/>{step.DatabaseEngineDescription}";
+            if (sourceTables.Any())
+            {
+                stepLabel += $"<br/>Tables: {string.Join(", ", sourceTables)}";
+            }
+            sb.AppendLine($"    {stepId}[\"{stepLabel}\"]");
+            
+            // Connect source tables to step
+            foreach (var table in sourceTables)
+            {
+                var tableId = $"table_{step.StepOrder}_{SanitizeId(table)}";
+                sb.AppendLine($"    {tableId} --> {stepId}");
+            }
+            
+            // Result table
+            sb.AppendLine($"    {stepId} --> result{step.StepOrder}[\"@result{step.StepOrder}<br/>Intermediate Result\"]");
+            
+            // Style the step based on database engine
+            sb.AppendLine($"    class {stepId} {projectColor}");
+            sb.AppendLine($"    class result{step.StepOrder} resultTable");
+        }
+        
+        // Add final query if it exists
+        if (!string.IsNullOrEmpty(Query.FinalQuery))
+        {
+            var relationships = AnalyzeQueryRelationships(Query.FinalQuery);
+            var finalLabel = "Final Query<br/>" + string.Join("<br/>", relationships);
+            
+            sb.AppendLine($"    final[\"{finalLabel}\"]");
+            sb.AppendLine("    finalResult[\"Final Result<br/>Combined Data\"]");
+            
+            // Connect result tables to final query with relationship labels
+            var resultConnections = ExtractResultTableConnections(Query.FinalQuery);
+            foreach (var connection in resultConnections)
+            {
+                sb.AppendLine($"    result{connection.StepOrder} -->|{connection.Relationship}| final");
+            }
+            
+            sb.AppendLine("    final --> finalResult");
+            sb.AppendLine("    class final finalQuery");
+            sb.AppendLine("    class finalResult finalResult");
+        }
+        
+        // Add styling
+        sb.AppendLine();
+        sb.AppendLine("    classDef postgresql fill:#336791,stroke:#fff,stroke-width:2px,color:#fff");
+        sb.AppendLine("    classDef mysql fill:#4479A1,stroke:#fff,stroke-width:2px,color:#fff");
+        sb.AppendLine("    classDef sqlserver fill:#CC2927,stroke:#fff,stroke-width:2px,color:#fff");
+        sb.AppendLine("    classDef sourceTable fill:#FFF3E0,stroke:#F57C00,stroke-width:2px,color:#E65100");
+        sb.AppendLine("    classDef resultTable fill:#E3F2FD,stroke:#1976D2,stroke-width:2px,color:#1565C0");
+        sb.AppendLine("    classDef finalQuery fill:#F3E5F5,stroke:#7B1FA2,stroke-width:2px,color:#4A148C");
+        sb.AppendLine("    classDef finalResult fill:#E8F5E8,stroke:#388E3C,stroke-width:2px,color:#1B5E20");
+        
+        return sb.ToString();
+    }
+
+    private static string GetProjectColor(DatabaseEngineType? dbType)
+    {
+        return dbType switch
+        {
+            DatabaseEngineType.PostgreSQL => "postgresql",
+            DatabaseEngineType.MySQL => "mysql",
+            DatabaseEngineType.MSSQL => "sqlserver",
+            null => "generic", // For non-database data sources like CloudWatch
+            _ => "postgresql"
+        };
+    }
+
+    private static List<string> ExtractSourceTables(string sqlQuery)
+    {
+        if (string.IsNullOrWhiteSpace(sqlQuery))
+            return new List<string>();
+
+        var tables = new List<string>();
+        var sql = sqlQuery.ToLowerInvariant();
+        
+        // Enhanced regex patterns to extract table names from FROM and JOIN clauses
+        // Handles schema.table notation and quoted identifiers
+        var fromPattern = @"from\s+(?:[`""\[])?([a-zA-Z_][a-zA-Z0-9_]*\.?[a-zA-Z_][a-zA-Z0-9_]*)(?:[`""\]])?(?:\s+(?:as\s+)?[a-zA-Z_][a-zA-Z0-9_]*)?\s*";
+        var joinPattern = @"join\s+(?:[`""\[])?([a-zA-Z_][a-zA-Z0-9_]*\.?[a-zA-Z_][a-zA-Z0-9_]*)(?:[`""\]])?(?:\s+(?:as\s+)?[a-zA-Z_][a-zA-Z0-9_]*)?\s*";
+        
+        var fromMatches = System.Text.RegularExpressions.Regex.Matches(sql, fromPattern);
+        var joinMatches = System.Text.RegularExpressions.Regex.Matches(sql, joinPattern);
+        
+        foreach (System.Text.RegularExpressions.Match match in fromMatches)
+        {
+            if (match.Groups.Count > 1 && !string.IsNullOrWhiteSpace(match.Groups[1].Value))
+            {
+                var tableName = match.Groups[1].Value.Trim();
+                if (!tableName.StartsWith("@result") && !tables.Contains(tableName))
+                {
+                    tables.Add(tableName);
+                }
+            }
+        }
+        
+        foreach (System.Text.RegularExpressions.Match match in joinMatches)
+        {
+            if (match.Groups.Count > 1 && !string.IsNullOrWhiteSpace(match.Groups[1].Value))
+            {
+                var tableName = match.Groups[1].Value.Trim();
+                if (!tableName.StartsWith("@result") && !tables.Contains(tableName))
+                {
+                    tables.Add(tableName);
+                }
+            }
+        }
+        
+        return tables;
+    }
+
+    private static string SanitizeId(string input)
+    {
+        if (string.IsNullOrWhiteSpace(input))
+            return "unknown";
+            
+        return System.Text.RegularExpressions.Regex.Replace(input, @"[^a-zA-Z0-9_]", "_");
+    }
+
+    private static List<string> AnalyzeQueryRelationships(string finalQuery)
+    {
+        if (string.IsNullOrWhiteSpace(finalQuery))
+            return new List<string>();
+
+        var relationships = new List<string>();
+        var sql = finalQuery.ToLowerInvariant();
+        
+        // Detect different types of relationships with priority order (more specific first)
+        if (sql.Contains("not exists"))
+            relationships.Add("NOT EXISTS");
+        else if (sql.Contains("exists"))
+            relationships.Add("EXISTS");
+        
+        if (sql.Contains("join"))
+        {
+            if (sql.Contains("left outer join") || sql.Contains("left join"))
+                relationships.Add("LEFT JOIN");
+            if (sql.Contains("right outer join") || sql.Contains("right join"))
+                relationships.Add("RIGHT JOIN");
+            if (sql.Contains("full outer join") || sql.Contains("full join"))
+                relationships.Add("FULL JOIN");
+            if (sql.Contains("inner join"))
+                relationships.Add("INNER JOIN");
+            else if (sql.Contains("join") && !relationships.Any(r => r.Contains("JOIN")))
+                relationships.Add("JOIN");
+        }
+            
+        if (sql.Contains("in ("))
+            relationships.Add("IN");
+            
+        if (sql.Contains("not in"))
+            relationships.Add("NOT IN");
+            
+        if (sql.Contains("union"))
+            relationships.Add("UNION");
+            
+        if (sql.Contains("intersect"))
+            relationships.Add("INTERSECT");
+            
+        if (sql.Contains("except") || sql.Contains("minus"))
+            relationships.Add("EXCEPT");
+
+        return relationships.Distinct().ToList();
+    }
+
+    private static List<ResultTableConnection> ExtractResultTableConnections(string finalQuery)
+    {
+        if (string.IsNullOrWhiteSpace(finalQuery))
+            return new List<ResultTableConnection>();
+
+        var connections = new List<ResultTableConnection>();
+        var sql = finalQuery.ToLowerInvariant();
+        
+        // Find all @result references
+        var resultPattern = @"@result(\d+)";
+        var matches = System.Text.RegularExpressions.Regex.Matches(sql, resultPattern);
+        
+        foreach (System.Text.RegularExpressions.Match match in matches)
+        {
+            if (match.Groups.Count > 1 && int.TryParse(match.Groups[1].Value, out int stepOrder))
+            {
+                var relationship = DetermineRelationshipType(sql, match.Value);
+                
+                if (!connections.Any(c => c.StepOrder == stepOrder))
+                {
+                    connections.Add(new ResultTableConnection
+                    {
+                        StepOrder = stepOrder,
+                        Relationship = relationship
+                    });
+                }
+            }
+        }
+        
+        return connections;
+    }
+
+    private static string DetermineRelationshipType(string sql, string resultRef)
+    {
+        var index = sql.IndexOf(resultRef);
+        if (index == -1) return "SELECT";
+        
+        // Look at context around the @result reference
+        var start = Math.Max(0, index - 50);
+        var end = Math.Min(sql.Length, index + resultRef.Length + 50);
+        var context = sql.Substring(start, end - start);
+        
+        if (context.Contains("not exists"))
+            return "NOT EXISTS";
+        if (context.Contains("exists"))
+            return "EXISTS";
+        if (context.Contains("join"))
+            return "JOIN";
+        if (context.Contains("in ("))
+            return "IN";
+        if (context.Contains("not in"))
+            return "NOT IN";
+        if (context.Contains("union"))
+            return "UNION";
+        if (context.Contains("from"))
+            return "FROM";
+            
+        return "SELECT";
+    }
+
+    private class ResultTableConnection
+    {
+        public int StepOrder { get; set; }
+        public string Relationship { get; set; } = "";
+    }
+}
+
+<script>
+    window.renderMermaid = async function(elementId, mermaidCode, theme) {
+        theme = theme || 'default';
+        const element = document.getElementById(elementId);
+        if (!element || !mermaidCode.trim()) return;
+
+        try {
+            // Initialize mermaid with the specified theme
+            if (typeof mermaid !== 'undefined') {
+                // Clear previous content completely
+                element.innerHTML = '';
+                element.removeAttribute('data-processed');
+
+                // Reinitialize Mermaid with the new theme
+                mermaid.initialize({
+                    startOnLoad: false,
+                    theme: theme,
+                    flowchart: {
+                        htmlLabels: true,
+                        curve: 'basis'
+                    }
+                });
+
+                // Small delay to ensure initialization completes
+                await new Promise(function(resolve) { setTimeout(resolve, 10); });
+
+                // Include theme and timestamp in render ID to force fresh render
+                const renderId = elementId + '-' + theme + '-' + Date.now();
+                const result = await mermaid.render(renderId, mermaidCode);
+                element.innerHTML = result.svg;
+
+                console.log('Mermaid diagram rendered with theme: ' + theme);
+            }
+        } catch (error) {
+            console.error('Mermaid rendering error:', error);
+            element.innerHTML = '<div class="mud-alert mud-alert-outlined mud-alert-outlined-error">' +
+                '<div class="mud-alert-message">Error rendering diagram: ' + error.message + '</div>' +
+                '</div>';
+        }
+    };
+</script>
+
+<style>
+    .mermaid-container {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        background-color: transparent;
+        border-radius: 4px;
+        padding: 1rem;
+    }
+
+    .mermaid-container svg {
+        max-width: 100%;
+        height: auto;
+    }
+</style>

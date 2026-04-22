@@ -6,7 +6,7 @@ Added execution time metrics and historical data to both the Dashboard (Home pag
 ## Backend Changes
 
 ### 1. Extended QueryStatisticsModels.cs
-**File**: Semantico.Core/Models/QueryExecutionHistory/QueryStatisticsModels.cs
+**File**: Beacon.Core/Models/QueryExecutionHistory/QueryStatisticsModels.cs
 
 **Added to DashboardStatisticsData**:
 ```csharp
@@ -29,7 +29,7 @@ public class ExecutionTimeDataPoint
 ```
 
 ### 2. Updated StatisticsService
-**File**: Semantico.Core/Services/StatisticsService.cs
+**File**: Beacon.Core/Services/StatisticsService.cs
 
 **Added Calculations** (lines 89-112):
 ```csharp
@@ -68,11 +68,11 @@ ExecutionTimeHistory = executionTimeHistory
 ```
 
 ### 3. Extended QueryDetailsData
-**File**: Semantico.Core/Services/QueryService.cs
+**File**: Beacon.Core/Services/QueryService.cs
 
 **Added Using Statement** (line 17):
 ```csharp
-using Semantico.Core.Models.QueryExecutionHistory;
+using Beacon.Core.Models.QueryExecutionHistory;
 ```
 
 **Added Properties to QueryDetailsData** (lines 85-92):
@@ -85,7 +85,7 @@ public List<ExecutionTimeDataPoint> ExecutionTimeHistory { get; set; } = new();
 ```
 
 ### 4. Updated QueryService.GetQueryDetails()
-**File**: Semantico.Core/Services/QueryService.cs
+**File**: Beacon.Core/Services/QueryService.cs
 
 **Added Calculations** (lines 380-409):
 ```csharp

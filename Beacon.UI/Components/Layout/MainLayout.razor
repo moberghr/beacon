@@ -1,0 +1,236 @@
+@using Blazored.LocalStorage
+@using Color = MudBlazor.Color
+@using Beacon.Core
+@inherits LayoutComponentBase
+
+@* Required *@
+<MudThemeProvider IsDarkMode="@_isDark" />
+<MudPopoverProvider />
+
+@* Needed for dialogs *@
+<MudDialogProvider />
+
+@* Needed for snackbars *@
+<MudSnackbarProvider />
+
+<MudLayout Class="@($"beacon-layout {(_isDark ? "mud-theme-dark" : "")}")">
+    <MudAppBar Elevation="0" Dense="false" Class="beacon-appbar">
+        <div class="appbar-brand-spacer"></div>
+        <MudSpacer />
+        <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+            <MudTooltip Text="@(_isDark ? "Light Mode" : "Dark Mode")" Placement="Placement.Bottom">
+                <MudIconButton Icon="@(_isDark ? Icons.Material.Rounded.LightMode : Icons.Material.Rounded.DarkMode)"
+                               Color="Color.Inherit"
+                               Size="Size.Small"
+                               OnClick="@ChangeTheme"
+                               Class="appbar-icon-btn" />
+            </MudTooltip>
+            <MudTooltip Text="Settings" Placement="Placement.Bottom">
+                <MudIconButton Icon="@Icons.Material.Rounded.Settings"
+                               Color="Color.Inherit"
+                               Size="Size.Small"
+                               OnClick="@NavigateToSettings"
+                               Class="appbar-icon-btn" />
+            </MudTooltip>
+            <MudDivider Vertical="true" FlexItem="true" Class="appbar-divider" />
+            @if (UserContext.IsAuthenticated)
+            {
+                <MudMenu AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
+                    <ActivatorContent>
+                        <MudChip T="string" Color="Color.Primary" Variant="Variant.Filled" Size="Size.Small" Class="appbar-user-chip">
+                            <MudAvatar Size="Size.Small" Style="height: 22px; width: 22px; font-size: 0.7rem;" Color="Color.Secondary">@GetUserInitial()</MudAvatar>
+                            <MudText Typo="Typo.body2" Class="ml-2">@(UserContext.DisplayName ?? UserContext.UserName ?? "User")</MudText>
+                        </MudChip>
+                    </ActivatorContent>
+                    <ChildContent>
+                        <MudMenuItem Icon="@Icons.Material.Rounded.Settings" OnClick="NavigateToSettings">Settings</MudMenuItem>
+                        <MudDivider Class="my-1" />
+                        <MudMenuItem Icon="@Icons.Material.Rounded.Logout" OnClick="HandleLogout">Logout</MudMenuItem>
+                    </ChildContent>
+                </MudMenu>
+            }
+            else
+            {
+                <MudChip T="string" Color="Color.Default" Variant="Variant.Outlined" Size="Size.Small" Class="appbar-user-chip">
+                    <MudText Typo="Typo.body2">Guest</MudText>
+                </MudChip>
+            }
+        </MudStack>
+    </MudAppBar>
+    <MudDrawer Open="true" ClipMode="DrawerClipMode.Never" Elevation="0" Width="250px" Class="beacon-drawer">
+        <div class="drawer-header-wrapper">
+            <div class="drawer-brand-header">
+                <img src="../_content/Beacon.UI/favicon.svg" alt="Beacon" class="drawer-logo" />
+                <div class="drawer-brand-text">
+                    <span class="drawer-title">Beacon</span>
+                    <span class="drawer-version">v0.99</span>
+                </div>
+            </div>
+        </div>
+        <MudNavMenu Class="drawer-nav" Bordered="false">
+            <MudNavLink Href="@($"{GetBaseHref()}dashboard")" Icon="@Icons.Material.Rounded.SpaceDashboard" IconColor="Color.Default">Home</MudNavLink>
+            <MudNavLink Href="@($"{GetBaseHref()}control-tower")" Icon="@Icons.Material.Rounded.MonitorHeart" IconColor="Color.Default">Control Tower</MudNavLink>
+            <MudNavLink Href="@($"{GetBaseHref()}dashboards")" Icon="@Icons.Material.Rounded.Widgets" IconColor="Color.Default">Dashboards</MudNavLink>
+            <MudNavLink Href="@($"{GetBaseHref()}data-sources")" Icon="@Icons.Material.Rounded.Storage" IconColor="Color.Default">Data Sources</MudNavLink>
+            @if (Configuration?.UseAI == true)
+            {
+                <MudNavLink Href="@($"{GetBaseHref()}ai-actors")" Icon="@Icons.Material.Rounded.SmartToy" IconColor="Color.Default">AI Actors</MudNavLink>
+            }
+            <MudNavGroup Title="Alerts" Icon="@Icons.Material.Rounded.NotificationsActive" IconColor="Color.Default" Expanded="true" HideExpandIcon="true">
+                <MudNavLink Href="@($"{GetBaseHref()}recipients")" Icon="@Icons.Material.Rounded.People" IconColor="Color.Default">Recipients</MudNavLink>
+                <MudNavLink Href="@($"{GetBaseHref()}queries")" Icon="@Icons.Material.Rounded.ManageSearch" IconColor="Color.Default">Queries</MudNavLink>
+                <MudNavLink Href="@($"{GetBaseHref()}subscriptions")" Icon="@Icons.Material.Rounded.Schedule" IconColor="Color.Default">Subscriptions</MudNavLink>
+                <MudNavLink Href="@($"{GetBaseHref()}notifications")" Icon="@Icons.Material.Rounded.Notifications" IconColor="Color.Default">Notifications</MudNavLink>
+                <MudNavLink Href="@($"{GetBaseHref()}tasks")" Icon="@Icons.Material.Rounded.TaskAlt" IconColor="Color.Default">Tasks</MudNavLink>
+            </MudNavGroup>
+            <MudNavLink Href="@($"{GetBaseHref()}data-quality")" Icon="@Icons.Material.Rounded.VerifiedUser" IconColor="Color.Default">
+                Data Quality
+                <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Filled" Style="font-size: 0.55rem; height: 16px; margin-left: 4px; border-radius: 4px;">BETA</MudChip>
+            </MudNavLink>
+            <MudNavLink Href="@($"{GetBaseHref()}beacon/projects")" Icon="@Icons.Material.Rounded.FolderSpecial" IconColor="Color.Default">Projects</MudNavLink>
+            <MudNavLink Href="@($"{GetBaseHref()}data-migration")" Icon="@Icons.Material.Rounded.SwapHoriz" IconColor="Color.Default">Data Migration</MudNavLink>
+            @if (Configuration?.ApprovalWorkflow.Enabled == true && HasAdminRole())
+            {
+                <MudNavLink Href="@($"{GetBaseHref()}approvals")" Icon="@Icons.Material.Rounded.Approval" IconColor="Color.Default">
+                    Approvals
+                    @if (_pendingApprovalCount > 0)
+                    {
+                        <MudBadge Content="@_pendingApprovalCount" Color="Color.Error" Overlap="true" Class="ml-2" />
+                    }
+                </MudNavLink>
+            }
+            @if (Configuration?.UserManagement.Enabled == true && HasAdminRole())
+            {
+                <MudDivider Class="my-2"/>
+                <MudNavLink Href="@($"{GetBaseHref()}users")" Icon="@Icons.Material.Rounded.AdminPanelSettings" IconColor="Color.Default">User Management</MudNavLink>
+            }
+            <MudNavGroup Title="MCP" Icon="@Icons.Material.Rounded.Hub" IconColor="Color.Default" Expanded="true" HideExpandIcon="true">
+                <MudNavLink Href="@($"{GetBaseHref()}beacon/data-catalog")" Icon="@Icons.Material.Rounded.MenuBook" IconColor="Color.Default">Data Catalog</MudNavLink>
+                @if (HasAdminRole())
+                {
+                    <MudNavLink Href="@($"{GetBaseHref()}beacon/settings/api-keys")" Icon="@Icons.Material.Rounded.Key" IconColor="Color.Default">API Keys</MudNavLink>
+                    <MudNavLink Href="@($"{GetBaseHref()}beacon/settings/mcp")" Icon="@Icons.Material.Rounded.Tune" IconColor="Color.Default">MCP Settings</MudNavLink>
+                    <MudNavLink Href="@($"{GetBaseHref()}beacon/settings/mcp/playground")" Icon="@Icons.Material.Rounded.Terminal" IconColor="Color.Default">MCP Playground</MudNavLink>
+                    <MudNavLink Href="@($"{GetBaseHref()}beacon/settings/mcp-learning")" Icon="@Icons.Material.Rounded.Psychology" IconColor="Color.Default">MCP Learning</MudNavLink>
+                }
+            </MudNavGroup>
+            @if (HasAdminRole())
+            {
+                <MudNavLink Href="@($"{GetBaseHref()}admin/settings")" Icon="@Icons.Material.Rounded.Settings" IconColor="Color.Default">Admin Settings</MudNavLink>
+            }
+            <MudDivider Class="my-2"/>
+            <MudNavLink Href="@($"{GetBaseHref()}about")" Icon="@Icons.Material.Rounded.Info" IconColor="Color.Default">About</MudNavLink>
+        </MudNavMenu>
+    </MudDrawer>
+    <MudMainContent Class="pb-12">
+        <CascadingValue Value="@_isDark" Name="IsDarkMode">
+            @Body
+        </CascadingValue>
+    </MudMainContent>
+</MudLayout>
+
+<div id="blazor-error-ui">
+    An unhandled error has occurred.
+    <a href="" class="reload">Reload</a>
+    <a class="dismiss">X</a>
+</div>
+
+@inject IBrowserViewportService BrowserViewportService
+@inject ILocalStorageService LocalStorage
+@inject IJSRuntime JS
+@inject NavigationManager NavigationManager
+@inject BeaconConfiguration Configuration
+@inject Beacon.Core.Authorization.IBeaconUserContext UserContext
+
+@inject Beacon.Core.Services.IQueryApprovalService ApprovalService
+
+@code
+{
+    private bool _isDark = true;
+    private Breakpoint _breakpoint;
+    private int _pendingApprovalCount;
+
+    private string GetBaseHref()
+    {
+        var baseUri = new Uri(NavigationManager.BaseUri);
+        var path = baseUri.AbsolutePath;
+        return path.EndsWith("/") ? path : $"{path}/";
+    }
+
+    private string GetUserInitial()
+    {
+        var name = UserContext.DisplayName ?? UserContext.UserName;
+        if (string.IsNullOrWhiteSpace(name))
+            return "?";
+
+        return name.Substring(0, 1).ToUpperInvariant();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _breakpoint = await BrowserViewportService.GetCurrentBreakpointAsync();
+            _isDark = await LocalStorage.GetItemAsync<string>("IsDark") == "True";
+            await LoadTheme();
+
+            if (Configuration?.ApprovalWorkflow.Enabled == true && HasAdminRole())
+            {
+                _pendingApprovalCount = await ApprovalService.GetPendingCountAsync();
+            }
+
+            StateHasChanged();
+        }
+
+        await base.OnAfterRenderAsync(firstRender);
+    }
+
+    private async Task ChangeTheme()
+    {
+        _isDark = !_isDark;
+        await LocalStorage.SetItemAsync("IsDark", _isDark.ToString());
+        await LoadTheme();
+    }
+
+    private async Task LoadTheme()
+    {
+        // Load code highlighting CSS
+        if (_isDark)
+        {
+            await JS.InvokeVoidAsync("loadCss", "../_content/Beacon.UI/highlight/styles/github-dark.css");
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("loadCss", "../_content/Beacon.UI/highlight/styles/github.css");
+        }
+
+        // Update Mermaid theme
+        try
+        {
+            var theme = _isDark ? "dark" : "default";
+            await JS.InvokeVoidAsync("updateMermaidTheme", theme);
+        }
+        catch
+        {
+            // Silently ignore if mermaid is not yet loaded
+        }
+    }
+
+    private void HandleLogout()
+    {
+        NavigationManager.NavigateTo($"{GetBaseHref()}api/auth/signout", forceLoad: true);
+    }
+
+    private void NavigateToSettings()
+    {
+        NavigationManager.NavigateTo($"{GetBaseHref()}settings");
+    }
+
+    private bool HasAdminRole()
+    {
+        // Check if user has Admin role or is SuperAdmin
+        // For now, check claims for "Admin" role
+        return UserContext.HasClaim("role", "Admin") ||
+               UserContext.HasClaim("http://schemas.microsoft.com/ws/2008/06/identity/claims/role", "Admin");
+    }
+}

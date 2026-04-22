@@ -1,0 +1,97 @@
+@using Beacon.Core.Models.DataSources
+@using Beacon.Core.Services
+@inject IDataSourceService DataSourceService
+
+@if (MultiSelection)
+{
+    <MudSelect T="int"
+               Label="@Label"
+               MultiSelection="true"
+               SelectedValues="_selectedIds"
+               SelectedValuesChanged="OnMultiSelectionChanged"
+               Variant="Variant.Outlined"
+               Required="@Required"
+               RequiredError="@RequiredError"
+               HelperText="@HelperText"
+               AnchorOrigin="Origin.BottomLeft">
+        @foreach (var ds in _dataSources)
+        {
+            <MudSelectItem T="int" Value="@ds.Id">@FormatName(ds)</MudSelectItem>
+        }
+    </MudSelect>
+}
+else
+{
+    <MudSelect T="int?"
+               Value="_selectedId"
+               ValueChanged="OnSingleSelectionChanged"
+               Label="@Label"
+               Variant="Variant.Outlined"
+               Required="@Required"
+               RequiredError="@RequiredError"
+               HelperText="@HelperText"
+               Clearable="@ShowAllOption"
+               AnchorOrigin="Origin.BottomLeft">
+        @if (ShowAllOption)
+        {
+            <MudSelectItem T="int?" Value="@((int?)null)">All Data Sources</MudSelectItem>
+        }
+        @foreach (var ds in _dataSources)
+        {
+            <MudSelectItem T="int?" Value="@((int?)ds.Id)">@FormatName(ds)</MudSelectItem>
+        }
+    </MudSelect>
+}
+
+@code {
+    [Parameter] public string Label { get; set; } = "Data Source";
+    [Parameter] public string? HelperText { get; set; }
+    [Parameter] public bool Required { get; set; }
+    [Parameter] public string? RequiredError { get; set; }
+    [Parameter] public bool MultiSelection { get; set; }
+    [Parameter] public bool ShowAllOption { get; set; }
+    [Parameter] public bool ShowEngineType { get; set; }
+
+    /// <summary>Single-select binding.</summary>
+    [Parameter] public int? Value { get; set; }
+    [Parameter] public EventCallback<int?> ValueChanged { get; set; }
+
+    /// <summary>Multi-select binding.</summary>
+    [Parameter] public IEnumerable<int> SelectedValues { get; set; } = [];
+    [Parameter] public EventCallback<IEnumerable<int>> SelectedValuesChanged { get; set; }
+
+    private List<DataSourceListData> _dataSources = new();
+    private int? _selectedId;
+    private IEnumerable<int> _selectedIds = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        _dataSources = await DataSourceService.GetDataSources(null, CancellationToken.None);
+        _selectedId = Value;
+        _selectedIds = SelectedValues;
+    }
+
+    public override async Task SetParametersAsync(ParameterView parameters)
+    {
+        await base.SetParametersAsync(parameters);
+        _selectedId = Value;
+        _selectedIds = SelectedValues;
+    }
+
+    private async Task OnSingleSelectionChanged(int? value)
+    {
+        _selectedId = value;
+        Value = value;
+        await ValueChanged.InvokeAsync(value);
+    }
+
+    private async Task OnMultiSelectionChanged(IEnumerable<int> values)
+    {
+        _selectedIds = values;
+        SelectedValues = values;
+        await SelectedValuesChanged.InvokeAsync(values);
+    }
+
+    private string FormatName(DataSourceListData ds) =>
+        ShowEngineType ? $"{ds.Name} ({ds.DatabaseEngineType})" : ds.Name;
+}

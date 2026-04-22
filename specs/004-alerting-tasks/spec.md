@@ -3,7 +3,7 @@
 **Feature Branch**: `004-alerting-tasks`
 **Created**: 2025-11-12
 **Status**: Draft
-**Input**: User description: "I want to build tasks inside Semantico alerting section. It would work in a way that I can choose Tasks as recipient on any subscription and then it would create a task record in database and I as a user could look at all the notifications sent to it, resolve it, track progress (how many records when query executes...)"
+**Input**: User description: "I want to build tasks inside Beacon alerting section. It would work in a way that I can choose Tasks as recipient on any subscription and then it would create a task record in database and I as a user could look at all the notifications sent to it, resolve it, track progress (how many records when query executes...)"
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -139,7 +139,7 @@ A user wants to assign tasks to specific team members and receive notifications 
 - The existing Notification entity will be created for Tasks recipients (following the same pattern as Email/Teams/Jira)
 - Task assignment and notification features (P4) may be deferred to a future phase if time constraints exist
 - Users access tasks through a dedicated "Tasks" navigation item in the alerting section (similar to Recipients, Subscriptions, Notifications)
-- Task filtering and sorting will use client-side operations for better performance (similar to existing Semantico grid components)
+- Task filtering and sorting will use client-side operations for better performance (similar to existing Beacon grid components)
 - Resolution notes are optional (users can resolve tasks without providing notes)
 - Only one resolution record per task (no resolution history tracking in initial version)
 
@@ -166,7 +166,7 @@ A user wants to assign tasks to specific team members and receive notifications 
 - Existing QueryExecutionHistory entity (tasks must link to execution history)
 - Existing notification sending flow in JobService (must invoke TasksAdapter)
 - Existing RecipientService for Tasks recipient CRUD operations
-- Existing Semantico UI grid components for task list rendering
+- Existing Beacon UI grid components for task list rendering
 - Existing authentication/authorization system (tasks respect user permissions)
 
 ## Technical Constraints *(if applicable)*
@@ -175,7 +175,7 @@ A user wants to assign tasks to specific team members and receive notifications 
 - Tasks recipient must use NotificationType enum (cannot introduce new recipient type system)
 - Task entity must follow naming conventions (PascalCase, inherit from appropriate base entity)
 - Task creation must be synchronous within the notification sending flow (no separate background job)
-- Task UI must use Blazor components consistent with existing Semantico.UI patterns
+- Task UI must use Blazor components consistent with existing Beacon.UI patterns
 - Database schema changes require migration (user creates migrations manually per CLAUDE.md guidance)
 - Tasks must respect the existing soft delete pattern (if Task entity is archivable)
 - Task list must support the existing search/filter patterns used in Recipients and Subscriptions pages

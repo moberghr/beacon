@@ -1,0 +1,398 @@
+@page "/setup"
+@layout LoginLayout
+@using Beacon.Core
+@using Beacon.Core.Models.UserManagement
+@using Beacon.Core.Services
+@using System.ComponentModel.DataAnnotations
+
+<BeaconPageTitle Title="Setup"/>
+
+<div class="login-card-wrapper">
+    <div class="login-card-glow"></div>
+    <MudPaper Class="login-card pa-8 pa-sm-10" Elevation="0">
+        <MudStack Spacing="5" AlignItems="AlignItems.Center">
+            <!-- Logo and Title -->
+            <MudStack Spacing="1" AlignItems="AlignItems.Center" Class="mb-2">
+                <div class="login-logo-container">
+                    <img src="../_content/Beacon.UI/favicon.svg" alt="Beacon" class="login-logo" />
+                </div>
+                <MudText Typo="Typo.h4" Class="login-title">Beacon</MudText>
+            </MudStack>
+
+            @if (_setupComplete)
+            {
+                <div class="setup-success-icon">
+                    <MudIcon Icon="@Icons.Material.Rounded.CheckCircle" Size="Size.Large" Style="color: #34d399;" />
+                </div>
+                <MudText Typo="Typo.h6" Class="setup-heading">Setup Complete</MudText>
+                <MudText Typo="Typo.body2" Class="login-subtitle" Align="Align.Center">
+                    Your super admin account has been created. You can now sign in.
+                </MudText>
+                <MudButton FullWidth="true"
+                           Size="Size.Large"
+                           OnClick="GoToLogin"
+                           Class="login-submit-btn">
+                    <MudIcon Icon="@Icons.Material.Rounded.ArrowForward" Class="mr-2" />
+                    <span>Go to Sign In</span>
+                </MudButton>
+            }
+            else if (_alreadySetup)
+            {
+                <div class="setup-success-icon">
+                    <MudIcon Icon="@Icons.Material.Rounded.Info" Size="Size.Large" Style="color: #60a5fa;" />
+                </div>
+                <MudText Typo="Typo.h6" Class="setup-heading">Already Configured</MudText>
+                <MudText Typo="Typo.body2" Class="login-subtitle" Align="Align.Center">
+                    This Beacon installation has already been set up.
+                </MudText>
+                <MudButton FullWidth="true"
+                           Size="Size.Large"
+                           OnClick="GoToLogin"
+                           Class="login-submit-btn">
+                    <MudIcon Icon="@Icons.Material.Rounded.ArrowForward" Class="mr-2" />
+                    <span>Go to Sign In</span>
+                </MudButton>
+            }
+            else
+            {
+                <MudText Typo="Typo.body2" Class="login-subtitle" Align="Align.Center">
+                    Create your super admin account to get started
+                </MudText>
+
+                @if (!string.IsNullOrEmpty(_errorMessage))
+                {
+                    <MudAlert Severity="Severity.Error" Variant="Variant.Filled" Dense="true"
+                              Class="login-alert" Icon="@Icons.Material.Rounded.ErrorOutline">
+                        @_errorMessage
+                    </MudAlert>
+                }
+
+                <MudForm @ref="_form" @bind-IsValid="_isFormValid" Style="width: 100%;">
+                    <MudStack Spacing="3">
+                        <MudTextField @bind-Value="_model.UserName"
+                                      Label="Username"
+                                      Required="true"
+                                      RequiredError="Username is required"
+                                      Variant="Variant.Outlined"
+                                      Adornment="Adornment.Start"
+                                      AdornmentIcon="@Icons.Material.Rounded.PersonOutline"
+                                      Class="login-field"
+                                      Immediate="true" />
+
+                        <MudTextField @bind-Value="_model.Email"
+                                      Label="Email (optional)"
+                                      InputType="InputType.Email"
+                                      Variant="Variant.Outlined"
+                                      Adornment="Adornment.Start"
+                                      AdornmentIcon="@Icons.Material.Rounded.MailOutline"
+                                      Class="login-field" />
+
+                        <MudTextField @bind-Value="_model.DisplayName"
+                                      Label="Display Name (optional)"
+                                      Variant="Variant.Outlined"
+                                      Adornment="Adornment.Start"
+                                      AdornmentIcon="@Icons.Material.Rounded.Badge"
+                                      Class="login-field" />
+
+                        <MudTextField @bind-Value="_model.Password"
+                                      Label="Password"
+                                      InputType="@(_showPassword ? InputType.Text : InputType.Password)"
+                                      Required="true"
+                                      RequiredError="Password is required"
+                                      Validation="@(new Func<string, string?>(ValidatePassword))"
+                                      Variant="Variant.Outlined"
+                                      Adornment="Adornment.End"
+                                      AdornmentIcon="@(_showPassword ? Icons.Material.Rounded.VisibilityOff : Icons.Material.Rounded.Visibility)"
+                                      OnAdornmentClick="@(() => _showPassword = !_showPassword)"
+                                      Class="login-field"
+                                      Immediate="true" />
+
+                        <MudTextField @bind-Value="_model.ConfirmPassword"
+                                      Label="Confirm Password"
+                                      InputType="@(_showConfirmPassword ? InputType.Text : InputType.Password)"
+                                      Required="true"
+                                      RequiredError="Please confirm your password"
+                                      Validation="@(new Func<string, string?>(ValidateConfirmPassword))"
+                                      Variant="Variant.Outlined"
+                                      Adornment="Adornment.End"
+                                      AdornmentIcon="@(_showConfirmPassword ? Icons.Material.Rounded.VisibilityOff : Icons.Material.Rounded.Visibility)"
+                                      OnAdornmentClick="@(() => _showConfirmPassword = !_showConfirmPassword)"
+                                      Class="login-field"
+                                      Immediate="true" />
+
+                        <div class="password-hint">
+                            <MudIcon Icon="@Icons.Material.Rounded.Shield" Size="Size.Small" Class="password-hint-icon" />
+                            <MudText Typo="Typo.caption" Class="password-hint-text">
+                                At least @_configuration.UserManagement.MinimumPasswordLength characters@(_configuration.UserManagement.RequirePasswordComplexity ? " with uppercase, lowercase, number, and special character" : "")
+                            </MudText>
+                        </div>
+
+                        <MudButton FullWidth="true"
+                                   Size="Size.Large"
+                                   Disabled="@(!_isFormValid || _isSubmitting)"
+                                   OnClick="HandleSubmit"
+                                   Class="login-submit-btn">
+                            @if (_isSubmitting)
+                            {
+                                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" Style="color: white;" />
+                                <span>Creating Account...</span>
+                            }
+                            else
+                            {
+                                <MudIcon Icon="@Icons.Material.Rounded.RocketLaunch" Class="mr-2" />
+                                <span>Create Account</span>
+                            }
+                        </MudButton>
+                    </MudStack>
+                </MudForm>
+            }
+        </MudStack>
+    </MudPaper>
+</div>
+
+<style>
+    .login-card-wrapper {
+        position: relative;
+        max-width: 440px;
+        width: 100%;
+    }
+
+    .login-card-glow {
+        position: absolute;
+        inset: -1px;
+        border-radius: 20px;
+        background: linear-gradient(135deg, rgba(6, 182, 212, 0.4), rgba(99, 102, 241, 0.3), rgba(168, 85, 247, 0.4));
+        opacity: 0.5;
+        filter: blur(1px);
+        z-index: 0;
+        transition: opacity 0.3s ease;
+    }
+
+    .login-card-wrapper:hover .login-card-glow {
+        opacity: 0.7;
+    }
+
+    .login-card {
+        position: relative;
+        z-index: 1;
+        border-radius: 20px !important;
+        background: rgba(15, 20, 35, 0.85) !important;
+        backdrop-filter: blur(40px) saturate(1.5);
+        -webkit-backdrop-filter: blur(40px) saturate(1.5);
+        border: 1px solid rgba(255, 255, 255, 0.06) !important;
+    }
+
+    .login-logo-container {
+        width: 72px;
+        height: 72px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 18px;
+        background: rgba(99, 102, 241, 0.08);
+        border: 1px solid rgba(99, 102, 241, 0.15);
+        margin-bottom: 4px;
+    }
+
+    .login-logo {
+        width: 48px;
+        height: 48px;
+        filter: drop-shadow(0 0 12px rgba(99, 102, 241, 0.4));
+    }
+
+    .login-title {
+        font-weight: 700 !important;
+        letter-spacing: -0.5px;
+        background: linear-gradient(135deg, #e2e8f0 0%, #f8fafc 50%, #cbd5e1 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+    }
+
+    .login-subtitle {
+        color: rgba(148, 163, 184, 0.8) !important;
+        font-size: 0.9rem !important;
+    }
+
+    .login-alert {
+        width: 100%;
+        border-radius: 10px !important;
+    }
+
+    .login-field .mud-input-outlined .mud-input-outlined-border {
+        border-radius: 10px !important;
+        border-color: rgba(148, 163, 184, 0.15) !important;
+        transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .login-field .mud-input-outlined:hover .mud-input-outlined-border {
+        border-color: rgba(99, 102, 241, 0.4) !important;
+    }
+
+    .login-field .mud-input-outlined.mud-input-focused .mud-input-outlined-border {
+        border-color: rgba(99, 102, 241, 0.6) !important;
+        box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+    }
+
+    .login-field .mud-input-adornment svg {
+        color: rgba(148, 163, 184, 0.5);
+    }
+
+    .login-submit-btn {
+        background: linear-gradient(135deg, #06b6d4 0%, #6366f1 50%, #a855f7 100%) !important;
+        color: white !important;
+        font-weight: 600 !important;
+        font-size: 0.95rem !important;
+        letter-spacing: 0.3px;
+        border-radius: 10px !important;
+        height: 48px !important;
+        text-transform: none !important;
+        box-shadow: 0 4px 15px rgba(99, 102, 241, 0.3) !important;
+        transition: all 0.3s ease !important;
+    }
+
+    .login-submit-btn:hover {
+        box-shadow: 0 6px 25px rgba(99, 102, 241, 0.45) !important;
+        transform: translateY(-1px);
+    }
+
+    .login-submit-btn:disabled {
+        opacity: 0.6 !important;
+        box-shadow: none !important;
+        transform: none !important;
+    }
+
+    .setup-success-icon {
+        width: 56px;
+        height: 56px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 50%;
+        background: rgba(52, 211, 153, 0.1);
+        border: 1px solid rgba(52, 211, 153, 0.2);
+    }
+
+    .setup-heading {
+        font-weight: 600 !important;
+        color: #e2e8f0 !important;
+    }
+
+    .password-hint {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        padding: 10px 14px;
+        border-radius: 10px;
+        background: rgba(99, 102, 241, 0.06);
+        border: 1px solid rgba(99, 102, 241, 0.1);
+    }
+
+    .password-hint-icon {
+        color: rgba(99, 102, 241, 0.6) !important;
+        margin-top: 1px;
+        flex-shrink: 0;
+    }
+
+    .password-hint-text {
+        color: rgba(148, 163, 184, 0.7) !important;
+        line-height: 1.4 !important;
+    }
+</style>
+
+@inject IUserManagementService UserService
+@inject IRoleService RoleService
+@inject BeaconConfiguration _configuration
+@inject NavigationManager NavigationManager
+@inject ISnackbar Snackbar
+
+@code {
+    private MudForm _form = null!;
+    private CreateSuperAdminRequest _model = new();
+    private bool _isFormValid;
+    private bool _isSubmitting;
+    private bool _showPassword;
+    private bool _showConfirmPassword;
+    private bool _setupComplete;
+    private bool _alreadySetup;
+    private string? _errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Check if setup is needed
+        var isFirstRun = await UserService.IsFirstRunAsync();
+        _alreadySetup = !isFirstRun;
+    }
+
+    private string? ValidatePassword(string password)
+    {
+        if (string.IsNullOrEmpty(password))
+            return null; // Required validation handles this
+
+        if (password.Length < _configuration.UserManagement.MinimumPasswordLength)
+            return $"Password must be at least {_configuration.UserManagement.MinimumPasswordLength} characters";
+
+        if (_configuration.UserManagement.RequirePasswordComplexity)
+        {
+            if (!password.Any(char.IsUpper))
+                return "Password must contain at least one uppercase letter";
+            if (!password.Any(char.IsLower))
+                return "Password must contain at least one lowercase letter";
+            if (!password.Any(char.IsDigit))
+                return "Password must contain at least one digit";
+            if (!password.Any(c => !char.IsLetterOrDigit(c)))
+                return "Password must contain at least one special character";
+        }
+
+        return null;
+    }
+
+    private string? ValidateConfirmPassword(string confirmPassword)
+    {
+        if (string.IsNullOrEmpty(confirmPassword))
+            return null; // Required validation handles this
+
+        if (confirmPassword != _model.Password)
+            return "Passwords do not match";
+
+        return null;
+    }
+
+    private async Task HandleSubmit()
+    {
+        await _form.Validate();
+        if (!_form.IsValid)
+            return;
+
+        _isSubmitting = true;
+        _errorMessage = null;
+
+        try
+        {
+            // Ensure system roles exist
+            await RoleService.SeedSystemRolesAsync();
+
+            // Create super admin
+            await UserService.CreateSuperAdminAsync(_model);
+
+            _setupComplete = true;
+            Snackbar.Add("Super admin account created successfully!", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = ex.Message;
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _isSubmitting = false;
+        }
+    }
+
+    private void GoToLogin()
+    {
+        var baseUri = new Uri(NavigationManager.BaseUri);
+        var path = baseUri.AbsolutePath.TrimEnd('/');
+        NavigationManager.NavigateTo($"{path}/login", forceLoad: true);
+    }
+}

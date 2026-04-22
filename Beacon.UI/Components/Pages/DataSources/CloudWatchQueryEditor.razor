@@ -1,0 +1,313 @@
+@using Beacon.Core.Services
+@using Beacon.Core.Data.Enums
+@using Beacon.Core.Models.DataSources
+@using Beacon.Core.Models.Providers.CloudWatch
+@using BlazorMonaco
+@using BlazorMonaco.Editor
+@using System.Text.Json
+
+<style>
+    .cloudwatch-editor-container {
+        height: 100% !important;
+    }
+
+    .cloudwatch-editor-container > div {
+        height: 100% !important;
+    }
+</style>
+
+<MudCard Elevation="2" Class="mb-4">
+    <MudCardHeader>
+        <CardHeaderContent>
+            <MudText Typo="Typo.h6">
+                <MudIcon Icon="@Icons.Material.Filled.Cloud" Class="mr-2" />
+                CloudWatch Logs Insights Query Editor
+            </MudText>
+        </CardHeaderContent>
+    </MudCardHeader>
+    <MudCardContent>
+        @if (_config != null)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">
+                <MudStack Spacing="1">
+                    <MudText Typo="Typo.body2">
+                        <strong>Region:</strong> @_config.Region
+                    </MudText>
+                    <MudText Typo="Typo.body2">
+                        <strong>Log Groups:</strong> @string.Join(", ", _config.LogGroups)
+                    </MudText>
+                    @if (!string.IsNullOrEmpty(_config.ProfileName))
+                    {
+                        <MudText Typo="Typo.body2">
+                            <strong>AWS Profile:</strong> @_config.ProfileName
+                        </MudText>
+                    }
+                </MudStack>
+            </MudAlert>
+        }
+
+        <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">
+            <strong>Results Limited:</strong> Ad-hoc queries are automatically limited to 100 rows to prevent memory issues.
+        </MudAlert>
+
+        <div class="d-flex align-center gap-2 mb-2">
+            <MudButton Variant="Variant.Filled"
+                      Color="Color.Primary"
+                      StartIcon="@Icons.Material.Filled.PlayArrow"
+                      OnClick="ExecuteQuery"
+                      Disabled="@_executing">
+                @(_executing ? "Executing..." : "Execute Query")
+            </MudButton>
+            <MudText Typo="Typo.caption" Color="Color.Secondary" Class="ml-2">
+                Query timeout: @(_config?.QueryTimeoutSeconds ?? 300) seconds
+            </MudText>
+        </div>
+
+        <div style="height: 400px; border: 1px solid #ddd;">
+            @if (_monacoReady)
+            {
+                <StandaloneCodeEditor @ref="_editor"
+                                     Id="cloudwatch-query-editor"
+                                     ConstructionOptions="EditorConstructionOptions"
+                                     OnDidInit="OnEditorInit"
+                                     CssClass="cloudwatch-editor-container"/>
+            }
+            else
+            {
+                <div style="display: flex; align-items: center; justify-content: center; height: 100%; background-color: #f5f5f5;">
+                    <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+                </div>
+            }
+        </div>
+
+        <MudExpansionPanels Class="mt-3">
+            <MudExpansionPanel Text="CloudWatch Logs Insights Query Examples">
+                <MudText Typo="Typo.body2" Class="mb-2">Example queries:</MudText>
+                <MudStack Spacing="2">
+                    <MudPaper Class="pa-2" Style="background-color: #f5f5f5;">
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">Get most recent 20 log events:</MudText>
+                        <code style="font-size: 12px;">fields @@timestamp, @@message | sort @@timestamp desc | limit 20</code>
+                    </MudPaper>
+                    <MudPaper Class="pa-2" Style="background-color: #f5f5f5;">
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">Count ERROR logs by hour:</MudText>
+                        <code style="font-size: 12px;">filter @@message like /ERROR/ | stats count() by bin(1h)</code>
+                    </MudPaper>
+                    <MudPaper Class="pa-2" Style="background-color: #f5f5f5;">
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">Find specific error pattern:</MudText>
+                        <code style="font-size: 12px;">fields @@timestamp, @@message | filter @@message like /NullPointerException/ | sort @@timestamp desc</code>
+                    </MudPaper>
+                </MudStack>
+            </MudExpansionPanel>
+        </MudExpansionPanels>
+    </MudCardContent>
+</MudCard>
+
+@if (_queryResult != null)
+{
+    <MudCard Elevation="2">
+        <MudCardHeader>
+            <CardHeaderContent>
+                <MudText Typo="Typo.h6">Query Results</MudText>
+                <MudText Typo="Typo.body2" Color="Color.Secondary">
+                    Executed in @_queryResult.ExecutionTime.TotalSeconds.ToString("F2") seconds | @_queryResult.RowCount rows
+                </MudText>
+            </CardHeaderContent>
+            <CardHeaderActions>
+                <MudIconButton Icon="@Icons.Material.Filled.Close"
+                              Color="Color.Default"
+                              OnClick="@(() => _queryResult = null)"/>
+            </CardHeaderActions>
+        </MudCardHeader>
+        <MudCardContent>
+            @if (_queryResult.Success)
+            {
+                @if (_queryResult.RowCount > 0)
+                {
+                    @if (_queryResult.RowCount > _queryResult.Rows.Count)
+                    {
+                        <MudAlert Severity="Severity.Warning" Class="mb-3">
+                            <strong>Results Truncated:</strong> Query returned @_queryResult.RowCount total rows, but only 100 rows (maximum) are displayed.
+                            Consider refining your CloudWatch Insights query to reduce the result set.
+                        </MudAlert>
+                    }
+                    <div style="overflow-x: auto;">
+                        <MudDataGrid T="Dictionary<string, object?>"
+                                     Items="@_queryResult.Rows"
+                                     Hover="true"
+                                     Dense="true"
+                                     Filterable="false"
+                                     SortMode="SortMode.Multiple">
+                            <Columns>
+                                @foreach (var column in _queryResult.Columns)
+                                {
+                                    var columnName = column;
+                                    <TemplateColumn Title="@columnName">
+                                        <CellTemplate>
+                                            @(context.Item.GetValueOrDefault(columnName)?.ToString() ?? "NULL")
+                                        </CellTemplate>
+                                    </TemplateColumn>
+                                }
+                            </Columns>
+                            <PagerContent>
+                                <MudDataGridPager T="Dictionary<string, object?>" PageSizeOptions="new int[] { 10, 25, 50, 100 }" />
+                            </PagerContent>
+                        </MudDataGrid>
+                    </div>
+                }
+                else
+                {
+                    <MudAlert Severity="Severity.Info">Query executed successfully but returned no rows.</MudAlert>
+                }
+            }
+            else
+            {
+                <MudAlert Severity="Severity.Error">@_queryResult.Error</MudAlert>
+            }
+        </MudCardContent>
+    </MudCard>
+}
+
+@inject IJSRuntime JSRuntime
+@inject ISnackbar Snackbar
+
+@code {
+    [Parameter]
+    public int DataSourceId { get; set; }
+
+    [Parameter]
+    public CloudWatchConfiguration? Config { get; set; }
+
+    [Parameter]
+    public Func<int, string, CancellationToken, Task<AdHocQueryResult>>? ExecuteAdHocQuery { get; set; }
+
+    private StandaloneCodeEditor? _editor;
+    private bool _monacoReady = false;
+    private bool _executing = false;
+    private AdHocQueryResult? _queryResult;
+    private string _currentQuery = "";
+    private CloudWatchConfiguration? _config;
+
+    protected override void OnParametersSet()
+    {
+        _config = Config;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _monacoReady = await WaitForMonacoAsync();
+            StateHasChanged();
+        }
+    }
+
+    private StandaloneEditorConstructionOptions EditorConstructionOptions(StandaloneCodeEditor editor)
+    {
+        var defaultQuery = "# CloudWatch Logs Insights Query\n" +
+            "# Learn more: https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/CWL_QuerySyntax.html\n" +
+            "\n" +
+            "fields @timestamp, @message\n" +
+            "| sort @timestamp desc\n" +
+            "| limit 20\n";
+
+        return new StandaloneEditorConstructionOptions
+        {
+            AutomaticLayout = true,
+            Language = "plaintext",
+            Theme = "vs",
+            Value = defaultQuery,
+            FontSize = 14,
+            LineNumbers = "on",
+            RenderLineHighlight = "all",
+            ScrollBeyondLastLine = false,
+            ReadOnly = false
+        };
+    }
+
+    private async Task OnEditorInit()
+    {
+        if (_editor != null)
+        {
+            await _editor.Focus();
+        }
+    }
+
+    private async Task<bool> WaitForMonacoAsync(int maxAttempts = 50, int delayMs = 100)
+    {
+        for (int i = 0; i < maxAttempts; i++)
+        {
+            try
+            {
+                var isReady = await JSRuntime.InvokeAsync<bool>("eval",
+                    "typeof monaco !== 'undefined' && typeof blazorMonaco !== 'undefined'");
+                if (isReady)
+                    return true;
+            }
+            catch (Exception)
+            {
+                // Suppress errors during initialization
+            }
+
+            await Task.Delay(delayMs);
+        }
+
+        return false;
+    }
+
+    private async Task ExecuteQuery()
+    {
+        if (_editor == null || ExecuteAdHocQuery == null) return;
+
+        try
+        {
+            _executing = true;
+            _currentQuery = await _editor.GetValue();
+
+            if (string.IsNullOrWhiteSpace(_currentQuery))
+            {
+                Snackbar.Add("Please enter a query", Severity.Warning);
+                return;
+            }
+
+            // Remove comment lines starting with #
+            var cleanedQuery = string.Join("\n",
+                _currentQuery.Split('\n')
+                    .Where(line => !line.TrimStart().StartsWith("#"))
+                    .Where(line => !string.IsNullOrWhiteSpace(line)));
+
+            if (string.IsNullOrWhiteSpace(cleanedQuery))
+            {
+                Snackbar.Add("Query is empty after removing comments", Severity.Warning);
+                return;
+            }
+
+            await JSRuntime.InvokeVoidAsync("console.log", $"Executing CloudWatch query: {cleanedQuery}");
+
+            _queryResult = await ExecuteAdHocQuery(DataSourceId, cleanedQuery, CancellationToken.None);
+
+            await JSRuntime.InvokeVoidAsync("console.log", $"Query result: Success={_queryResult.Success}, Error={_queryResult.Error}, RowCount={_queryResult.RowCount}");
+
+            if (_queryResult.Success)
+            {
+                Snackbar.Add($"Query executed successfully - {_queryResult.RowCount} rows returned", Severity.Success);
+            }
+            else
+            {
+                var errorMessage = string.IsNullOrWhiteSpace(_queryResult.Error)
+                    ? "Unknown error occurred"
+                    : _queryResult.Error;
+                await JSRuntime.InvokeVoidAsync("console.error", $"CloudWatch query failed: {errorMessage}");
+                Snackbar.Add($"Query execution failed: {errorMessage}", Severity.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("console.error", $"CloudWatch query exception: {ex.Message}", ex.ToString());
+            Snackbar.Add($"Query execution failed: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _executing = false;
+        }
+    }
+}

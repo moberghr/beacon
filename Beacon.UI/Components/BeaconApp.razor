@@ -1,0 +1,58 @@
+﻿@using Microsoft.AspNetCore.Components
+@inject NavigationManager NavigationManager
+
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <base href="@(GetBaseHref())"/>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css?family=Roboto:300,400,500,700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="../_content/Beacon.UI/bootstrap/bootstrap.min.css"/>
+    <link rel="stylesheet" href="../_content/BlazorMonaco/lib/monaco-editor/min/vs/editor/editor.main.css" />
+    <link href="../_content/MudBlazor/MudBlazor.min.css" rel="stylesheet" />
+    <link href="../_content/Beacon.UI/css/beacon-styles.css" rel="stylesheet" />
+    <link rel="stylesheet" href="../_content/Beacon.UI/app.css"/>
+    <link rel="stylesheet" href="../_content/Beacon.UI/styles.css" />
+    <link href="../_content/Beacon.UI/highlight/styles/github.css" rel="stylesheet">
+    <link href="../_content/Beacon.UI/highlight/styles/github-dark.css" rel="stylesheet">
+    
+    <link rel="icon" type="image/svg+xml" href="favicon.svg"/>
+    <HeadOutlet/>
+    <title>Beacon by MiBu</title>
+</head>
+
+<body>
+<Routes @rendermode="InteractiveServer" />
+    <script src="_framework/blazor.web.js"></script>
+    <script src="../_content/MudBlazor/MudBlazor.min.js"></script>
+    <script src="../_content/BlazorMonaco/lib/monaco-editor/min/vs/loader.js"></script>
+    <script>require.config({ paths: { 'vs': '../_content/BlazorMonaco/lib/monaco-editor/min/vs' } });</script>
+    <script src="../_content/BlazorMonaco/lib/monaco-editor/min/vs/editor/editor.main.js"></script>
+    <script src="../_content/BlazorMonaco/jsInterop.js"></script>
+    <script src="../_content/Beacon.UI/highlight/highlight.js"></script>
+    <script src="../_content/Beacon.UI/time/timeHelpers.js"></script>
+    <script src="../_content/Beacon.UI/sqlEditorHelpers.js"></script>
+    <script src="../_content/Beacon.UI/aiHelpers.js"></script>
+    <script src="../_content/Beacon.UI/authHelpers.js"></script>
+    <script src="../_content/Beacon.UI/mermaidHelper.js"></script>
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        window.mermaid = mermaid;
+        // Theme will be set by LoadTheme() after dark mode preference is loaded
+        mermaid.initialize({ startOnLoad: false, theme: 'dark' });
+    </script>
+</body>
+
+</html>
+
+@code {
+    private string GetBaseHref()
+    {
+        var baseUri = new Uri(NavigationManager.BaseUri);
+        var path = baseUri.AbsolutePath;
+        return path.EndsWith("/") ? path : $"{path}/";
+    }
+}

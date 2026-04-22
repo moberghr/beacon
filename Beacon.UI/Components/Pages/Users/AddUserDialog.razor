@@ -1,0 +1,237 @@
+@using Beacon.Core
+@using Beacon.Core.Authorization
+@using Beacon.Core.Helpers
+@using Beacon.Core.Models.UserManagement
+@using Beacon.Core.Services
+
+<MudDialog Class="pb-2">
+    <TitleContent>
+        <MudText Typo="Typo.h6">
+            <MudIcon Icon="@Icons.Material.Filled.PersonAdd" Class="mr-1 mb-n1" />
+            Add User
+        </MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudTabs @bind-ActivePanelIndex="_activeTab" ApplyEffectsToContainer="true" Elevation="0" Rounded="true" PanelClass="pa-4">
+            @if (_configuration.UserManagement.AllowInternalUsers)
+            {
+                <MudTabPanel Text="Internal User" Icon="@Icons.Material.Filled.Lock">
+                    <MudForm @ref="_internalForm" @bind-IsValid="_isInternalFormValid">
+                        <MudTextField @bind-Value="_internalRequest.UserName"
+                                      Label="Username"
+                                      Required="true"
+                                      RequiredError="Username is required"
+                                      Variant="Variant.Outlined"
+                                      Margin="Margin.Dense"
+                                      Class="mb-3" />
+
+                        <MudTextField @bind-Value="_internalRequest.Email"
+                                      Label="Email (optional)"
+                                      InputType="InputType.Email"
+                                      Variant="Variant.Outlined"
+                                      Margin="Margin.Dense"
+                                      Class="mb-3" />
+
+                        <MudTextField @bind-Value="_internalRequest.DisplayName"
+                                      Label="Display Name (optional)"
+                                      Variant="Variant.Outlined"
+                                      Margin="Margin.Dense"
+                                      Class="mb-3" />
+
+                        <MudTextField @bind-Value="_internalRequest.Password"
+                                      Label="Password"
+                                      InputType="@(_showInternalPassword ? InputType.Text : InputType.Password)"
+                                      Required="true"
+                                      RequiredError="Password is required"
+                                      Validation="@(new Func<string, string?>(ValidatePassword))"
+                                      Variant="Variant.Outlined"
+                                      Margin="Margin.Dense"
+                                      Class="mb-3"
+                                      Adornment="Adornment.End"
+                                      AdornmentIcon="@(_showInternalPassword ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)"
+                                      OnAdornmentClick="@(() => _showInternalPassword = !_showInternalPassword)" />
+
+                        <MudSelect T="int" Label="Roles" MultiSelection="true" @bind-SelectedValues="_selectedInternalRoleIds"
+                                   Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-3">
+                            @foreach (var role in _roles)
+                            {
+                                <MudSelectItem T="int" Value="@role.Id">@role.Name - @role.Description</MudSelectItem>
+                            }
+                        </MudSelect>
+
+                        <MudAlert Severity="Severity.Info" Dense="true">
+                            <MudText Typo="Typo.caption">
+                                Internal users authenticate with a password stored in Beacon.
+                            </MudText>
+                        </MudAlert>
+                    </MudForm>
+                </MudTabPanel>
+            }
+
+            <MudTabPanel Text="External User" Icon="@Icons.Material.Filled.VpnKey">
+                <MudForm @ref="_externalForm" @bind-IsValid="_isExternalFormValid">
+                    <MudTextField @bind-Value="_externalRequest.ExternalId"
+                                  Label="External ID"
+                                  HelperText="Must match the 'sub' claim from JWT/OAuth"
+                                  Required="true"
+                                  RequiredError="External ID is required"
+                                  Variant="Variant.Outlined"
+                                  Margin="Margin.Dense"
+                                  Class="mb-3" />
+
+                    <MudTextField @bind-Value="_externalRequest.UserName"
+                                  Label="Username"
+                                  Required="true"
+                                  RequiredError="Username is required"
+                                  Variant="Variant.Outlined"
+                                  Margin="Margin.Dense"
+                                  Class="mb-3" />
+
+                    <MudTextField @bind-Value="_externalRequest.Email"
+                                  Label="Email (optional)"
+                                  InputType="InputType.Email"
+                                  Variant="Variant.Outlined"
+                                  Margin="Margin.Dense"
+                                  Class="mb-3" />
+
+                    <MudTextField @bind-Value="_externalRequest.DisplayName"
+                                  Label="Display Name (optional)"
+                                  Variant="Variant.Outlined"
+                                  Margin="Margin.Dense"
+                                  Class="mb-3" />
+
+                    <MudSelect T="int" Label="Roles" MultiSelection="true" @bind-SelectedValues="_selectedExternalRoleIds"
+                               Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-3">
+                        @foreach (var role in _roles)
+                        {
+                            <MudSelectItem T="int" Value="@role.Id">@role.Name - @role.Description</MudSelectItem>
+                        }
+                    </MudSelect>
+
+                    <MudAlert Severity="Severity.Info" Dense="true">
+                        <MudText Typo="Typo.caption">
+                            External users are pre-registered and authenticate via JWT/OAuth.
+                            The External ID must match the 'sub' claim from the authentication token.
+                        </MudText>
+                    </MudAlert>
+                </MudForm>
+            </MudTabPanel>
+        </MudTabs>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel" Variant="Variant.Filled" Class="ml-4">Cancel</MudButton>
+        <DialogSaveButton Text="Create User" Disabled="@(!IsCurrentFormValid() || _loading)" OnClick="Submit" />
+    </DialogActions>
+</MudDialog>
+
+@inject IUserManagementService UserService
+@inject IRoleService RoleService
+@inject ISnackbar Snackbar
+@inject BeaconConfiguration _configuration
+
+@code {
+    [CascadingParameter]
+    IMudDialogInstance MudDialog { get; set; } = null!;
+
+    private MudForm _internalForm = null!;
+    private MudForm _externalForm = null!;
+    private int _activeTab = 0;
+    private bool _loading;
+    private bool _isInternalFormValid;
+    private bool _isExternalFormValid;
+    private bool _showInternalPassword;
+
+    private CreateInternalUserRequest _internalRequest = new();
+    private CreateExternalUserRequest _externalRequest = new();
+    private List<BeaconRoleData> _roles = new();
+    private IEnumerable<int> _selectedInternalRoleIds = new List<int>();
+    private IEnumerable<int> _selectedExternalRoleIds = new List<int>();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _roles = await RoleService.GetRolesAsync();
+    }
+
+    private bool IsCurrentFormValid()
+    {
+        if (_configuration.UserManagement.AllowInternalUsers && _activeTab == 0)
+            return _isInternalFormValid;
+        return _isExternalFormValid;
+    }
+
+    private string? ValidatePassword(string password)
+    {
+        if (string.IsNullOrEmpty(password))
+            return null;
+
+        if (password.Length < _configuration.UserManagement.MinimumPasswordLength)
+            return $"Password must be at least {_configuration.UserManagement.MinimumPasswordLength} characters";
+
+        if (_configuration.UserManagement.RequirePasswordComplexity)
+        {
+            if (!password.Any(char.IsUpper))
+                return "Password must contain at least one uppercase letter";
+            if (!password.Any(char.IsLower))
+                return "Password must contain at least one lowercase letter";
+            if (!password.Any(char.IsDigit))
+                return "Password must contain at least one digit";
+            if (!password.Any(c => !char.IsLetterOrDigit(c)))
+                return "Password must contain at least one special character";
+        }
+
+        return null;
+    }
+
+    private async Task Submit()
+    {
+        if (_loading) return;
+
+        _loading = true;
+
+        try
+        {
+            BaseResponse response;
+
+            if (_configuration.UserManagement.AllowInternalUsers && _activeTab == 0)
+            {
+                await _internalForm.Validate();
+                if (!_internalForm.IsValid)
+                {
+                    _loading = false;
+                    return;
+                }
+
+                _internalRequest.RoleIds = _selectedInternalRoleIds.ToList();
+                response = await UserService.CreateInternalUserAsync(_internalRequest);
+            }
+            else
+            {
+                await _externalForm.Validate();
+                if (!_externalForm.IsValid)
+                {
+                    _loading = false;
+                    return;
+                }
+
+                _externalRequest.RoleIds = _selectedExternalRoleIds.ToList();
+                response = await UserService.CreateExternalUserAsync(_externalRequest);
+            }
+
+            if (response.Success)
+            {
+                Snackbar.Add(response.Message, Severity.Success);
+                MudDialog.Close(DialogResult.Ok(true));
+            }
+            else
+            {
+                Snackbar.Add(response.Message, Severity.Error);
+            }
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+}

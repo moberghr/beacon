@@ -1,0 +1,891 @@
+@page "/about"
+@inherits BasePageComponent
+
+<BeaconPageTitle Title="About"/>
+
+<MudContainer MaxWidth="MaxWidth.ExtraExtraLarge" Class="my-4 px-4">
+    <BeaconPageHeader Icon="@Icons.Material.Filled.Info" Title="About Beacon"/>
+
+    @* Overview Section *@
+    <MudCard Class="my-4">
+        <MudCardContent>
+            <MudStack Spacing="3">
+                <MudText Typo="Typo.h4" Color="Color.Primary" Class="fw-bold">
+                    Semantic Database Monitoring & Orchestration
+                </MudText>
+                <MudText Typo="Typo.h6" Color="Color.Secondary">
+                    Transform your database monitoring through intelligent queries, flexible alerting, and cross-database orchestration
+                </MudText>
+                <MudText Typo="Typo.body1">
+                    <strong>Beacon</strong> is a powerful .NET library that enables semantic alerts and notifications for databases with robust data orchestration capabilities.
+                    Monitor data quality, enforce business rules, automate reporting, and orchestrate complex ETL workflows across PostgreSQL, SQL Server, and MySQL databases.
+                </MudText>
+            </MudStack>
+        </MudCardContent>
+    </MudCard>
+
+    @* Core Capabilities *@
+    <MudCard Class="my-4">
+        <MudCardContent>
+            <MudText Typo="Typo.h5" Class="mb-4 fw-bold">Core Capabilities</MudText>
+            <MudGrid>
+                <MudItem xs="12" md="6" lg="3">
+                    <MudPaper Class="pa-4" Elevation="0" Style="height: 100%; border: 1px solid var(--mud-palette-divider);">
+                        <MudStack AlignItems="AlignItems.Center" Spacing="2">
+                            <MudAvatar Size="Size.Large" Color="Color.Primary">
+                                <MudIcon Icon="@Icons.Material.Filled.Search" Size="Size.Large" />
+                            </MudAvatar>
+                            <MudText Typo="Typo.h6" Align="Align.Center" Class="fw-bold">Query Monitoring</MudText>
+                            <MudText Typo="Typo.body2" Align="Align.Center">
+                                Create semantic SQL queries to monitor data quality, business rules, and database health with multi-step execution
+                            </MudText>
+                        </MudStack>
+                    </MudPaper>
+                </MudItem>
+                <MudItem xs="12" md="6" lg="3">
+                    <MudPaper Class="pa-4" Elevation="0" Style="height: 100%; border: 1px solid var(--mud-palette-divider);">
+                        <MudStack AlignItems="AlignItems.Center" Spacing="2">
+                            <MudAvatar Size="Size.Large" Color="Color.Secondary">
+                                <MudIcon Icon="@Icons.Material.Filled.Notifications" Size="Size.Large" />
+                            </MudAvatar>
+                            <MudText Typo="Typo.h6" Align="Align.Center" Class="fw-bold">Smart Alerting</MudText>
+                            <MudText Typo="Typo.body2" Align="Align.Center">
+                                Deliver notifications via Email, Microsoft Teams, Slack, or Jira with rich formatting and complete result attachments
+                            </MudText>
+                        </MudStack>
+                    </MudPaper>
+                </MudItem>
+                <MudItem xs="12" md="6" lg="3">
+                    <MudPaper Class="pa-4" Elevation="0" Style="height: 100%; border: 1px solid var(--mud-palette-divider);">
+                        <MudStack AlignItems="AlignItems.Center" Spacing="2">
+                            <MudAvatar Size="Size.Large" Color="Color.Tertiary">
+                                <MudIcon Icon="@Icons.Material.Filled.SwapHoriz" Size="Size.Large" />
+                            </MudAvatar>
+                            <MudText Typo="Typo.h6" Align="Align.Center" Class="fw-bold">Data Migration</MudText>
+                            <MudText Typo="Typo.body2" Align="Align.Center">
+                                Orchestrate ETL workflows with Insert, Upsert, Truncate, and Sync modes across different database engines
+                            </MudText>
+                        </MudStack>
+                    </MudPaper>
+                </MudItem>
+                <MudItem xs="12" md="6" lg="3">
+                    <MudPaper Class="pa-4" Elevation="0" Style="height: 100%; border: 1px solid var(--mud-palette-divider);">
+                        <MudStack AlignItems="AlignItems.Center" Spacing="2">
+                            <MudAvatar Size="Size.Large" Color="Color.Info">
+                                <MudIcon Icon="@Icons.Material.Filled.Merge" Size="Size.Large" />
+                            </MudAvatar>
+                            <MudText Typo="Typo.h6" Align="Align.Center" Class="fw-bold">Cross-Database Joins</MudText>
+                            <MudText Typo="Typo.body2" Align="Align.Center">
+                                Query across PostgreSQL, SQL Server, and MySQL simultaneously with virtual table abstractions
+                            </MudText>
+                        </MudStack>
+                    </MudPaper>
+                </MudItem>
+                <MudItem xs="12" md="6" lg="3">
+                    <MudPaper Class="pa-4" Elevation="0" Style="height: 100%; border: 1px solid var(--mud-palette-divider);">
+                        <MudStack AlignItems="AlignItems.Center" Spacing="2">
+                            <MudAvatar Size="Size.Large" Color="Color.Warning">
+                                <MudIcon Icon="@Icons.Material.Filled.Task" Size="Size.Large" />
+                            </MudAvatar>
+                            <MudText Typo="Typo.h6" Align="Align.Center" Class="fw-bold">Task Management</MudText>
+                            <MudText Typo="Typo.body2" Align="Align.Center">
+                                Automatic alerting tasks from subscriptions with lifecycle tracking, auto-resolution, and collaboration
+                            </MudText>
+                        </MudStack>
+                    </MudPaper>
+                </MudItem>
+                <MudItem xs="12" md="6" lg="3">
+                    <MudPaper Class="pa-4" Elevation="0" Style="height: 100%; border: 1px solid var(--mud-palette-divider);">
+                        <MudStack AlignItems="AlignItems.Center" Spacing="2">
+                            <MudAvatar Size="Size.Large" Color="Color.Success">
+                                <MudIcon Icon="@Icons.Material.Filled.Psychology" Size="Size.Large" />
+                            </MudAvatar>
+                            <MudText Typo="Typo.h6" Align="Align.Center" Class="fw-bold">AI-Powered Features (Experimental)</MudText>
+                            <MudText Typo="Typo.body2" Align="Align.Center">
+                                Automatic documentation generation, natural language alert creation, and intelligent data insights
+                            </MudText>
+                            <MudText Typo="Typo.caption" Align="Align.Center" Class="mud-text-secondary">
+                                ⚠️ Experimental - Review AI output before use
+                            </MudText>
+                        </MudStack>
+                    </MudPaper>
+                </MudItem>
+                <MudItem xs="12" md="6" lg="3">
+                    <MudPaper Class="pa-4" Elevation="0" Style="height: 100%; border: 1px solid var(--mud-palette-divider);">
+                        <MudStack AlignItems="AlignItems.Center" Spacing="2">
+                            <MudAvatar Size="Size.Large" Color="Color.Error">
+                                <MudIcon Icon="@Icons.Material.Filled.Analytics" Size="Size.Large" />
+                            </MudAvatar>
+                            <MudText Typo="Typo.h6" Align="Align.Center" Class="fw-bold">Anomaly Detection</MudText>
+                            <MudText Typo="Typo.body2" Align="Align.Center">
+                                Statistical anomaly detection with baseline learning, configurable thresholds, and real-time alerting
+                            </MudText>
+                        </MudStack>
+                    </MudPaper>
+                </MudItem>
+            </MudGrid>
+        </MudCardContent>
+    </MudCard>
+
+    @* Architecture Diagram *@
+    <MudCard Class="my-4">
+        <MudCardContent>
+            <MudText Typo="Typo.h5" Class="mb-4 fw-bold">System Architecture</MudText>
+            <MudText Typo="Typo.body2" Class="mb-4">
+                Beacon follows Clean Architecture principles with clear separation of concerns:
+            </MudText>
+            <div class="mermaid-container mb-4">
+                <pre class="mermaid">
+graph TB
+    subgraph UI["Presentation Layer"]
+        BlazorUI[Blazor UI Components<br/>MudBlazor]
+    end
+
+    subgraph Core["Application Services Layer"]
+        QuerySvc[Query Service] ~~~ SubSvc[Subscription Service] ~~~ MigSvc[Migration Service]
+        NotifSvc[Notification Service] ~~~ DataSrcSvc[DataSource Service] ~~~ TaskSvc[Task Service]
+        AiDocSvc[AI Documentation] ~~~ AiAlertSvc[AI Alert Generation] ~~~ AnomalySvc[Anomaly Detection]
+    end
+
+    subgraph Adapters["Notification Adapters"]
+        EmailAdapter[Email Adapter] ~~~ TeamsAdapter[Teams Adapter] ~~~ SlackAdapter[Slack Adapter] ~~~ JiraAdapter[Jira Adapter]
+    end
+
+    subgraph Data["Data Access Layer"]
+        EFCore[Entity Framework Core<br/>BeaconContext] ~~~ Dapper[Dapper<br/>Metadata Queries]
+    end
+
+    subgraph Infrastructure["Infrastructure Layer"]
+        PgSQL[(PostgreSQL)] ~~~ MSSQL[(SQL Server)] ~~~ MySQL[(MySQL)]
+        Scheduler[Job Scheduler<br/>via IBeaconScheduler] ~~~ SQLiteVM[SQLite Virtual Tables<br/>Cross-DB Joins]
+        LLM[LLM Providers<br/>OpenAI/Claude/Azure] ~~~ Encryption[AES-256 Encryption<br/>Connection Strings]
+    end
+
+    BlazorUI --> Core
+    Core --> Adapters
+    Core --> Data
+    Data --> Infrastructure
+    Core --> Infrastructure
+    Adapters --> Infrastructure
+
+    style UI fill:#e3f2fd
+    style Core fill:#f3e5f5
+    style Adapters fill:#fff3e0
+    style Data fill:#e8f5e9
+    style Infrastructure fill:#fce4ec
+                </pre>
+            </div>
+        </MudCardContent>
+    </MudCard>
+
+    @* Data Flow Diagram *@
+    <MudCard Class="my-4">
+        <MudCardContent>
+            <MudText Typo="Typo.h5" Class="mb-4 fw-bold">Query Execution Flow</MudText>
+            <MudText Typo="Typo.body2" Class="mb-4">
+                Multi-step queries with cross-database capabilities:
+            </MudText>
+            <div class="mermaid-container mb-4">
+                <pre class="mermaid">
+sequenceDiagram
+    participant User
+    participant Scheduler
+    participant QueryOrchestrator
+    participant VirtualTableManager
+    participant PostgreSQL
+    participant SQLServer
+    participant MySQL
+    participant NotificationService
+    participant Adapter
+
+    User->>Scheduler: Create Subscription (Cron)
+    Scheduler->>QueryOrchestrator: Execute Query (Scheduled)
+
+    QueryOrchestrator->>PostgreSQL: Execute Step 1
+    PostgreSQL-->>QueryOrchestrator: Result Set 1
+    QueryOrchestrator->>VirtualTableManager: Store @@result1
+
+    QueryOrchestrator->>SQLServer: Execute Step 2 (with @@result1)
+    SQLServer-->>QueryOrchestrator: Result Set 2
+    QueryOrchestrator->>VirtualTableManager: Store @@result2
+
+    QueryOrchestrator->>VirtualTableManager: Execute Final Query<br/>(JOIN @@result1 and @@result2)
+    VirtualTableManager->>VirtualTableManager: Create SQLite Virtual Tables
+    VirtualTableManager-->>QueryOrchestrator: Combined Results
+
+    QueryOrchestrator->>NotificationService: Send Results
+    NotificationService->>Adapter: Dispatch (Email/Teams/Jira)
+    Adapter-->>User: Notification Delivered
+                </pre>
+            </div>
+        </MudCardContent>
+    </MudCard>
+
+    @* Migration Flow *@
+    <MudCard Class="my-4">
+        <MudCardContent>
+            <MudText Typo="Typo.h5" Class="mb-4 fw-bold">Data Migration Flow</MudText>
+            <MudText Typo="Typo.body2" Class="mb-4">
+                ETL orchestration with multiple migration modes:
+            </MudText>
+            <div class="mermaid-container mb-4">
+                <pre class="mermaid">
+flowchart LR
+    subgraph Source["Source Extraction"]
+        Q1[Query Step 1<br/>PostgreSQL]
+        Q2[Query Step 2<br/>SQL Server]
+        Q3[Query Step 3<br/>MySQL]
+    end
+
+    subgraph Transform["Transformation"]
+        VT[Virtual Tables<br/>Cross-DB Join]
+        Enrich[Data Enrichment<br/>Business Logic]
+    end
+
+    subgraph Load["Load Operations"]
+        Insert[Insert Only<br/>New Records]
+        Upsert[Upsert<br/>Insert + Update]
+        Truncate[Truncate Load<br/>Full Refresh]
+        Sync[Sync Delete<br/>Perfect Mirror]
+    end
+
+    subgraph Destination["Destination"]
+        Target[(Target Database<br/>Any Engine)]
+    end
+
+    Q1 --> VT
+    Q2 --> VT
+    Q3 --> VT
+    VT --> Enrich
+    Enrich --> Insert
+    Enrich --> Upsert
+    Enrich --> Truncate
+    Enrich --> Sync
+    Insert --> Target
+    Upsert --> Target
+    Truncate --> Target
+    Sync --> Target
+
+    style Source fill:#e3f2fd
+    style Transform fill:#f3e5f5
+    style Load fill:#fff3e0
+    style Destination fill:#e8f5e9
+                </pre>
+            </div>
+        </MudCardContent>
+    </MudCard>
+
+    @* Task Management Flow *@
+    <MudCard Class="my-4">
+        <MudCardContent>
+            <MudText Typo="Typo.h5" Class="mb-4 fw-bold">Task Management Flow</MudText>
+            <MudText Typo="Typo.body2" Class="mb-4">
+                Automatic alerting with task lifecycle management:
+            </MudText>
+            <div class="mermaid-container mb-4">
+                <pre class="mermaid">
+stateDiagram-v2
+    [*] --> Created: Subscription executes<br/>with CreateTasks=true
+
+    Created --> Open: Query returns results
+    Open --> Updated: Subsequent executions<br/>update result count
+    Updated --> Open: Still has results
+    Open --> AutoResolved: Query returns 0 results
+    Open --> ManualResolved: User resolves<br/>with notes
+
+    AutoResolved --> Reopened: Query returns results again
+    ManualResolved --> Reopened: User reopens task
+
+    Reopened --> Open: Continue tracking
+
+    note right of Open
+        - Track latest result count
+        - Show result trend chart
+        - Add comments
+        - Link related tasks
+    end note
+
+    note right of AutoResolved
+        Automatically resolved
+        when no issues detected
+    end note
+                </pre>
+            </div>
+        </MudCardContent>
+    </MudCard>
+
+    @* Key Features *@
+    <MudCard Class="my-4">
+        <MudCardContent>
+            <MudText Typo="Typo.h5" Class="mb-4 fw-bold">Key Features</MudText>
+            <MudGrid>
+                <MudItem xs="12" md="6">
+                    <MudPaper Class="pa-3" Elevation="0" Style="height: 100%;">
+                        <MudStack Spacing="2">
+                            <MudText Typo="Typo.h6" Color="Color.Primary">
+                                <MudIcon Icon="@Icons.Material.Filled.Search" Class="mr-2" />
+                                Semantic Query Monitoring
+                            </MudText>
+                            <MudList T="string" Dense="true">
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.Check">Multi-step query execution with result chaining</MudListItem>
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.Check">Dynamic parameter substitution (@@user_id, @@date)</MudListItem>
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.Check">Query preview with first 10 rows</MudListItem>
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.Check">Execution history with full audit trail</MudListItem>
+                            </MudList>
+                        </MudStack>
+                    </MudPaper>
+                </MudItem>
+                <MudItem xs="12" md="6">
+                    <MudPaper Class="pa-3" Elevation="0" Style="height: 100%;">
+                        <MudStack Spacing="2">
+                            <MudText Typo="Typo.h6" Color="Color.Secondary">
+                                <MudIcon Icon="@Icons.Material.Filled.Schedule" Class="mr-2" />
+                                Scheduling & Automation
+                            </MudText>
+                            <MudList T="string" Dense="true">
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.Check">Cron expression support (every 5 min to monthly)</MudListItem>
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.Check">Pluggable scheduler via IBeaconScheduler interface</MudListItem>
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.Check">Configurable timeouts and retry policies</MudListItem>
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.Check">Next execution time calculation</MudListItem>
+                            </MudList>
+                        </MudStack>
+                    </MudPaper>
+                </MudItem>
+                <MudItem xs="12" md="6">
+                    <MudPaper Class="pa-3" Elevation="0" Style="height: 100%;">
+                        <MudStack Spacing="2">
+                            <MudText Typo="Typo.h6" Color="Color.Tertiary">
+                                <MudIcon Icon="@Icons.Material.Filled.Notifications" Class="mr-2" />
+                                Multi-Channel Notifications
+                            </MudText>
+                            <MudList T="string" Dense="true">
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.Email">Email with HTML table + CSV/Excel attachment</MudListItem>
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.Group">Microsoft Teams with Adaptive Cards</MudListItem>
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.Chat">Slack with rich Table Blocks (20 cols, 100 rows)</MudListItem>
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.BugReport">Jira issue creation and updates</MudListItem>
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.AttachFile">Full result attachments (unlimited rows)</MudListItem>
+                            </MudList>
+                        </MudStack>
+                    </MudPaper>
+                </MudItem>
+                <MudItem xs="12" md="6">
+                    <MudPaper Class="pa-3" Elevation="0" Style="height: 100%;">
+                        <MudStack Spacing="2">
+                            <MudText Typo="Typo.h6" Color="Color.Info">
+                                <MudIcon Icon="@Icons.Material.Filled.Storage" Class="mr-2" />
+                                Multi-Database Support
+                            </MudText>
+                            <MudList T="string" Dense="true">
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.Check">PostgreSQL, SQL Server, MySQL connectivity</MudListItem>
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.Check">Cross-database joins via SQLite virtual tables</MudListItem>
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.Check">Database metadata introspection with caching</MudListItem>
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.Check">Encrypted connection strings (AES)</MudListItem>
+                            </MudList>
+                        </MudStack>
+                    </MudPaper>
+                </MudItem>
+                <MudItem xs="12" md="6">
+                    <MudPaper Class="pa-3" Elevation="0" Style="height: 100%;">
+                        <MudStack Spacing="2">
+                            <MudText Typo="Typo.h6" Color="Color.Success">
+                                <MudIcon Icon="@Icons.Material.Filled.SwapHoriz" Class="mr-2" />
+                                Data Migration (ETL)
+                            </MudText>
+                            <MudList T="string" Dense="true">
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.Check">4 migration modes: Insert, Upsert, Truncate, Sync</MudListItem>
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.Check">Bulk operations with row-level error tracking</MudListItem>
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.Check">Atomic transactions with rollback on failure</MudListItem>
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.Check">Execution metrics (rows/second, success rate)</MudListItem>
+                            </MudList>
+                        </MudStack>
+                    </MudPaper>
+                </MudItem>
+                <MudItem xs="12" md="6">
+                    <MudPaper Class="pa-3" Elevation="0" Style="height: 100%;">
+                        <MudStack Spacing="2">
+                            <MudText Typo="Typo.h6" Color="Color.Warning">
+                                <MudIcon Icon="@Icons.Material.Filled.Code" Class="mr-2" />
+                                Developer Experience
+                            </MudText>
+                            <MudList T="string" Dense="true">
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.Check">SQL editor with syntax highlighting</MudListItem>
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.Check">Database explorer with schema introspection</MudListItem>
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.Check">Parameter validation and autocomplete</MudListItem>
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.Check">Query flow visualization</MudListItem>
+                            </MudList>
+                        </MudStack>
+                    </MudPaper>
+                </MudItem>
+                <MudItem xs="12" md="6">
+                    <MudPaper Class="pa-3" Elevation="0" Style="height: 100%;">
+                        <MudStack Spacing="2">
+                            <MudText Typo="Typo.h6" Color="Color.Error">
+                                <MudIcon Icon="@Icons.Material.Filled.Task" Class="mr-2" />
+                                Task Management
+                            </MudText>
+                            <MudList T="string" Dense="true">
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.Check">Automatic task creation from subscriptions</MudListItem>
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.Check">Auto-resolution when issues are fixed (0 results)</MudListItem>
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.Check">Result count trend visualization</MudListItem>
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.Check">Task comments and collaboration</MudListItem>
+                            </MudList>
+                        </MudStack>
+                    </MudPaper>
+                </MudItem>
+                <MudItem xs="12" md="6">
+                    <MudPaper Class="pa-3" Elevation="0" Style="height: 100%;">
+                        <MudStack Spacing="2">
+                            <MudText Typo="Typo.h6" Color="Color.Success">
+                                <MudIcon Icon="@Icons.Material.Filled.Psychology" Class="mr-2" />
+                                AI-Powered Features (Experimental)
+                            </MudText>
+                            <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">Experimental feature - Review AI output before use</MudAlert>
+                            <MudList T="string" Dense="true">
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.AutoAwesome">AI-generated data source documentation</MudListItem>
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.AutoAwesome">Natural language query/alert generation</MudListItem>
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.AutoAwesome">Export as Markdown, HTML, or PDF</MudListItem>
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.AutoAwesome">Multiple LLM provider support (OpenAI, Claude, Azure)</MudListItem>
+                            </MudList>
+                        </MudStack>
+                    </MudPaper>
+                </MudItem>
+                <MudItem xs="12" md="6">
+                    <MudPaper Class="pa-3" Elevation="0" Style="height: 100%;">
+                        <MudStack Spacing="2">
+                            <MudText Typo="Typo.h6" Color="Color.Primary">
+                                <MudIcon Icon="@Icons.Material.Filled.Analytics" Class="mr-2" />
+                                Anomaly Detection
+                            </MudText>
+                            <MudList T="string" Dense="true">
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.TrendingUp">Statistical methods (Z-score, IQR, % change)</MudListItem>
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.TrendingUp">Automatic baseline learning from history</MudListItem>
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.TrendingUp">Configurable sensitivity and thresholds</MudListItem>
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.TrendingUp">Real-time anomaly alerting</MudListItem>
+                            </MudList>
+                        </MudStack>
+                    </MudPaper>
+                </MudItem>
+            </MudGrid>
+        </MudCardContent>
+    </MudCard>
+
+    @* Use Cases *@
+    <MudCard Class="my-4">
+        <MudCardContent>
+            <MudText Typo="Typo.h5" Class="mb-4 fw-bold">Common Use Cases</MudText>
+            <MudGrid>
+                <MudItem xs="12" md="4">
+                    <MudPaper Class="pa-4" Elevation="0" Style="height: 100%; border-left: 4px solid var(--mud-palette-primary);">
+                        <MudStack Spacing="2">
+                            <MudText Typo="Typo.h6" Color="Color.Primary">Data Quality Monitoring</MudText>
+                            <MudText Typo="Typo.body2">
+                                Alert on orphaned records, invalid states, NULL violations, and constraint failures.
+                                Keep your data clean with automated validation checks.
+                            </MudText>
+                        </MudStack>
+                    </MudPaper>
+                </MudItem>
+                <MudItem xs="12" md="4">
+                    <MudPaper Class="pa-4" Elevation="0" Style="height: 100%; border-left: 4px solid var(--mud-palette-secondary);">
+                        <MudStack Spacing="2">
+                            <MudText Typo="Typo.h6" Color="Color.Secondary">Automated Reporting</MudText>
+                            <MudText Typo="Typo.body2">
+                                Schedule daily sales reports, weekly performance summaries, and monthly analytics.
+                                Delivered as Excel/CSV attachments via email.
+                            </MudText>
+                        </MudStack>
+                    </MudPaper>
+                </MudItem>
+                <MudItem xs="12" md="4">
+                    <MudPaper Class="pa-4" Elevation="0" Style="height: 100%; border-left: 4px solid var(--mud-palette-tertiary);">
+                        <MudStack Spacing="2">
+                            <MudText Typo="Typo.h6" Color="Color.Tertiary">Database Health Monitoring</MudText>
+                            <MudText Typo="Typo.body2">
+                                Monitor table growth, connection counts, disk usage, and replication lag.
+                                Proactive alerts keep your databases healthy.
+                            </MudText>
+                        </MudStack>
+                    </MudPaper>
+                </MudItem>
+                <MudItem xs="12" md="4">
+                    <MudPaper Class="pa-4" Elevation="0" Style="height: 100%; border-left: 4px solid var(--mud-palette-info);">
+                        <MudStack Spacing="2">
+                            <MudText Typo="Typo.h6" Color="Color.Info">Cross-Database Integration</MudText>
+                            <MudText Typo="Typo.body2">
+                                ETL from production to data warehouse, sync master data across systems,
+                                multi-tenant distribution, consolidated metrics.
+                            </MudText>
+                        </MudStack>
+                    </MudPaper>
+                </MudItem>
+                <MudItem xs="12" md="4">
+                    <MudPaper Class="pa-4" Elevation="0" Style="height: 100%; border-left: 4px solid var(--mud-palette-success);">
+                        <MudStack Spacing="2">
+                            <MudText Typo="Typo.h6" Color="Color.Success">Business Rule Enforcement</MudText>
+                            <MudText Typo="Typo.body2">
+                                Monitor SLA violations, inventory thresholds, payment delays, and compliance rules.
+                                Automatic Jira ticket creation for violations.
+                            </MudText>
+                        </MudStack>
+                    </MudPaper>
+                </MudItem>
+                <MudItem xs="12" md="4">
+                    <MudPaper Class="pa-4" Elevation="0" Style="height: 100%; border-left: 4px solid var(--mud-palette-warning);">
+                        <MudStack Spacing="2">
+                            <MudText Typo="Typo.h6" Color="Color.Warning">Incident Management</MudText>
+                            <MudText Typo="Typo.body2">
+                                Create Jira issues on first detection, add comments on follow-ups,
+                                automatically close when resolved. Full incident lifecycle tracking.
+                            </MudText>
+                        </MudStack>
+                    </MudPaper>
+                </MudItem>
+            </MudGrid>
+        </MudCardContent>
+    </MudCard>
+
+    @* Services Overview *@
+    @* <MudCard Class="my-4"> *@
+    @*     <MudCardContent> *@
+    @*         <MudText Typo="Typo.h5" Class="mb-4 fw-bold">Core Services</MudText> *@
+    @*         <MudExpansionPanels MultiExpansion="true"> *@
+    @*             <MudExpansionPanel> *@
+    @*                 <TitleContent> *@
+    @*                     <div class="d-flex align-center"> *@
+    @*                         <MudIcon Icon="@Icons.Material.Filled.Search" Class="mr-3" Color="Color.Primary" /> *@
+    @*                         <MudText Typo="Typo.h6">Query Service</MudText> *@
+    @*                     </div> *@
+    @*                 </TitleContent> *@
+    @*                 <ChildContent> *@
+    @*                     <MudText Typo="Typo.body2" Class="mb-2"> *@
+    @*                         Core query execution and management with multi-step support. *@
+    @*                     </MudText> *@
+    @*                     <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">CreateQuery</MudChip> *@
+    @*                     <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">ExecuteQuery</MudChip> *@
+    @*                     <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">AddQueryStep</MudChip> *@
+    @*                     <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">PreviewQueryStep</MudChip> *@
+    @*                 </ChildContent> *@
+    @*             </MudExpansionPanel> *@
+    @* *@
+    @*             <MudExpansionPanel> *@
+    @*                 <TitleContent> *@
+    @*                     <div class="d-flex align-center"> *@
+    @*                         <MudIcon Icon="@Icons.Material.Filled.Storage" Class="mr-3" Color="Color.Secondary" /> *@
+    @*                         <MudText Typo="Typo.h6">DataSource Service</MudText> *@
+    @*                     </div> *@
+    @*                 </TitleContent> *@
+    @*                 <ChildContent> *@
+    @*                     <MudText Typo="Typo.body2" Class="mb-2"> *@
+    @*                         Manages PostgreSQL, SQL Server, and MySQL connections with encrypted connection strings. *@
+    @*                     </MudText> *@
+    @*                     <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">CreateDataSource</MudChip> *@
+    @*                     <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">ValidateConnection</MudChip> *@
+    @*                     <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">GetDataSources</MudChip> *@
+    @*                 </ChildContent> *@
+    @*             </MudExpansionPanel> *@
+    @* *@
+    @*             <MudExpansionPanel> *@
+    @*                 <TitleContent> *@
+    @*                     <div class="d-flex align-center"> *@
+    @*                         <MudIcon Icon="@Icons.Material.Filled.Subscriptions" Class="mr-3" Color="Color.Tertiary" /> *@
+    @*                         <MudText Typo="Typo.h6">Subscription Service</MudText> *@
+    @*                     </div> *@
+    @*                 </TitleContent> *@
+    @*                 <ChildContent> *@
+    @*                     <MudText Typo="Typo.body2" Class="mb-2"> *@
+    @*                         Creates scheduled query subscriptions with cron expressions and integrates with Hangfire. *@
+    @*                     </MudText> *@
+    @*                     <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">CreateSubscription</MudChip> *@
+    @*                     <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">AddRecipients</MudChip> *@
+    @*                     <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">ManageSchedule</MudChip> *@
+    @*                 </ChildContent> *@
+    @*             </MudExpansionPanel> *@
+    @* *@
+    @*             <MudExpansionPanel> *@
+    @*                 <TitleContent> *@
+    @*                     <div class="d-flex align-center"> *@
+    @*                         <MudIcon Icon="@Icons.Material.Filled.Notifications" Class="mr-3" Color="Color.Info" /> *@
+    @*                         <MudText Typo="Typo.h6">Notification Service</MudText> *@
+    @*                     </div> *@
+    @*                 </TitleContent> *@
+    @*                 <ChildContent> *@
+    @*                     <MudText Typo="Typo.body2" Class="mb-2"> *@
+    @*                         Dispatches notifications via configured adapters and tracks delivery status. *@
+    @*                     </MudText> *@
+    @*                     <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">SendNotification</MudChip> *@
+    @*                     <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">GetExecutionHistory</MudChip> *@
+    @*                     <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">GetStatistics</MudChip> *@
+    @*                 </ChildContent> *@
+    @*             </MudExpansionPanel> *@
+    @* *@
+    @*             <MudExpansionPanel> *@
+    @*                 <TitleContent> *@
+    @*                     <div class="d-flex align-center"> *@
+    @*                         <MudIcon Icon="@Icons.Material.Filled.SwapHoriz" Class="mr-3" Color="Color.Success" /> *@
+    @*                         <MudText Typo="Typo.h6">Migration Service</MudText> *@
+    @*                     </div> *@
+    @*                 </TitleContent> *@
+    @*                 <ChildContent> *@
+    @*                     <MudText Typo="Typo.body2" Class="mb-2"> *@
+    @*                         ETL job orchestration with Insert, Upsert, Truncate, and Sync modes supporting bulk operations. *@
+    @*                     </MudText> *@
+    @*                     <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">CreateMigrationJob</MudChip> *@
+    @*                     <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">ExecuteMigration</MudChip> *@
+    @*                     <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">GetExecutions</MudChip> *@
+    @*                 </ChildContent> *@
+    @*             </MudExpansionPanel> *@
+    @* *@
+    @*             <MudExpansionPanel> *@
+    @*                 <TitleContent> *@
+    @*                     <div class="d-flex align-center"> *@
+    @*                         <MudIcon Icon="@Icons.Material.Filled.TableView" Class="mr-3" Color="Color.Warning" /> *@
+    @*                         <MudText Typo="Typo.h6">Virtual Table Manager</MudText> *@
+    @*                     </div> *@
+    @*                 </TitleContent> *@
+    @*                 <ChildContent> *@
+    @*                     <MudText Typo="Typo.body2" Class="mb-2"> *@
+    @*                         Manages in-memory SQLite virtual tables for cross-database joins. Converts @@result1, @@result2 references to CTEs. *@
+    @*                     </MudText> *@
+    @*                     <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">AddVirtualTable</MudChip> *@
+    @*                     <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">ParseAndReplace</MudChip> *@
+    @*                     <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">ExecuteFinalQuery</MudChip> *@
+    @*                 </ChildContent> *@
+    @*             </MudExpansionPanel> *@
+    @*         </MudExpansionPanels> *@
+    @*     </MudCardContent> *@
+    @* </MudCard> *@
+
+    @* Technology Stack *@
+    <MudCard Class="my-4">
+        <MudCardContent>
+            <MudText Typo="Typo.h5" Class="mb-4 fw-bold">Technology Stack</MudText>
+            <MudGrid>
+                <MudItem xs="12" md="6">
+                    <MudText Typo="Typo.subtitle1" Class="mb-2 fw-bold">Framework & Runtime</MudText>
+                    <MudStack Row="true" Spacing="1" Class="flex-wrap">
+                        <MudChip T="string" Size="Size.Small" Color="Color.Primary">.NET 9.0</MudChip>
+                        <MudChip T="string" Size="Size.Small" Color="Color.Primary">C# 13</MudChip>
+                        <MudChip T="string" Size="Size.Small" Color="Color.Primary">ASP.NET Core 9.0</MudChip>
+                    </MudStack>
+                </MudItem>
+                <MudItem xs="12" md="6">
+                    <MudText Typo="Typo.subtitle1" Class="mb-2 fw-bold">User Interface</MudText>
+                    <MudStack Row="true" Spacing="1" Class="flex-wrap">
+                        <MudChip T="string" Size="Size.Small" Color="Color.Secondary">Blazor Server</MudChip>
+                        <MudChip T="string" Size="Size.Small" Color="Color.Secondary">MudBlazor 8.0</MudChip>
+                        <MudChip T="string" Size="Size.Small" Color="Color.Secondary">Highlight.js</MudChip>
+                    </MudStack>
+                </MudItem>
+                <MudItem xs="12" md="6">
+                    <MudText Typo="Typo.subtitle1" Class="mb-2 fw-bold">Data Access</MudText>
+                    <MudStack Row="true" Spacing="1" Class="flex-wrap">
+                        <MudChip T="string" Size="Size.Small" Color="Color.Tertiary">Entity Framework Core 9.0</MudChip>
+                        <MudChip T="string" Size="Size.Small" Color="Color.Tertiary">Dapper</MudChip>
+                        <MudChip T="string" Size="Size.Small" Color="Color.Tertiary">EFCore.BulkExtensions</MudChip>
+                    </MudStack>
+                </MudItem>
+                <MudItem xs="12" md="6">
+                    <MudText Typo="Typo.subtitle1" Class="mb-2 fw-bold">Database Drivers</MudText>
+                    <MudStack Row="true" Spacing="1" Class="flex-wrap">
+                        <MudChip T="string" Size="Size.Small" Color="Color.Info">Npgsql (PostgreSQL)</MudChip>
+                        <MudChip T="string" Size="Size.Small" Color="Color.Info">System.Data.SqlClient</MudChip>
+                        <MudChip T="string" Size="Size.Small" Color="Color.Info">MySql.Data</MudChip>
+                    </MudStack>
+                </MudItem>
+                <MudItem xs="12" md="6">
+                    <MudText Typo="Typo.subtitle1" Class="mb-2 fw-bold">Job Scheduling</MudText>
+                    <MudStack Row="true" Spacing="1" Class="flex-wrap">
+                        <MudChip T="string" Size="Size.Small" Color="Color.Success">IBeaconScheduler</MudChip>
+                        <MudChip T="string" Size="Size.Small" Color="Color.Success">Cronos</MudChip>
+                    </MudStack>
+                </MudItem>
+                <MudItem xs="12" md="6">
+                    <MudText Typo="Typo.subtitle1" Class="mb-2 fw-bold">Integrations</MudText>
+                    <MudStack Row="true" Spacing="1" Class="flex-wrap">
+                        <MudChip T="string" Size="Size.Small" Color="Color.Warning">Atlassian.SDK (Jira)</MudChip>
+                        <MudChip T="string" Size="Size.Small" Color="Color.Warning">AdaptiveCards</MudChip>
+                        <MudChip T="string" Size="Size.Small" Color="Color.Warning">ClosedXML</MudChip>
+                        <MudChip T="string" Size="Size.Small" Color="Color.Warning">CsvHelper</MudChip>
+                    </MudStack>
+                </MudItem>
+            </MudGrid>
+        </MudCardContent>
+    </MudCard>
+
+    @* How to Get Started *@
+    <MudCard Class="my-4">
+        <MudCardContent>
+            <MudText Typo="Typo.h5" Class="mb-4 fw-bold">Getting Started</MudText>
+            <MudGrid>
+                <MudItem xs="12" md="3">
+                    <MudPaper Class="pa-4" Style="height: 100%; background: linear-gradient(135deg, var(--mud-palette-primary-lighten) 0%, var(--mud-palette-primary) 100%);">
+                        <MudStack AlignItems="AlignItems.Center" Spacing="2">
+                            <MudAvatar Size="Size.Large" Style="background: white; color: var(--mud-palette-primary);">
+                                <MudText Typo="Typo.h5">1</MudText>
+                            </MudAvatar>
+                            <MudText Typo="Typo.h6" Align="Align.Center" Style="color: white;">Connect Data Sources</MudText>
+                            <MudText Typo="Typo.body2" Align="Align.Center" Style="color: white;">
+                                Add your PostgreSQL, SQL Server, or MySQL databases with encrypted connection strings
+                            </MudText>
+                        </MudStack>
+                    </MudPaper>
+                </MudItem>
+                <MudItem xs="12" md="3">
+                    <MudPaper Class="pa-4" Style="height: 100%; background: linear-gradient(135deg, var(--mud-palette-secondary-lighten) 0%, var(--mud-palette-secondary) 100%);">
+                        <MudStack AlignItems="AlignItems.Center" Spacing="2">
+                            <MudAvatar Size="Size.Large" Style="background: white; color: var(--mud-palette-secondary);">
+                                <MudText Typo="Typo.h5">2</MudText>
+                            </MudAvatar>
+                            <MudText Typo="Typo.h6" Align="Align.Center" Style="color: white;">Create Semantic Queries</MudText>
+                            <MudText Typo="Typo.body2" Align="Align.Center" Style="color: white;">
+                                Write SQL queries to monitor data quality, business rules, or extract data for migration
+                            </MudText>
+                        </MudStack>
+                    </MudPaper>
+                </MudItem>
+                <MudItem xs="12" md="3">
+                    <MudPaper Class="pa-4" Style="height: 100%; background: linear-gradient(135deg, var(--mud-palette-tertiary-lighten) 0%, var(--mud-palette-tertiary) 100%);">
+                        <MudStack AlignItems="AlignItems.Center" Spacing="2">
+                            <MudAvatar Size="Size.Large" Style="background: white; color: var(--mud-palette-tertiary);">
+                                <MudText Typo="Typo.h5">3</MudText>
+                            </MudAvatar>
+                            <MudText Typo="Typo.h6" Align="Align.Center" Style="color: white;">Schedule & Automate</MudText>
+                            <MudText Typo="Typo.body2" Align="Align.Center" Style="color: white;">
+                                Create subscriptions with cron schedules and configure notification recipients
+                            </MudText>
+                        </MudStack>
+                    </MudPaper>
+                </MudItem>
+                <MudItem xs="12" md="3">
+                    <MudPaper Class="pa-4" Style="height: 100%; background: linear-gradient(135deg, var(--mud-palette-warning-lighten) 0%, var(--mud-palette-warning) 100%);">
+                        <MudStack AlignItems="AlignItems.Center" Spacing="2">
+                            <MudAvatar Size="Size.Large" Style="background: white; color: var(--mud-palette-warning);">
+                                <MudText Typo="Typo.h5">4</MudText>
+                            </MudAvatar>
+                            <MudText Typo="Typo.h6" Align="Align.Center" Style="color: white;">Track & Resolve</MudText>
+                            <MudText Typo="Typo.body2" Align="Align.Center" Style="color: white;">
+                                Enable task creation to track issues, add comments, and manage resolution lifecycle
+                            </MudText>
+                        </MudStack>
+                    </MudPaper>
+                </MudItem>
+            </MudGrid>
+        </MudCardContent>
+    </MudCard>
+
+    @* Footer *@
+    <MudCard Class="my-4">
+        <MudCardContent>
+            <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                <MudStack Spacing="1">
+                    <MudText Typo="Typo.h6" Class="fw-bold">Beacon</MudText>
+                    <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                        Semantic Database Monitoring & Orchestration Platform
+                    </MudText>
+                </MudStack>
+                <MudStack AlignItems="AlignItems.End" Spacing="1">
+                    <MudText Typo="Typo.body1" Class="mud-text-secondary">Version 1.0</MudText>
+                    <MudStack Row="true" Spacing="1">
+                        <MudChip T="string" Size="Size.Small" Color="Color.Primary" Icon="@Icons.Material.Filled.Copyright">2025</MudChip>
+                    </MudStack>
+                </MudStack>
+            </MudStack>
+        </MudCardContent>
+    </MudCard>
+</MudContainer>
+
+@inject IJSRuntime JS
+
+@code {
+    [CascadingParameter(Name = "IsDarkMode")]
+    public bool IsDarkMode { get; set; }
+
+    private bool _lastDarkMode = false;
+    private bool _needsRerender = false;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _lastDarkMode = IsDarkMode;
+        }
+
+        if (firstRender || _needsRerender)
+        {
+            _needsRerender = false;
+            await RenderMermaidDiagrams();
+        }
+
+        await base.OnAfterRenderAsync(firstRender);
+    }
+
+    protected override void OnParametersSet()
+    {
+        // Detect dark mode change
+        if (IsDarkMode != _lastDarkMode)
+        {
+            _lastDarkMode = IsDarkMode;
+            _needsRerender = true;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RenderMermaidDiagrams()
+    {
+        try
+        {
+            var theme = IsDarkMode ? "dark" : "default";
+
+            // Reinitialize Mermaid with the correct theme
+            await JS.InvokeVoidAsync("eval", $@"
+                (function() {{
+                    if (typeof mermaid !== 'undefined') {{
+                        // Store original diagram code before clearing
+                        var diagramData = [];
+                        document.querySelectorAll('.mermaid').forEach(function(el) {{
+                            // If already processed, get the original code from data attribute
+                            if (el.hasAttribute('data-processed')) {{
+                                var code = el.getAttribute('data-mermaid-code');
+                                if (!code) {{
+                                    // Try to find it in the pre element
+                                    var preEl = el.querySelector('pre');
+                                    code = preEl ? preEl.textContent : el.textContent;
+                                }}
+                                diagramData.push({{ element: el, code: code }});
+                            }} else {{
+                                // Store the original code
+                                var code = el.textContent;
+                                el.setAttribute('data-mermaid-code', code);
+                                diagramData.push({{ element: el, code: code }});
+                            }}
+                        }});
+
+                        // Reinitialize mermaid with new theme
+                        mermaid.initialize({{
+                            startOnLoad: false,
+                            theme: '{theme}'
+                        }});
+
+                        // Clear and restore each diagram
+                        diagramData.forEach(function(item) {{
+                            item.element.removeAttribute('data-processed');
+                            item.element.innerHTML = item.code;
+                        }});
+
+                        // Small delay to ensure initialization completes
+                        setTimeout(function() {{
+                            // Re-render all diagrams
+                            mermaid.run({{ querySelector: '.mermaid' }});
+                        }}, 10);
+
+                        console.log('Mermaid diagrams rendered with theme: {theme}');
+                    }}
+                }})();
+            ");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error rendering Mermaid diagrams: {ex.Message}");
+        }
+    }
+}

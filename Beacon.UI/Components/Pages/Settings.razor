@@ -1,0 +1,236 @@
+@page "/settings"
+@inherits BasePageComponent
+@using Beacon.Core
+@using Beacon.Core.Authorization
+@using Beacon.Core.Models.UserManagement
+@using Beacon.Core.Services
+
+<BeaconPageTitle Title="Settings"/>
+
+<MudContainer MaxWidth="MaxWidth.Small" Class="my-4 px-4">
+    <BeaconPageHeader Icon="@Icons.Material.Filled.Settings" Title="Settings"/>
+
+    @if (_loading)
+    {
+        <MudProgressLinear Indeterminate="true" Color="Color.Primary" Class="my-4" />
+    }
+    else if (_user == null)
+    {
+        <MudAlert Severity="Severity.Error" Class="my-4">Unable to load user information.</MudAlert>
+    }
+    else
+    {
+        <MudPaper Elevation="3" Class="pa-6 my-4">
+            <MudText Typo="Typo.h6" Class="mb-4">Account Information</MudText>
+            <MudGrid>
+                <MudItem xs="12" sm="6">
+                    <MudTextField Value="@_user.UserName" Label="Username" ReadOnly="true" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudTextField Value="@(_user.DisplayName ?? "—")" Label="Display Name" ReadOnly="true" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudTextField Value="@(_user.Email ?? "—")" Label="Email" ReadOnly="true" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudTextField Value="@(string.Join(", ", _user.Roles.Select(r => r.Name)))" Label="Roles" ReadOnly="true" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                </MudItem>
+            </MudGrid>
+        </MudPaper>
+
+        @if (_user.IsInternalUser)
+        {
+            <MudPaper Elevation="3" Class="pa-6 my-4">
+                <MudText Typo="Typo.h6" Class="mb-4">Change Password</MudText>
+
+                @if (!string.IsNullOrEmpty(_errorMessage))
+                {
+                    <MudAlert Severity="Severity.Error" Class="mb-4">@_errorMessage</MudAlert>
+                }
+
+                @if (_passwordChanged)
+                {
+                    <MudAlert Severity="Severity.Success" Class="mb-4">Password changed successfully.</MudAlert>
+                }
+
+                <MudForm @ref="_form" @bind-IsValid="_isFormValid">
+                    <MudTextField @bind-Value="_currentPassword"
+                                  Label="Current Password"
+                                  InputType="@(_showCurrentPassword ? InputType.Text : InputType.Password)"
+                                  Required="true"
+                                  RequiredError="Current password is required"
+                                  Variant="Variant.Outlined"
+                                  Margin="Margin.Dense"
+                                  Class="mb-3"
+                                  Adornment="Adornment.End"
+                                  AdornmentIcon="@(_showCurrentPassword ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)"
+                                  OnAdornmentClick="@(() => _showCurrentPassword = !_showCurrentPassword)" />
+
+                    <MudTextField @bind-Value="_newPassword"
+                                  Label="New Password"
+                                  InputType="@(_showNewPassword ? InputType.Text : InputType.Password)"
+                                  Required="true"
+                                  RequiredError="New password is required"
+                                  Validation="@(new Func<string, string?>(ValidateNewPassword))"
+                                  Variant="Variant.Outlined"
+                                  Margin="Margin.Dense"
+                                  Class="mb-3"
+                                  Adornment="Adornment.End"
+                                  AdornmentIcon="@(_showNewPassword ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)"
+                                  OnAdornmentClick="@(() => _showNewPassword = !_showNewPassword)" />
+
+                    <MudTextField @bind-Value="_confirmPassword"
+                                  Label="Confirm New Password"
+                                  InputType="@(_showConfirmPassword ? InputType.Text : InputType.Password)"
+                                  Required="true"
+                                  RequiredError="Please confirm your new password"
+                                  Validation="@(new Func<string, string?>(ValidateConfirmPassword))"
+                                  Variant="Variant.Outlined"
+                                  Margin="Margin.Dense"
+                                  Class="mb-3"
+                                  Adornment="Adornment.End"
+                                  AdornmentIcon="@(_showConfirmPassword ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)"
+                                  OnAdornmentClick="@(() => _showConfirmPassword = !_showConfirmPassword)" />
+
+                    <MudAlert Severity="Severity.Info" Dense="true" Class="mb-4">
+                        <MudText Typo="Typo.caption">
+                            Password must be at least @_configuration.UserManagement.MinimumPasswordLength characters
+                            @if (_configuration.UserManagement.RequirePasswordComplexity)
+                            {
+                                <text> and include uppercase, lowercase, number, and special character</text>
+                            }
+                        </MudText>
+                    </MudAlert>
+
+                    <MudButton Variant="Variant.Filled"
+                               Color="Color.Primary"
+                               Disabled="@(!_isFormValid || _isSubmitting)"
+                               OnClick="HandleChangePassword">
+                        @if (_isSubmitting)
+                        {
+                            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                            <text>Changing Password...</text>
+                        }
+                        else
+                        {
+                            <text>Change Password</text>
+                        }
+                    </MudButton>
+                </MudForm>
+            </MudPaper>
+        }
+    }
+</MudContainer>
+
+@inject IUserManagementService UserService
+@inject IBeaconUserContext UserContext
+@inject BeaconConfiguration _configuration
+@inject ISnackbar Snackbar
+
+@code {
+    private BeaconUserData? _user;
+    private bool _loading = true;
+
+    private MudForm _form = null!;
+    private bool _isFormValid;
+    private bool _isSubmitting;
+    private bool _passwordChanged;
+    private string? _errorMessage;
+
+    private string _currentPassword = string.Empty;
+    private string _newPassword = string.Empty;
+    private string _confirmPassword = string.Empty;
+    private bool _showCurrentPassword;
+    private bool _showNewPassword;
+    private bool _showConfirmPassword;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var userName = UserContext.UserName;
+            if (!string.IsNullOrEmpty(userName))
+            {
+                _user = await UserService.GetUserByUserNameAsync(userName);
+            }
+        }
+        catch
+        {
+            _user = null;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private string? ValidateNewPassword(string password)
+    {
+        if (string.IsNullOrEmpty(password))
+            return null;
+
+        if (password.Length < _configuration.UserManagement.MinimumPasswordLength)
+            return $"Password must be at least {_configuration.UserManagement.MinimumPasswordLength} characters";
+
+        if (_configuration.UserManagement.RequirePasswordComplexity)
+        {
+            if (!password.Any(char.IsUpper))
+                return "Password must contain at least one uppercase letter";
+            if (!password.Any(char.IsLower))
+                return "Password must contain at least one lowercase letter";
+            if (!password.Any(char.IsDigit))
+                return "Password must contain at least one digit";
+            if (!password.Any(c => !char.IsLetterOrDigit(c)))
+                return "Password must contain at least one special character";
+        }
+
+        return null;
+    }
+
+    private string? ValidateConfirmPassword(string confirmPassword)
+    {
+        if (string.IsNullOrEmpty(confirmPassword))
+            return null;
+
+        if (confirmPassword != _newPassword)
+            return "Passwords do not match";
+
+        return null;
+    }
+
+    private async Task HandleChangePassword()
+    {
+        await _form.Validate();
+        if (!_form.IsValid)
+            return;
+
+        _isSubmitting = true;
+        _errorMessage = null;
+        _passwordChanged = false;
+
+        try
+        {
+            var result = await UserService.ChangePasswordAsync(_user!.Id, _currentPassword, _newPassword);
+            if (result.Success)
+            {
+                _passwordChanged = true;
+                _currentPassword = string.Empty;
+                _newPassword = string.Empty;
+                _confirmPassword = string.Empty;
+                Snackbar.Add("Password changed successfully!", Severity.Success);
+            }
+            else
+            {
+                _errorMessage = result.Message ?? "Failed to change password.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = ex.Message;
+        }
+        finally
+        {
+            _isSubmitting = false;
+        }
+    }
+}

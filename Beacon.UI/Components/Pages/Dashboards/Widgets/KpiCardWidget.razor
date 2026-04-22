@@ -1,0 +1,85 @@
+@using Beacon.Core.Models.Dashboards
+@using Beacon.Core.Models.QueryExecutionHistory
+@using Beacon.Core.Services
+@using System.Text.Json
+@inject IStatisticsService StatisticsService
+
+<MudPaper Elevation="2" Class="pa-4">
+    @if (_loading)
+    {
+        <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="150px"/>
+    }
+    else if (_error != null)
+    {
+        <MudAlert Severity="Severity.Error">@_error</MudAlert>
+    }
+    else if (_config != null && _statistics != null)
+    {
+        <HeroStatCard CardClass="@(_config.ColorClass ?? "hero-stat-card-primary")"
+                      Icon="@(_config.Icon ?? Icons.Material.Filled.Dashboard)"
+                      Badge="@(_config.Badge ?? "KPI")"
+                      Value="@GetMetricValue(_config.Metric)"
+                      Label="@Widget.Title"
+                      Elevation="4"/>
+    }
+</MudPaper>
+
+@code {
+    [Parameter] public DashboardWidgetData Widget { get; set; } = null!;
+    [Parameter] public int? DashboardRefreshInterval { get; set; }
+
+    private bool _loading = true;
+    private string? _error;
+    private KpiCardWidgetConfiguration? _config;
+    private DashboardStatisticsData? _statistics;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        _loading = true;
+        _error = null;
+
+        try
+        {
+            // Parse configuration
+            _config = JsonSerializer.Deserialize<KpiCardWidgetConfiguration>(Widget.ConfigurationJson);
+
+            // Load statistics data
+            _statistics = await StatisticsService.GetDashboardStatistics(CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            _error = $"Error loading widget: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private string GetMetricValue(string metric)
+    {
+        if (_statistics == null) return "0";
+
+        return metric switch
+        {
+            "TotalSubscriptions" => _statistics.TotalSubscriptions.ToString(),
+            "ActiveSubscriptions" => _statistics.ActiveSubscriptions.ToString(),
+            "TotalQueries" => _statistics.TotalQueries.ToString(),
+            "TotalQueriesExecuted" => _statistics.TotalQueriesExecuted.ToString(),
+            "TotalNotificationsSent" => _statistics.TotalNotificationsSent.ToString(),
+            "TotalTasks" => _statistics.TotalTasks.ToString(),
+            "UnresolvedTasks" => _statistics.UnresolvedTasks.ToString(),
+            "ResolvedTasks" => _statistics.ResolvedTasks.ToString(),
+            "TotalAnomalies" => _statistics.TotalAnomaliesDetected.ToString(),
+            "AnomaliesLast24Hours" => _statistics.AnomaliesLast24Hours.ToString(),
+            "TotalDataSources" => _statistics.TotalDataSources.ToString(),
+            "TotalRecipients" => _statistics.TotalRecipients.ToString(),
+            _ => "N/A"
+        };
+    }
+}

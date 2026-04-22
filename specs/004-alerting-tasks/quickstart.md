@@ -4,7 +4,7 @@
 
 ## Overview
 
-This guide provides a step-by-step walkthrough for implementing the Tasks recipient feature in Semantico. Follow these steps in order to ensure clean integration with existing architecture and constitutional compliance.
+This guide provides a step-by-step walkthrough for implementing the Tasks recipient feature in Beacon. Follow these steps in order to ensure clean integration with existing architecture and constitutional compliance.
 
 **Estimated Implementation Time**: 8-12 hours (P1 + P2 user stories)
 
@@ -12,7 +12,7 @@ This guide provides a step-by-step walkthrough for implementing the Tasks recipi
 
 ## Prerequisites
 
-- [ ] Semantico development environment set up
+- [ ] Beacon development environment set up
 - [ ] .NET 8.0 SDK installed
 - [ ] PostgreSQL and SQL Server test instances available
 - [ ] Feature branch `004-alerting-tasks` checked out
@@ -26,7 +26,7 @@ This guide provides a step-by-step walkthrough for implementing the Tasks recipi
 
 #### Step 1.1: Add Tasks to NotificationType Enum
 
-**File**: `Semantico.Core/Data/Enums/NotificationType.cs`
+**File**: `Beacon.Core/Data/Enums/NotificationType.cs`
 
 **Action**: Add Tasks enum value
 
@@ -50,12 +50,12 @@ dotnet build --property WarningLevel=0
 
 #### Step 1.2: Create Task Entity
 
-**File**: `Semantico.Core/Data/Entities/Task.cs`
+**File**: `Beacon.Core/Data/Entities/Task.cs`
 
 **Action**: Create Task entity inheriting from BaseArchivableEntity
 
 ```csharp
-namespace Semantico.Core.Data.Entities;
+namespace Beacon.Core.Data.Entities;
 
 public class Task : BaseArchivableEntity
 {
@@ -79,9 +79,9 @@ public class Task : BaseArchivableEntity
 
 ---
 
-#### Step 1.3: Configure Task Entity in SemanticoContext
+#### Step 1.3: Configure Task Entity in BeaconContext
 
-**File**: `Semantico.Core/Data/SemanticoContext.cs`
+**File**: `Beacon.Core/Data/BeaconContext.cs`
 
 **Action 1**: Add DbSet property
 
@@ -146,10 +146,10 @@ protected override void OnModelCreating(ModelBuilder modelBuilder)
 
 #### Step 1.4: Create DTOs
 
-**File 1**: `Semantico.Core/DTOs/TaskData.cs`
+**File 1**: `Beacon.Core/DTOs/TaskData.cs`
 
 ```csharp
-namespace Semantico.Core.DTOs;
+namespace Beacon.Core.DTOs;
 
 public record TaskData
 {
@@ -165,12 +165,12 @@ public record TaskData
 }
 ```
 
-**File 2**: `Semantico.Core/DTOs/TaskDetailsData.cs`
+**File 2**: `Beacon.Core/DTOs/TaskDetailsData.cs`
 
 ```csharp
-namespace Semantico.Core.DTOs;
+namespace Beacon.Core.DTOs;
 
-using Semantico.Core.Data.Enums;
+using Beacon.Core.Data.Enums;
 
 public record TaskDetailsData
 {
@@ -193,10 +193,10 @@ public record RecipientSummary(int Id, string Name, NotificationType Type);
 public record QueryExecutionSummary(int Id, DateTime ExecutedAt, double ExecutionTimeMs, NotificationStatus Status);
 ```
 
-**File 3**: `Semantico.Core/DTOs/TaskStatisticsData.cs`
+**File 3**: `Beacon.Core/DTOs/TaskStatisticsData.cs`
 
 ```csharp
-namespace Semantico.Core.DTOs;
+namespace Beacon.Core.DTOs;
 
 public record TaskStatisticsData
 {
@@ -217,16 +217,16 @@ public record TaskStatisticsData
 
 **PostgreSQL Migration**:
 ```bash
-dotnet ef migrations add AddTaskEntity --project Semantico.Core.PostgreSql --startup-project Semantico.SampleProject
+dotnet ef migrations add AddTaskEntity --project Beacon.Core.PostgreSql --startup-project Beacon.SampleProject
 ```
 
 **SQL Server Migration**:
 ```bash
-dotnet ef migrations add AddTaskEntity --project Semantico.Core.SqlServer --startup-project Semantico.SampleProject
+dotnet ef migrations add AddTaskEntity --project Beacon.Core.SqlServer --startup-project Beacon.SampleProject
 ```
 
 **Migration Validation Checklist**:
-- [ ] No hardcoded `"semantico"."Tasks"` references (should be just `"Tasks"`)
+- [ ] No hardcoded `"beacon"."Tasks"` references (should be just `"Tasks"`)
 - [ ] Indexes created with explicit names (IX_Task_*)
 - [ ] Foreign key constraints configured with Restrict delete behavior
 - [ ] ResolutionNotes max length 2000 applied
@@ -234,7 +234,7 @@ dotnet ef migrations add AddTaskEntity --project Semantico.Core.SqlServer --star
 
 **Apply Migrations**:
 ```bash
-dotnet ef database update --project Semantico.Core --startup-project Semantico.SampleProject
+dotnet ef database update --project Beacon.Core --startup-project Beacon.SampleProject
 ```
 
 ---
@@ -244,42 +244,42 @@ dotnet ef database update --project Semantico.Core --startup-project Semantico.S
 #### Step 2.1: Create Handler Directory
 
 ```bash
-mkdir -p Semantico.Core/Features/Tasks
+mkdir -p Beacon.Core/Features/Tasks
 ```
 
 ---
 
 #### Step 2.2: Implement CreateTask Handler
 
-**File**: `Semantico.Core/Features/Tasks/CreateTask.cs`
+**File**: `Beacon.Core/Features/Tasks/CreateTask.cs`
 
 ```csharp
-namespace Semantico.Core.Features.Tasks;
+namespace Beacon.Core.Features.Tasks;
 
 using System;
 using System.Threading;
 using System.Threading.Tasks;
 using MediatR;
-using Semantico.Core.Data;
-using Semantico.Core.Data.Enums;
-using Semantico.Core.Exceptions;
+using Beacon.Core.Data;
+using Beacon.Core.Data.Enums;
+using Beacon.Core.Exceptions;
 
 internal sealed class CreateTask
 {
-    internal sealed class Handler(SemanticoContext context) : IRequestHandler<Request, Response>
+    internal sealed class Handler(BeaconContext context) : IRequestHandler<Request, Response>
     {
-        private readonly SemanticoContext _context = context;
+        private readonly BeaconContext _context = context;
 
         public async Task<Response> Handle(Request request, CancellationToken cancellationToken)
         {
             // Validate recipient is Tasks type
             var recipient = await _context.Recipients
                 .FindAsync(new object[] { request.RecipientId }, cancellationToken)
-                ?? throw new SemanticoException($"Recipient {request.RecipientId} not found");
+                ?? throw new BeaconException($"Recipient {request.RecipientId} not found");
 
             if (recipient.NotificationType != NotificationType.Tasks)
             {
-                throw new SemanticoException($"Recipient {request.RecipientId} is not a Tasks recipient");
+                throw new BeaconException($"Recipient {request.RecipientId} is not a Tasks recipient");
             }
 
             // Create task
@@ -323,29 +323,29 @@ public sealed record Response
 
 #### Step 2.3: Implement ResolveTask Handler
 
-**File**: `Semantico.Core/Features/Tasks/ResolveTask.cs`
+**File**: `Beacon.Core/Features/Tasks/ResolveTask.cs`
 
 ```csharp
-namespace Semantico.Core.Features.Tasks;
+namespace Beacon.Core.Features.Tasks;
 
 using System;
 using System.Threading;
 using System.Threading.Tasks;
 using MediatR;
-using Semantico.Core.Data;
-using Semantico.Core.Exceptions;
+using Beacon.Core.Data;
+using Beacon.Core.Exceptions;
 
 internal sealed class ResolveTask
 {
-    internal sealed class Handler(SemanticoContext context) : IRequestHandler<Request, Response>
+    internal sealed class Handler(BeaconContext context) : IRequestHandler<Request, Response>
     {
-        private readonly SemanticoContext _context = context;
+        private readonly BeaconContext _context = context;
 
         public async Task<Response> Handle(Request request, CancellationToken cancellationToken)
         {
             var task = await _context.Tasks
                 .FindAsync(new object[] { request.TaskId }, cancellationToken)
-                ?? throw new SemanticoException($"Task {request.TaskId} not found");
+                ?? throw new BeaconException($"Task {request.TaskId} not found");
 
             // Validate resolution notes length
             if (request.ResolutionNotes?.Length > 2000)
@@ -390,28 +390,28 @@ public sealed record Response
 
 #### Step 2.4: Implement ReopenTask Handler
 
-**File**: `Semantico.Core/Features/Tasks/ReopenTask.cs`
+**File**: `Beacon.Core/Features/Tasks/ReopenTask.cs`
 
 ```csharp
-namespace Semantico.Core.Features.Tasks;
+namespace Beacon.Core.Features.Tasks;
 
 using System.Threading;
 using System.Threading.Tasks;
 using MediatR;
-using Semantico.Core.Data;
-using Semantico.Core.Exceptions;
+using Beacon.Core.Data;
+using Beacon.Core.Exceptions;
 
 internal sealed class ReopenTask
 {
-    internal sealed class Handler(SemanticoContext context) : IRequestHandler<Request, Response>
+    internal sealed class Handler(BeaconContext context) : IRequestHandler<Request, Response>
     {
-        private readonly SemanticoContext _context = context;
+        private readonly BeaconContext _context = context;
 
         public async Task<Response> Handle(Request request, CancellationToken cancellationToken)
         {
             var task = await _context.Tasks
                 .FindAsync(new object[] { request.TaskId }, cancellationToken)
-                ?? throw new SemanticoException($"Task {request.TaskId} not found");
+                ?? throw new BeaconException($"Task {request.TaskId} not found");
 
             if (!task.Resolved)
             {
@@ -447,10 +447,10 @@ public sealed record Response
 
 #### Step 2.5: Implement GetTasks Query Handler
 
-**File**: `Semantico.Core/Features/Tasks/GetTasks.cs`
+**File**: `Beacon.Core/Features/Tasks/GetTasks.cs`
 
 ```csharp
-namespace Semantico.Core.Features.Tasks;
+namespace Beacon.Core.Features.Tasks;
 
 using System.Collections.Generic;
 using System.Linq;
@@ -458,14 +458,14 @@ using System.Threading;
 using System.Threading.Tasks;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
-using Semantico.Core.Data;
-using Semantico.Core.DTOs;
+using Beacon.Core.Data;
+using Beacon.Core.DTOs;
 
 internal sealed class GetTasks
 {
-    internal sealed class Handler(SemanticoContext context) : IRequestHandler<Request, Response>
+    internal sealed class Handler(BeaconContext context) : IRequestHandler<Request, Response>
     {
-        private readonly SemanticoContext _context = context;
+        private readonly BeaconContext _context = context;
 
         public async Task<Response> Handle(Request request, CancellationToken cancellationToken)
         {
@@ -543,24 +543,24 @@ public sealed record Response
 
 #### Step 2.6: Implement GetTaskDetails Query Handler
 
-**File**: `Semantico.Core/Features/Tasks/GetTaskDetails.cs`
+**File**: `Beacon.Core/Features/Tasks/GetTaskDetails.cs`
 
 ```csharp
-namespace Semantico.Core.Features.Tasks;
+namespace Beacon.Core.Features.Tasks;
 
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
-using Semantico.Core.Data;
-using Semantico.Core.DTOs;
+using Beacon.Core.Data;
+using Beacon.Core.DTOs;
 
 internal sealed class GetTaskDetails
 {
-    internal sealed class Handler(SemanticoContext context) : IRequestHandler<Request, Response>
+    internal sealed class Handler(BeaconContext context) : IRequestHandler<Request, Response>
     {
-        private readonly SemanticoContext _context = context;
+        private readonly BeaconContext _context = context;
 
         public async Task<Response> Handle(Request request, CancellationToken cancellationToken)
         {
@@ -632,15 +632,15 @@ public sealed record Response
 
 #### Step 3.1: Implement TasksAdapter
 
-**File**: `Semantico.Core/Adapters/TasksAdapter.cs`
+**File**: `Beacon.Core/Adapters/TasksAdapter.cs`
 
 ```csharp
-namespace Semantico.Core.Adapters;
+namespace Beacon.Core.Adapters;
 
 using System.Threading.Tasks;
 using MediatR;
-using Semantico.Core.Data.Enums;
-using Semantico.Core.Features.Tasks;
+using Beacon.Core.Data.Enums;
+using Beacon.Core.Features.Tasks;
 
 public class TasksAdapter(IMediator mediator) : IAdapter
 {
@@ -685,7 +685,7 @@ public class TasksAdapter(IMediator mediator) : IAdapter
 
 #### Step 3.2: Register TasksAdapter in AdapterFactory
 
-**File**: `Semantico.Core/Adapters/AdapterFactory.cs`
+**File**: `Beacon.Core/Adapters/AdapterFactory.cs`
 
 **Action**: Add Tasks case to `GetAdapterService` method
 
@@ -711,15 +711,15 @@ public IAdapter GetAdapterService(NotificationType notificationType)
 
 #### Step 4.1: Create ITaskService Interface
 
-**File**: `Semantico.Core/Services/ITaskService.cs`
+**File**: `Beacon.Core/Services/ITaskService.cs`
 
 ```csharp
-namespace Semantico.Core.Services;
+namespace Beacon.Core.Services;
 
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Semantico.Core.DTOs;
+using Beacon.Core.DTOs;
 
 public interface ITaskService
 {
@@ -736,17 +736,17 @@ public interface ITaskService
 
 #### Step 4.2: Implement TaskService
 
-**File**: `Semantico.Core/Services/TaskService.cs`
+**File**: `Beacon.Core/Services/TaskService.cs`
 
 ```csharp
-namespace Semantico.Core.Services;
+namespace Beacon.Core.Services;
 
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using MediatR;
-using Semantico.Core.DTOs;
-using Semantico.Core.Features.Tasks;
+using Beacon.Core.DTOs;
+using Beacon.Core.Features.Tasks;
 
 public class TaskService(IMediator mediator) : ITaskService
 {
@@ -823,7 +823,7 @@ public class TaskService(IMediator mediator) : ITaskService
 
 #### Step 4.3: Register TaskService in DI
 
-**File**: `Semantico.SampleProject/Program.cs` (or wherever services are registered)
+**File**: `Beacon.SampleProject/Program.cs` (or wherever services are registered)
 
 ```csharp
 services.AddScoped<ITaskService, TaskService>();
@@ -837,12 +837,12 @@ services.AddScoped<ITaskService, TaskService>();
 
 #### Step 5.1: Create Tasks Page
 
-**File**: `Semantico.UI/Components/Pages/Tasks/Tasks.razor`
+**File**: `Beacon.UI/Components/Pages/Tasks/Tasks.razor`
 
 ```razor
 @page "/tasks"
-@using Semantico.Core.Services
-@using Semantico.Core.DTOs
+@using Beacon.Core.Services
+@using Beacon.Core.DTOs
 @inject ITaskService TaskService
 @inject NavigationManager Navigation
 
@@ -942,12 +942,12 @@ else
 
 #### Step 5.2: Create Task Details Page
 
-**File**: `Semantico.UI/Components/Pages/Tasks/TaskDetails.razor`
+**File**: `Beacon.UI/Components/Pages/Tasks/TaskDetails.razor`
 
 ```razor
 @page "/tasks/{TaskId:int}"
-@using Semantico.Core.Services
-@using Semantico.Core.DTOs
+@using Beacon.Core.Services
+@using Beacon.Core.DTOs
 @inject ITaskService TaskService
 
 <h3>Task Details</h3>
@@ -1022,7 +1022,7 @@ else
 
 #### Step 5.3: Update Navigation
 
-**File**: `Semantico.UI/Components/Layout/NavMenu.razor`
+**File**: `Beacon.UI/Components/Layout/NavMenu.razor`
 
 **Action**: Add Tasks navigation link
 
@@ -1035,7 +1035,7 @@ else
 **Verification**: Run application and verify Tasks page loads
 
 ```bash
-dotnet watch run --project Semantico.SampleProject
+dotnet watch run --project Beacon.SampleProject
 ```
 
 ---
@@ -1058,7 +1058,7 @@ dotnet watch run --project Semantico.SampleProject
 
 #### Step 6.2: Integration Testing
 
-Create test file: `Semantico.Tests/Features/Tasks/CreateTaskTests.cs`
+Create test file: `Beacon.Tests/Features/Tasks/CreateTaskTests.cs`
 
 ```csharp
 // TODO: Add integration tests for handlers
@@ -1069,7 +1069,7 @@ Create test file: `Semantico.Tests/Features/Tasks/CreateTaskTests.cs`
 ## Common Issues & Troubleshooting
 
 ### Issue: Migration fails with schema reference error
-**Solution**: Ensure `Program.cs` uses default "semantico" schema temporarily for migration generation
+**Solution**: Ensure `Program.cs` uses default "beacon" schema temporarily for migration generation
 
 ### Issue: TasksAdapter not found in AdapterFactory
 **Solution**: Verify TasksAdapter is registered in `GetAdapterService` switch statement

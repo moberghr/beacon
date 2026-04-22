@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document outlines the design for implementing a Microsoft-style multi-agent workflow for database documentation generation in Semantico. The system orchestrates multiple specialized LLM agents working in parallel on different parts of the database schema, then aggregates their results into comprehensive documentation.
+This document outlines the design for implementing a Microsoft-style multi-agent workflow for database documentation generation in Beacon. The system orchestrates multiple specialized LLM agents working in parallel on different parts of the database schema, then aggregates their results into comprehensive documentation.
 
 ## Current Architecture (Single-Agent)
 
@@ -188,7 +188,7 @@ public record DocumentationProgress
 
 ### 2. Agent Prompts
 
-**Location:** `Semantico.Core/Services/Ai/MultiAgent/MultiAgentPrompts.cs`
+**Location:** `Beacon.Core/Services/Ai/MultiAgent/MultiAgentPrompts.cs`
 
 ```csharp
 public static class MultiAgentPrompts
@@ -205,7 +205,7 @@ public static class MultiAgentPrompts
 
 ### 3. Models
 
-**Location:** `Semantico.Core/Models/Ai/MultiAgent/`
+**Location:** `Beacon.Core/Models/Ai/MultiAgent/`
 
 ```csharp
 public record OrchestratorResult
@@ -249,7 +249,7 @@ public class MultiAgentDocumentationService : IMultiAgentDocumentationService
 {
     private readonly ILlmProvider _llmProvider;
     private readonly IDatabaseMetadataService _metadataService;
-    private readonly IDbContextFactory<SemanticoContext> _contextFactory;
+    private readonly IDbContextFactory<BeaconContext> _contextFactory;
     private readonly ILogger<MultiAgentDocumentationService> _logger;
 
     public async Task<DataSourceDocumentation> GenerateDocumentationAsync(...)
@@ -419,7 +419,7 @@ Add to `appsettings.json`:
 
 ```json
 {
-  "Semantico": {
+  "Beacon": {
     "AI": {
       "Documentation": {
         "UseMultiAgent": true,
@@ -510,7 +510,7 @@ Add to `appsettings.json`:
 ## File Structure
 
 ```
-Semantico.Core/
+Beacon.Core/
 ├── Services/
 │   └── Ai/
 │       ├── MultiAgent/
@@ -541,4 +541,4 @@ This multi-agent architecture transforms database documentation from a monolithi
 ✅ **Scalability** for large databases
 ✅ **Maintainability** through clear separation of concerns
 
-The implementation follows Microsoft's agent design patterns while leveraging Semantico's existing infrastructure (LLM providers, metadata service, entity framework).
+The implementation follows Microsoft's agent design patterns while leveraging Beacon's existing infrastructure (LLM providers, metadata service, entity framework).

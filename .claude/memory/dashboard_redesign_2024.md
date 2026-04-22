@@ -102,11 +102,11 @@ Completely redesigned the home page (`/` and `/dashboard`) into a comprehensive 
 
 ## Files Modified
 
-1. **Semantico.Core/Models/QueryExecutionHistory/QueryStatisticsModels.cs**
+1. **Beacon.Core/Models/QueryExecutionHistory/QueryStatisticsModels.cs**
    - Added `RecentActivityItem`, `TopSubscriptionItem` models
    - Enhanced `DashboardStatisticsData` with new properties
 
-2. **Semantico.Core/Services/StatisticsService.cs**
+2. **Beacon.Core/Services/StatisticsService.cs**
    - Enhanced `GetDashboardStatistics()` with:
      - Anomaly statistics queries
      - Notification channel breakdown
@@ -114,7 +114,7 @@ Completely redesigned the home page (`/` and `/dashboard`) into a comprehensive 
      - Top subscriptions by execution count
      - Data sources and recipients counts
 
-3. **Semantico.UI/Components/Pages/Home.razor**
+3. **Beacon.UI/Components/Pages/Home.razor**
    - Complete redesign with ~660 lines of code
    - Extensive CSS styling (~150 lines)
    - Multiple dashboard sections

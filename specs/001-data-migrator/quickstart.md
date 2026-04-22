@@ -4,7 +4,7 @@
 This guide demonstrates how to set up and execute a simple data migration job using the new Data Migration Tool. The scenario migrates customer data from a PostgreSQL database to a MySQL database with data transformation.
 
 ## Prerequisites
-- Access to Semantico application with Data Migration module
+- Access to Beacon application with Data Migration module
 - Source project configured (PostgreSQL with customer data)
 - Destination project configured (MySQL target database)
 - Appropriate database permissions for both source and destination
@@ -12,7 +12,7 @@ This guide demonstrates how to set up and execute a simple data migration job us
 ## Scenario: Customer Data Migration
 
 ### Step 1: Navigate to Data Migration
-1. Open the Semantico application
+1. Open the Beacon application
 2. Navigate to **Data Migration** from the main menu
 3. You should see the migration jobs list (initially empty)
 

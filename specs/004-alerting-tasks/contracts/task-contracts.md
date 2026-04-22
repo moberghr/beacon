@@ -6,7 +6,7 @@
 
 This document defines the MediatR handler contracts (request/response types) for all task operations following the CQRS pattern. Each handler is defined as `internal sealed class` with primary constructor injection, implementing `IRequestHandler<TRequest, TResponse>`.
 
-All handlers reside in `Semantico.Core/Features/Tasks/` directory.
+All handlers reside in `Beacon.Core/Features/Tasks/` directory.
 
 ---
 
@@ -16,11 +16,11 @@ All handlers reside in `Semantico.Core/Features/Tasks/` directory.
 
 **Purpose**: Create a new task record when TasksAdapter sends a notification.
 
-**File**: `Semantico.Core/Features/Tasks/CreateTask.cs`
+**File**: `Beacon.Core/Features/Tasks/CreateTask.cs`
 
 **Handler Signature**:
 ```csharp
-internal sealed class Handler(SemanticoContext context) : IRequestHandler<CreateTaskRequest, CreateTaskResponse>
+internal sealed class Handler(BeaconContext context) : IRequestHandler<CreateTaskRequest, CreateTaskResponse>
 ```
 
 **Request Contract**:
@@ -50,8 +50,8 @@ public sealed record CreateTaskResponse
 - ResultCount must be >= 0
 
 **Error Handling**:
-- Throws `SemanticoException` if notification/subscription/recipient not found
-- Throws `SemanticoException` if recipient is not Tasks type
+- Throws `BeaconException` if notification/subscription/recipient not found
+- Throws `BeaconException` if recipient is not Tasks type
 - EF Core foreign key constraint violation if references invalid
 
 **Example Usage** (from TasksAdapter):
@@ -71,11 +71,11 @@ var response = await _mediator.Send(new CreateTaskRequest
 
 **Purpose**: Mark a task as resolved with optional notes.
 
-**File**: `Semantico.Core/Features/Tasks/ResolveTask.cs`
+**File**: `Beacon.Core/Features/Tasks/ResolveTask.cs`
 
 **Handler Signature**:
 ```csharp
-internal sealed class Handler(SemanticoContext context) : IRequestHandler<ResolveTaskRequest, ResolveTaskResponse>
+internal sealed class Handler(BeaconContext context) : IRequestHandler<ResolveTaskRequest, ResolveTaskResponse>
 ```
 
 **Request Contract**:
@@ -110,7 +110,7 @@ public sealed record ResolveTaskResponse
 - Set `ResolvedByUserId` if provided
 
 **Error Handling**:
-- Throws `SemanticoException` if task not found
+- Throws `BeaconException` if task not found
 - Throws `ArgumentException` if ResolutionNotes exceeds 2000 characters
 
 **Example Usage** (from TaskService):
@@ -129,11 +129,11 @@ var response = await _mediator.Send(new ResolveTaskRequest
 
 **Purpose**: Reopen a resolved task (set Resolved = false).
 
-**File**: `Semantico.Core/Features/Tasks/ReopenTask.cs`
+**File**: `Beacon.Core/Features/Tasks/ReopenTask.cs`
 
 **Handler Signature**:
 ```csharp
-internal sealed class Handler(SemanticoContext context) : IRequestHandler<ReopenTaskRequest, ReopenTaskResponse>
+internal sealed class Handler(BeaconContext context) : IRequestHandler<ReopenTaskRequest, ReopenTaskResponse>
 ```
 
 **Request Contract**:
@@ -163,8 +163,8 @@ public sealed record ReopenTaskResponse
 - Clear `ResolutionNotes` (or append "Reopened" note - design decision)
 
 **Error Handling**:
-- Throws `SemanticoException` if task not found
-- Throws `SemanticoException` if task already unresolved (idempotent operation)
+- Throws `BeaconException` if task not found
+- Throws `BeaconException` if task already unresolved (idempotent operation)
 
 **Example Usage** (from TaskService):
 ```csharp
@@ -182,11 +182,11 @@ var response = await _mediator.Send(new ReopenTaskRequest
 
 **Purpose**: Retrieve task list with filtering, sorting, and pagination.
 
-**File**: `Semantico.Core/Features/Tasks/GetTasks.cs`
+**File**: `Beacon.Core/Features/Tasks/GetTasks.cs`
 
 **Handler Signature**:
 ```csharp
-internal sealed class Handler(SemanticoContext context) : IRequestHandler<GetTasksRequest, GetTasksResponse>
+internal sealed class Handler(BeaconContext context) : IRequestHandler<GetTasksRequest, GetTasksResponse>
 ```
 
 **Request Contract**:
@@ -280,11 +280,11 @@ var response = await _mediator.Send(new GetTasksRequest
 
 **Purpose**: Retrieve full task details including execution history and stored results.
 
-**File**: `Semantico.Core/Features/Tasks/GetTaskDetails.cs`
+**File**: `Beacon.Core/Features/Tasks/GetTaskDetails.cs`
 
 **Handler Signature**:
 ```csharp
-internal sealed class Handler(SemanticoContext context) : IRequestHandler<GetTaskDetailsRequest, GetTaskDetailsResponse>
+internal sealed class Handler(BeaconContext context) : IRequestHandler<GetTaskDetailsRequest, GetTaskDetailsResponse>
 ```
 
 **Request Contract**:
@@ -346,7 +346,7 @@ var response = await _mediator.Send(new GetTaskDetailsRequest
 
 if (response.TaskDetails is null)
 {
-    throw new SemanticoException("Task not found");
+    throw new BeaconException("Task not found");
 }
 ```
 
@@ -356,11 +356,11 @@ if (response.TaskDetails is null)
 
 **Purpose**: Calculate aggregate statistics for tasks dashboard.
 
-**File**: `Semantico.Core/Features/Tasks/GetTaskStatistics.cs`
+**File**: `Beacon.Core/Features/Tasks/GetTaskStatistics.cs`
 
 **Handler Signature**:
 ```csharp
-internal sealed class Handler(SemanticoContext context) : IRequestHandler<GetTaskStatisticsRequest, GetTaskStatisticsResponse>
+internal sealed class Handler(BeaconContext context) : IRequestHandler<GetTaskStatisticsRequest, GetTaskStatisticsResponse>
 ```
 
 **Request Contract**:
@@ -437,7 +437,7 @@ var response = await _mediator.Send(new GetTaskStatisticsRequest
 
 **Purpose**: Abstraction layer between Blazor UI and MediatR handlers.
 
-**Location**: `Semantico.Core/Services/ITaskService.cs`
+**Location**: `Beacon.Core/Services/ITaskService.cs`
 
 **Interface Definition**:
 ```csharp
@@ -452,7 +452,7 @@ public interface ITaskService
 }
 ```
 
-**Implementation**: `Semantico.Core/Services/TaskService.cs`
+**Implementation**: `Beacon.Core/Services/TaskService.cs`
 
 **Pattern**: Each method wraps a MediatR `Send()` call:
 ```csharp
@@ -488,19 +488,19 @@ services.AddScoped<ITaskService, TaskService>();
 All handlers follow this template:
 
 ```csharp
-namespace Semantico.Core.Features.Tasks;
+namespace Beacon.Core.Features.Tasks;
 
 using System;
 using System.Threading;
 using System.Threading.Tasks;
 using MediatR;
-using Semantico.Core.Data;
+using Beacon.Core.Data;
 
 internal sealed class [Operation]
 {
-    internal sealed class Handler(SemanticoContext context) : IRequestHandler<Request, Response>
+    internal sealed class Handler(BeaconContext context) : IRequestHandler<Request, Response>
     {
-        private readonly SemanticoContext _context = context;
+        private readonly BeaconContext _context = context;
 
         public async Task<Response> Handle(Request request, CancellationToken cancellationToken)
         {
@@ -527,14 +527,14 @@ public sealed record Response
 
 ### Error Handling Pattern
 
-- **Not Found**: Throw `SemanticoException` with descriptive message
-- **Validation Failed**: Throw `ArgumentException` or `SemanticoException`
+- **Not Found**: Throw `BeaconException` with descriptive message
+- **Validation Failed**: Throw `ArgumentException` or `BeaconException`
 - **Database Errors**: Let EF Core exceptions bubble up (handled by middleware)
 - **Idempotent Operations**: No error for repeated operations (e.g., resolving resolved task)
 
 ### Testing Strategy
 
-- **Unit Tests**: Mock `SemanticoContext` using in-memory database or mocked DbSet
+- **Unit Tests**: Mock `BeaconContext` using in-memory database or mocked DbSet
 - **Integration Tests**: Test handlers against real PostgreSQL and SQL Server instances
 - **Test Coverage**: All validation rules, business logic branches, error cases
 

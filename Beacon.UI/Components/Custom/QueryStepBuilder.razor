@@ -1,0 +1,596 @@
+@using Beacon.Core.Models.Queries
+@using Beacon.Core.Models.Metadata
+@using Beacon.Core.Data.Enums
+@using System.Text.RegularExpressions
+@using QueryParameterValue = Beacon.Core.Models.Queries.ParameterValue
+@using Beacon.Core.Services
+@implements IDisposable
+
+@inject IDialogService DialogService
+@inject IDatabaseMetadataService MetadataService
+
+<MudCard Class="mb-4">
+    <MudCardHeader>
+        <CardHeaderContent>
+            <MudText Typo="Typo.h6">
+                <MudIcon Icon="@Icons.Material.Filled.AccountTree" Class="mr-2" />
+                Cross-Data-Source Query Builder
+            </MudText>
+            @if (Query?.IsMultiStep == true)
+            {
+                <MudChip T="string" Size="Size.Small" Color="Color.Info">Multi-Step</MudChip>
+            }
+            @if (Query?.IsCrossDataSource == true)
+            {
+                <MudChip T="string" Size="Size.Small" Color="Color.Warning">Cross-Data-Source</MudChip>
+            }
+            @if (Query?.IsCrossDatabase == true)
+            {
+                <MudChip T="string" Size="Size.Small" Color="Color.Error">Cross-Database</MudChip>
+            }
+        </CardHeaderContent>
+        <CardHeaderActions>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="AddStep" StartIcon="@Icons.Material.Filled.Add">
+                Add Step
+            </MudButton>
+        </CardHeaderActions>
+    </MudCardHeader>
+    <MudCardContent>
+        @if (Query?.Steps?.Any() == true)
+        {
+            <MudTimeline TimelineOrientation="TimelineOrientation.Vertical" TimelinePosition="TimelinePosition.Start">
+                @foreach (var step in Query.Steps.OrderBy(s => s.StepOrder))
+                {
+                    <MudTimelineItem>
+                        <ItemOpposite>
+                            <MudText Color="Color.Primary" Typo="Typo.subtitle2">
+                                Step @step.StepOrder
+                            </MudText>
+                            <MudText Typo="Typo.caption">
+                                @step.DataSourceName (@step.DatabaseEngineDescription)
+                            </MudText>
+                        </ItemOpposite>
+                        <ItemContent>
+                            <MudCard Outlined="true" Class="pa-4">
+                                <MudGrid>
+                                    <MudItem xs="12" sm="6">
+                                        <MudTextField @bind-Value="step.Name"
+                                                      Label="Step Name"
+                                                      Variant="Variant.Outlined"
+                                                      Margin="Margin.Dense" />
+                                    </MudItem>
+                                    <MudItem xs="12" sm="6">
+                                        <MudSelect Value="@step.DataSourceId"
+                                                   ValueChanged="@((int newDataSourceId) => OnDataSourceChanged(step, newDataSourceId))"
+                                                   Label="Target Database"
+                                                   Variant="Variant.Outlined"
+                                                   Margin="Margin.Dense">
+                                            @foreach (var dataSource in AvailableProjects)
+                                            {
+                                                <MudSelectItem Value="dataSource.Key">
+                                                    @dataSource.Value.Name (@dataSource.Value.DatabaseEngine)
+                                                </MudSelectItem>
+                                            }
+                                        </MudSelect>
+                                    </MudItem>
+                                    <MudItem xs="12">
+                                        <MudText Typo="Typo.body2" Class="mb-1">
+                                            <strong>SQL Query</strong>
+                                        </MudText>
+                                        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-2">
+                                            @GetStepHelperText(step) | Use {parameter_name} for parameters
+                                        </MudText>
+                                        <div style="display: flex; gap: 0; height: 400px; border: 1px solid var(--mud-palette-lines-default);">
+                                            @{
+                                                var currentStepOrder = step.StepOrder;
+                                            }
+                                            <div style="width: 250px; min-width: 250px; height: 100%; overflow: hidden;">
+                                                <DatabaseExplorer Metadata="@GetMetadataForStep(step)"
+                                                                 OnTableSelected="@((tableName) => OnTableSelectedForStep(step, tableName))"
+                                                                 OnColumnSelected="@((selection) => OnColumnSelectedForStep(step, selection))" />
+                                            </div>
+                                            <div style="flex: 1; height: 100%;">
+                                                <SqlEditor Value="@step.SqlValue"
+                                                           ValueChanged="@(async (newValue) => await OnSqlValueChanged(step, newValue))"
+                                                           DataSourceId="@step.DataSourceId"
+                                                           Height="100%"
+                                                           EditorId="@($"sql-editor-step-{step.StepOrder}")" />
+                                            </div>
+                                        </div>
+                                    </MudItem>
+                                    <MudItem xs="12">
+                                        <MudStack Row Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                                            <MudText Typo="Typo.subtitle2">Parameters</MudText>
+                                            <MudButton Size="Size.Small" 
+                                                       Variant="Variant.Text" 
+                                                       StartIcon="@Icons.Material.Filled.Refresh"
+                                                       OnClick="() => DetectParameters(step)">
+                                                Detect Parameters
+                                            </MudButton>
+                                        </MudStack>
+                                        @if (step.Parameters.Any())
+                                        {
+                                            <MudGrid Class="mt-2">
+                                                @foreach (var param in step.Parameters)
+                                                {
+                                                    <MudItem xs="12" sm="6" md="4">
+                                                        <MudPaper Class="pa-3" Outlined="true">
+                                                            <MudStack Spacing="2">
+                                                                <MudStack Row Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                                                                    <MudText Typo="Typo.subtitle2">{@param.Name}</MudText>
+                                                                    <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                                                                   Size="Size.Small"
+                                                                                   Color="Color.Error"
+                                                                                   OnClick="() => RemoveParameter(step, param.Name)" />
+                                                                </MudStack>
+                                                                <MudSelect @bind-Value="param.Type"
+                                                                           Label="Type"
+                                                                           Variant="Variant.Outlined"
+                                                                           Margin="Margin.Dense">
+                                                                    <MudSelectItem Value="ParameterType.String">String</MudSelectItem>
+                                                                    <MudSelectItem Value="ParameterType.Number">Number</MudSelectItem>
+                                                                    <MudSelectItem Value="ParameterType.DateTime">DateTime</MudSelectItem>
+                                                                </MudSelect>
+                                                                <MudTextField @bind-Value="param.Description"
+                                                                              Label="Description"
+                                                                              Variant="Variant.Outlined"
+                                                                              Margin="Margin.Dense"
+                                                                              Lines="2" />
+                                                                <MudTextField @bind-Value="param.Placeholder"
+                                                                              Label="Placeholder"
+                                                                              Variant="Variant.Outlined"
+                                                                              Margin="Margin.Dense"
+                                                                              ReadOnly="true"
+                                                                              HelperText="Auto-detected from query" />
+                                                            </MudStack>
+                                                        </MudPaper>
+                                                    </MudItem>
+                                                }
+                                            </MudGrid>
+                                        }
+                                        else
+                                        {
+                                            <MudText Typo="Typo.caption" Color="Color.Tertiary" Class="mt-2">
+                                                No parameters detected. Type {parameter_name} in your SQL query to add parameters.
+                                            </MudText>
+                                        }
+                                    </MudItem>
+                                </MudGrid>
+                                <MudCardActions>
+                                    <MudButton StartIcon="@Icons.Material.Filled.PlayArrow" 
+                                               Color="Color.Primary" 
+                                               Size="Size.Small"
+                                               OnClick="() => PreviewStep(step.StepOrder)">
+                                        Preview
+                                    </MudButton>
+                                    <MudSpacer />
+                                    @if (step.StepOrder > 1)
+                                    {
+                                        <MudIconButton Icon="@Icons.Material.Filled.ArrowUpward" 
+                                                       Size="Size.Small" 
+                                                       OnClick="() => MoveStepUp(step.StepOrder)" />
+                                    }
+                                    @if (step.StepOrder < Query.Steps.Count)
+                                    {
+                                        <MudIconButton Icon="@Icons.Material.Filled.ArrowDownward" 
+                                                       Size="Size.Small" 
+                                                       OnClick="() => MoveStepDown(step.StepOrder)" />
+                                    }
+                                    @if (Query.Steps.Count > 1)
+                                    {
+                                        <MudIconButton Icon="@Icons.Material.Filled.Delete" 
+                                                       Color="Color.Error" 
+                                                       Size="Size.Small" 
+                                                       OnClick="() => RemoveStep(step.StepOrder)" />
+                                    }
+                                </MudCardActions>
+                            </MudCard>
+                        </ItemContent>
+                    </MudTimelineItem>
+                }
+            </MudTimeline>
+        }
+        else
+        {
+            <MudAlert Severity="Severity.Info">
+                No query steps defined. Click "Add Step" to create your first query step.
+            </MudAlert>
+        }
+
+        @if (Query?.Steps?.Count > 1)
+        {
+            <MudDivider Class="my-4" />
+            <MudText Typo="Typo.h6" Class="mb-2">Final Query (Optional)</MudText>
+            <MudText Typo="Typo.body2" Class="mb-3">
+                Combine results from previous steps using virtual table references (@@result1, @@result2, etc.)
+            </MudText>
+            <div style="width: 100%; height: 300px;">
+                <FinalQueryEditor Value="@(FinalQuery ?? "")"
+                                 ValueChanged="@((newValue) => { FinalQuery = newValue; return Task.CompletedTask; })"
+                                 Query="@Query"
+                                 Height="100%"
+                                 EditorId="final-query-editor" />
+            </div>
+        }
+    </MudCardContent>
+    <MudCardActions>
+        <MudButton Variant="Variant.Filled" 
+                   Color="Color.Success" 
+                   StartIcon="@Icons.Material.Filled.PlayArrow"
+                   OnClick="ExecuteQuery"
+                   Disabled="@(Query?.Steps?.Any() != true)">
+            Execute Query Chain
+        </MudButton>
+        <MudButton Variant="Variant.Outlined" 
+                   StartIcon="@Icons.Material.Filled.Save"
+                   OnClick="SaveQuery"
+                   Disabled="@(Query?.Steps?.Any() != true)">
+            Save Query
+        </MudButton>
+    </MudCardActions>
+</MudCard>
+
+@code {
+    [Parameter] public QueryData? Query { get; set; }
+    [Parameter] public Dictionary<int, ProjectInfo> AvailableProjects { get; set; } = new();
+    [Parameter] public EventCallback<QueryData> OnQueryChanged { get; set; }
+    [Parameter] public EventCallback<int> OnPreviewStep { get; set; }
+    [Parameter] public EventCallback<(int StepOrder, List<QueryParameterValue> Parameters)> OnPreviewStepWithParameters { get; set; }
+    [Parameter] public EventCallback OnExecuteQuery { get; set; }
+    [Parameter] public EventCallback OnSaveQuery { get; set; }
+
+    public string? FinalQuery { get; set; }
+
+    private Dictionary<int, DatabaseMetadataSnapshot?> _metadataCache = new();
+    private Dictionary<int, SqlEditor?> _editorRefs = new();
+    private Dictionary<int, CancellationTokenSource> _parameterDetectionCts = new();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        Query ??= new QueryData { Name = "New Cross-Data-Source Query" };
+
+        FinalQuery ??= Query.FinalQuery;
+
+        if (!Query.Steps.Any())
+        {
+            AddStep();
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && Query?.Steps?.Any() == true)
+        {
+            _ = LoadMetadataInBackground();
+        }
+    }
+
+    private async Task LoadMetadataInBackground()
+    {
+        if (Query?.Steps == null) return;
+
+        foreach (var step in Query.Steps)
+        {
+            if (step.DataSourceId > 0 && !_metadataCache.ContainsKey(step.DataSourceId))
+            {
+                try
+                {
+                    _metadataCache[step.DataSourceId] = await MetadataService.GetMetadataAsync(step.DataSourceId);
+                    StateHasChanged();
+                }
+                catch
+                {
+                    _metadataCache[step.DataSourceId] = null;
+                }
+            }
+        }
+    }
+
+    private void AddStep()
+    {
+        var newStepOrder = Query!.Steps.Any() ? Query.Steps.Max(s => s.StepOrder) + 1 : 1;
+        var defaultDataSourceId = AvailableProjects.Keys.FirstOrDefault();
+        var defaultDataSource = AvailableProjects.GetValueOrDefault(defaultDataSourceId);
+
+        var newStep = new QueryStepData
+        {
+            StepOrder = newStepOrder,
+            Name = $"Step {newStepOrder}",
+            SqlValue = "",
+            DataSourceId = defaultDataSourceId,
+            DataSourceName = defaultDataSource?.Name ?? "",
+            DatabaseEngineType = defaultDataSource?.DatabaseEngineType ?? DatabaseEngineType.PostgreSQL,
+            Parameters = new()
+        };
+
+        Query.Steps.Add(newStep);
+        OnQueryChanged.InvokeAsync(Query);
+    }
+
+    private async Task RemoveStep(int stepOrder)
+    {
+        var stepToRemove = Query!.Steps.FirstOrDefault(s => s.StepOrder == stepOrder);
+        if (stepToRemove != null)
+        {
+            Query.Steps.Remove(stepToRemove);
+            
+            // Reorder remaining steps
+            var remainingSteps = Query.Steps.OrderBy(s => s.StepOrder).ToList();
+            for (int i = 0; i < remainingSteps.Count; i++)
+            {
+                remainingSteps[i].StepOrder = i + 1;
+                remainingSteps[i].Name = $"Step {i + 1}";
+            }
+            
+            await OnQueryChanged.InvokeAsync(Query);
+        }
+    }
+
+    private async Task MoveStepUp(int stepOrder)
+    {
+        var step = Query!.Steps.FirstOrDefault(s => s.StepOrder == stepOrder);
+        var prevStep = Query.Steps.FirstOrDefault(s => s.StepOrder == stepOrder - 1);
+        
+        if (step != null && prevStep != null)
+        {
+            step.StepOrder--;
+            prevStep.StepOrder++;
+            await OnQueryChanged.InvokeAsync(Query);
+        }
+    }
+
+    private async Task MoveStepDown(int stepOrder)
+    {
+        var step = Query!.Steps.FirstOrDefault(s => s.StepOrder == stepOrder);
+        var nextStep = Query.Steps.FirstOrDefault(s => s.StepOrder == stepOrder + 1);
+        
+        if (step != null && nextStep != null)
+        {
+            step.StepOrder++;
+            nextStep.StepOrder--;
+            await OnQueryChanged.InvokeAsync(Query);
+        }
+    }
+
+    private async Task PreviewStep(int stepOrder)
+    {
+        var step = Query?.Steps?.FirstOrDefault(s => s.StepOrder == stepOrder);
+        if (step == null) return;
+
+        if (step.Parameters.Any())
+        {
+            // Show parameter input dialog
+            var parameters = new DialogParameters<ParameterInputDialog>
+            {
+                { x => x.Parameters, step.Parameters },
+                { x => x.StepOrder, stepOrder }
+            };
+
+            var options = new DialogOptions
+            {
+                MaxWidth = MaxWidth.Medium,
+                FullWidth = true
+            };
+
+            var dialog = await DialogService.ShowAsync<ParameterInputDialog>("Set Parameter Values", parameters, options);
+            var result = await dialog.Result;
+
+            if (!result.Canceled && result.Data is List<QueryParameterValue> parameterValues)
+            {
+                // Preview with parameters
+                await OnPreviewStepWithParameters.InvokeAsync((stepOrder, parameterValues));
+            }
+        }
+        else
+        {
+            // No parameters, preview directly
+            await OnPreviewStep.InvokeAsync(stepOrder);
+        }
+    }
+
+    private async Task ExecuteQuery()
+    {
+        Query!.FinalQuery = FinalQuery;
+        await OnExecuteQuery.InvokeAsync();
+    }
+
+    private async Task SaveQuery()
+    {
+        Query!.FinalQuery = FinalQuery;
+        await OnSaveQuery.InvokeAsync();
+    }
+
+    private string GetStepHelperText(QueryStepData step)
+    {
+        if (step.StepOrder > 1)
+        {
+            var availableResults = string.Join(", ", Enumerable.Range(1, step.StepOrder - 1).Select(i => $"@result{i}"));
+            return $"Use previous results: {availableResults}";
+        }
+        return "This is the first step - no previous results available";
+    }
+
+    private async Task OnSqlValueChanged(QueryStepData step, string newValue)
+    {
+        step.SqlValue = newValue;
+        await OnQueryChanged.InvokeAsync(Query!);
+
+        if (_parameterDetectionCts.TryGetValue(step.StepOrder, out var existingCts))
+        {
+            existingCts.Cancel();
+            existingCts.Dispose();
+        }
+
+        var cts = new CancellationTokenSource();
+        _parameterDetectionCts[step.StepOrder] = cts;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(500, cts.Token);
+                if (!cts.Token.IsCancellationRequested)
+                {
+                    await InvokeAsync(async () => await DetectParameters(step));
+                }
+            }
+            catch (TaskCanceledException)
+            {
+                // Expected when typing quickly
+            }
+            finally
+            {
+                cts.Dispose();
+                _parameterDetectionCts.Remove(step.StepOrder);
+            }
+        });
+    }
+
+    private async Task OnDataSourceChanged(QueryStepData step, int newDataSourceId)
+    {
+        step.DataSourceId = newDataSourceId;
+
+        if (AvailableProjects.TryGetValue(newDataSourceId, out var dataSourceInfo))
+        {
+            step.DataSourceName = dataSourceInfo.Name;
+            step.DatabaseEngineType = dataSourceInfo.DatabaseEngineType;
+        }
+
+        if (newDataSourceId > 0 && !_metadataCache.ContainsKey(newDataSourceId))
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    _metadataCache[newDataSourceId] = await MetadataService.GetMetadataAsync(newDataSourceId);
+                    await InvokeAsync(StateHasChanged);
+                }
+                catch
+                {
+                    _metadataCache[newDataSourceId] = null;
+                }
+            });
+        }
+
+        await OnQueryChanged.InvokeAsync(Query!);
+    }
+
+    private async Task DetectParameters(QueryStepData step)
+    {
+        if (string.IsNullOrWhiteSpace(step.SqlValue))
+            return;
+
+        // Use regex to find parameters in the format {parameter_name}
+        var parameterPattern = @"\{(\w+)\}";
+        var matches = Regex.Matches(step.SqlValue, parameterPattern);
+        
+        var detectedParameterNames = matches
+            .Cast<Match>()
+            .Select(m => m.Groups[1].Value)
+            .Distinct()
+            .ToList();
+
+        // Remove parameters that are no longer in the SQL query
+        var parametersToRemove = step.Parameters
+            .Where(p => !detectedParameterNames.Contains(p.Name))
+            .ToList();
+        
+        foreach (var paramToRemove in parametersToRemove)
+        {
+            step.Parameters.Remove(paramToRemove);
+        }
+
+        // Add new parameters that were detected
+        var existingParameterNames = step.Parameters.Select(p => p.Name).ToHashSet();
+        
+        foreach (var paramName in detectedParameterNames)
+        {
+            if (!existingParameterNames.Contains(paramName))
+            {
+                step.Parameters.Add(new QueryStepParameterData
+                {
+                    Name = paramName,
+                    Type = ParameterType.String, // Default to string
+                    Description = null,
+                    Placeholder = $"{{{paramName}}}"
+                });
+            }
+        }
+
+        await OnQueryChanged.InvokeAsync(Query!);
+        StateHasChanged();
+    }
+
+    private async Task RemoveParameter(QueryStepData step, string parameterName)
+    {
+        var parameter = step.Parameters.FirstOrDefault(p => p.Name == parameterName);
+        if (parameter != null)
+        {
+            step.Parameters.Remove(parameter);
+            await OnQueryChanged.InvokeAsync(Query!);
+            StateHasChanged();
+        }
+    }
+
+    private DatabaseMetadataSnapshot? GetMetadataForStep(QueryStepData step)
+    {
+        if (step.DataSourceId > 0 && _metadataCache.TryGetValue(step.DataSourceId, out var metadata))
+        {
+            return metadata;
+        }
+        return null;
+    }
+
+    private void StoreEditorRef(int stepOrder, SqlEditor? editor)
+    {
+        if (editor != null)
+        {
+            _editorRefs[stepOrder] = editor;
+        }
+    }
+
+    private async Task OnTableSelectedForStep(QueryStepData step, string tableName)
+    {
+        // Append table name to the end of the SQL with a space
+        if (!string.IsNullOrWhiteSpace(step.SqlValue) && !step.SqlValue.EndsWith(" ") && !step.SqlValue.EndsWith("\n"))
+        {
+            step.SqlValue += " ";
+        }
+        step.SqlValue += tableName;
+
+        await OnQueryChanged.InvokeAsync(Query!);
+        StateHasChanged();
+    }
+
+    private async Task OnColumnSelectedForStep(QueryStepData step, (string TableName, string ColumnName) selection)
+    {
+        var textToInsert = $"{selection.TableName}.{selection.ColumnName}";
+
+        // Append column name to the end of the SQL with a space
+        if (!string.IsNullOrWhiteSpace(step.SqlValue) && !step.SqlValue.EndsWith(" ") && !step.SqlValue.EndsWith("\n"))
+        {
+            step.SqlValue += " ";
+        }
+        step.SqlValue += textToInsert;
+
+        await OnQueryChanged.InvokeAsync(Query!);
+        StateHasChanged();
+    }
+
+    public void Dispose()
+    {
+        foreach (var cts in _parameterDetectionCts.Values)
+        {
+            cts?.Cancel();
+            cts?.Dispose();
+        }
+        _parameterDetectionCts.Clear();
+    }
+
+    public class ProjectInfo
+    {
+        public string Name { get; set; } = null!;
+        public string DatabaseEngine { get; set; } = null!;
+        public DatabaseEngineType DatabaseEngineType { get; set; }
+    }
+}

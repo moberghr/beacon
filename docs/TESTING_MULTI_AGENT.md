@@ -23,7 +23,7 @@ You need a running PostgreSQL or SQL Server instance. Update `appsettings.json`:
 ```json
 {
   "ConnectionStrings": {
-    "SemanticoContext": "Host=localhost;Database=semantico;Username=postgres;Password="
+    "BeaconContext": "Host=localhost;Database=beacon;Username=postgres;Password="
   }
 }
 ```
@@ -34,7 +34,7 @@ Enable AI features by configuring an LLM provider in `appsettings.json`:
 
 ```json
 {
-  "Semantico": {
+  "Beacon": {
     "EncryptionKey": "[REMOVED-KEY]=",
     "LLM": {
       "Provider": "Claude",
@@ -60,11 +60,11 @@ Enable AI features by configuring an LLM provider in `appsettings.json`:
 ### Step 1: Start the Application
 
 ```bash
-cd Semantico.SampleProject
+cd Beacon.SampleProject
 dotnet run
 ```
 
-Navigate to: `https://localhost:7187/semantico`
+Navigate to: `https://localhost:7187/beacon`
 
 ### Step 2: Create/Select a Data Source
 
@@ -154,9 +154,9 @@ The progress bar should update smoothly:
 
 **Solution**: Ensure `UseAI = true` in `Program.cs`:
 ```csharp
-builder.Services.AddSemantico(builder.Configuration, options =>
+builder.Services.AddBeacon(builder.Configuration, options =>
 {
-    options.UsePostgreSql(connectionString, "semantico");
+    options.UsePostgreSql(connectionString, "beacon");
     options.UseAI = true; // IMPORTANT
 });
 ```
@@ -266,15 +266,15 @@ Multi-agent integration is successful if:
 ## Files Modified/Created
 
 ### Modified:
-- `Semantico.Core/ServiceConfiguration.cs` (line 135)
-- `Semantico.UI/Components/Pages/DataSources/GenerateDocumentationDialog.razor`
+- `Beacon.Core/ServiceConfiguration.cs` (line 135)
+- `Beacon.UI/Components/Pages/DataSources/GenerateDocumentationDialog.razor`
 
 ### Created:
-- `Semantico.Core/Handlers/Documentation/GenerateMultiAgentDocumentationHandler.cs`
-- `Semantico.Core/Services/Ai/MultiAgent/IMultiAgentDocumentationService.cs`
-- `Semantico.Core/Services/Ai/MultiAgent/MultiAgentDocumentationService.cs`
-- `Semantico.Core/Services/Ai/MultiAgent/MultiAgentPrompts.cs`
-- `Semantico.Core/Models/Ai/MultiAgent/*.cs` (6 model files)
+- `Beacon.Core/Handlers/Documentation/GenerateMultiAgentDocumentationHandler.cs`
+- `Beacon.Core/Services/Ai/MultiAgent/IMultiAgentDocumentationService.cs`
+- `Beacon.Core/Services/Ai/MultiAgent/MultiAgentDocumentationService.cs`
+- `Beacon.Core/Services/Ai/MultiAgent/MultiAgentPrompts.cs`
+- `Beacon.Core/Models/Ai/MultiAgent/*.cs` (6 model files)
 
 ## Summary
 

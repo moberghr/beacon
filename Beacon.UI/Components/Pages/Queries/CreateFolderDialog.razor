@@ -1,0 +1,97 @@
+@using Beacon.Core.Handlers.QueryFolders
+@using MediatR
+
+<MudDialog>
+    <DialogContent>
+        <MudTextField @bind-Value="_folderName"
+                      Label="Folder Name"
+                      Required="true"
+                      Immediate="true"
+                      HelperText="Enter a unique name for the folder" />
+
+        <MudTextField @bind-Value="_description"
+                      Label="Description"
+                      Lines="3"
+                      Class="mt-3"
+                      HelperText="Optional description" />
+
+        @if (ParentFolderId.HasValue)
+        {
+            <MudAlert Severity="Severity.Info" Class="mt-3">
+                This folder will be created inside the selected parent folder.
+            </MudAlert>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary"
+                   Variant="Variant.Filled"
+                   OnClick="Submit"
+                   Disabled="@(string.IsNullOrWhiteSpace(_folderName) || _saving)">
+            @if (_saving)
+            {
+                <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+            }
+            else
+            {
+                <text>Create</text>
+            }
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@inject IMediator Mediator
+@inject ISnackbar Snackbar
+
+@code {
+    [CascadingParameter]
+    IMudDialogInstance MudDialog { get; set; } = null!;
+
+    [Parameter]
+    public int? ParentFolderId { get; set; }
+
+    private string _folderName = "";
+    private string? _description;
+    private bool _saving;
+
+    private void Cancel()
+    {
+        MudDialog.Cancel();
+    }
+
+    private async Task Submit()
+    {
+        if (string.IsNullOrWhiteSpace(_folderName))
+        {
+            Snackbar.Add("Folder name is required", Severity.Error);
+            return;
+        }
+
+        _saving = true;
+        try
+        {
+            var command = new CreateQueryFolderCommand(
+                Name: _folderName.Trim(),
+                Description: string.IsNullOrWhiteSpace(_description) ? null : _description.Trim(),
+                ParentFolderId: ParentFolderId
+            );
+
+            var result = await Mediator.Send(command);
+
+            Snackbar.Add($"Folder '{_folderName}' created successfully", Severity.Success);
+            MudDialog.Close(DialogResult.Ok(result.FolderId));
+        }
+        catch (InvalidOperationException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error creating folder: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+}

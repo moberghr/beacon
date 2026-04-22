@@ -6,7 +6,7 @@ Created a centralized `ChartHelper` class to provide consistent chart configurat
 ## Key Changes
 
 ### 1. Created ChartHelper Class
-**File**: Semantico.UI/Helpers/ChartHelper.cs (NEW)
+**File**: Beacon.UI/Helpers/ChartHelper.cs (NEW)
 
 **Purpose**: Centralized chart configuration for consistent styling
 
@@ -41,10 +41,10 @@ For multi-series charts:
 Alias for multi-series options (used in anomaly detection charts)
 
 ### 2. Updated TaskDetails.razor
-**File**: Semantico.UI/Components/Pages/Tasks/TaskDetails.razor
+**File**: Beacon.UI/Components/Pages/Tasks/TaskDetails.razor
 
 **Changes**:
-1. Added `@using Semantico.UI.Helpers`
+1. Added `@using Beacon.UI.Helpers`
 2. Updated Result Count chart (line 119):
    - `Width="@ChartHelper.DefaultChartWidth"`
    - `Height="@ChartHelper.DefaultChartHeight"`
@@ -71,10 +71,10 @@ Alias for multi-series options (used in anomaly detection charts)
    ```
 
 ### 3. Updated SubscriptionDetails.razor
-**File**: Semantico.UI/Components/Pages/Subscriptions/SubscriptionDetails.razor
+**File**: Beacon.UI/Components/Pages/Subscriptions/SubscriptionDetails.razor
 
 **Changes**:
-1. Added `@using Semantico.UI.Helpers` (line 10)
+1. Added `@using Beacon.UI.Helpers` (line 10)
 
 2. Updated Anomaly Detection chart (line 465):
    - `Width="@ChartHelper.DefaultChartWidth"` (was "100%")
@@ -139,7 +139,7 @@ All charts now follow these standards:
 
 ### Simple Chart with One Series
 ```razor
-@using Semantico.UI.Helpers
+@using Beacon.UI.Helpers
 
 <MudChart ChartType="ChartType.Line"
           ChartSeries="@_chartSeries"
@@ -197,13 +197,13 @@ options.ChartPalette = new[] { "#new_color1", "#new_color2", ... };
 
 ## Files Modified
 
-1. **NEW**: Semantico.UI/Helpers/ChartHelper.cs (~70 lines)
-2. **Modified**: Semantico.UI/Components/Pages/Tasks/TaskDetails.razor
+1. **NEW**: Beacon.UI/Helpers/ChartHelper.cs (~70 lines)
+2. **Modified**: Beacon.UI/Components/Pages/Tasks/TaskDetails.razor
    - Added using statement
    - Updated 2 charts to use helper
    - Added _anomalyAxisChartOptions field
    - Simplified chart configuration methods
-3. **Modified**: Semantico.UI/Components/Pages/Subscriptions/SubscriptionDetails.razor
+3. **Modified**: Beacon.UI/Components/Pages/Subscriptions/SubscriptionDetails.razor
    - Added using statement
    - Updated chart to use helper
    - Added _anomalyAxisChartOptions field (NEW - now has 45° rotation!)

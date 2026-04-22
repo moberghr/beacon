@@ -1,0 +1,141 @@
+@using Beacon.Core.Handlers.QueryFolders
+@using MediatR
+
+<MudDialog>
+    <DialogContent>
+        <MudText Class="mb-3">
+            Move query <strong>@QueryName</strong> to:
+        </MudText>
+
+        @if (_loading)
+        {
+            <MudProgressLinear Indeterminate="true" />
+        }
+        else
+        {
+            <MudRadioGroup @bind-Value="_selectedFolderId">
+                <MudRadio Value="@((int?)-1)" Color="Color.Primary">
+                    <div class="d-flex align-center">
+                        <MudIcon Icon="@Icons.Material.Filled.FolderOff" Class="mr-2" Size="Size.Small" />
+                        <MudText>Root Level (No Folder)</MudText>
+                    </div>
+                </MudRadio>
+
+                @foreach (var folder in _folders)
+                {
+                    <MudRadio Value="@((int?)folder.Id)" Color="Color.Primary">
+                        <div class="d-flex align-center">
+                            <MudIcon Icon="@Icons.Material.Filled.Folder" Class="mr-2" Size="Size.Small" />
+                            <MudText>@folder.Path</MudText>
+                        </div>
+                    </MudRadio>
+                }
+            </MudRadioGroup>
+
+            @if (_folders.Count == 0)
+            {
+                <MudAlert Severity="Severity.Info" Class="mt-2">
+                    No folders available. Create a folder first to organize your queries.
+                </MudAlert>
+            }
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary"
+                   Variant="Variant.Filled"
+                   OnClick="Submit"
+                   Disabled="@(_moving || !_selectedFolderId.HasValue)">
+            @if (_moving)
+            {
+                <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+            }
+            else
+            {
+                <text>Move</text>
+            }
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@inject IMediator Mediator
+@inject ISnackbar Snackbar
+
+@code {
+    [CascadingParameter]
+    IMudDialogInstance MudDialog { get; set; } = null!;
+
+    [Parameter]
+    public int QueryId { get; set; }
+
+    [Parameter]
+    public string QueryName { get; set; } = null!;
+
+    [Parameter]
+    public int? CurrentFolderId { get; set; }
+
+    private List<QueryFolderData> _folders = new();
+    private int? _selectedFolderId;
+    private bool _loading = true;
+    private bool _moving;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _selectedFolderId = CurrentFolderId ?? -1;
+        await LoadFolders();
+    }
+
+    private async Task LoadFolders()
+    {
+        _loading = true;
+        try
+        {
+            var result = await Mediator.Send(new GetQueryFoldersQuery());
+            _folders = result.Folders;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void Cancel()
+    {
+        MudDialog.Cancel();
+    }
+
+    private async Task Submit()
+    {
+        _moving = true;
+        try
+        {
+            var targetFolderId = _selectedFolderId == -1 ? null : _selectedFolderId;
+
+            var command = new MoveQueryToFolderCommand(
+                QueryId: QueryId,
+                FolderId: targetFolderId
+            );
+
+            await Mediator.Send(command);
+
+            var targetName = targetFolderId.HasValue
+                ? _folders.First(f => f.Id == targetFolderId.Value).Path
+                : "Root Level";
+
+            Snackbar.Add($"Query moved to '{targetName}' successfully", Severity.Success);
+            MudDialog.Close(DialogResult.Ok(true));
+        }
+        catch (InvalidOperationException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error moving query: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _moving = false;
+        }
+    }
+}

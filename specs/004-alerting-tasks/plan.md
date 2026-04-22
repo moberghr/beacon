@@ -7,7 +7,7 @@
 
 ## Summary
 
-Add "Tasks" as a new notification recipient type in the Semantico alerting system. When a subscription with a Tasks recipient executes and returns results, the system creates an internal task record that users can view, filter, resolve, and track over time. This provides an internal notification channel for workflow management without requiring external system integration, enabling users to manage data quality alerts, compliance violations, and operational issues directly within Semantico.
+Add "Tasks" as a new notification recipient type in the Beacon alerting system. When a subscription with a Tasks recipient executes and returns results, the system creates an internal task record that users can view, filter, resolve, and track over time. This provides an internal notification channel for workflow management without requiring external system integration, enabling users to manage data quality alerts, compliance violations, and operational issues directly within Beacon.
 
 **Technical Approach**: Add Tasks as an internal notification type that creates task records directly via TaskService (no adapter needed - tasks are internal database records, not external notifications). Implement Jira-style task tracking where one task per subscription-recipient pair tracks multiple notifications over time. Tasks auto-resolve when query returns 0 results. Build Blazor UI components for task list, detail views with notification history, and resolution workflow.
 
@@ -16,7 +16,7 @@ Add "Tasks" as a new notification recipient type in the Semantico alerting syste
 **Language/Version**: C# 12 / .NET 8.0
 **Primary Dependencies**: EF Core 8.0, MediatR, Hangfire (existing scheduler), Blazor Server
 **Storage**: PostgreSQL (primary) and SQL Server (secondary) via provider-specific projects
-**Testing**: xUnit with FluentAssertions (following existing Semantico.Tests patterns)
+**Testing**: xUnit with FluentAssertions (following existing Beacon.Tests patterns)
 **Target Platform**: Web application (Blazor Server on Linux/Windows)
 **Project Type**: Multi-project solution (Core, UI, Provider-specific projects)
 **Performance Goals**:
@@ -41,23 +41,23 @@ Add "Tasks" as a new notification recipient type in the Semantico alerting syste
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
 ### ✅ I. Clean Architecture
-- **Compliance**: Task entity will reside in `Semantico.Core/Data/Entities/`
-- **Compliance**: TasksAdapter will reside in `Semantico.Core/Adapters/`
+- **Compliance**: Task entity will reside in `Beacon.Core/Data/Entities/`
+- **Compliance**: TasksAdapter will reside in `Beacon.Core/Adapters/`
 - **Compliance**: Task entity will inherit from `BaseArchivableEntity` for soft delete support
-- **Compliance**: CQRS handlers will use MediatR in `Semantico.Core/Features/Tasks/`
-- **Compliance**: UI components will reside in `Semantico.UI/Components/Pages/Tasks/`
+- **Compliance**: CQRS handlers will use MediatR in `Beacon.Core/Features/Tasks/`
+- **Compliance**: UI components will reside in `Beacon.UI/Components/Pages/Tasks/`
 - **Compliance**: Dependencies flow inward: UI → Services → Core (no violations)
 - **Note**: Task entity will implement standard entity patterns (IChangeableEntity not needed as tasks are immutable after resolution)
 
 ### ✅ II. Schema-Agnostic Database Design
-- **Compliance**: Migrations will be generated using default "semantico" schema
+- **Compliance**: Migrations will be generated using default "beacon" schema
 - **Compliance**: No hardcoded schema references in migrations
-- **Compliance**: Schema applied at runtime via existing `modelBuilder.HasDefaultSchema(DefaultSchema)` in SemanticoContext
+- **Compliance**: Schema applied at runtime via existing `modelBuilder.HasDefaultSchema(DefaultSchema)` in BeaconContext
 - **Compliance**: Task entity registration will follow existing patterns in `OnModelCreating`
 
 ### ✅ III. Multi-Provider Database Support
-- **Compliance**: PostgreSQL migration: `Semantico.Core.PostgreSql`
-- **Compliance**: SQL Server migration: `Semantico.Core.SqlServer`
+- **Compliance**: PostgreSQL migration: `Beacon.Core.PostgreSql`
+- **Compliance**: SQL Server migration: `Beacon.Core.SqlServer`
 - **Compliance**: Task entity uses provider-agnostic EF Core features (no PostgreSQL/SQL Server-specific types)
 - **Compliance**: Will test migration and runtime behavior on both providers
 
@@ -80,12 +80,12 @@ Add "Tasks" as a new notification recipient type in the Semantico alerting syste
 - **Compliance**: PascalCase for Task entity, TasksAdapter, handler classes
 - **Compliance**: camelCase for parameters and local variables
 - **Compliance**: System namespaces → third-party → project imports
-- **Compliance**: Custom exceptions via SemanticoException if needed
+- **Compliance**: Custom exceptions via BeaconException if needed
 
 ### ✅ Database Operations Standards
 - **Compliance**: User will manually generate migrations as per CLAUDE.md:
-  - `dotnet ef migrations add AddTaskEntity --project Semantico.Core.PostgreSql --startup-project Semantico.SampleProject`
-  - `dotnet ef migrations add AddTaskEntity --project Semantico.Core.SqlServer --startup-project Semantico.SampleProject`
+  - `dotnet ef migrations add AddTaskEntity --project Beacon.Core.PostgreSql --startup-project Beacon.SampleProject`
+  - `dotnet ef migrations add AddTaskEntity --project Beacon.Core.SqlServer --startup-project Beacon.SampleProject`
 - **Compliance**: Migrations will be validated for schema-agnostic design before commit
 
 ### ✅ Build and Development Standards
@@ -116,13 +116,13 @@ specs/004-alerting-tasks/
 ### Source Code (repository root)
 
 ```text
-Semantico.Core/
+Beacon.Core/
 ├── Data/
 │   ├── Entities/
 │   │   └── Task.cs                          # NEW: Task entity
 │   ├── Enums/
 │   │   └── NotificationType.cs              # MODIFIED: Add Tasks = 4
-│   └── SemanticoContext.cs                  # MODIFIED: Add DbSet<Task>, configure indexes
+│   └── BeaconContext.cs                  # MODIFIED: Add DbSet<Task>, configure indexes
 ├── Adapters/
 │   ├── IAdapter.cs                           # EXISTING: Used by Email/Teams/Jira (Tasks doesn't use adapter)
 │   └── AdapterFactory.cs                     # EXISTING: Not modified (Tasks bypasses adapter pattern)
@@ -134,15 +134,15 @@ Semantico.Core/
     ├── TaskData.cs                           # NEW: Task list item DTO
     └── TaskDetailsData.cs                    # NEW: Task details DTO
 
-Semantico.Core.PostgreSql/
+Beacon.Core.PostgreSql/
 └── Migrations/
     └── [Timestamp]_AddTaskEntity.cs          # NEW: PostgreSQL migration (user generates)
 
-Semantico.Core.SqlServer/
+Beacon.Core.SqlServer/
 └── Migrations/
     └── [Timestamp]_AddTaskEntity.cs          # NEW: SQL Server migration (user generates)
 
-Semantico.UI/
+Beacon.UI/
 └── Components/
     └── Pages/
         └── Tasks/                             # NEW: Task UI components
@@ -151,11 +151,11 @@ Semantico.UI/
             ├── ResolveTaskDialog.razor        # Dialog for resolving task
             └── TaskFilters.razor              # Filter component (status, subscription, recipient)
 
-Semantico.SampleProject/
+Beacon.SampleProject/
 └── Program.cs                                 # MODIFIED: No changes needed (existing adapter registration)
 ```
 
-**Structure Decision**: Multi-project solution following existing Semantico architecture. Task entity and business logic reside in `Semantico.Core` (Clean Architecture core), provider-specific migrations in `Semantico.Core.PostgreSql` and `Semantico.Core.SqlServer`, and UI components in `Semantico.UI`. This maintains clean separation of concerns and multi-provider database support per constitutional principles I-III.
+**Structure Decision**: Multi-project solution following existing Beacon architecture. Task entity and business logic reside in `Beacon.Core` (Clean Architecture core), provider-specific migrations in `Beacon.Core.PostgreSql` and `Beacon.Core.SqlServer`, and UI components in `Beacon.UI`. This maintains clean separation of concerns and multi-provider database support per constitutional principles I-III.
 
 ## Complexity Tracking
 

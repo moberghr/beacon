@@ -1,11 +1,11 @@
 # Subscription Details Colorful CSS Extraction - December 2024
 
 ## Overview
-Extracted colorful CSS styles from SubscriptionDetails.razor to the shared semantico-styles.css file, making the elegant, colorful design available to all pages in the application. This addresses the user's concern that subscription pages had "rich colors" while other pages were "black and white."
+Extracted colorful CSS styles from SubscriptionDetails.razor to the shared beacon-styles.css file, making the elegant, colorful design available to all pages in the application. This addresses the user's concern that subscription pages had "rich colors" while other pages were "black and white."
 
 ## Key Changes
 
-### 1. CSS Extraction to Shared Styles (semantico-styles.css)
+### 1. CSS Extraction to Shared Styles (beacon-styles.css)
 **Added ~175 lines of colorful, elegant CSS** at the end of the file:
 
 #### Status Badge Styles
@@ -75,7 +75,7 @@ Extracted colorful CSS styles from SubscriptionDetails.razor to the shared seman
 
 ## Files Modified
 
-**Semantico.UI/wwwroot/css/semantico-styles.css**
+**Beacon.UI/wwwroot/css/beacon-styles.css**
 - Added "Additional Colorful Styles" section (~175 lines)
 - Hero metric card color variants (blue, purple, orange, red)
 - Status badge variants (success, error)
@@ -83,7 +83,7 @@ Extracted colorful CSS styles from SubscriptionDetails.razor to the shared seman
 - Timeline, chart, recipient card styles
 - Anomaly badge and tab content styles
 
-**Semantico.UI/Components/Pages/Subscriptions/SubscriptionDetails.razor**
+**Beacon.UI/Components/Pages/Subscriptions/SubscriptionDetails.razor**
 - Removed ~123 lines of inline CSS
 - Updated class names to use shared styles
 - No inline CSS remaining

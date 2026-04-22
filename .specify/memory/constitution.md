@@ -9,17 +9,17 @@ Sync Impact Report:
   ✅ spec-template.md (reviewed - compatible with requirements)
   ✅ tasks-template.md (reviewed - compatible with implementation approach)
 - Follow-up TODOs: None
-- Note: This is the initial constitution creation for Semantico project
+- Note: This is the initial constitution creation for Beacon project
 -->
 
-# Semantico Constitution
+# Beacon Constitution
 
 ## Core Principles
 
 ### I. Clean Architecture
-Semantico MUST follow Clean Architecture principles with clear separation of concerns:
-- Core domain logic resides in `Semantico.Core` with no infrastructure dependencies
-- UI and infrastructure concerns are isolated in separate projects (`Semantico.UI`, provider-specific projects)
+Beacon MUST follow Clean Architecture principles with clear separation of concerns:
+- Core domain logic resides in `Beacon.Core` with no infrastructure dependencies
+- UI and infrastructure concerns are isolated in separate projects (`Beacon.UI`, provider-specific projects)
 - Domain entities implement `IChangeableEntity` for modifiable entities
 - Archivable entities inherit from `BaseArchivableEntity`
 - Dependencies flow inward: UI → Services → Core
@@ -28,8 +28,8 @@ Semantico MUST follow Clean Architecture principles with clear separation of con
 
 ### II. Schema-Agnostic Database Design
 All database migrations MUST be schema-agnostic, with schema selection deferred to runtime:
-- Migrations are generated using the default "semantico" schema
-- Runtime schema is specified via `AddPostgreSqlSemantico(connectionString, schema)` or `AddSqlServerSemantico(connectionString, schema)`
+- Migrations are generated using the default "beacon" schema
+- Runtime schema is specified via `AddPostgreSqlBeacon(connectionString, schema)` or `AddSqlServerBeacon(connectionString, schema)`
 - Each database provider (PostgreSQL, SQL Server) maintains separate migrations due to SQL dialect differences
 - The `__EFMigrationsHistory` table location is set at startup per schema
 - Schema is applied via `modelBuilder.HasDefaultSchema(DefaultSchema)` in `OnModelCreating`
@@ -37,9 +37,9 @@ All database migrations MUST be schema-agnostic, with schema selection deferred 
 **Rationale**: Schema-agnostic design enables multi-tenancy with schema isolation, environment-specific schemas (dev/staging/prod), and eliminates the need to regenerate migrations for different deployments.
 
 ### III. Multi-Provider Database Support
-Semantico MUST maintain compatibility across multiple database providers:
-- PostgreSQL (primary): Migrations in `Semantico.Core.PostgreSql`
-- SQL Server: Migrations in `Semantico.Core.SqlServer`
+Beacon MUST maintain compatibility across multiple database providers:
+- PostgreSQL (primary): Migrations in `Beacon.Core.PostgreSql`
+- SQL Server: Migrations in `Beacon.Core.SqlServer`
 - MySQL: Supported for query execution (consuming applications)
 - Provider-specific implementations are isolated in dedicated projects
 - Core entities and context remain provider-agnostic
@@ -68,7 +68,7 @@ All data transfer and domain models MUST use strong typing with explicit contrac
 All code MUST follow consistent .NET conventions:
 - **Naming**: PascalCase for classes, methods, properties; camelCase for parameters, local variables
 - **Organization**: Group related files in folders based on domain/functionality
-- **Error Handling**: Use exceptions with custom `SemanticoException` class for domain errors
+- **Error Handling**: Use exceptions with custom `BeaconException` class for domain errors
 - **Imports**: System namespaces first, then third-party, then project namespaces
 
 **Rationale**: Consistent style improves readability, reduces cognitive load, and makes the codebase accessible to all contributors.
@@ -77,17 +77,17 @@ All code MUST follow consistent .NET conventions:
 
 ### Migration Generation
 All migrations MUST be generated following these procedures:
-1. Ensure `Program.cs` uses default "semantico" schema temporarily for migration generation
+1. Ensure `Program.cs` uses default "beacon" schema temporarily for migration generation
 2. Generate provider-specific migrations:
-   - PostgreSQL: `dotnet ef migrations add MigrationName --project Semantico.Core.PostgreSql --startup-project Semantico.SampleProject`
-   - SQL Server: `dotnet ef migrations add MigrationName --project Semantico.Core.SqlServer --startup-project Semantico.SampleProject`
+   - PostgreSQL: `dotnet ef migrations add MigrationName --project Beacon.Core.PostgreSql --startup-project Beacon.SampleProject`
+   - SQL Server: `dotnet ef migrations add MigrationName --project Beacon.Core.SqlServer --startup-project Beacon.SampleProject`
 3. Verify generated migrations contain NO hardcoded schema references
 4. Test migrations with multiple schema names before committing
 
 ### Database Updates
 Runtime database updates are performed via:
 ```bash
-dotnet ef database update --project Semantico.Core --startup-project Semantico.SampleProject
+dotnet ef database update --project Beacon.Core --startup-project Beacon.SampleProject
 ```
 The actual schema used is determined by the runtime configuration in `Program.cs`.
 
@@ -95,12 +95,12 @@ The actual schema used is determined by the runtime configuration in `Program.cs
 
 ### Build Commands
 - Build solution: `dotnet build --property WarningLevel=0`
-- Run application: `dotnet run --project Semantico.SampleProject`
-- Watch for changes: `dotnet watch run --project Semantico.SampleProject`
+- Run application: `dotnet run --project Beacon.SampleProject`
+- Watch for changes: `dotnet watch run --project Beacon.SampleProject`
 
 ### Testing Requirements
 - All handler logic MUST be unit testable without infrastructure dependencies
-- Test projects follow naming convention: `Semantico.Tests`
+- Test projects follow naming convention: `Beacon.Tests`
 - Integration tests MUST verify provider-specific behavior across PostgreSQL and SQL Server
 
 ## Governance

@@ -6,7 +6,7 @@ Added execution time metrics and charts to both the Dashboard (Home page) and Qu
 ## UI Changes
 
 ### 1. Home.razor (Dashboard Page)
-**File**: Semantico.UI/Components/Pages/Home.razor
+**File**: Beacon.UI/Components/Pages/Home.razor
 
 **Added Components**:
 1. **Three Hero Cards** (lines 140-189):
@@ -21,7 +21,7 @@ Added execution time metrics and charts to both the Dashboard (Home page) and Qu
    - Chart title: "Query Execution Performance - Last 30 Days"
 
 **Code Changes**:
-- Added `@using Semantico.UI.Helpers` (line 5)
+- Added `@using Beacon.UI.Helpers` (line 5)
 - Added execution time chart fields (lines 464-468)
 - Updated `LoadDashboardData()` to call `PrepareExecutionTimeChart()` (line 482)
 - Added `PrepareExecutionTimeChart()` method (lines 608-638)
@@ -32,7 +32,7 @@ Added execution time metrics and charts to both the Dashboard (Home page) and Qu
 - `ExecutionTimeHistory` (list of daily data points for last 30 days)
 
 ### 2. QueryDetails.razor (Query Details Page)
-**File**: Semantico.UI/Components/Pages/Queries/QueryDetails.razor
+**File**: Beacon.UI/Components/Pages/Queries/QueryDetails.razor
 
 **Added Components**:
 1. **Three Hero Cards** (lines 122-162):
@@ -48,7 +48,7 @@ Added execution time metrics and charts to both the Dashboard (Home page) and Qu
    - Only displayed if execution history exists
 
 **Code Changes**:
-- Added `@using Semantico.UI.Helpers` (line 10)
+- Added `@using Beacon.UI.Helpers` (line 10)
 - Added execution time chart fields (lines 595-599)
 - Updated `Load()` to call `PrepareExecutionTimeChart()` (lines 617-620)
 - Added `PrepareExecutionTimeChart()` method (lines 880-910)
@@ -152,13 +152,13 @@ To verify the implementation:
 
 ## Files Modified
 
-1. **Semantico.UI/Components/Pages/Home.razor**
+1. **Beacon.UI/Components/Pages/Home.razor**
    - Added using statement for ChartHelper
    - Added 3 execution time hero cards
    - Added execution time chart
    - Added chart fields and methods
 
-2. **Semantico.UI/Components/Pages/Queries/QueryDetails.razor**
+2. **Beacon.UI/Components/Pages/Queries/QueryDetails.razor**
    - Added using statement for ChartHelper
    - Added 3 execution time hero cards
    - Added execution time chart

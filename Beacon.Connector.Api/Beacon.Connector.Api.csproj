@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>true</IsPackable>
+    <Description>REST API connector for Beacon</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Beacon.Core\Beacon.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.OpenApi.Readers" Version="1.6.22" />
+    <PackageReference Include="JsonPath.Net" Version="1.1.6" />
+  </ItemGroup>
+</Project>

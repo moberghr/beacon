@@ -2,13 +2,13 @@
 nav_exclude: true
 ---
 
-# Semantico Documentation Branding
+# Beacon Documentation Branding
 
-This document describes the visual design system for Semantico documentation.
+This document describes the visual design system for Beacon documentation.
 
 ## Color Palette
 
-The color scheme is derived from the Semantico logo gradient (cyan → blue → purple → magenta).
+The color scheme is derived from the Beacon logo gradient (cyan → blue → purple → magenta).
 
 ### Primary Colors
 
@@ -48,7 +48,7 @@ The color scheme is derived from the Semantico logo gradient (cyan → blue → 
 
 ## Logo
 
-The Semantico logo features a stylized "S" made of flowing lines with a gradient from cyan to magenta.
+The Beacon logo features a stylized "S" made of flowing lines with a gradient from cyan to magenta.
 
 ### Logo Files
 
@@ -119,7 +119,7 @@ The design system includes dark mode support via `prefers-color-scheme`:
 ## Implementation
 
 The color scheme is implemented in:
-- `_sass/color_schemes/semantico.scss` - Jekyll color scheme
+- `_sass/color_schemes/beacon.scss` - Jekyll color scheme
 - `assets/css/style.css` - Custom CSS overrides
 
 To use in templates:

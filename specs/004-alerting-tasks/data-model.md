@@ -4,7 +4,7 @@
 
 ## Overview
 
-This document defines the data model for the Tasks recipient feature, including entity schemas, relationships, validation rules, and state transitions. The model extends the existing Semantico alerting architecture following Clean Architecture and multi-provider database support principles.
+This document defines the data model for the Tasks recipient feature, including entity schemas, relationships, validation rules, and state transitions. The model extends the existing Beacon alerting architecture following Clean Architecture and multi-provider database support principles.
 
 ## Entity Definitions
 
@@ -14,7 +14,7 @@ This document defines the data model for the Tasks recipient feature, including 
 
 **Base Class**: `BaseArchivableEntity` (provides `Id`, `CreatedTime`, `ArchivedTime`, `Archive()` method)
 
-**Location**: `Semantico.Core/Data/Entities/Task.cs`
+**Location**: `Beacon.Core/Data/Entities/Task.cs`
 
 #### Schema
 
@@ -74,7 +74,7 @@ This document defines the data model for the Tasks recipient feature, including 
 
 #### Indexes
 
-**Performance-critical indexes** (applied in `SemanticoContext.OnModelCreating()`):
+**Performance-critical indexes** (applied in `BeaconContext.OnModelCreating()`):
 
 1. **Unique Composite**: `(SubscriptionId, RecipientId)` - **CRITICAL**
    - **Use Case**: Enforce one task per subscription-recipient pair
@@ -98,7 +98,7 @@ This document defines the data model for the Tasks recipient feature, including 
 #### Example Entity Code
 
 ```csharp
-// Semantico.Core/Data/Entities/AlertingTask.cs
+// Beacon.Core/Data/Entities/AlertingTask.cs
 public class AlertingTask : ArchivableBaseEntity
 {
     public required int SubscriptionId { get; set; }
@@ -125,7 +125,7 @@ public class AlertingTask : ArchivableBaseEntity
 
 **Purpose**: Add optional TaskId foreign key to link notifications to tasks.
 
-**Location**: `Semantico.Core/Data/Entities/Notification.cs`
+**Location**: `Beacon.Core/Data/Entities/Notification.cs`
 
 #### Schema Change
 
@@ -143,7 +143,7 @@ public class AlertingTask : ArchivableBaseEntity
 
 **Purpose**: Defines the type of notification recipient.
 
-**Location**: `Semantico.Core/Data/Enums/NotificationType.cs`
+**Location**: `Beacon.Core/Data/Enums/NotificationType.cs`
 
 #### Schema Change
 
@@ -204,10 +204,10 @@ public enum NotificationType
 
 ## Database Configuration
 
-### EF Core Configuration (SemanticoContext.OnModelCreating)
+### EF Core Configuration (BeaconContext.OnModelCreating)
 
 ```csharp
-// Semantico.Core/Data/SemanticoContext.cs - OnModelCreating method additions
+// Beacon.Core/Data/BeaconContext.cs - OnModelCreating method additions
 
 modelBuilder.Entity<Task>(entity =>
 {
@@ -256,17 +256,17 @@ public DbSet<Task> Tasks => Set<Task>();
 
 ### Migration Notes
 
-**PostgreSQL Migration** (`Semantico.Core.PostgreSql`):
-- Command: `dotnet ef migrations add AddTaskEntity --project Semantico.Core.PostgreSql --startup-project Semantico.SampleProject`
+**PostgreSQL Migration** (`Beacon.Core.PostgreSql`):
+- Command: `dotnet ef migrations add AddTaskEntity --project Beacon.Core.PostgreSql --startup-project Beacon.SampleProject`
 - Generates: `[Timestamp]_AddTaskEntity.cs` with schema-agnostic DDL
-- Validation: Ensure no hardcoded `"semantico"."Tasks"` references
+- Validation: Ensure no hardcoded `"beacon"."Tasks"` references
 
-**SQL Server Migration** (`Semantico.Core.SqlServer`):
-- Command: `dotnet ef migrations add AddTaskEntity --project Semantico.Core.SqlServer --startup-project Semantico.SampleProject`
+**SQL Server Migration** (`Beacon.Core.SqlServer`):
+- Command: `dotnet ef migrations add AddTaskEntity --project Beacon.Core.SqlServer --startup-project Beacon.SampleProject`
 - Generates: `[Timestamp]_AddTaskEntity.cs` with schema-agnostic DDL
 - Differences from PostgreSQL: `nvarchar(2000)` vs `text`, `datetime2` vs `timestamp`
 
-**Schema Application**: Runtime via `modelBuilder.HasDefaultSchema(schema)` in `SemanticoContext.OnModelCreating()`
+**Schema Application**: Runtime via `modelBuilder.HasDefaultSchema(schema)` in `BeaconContext.OnModelCreating()`
 
 ---
 
@@ -276,7 +276,7 @@ public DbSet<Task> Tasks => Set<Task>();
 
 **Purpose**: Lightweight DTO for task list display.
 
-**Location**: `Semantico.Core/DTOs/TaskData.cs`
+**Location**: `Beacon.Core/DTOs/TaskData.cs`
 
 ```csharp
 public record TaskData
@@ -301,7 +301,7 @@ public record TaskData
 
 **Purpose**: Comprehensive DTO for task details page.
 
-**Location**: `Semantico.Core/DTOs/TaskDetailsData.cs`
+**Location**: `Beacon.Core/DTOs/TaskDetailsData.cs`
 
 ```csharp
 public record TaskDetailsData
@@ -333,7 +333,7 @@ public record QueryExecutionSummary(int Id, DateTime ExecutedAt, double Executio
 
 **Purpose**: Aggregate statistics for Tasks page header.
 
-**Location**: `Semantico.Core/DTOs/TaskStatisticsData.cs`
+**Location**: `Beacon.Core/DTOs/TaskStatisticsData.cs`
 
 ```csharp
 public record TaskStatisticsData
@@ -419,13 +419,13 @@ var details = await context.Tasks
 
 Before committing migrations, verify:
 
-- [ ] No hardcoded schema references (e.g., `"semantico"."Tasks"` → `"Tasks"`)
+- [ ] No hardcoded schema references (e.g., `"beacon"."Tasks"` → `"Tasks"`)
 - [ ] Both PostgreSQL and SQL Server migrations generated
 - [ ] Migrations tested on both providers with different schema names
 - [ ] Indexes created with explicit names (avoid auto-generated names)
 - [ ] Foreign key constraints configured with Restrict delete behavior
 - [ ] `ResolutionNotes` max length applied in migration
-- [ ] DbSet<Task> added to SemanticoContext
+- [ ] DbSet<Task> added to BeaconContext
 
 ---
 
