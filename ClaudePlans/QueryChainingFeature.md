@@ -652,10 +652,10 @@ private async Task<QueryResult> ExecuteFinalQuery(string finalQuery, Project tar
 
 ### Enhanced QueryDetails.razor (Cross-Project Display)
 ```razor
-@page "/semantico/queries/details/{id:int}"
+@page "/beacon/queries/details/{id:int}"
 
 <MudContainer Class="my-4 px-4"  MaxWidth="MaxWidth.ExtraExtraLarge">
-    <SemanticoPageHeader Icon="@GetQueryIcon()" 
+    <BeaconPageHeader Icon="@GetQueryIcon()" 
                         Title="@GetQueryTitle()" 
                         ButtonText="Add subscription" 
                         OnClick="@AddSubscription"/>
@@ -912,7 +912,7 @@ public class VirtualTableManager : IDisposable
         {
             if (!_virtualTables.ContainsKey(tableName))
             {
-                throw new SemanticoException($"Virtual table {tableName} is referenced but not available. Available: {string.Join(", ", _virtualTables.Keys)}");
+                throw new BeaconException($"Virtual table {tableName} is referenced but not available. Available: {string.Join(", ", _virtualTables.Keys)}");
             }
         }
         
@@ -921,7 +921,7 @@ public class VirtualTableManager : IDisposable
             DatabaseEngineType.PostgreSQL => BuildPostgreSqlWithCtes(sql, referencedTables),
             DatabaseEngineType.MSSQL => BuildSqlServerWithCtes(sql, referencedTables),
             DatabaseEngineType.MySQL => BuildMySqlWithCtes(sql, referencedTables),
-            _ => throw new SemanticoException($"Virtual table support not implemented for {targetDatabaseEngine}")
+            _ => throw new BeaconException($"Virtual table support not implemented for {targetDatabaseEngine}")
         };
     }
     

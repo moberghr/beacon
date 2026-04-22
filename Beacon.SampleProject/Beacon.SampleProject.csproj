@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+    <PropertyGroup>
+        <TargetFramework>net9.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <UserSecretsId>83bd5adc-17be-4915-a4f0-b44dac7e11e5</UserSecretsId>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Blazored.LocalStorage" Version="4.5.0" />
+        <PackageReference Include="Hangfire" Version="1.8.22" />
+        <PackageReference Include="Hangfire.PostgreSql" Version="1.20.12" />
+        <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.11" />
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.11">
+          <PrivateAssets>all</PrivateAssets>
+          <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+        <PackageReference Include="MudBlazor" Version="8.15.0" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\Beacon.Core.SqlServer\Beacon.Core.SqlServer.csproj" />
+      <ProjectReference Include="..\Beacon.Core\Beacon.Core.csproj" />
+      <ProjectReference Include="..\Beacon.UI\Beacon.UI.csproj" />
+      <ProjectReference Include="..\Beacon.Core.PostgreSql\Beacon.Core.PostgreSql.csproj" />
+      <ProjectReference Include="..\Beacon.AI\Beacon.AI.csproj" />
+      <ProjectReference Include="..\Beacon.MCP\Beacon.MCP.csproj" />
+      <!-- Data source connectors -->
+      <ProjectReference Include="..\Beacon.Connector.PostgreSql\Beacon.Connector.PostgreSql.csproj" />
+      <ProjectReference Include="..\Beacon.Connector.SqlServer\Beacon.Connector.SqlServer.csproj" />
+      <ProjectReference Include="..\Beacon.Connector.MySql\Beacon.Connector.MySql.csproj" />
+      <ProjectReference Include="..\Beacon.Connector.CloudWatch\Beacon.Connector.CloudWatch.csproj" />
+      <ProjectReference Include="..\Beacon.Connector.AzureSynapse\Beacon.Connector.AzureSynapse.csproj" />
+      <ProjectReference Include="..\Beacon.Connector.Snowflake\Beacon.Connector.Snowflake.csproj" />
+      <ProjectReference Include="..\Beacon.Connector.Databricks\Beacon.Connector.Databricks.csproj" />
+      <ProjectReference Include="..\Beacon.Connector.BigQuery\Beacon.Connector.BigQuery.csproj" />
+      <ProjectReference Include="..\Beacon.Connector.Api\Beacon.Connector.Api.csproj" />
+    </ItemGroup>
+
+</Project>

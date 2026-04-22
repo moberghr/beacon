@@ -1,8 +1,8 @@
-# 006 - Semantico AI Platform Upgrade
+# 006 - Beacon AI Platform Upgrade
 
 ## Overview
 
-Evolve Semantico from a database monitoring tool into a comprehensive **data intelligence platform** that:
+Evolve Beacon from a database monitoring tool into a comprehensive **data intelligence platform** that:
 1. Scans GitHub repos to understand code-to-data relationships
 2. Builds a unified knowledge graph per project (schema + code + docs + quality)
 3. Exposes everything via MCP server for AI tool integration
@@ -12,29 +12,29 @@ Evolve Semantico from a database monitoring tool into a comprehensive **data int
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    Semantico.MCP (new project)              │
+│                    Beacon.MCP (new project)              │
 │  SSE Transport │ MCP Tools │ MCP Resources │ Session Mgmt   │
 ├─────────────────────────────────────────────────────────────┤
-│                    Semantico.AI (extended)                   │
+│                    Beacon.AI (extended)                   │
 │  GitHub Scanner │ Knowledge Graph │ Semantic Search          │
 │  Project Report │ Schema Change Detection │ dbt Integration  │
 ├─────────────────────────────────────────────────────────────┤
-│                    Semantico.Core (extended)                 │
+│                    Beacon.Core (extended)                 │
 │  New Entities │ API Key Auth │ Query Guardrails │ Audit Log  │
 ├─────────────────────────────────────────────────────────────┤
-│                    Semantico.UI (extended)                   │
+│                    Beacon.UI (extended)                   │
 │  Data Catalog │ Project Dashboard │ Schema Changes │ API Keys│
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### New Project: Semantico.MCP
-- Razor Class Library (like Semantico.UI) that mounts at `/semantico/mcp`
+### New Project: Beacon.MCP
+- Razor Class Library (like Beacon.UI) that mounts at `/beacon/mcp`
 - SSE transport for MCP protocol
-- References Semantico.Core and Semantico.AI
+- References Beacon.Core and Beacon.AI
 
 ## Phase 1: Core Entities
 
-### New Entities in Semantico.Core
+### New Entities in Beacon.Core
 
 **Project** - ties together data sources, repos, documentation
 - Id, Name, Description, CreatedAt, UpdatedAt
@@ -84,7 +84,7 @@ Evolve Semantico from a database monitoring tool into a comprehensive **data int
 
 ## Phase 2: GitHub Repository Scanner
 
-### Services in Semantico.AI
+### Services in Beacon.AI
 
 **IGitHubScannerService**
 - `ScanRepositoryAsync(int repoId)` - full scan
@@ -134,10 +134,10 @@ Returns a unified `TableKnowledge` model with all dimensions.
 - Transmitted as `Authorization: Bearer sk-sem_XXXXXXXX`
 
 ### SSO/OAuth2
-- New `OAuthOptions` in SemanticoConfiguration
+- New `OAuthOptions` in BeaconConfiguration
 - Support providers: Microsoft Entra ID, Google, Okta, Generic OIDC
-- Callback endpoint at `/semantico/auth/callback`
-- Maps external identity to SemanticoUser
+- Callback endpoint at `/beacon/auth/callback`
+- Maps external identity to BeaconUser
 
 ### API Key Middleware
 - New `ApiKeyAuthMiddleware` validates Bearer tokens
@@ -160,11 +160,11 @@ Returns a unified `TableKnowledge` model with all dimensions.
 
 ## Phase 6: MCP Server
 
-### New Project: Semantico.MCP
+### New Project: Beacon.MCP
 
 **Transport**: SSE over HTTP
-- Endpoint: `/semantico/mcp/sse` (GET for SSE stream)
-- Endpoint: `/semantico/mcp/message` (POST for client messages)
+- Endpoint: `/beacon/mcp/sse` (GET for SSE stream)
+- Endpoint: `/beacon/mcp/message` (POST for client messages)
 - Auth: Bearer token (API key or OAuth token)
 
 **MCP Tools:**
@@ -187,11 +187,11 @@ Returns a unified `TableKnowledge` model with all dimensions.
 **MCP Resources:**
 | URI | Description |
 |---|---|
-| `semantico://datasources` | List of data sources |
-| `semantico://datasource/{id}/schema` | Full schema |
-| `semantico://datasource/{id}/documentation` | AI-generated docs |
-| `semantico://datasource/{id}/quality` | Quality report |
-| `semantico://project/{id}/report` | Full project report |
+| `beacon://datasources` | List of data sources |
+| `beacon://datasource/{id}/schema` | Full schema |
+| `beacon://datasource/{id}/documentation` | AI-generated docs |
+| `beacon://datasource/{id}/quality` | Quality report |
+| `beacon://project/{id}/report` | Full project report |
 
 ## Phase 7: Semantic Search + Project Report
 
@@ -209,22 +209,22 @@ Returns a unified `TableKnowledge` model with all dimensions.
 
 ## Phase 8: UI Pages
 
-### Data Catalog (`/semantico/data-catalog`)
+### Data Catalog (`/beacon/data-catalog`)
 - Visual knowledge graph: tables as cards, relationships as lines
 - Search/filter by schema, quality score, code references
 - Click table → full knowledge detail panel
 
-### Schema Changes (`/semantico/schema-changes`)
+### Schema Changes (`/beacon/schema-changes`)
 - Timeline of detected changes
 - Before/after comparison
 - Alert configuration for change types
 
-### Multi-Project Dashboard (`/semantico/projects`)
+### Multi-Project Dashboard (`/beacon/projects`)
 - Project list with health scores
 - Per-project: data sources, repos, doc coverage, quality scores
 - Create/edit project dialog
 
-### API Keys Management (`/semantico/settings/api-keys`)
+### API Keys Management (`/beacon/settings/api-keys`)
 - Generate new API keys (shown once)
 - List active keys with last used, scopes
 - Revoke keys

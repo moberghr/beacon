@@ -4,7 +4,7 @@
 
 ## Problem
 
-Semantico currently supports databases and cloud monitoring services as data sources. Users who want to monitor, document, or query data exposed through REST APIs have no way to integrate those APIs into the same workflows (notifications, data quality, MCP, AI documentation) that work for databases.
+Beacon currently supports databases and cloud monitoring services as data sources. Users who want to monitor, document, or query data exposed through REST APIs have no way to integrate those APIs into the same workflows (notifications, data quality, MCP, AI documentation) that work for databases.
 
 ## Goal
 
@@ -156,7 +156,7 @@ This reuses existing metadata entities rather than creating parallel structures.
 ## Project Structure
 
 ```
-Semantico.Connector.Api/
+Beacon.Connector.Api/
   ApiProvider.cs                    -- IDataSourceProvider implementation
   ApiMetadataExtractor.cs           -- IDatabaseMetadataExtractor equivalent
   Models/
@@ -170,7 +170,7 @@ Semantico.Connector.Api/
     JsonResponseTabularizer.cs      -- JSONPath extraction + flattening
     HttpClientFactory.cs            -- Create pre-configured HttpClient with auth
   ServiceCollectionExtensions.cs    -- DI registration + ConnectorRegistry
-  Semantico.Connector.Api.csproj
+  Beacon.Connector.Api.csproj
 ```
 
 ## UI Changes

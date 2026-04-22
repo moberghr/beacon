@@ -7,13 +7,13 @@ nav_order: 9
 
 # User Management
 
-Semantico includes a built-in user management system with support for internal (password-based) users, external (JWT/OAuth) users, and role-based access control.
+Beacon includes a built-in user management system with support for internal (password-based) users, external (JWT/OAuth) users, and role-based access control.
 
 ## Overview
 
 The user management system provides:
 
-- **Internal Users** - Username/password authentication stored in Semantico's database
+- **Internal Users** - Username/password authentication stored in Beacon's database
 - **External Users** - JWT/OAuth authentication from your existing identity provider
 - **Hybrid Mode** - Support both internal and external users simultaneously
 - **Role-Based Access Control** - Admin, Editor, and Viewer roles with level-based permissions
@@ -36,10 +36,10 @@ The user management system provides:
 Update your `Program.cs`:
 
 ```csharp
-builder.Services.AddSemanticoServices(builder.Configuration, options =>
+builder.Services.AddBeaconServices(builder.Configuration, options =>
 {
-    options.AddSemanticoScheduler<SemanticoScheduler>();
-    options.BaseUrl = "https://your-domain.com/semantico";
+    options.AddBeaconScheduler<BeaconScheduler>();
+    options.BaseUrl = "https://your-domain.com/beacon";
 
     // Enable authorization
     options.Authorization.Enabled = true;
@@ -57,27 +57,27 @@ builder.Services.AddSemanticoServices(builder.Configuration, options =>
         RequirePasswordComplexity = true
     };
 })
-.UsePostgreSql(connectionString, "semantico");
+.UsePostgreSql(connectionString, "beacon");
 
-builder.Services.AddSemanticoUI();
+builder.Services.AddBeaconUI();
 
 // Add cookie authentication
-builder.Services.AddSemanticoCookieAuthentication("/semantico");
+builder.Services.AddBeaconCookieAuthentication("/beacon");
 
 var app = builder.Build();
 
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.UseSemanticoUI()
+app.UseBeaconUI()
     .UseLoginForm()
     .UseAuthorization()
-    .AddBlazorUI("/semantico");
+    .AddBlazorUI("/beacon");
 ```
 
 ### 2. First-Run Setup
 
-On first launch with no users in the database, Semantico redirects to a setup wizard:
+On first launch with no users in the database, Beacon redirects to a setup wizard:
 
 1. Navigate to the application URL
 2. You'll be redirected to the setup page automatically
@@ -95,7 +95,7 @@ After setup, navigate to **Users** in the admin UI to:
 
 ## Roles and Permissions
 
-Semantico includes three predefined system roles:
+Beacon includes three predefined system roles:
 
 | Role | Level | Read | Create/Edit | Execute | Delete/Archive |
 |------|-------|------|-------------|---------|----------------|
@@ -115,11 +115,11 @@ Users with the `IsSuperAdmin` flag bypass all authorization checks. The first us
 
 ## Authentication Providers
 
-Semantico supports multiple authentication strategies through pluggable providers.
+Beacon supports multiple authentication strategies through pluggable providers.
 
 ### DatabaseAuthenticationProvider
 
-Authenticates users against Semantico's internal user table with hashed passwords.
+Authenticates users against Beacon's internal user table with hashed passwords.
 
 ```csharp
 options.Authentication.EnableLoginForm = true;
@@ -141,14 +141,14 @@ Configure JWT validation in `appsettings.json`:
 
 ```json
 {
-  "Semantico": {
+  "Beacon": {
     "Authentication": {
       "Jwt": {
         "ExternalLoginEndpoint": "https://your-idp.com/api/auth/login",
         "EnableBearerAuthentication": true,
         "Validation": {
           "ValidIssuer": "https://your-idp.com",
-          "ValidAudience": "semantico",
+          "ValidAudience": "beacon",
           "IssuerSigningKey": "your-signing-key"
         },
         "ClaimsMapping": {
@@ -177,16 +177,16 @@ Best for: Organizations transitioning from internal to external auth, or support
 
 ## Implementing User Management for Consumers
 
-This section explains how to integrate Semantico's user management into your own application.
+This section explains how to integrate Beacon's user management into your own application.
 
 ### Option 1: Use Built-in User Management (Recommended)
 
-The simplest approach - enable Semantico's built-in user management and let it handle everything:
+The simplest approach - enable Beacon's built-in user management and let it handle everything:
 
 ```csharp
-builder.Services.AddSemanticoServices(builder.Configuration, options =>
+builder.Services.AddBeaconServices(builder.Configuration, options =>
 {
-    options.AddSemanticoScheduler<SemanticoScheduler>();
+    options.AddBeaconScheduler<BeaconScheduler>();
 
     options.Authorization.Enabled = true;
     options.Authentication.EnableLoginForm = true;
@@ -200,16 +200,16 @@ builder.Services.AddSemanticoServices(builder.Configuration, options =>
         RequirePasswordComplexity = true
     };
 })
-.UsePostgreSql(connectionString, "semantico");
+.UsePostgreSql(connectionString, "beacon");
 
-builder.Services.AddSemanticoUI();
-builder.Services.AddSemanticoCookieAuthentication("/semantico");
+builder.Services.AddBeaconUI();
+builder.Services.AddBeaconCookieAuthentication("/beacon");
 ```
 
 This gives you:
-- Login form at `/semantico/login`
+- Login form at `/beacon/login`
 - First-run setup wizard
-- User management UI at `/semantico/users`
+- User management UI at `/beacon/users`
 - Cookie-based sessions (24h default, 30 days with "Remember Me")
 - Password hashing with salt
 
@@ -218,7 +218,7 @@ This gives you:
 Integrate with your existing identity provider:
 
 ```csharp
-builder.Services.AddSemanticoServices(builder.Configuration, options =>
+builder.Services.AddBeaconServices(builder.Configuration, options =>
 {
     options.Authorization.Enabled = true;
     options.Authentication.EnableLoginForm = true;
@@ -230,10 +230,10 @@ builder.Services.AddSemanticoServices(builder.Configuration, options =>
         AllowInternalUsers = false  // External users only
     };
 })
-.UsePostgreSql(connectionString, "semantico");
+.UsePostgreSql(connectionString, "beacon");
 ```
 
-**Pre-register external users** so they get Semantico roles:
+**Pre-register external users** so they get Beacon roles:
 
 ```csharp
 // In your user provisioning code
@@ -250,14 +250,14 @@ await userService.CreateUserAsync(new CreateUserRequest
 });
 ```
 
-When an external user authenticates via JWT, the `HybridAuthenticationProvider` looks up their `ExternalId` (from the JWT `sub` claim) and loads their Semantico roles.
+When an external user authenticates via JWT, the `HybridAuthenticationProvider` looks up their `ExternalId` (from the JWT `sub` claim) and loads their Beacon roles.
 
 ### Option 3: Custom Authentication Provider
 
 Build your own authentication logic:
 
 ```csharp
-public class MyAuthenticationProvider : ISemanticoAuthenticationProvider
+public class MyAuthenticationProvider : IBeaconAuthenticationProvider
 {
     private readonly IMyAuthService _authService;
 
@@ -298,30 +298,30 @@ options.AddAuthenticationProvider<MyAuthenticationProvider>();
 
 ### Option 4: Custom Authorization Only (No User Management)
 
-If you already handle authentication and just need Semantico to check permissions:
+If you already handle authentication and just need Beacon to check permissions:
 
 ```csharp
-builder.Services.AddSemanticoServices(builder.Configuration, options =>
+builder.Services.AddBeaconServices(builder.Configuration, options =>
 {
     options.Authorization.Enabled = true;
     options.AddAuthorizationProvider<RoleBasedAuthorizationProvider>();
     // No user management, no login form
 })
-.UsePostgreSql(connectionString, "semantico");
+.UsePostgreSql(connectionString, "beacon");
 
 // Add your own claims transformer
 builder.Services.AddScoped<IClaimsTransformation, MyClaimsTransformation>();
 
 // Use basic auth or your own auth
-app.UseSemanticoUI()
+app.UseBeaconUI()
     .UseBasicAuthentication("admin", "admin")
     .UseAuthorization()
-    .AddBlazorUI("/semantico");
+    .AddBlazorUI("/beacon");
 ```
 
 ## User Entity Model
 
-The `SemanticoUser` entity stores user information:
+The `BeaconUser` entity stores user information:
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -329,7 +329,7 @@ The `SemanticoUser` entity stores user information:
 | `UserName` | string | Unique username |
 | `Email` | string? | Email address |
 | `DisplayName` | string? | Friendly display name |
-| `IsInternalUser` | bool | True if password stored in Semantico |
+| `IsInternalUser` | bool | True if password stored in Beacon |
 | `PasswordHash` | string? | Hashed password (null for external users) |
 | `IsSuperAdmin` | bool | Bypass all authorization checks |
 | `IsEnabled` | bool | Account enabled/disabled |
@@ -341,7 +341,7 @@ The `SemanticoUser` entity stores user information:
 Configure session behavior:
 
 ```csharp
-builder.Services.AddSemanticoCookieAuthentication("/semantico", options =>
+builder.Services.AddBeaconCookieAuthentication("/beacon", options =>
 {
     options.CookieExpirationHours = 24;       // Normal session duration
     options.RememberMeExpirationDays = 30;    // "Remember Me" duration
@@ -350,7 +350,7 @@ builder.Services.AddSemanticoCookieAuthentication("/semantico", options =>
 
 ## Database Schema
 
-User management creates these tables in your Semantico schema:
+User management creates these tables in your Beacon schema:
 
 - **`users`** - User accounts (internal and external)
 - **`roles`** - System roles (Admin, Editor, Viewer)
@@ -385,7 +385,7 @@ These tables are created automatically by the EF Core migration `20260206112218_
 **Solution:**
 1. Ensure `EnableLoginForm = true` in authentication options
 2. Ensure `.UseLoginForm()` is called in the middleware pipeline
-3. Check that `AddSemanticoCookieAuthentication()` is registered
+3. Check that `AddBeaconCookieAuthentication()` is registered
 
 ### External Users Can't Log In
 

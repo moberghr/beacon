@@ -7,7 +7,7 @@
 
 ## Overview
 
-This guide walks through implementing the AI Integration feature in Semantico, from adding dependencies to testing the complete functionality.
+This guide walks through implementing the AI Integration feature in Beacon, from adding dependencies to testing the complete functionality.
 
 **Estimated Implementation Time**: 2-3 weeks
 - Week 1: Infrastructure + Documentation Generation
@@ -19,7 +19,7 @@ This guide walks through implementing the AI Integration feature in Semantico, f
 ## Prerequisites
 
 ✅ .NET 8 SDK installed
-✅ Semantico development environment set up
+✅ Beacon development environment set up
 ✅ Access to LLM API keys (Anthropic Claude or OpenAI)
 ✅ Database migrations capability
 ✅ Basic understanding of MediatR pattern
@@ -29,7 +29,7 @@ This guide walks through implementing the AI Integration feature in Semantico, f
 ## Step 1: Add NuGet Dependencies
 
 ```bash
-cd Semantico.Core
+cd Beacon.Core
 
 # AI/LLM libraries
 dotnet add package Microsoft.Extensions.AI --version 10.1.1
@@ -41,7 +41,7 @@ dotnet add package Azure.AI.OpenAI --version 2.0.0
 dotnet add package Markdig --version 0.44.0
 dotnet add package QuestPDF --version 2025.12.1
 
-cd ../Semantico.UI
+cd ../Beacon.UI
 dotnet add package MudBlazor --version 7.21.0  # If not already present
 ```
 
@@ -54,10 +54,10 @@ dotnet build --property WarningLevel=0
 
 ## Step 2: Create Entity Classes
 
-**File**: `Semantico.Core/Data/Entities/DataSourceDocumentation.cs`
+**File**: `Beacon.Core/Data/Entities/DataSourceDocumentation.cs`
 
 ```csharp
-namespace Semantico.Core.Data.Entities;
+namespace Beacon.Core.Data.Entities;
 
 public class DataSourceDocumentation : BaseArchivableEntity, IChangeableEntity
 {
@@ -89,10 +89,10 @@ public class DataSourceDocumentation : BaseArchivableEntity, IChangeableEntity
 - `AiUsageMetrics.cs`
 - `AiPromptTemplate.cs`
 
-**File**: `Semantico.Core/Data/Enums/DocumentationStatus.cs`
+**File**: `Beacon.Core/Data/Enums/DocumentationStatus.cs`
 
 ```csharp
-namespace Semantico.Core.Data.Enums;
+namespace Beacon.Core.Data.Enums;
 
 public enum DocumentationStatus
 {
@@ -114,7 +114,7 @@ public enum DocumentationStatus
 
 ## Step 3: Update DbContext
 
-**File**: `Semantico.Core/Data/SemanticoContext.cs`
+**File**: `Beacon.Core/Data/BeaconContext.cs`
 
 ```csharp
 public DbSet<DataSourceDocumentation> DataSourceDocumentations { get; set; } = null!;
@@ -155,10 +155,10 @@ protected override void OnModelCreating(ModelBuilder modelBuilder)
 
 ## Step 4: Create Configuration
 
-**File**: `Semantico.Core/Models/Configuration/LlmConfiguration.cs`
+**File**: `Beacon.Core/Models/Configuration/LlmConfiguration.cs`
 
 ```csharp
-namespace Semantico.Core.Models.Configuration;
+namespace Beacon.Core.Models.Configuration;
 
 public class LlmConfiguration
 {
@@ -190,10 +190,10 @@ public class ProviderLimits
 
 ## Step 5: Implement LLM Provider Abstraction
 
-**File**: `Semantico.Core/Services/LlmProviders/ILlmProvider.cs`
+**File**: `Beacon.Core/Services/LlmProviders/ILlmProvider.cs`
 
 ```csharp
-namespace Semantico.Core.Services.LlmProviders;
+namespace Beacon.Core.Services.LlmProviders;
 
 public interface ILlmProvider
 {
@@ -224,10 +224,10 @@ public record LlmResponse
 public record TokenCount(int Tokens);
 ```
 
-**File**: `Semantico.Core/Services/LlmProviders/ClaudeProvider.cs`
+**File**: `Beacon.Core/Services/LlmProviders/ClaudeProvider.cs`
 
 ```csharp
-namespace Semantico.Core.Services.LlmProviders;
+namespace Beacon.Core.Services.LlmProviders;
 
 public class ClaudeProvider : ILlmProvider
 {
@@ -288,10 +288,10 @@ public class ClaudeProvider : ILlmProvider
 - `OpenAiProvider.cs`
 - `AzureOpenAiProvider.cs`
 
-**File**: `Semantico.Core/Services/LlmProviders/LlmProviderFactory.cs`
+**File**: `Beacon.Core/Services/LlmProviders/LlmProviderFactory.cs`
 
 ```csharp
-namespace Semantico.Core.Services.LlmProviders;
+namespace Beacon.Core.Services.LlmProviders;
 
 public class LlmProviderFactory
 {
@@ -322,10 +322,10 @@ public class LlmProviderFactory
 
 ## Step 6: Implement Core Services
 
-**File**: `Semantico.Core/Services/Ai/IAiDocumentationService.cs`
+**File**: `Beacon.Core/Services/Ai/IAiDocumentationService.cs`
 
 ```csharp
-namespace Semantico.Core.Services.Ai;
+namespace Beacon.Core.Services.Ai;
 
 public interface IAiDocumentationService
 {
@@ -350,22 +350,22 @@ public interface IAiDocumentationService
 }
 ```
 
-**File**: `Semantico.Core/Services/Ai/AiDocumentationService.cs`
+**File**: `Beacon.Core/Services/Ai/AiDocumentationService.cs`
 
 ```csharp
-namespace Semantico.Core.Services.Ai;
+namespace Beacon.Core.Services.Ai;
 
 public class AiDocumentationService : IAiDocumentationService
 {
     private readonly ILlmProvider _llmProvider;
     private readonly IDatabaseMetadataService _metadataService;
-    private readonly SemanticoContext _context;
+    private readonly BeaconContext _context;
     private readonly ILogger<AiDocumentationService> _logger;
 
     public AiDocumentationService(
         ILlmProvider llmProvider,
         IDatabaseMetadataService metadataService,
-        SemanticoContext context,
+        BeaconContext context,
         ILogger<AiDocumentationService> logger)
     {
         _llmProvider = llmProvider;
@@ -434,10 +434,10 @@ public class AiDocumentationService : IAiDocumentationService
 
 ## Step 7: Implement MediatR Handlers
 
-**File**: `Semantico.Core/Handlers/Ai/GenerateDocumentation/GenerateDocumentationHandler.cs`
+**File**: `Beacon.Core/Handlers/Ai/GenerateDocumentation/GenerateDocumentationHandler.cs`
 
 ```csharp
-namespace Semantico.Core.Handlers.Ai.GenerateDocumentation;
+namespace Beacon.Core.Handlers.Ai.GenerateDocumentation;
 
 internal sealed class GenerateDocumentationHandler
     : IRequestHandler<GenerateDocumentationCommand, GenerateDocumentationResult>
@@ -507,19 +507,19 @@ public record GenerateDocumentationResult
 
 ## Step 8: Register Services in DI
 
-**File**: `Semantico.Core/ServiceConfiguration.cs`
+**File**: `Beacon.Core/ServiceConfiguration.cs`
 
 ```csharp
 public static class ServiceConfiguration
 {
-    public static IServiceCollection AddSemantico(
+    public static IServiceCollection AddBeacon(
         this IServiceCollection services,
         IConfiguration configuration)
     {
         // Existing registrations...
 
         // AI Configuration
-        var llmConfig = configuration.GetSection("Semantico:LLM").Get<LlmConfiguration>()
+        var llmConfig = configuration.GetSection("Beacon:LLM").Get<LlmConfiguration>()
             ?? throw new InvalidOperationException("LLM configuration missing");
 
         services.AddSingleton(llmConfig);
@@ -549,11 +549,11 @@ public static class ServiceConfiguration
 
 ## Step 9: Add Configuration
 
-**File**: `Semantico.SampleProject/appsettings.json`
+**File**: `Beacon.SampleProject/appsettings.json`
 
 ```json
 {
-  "Semantico": {
+  "Beacon": {
     "LLM": {
       "Provider": "Anthropic",
       "ApiKey": "sk-ant-api03-...",
@@ -572,7 +572,7 @@ public static class ServiceConfiguration
 
 **Note**: Store API keys in User Secrets or Azure Key Vault for production:
 ```bash
-dotnet user-secrets set "Semantico:LLM:ApiKey" "sk-ant-api03-..."
+dotnet user-secrets set "Beacon:LLM:ApiKey" "sk-ant-api03-..."
 ```
 
 ---
@@ -580,25 +580,25 @@ dotnet user-secrets set "Semantico:LLM:ApiKey" "sk-ant-api03-..."
 ## Step 10: Create Database Migration
 
 ```bash
-cd Semantico.Core.PostgreSql
+cd Beacon.Core.PostgreSql
 
 dotnet ef migrations add AddAiIntegration \
-  --startup-project ../Semantico.SampleProject
+  --startup-project ../Beacon.SampleProject
 
 # Review generated migration
 code Data/Migrations/*_AddAiIntegration.cs
 
 # Apply migration
-dotnet ef database update --startup-project ../Semantico.SampleProject
+dotnet ef database update --startup-project ../Beacon.SampleProject
 ```
 
-**IMPORTANT**: User will create migrations manually as per Semantico conventions.
+**IMPORTANT**: User will create migrations manually as per Beacon conventions.
 
 ---
 
 ## Step 11: Implement UI Components
 
-**File**: `Semantico.UI/Components/Pages/Ai/GenerateDocumentation.razor`
+**File**: `Beacon.UI/Components/Pages/Ai/GenerateDocumentation.razor`
 
 ```razor
 @page "/ai/documentation/generate/{DataSourceId:int}"
@@ -692,14 +692,14 @@ dotnet ef database update --startup-project ../Semantico.SampleProject
 
 ## Step 12: Testing
 
-**File**: `Semantico.Tests/Ai/AiDocumentationServiceTests.cs`
+**File**: `Beacon.Tests/Ai/AiDocumentationServiceTests.cs`
 
 ```csharp
 public class AiDocumentationServiceTests
 {
     private readonly Mock<ILlmProvider> _mockLlmProvider;
     private readonly Mock<IDatabaseMetadataService> _mockMetadataService;
-    private readonly SemanticoContext _context;
+    private readonly BeaconContext _context;
     private readonly AiDocumentationService _service;
 
     public AiDocumentationServiceTests()
@@ -757,7 +757,7 @@ dotnet test
 
 1. **Start application**:
 ```bash
-dotnet run --project Semantico.SampleProject
+dotnet run --project Beacon.SampleProject
 ```
 
 2. **Configure LLM**:
@@ -797,8 +797,8 @@ dotnet user-secrets list
 
 **Solution**: Drop and recreate:
 ```bash
-dotnet ef database drop --startup-project Semantico.SampleProject
-dotnet ef database update --startup-project Semantico.SampleProject
+dotnet ef database drop --startup-project Beacon.SampleProject
+dotnet ef database update --startup-project Beacon.SampleProject
 ```
 
 ### Issue: AI generates invalid SQL
@@ -848,6 +848,6 @@ After completing this quickstart:
 ## Support
 
 For issues or questions:
-- GitHub Issues: https://github.com/yourorg/semantico/issues
-- Documentation: https://docs.semantico.io
-- Community Discord: https://discord.gg/semantico
+- GitHub Issues: https://github.com/yourorg/beacon/issues
+- Documentation: https://docs.beacon.io
+- Community Discord: https://discord.gg/beacon

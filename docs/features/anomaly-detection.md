@@ -11,7 +11,7 @@ Statistical anomaly detection that learns from historical subscription execution
 
 ## Purpose
 
-Anomaly detection in Semantico provides:
+Anomaly detection in Beacon provides:
 - **Automatic Baseline Learning**: System learns "normal" patterns from historical data
 - **Statistical Detection**: Multiple methods (Z-score, IQR, percentage change) to detect anomalies
 - **Real-time Alerting**: Immediate notifications when anomalies are detected
@@ -229,7 +229,7 @@ new AnomalyConfig
 public class AnomalyDetectionExample
 {
     private readonly IAnomalyDetectionService _anomalyService;
-    private readonly IDbContextFactory<SemanticoContext> _contextFactory;
+    private readonly IDbContextFactory<BeaconContext> _contextFactory;
 
     public async Task ConfigureAnomalyDetectionAsync(int subscriptionId)
     {

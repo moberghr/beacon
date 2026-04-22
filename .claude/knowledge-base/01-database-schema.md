@@ -1,13 +1,13 @@
-# Semantico Database Schema & Entities
+# Beacon Database Schema & Entities
 
 ## Overview
 
-The Semantico database supports a multi-step query execution and scheduling system with data migration capabilities, subscription-based notifications, and rich metadata tracking. The architecture follows Clean Architecture principles with soft-delete semantics via archiving.
+The Beacon database supports a multi-step query execution and scheduling system with data migration capabilities, subscription-based notifications, and rich metadata tracking. The architecture follows Clean Architecture principles with soft-delete semantics via archiving.
 
 ## Base Classes
 
 ### BaseEntity
-**Location:** `Semantico.Core/Data/Entities/Base/BaseEntity.cs`
+**Location:** `Beacon.Core/Data/Entities/Base/BaseEntity.cs`
 
 ```csharp
 public abstract class BaseEntity
@@ -18,7 +18,7 @@ public abstract class BaseEntity
 ```
 
 ### ArchivableBaseEntity
-**Location:** `Semantico.Core/Data/Entities/Base/ArchivableBaseEntity.cs`
+**Location:** `Beacon.Core/Data/Entities/Base/ArchivableBaseEntity.cs`
 
 ```csharp
 public abstract class ArchivableBaseEntity : BaseEntity
@@ -53,7 +53,7 @@ public abstract class ArchivableBaseEntity : BaseEntity
 ## Core Entities
 
 ### Query (ArchivableBaseEntity)
-**File:** `Semantico.Core/Data/Entities/Query.cs`
+**File:** `Beacon.Core/Data/Entities/Query.cs`
 
 | Property | Type | Required | Notes |
 |----------|------|----------|-------|
@@ -75,7 +75,7 @@ public abstract class ArchivableBaseEntity : BaseEntity
 ---
 
 ### QueryStep (BaseEntity)
-**File:** `Semantico.Core/Data/Entities/QueryStep.cs`
+**File:** `Beacon.Core/Data/Entities/QueryStep.cs`
 
 | Property | Type | Required | Notes |
 |----------|------|----------|-------|
@@ -94,7 +94,7 @@ public abstract class ArchivableBaseEntity : BaseEntity
 ---
 
 ### QueryStepParameter (BaseEntity)
-**File:** `Semantico.Core/Data/Entities/QueryStepParameter.cs`
+**File:** `Beacon.Core/Data/Entities/QueryStepParameter.cs`
 
 | Property | Type | Required | Notes |
 |----------|------|----------|-------|
@@ -107,7 +107,7 @@ public abstract class ArchivableBaseEntity : BaseEntity
 ---
 
 ### DataSource (ArchivableBaseEntity)
-**File:** `Semantico.Core/Data/Entities/DataSource.cs`
+**File:** `Beacon.Core/Data/Entities/DataSource.cs`
 
 | Property | Type | Required | Notes |
 |----------|------|----------|-------|
@@ -123,7 +123,7 @@ public abstract class ArchivableBaseEntity : BaseEntity
 ---
 
 ### Subscription (ArchivableBaseEntity)
-**File:** `Semantico.Core/Data/Entities/Subscription.cs`
+**File:** `Beacon.Core/Data/Entities/Subscription.cs`
 
 | Property | Type | Required | Default | Notes |
 |----------|------|----------|---------|-------|
@@ -147,7 +147,7 @@ public abstract class ArchivableBaseEntity : BaseEntity
 ---
 
 ### Recipient (ArchivableBaseEntity)
-**File:** `Semantico.Core/Data/Entities/Recipient.cs`
+**File:** `Beacon.Core/Data/Entities/Recipient.cs`
 
 | Property | Type | Required | Notes |
 |----------|------|----------|-------|
@@ -165,7 +165,7 @@ public abstract class ArchivableBaseEntity : BaseEntity
 ---
 
 ### QueryExecutionHistory (BaseEntity)
-**File:** `Semantico.Core/Data/Entities/QueryExecutionHistory.cs`
+**File:** `Beacon.Core/Data/Entities/QueryExecutionHistory.cs`
 
 | Property | Type | Required | Notes |
 |----------|------|----------|-------|
@@ -183,7 +183,7 @@ public abstract class ArchivableBaseEntity : BaseEntity
 ---
 
 ### Notification (BaseEntity)
-**File:** `Semantico.Core/Data/Entities/Notification.cs`
+**File:** `Beacon.Core/Data/Entities/Notification.cs`
 
 | Property | Type | Required | Notes |
 |----------|------|----------|-------|
@@ -197,7 +197,7 @@ public abstract class ArchivableBaseEntity : BaseEntity
 ---
 
 ### QueryTask (ArchivableBaseEntity)
-**File:** `Semantico.Core/Data/Entities/QueryTask.cs`
+**File:** `Beacon.Core/Data/Entities/QueryTask.cs`
 
 | Property | Type | Required | Default | Notes |
 |----------|------|----------|---------|-------|
@@ -218,7 +218,7 @@ public abstract class ArchivableBaseEntity : BaseEntity
 ---
 
 ### Comment (BaseEntity)
-**File:** `Semantico.Core/Data/Entities/Comment.cs`
+**File:** `Beacon.Core/Data/Entities/Comment.cs`
 
 | Property | Type | Required | Notes |
 |----------|------|----------|-------|
@@ -235,7 +235,7 @@ public abstract class ArchivableBaseEntity : BaseEntity
 ## Data Migration Entities
 
 ### MigrationJob (ArchivableBaseEntity)
-**File:** `Semantico.Core/Data/Entities/DataMigration/MigrationJob.cs`
+**File:** `Beacon.Core/Data/Entities/DataMigration/MigrationJob.cs`
 
 | Property | Type | Required | Default | Notes |
 |----------|------|----------|---------|-------|
@@ -256,7 +256,7 @@ public abstract class ArchivableBaseEntity : BaseEntity
 ---
 
 ### MigrationExecutionHistory (BaseEntity)
-**File:** `Semantico.Core/Data/Entities/DataMigration/MigrationExecution.cs`
+**File:** `Beacon.Core/Data/Entities/DataMigration/MigrationExecution.cs`
 
 | Property | Type | Required | Notes |
 |----------|------|----------|-------|
@@ -278,7 +278,7 @@ public abstract class ArchivableBaseEntity : BaseEntity
 ## Database Metadata Entities
 
 ### DatabaseMetadata (ArchivableBaseEntity)
-**File:** `Semantico.Core/Data/Entities/Metadata/DatabaseMetadata.cs`
+**File:** `Beacon.Core/Data/Entities/Metadata/DatabaseMetadata.cs`
 
 | Property | Type | Required | Notes |
 |----------|------|----------|-------|
@@ -291,7 +291,7 @@ public abstract class ArchivableBaseEntity : BaseEntity
 **Unique Constraint:** (DataSourceId, SchemaName, TableName)
 
 ### ColumnMetadata (BaseEntity)
-**File:** `Semantico.Core/Data/Entities/Metadata/ColumnMetadata.cs`
+**File:** `Beacon.Core/Data/Entities/Metadata/ColumnMetadata.cs`
 
 | Property | Type | Required | Notes |
 |----------|------|----------|-------|
@@ -309,7 +309,7 @@ public abstract class ArchivableBaseEntity : BaseEntity
 | Description | string? | No | Column description (max 1000) |
 
 ### IndexMetadata (BaseEntity)
-**File:** `Semantico.Core/Data/Entities/Metadata/IndexMetadata.cs`
+**File:** `Beacon.Core/Data/Entities/Metadata/IndexMetadata.cs`
 
 | Property | Type | Required | Notes |
 |----------|------|----------|-------|
@@ -377,9 +377,9 @@ public abstract class ArchivableBaseEntity : BaseEntity
 
 ## Database Context
 
-**File:** `Semantico.Core/Data/SemanticoContext.cs`
+**File:** `Beacon.Core/Data/BeaconContext.cs`
 
-**Default Schema:** `"semantico"` (configurable via constructor)
+**Default Schema:** `"beacon"` (configurable via constructor)
 
 **Key Configuration:**
 - Global query filters for soft-delete pattern

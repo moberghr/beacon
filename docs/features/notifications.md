@@ -20,7 +20,7 @@ Notifications allow you to:
 
 ## Notification Channels
 
-Semantico supports three notification channels:
+Beacon supports three notification channels:
 
 | Channel | Format | Use Case |
 |---------|--------|----------|
@@ -39,7 +39,7 @@ Semantico supports three notification channels:
 Email notifications require implementing `IEmailAdapter` in your application:
 
 ```csharp
-using Semantico.Core.Adapters.Mail;
+using Beacon.Core.Adapters.Mail;
 
 public class SmtpEmailAdapter : IEmailAdapter
 {
@@ -54,10 +54,10 @@ public class SmtpEmailAdapter : IEmailAdapter
 Register in your Program.cs:
 
 ```csharp
-builder.Services.AddSemantico(builder.Configuration, options =>
+builder.Services.AddBeacon(builder.Configuration, options =>
 {
-    options.UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
-    options.AddSemanticoScheduler<YourScheduler>();
+    options.UsePostgreSql(builder.Configuration.GetConnectionString("BeaconContext")!, "beacon");
+    options.AddBeaconScheduler<YourScheduler>();
     options.AddEmailAdapter<SmtpEmailAdapter>();
 });
 ```
@@ -76,14 +76,14 @@ Emails include:
 - **Attachment**: **CSV file with FULL results** (regardless of row count)
 
 {: .note }
-> **Powerful Reporting Feature**: Email attachments contain the complete query result set, making Semantico perfect for scheduled reports. Recipients can open the CSV directly in Excel for analysis.
+> **Powerful Reporting Feature**: Email attachments contain the complete query result set, making Beacon perfect for scheduled reports. Recipients can open the CSV directly in Excel for analysis.
 
 **Example email:**
 
 ```
 Subject: Daily User Count Report - 2025-10-22 09:00:00
 
-Semantico Query Execution
+Beacon Query Execution
 
 Query: Daily Active Users
 Description: Count of users active in last 24 hours
@@ -99,10 +99,10 @@ Results:
 +---------------+
 
 View full execution history:
-https://your-semantico-instance/notifications/12345
+https://your-beacon-instance/notifications/12345
 
 ---
-Sent by Semantico
+Sent by Beacon
 ```
 
 ### Creating Email Recipient
@@ -135,8 +135,8 @@ Teams notifications require a webhook URL from your Teams channel.
 4. Search for **Incoming Webhook**
 5. Click **Configure**
 6. Enter webhook details:
-   - **Name**: `Semantico Alerts`
-   - **Upload Image**: (optional, Semantico logo)
+   - **Name**: `Beacon Alerts`
+   - **Upload Image**: (optional, Beacon logo)
 7. Click **Create**
 8. **Copy the webhook URL** (you'll need this)
 9. Click **Done**
@@ -185,12 +185,12 @@ Teams notifications use Adaptive Cards with:
 To enable the **"View Query Results"** button in Teams notifications, configure the `BaseUrl` setting in your application:
 
 ```csharp
-builder.Services.AddSemantico(builder.Configuration, options =>
+builder.Services.AddBeacon(builder.Configuration, options =>
 {
-    options.UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
-    options.AddSemanticoScheduler<YourScheduler>();
-    // Set your Semantico UI base URL
-    options.BaseUrl = "https://yourdomain.com/semantico";
+    options.UsePostgreSql(builder.Configuration.GetConnectionString("BeaconContext")!, "beacon");
+    options.AddBeaconScheduler<YourScheduler>();
+    // Set your Beacon UI base URL
+    options.BaseUrl = "https://yourdomain.com/beacon";
 });
 ```
 
@@ -198,24 +198,24 @@ builder.Services.AddSemantico(builder.Configuration, options =>
 
 ```json
 {
-  "Semantico": {
-    "BaseUrl": "https://yourdomain.com/semantico"
+  "Beacon": {
+    "BaseUrl": "https://yourdomain.com/beacon"
   }
 }
 ```
 
 ```csharp
-builder.Services.AddSemantico(builder.Configuration, options =>
+builder.Services.AddBeacon(builder.Configuration, options =>
 {
-    options.UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
-    options.AddSemanticoScheduler<YourScheduler>();
-    options.BaseUrl = builder.Configuration["Semantico:BaseUrl"];
+    options.UsePostgreSql(builder.Configuration.GetConnectionString("BeaconContext")!, "beacon");
+    options.AddBeaconScheduler<YourScheduler>();
+    options.BaseUrl = builder.Configuration["Beacon:BaseUrl"];
 });
 ```
 
 When configured, Teams notifications will include a button that links to:
 ```
-https://yourdomain.com/semantico/notifications/details/{notificationId}
+https://yourdomain.com/beacon/notifications/details/{notificationId}
 ```
 
 This allows recipients to:
@@ -238,7 +238,7 @@ curl -X POST 'https://outlook.office.com/webhook/...' \
   -H 'Content-Type: application/json' \
   -d '{
     "@type": "MessageCard",
-    "text": "Test from Semantico"
+    "text": "Test from Beacon"
   }'
 ```
 
@@ -255,7 +255,7 @@ Slack notifications require a webhook URL from your Slack workspace.
 1. Go to [https://api.slack.com/apps](https://api.slack.com/apps)
 2. Click **Create New App** → **From scratch**
 3. Enter app details:
-   - **App Name**: `Semantico Alerts`
+   - **App Name**: `Beacon Alerts`
    - **Pick a workspace**: Select your workspace
 4. Click **Create App**
 5. In the app settings, select **Incoming Webhooks** from the left menu
@@ -286,7 +286,7 @@ Slack notifications use Block Kit with superior table formatting:
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│ [Semantico] Production DB - Daily Sales Report     │
+│ [Beacon] Production DB - Daily Sales Report     │
 ├─────────────────────────────────────────────────────┤
 │ Query:                                              │
 │ ```sql                                              │
@@ -340,12 +340,12 @@ Slack provides significantly better table formatting than Teams:
 To enable the **"View Full Results"** button in Slack notifications, configure the `BaseUrl` setting in your application:
 
 ```csharp
-builder.Services.AddSemantico(builder.Configuration, options =>
+builder.Services.AddBeacon(builder.Configuration, options =>
 {
-    options.UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
-    options.AddSemanticoScheduler<YourScheduler>();
-    // Set your Semantico UI base URL
-    options.BaseUrl = "https://yourdomain.com/semantico";
+    options.UsePostgreSql(builder.Configuration.GetConnectionString("BeaconContext")!, "beacon");
+    options.AddBeaconScheduler<YourScheduler>();
+    // Set your Beacon UI base URL
+    options.BaseUrl = "https://yourdomain.com/beacon";
 });
 ```
 
@@ -353,15 +353,15 @@ builder.Services.AddSemantico(builder.Configuration, options =>
 
 ```json
 {
-  "Semantico": {
-    "BaseUrl": "https://yourdomain.com/semantico"
+  "Beacon": {
+    "BaseUrl": "https://yourdomain.com/beacon"
   }
 }
 ```
 
 When configured, Slack notifications will include a button that links to:
 ```
-https://yourdomain.com/semantico/notifications/{notificationId}
+https://yourdomain.com/beacon/notifications/{notificationId}
 ```
 
 This allows recipients to:
@@ -381,13 +381,13 @@ Send a test message:
 curl -X POST 'https://hooks.slack.com/services/T00000000/B00000000/XXXX...' \
   -H 'Content-Type: application/json' \
   -d '{
-    "text": "Test from Semantico",
+    "text": "Test from Beacon",
     "blocks": [
       {
         "type": "section",
         "text": {
           "type": "mrkdwn",
-          "text": "This is a test notification from *Semantico*"
+          "text": "This is a test notification from *Beacon*"
         }
       }
     ]
@@ -433,7 +433,7 @@ Jira notifications require:
 Issues created include:
 - **Summary**: Query name and timestamp
 - **Description**: Query results formatted as table
-- **Labels**: `semantico`, `automated`, query name
+- **Labels**: `beacon`, `automated`, query name
 - **Priority**: Configurable based on result thresholds
 
 ## Notification History
@@ -477,7 +477,7 @@ Click any notification to see:
 | **Jira** | 50 rows (issue description) | CSV in description |
 
 {: .note }
-> **Powerful Reporting**: Email notifications include a CSV attachment with the **complete query result set**, regardless of size. This makes Semantico ideal for scheduled reporting - stakeholders receive full datasets they can analyze in Excel without needing database access.
+> **Powerful Reporting**: Email notifications include a CSV attachment with the **complete query result set**, regardless of size. This makes Beacon ideal for scheduled reporting - stakeholders receive full datasets they can analyze in Excel without needing database access.
 
 **Example**: A query returning 5,000 product sales records will show the first 20 rows in the email body, but the CSV attachment will contain all 5,000 rows ready for Excel pivot tables and analysis.
 
@@ -533,7 +533,7 @@ Delivery failed with error:
 
 ### Retry Behavior
 
-Semantico does NOT automatically retry failed deliveries:
+Beacon does NOT automatically retry failed deliveries:
 - Check error message in history
 - Fix recipient configuration
 - Re-execute subscription manually
@@ -575,7 +575,7 @@ Semantico does NOT automatically retry failed deliveries:
 - Professional formatting
 
 {: .note }
-> **Reporting Power**: Unlike other alerting tools that only show summaries, Semantico delivers the complete dataset as a CSV attachment. Perfect for stakeholders who need to analyze data in Excel without database access.
+> **Reporting Power**: Unlike other alerting tools that only show summaries, Beacon delivers the complete dataset as a CSV attachment. Perfect for stakeholders who need to analyze data in Excel without database access.
 
 ### Example 3: Incident Creation in Jira
 
@@ -621,7 +621,7 @@ Semantico does NOT automatically retry failed deliveries:
 
 **Debug your email adapter:**
 1. Add logging to your `SendEmailAsync` implementation
-2. Test email sending outside of Semantico
+2. Test email sending outside of Beacon
 3. Verify SMTP credentials and server settings
 4. Check firewall rules for SMTP ports (usually 587 or 465)
 

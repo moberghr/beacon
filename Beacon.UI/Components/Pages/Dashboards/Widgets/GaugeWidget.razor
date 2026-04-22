@@ -1,0 +1,103 @@
+@using Beacon.Core.Models.Dashboards
+@using Beacon.Core.Services
+@using System.Text.Json
+@inject IStatisticsService StatisticsService
+
+<MudPaper Elevation="2" Class="pa-4">
+    <MudStack Spacing="2" AlignItems="AlignItems.Center">
+        <MudText Typo="Typo.h6">@Widget.Title</MudText>
+        @if (_loading)
+        {
+            <MudSkeleton SkeletonType="SkeletonType.Circle" Width="200px" Height="200px"/>
+        }
+        else if (_error != null)
+        {
+            <MudAlert Severity="Severity.Error">@_error</MudAlert>
+        }
+        else if (_config != null)
+        {
+            <MudStack AlignItems="AlignItems.Center" Spacing="2">
+                <MudProgressCircular Size="Size.Large"
+                                     Value="@_currentValue"
+                                     Min="@_config.MinValue"
+                                     Max="@_config.MaxValue"
+                                     Color="@GetGaugeColor()"
+                                     Style="width: 200px; height: 200px;">
+                    <MudText Typo="Typo.h4">@_currentValue.ToString("F0")</MudText>
+                </MudProgressCircular>
+                <MudText Typo="Typo.body2" Color="Color.Secondary">
+                    Range: @_config.MinValue - @_config.MaxValue
+                </MudText>
+            </MudStack>
+        }
+    </MudStack>
+</MudPaper>
+
+@code {
+    [Parameter] public DashboardWidgetData Widget { get; set; } = null!;
+
+    private bool _loading = true;
+    private string? _error;
+    private GaugeWidgetConfiguration? _config;
+    private double _currentValue;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        _loading = true;
+        _error = null;
+
+        try
+        {
+            _config = JsonSerializer.Deserialize<GaugeWidgetConfiguration>(Widget.ConfigurationJson);
+            var statistics = await StatisticsService.GetDashboardStatistics(CancellationToken.None);
+
+            if (_config != null)
+            {
+                _currentValue = _config.Metric switch
+                {
+                    "TotalSubscriptions" => statistics.TotalSubscriptions,
+                    "ActiveSubscriptions" => statistics.ActiveSubscriptions,
+                    "UnresolvedTasks" => statistics.UnresolvedTasks,
+                    "TotalAnomalies" => statistics.TotalAnomaliesDetected,
+                    _ => 0
+                };
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = $"Error loading widget: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private Color GetGaugeColor()
+    {
+        if (_config == null || !_config.Thresholds.Any())
+        {
+            return Color.Primary;
+        }
+
+        var percentage = (_currentValue - _config.MinValue) / (_config.MaxValue - _config.MinValue) * 100;
+
+        var threshold = _config.Thresholds
+            .OrderByDescending(t => t.Value)
+            .FirstOrDefault(t => percentage >= t.Value);
+
+        return threshold?.Color switch
+        {
+            "success" => Color.Success,
+            "warning" => Color.Warning,
+            "error" => Color.Error,
+            "info" => Color.Info,
+            _ => Color.Primary
+        };
+    }
+}

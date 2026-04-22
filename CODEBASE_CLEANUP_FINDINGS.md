@@ -1,7 +1,7 @@
 # Codebase Cleanup & Refactoring Findings
 
 **Date:** 2025-11-28
-**Analysis Scope:** Semantico.Core, Semantico.UI, Semantico.SampleProject
+**Analysis Scope:** Beacon.Core, Beacon.UI, Beacon.SampleProject
 
 ---
 
@@ -26,33 +26,33 @@
 ### 1.1 Entity Configuration Duplication
 
 **Files:**
-- `Semantico.Core.PostgreSql/Data/PostgreSqlSemanticoContext.cs:13-18`
-- `Semantico.Core.SqlServer/Data/SqlServerSemanticoContext.cs:13-18`
+- `Beacon.Core.PostgreSql/Data/PostgreSqlBeaconContext.cs:13-18`
+- `Beacon.Core.SqlServer/Data/SqlServerBeaconContext.cs:13-18`
 
 **Pattern:** Both override `OnModelCreating` with identical schema configuration code.
 
-**Fix:** Move schema configuration to base `SemanticoContext.OnModelCreating()`.
+**Fix:** Move schema configuration to base `BeaconContext.OnModelCreating()`.
 
 ---
 
 ### 1.2 Service Collection Extension Duplication
 
 **Files:**
-- `Semantico.Core.PostgreSql/ServiceCollectionExtensions.cs:30-45`
-- `Semantico.Core.SqlServer/ServiceCollectionExtensions.cs:29-44`
+- `Beacon.Core.PostgreSql/ServiceCollectionExtensions.cs:30-45`
+- `Beacon.Core.SqlServer/ServiceCollectionExtensions.cs:29-44`
 
-**Pattern:** Nearly identical `SemanticoContextFactoryAdapter` class in both files (~32 lines each).
+**Pattern:** Nearly identical `BeaconContextFactoryAdapter` class in both files (~32 lines each).
 
-**Fix:** Create generic abstract base class `SemanticoContextFactoryAdapterBase<T>` in shared location.
+**Fix:** Create generic abstract base class `BeaconContextFactoryAdapterBase<T>` in shared location.
 
 ---
 
 ### 1.3 Query Parameter Transformation Duplication
 
 **Files:**
-- `Semantico.Core/Services/QueryService.cs:294-300, 343-349`
-- `Semantico.Core/Services/DataSourceService.cs:118-135`
-- `Semantico.Core/Services/SubscriptionService.cs` (throughout)
+- `Beacon.Core/Services/QueryService.cs:294-300, 343-349`
+- `Beacon.Core/Services/DataSourceService.cs:118-135`
+- `Beacon.Core/Services/SubscriptionService.cs` (throughout)
 
 **Pattern:**
 ```csharp
@@ -72,9 +72,9 @@ Parameters = s.Parameters.Select(p => new QueryStepParameterData
 ### 1.4 Recipient Data Transformation Duplication
 
 **Files:**
-- `Semantico.Core/Services/SubscriptionService.cs:133-140, 243-250`
-- `Semantico.Core/Services/NotificationService.cs:30-36, 154`
-- `Semantico.Core/Services/QueryService.cs:438-445`
+- `Beacon.Core/Services/SubscriptionService.cs:133-140, 243-250`
+- `Beacon.Core/Services/NotificationService.cs:30-36, 154`
+- `Beacon.Core/Services/QueryService.cs:438-445`
 
 **Occurrences:** 5+ times
 
@@ -85,8 +85,8 @@ Parameters = s.Parameters.Select(p => new QueryStepParameterData
 ### 1.5 Parameter Entity Creation Duplication
 
 **Files:**
-- `Semantico.Core/Services/QueryService.cs:215-225, 510-520, 546-556, 682-692, 726-736`
-- `Semantico.Core/Services/SubscriptionService.cs:78-84, 210-220`
+- `Beacon.Core/Services/QueryService.cs:215-225, 510-520, 546-556, 682-692, 726-736`
+- `Beacon.Core/Services/SubscriptionService.cs:78-84, 210-220`
 
 **Occurrences:** 7+ times
 
@@ -96,7 +96,7 @@ Parameters = s.Parameters.Select(p => new QueryStepParameterData
 
 ### 1.6 Task Creation/Update Logic Duplication
 
-**File:** `Semantico.Core/Services/TaskService.cs:16-96, 98-149`
+**File:** `Beacon.Core/Services/TaskService.cs:16-96, 98-149`
 
 **Pattern:** `CreateTask` and `CreateOrUpdateTask` share ~70% identical logic.
 
@@ -108,7 +108,7 @@ Parameters = s.Parameters.Select(p => new QueryStepParameterData
 
 ### 1.7 Recipient Fetching Duplication
 
-**File:** `Semantico.Core/Services/SubscriptionService.cs:62-64, 189-191, 297-299`
+**File:** `Beacon.Core/Services/SubscriptionService.cs:62-64, 189-191, 297-299`
 
 **Occurrences:** 3 times
 
@@ -120,7 +120,7 @@ Parameters = s.Parameters.Select(p => new QueryStepParameterData
 
 ### 2.1 Console.WriteLine in TaskService.cs (CRITICAL)
 
-**File:** `Semantico.Core/Services/TaskService.cs`
+**File:** `Beacon.Core/Services/TaskService.cs`
 
 **Issues:** 14 Console.WriteLine statements instead of ILogger:
 
@@ -147,7 +147,7 @@ Parameters = s.Parameters.Select(p => new QueryStepParameterData
 
 ### 2.2 Console.WriteLine in JobService.cs
 
-**File:** `Semantico.Core/Worker/Services/JobService.cs:94`
+**File:** `Beacon.Core/Worker/Services/JobService.cs:94`
 
 **Fix:** Replace with `_logger.LogDebug()`.
 
@@ -155,7 +155,7 @@ Parameters = s.Parameters.Select(p => new QueryStepParameterData
 
 ### 2.3 Placeholder Warning in SchedulingService.cs
 
-**File:** `Semantico.Core/Services/Shared/SchedulingService.cs:71`
+**File:** `Beacon.Core/Services/Shared/SchedulingService.cs:71`
 
 ```csharp
 _logger.LogWarning("GetNextExecutionTime not fully implemented, returning 1 hour from now")
@@ -182,7 +182,7 @@ _logger.LogWarning("GetNextExecutionTime not fully implemented, returning 1 hour
 public abstract class CrudService<TEntity, TDto, TCreateRequest, TUpdateRequest>
     where TEntity : ArchivableBaseEntity
 {
-    protected readonly IDbContextFactory<SemanticoContext> ContextFactory;
+    protected readonly IDbContextFactory<BeaconContext> ContextFactory;
 
     protected virtual Task<BaseResponse> CreateAsync(TCreateRequest request, CancellationToken ct);
     protected virtual Task DeleteAsync(int id, CancellationToken ct);
@@ -197,8 +197,8 @@ public abstract class CrudService<TEntity, TDto, TCreateRequest, TUpdateRequest>
 ### 3.2 Multi-Step Workflow Extensions
 
 **Files:**
-- `Semantico.Core/Data/Entities/Query.cs:26-34`
-- `Semantico.Core/Data/Entities/DataMigration/MigrationJob.cs:63-67`
+- `Beacon.Core/Data/Entities/Query.cs:26-34`
+- `Beacon.Core/Data/Entities/DataMigration/MigrationJob.cs:63-67`
 
 **Duplicated logic:**
 ```csharp
@@ -214,9 +214,9 @@ public bool IsCrossDatabase => Steps.Select(s => s.DataSource.DatabaseEngineType
 ### 3.3 Fluent Validator Pattern
 
 **Files with scattered validation:**
-- `Semantico.Core/Validators/QueryValidator.cs:18-27`
-- `Semantico.Core/Validators/SubscriptionValidator.cs:10-49`
-- `Semantico.Core/Services/SubscriptionService.cs:40-60, 183-187`
+- `Beacon.Core/Validators/QueryValidator.cs:18-27`
+- `Beacon.Core/Validators/SubscriptionValidator.cs:10-49`
+- `Beacon.Core/Services/SubscriptionService.cs:40-60, 183-187`
 
 **Proposed abstraction:**
 ```csharp
@@ -250,7 +250,7 @@ public interface IDependencyChecker<T> where T : ArchivableBaseEntity
 
 ### 3.5 Migration Executor Strategy Pattern
 
-**File:** `Semantico.Core/Services/MigrationService.cs` (1343 lines!)
+**File:** `Beacon.Core/Services/MigrationService.cs` (1343 lines!)
 
 **Issue:** Multiple database-specific implementations with repeated code blocks.
 
@@ -274,7 +274,7 @@ public class SqlServerMigrationExecutor : IMigrationExecutor { }
 
 ### 4.1 SQL Injection Vulnerability (CRITICAL)
 
-**File:** `Semantico.Core/Helpers/QueryHelper.cs:7-15`
+**File:** `Beacon.Core/Helpers/QueryHelper.cs:7-15`
 
 ```csharp
 public static string CompileSql(string querySql, List<SubscriptionParamaterData> parameterValues)
@@ -295,10 +295,10 @@ public static string CompileSql(string querySql, List<SubscriptionParamaterData>
 
 ### 4.2 Hardcoded Credentials (CRITICAL)
 
-**File:** `Semantico.SampleProject/Program.cs:46, 57`
+**File:** `Beacon.SampleProject/Program.cs:46, 57`
 
 ```csharp
-options.BaseUrl = "https://localhost:7187/semantico";
+options.BaseUrl = "https://localhost:7187/beacon";
 .UseBasicAuthentication("admin", "admin")
 ```
 
@@ -308,7 +308,7 @@ options.BaseUrl = "https://localhost:7187/semantico";
 
 ### 4.3 Bare Exception Handling
 
-**File:** `Semantico.Core/Services/QueryExecutionPreviewService.cs:25-32, 37-44, 49-56, 106-110, 161-164`
+**File:** `Beacon.Core/Services/QueryExecutionPreviewService.cs:25-32, 37-44, 49-56, 106-110, 161-164`
 
 ```csharp
 try { ... }
@@ -332,7 +332,7 @@ catch { return null; }  // Swallows ALL exceptions silently
 
 ### 4.5 Null Reference Risks
 
-**File:** `Semantico.Core/Helpers/Helpers.cs:43, 71-72`
+**File:** `Beacon.Core/Helpers/Helpers.cs:43, 71-72`
 
 ```csharp
 queryResult.TopRecords.FirstOrDefault().SelectMany(property => ...)
@@ -367,7 +367,7 @@ Used throughout: QueryService.cs, SubscriptionService.cs, MigrationService.cs
 
 ### 4.8 Brittle Exception Matching
 
-**File:** `Semantico.Core/Services/MigrationService.cs:649-660`
+**File:** `Beacon.Core/Services/MigrationService.cs:649-660`
 
 ```csharp
 catch (Exception ex) when (ex.Message.Contains("does not exist"))
@@ -383,7 +383,7 @@ catch (Exception ex) when (ex.Message.Contains("connect"))
 ## 5. PROPOSED NEW FILE STRUCTURE
 
 ```
-Semantico.Core/
+Beacon.Core/
 ├── Helpers/
 │   ├── LinqHelpers.cs (EXPAND - add extension methods)
 │   ├── ParameterEntityFactory.cs (NEW)
@@ -400,7 +400,7 @@ Semantico.Core/
 │   └── FluentValidator.cs (NEW)
 ├── Data/
 │   └── Factories/
-│       └── SemanticoContextFactoryAdapterBase.cs (NEW)
+│       └── BeaconContextFactoryAdapterBase.cs (NEW)
 ```
 
 ---
@@ -422,7 +422,7 @@ Semantico.Core/
 2. [x] Extract magic numbers to constants - Created `Constants.cs`
 3. [ ] Refactor `MigrationService.cs` with strategy pattern - DEFERRED (larger task ~200+ lines, recommend separate PR)
 4. [x] Create `ParameterEntityFactory` helper class - Created factory with overloads for QueryStepParameterData, QueryParameterData, and SubscriptionParameterData
-5. [x] Move schema configuration to base SemanticoContext - Removed duplicate OnModelCreating overrides
+5. [x] Move schema configuration to base BeaconContext - Removed duplicate OnModelCreating overrides
 
 ### Low Priority (Technical Debt Backlog) - MOSTLY COMPLETED
 1. [x] Rename `SubscriptionParamaterData` to fix typo - Renamed class and file, updated all references
@@ -494,33 +494,33 @@ public static IQueryable<T> TakeIf<T>(this IQueryable<T> query, bool condition, 
 ### 2025-11-28 - Initial Cleanup Sprint
 
 **Files Modified:**
-- `Semantico.Core/Helpers/QueryHelper.cs` - Added SQL escaping, fixed class name reference
-- `Semantico.Core/Constants.cs` - NEW FILE - Application constants
-- `Semantico.SampleProject/Program.cs` - Moved credentials to configuration
-- `Semantico.Core/Services/TaskService.cs` - Replaced Console.WriteLine with ILogger, removed redundant field assignments
-- `Semantico.Core/Worker/Services/JobService.cs` - Replaced Console.WriteLine with ILogger, removed redundant field assignments
-- `Semantico.Core/Services/QueryExecutionPreviewService.cs` - Added proper exception handling with logging
-- `Semantico.Core/Helpers/LinqHelpers.cs` - Added extension methods (ToQueryStepParameterDataList, ToRecipientDataList, SkipIf)
-- `Semantico.Core/Models/Subscriptions/SubscriptionParameterData.cs` - Renamed file and class (was SubscriptionParamaterData)
-- `Semantico.Core/Services/SubscriptionService.cs` - Updated to use new class name
-- `Semantico.Core/Validators/SubscriptionValidator.cs` - Updated to use new class name
-- `Semantico.Core/Models/Subscriptions/SubscriptionData.cs` - Updated to use new class name
-- `Semantico.Core/Models/Subscriptions/SubscriptionDetailsData.cs` - Updated to use new class name
-- `Semantico.Core/Services/Shared/ParameterResolver.cs` - Updated to use new class name
-- `Semantico.Core/Services/Shared/QueryExecutionOrchestrator.cs` - Updated to use new class name
-- `Semantico.Core/Services/QueryService.cs` - Updated to use new class name and constants
-- `Semantico.Core/Services/MigrationService.cs` - Replaced magic numbers with constants
-- `Semantico.Core/Adapters/Helpers.cs` - Fixed null reference issues in email/Jira content generation
-- `Semantico.Core/Services/INotificationService.cs` - NEW FILE - Extracted interface from NotificationService
-- `Semantico.Core/Services/NotificationService.cs` - Removed interface (moved to separate file)
-- `Semantico.Core/Services/Shared/SchedulingService.cs` - Implemented cron methods properly using Cronos library
-- `Semantico.Core/Helpers/ParameterEntityFactory.cs` - NEW FILE - Factory for creating parameter entities from DTOs
-- `Semantico.Core/Services/QueryService.cs` - Refactored 5 parameter creation sites to use ParameterEntityFactory
-- `Semantico.Core/Services/SubscriptionService.cs` - Refactored 2 parameter creation sites to use ParameterEntityFactory
-- `Semantico.Core/Services/TaskService.cs` - Extracted helper methods for task creation/update (FindUnresolvedTaskAsync, UpdateTaskWithResultCount, CreateNewTask, LinkNotificationToTaskAsync)
-- `Semantico.Core/Data/SemanticoContext.cs` - Added HasDefaultSchema call to base OnModelCreating
-- `Semantico.Core.PostgreSql/Data/PostgreSqlSemanticoContext.cs` - Removed duplicate OnModelCreating, converted to primary constructor
-- `Semantico.Core.SqlServer/Data/SqlServerSemanticoContext.cs` - Removed duplicate OnModelCreating, converted to primary constructor
+- `Beacon.Core/Helpers/QueryHelper.cs` - Added SQL escaping, fixed class name reference
+- `Beacon.Core/Constants.cs` - NEW FILE - Application constants
+- `Beacon.SampleProject/Program.cs` - Moved credentials to configuration
+- `Beacon.Core/Services/TaskService.cs` - Replaced Console.WriteLine with ILogger, removed redundant field assignments
+- `Beacon.Core/Worker/Services/JobService.cs` - Replaced Console.WriteLine with ILogger, removed redundant field assignments
+- `Beacon.Core/Services/QueryExecutionPreviewService.cs` - Added proper exception handling with logging
+- `Beacon.Core/Helpers/LinqHelpers.cs` - Added extension methods (ToQueryStepParameterDataList, ToRecipientDataList, SkipIf)
+- `Beacon.Core/Models/Subscriptions/SubscriptionParameterData.cs` - Renamed file and class (was SubscriptionParamaterData)
+- `Beacon.Core/Services/SubscriptionService.cs` - Updated to use new class name
+- `Beacon.Core/Validators/SubscriptionValidator.cs` - Updated to use new class name
+- `Beacon.Core/Models/Subscriptions/SubscriptionData.cs` - Updated to use new class name
+- `Beacon.Core/Models/Subscriptions/SubscriptionDetailsData.cs` - Updated to use new class name
+- `Beacon.Core/Services/Shared/ParameterResolver.cs` - Updated to use new class name
+- `Beacon.Core/Services/Shared/QueryExecutionOrchestrator.cs` - Updated to use new class name
+- `Beacon.Core/Services/QueryService.cs` - Updated to use new class name and constants
+- `Beacon.Core/Services/MigrationService.cs` - Replaced magic numbers with constants
+- `Beacon.Core/Adapters/Helpers.cs` - Fixed null reference issues in email/Jira content generation
+- `Beacon.Core/Services/INotificationService.cs` - NEW FILE - Extracted interface from NotificationService
+- `Beacon.Core/Services/NotificationService.cs` - Removed interface (moved to separate file)
+- `Beacon.Core/Services/Shared/SchedulingService.cs` - Implemented cron methods properly using Cronos library
+- `Beacon.Core/Helpers/ParameterEntityFactory.cs` - NEW FILE - Factory for creating parameter entities from DTOs
+- `Beacon.Core/Services/QueryService.cs` - Refactored 5 parameter creation sites to use ParameterEntityFactory
+- `Beacon.Core/Services/SubscriptionService.cs` - Refactored 2 parameter creation sites to use ParameterEntityFactory
+- `Beacon.Core/Services/TaskService.cs` - Extracted helper methods for task creation/update (FindUnresolvedTaskAsync, UpdateTaskWithResultCount, CreateNewTask, LinkNotificationToTaskAsync)
+- `Beacon.Core/Data/BeaconContext.cs` - Added HasDefaultSchema call to base OnModelCreating
+- `Beacon.Core.PostgreSql/Data/PostgreSqlBeaconContext.cs` - Removed duplicate OnModelCreating, converted to primary constructor
+- `Beacon.Core.SqlServer/Data/SqlServerBeaconContext.cs` - Removed duplicate OnModelCreating, converted to primary constructor
 
 **Summary:**
 - Critical security issues: 2 fixed (SQL injection, hardcoded credentials)

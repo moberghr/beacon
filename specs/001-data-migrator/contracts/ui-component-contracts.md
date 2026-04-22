@@ -5,9 +5,9 @@
 ### MigrationListPage.razor
 ```csharp
 @page "/data-migration"
-@using Semantico.Core.Features.DataMigration
+@using Beacon.Core.Features.DataMigration
 
-<SemanticoPageHeader Title="Data Migration" 
+<BeaconPageHeader Title="Data Migration" 
                      SubTitle="Manage data migration jobs and view execution history" />
 
 <MudContainer MaxWidth="MaxWidth.False">
@@ -31,9 +31,9 @@
 ```csharp
 @page "/data-migration/create"
 @page "/data-migration/edit/{JobId:int}"
-@using Semantico.Core.Features.DataMigration
+@using Beacon.Core.Features.DataMigration
 
-<SemanticoPageHeader Title="@(IsEdit ? "Edit Migration Job" : "Create Migration Job")" 
+<BeaconPageHeader Title="@(IsEdit ? "Edit Migration Job" : "Create Migration Job")" 
                      SubTitle="Configure data migration parameters" />
 
 <MudContainer MaxWidth="MaxWidth.Large">
@@ -63,9 +63,9 @@
 ```csharp
 @page "/data-migration/history"
 @page "/data-migration/history/{JobId:int}"
-@using Semantico.Core.Features.DataMigration
+@using Beacon.Core.Features.DataMigration
 
-<SemanticoPageHeader Title="Migration History" 
+<BeaconPageHeader Title="Migration History" 
                      SubTitle="View execution history and performance metrics" />
 
 <MudContainer MaxWidth="MaxWidth.False">

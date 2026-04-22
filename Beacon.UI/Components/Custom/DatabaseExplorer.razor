@@ -1,0 +1,280 @@
+@using Beacon.Core.Models.Metadata
+@inject IJSRuntime JSRuntime
+
+<style>
+    .database-explorer {
+        height: 100%;
+        overflow-y: auto;
+        border-right: 1px solid rgba(0, 0, 0, 0.12);
+        background-color: #f8f9fa;
+    }
+
+    .mud-theme-dark .database-explorer {
+        border-right: 1px solid rgba(255, 255, 255, 0.12);
+        background-color: #1f2937;
+    }
+
+    .explorer-header {
+        padding: 16px;
+        border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+        background-color: white;
+    }
+
+    .mud-theme-dark .explorer-header {
+        border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+        background-color: #111827;
+    }
+
+    .explorer-content {
+        padding: 8px;
+        min-height: 400px;
+    }
+
+    .draggable-item {
+        transition: all 0.2s;
+    }
+
+    .draggable-item:hover {
+        background-color: rgba(33, 150, 243, 0.08);
+    }
+
+    .mud-theme-dark .draggable-item:hover {
+        background-color: rgba(99, 102, 241, 0.2);
+    }
+
+    .draggable-item:active {
+        opacity: 0.6;
+        background-color: rgba(33, 150, 243, 0.15);
+    }
+
+    .mud-theme-dark .draggable-item:active {
+        background-color: rgba(99, 102, 241, 0.3);
+    }
+
+</style>
+
+<div class="database-explorer">
+    <div class="explorer-header">
+        <MudText Typo="Typo.h6">
+            <MudIcon Icon="@Icons.Material.Filled.Storage" Class="mr-2" Size="Size.Small" />
+            Database Explorer
+        </MudText>
+        @if (Metadata != null)
+        {
+            <MudText Typo="Typo.caption" Color="Color.Secondary">
+                @Metadata.Tables.Count table(s)
+            </MudText>
+        }
+    </div>
+
+    <div class="explorer-content">
+        @if (Metadata == null)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true">
+                No metadata available. Select a project to load database structure.
+            </MudAlert>
+        }
+        else if (!Metadata.Tables.Any())
+        {
+            <MudAlert Severity="Severity.Warning" Dense="true">
+                Database metadata loading is disabled or no tables found.
+                <br/>
+                Configure <code>MetadataLoading.Enabled</code> in application settings to enable database structure exploration.
+            </MudAlert>
+        }
+        else
+        {
+            @* Show warning if columns are not loaded *@
+            @if (Metadata.Tables.Any() && Metadata.Tables.First().Columns.Count == 0)
+            {
+                <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">
+                    <MudText Typo="Typo.body2">Showing table names only. Column details are not loaded.</MudText>
+                    <MudText Typo="Typo.caption">Configure <code>MetadataLoading.LoadTableNamesOnly = false</code> to load column details.</MudText>
+                </MudAlert>
+            }
+
+            <MudList T="string" Clickable="false" Dense="true">
+                @* Group tables by schema *@
+                @foreach (var schemaGroup in Metadata.Tables.GroupBy(t => t.SchemaName).OrderBy(g => g.Key))
+                {
+                    <MudListItem T="string" InitiallyExpanded="false">
+                        <ChildContent>
+                            <div draggable="true"
+                                 data-drag-data="@string.Join(", ", GetSchemaColumns(schemaGroup))"
+                                 @ondragstart="@OnDragStartHandler"
+                                 style="display: flex; align-items: center; gap: 8px; cursor: move; padding: 4px; border-radius: 4px;"
+                                 class="draggable-item db-draggable">
+                                <MudIcon Icon="@Icons.Material.Filled.Folder" Color="Color.Primary" Size="Size.Small" />
+                                <MudText Typo="Typo.subtitle2">@schemaGroup.Key</MudText>
+                                <MudChip T="string" Size="Size.Small" Variant="Variant.Text">@schemaGroup.Count() tables</MudChip>
+                            </div>
+                        </ChildContent>
+                        <NestedList>
+                            @foreach (var table in schemaGroup.OrderBy(t => t.TableName))
+                            {
+                                <MudListItem T="string" InitiallyExpanded="false">
+                                    <ChildContent>
+                                        <div draggable="true"
+                                             data-drag-data="@string.Join(", ", GetTableColumns(table))"
+                                             @ondragstart="@OnDragStartHandler"
+                                             style="display: flex; align-items: center; gap: 8px; cursor: move; padding: 4px; border-radius: 4px;"
+                                             class="draggable-item db-draggable">
+                                            <MudIcon Icon="@Icons.Material.Filled.TableChart" Color="Color.Secondary" Size="Size.Small" />
+                                            <div>
+                                                <MudText Typo="Typo.body2">@table.TableName</MudText>
+                                                <MudText Typo="Typo.caption" Color="Color.Secondary">@table.Columns.Count columns</MudText>
+                                            </div>
+                                        </div>
+                                    </ChildContent>
+                                    <NestedList>
+                                        @if (!table.Columns.Any())
+                                        {
+                                            <MudListItem T="string">
+                                                <MudText Typo="Typo.caption" Color="Color.Secondary" Style="padding-left: 20px;">
+                                                    Column details not loaded
+                                                </MudText>
+                                            </MudListItem>
+                                        }
+                                        else
+                                        {
+                                            @foreach (var column in table.Columns.OrderBy(c => c.ColumnName))
+                                            {
+                                                <MudListItem T="string">
+                                                <div draggable="true"
+                                                     data-drag-data="@column.ColumnName"
+                                                     @ondragstart="@OnDragStartHandler"
+                                                     style="display: flex; align-items: center; gap: 8px; padding: 4px 4px 4px 20px; cursor: move; border-radius: 4px;"
+                                                     class="draggable-item db-draggable">
+                                                    <MudIcon Icon="@GetColumnIcon(column)" Size="Size.Small" />
+                                                    <div style="flex: 1;">
+                                                        <div style="display: flex; align-items: center; gap: 4px;">
+                                                            <MudText Typo="Typo.body2">@column.ColumnName</MudText>
+                                                            @if (column.IsPrimaryKey)
+                                                            {
+                                                                <MudIcon Icon="@Icons.Material.Filled.Key" Size="Size.Small" Color="Color.Warning" Title="Primary Key" />
+                                                            }
+                                                            @if (column.IsForeignKey)
+                                                            {
+                                                                <MudIcon Icon="@Icons.Material.Filled.Link" Size="Size.Small" Color="Color.Info" Title="Foreign Key" />
+                                                            }
+                                                        </div>
+                                                        <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                                            @column.DataType@(column.IsNullable ? "?" : "")
+                                                        </MudText>
+                                                    </div>
+                                                </div>
+                                            </MudListItem>
+                                            }
+                                        }
+                                    </NestedList>
+                                </MudListItem>
+                            }
+                        </NestedList>
+                    </MudListItem>
+                }
+            </MudList>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public DatabaseMetadataSnapshot? Metadata { get; set; }
+    [Parameter] public EventCallback<string> OnTableSelected { get; set; }
+    [Parameter] public EventCallback<(string TableName, string ColumnName)> OnColumnSelected { get; set; }
+
+    private bool _needsDragHandlerInit = true;
+    private DatabaseMetadataSnapshot? _previousMetadata;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Re-initialize drag handlers if metadata changed or on first render
+        if (_needsDragHandlerInit && Metadata != null)
+        {
+            await InitializeDragHandlers();
+            _needsDragHandlerInit = false;
+            _previousMetadata = Metadata;
+        }
+    }
+
+    protected override void OnParametersSet()
+    {
+        // Check if metadata changed
+        if (_previousMetadata != Metadata && Metadata != null)
+        {
+            _needsDragHandlerInit = true;
+        }
+    }
+
+    private async Task InitializeDragHandlers()
+    {
+        try
+        {
+            // Add event listeners via JavaScript to handle drag data properly
+            await JSRuntime.InvokeVoidAsync("eval", @"
+                document.querySelectorAll('.db-draggable').forEach(el => {
+                    el.addEventListener('dragstart', function(e) {
+                        const dragData = this.getAttribute('data-drag-data');
+                        if (dragData) {
+                            e.dataTransfer.effectAllowed = 'copy';
+                            e.dataTransfer.setData('text/plain', dragData);
+                            console.log('[Drag] Started with data:', dragData);
+                        }
+                    });
+                });
+            ");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to initialize drag handlers: {ex.Message}");
+        }
+    }
+
+    private void OnDragStartHandler(Microsoft.AspNetCore.Components.Web.DragEventArgs e)
+    {
+        // This is just a placeholder - actual drag data is set via JavaScript
+    }
+
+    private List<string> GetTableColumns(TableMetadataDto table)
+    {
+        return table.Columns.OrderBy(c => c.OrdinalPosition).Select(c => c.ColumnName).ToList();
+    }
+
+    private List<string> GetSchemaColumns(IGrouping<string, TableMetadataDto> schemaGroup)
+    {
+        var allColumns = new List<string>();
+        foreach (var table in schemaGroup.OrderBy(t => t.TableName))
+        {
+            allColumns.AddRange(GetTableColumns(table));
+        }
+        return allColumns;
+    }
+
+    private void OnTableClick(string tableName)
+    {
+        OnTableSelected.InvokeAsync(tableName);
+    }
+
+    private void OnColumnClick(string tableName, string columnName)
+    {
+        OnColumnSelected.InvokeAsync((tableName, columnName));
+    }
+
+    private string GetColumnIcon(ColumnMetadataDto column)
+    {
+        if (column.IsPrimaryKey) return Icons.Material.Filled.Key;
+        if (column.IsForeignKey) return Icons.Material.Filled.Link;
+
+        // Return icon based on data type
+        var dataType = column.DataType.ToLower();
+        if (dataType.Contains("int") || dataType.Contains("decimal") || dataType.Contains("numeric") || dataType.Contains("float") || dataType.Contains("double"))
+            return Icons.Material.Filled.Numbers;
+        if (dataType.Contains("date") || dataType.Contains("time"))
+            return Icons.Material.Filled.CalendarToday;
+        if (dataType.Contains("bool"))
+            return Icons.Material.Filled.CheckBox;
+        if (dataType.Contains("text") || dataType.Contains("char") || dataType.Contains("varchar"))
+            return Icons.Material.Filled.TextFields;
+
+        return Icons.Material.Filled.DataObject;
+    }
+}

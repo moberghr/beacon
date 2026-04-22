@@ -47,7 +47,7 @@ As a data analyst, I want AI to run actual queries against my data to validate f
 
 As a database administrator, I want to edit AI-generated documentation and export it in multiple formats so that I can refine the AI's insights and share documentation with my team and stakeholders.
 
-**Why this priority**: While AI-generated documentation is valuable, users need the ability to refine, correct, and customize it. Export capability makes the documentation useful beyond the Semantico platform.
+**Why this priority**: While AI-generated documentation is valuable, users need the ability to refine, correct, and customize it. Export capability makes the documentation useful beyond the Beacon platform.
 
 **Independent Test**: Can be tested by generating documentation, making edits to various sections, and exporting to different formats (Markdown, HTML, PDF). Delivers value by allowing users to maintain and share customized documentation.
 
@@ -120,7 +120,7 @@ As an administrator, I want to version the documentation generation prompt so th
 
 As a business user, I want to describe complex alerting conditions in natural language so that AI can create sophisticated data monitoring queries without requiring SQL expertise.
 
-**Why this priority**: This is the core innovation - allowing non-technical users to leverage Semantico's query and alerting infrastructure through AI-powered natural language interpretation. It dramatically expands the user base.
+**Why this priority**: This is the core innovation - allowing non-technical users to leverage Beacon's query and alerting infrastructure through AI-powered natural language interpretation. It dramatically expands the user base.
 
 **Independent Test**: Can be tested by providing natural language alert descriptions (e.g., "Alert me when sales drop more than 20% compared to last week"), verifying AI generates appropriate SQL queries, and confirming alerts trigger correctly. Delivers immediate value by democratizing complex alerting.
 

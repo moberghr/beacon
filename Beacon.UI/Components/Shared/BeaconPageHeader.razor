@@ -1,0 +1,65 @@
+<div class="beacon-page-header">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Style="width: 100%;">
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="3">
+            <MudIcon Icon="@Icon" Size="Size.Medium" Style="opacity: 0.6;" />
+            <MudText Typo="Typo.h5" Style="font-weight: 600; letter-spacing: -0.3px;">@Title</MudText>
+            @if (!string.IsNullOrEmpty(Alert))
+            {
+                <MudChip T="string" Size="Size.Small" Color="@(AlertSeverity == Severity.Success ? Color.Success : Color.Warning)" Variant="Variant.Filled">@Alert</MudChip>
+            }
+        </MudStack>
+        @if (OnClick.HasDelegate)
+        {
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                @if (ChildContent != null)
+                {
+                    @ChildContent
+                }
+                <MudButton Disabled="@ButtonDisabled"
+                           StartIcon="@ButtonIcon"
+                           Variant="Variant.Filled"
+                           Size="Size.Small"
+                           Color="Color.Primary"
+                           @onclick="@OnClick">
+                    @ButtonText
+                </MudButton>
+            </MudStack>
+        }
+    </MudStack>
+</div>
+
+@code
+{
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    [Parameter]
+    public string Class { get; set; }
+
+    [Parameter]
+    public string Icon { get; set; }
+
+    [Parameter]
+    public string Title { get; set; }
+
+    [Parameter]
+    public string ButtonText { get; set; }
+
+    [Parameter]
+    public string? Alert { get; set; }
+
+    [Parameter]
+    public Severity AlertSeverity { get; set; } = Severity.Success;
+
+    [Parameter]
+    public string ButtonIcon { get; set; } = Icons.Material.Outlined.Add;
+
+    [Parameter]
+    public bool ButtonDisabled { get; set; }
+
+    [Parameter]
+    public EventCallback<bool> ButtonDisabledChanged { get; set; }
+
+    [Parameter]
+    public EventCallback<MouseEventArgs> OnClick { get; set; }
+}

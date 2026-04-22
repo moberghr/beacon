@@ -1,0 +1,288 @@
+@using Beacon.Core
+@using Beacon.Core.Authorization
+@using Beacon.Core.Helpers
+@using Beacon.Core.Models.UserManagement
+@using Beacon.Core.Services
+
+<MudDialog Class="pb-2">
+    <TitleContent>
+        <MudText Typo="Typo.h6">
+            <MudIcon Icon="@Icons.Material.Filled.Edit" Class="mr-1 mb-n1" />
+            Edit User
+        </MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudForm @ref="_form" @bind-IsValid="_isFormValid">
+            <MudTextField @bind-Value="_request.UserName"
+                          Label="Username"
+                          Required="true"
+                          RequiredError="Username is required"
+                          Variant="Variant.Outlined"
+                          Margin="Margin.Dense"
+                          Class="mb-3" />
+
+            <MudTextField @bind-Value="_request.Email"
+                          Label="Email"
+                          InputType="InputType.Email"
+                          Variant="Variant.Outlined"
+                          Margin="Margin.Dense"
+                          Class="mb-3" />
+
+            <MudTextField @bind-Value="_request.DisplayName"
+                          Label="Display Name"
+                          Variant="Variant.Outlined"
+                          Margin="Margin.Dense"
+                          Class="mb-3" />
+
+            <MudSwitch @bind-Value="_request.IsEnabled" Label="@(_request.IsEnabled ? "Enabled" : "Disabled")"
+                       Color="Color.Success" UnCheckedColor="Color.Error"
+                       Disabled="@User.IsSuperAdmin" Class="mb-3" />
+
+            @if (!User.IsInternalUser)
+            {
+                <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">
+                    <MudText Typo="Typo.caption">
+                        External ID: <strong>@User.ExternalId</strong>
+                    </MudText>
+                </MudAlert>
+            }
+
+            @if (User.IsSuperAdmin)
+            {
+                <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-3">
+                    <MudText Typo="Typo.caption">
+                        This is a Super Admin account. Some restrictions apply to protect system access.
+                    </MudText>
+                </MudAlert>
+            }
+        </MudForm>
+
+        <MudDivider Class="my-4" />
+
+        <MudText Typo="Typo.subtitle1" Class="mb-2">Roles</MudText>
+        <MudStack Row="true" Spacing="2" Class="mb-3">
+            @foreach (var role in _roles)
+            {
+                var hasRole = User.Roles.Any(r => r.Id == role.Id);
+                <MudChip T="string"
+                         Color="@(hasRole ? GetRoleColor(role.Level) : Color.Default)"
+                         Variant="@(hasRole ? Variant.Filled : Variant.Outlined)"
+                         OnClick="@(() => ToggleRole(role))"
+                         Style="cursor: pointer;">
+                    @if (hasRole)
+                    {
+                        <MudIcon Icon="@Icons.Material.Filled.Check" Size="Size.Small" Class="mr-1" />
+                    }
+                    @role.Name
+                </MudChip>
+            }
+        </MudStack>
+
+        @if (User.IsInternalUser && _configuration.UserManagement.AllowInternalUsers)
+        {
+            <MudDivider Class="my-4" />
+
+            <MudText Typo="Typo.subtitle1" Class="mb-2">Reset Password</MudText>
+            <MudStack Row="true" Spacing="2">
+                <MudTextField @bind-Value="_newPassword"
+                              Label="New Password"
+                              InputType="@(_showNewPassword ? InputType.Text : InputType.Password)"
+                              Variant="Variant.Outlined"
+                              Margin="Margin.Dense"
+                              Validation="@(new Func<string, string?>(ValidatePassword))"
+                              Adornment="Adornment.End"
+                              AdornmentIcon="@(_showNewPassword ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)"
+                              OnAdornmentClick="@(() => _showNewPassword = !_showNewPassword)"
+                              Style="flex: 1;" />
+                <MudButton Variant="Variant.Outlined" Color="Color.Warning"
+                           Disabled="@(string.IsNullOrEmpty(_newPassword) || ValidatePassword(_newPassword) != null)"
+                           OnClick="ResetPassword">
+                    Reset
+                </MudButton>
+            </MudStack>
+        }
+
+        <MudDivider Class="my-4" />
+
+        <MudButton Variant="Variant.Outlined" Color="Color.Error" FullWidth="true"
+                   StartIcon="@Icons.Material.Filled.Delete"
+                   Disabled="@User.IsSuperAdmin"
+                   OnClick="DeleteUser">
+            Delete User
+        </MudButton>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel" Variant="Variant.Filled" Class="ml-4">Cancel</MudButton>
+        <DialogSaveButton Disabled="@(!_isFormValid || _loading)" OnClick="Submit" />
+    </DialogActions>
+</MudDialog>
+
+@inject IUserManagementService UserService
+@inject IRoleService RoleService
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+@inject BeaconConfiguration _configuration
+@inject IBeaconUserContext UserContext
+
+@code {
+    [CascadingParameter]
+    IMudDialogInstance MudDialog { get; set; } = null!;
+
+    [Parameter]
+    public BeaconUserData User { get; set; } = null!;
+
+    private MudForm _form = null!;
+    private bool _isFormValid;
+    private bool _loading;
+    private UpdateUserRequest _request = new();
+    private List<BeaconRoleData> _roles = new();
+    private string? _newPassword;
+    private bool _showNewPassword;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _roles = await RoleService.GetRolesAsync();
+
+        _request = new UpdateUserRequest
+        {
+            UserId = User.Id,
+            UserName = User.UserName,
+            Email = User.Email,
+            DisplayName = User.DisplayName,
+            IsEnabled = User.IsEnabled
+        };
+    }
+
+    private string? ValidatePassword(string? password)
+    {
+        if (string.IsNullOrEmpty(password))
+            return null;
+
+        if (password.Length < _configuration.UserManagement.MinimumPasswordLength)
+            return $"Password must be at least {_configuration.UserManagement.MinimumPasswordLength} characters";
+
+        if (_configuration.UserManagement.RequirePasswordComplexity)
+        {
+            if (!password.Any(char.IsUpper))
+                return "Uppercase required";
+            if (!password.Any(char.IsLower))
+                return "Lowercase required";
+            if (!password.Any(char.IsDigit))
+                return "Digit required";
+            if (!password.Any(c => !char.IsLetterOrDigit(c)))
+                return "Special char required";
+        }
+
+        return null;
+    }
+
+    private async Task ToggleRole(BeaconRoleData role)
+    {
+        var hasRole = User.Roles.Any(r => r.Id == role.Id);
+
+        BaseResponse response;
+        if (hasRole)
+        {
+            response = await UserService.RemoveRoleAsync(User.Id, role.Id);
+            if (response.Success)
+            {
+                User.Roles.RemoveAll(r => r.Id == role.Id);
+            }
+        }
+        else
+        {
+            response = await UserService.AssignRoleAsync(User.Id, role.Id, UserContext.UserId);
+            if (response.Success)
+            {
+                User.Roles.Add(role);
+            }
+        }
+
+        if (response.Success)
+        {
+            Snackbar.Add(response.Message, Severity.Success);
+            StateHasChanged();
+        }
+        else
+        {
+            Snackbar.Add(response.Message, Severity.Error);
+        }
+    }
+
+    private async Task ResetPassword()
+    {
+        if (string.IsNullOrEmpty(_newPassword) || ValidatePassword(_newPassword) != null)
+            return;
+
+        var response = await UserService.ResetPasswordAsync(User.Id, _newPassword);
+        if (response.Success)
+        {
+            Snackbar.Add(response.Message, Severity.Success);
+            _newPassword = null;
+        }
+        else
+        {
+            Snackbar.Add(response.Message, Severity.Error);
+        }
+    }
+
+    private async Task DeleteUser()
+    {
+        var result = await DialogService.ShowMessageBox(
+            "Delete User",
+            $"Are you sure you want to delete '{User.UserName}'? This action cannot be undone.",
+            yesText: "Delete", cancelText: "Cancel");
+
+        if (result == true)
+        {
+            var response = await UserService.DeleteUserAsync(User.Id);
+            if (response.Success)
+            {
+                Snackbar.Add(response.Message, Severity.Success);
+                MudDialog.Close(DialogResult.Ok(true));
+            }
+            else
+            {
+                Snackbar.Add(response.Message, Severity.Error);
+            }
+        }
+    }
+
+    private async Task Submit()
+    {
+        if (_loading) return;
+
+        await _form.Validate();
+        if (!_form.IsValid) return;
+
+        _loading = true;
+
+        try
+        {
+            var response = await UserService.UpdateUserAsync(_request);
+            if (response.Success)
+            {
+                Snackbar.Add(response.Message, Severity.Success);
+                MudDialog.Close(DialogResult.Ok(true));
+            }
+            else
+            {
+                Snackbar.Add(response.Message, Severity.Error);
+            }
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private Color GetRoleColor(int level) => level switch
+    {
+        3 => Color.Error,    // Admin
+        2 => Color.Warning,  // Editor
+        1 => Color.Info,     // Viewer
+        _ => Color.Default
+    };
+}

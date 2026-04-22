@@ -1,0 +1,192 @@
+@using MediatR
+@using Beacon.Core.Data.Enums
+@using Beacon.Core.Models.Queries
+@using Beacon.Core.Handlers.QueryVersions
+
+<MudPaper Class="detail-card pa-4 mb-3" Elevation="2">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-4">
+        <MudText Typo="Typo.h6" Class="section-title" Style="border: none; margin: 0; padding: 0;">
+            <MudIcon Icon="@Icons.Material.Filled.History" Class="mr-2" />
+            Version History (@(_versions?.Count ?? 0))
+        </MudText>
+        @if (_selectedForCompare.Count == 2)
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
+                       StartIcon="@Icons.Material.Filled.Compare" OnClick="CompareSelected">
+                Compare Selected
+            </MudButton>
+        }
+    </MudStack>
+
+    @if (_loading)
+    {
+        <MudProgressLinear Color="Color.Primary" Indeterminate="true" />
+    }
+    else if (_versions == null || !_versions.Any())
+    {
+        <MudAlert Severity="Severity.Info" Dense="true">No versions recorded yet. Versions are created automatically when query SQL is modified.</MudAlert>
+    }
+    else
+    {
+        <MudTimeline TimelineOrientation="TimelineOrientation.Vertical" TimelinePosition="TimelinePosition.Start">
+            @foreach (var version in _versions)
+            {
+                <MudTimelineItem Color="@GetStatusColor(version.Status)" Variant="Variant.Filled">
+                    <ItemOpposite>
+                        <MudText Typo="Typo.subtitle2" Color="Color.Primary">v@(version.VersionNumber)</MudText>
+                        <MudText Typo="Typo.caption">@version.CreatedTime.ToString("g")</MudText>
+                    </ItemOpposite>
+                    <ItemContent>
+                        <MudCard Outlined="true" Class="pa-3">
+                            <MudStack Spacing="1">
+                                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                                    <MudText Typo="Typo.subtitle1" Style="font-weight: 600;">@version.Name</MudText>
+                                    <MudChip T="string" Size="Size.Small" Color="@GetStatusColor(version.Status)" Variant="Variant.Filled">
+                                        @version.Status
+                                    </MudChip>
+                                </MudStack>
+                                @if (!string.IsNullOrEmpty(version.ChangeReason))
+                                {
+                                    <MudText Typo="Typo.body2" Color="Color.Secondary">@version.ChangeReason</MudText>
+                                }
+                                <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+                                    @if (!string.IsNullOrEmpty(version.ChangeSource))
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@version.ChangeSource</MudChip>
+                                    }
+                                    <MudText Typo="Typo.caption">@version.StepCount step(s)</MudText>
+                                    @if (!string.IsNullOrEmpty(version.CreatedByUserId))
+                                    {
+                                        <MudText Typo="Typo.caption">by @version.CreatedByUserId</MudText>
+                                    }
+                                </MudStack>
+                                <MudStack Row="true" Spacing="1">
+                                    <MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Visibility"
+                                               OnClick="@(() => ViewVersion(version.Id))">
+                                        View
+                                    </MudButton>
+                                    @if (version.Status == QueryVersionStatus.Archived)
+                                    {
+                                        <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Warning"
+                                                   StartIcon="@Icons.Material.Filled.RestorePage"
+                                                   OnClick="@(() => RestoreVersion(version.Id, version.VersionNumber))">
+                                            Restore
+                                        </MudButton>
+                                    }
+                                    <MudCheckBox T="bool" Size="Size.Small" Dense="true"
+                                                 Value="@_selectedForCompare.Contains(version.Id)"
+                                                 ValueChanged="@((val) => ToggleCompare(version.Id, val))"
+                                                 Label="Compare"
+                                                 Disabled="@(!_selectedForCompare.Contains(version.Id) && _selectedForCompare.Count >= 2)" />
+                                </MudStack>
+                            </MudStack>
+                        </MudCard>
+                    </ItemContent>
+                </MudTimelineItem>
+            }
+        </MudTimeline>
+    }
+</MudPaper>
+
+@inject IMediator Mediator
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+
+@code
+{
+    [Parameter]
+    public int QueryId { get; set; }
+
+    [Parameter]
+    public EventCallback OnVersionRestored { get; set; }
+
+    private List<QueryVersionSummary>? _versions;
+    private bool _loading;
+    private HashSet<int> _selectedForCompare = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadVersions();
+    }
+
+    private async Task LoadVersions()
+    {
+        _loading = true;
+        _versions = await Mediator.Send(new GetQueryVersionsQuery { QueryId = QueryId });
+        _loading = false;
+    }
+
+    private Color GetStatusColor(QueryVersionStatus status) => status switch
+    {
+        QueryVersionStatus.Active => Color.Success,
+        QueryVersionStatus.Archived => Color.Default,
+        QueryVersionStatus.PendingApproval => Color.Warning,
+        QueryVersionStatus.Rejected => Color.Error,
+        _ => Color.Default
+    };
+
+    private async Task ViewVersion(int versionId)
+    {
+        var detail = await Mediator.Send(new GetQueryVersionDetailQuery { VersionId = versionId });
+        if (detail == null) return;
+
+        var parameters = new DialogParameters<QueryVersionDetailDialog>
+        {
+            { x => x.Version, detail }
+        };
+
+        var options = new DialogOptions
+        {
+            MaxWidth = MaxWidth.Large,
+            FullWidth = true,
+            CloseOnEscapeKey = true
+        };
+
+        await DialogService.ShowAsync<QueryVersionDetailDialog>($"Version {detail.VersionNumber}", parameters, options);
+    }
+
+    private async Task RestoreVersion(int versionId, int versionNumber)
+    {
+        var confirmed = await DialogService.ShowMessageBox(
+            "Restore Version",
+            $"Are you sure you want to restore version {versionNumber}? This will overwrite the current query with this version's data.",
+            yesText: "Restore", cancelText: "Cancel");
+
+        if (confirmed != true) return;
+
+        var newVersionNumber = await Mediator.Send(new RestoreQueryVersionCommand { VersionId = versionId });
+        Snackbar.Add($"Restored to version {versionNumber}. New version v{newVersionNumber} created.", Severity.Success);
+        await LoadVersions();
+        await OnVersionRestored.InvokeAsync();
+    }
+
+    private void ToggleCompare(int versionId, bool selected)
+    {
+        if (selected)
+            _selectedForCompare.Add(versionId);
+        else
+            _selectedForCompare.Remove(versionId);
+    }
+
+    private async Task CompareSelected()
+    {
+        var ids = _selectedForCompare.ToList();
+        if (ids.Count != 2) return;
+
+        var diff = await Mediator.Send(new DiffQueryVersionsQuery { VersionIdA = ids[0], VersionIdB = ids[1] });
+
+        var parameters = new DialogParameters<QueryVersionDiffDialog>
+        {
+            { x => x.Diff, diff }
+        };
+
+        var options = new DialogOptions
+        {
+            MaxWidth = MaxWidth.ExtraLarge,
+            FullWidth = true,
+            CloseOnEscapeKey = true
+        };
+
+        await DialogService.ShowAsync<QueryVersionDiffDialog>("Version Comparison", parameters, options);
+    }
+}

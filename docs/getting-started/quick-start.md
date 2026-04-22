@@ -10,13 +10,13 @@ nav_order: 2
 Create your first database alert in under 30 minutes.
 
 {: .note }
-> **Prerequisites**: Semantico must be [installed in your ASP.NET application](installation). You should have the Semantico UI accessible.
+> **Prerequisites**: Beacon must be [installed in your ASP.NET application](installation). You should have the Beacon UI accessible.
 
 ## Overview
 
 In this guide, you'll:
 
-1. Access the Semantico UI
+1. Access the Beacon UI
 2. Create a project (database connection)
 3. Define a simple query
 4. Test query execution
@@ -26,20 +26,20 @@ In this guide, you'll:
 
 **Estimated time**: 30 minutes
 
-## Step 1: Access Semantico UI
+## Step 1: Access Beacon UI
 
 1. Start your ASP.NET application:
    ```bash
    dotnet run
    ```
 
-2. Open your browser to the Semantico UI path (default: `http://localhost:5000/semantico`)
+2. Open your browser to the Beacon UI path (default: `http://localhost:5000/beacon`)
 
 3. Enter basic authentication credentials (from your `Program.cs`):
    - Username: `admin` (or your configured username)
    - Password: `admin` (or your configured password)
 
-4. You'll see the Semantico dashboard with statistics and navigation
+4. You'll see the Beacon dashboard with statistics and navigation
 
 ## Step 2: Create a Project
 
@@ -250,7 +250,7 @@ Test your complete workflow:
 
 Check that you received the notification:
 
-- **Email**: Check your inbox for notification from Semantico
+- **Email**: Check your inbox for notification from Beacon
 - **Teams**: Check your Teams channel for the alert card
 - **Jira**: Check your Jira project for the new issue
 
@@ -275,7 +275,7 @@ The notification will include:
 
 ## Next Steps
 
-🎉 **Congratulations!** You've created your first Semantico alert.
+🎉 **Congratulations!** You've created your first Beacon alert.
 
 ### Explore More Features
 
@@ -359,7 +359,7 @@ Run queries across multiple databases
 ### UI Not Accessible
 
 - Verify application is running
-- Check UI path configuration in `AddBlazorUI("/semantico")`
+- Check UI path configuration in `AddBlazorUI("/beacon")`
 - Verify basic authentication credentials
 - Check browser console for errors
 
@@ -368,7 +368,7 @@ Run queries across multiple databases
 <div class="code-example" markdown="1">
 📖 **[Feature Documentation →](../features/)**
 
-Detailed guides for all Semantico features
+Detailed guides for all Beacon features
 </div>
 
 <div class="code-example" markdown="1">
@@ -378,7 +378,7 @@ Solutions for common problems
 </div>
 
 <div class="code-example" markdown="1">
-💬 **[GitHub Discussions](https://github.com/MiBu/semantico/discussions)**
+💬 **[GitHub Discussions](https://github.com/moberghr/beacon/discussions)**
 
 Ask questions and share ideas
 </div>

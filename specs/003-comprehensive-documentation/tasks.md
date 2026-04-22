@@ -1,6 +1,6 @@
 # Tasks: Comprehensive Documentation System
 
-**Input**: Design documents from `/Users/mirkobudimir/Dev/semantico/specs/003-comprehensive-documentation/`
+**Input**: Design documents from `/Users/mirkobudimir/Dev/beacon/specs/003-comprehensive-documentation/`
 **Prerequisites**: plan.md (required), spec.md (required for user stories), research.md, data-model.md, quickstart.md
 
 **Tests**: No tests required for this documentation feature.
@@ -16,7 +16,7 @@
 ## Path Conventions
 
 - Documentation files: `docs/` folder at repository root
-- Repository root: `/Users/mirkobudimir/Dev/semantico/`
+- Repository root: `/Users/mirkobudimir/Dev/beacon/`
 - All paths shown below are relative to repository root
 
 ---
@@ -46,9 +46,9 @@
 
 ## Phase 3: User Story 1 - Developer Quick Start (Priority: P1) 🎯 MVP
 
-**Goal**: Enable new users to deploy Semantico and create their first notification in under 30 minutes
+**Goal**: Enable new users to deploy Beacon and create their first notification in under 30 minutes
 
-**Independent Test**: Have a new developer (unfamiliar with Semantico) follow the documentation from scratch and successfully create their first working query with email notification within 30 minutes, without external help.
+**Independent Test**: Have a new developer (unfamiliar with Beacon) follow the documentation from scratch and successfully create their first working query with email notification within 30 minutes, without external help.
 
 ### Implementation for User Story 1
 
@@ -70,7 +70,7 @@
 
 **Goal**: Convert visitors to users through compelling value proposition and clear next steps
 
-**Independent Test**: Have someone in a target role (DevOps engineer, DBA, operations manager) visit the marketing site and, within 5 minutes, decide whether they want to try Semantico and understand the next steps.
+**Independent Test**: Have someone in a target role (DevOps engineer, DBA, operations manager) visit the marketing site and, within 5 minutes, decide whether they want to try Beacon and understand the next steps.
 
 ### Implementation for User Story 3
 
@@ -85,13 +85,13 @@
 
 ## Phase 5: User Story 2 - End User Feature Discovery (Priority: P2)
 
-**Goal**: Help users discover all capabilities to evaluate if Semantico can replace their current alerting system
+**Goal**: Help users discover all capabilities to evaluate if Beacon can replace their current alerting system
 
 **Independent Test**: Have a potential customer read the feature documentation and accurately list all major capabilities, use cases, and configuration options without watching demos or asking questions.
 
 ### Implementation for User Story 2
 
-- [ ] T020 [P] [US2] Create docs/features/index.md with features section overview and comparison of Semantico vs manual SQL monitoring
+- [ ] T020 [P] [US2] Create docs/features/index.md with features section overview and comparison of Beacon vs manual SQL monitoring
 - [ ] T021 [P] [US2] Create docs/features/multi-step-queries.md with advanced multi-step query guide including result aggregation using @result1, @result2 references
 - [ ] T022 [P] [US2] Create docs/features/recipients.md with recipient management guide for email, Teams, and Jira notification targets
 - [ ] T023 [P] [US2] Create docs/features/parameters.md with dynamic query parameter guide including placeholder syntax and substitution examples
@@ -99,7 +99,7 @@
 - [ ] T025 [P] [US2] Create docs/api/index.md with API section overview
 - [ ] T026 [US2] Create docs/api/services.md with service interface reference documenting IProjectService, IQueryService, ISubscriptionService, INotificationService, IMigrationService with request/response examples
 
-**Checkpoint**: At this point, User Story 2 should be fully functional - users can discover all features and evaluate Semantico comprehensively
+**Checkpoint**: At this point, User Story 2 should be fully functional - users can discover all features and evaluate Beacon comprehensively
 
 ---
 
@@ -134,7 +134,7 @@
 
 ### Screenshots
 
-- [ ] T039 [P] Capture screenshot of Semantico dashboard (Home.razor) and save to docs/assets/images/screenshots/dashboard.png with descriptive alt text
+- [ ] T039 [P] Capture screenshot of Beacon dashboard (Home.razor) and save to docs/assets/images/screenshots/dashboard.png with descriptive alt text
 - [ ] T040 [P] Capture screenshot of project creation dialog and save to docs/assets/images/screenshots/project-create.png
 - [ ] T041 [P] Capture screenshot of query builder interface and save to docs/assets/images/screenshots/query-builder.png
 - [ ] T042 [P] Capture screenshot of multi-step query configuration and save to docs/assets/images/screenshots/multi-step-query.png

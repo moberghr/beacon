@@ -1,0 +1,697 @@
+@using Beacon.Core.Data.Enums
+@using Beacon.Core.Models.DataSources
+@using Beacon.Core.Models.Providers.CloudWatch
+@using Beacon.Core.Services
+@using Beacon.Core.Services.Providers
+@using System.Text.Json
+<MudDialog Class="pb-2">
+    <TitleContent>
+        <MudText Typo="Typo.h6">
+            <MudIcon Icon="@Icons.Material.Filled.Add" Class="mr-1 mb-n1" />
+            Add data source
+        </MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudForm @ref="@_form" Class="pt-1" @bind-Errors="@errors" @bind-IsValid="_isFormValid">
+            <MudSelect T="DataSourceType" Label="Data Source Type" @bind-Value="_selectedDataSourceType" Required="true" Class="mb-4">
+                @if (_registeredEngines.Any())
+                {
+                    <MudSelectItem Value="DataSourceType.Database">Database (@string.Join(", ", _registeredEngines.Values))</MudSelectItem>
+                }
+                @foreach (var dsType in _registeredDataSourceTypes)
+                {
+                    <MudSelectItem Value="@dsType.Key">@dsType.Value</MudSelectItem>
+                }
+            </MudSelect>
+
+            @if (_selectedDataSourceType == DataSourceType.Database)
+            {
+                <MudSelect T="DatabaseEngineType" Label="Database Engine Type" @bind-Value="@_selectedDatabaseEngine" Required="true" Class="mb-4">
+                    @foreach (var engine in _registeredEngines)
+                    {
+                        <MudSelectItem Value="@engine.Key">@engine.Value</MudSelectItem>
+                    }
+                </MudSelect>
+
+                <MudTextField
+                    OnlyValidateIfDirty="true"
+                    Immediate="true"
+                    Margin="Margin.Dense"
+                    Variant="Variant.Outlined"
+                    Class="mb-2"
+                    @bind-Value="@DataSource.ConnectionString"
+                    T="string"
+                    Label="Connection string"
+                    Required="true"
+                    InputType="InputType.Password"
+                    Adornment="Adornment.End"
+                    AdornmentIcon="@Icons.Material.Filled.Lock"
+                />
+            }
+            else if (_selectedDataSourceType == DataSourceType.CloudWatch)
+            {
+                <MudTextField
+                    Margin="Margin.Dense"
+                    Variant="Variant.Outlined"
+                    Class="mb-2"
+                    @bind-Value="@_cloudWatchRegion"
+                    T="string"
+                    Label="AWS Region"
+                    Required="true"
+                    HelperText="e.g., us-east-1, eu-west-1"
+                />
+
+                <MudTextField
+                    Margin="Margin.Dense"
+                    Variant="Variant.Outlined"
+                    Class="mb-2"
+                    @bind-Value="@_cloudWatchAccessKeyId"
+                    T="string"
+                    Label="AWS Access Key ID (optional)"
+                    HelperText="Leave empty to use IAM role or AWS profile"
+                />
+
+                <MudTextField
+                    Margin="Margin.Dense"
+                    Variant="Variant.Outlined"
+                    Class="mb-2"
+                    @bind-Value="@_cloudWatchSecretAccessKey"
+                    T="string"
+                    Label="AWS Secret Access Key (optional)"
+                    InputType="InputType.Password"
+                    Adornment="Adornment.End"
+                    AdornmentIcon="@Icons.Material.Filled.Lock"
+                />
+
+                <MudTextField
+                    Margin="Margin.Dense"
+                    Variant="Variant.Outlined"
+                    Class="mb-2"
+                    @bind-Value="@_cloudWatchLogGroups"
+                    T="string"
+                    Label="Log Groups (comma-separated)"
+                    Required="true"
+                    HelperText="e.g., /aws/lambda/function1, /aws/lambda/function2"
+                    Lines="2"
+                />
+
+                <MudTextField
+                    Margin="Margin.Dense"
+                    Variant="Variant.Outlined"
+                    Class="mb-2"
+                    @bind-Value="@_cloudWatchProfileName"
+                    T="string"
+                    Label="AWS Profile Name (optional)"
+                    HelperText="Use profile from ~/.aws/credentials"
+                />
+            }
+            else if (_selectedDataSourceType == DataSourceType.Databricks)
+            {
+                <MudTextField
+                    Margin="Margin.Dense"
+                    Variant="Variant.Outlined"
+                    Class="mb-2"
+                    @bind-Value="@_databricksHost"
+                    T="string"
+                    Label="Host"
+                    Required="true"
+                    HelperText="e.g., adb-1234567890123456.7.azuredatabricks.net"
+                />
+
+                <MudTextField
+                    Margin="Margin.Dense"
+                    Variant="Variant.Outlined"
+                    Class="mb-2"
+                    @bind-Value="@_databricksHttpPath"
+                    T="string"
+                    Label="HTTP Path"
+                    Required="true"
+                    HelperText="e.g., /sql/1.0/warehouses/abc123def456"
+                />
+
+                <MudTextField
+                    Margin="Margin.Dense"
+                    Variant="Variant.Outlined"
+                    Class="mb-2"
+                    @bind-Value="@_databricksToken"
+                    T="string"
+                    Label="Personal Access Token"
+                    Required="true"
+                    InputType="InputType.Password"
+                    Adornment="Adornment.End"
+                    AdornmentIcon="@Icons.Material.Filled.Lock"
+                />
+
+                <MudTextField
+                    Margin="Margin.Dense"
+                    Variant="Variant.Outlined"
+                    Class="mb-2"
+                    @bind-Value="@_databricksCatalog"
+                    T="string"
+                    Label="Catalog (optional)"
+                    HelperText="Unity Catalog name"
+                />
+
+                <MudTextField
+                    Margin="Margin.Dense"
+                    Variant="Variant.Outlined"
+                    Class="mb-2"
+                    @bind-Value="@_databricksSchema"
+                    T="string"
+                    Label="Schema (optional)"
+                    HelperText="Default schema"
+                />
+            }
+            else if (_selectedDataSourceType == DataSourceType.BigQuery)
+            {
+                <MudTextField
+                    Margin="Margin.Dense"
+                    Variant="Variant.Outlined"
+                    Class="mb-2"
+                    @bind-Value="@_bigQueryProjectId"
+                    T="string"
+                    Label="Project ID"
+                    Required="true"
+                    HelperText="Google Cloud project ID"
+                />
+
+                <MudTextField
+                    Margin="Margin.Dense"
+                    Variant="Variant.Outlined"
+                    Class="mb-2"
+                    @bind-Value="@_bigQueryDatasetId"
+                    T="string"
+                    Label="Dataset ID (optional)"
+                    HelperText="Default dataset for queries"
+                />
+
+                <MudTextField
+                    Margin="Margin.Dense"
+                    Variant="Variant.Outlined"
+                    Class="mb-2"
+                    @bind-Value="@_bigQueryLocation"
+                    T="string"
+                    Label="Location (optional)"
+                    HelperText="e.g., US, EU, us-central1"
+                />
+
+                <MudTextField
+                    Margin="Margin.Dense"
+                    Variant="Variant.Outlined"
+                    Class="mb-2"
+                    @bind-Value="@_bigQueryServiceAccountJson"
+                    T="string"
+                    Label="Service Account JSON Key"
+                    Required="true"
+                    Lines="4"
+                    InputType="InputType.Password"
+                    Adornment="Adornment.End"
+                    AdornmentIcon="@Icons.Material.Filled.Lock"
+                    HelperText="Paste the full JSON key file content"
+                />
+            }
+            else if (_selectedDataSourceType == DataSourceType.Api)
+            {
+                <MudTextField
+                    Margin="Margin.Dense"
+                    Variant="Variant.Outlined"
+                    Class="mb-2"
+                    @bind-Value="@_apiBaseUrl"
+                    T="string"
+                    Label="Base URL"
+                    Required="true"
+                    HelperText="e.g., https://api.example.com"
+                />
+
+                <MudTextField
+                    Margin="Margin.Dense"
+                    Variant="Variant.Outlined"
+                    Class="mb-2"
+                    @bind-Value="@_apiSpecUrl"
+                    T="string"
+                    Label="OpenAPI Spec URL"
+                    Required="true"
+                    HelperText="e.g., https://api.example.com/swagger/v1/swagger.json"
+                />
+
+                <MudSelect T="string" Label="Authentication" @bind-Value="_apiAuthType" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-2">
+                    <MudSelectItem Value="@("none")">None</MudSelectItem>
+                    <MudSelectItem Value="@("apiKey")">API Key</MudSelectItem>
+                    <MudSelectItem Value="@("bearer")">Bearer Token</MudSelectItem>
+                    <MudSelectItem Value="@("basic")">Basic Auth</MudSelectItem>
+                </MudSelect>
+
+                @if (_apiAuthType == "apiKey")
+                {
+                    <MudTextField
+                        Margin="Margin.Dense"
+                        Variant="Variant.Outlined"
+                        Class="mb-2"
+                        @bind-Value="@_apiKeyName"
+                        T="string"
+                        Label="Header / Parameter Name"
+                        Required="true"
+                        HelperText="e.g., X-Api-Key"
+                    />
+                    <MudTextField
+                        Margin="Margin.Dense"
+                        Variant="Variant.Outlined"
+                        Class="mb-2"
+                        @bind-Value="@_apiKeyValue"
+                        T="string"
+                        Label="API Key Value"
+                        Required="true"
+                        InputType="InputType.Password"
+                        Adornment="Adornment.End"
+                        AdornmentIcon="@Icons.Material.Filled.Lock"
+                    />
+                    <MudSelect T="string" Label="Key Location" @bind-Value="_apiKeyLocation" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-2">
+                        <MudSelectItem Value="@("header")">Header</MudSelectItem>
+                        <MudSelectItem Value="@("query")">Query Parameter</MudSelectItem>
+                    </MudSelect>
+                }
+                else if (_apiAuthType == "bearer")
+                {
+                    <MudTextField
+                        Margin="Margin.Dense"
+                        Variant="Variant.Outlined"
+                        Class="mb-2"
+                        @bind-Value="@_apiBearerToken"
+                        T="string"
+                        Label="Bearer Token"
+                        Required="true"
+                        InputType="InputType.Password"
+                        Adornment="Adornment.End"
+                        AdornmentIcon="@Icons.Material.Filled.Lock"
+                    />
+                }
+                else if (_apiAuthType == "basic")
+                {
+                    <MudTextField
+                        Margin="Margin.Dense"
+                        Variant="Variant.Outlined"
+                        Class="mb-2"
+                        @bind-Value="@_apiBasicUsername"
+                        T="string"
+                        Label="Username"
+                        Required="true"
+                    />
+                    <MudTextField
+                        Margin="Margin.Dense"
+                        Variant="Variant.Outlined"
+                        Class="mb-2"
+                        @bind-Value="@_apiBasicPassword"
+                        T="string"
+                        Label="Password"
+                        Required="true"
+                        InputType="InputType.Password"
+                        Adornment="Adornment.End"
+                        AdornmentIcon="@Icons.Material.Filled.Lock"
+                    />
+                }
+
+                <MudExpansionPanels Class="mb-4" Elevation="0">
+                    <MudExpansionPanel Text="Endpoint Filter (optional)" IsInitiallyExpanded="false">
+                        <MudGrid Spacing="2">
+                            <MudItem xs="12" sm="6">
+                                <MudTextField @bind-Value="_apiIncludePatterns"
+                                              Label="Include Path Patterns"
+                                              HelperText="Comma-separated (e.g., /api/v2/**)"
+                                              Variant="Variant.Outlined"
+                                              Margin="Margin.Dense" />
+                            </MudItem>
+                            <MudItem xs="12" sm="6">
+                                <MudTextField @bind-Value="_apiExcludePatterns"
+                                              Label="Exclude Path Patterns"
+                                              HelperText="Comma-separated (e.g., /api/internal/**)"
+                                              Variant="Variant.Outlined"
+                                              Margin="Margin.Dense" />
+                            </MudItem>
+                        </MudGrid>
+                    </MudExpansionPanel>
+                </MudExpansionPanels>
+            }
+
+            @if (_selectedDataSourceType == DataSourceType.Database)
+            {
+                <MudExpansionPanels Class="mb-4" Elevation="0">
+                    <MudExpansionPanel Text="Metadata Loading Options" IsInitiallyExpanded="false">
+                        <MudGrid Spacing="2">
+                            <MudItem xs="12">
+                                <MudSwitch @bind-Value="DataSource.MetadataLoadingEnabled"
+                                           Label="Enable Metadata Loading"
+                                           Color="Color.Primary" />
+                            </MudItem>
+                            <MudItem xs="12" sm="6">
+                                <MudNumericField @bind-Value="DataSource.MetadataMaxTables"
+                                                 Label="Max Tables"
+                                                 HelperText="0 = unlimited"
+                                                 Variant="Variant.Outlined"
+                                                 Margin="Margin.Dense"
+                                                 Min="0" />
+                            </MudItem>
+                            <MudItem xs="12" sm="6">
+                                <MudNumericField @bind-Value="DataSource.MetadataMaxColumnsPerTable"
+                                                 Label="Max Columns Per Table"
+                                                 HelperText="0 = unlimited"
+                                                 Variant="Variant.Outlined"
+                                                 Margin="Margin.Dense"
+                                                 Min="0" />
+                            </MudItem>
+                            <MudItem xs="12">
+                                <MudSwitch @bind-Value="DataSource.MetadataLoadTableNamesOnly"
+                                           Label="Load Table Names Only"
+                                           Color="Color.Primary" />
+                            </MudItem>
+                            <MudItem xs="12" sm="6">
+                                <MudTextField @bind-Value="_metadataExcludeSchemas"
+                                              Label="Exclude Schemas"
+                                              HelperText="Comma-separated (e.g., information_schema, pg_catalog)"
+                                              Variant="Variant.Outlined"
+                                              Margin="Margin.Dense" />
+                            </MudItem>
+                            <MudItem xs="12" sm="6">
+                                <MudTextField @bind-Value="_metadataIncludeSchemas"
+                                              Label="Include Schemas"
+                                              HelperText="Comma-separated. If set, only these schemas are loaded."
+                                              Variant="Variant.Outlined"
+                                              Margin="Margin.Dense" />
+                            </MudItem>
+                        </MudGrid>
+                    </MudExpansionPanel>
+                </MudExpansionPanels>
+            }
+
+            <div class="d-flex align-center mb-4">
+                <MudButton
+                    Variant="Variant.Outlined"
+                    Color="Color.Primary"
+                    OnClick="TestConnection"
+                    Disabled="@(_testingConnection || !CanTestConnection())"
+                    StartIcon="@(_testingConnection ? null : Icons.Material.Filled.Cable)"
+                    Class="mr-2">
+                    @if (_testingConnection)
+                    {
+                        <MudProgressCircular Class="mr-2" Size="Size.Small" Indeterminate="true"/>
+                    }
+                    <span>@(_testingConnection ? "Testing..." : "Test Connection")</span>
+                </MudButton>
+
+                @if (_connectionTested)
+                {
+                    <MudChip T="string"
+                             Color="@(_connectionSuccess ? Color.Success : Color.Error)"
+                             Icon="@(_connectionSuccess ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.Error)"
+                             Size="Size.Small">
+                        @(_connectionSuccess ? "Connected" : "Failed")
+                    </MudChip>
+                }
+            </div>
+
+            @if (_connectionTested && !_connectionSuccess && !string.IsNullOrWhiteSpace(_connectionErrorMessage))
+            {
+                <MudAlert Severity="Severity.Error" Class="mb-4">@_connectionErrorMessage</MudAlert>
+            }
+
+            <MudTextField
+                OnlyValidateIfDirty="true"
+                Margin="Margin.Normal"
+                Variant="Variant.Text"
+                Class="mb-2"
+                @bind-Value="@DataSource.Name"
+                T="String"
+                Label="Name"
+                Required="true"
+            />
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton
+            Class="ml-4"
+            OnClick="@Cancel"
+            Variant="Variant.Filled"
+        >
+            Cancel
+        </MudButton>
+
+        <DialogSaveButton Disabled="!_isFormValid" OnClick="@Submit"/>
+    </DialogActions>
+</MudDialog>
+
+@inject ISnackbar Snackbar
+@inject IDataSourceService Service
+
+@code
+{
+    [CascadingParameter]
+    IMudDialogInstance MudDialog { get; set; }
+
+    [Parameter]
+    public DataSourceData DataSource { get; set; }
+
+    private MudForm _form;
+    private bool _loading;
+    private bool _testingConnection;
+    private bool _connectionTested;
+    private bool _connectionSuccess;
+    private string _connectionErrorMessage = string.Empty;
+    bool _isFormValid = false;
+    string[] errors = { };
+
+    // Registered connectors (populated from ConnectorRegistry)
+    private IReadOnlyDictionary<DatabaseEngineType, string> _registeredEngines = ConnectorRegistry.GetRegisteredDatabaseEngines();
+    private IReadOnlyDictionary<DataSourceType, string> _registeredDataSourceTypes = ConnectorRegistry.GetRegisteredDataSourceTypes();
+
+    // Data source type selection
+    private DataSourceType _selectedDataSourceType = DataSourceType.Database;
+    private DatabaseEngineType _selectedDatabaseEngine = ConnectorRegistry.GetRegisteredDatabaseEngines().Keys.FirstOrDefault();
+
+    // CloudWatch fields
+    private string _cloudWatchRegion = "";
+    private string _cloudWatchAccessKeyId = "";
+    private string _cloudWatchSecretAccessKey = "";
+    private string _cloudWatchLogGroups = "";
+    private string _cloudWatchProfileName = "";
+
+    // Databricks fields
+    private string _databricksHost = "";
+    private string _databricksHttpPath = "";
+    private string _databricksToken = "";
+    private string _databricksCatalog = "";
+    private string _databricksSchema = "";
+
+    // BigQuery fields
+    private string _bigQueryProjectId = "";
+    private string _bigQueryDatasetId = "";
+    private string _bigQueryLocation = "";
+    private string _bigQueryServiceAccountJson = "";
+
+    // API fields
+    private string _apiBaseUrl = "";
+    private string _apiSpecUrl = "";
+    private string _apiAuthType = "none";
+    private string _apiKeyName = "";
+    private string _apiKeyValue = "";
+    private string _apiKeyLocation = "header";
+    private string _apiBearerToken = "";
+    private string _apiBasicUsername = "";
+    private string _apiBasicPassword = "";
+    private string _apiIncludePatterns = "";
+    private string _apiExcludePatterns = "";
+
+    // Metadata loading fields
+    private string _metadataExcludeSchemas = "";
+    private string _metadataIncludeSchemas = "";
+
+    bool CanTestConnection()
+    {
+        return _selectedDataSourceType switch
+        {
+            DataSourceType.Database => !string.IsNullOrWhiteSpace(DataSource.ConnectionString),
+            DataSourceType.CloudWatch => !string.IsNullOrWhiteSpace(_cloudWatchRegion) && !string.IsNullOrWhiteSpace(_cloudWatchLogGroups),
+            DataSourceType.Databricks => !string.IsNullOrWhiteSpace(_databricksHost) && !string.IsNullOrWhiteSpace(_databricksHttpPath) && !string.IsNullOrWhiteSpace(_databricksToken),
+            DataSourceType.BigQuery => !string.IsNullOrWhiteSpace(_bigQueryProjectId) && !string.IsNullOrWhiteSpace(_bigQueryServiceAccountJson),
+            DataSourceType.Api => !string.IsNullOrWhiteSpace(_apiBaseUrl) && !string.IsNullOrWhiteSpace(_apiSpecUrl),
+            _ => false
+        };
+    }
+
+    async Task TestConnection()
+    {
+        if (_testingConnection || !CanTestConnection())
+        {
+            return;
+        }
+
+        _testingConnection = true;
+        _connectionTested = false;
+        _connectionErrorMessage = string.Empty;
+
+        try
+        {
+            // Build a temporary DataSourceData with the current form values for testing
+            var testData = BuildDataSourceData();
+            var response = await Service.TestConnectionAsync(testData, CancellationToken.None);
+
+            _connectionTested = true;
+            _connectionSuccess = response.Success;
+
+            if (response.Success)
+            {
+                Snackbar.Add(response.Message, Severity.Success);
+            }
+            else
+            {
+                _connectionErrorMessage = response.Message;
+                Snackbar.Add(response.Message, Severity.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            _connectionTested = true;
+            _connectionSuccess = false;
+            _connectionErrorMessage = ex.Message;
+            Snackbar.Add($"Test failed: {ex.Message}", Severity.Error);
+        }
+
+        _testingConnection = false;
+    }
+
+    private DataSourceData BuildDataSourceData()
+    {
+        var data = new DataSourceData
+        {
+            DataSourceType = _selectedDataSourceType,
+            Name = DataSource.Name ?? "test"
+        };
+
+        switch (_selectedDataSourceType)
+        {
+            case DataSourceType.Database:
+                data.DatabaseEngineType = _selectedDatabaseEngine;
+                data.ConnectionString = DataSource.ConnectionString;
+                break;
+
+            case DataSourceType.CloudWatch:
+                data.ConnectionString = JsonSerializer.Serialize(new CloudWatchConfiguration
+                {
+                    Region = _cloudWatchRegion,
+                    AccessKeyId = NullIfEmpty(_cloudWatchAccessKeyId),
+                    SecretAccessKey = NullIfEmpty(_cloudWatchSecretAccessKey),
+                    LogGroups = _cloudWatchLogGroups.Split(',').Select(lg => lg.Trim()).Where(lg => !string.IsNullOrEmpty(lg)).ToList(),
+                    ProfileName = NullIfEmpty(_cloudWatchProfileName),
+                    QueryTimeoutSeconds = 300
+                });
+                break;
+
+            case DataSourceType.Databricks:
+                // Config class is in Beacon.Connector.Databricks (not referenced by UI)
+                data.ConnectionString = JsonSerializer.Serialize(new
+                {
+                    Host = _databricksHost,
+                    HttpPath = _databricksHttpPath,
+                    Token = _databricksToken,
+                    Catalog = NullIfEmpty(_databricksCatalog),
+                    Schema = NullIfEmpty(_databricksSchema),
+                    QueryTimeoutSeconds = 300
+                });
+                break;
+
+            case DataSourceType.BigQuery:
+                // Config class is in Beacon.Connector.BigQuery (not referenced by UI)
+                data.ConnectionString = JsonSerializer.Serialize(new
+                {
+                    ProjectId = _bigQueryProjectId,
+                    DatasetId = NullIfEmpty(_bigQueryDatasetId),
+                    Location = NullIfEmpty(_bigQueryLocation),
+                    ServiceAccountJson = _bigQueryServiceAccountJson,
+                    QueryTimeoutSeconds = 300
+                });
+                break;
+
+            case DataSourceType.Api:
+                var auth = _apiAuthType switch
+                {
+                    "apiKey" => new { Type = "ApiKey", ApiKeyName = _apiKeyName, ApiKeyValue = _apiKeyValue, ApiKeyLocation = _apiKeyLocation, Token = (string?)null, Username = (string?)null, Password = (string?)null },
+                    "bearer" => new { Type = "Bearer", ApiKeyName = (string?)null, ApiKeyValue = (string?)null, ApiKeyLocation = (string?)null, Token = _apiBearerToken, Username = (string?)null, Password = (string?)null },
+                    "basic" => new { Type = "Basic", ApiKeyName = (string?)null, ApiKeyValue = (string?)null, ApiKeyLocation = (string?)null, Token = (string?)null, Username = _apiBasicUsername, Password = _apiBasicPassword },
+                    _ => (object?)null
+                };
+                var includePatterns = ParseSchemaList(_apiIncludePatterns);
+                var excludePatterns = ParseSchemaList(_apiExcludePatterns);
+                data.ConnectionString = JsonSerializer.Serialize(new
+                {
+                    BaseUrl = _apiBaseUrl,
+                    OpenApiSpecUrl = _apiSpecUrl,
+                    Auth = auth,
+                    EndpointFilter = (includePatterns.Count > 0 || excludePatterns.Count > 0)
+                        ? new { IncludePathPatterns = includePatterns, ExcludePathPatterns = excludePatterns }
+                        : null,
+                    TimeoutSeconds = 30
+                });
+                break;
+        }
+
+        return data;
+    }
+
+    async Task Submit()
+    {
+        if (_loading)
+        {
+            return;
+        }
+
+        await _form.Validate();
+
+        if (!_form.IsValid)
+        {
+            return;
+        }
+
+        // Prepare data source based on type (reuse BuildDataSourceData for connection string serialization)
+        var built = BuildDataSourceData();
+        DataSource.DataSourceType = built.DataSourceType;
+        DataSource.ConnectionString = built.ConnectionString ?? DataSource.ConnectionString;
+        DataSource.DatabaseEngineType = built.DatabaseEngineType;
+
+        if (_selectedDataSourceType == DataSourceType.Database)
+        {
+            DataSource.MetadataExcludeSchemas = ParseSchemaList(_metadataExcludeSchemas);
+            DataSource.MetadataIncludeSchemas = ParseSchemaList(_metadataIncludeSchemas);
+        }
+
+        _loading = true;
+
+        try
+        {
+            var response = await Service.CreateDataSource(DataSource, CancellationToken.None);
+
+            if (response.Success)
+            {
+                MudDialog.Close(DialogResult.Ok(true));
+                Snackbar.Add(response.Message, Severity.Success);
+            }
+            else
+            {
+                Snackbar.Add(response.Message, Severity.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error: {ex.Message}", Severity.Error);
+        }
+
+        _loading = false;
+    }
+
+    void Cancel() => MudDialog.Cancel();
+
+    static string? NullIfEmpty(string? value) => string.IsNullOrWhiteSpace(value) ? null : value;
+
+    static List<string> ParseSchemaList(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return new();
+        return text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+    }
+}

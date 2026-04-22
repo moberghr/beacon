@@ -1,20 +1,20 @@
 # Schema-Agnostic Migrations Guide
 
 ## Overview
-The Semantico architecture supports runtime schema selection. This means migrations are generated once and can be deployed to any schema name at runtime.
+The Beacon architecture supports runtime schema selection. This means migrations are generated once and can be deployed to any schema name at runtime.
 
 ## How It Works
 
 ### 1. Schema is Applied at Runtime
 ```csharp
 // In your consuming application (Program.cs)
-builder.Services.AddSemantico(builder.Configuration, options =>
+builder.Services.AddBeacon(builder.Configuration, options =>
 {
     options.UsePostgreSql(connectionString, "your_custom_schema");
     // OR
     // options.UseSqlServer(connectionString, "your_custom_schema");
 
-    options.AddSemanticoScheduler<YourScheduler>();
+    options.AddBeaconScheduler<YourScheduler>();
 });
 ```
 
@@ -38,8 +38,8 @@ options.UseNpgsql(connectionString,
 ## Generating Schema-Agnostic Migrations
 
 ### Important: Migrations are Provider-Specific
-- **PostgreSQL migrations** go in: `Semantico.Core.PostgreSql`
-- **SQL Server migrations** go in: `Semantico.Core.SqlServer`
+- **PostgreSQL migrations** go in: `Beacon.Core.PostgreSql`
+- **SQL Server migrations** go in: `Beacon.Core.SqlServer`
 
 Each provider has different SQL syntax, so they need separate migrations.
 
@@ -48,10 +48,10 @@ Each provider has different SQL syntax, so they need separate migrations.
 1. **Temporarily set the default schema in Program.cs** (for migration generation):
    ```csharp
    // Use default schema for generating migrations
-   builder.Services.AddSemantico(builder.Configuration, options =>
+   builder.Services.AddBeacon(builder.Configuration, options =>
    {
-       options.UsePostgreSql(connectionString); // Uses "semantico" by default
-       options.AddSemanticoScheduler<YourScheduler>();
+       options.UsePostgreSql(connectionString); // Uses "beacon" by default
+       options.AddBeaconScheduler<YourScheduler>();
    });
    ```
 
@@ -59,21 +59,21 @@ Each provider has different SQL syntax, so they need separate migrations.
    ```bash
    # For PostgreSQL
    dotnet ef migrations add YourMigrationName \
-     --project Semantico.Core.PostgreSql \
-     --startup-project Semantico.SampleProject
+     --project Beacon.Core.PostgreSql \
+     --startup-project Beacon.SampleProject
 
    # For SQL Server
    dotnet ef migrations add YourMigrationName \
-     --project Semantico.Core.SqlServer \
-     --startup-project Semantico.SampleProject
+     --project Beacon.Core.SqlServer \
+     --startup-project Beacon.SampleProject
    ```
 
 3. **Restore your custom schema** (if you were testing with one):
    ```csharp
-   builder.Services.AddSemantico(builder.Configuration, options =>
+   builder.Services.AddBeacon(builder.Configuration, options =>
    {
        options.UsePostgreSql(connectionString, "test");
-       options.AddSemanticoScheduler<YourScheduler>();
+       options.AddBeaconScheduler<YourScheduler>();
    });
    ```
 
@@ -85,10 +85,10 @@ public void ConfigureServices(IServiceCollection services, IConfiguration config
 {
     var tenantSchema = GetTenantSchema(); // e.g., "tenant1", "tenant2", etc.
 
-    services.AddSemantico(configuration, options =>
+    services.AddBeacon(configuration, options =>
     {
         options.UsePostgreSql(configuration.GetConnectionString("Database")!, tenantSchema);
-        options.AddSemanticoScheduler<YourScheduler>();
+        options.AddBeaconScheduler<YourScheduler>();
     });
 }
 ```
@@ -97,32 +97,32 @@ public void ConfigureServices(IServiceCollection services, IConfiguration config
 ```csharp
 // appsettings.Development.json
 {
-  "Semantico": {
-    "Schema": "dev_semantico"
+  "Beacon": {
+    "Schema": "dev_beacon"
   }
 }
 
 // appsettings.Production.json
 {
-  "Semantico": {
-    "Schema": "prod_semantico"
+  "Beacon": {
+    "Schema": "prod_beacon"
   }
 }
 
 // Program.cs
-var schema = builder.Configuration["Semantico:Schema"] ?? "semantico";
-builder.Services.AddSemantico(builder.Configuration, options =>
+var schema = builder.Configuration["Beacon:Schema"] ?? "beacon";
+builder.Services.AddBeacon(builder.Configuration, options =>
 {
     options.UsePostgreSql(connectionString, schema);
-    options.AddSemanticoScheduler<YourScheduler>();
+    options.AddBeaconScheduler<YourScheduler>();
 });
 ```
 
 ## Automatic Schema Creation
-The `UseSemantico()` method automatically creates the schema if it doesn't exist:
+The `UseBeacon()` method automatically creates the schema if it doesn't exist:
 ```csharp
 // In ServiceConfiguration.cs
-public static void UseSemantico(IServiceProvider serviceProvider)
+public static void UseBeacon(IServiceProvider serviceProvider)
 {
     // ...
     if (!string.IsNullOrEmpty(schema) && schema != "public")
@@ -146,24 +146,24 @@ public static void UseSemantico(IServiceProvider serviceProvider)
 ### Test with different schemas:
 ```csharp
 // Test 1: Default schema
-builder.Services.AddSemantico(builder.Configuration, options =>
+builder.Services.AddBeacon(builder.Configuration, options =>
 {
-    options.UsePostgreSql(connectionString); // Uses "semantico" by default
-    options.AddSemanticoScheduler<YourScheduler>();
+    options.UsePostgreSql(connectionString); // Uses "beacon" by default
+    options.AddBeaconScheduler<YourScheduler>();
 });
 
 // Test 2: Custom schema
-builder.Services.AddSemantico(builder.Configuration, options =>
+builder.Services.AddBeacon(builder.Configuration, options =>
 {
     options.UsePostgreSql(connectionString, "custom");
-    options.AddSemanticoScheduler<YourScheduler>();
+    options.AddBeaconScheduler<YourScheduler>();
 });
 
 // Test 3: Per-tenant schema
-builder.Services.AddSemantico(builder.Configuration, options =>
+builder.Services.AddBeacon(builder.Configuration, options =>
 {
     options.UsePostgreSql(connectionString, $"tenant_{tenantId}");
-    options.AddSemanticoScheduler<YourScheduler>();
+    options.AddBeaconScheduler<YourScheduler>();
 });
 ```
 

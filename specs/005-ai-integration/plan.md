@@ -7,13 +7,13 @@
 
 ## Summary
 
-This feature integrates Large Language Model (LLM) capabilities into Semantico to provide two primary capabilities:
+This feature integrates Large Language Model (LLM) capabilities into Beacon to provide two primary capabilities:
 
 1. **AI-Powered Data Source Documentation**: Automatically analyze data source schemas and sample data to generate comprehensive documentation that users can edit and export in multiple formats (Markdown, HTML, PDF, JSON).
 
-2. **Natural Language Alert Configuration**: Enable users to describe complex alert conditions in natural language, with AI translating these descriptions into SQL queries that integrate with Semantico's existing subscription and notification infrastructure.
+2. **Natural Language Alert Configuration**: Enable users to describe complex alert conditions in natural language, with AI translating these descriptions into SQL queries that integrate with Beacon's existing subscription and notification infrastructure.
 
-This extends Semantico beyond simple query execution and data monitoring into intelligent data analysis and democratized alert creation for non-technical users.
+This extends Beacon beyond simple query execution and data monitoring into intelligent data analysis and democratized alert creation for non-technical users.
 
 ## Technical Context
 
@@ -56,9 +56,9 @@ This extends Semantico beyond simple query execution and data monitoring into in
 
 **Compliance**: PASS
 
-- AI services (IAiDocumentationService, IAiAlertGenerationService) will reside in Semantico.Core with interfaces
-- LLM provider implementations will be in Semantico.Core with factory pattern for provider selection
-- UI components for documentation editing and AI alert configuration will be in Semantico.UI
+- AI services (IAiDocumentationService, IAiAlertGenerationService) will reside in Beacon.Core with interfaces
+- LLM provider implementations will be in Beacon.Core with factory pattern for provider selection
+- UI components for documentation editing and AI alert configuration will be in Beacon.UI
 - Dependencies flow inward: UI → AI Services → LLM Provider Abstractions
 - New entities (DataSourceDocumentation, AiAlertConfiguration) will implement IChangeableEntity
 - AI usage metrics will inherit from BaseArchivableEntity
@@ -70,8 +70,8 @@ This extends Semantico beyond simple query execution and data monitoring into in
 **Compliance**: PASS
 
 - New tables (DataSourceDocumentation, DocumentationSection, AiAlertConfiguration, AiConversationHistory, AiUsageMetrics) will be added via migrations
-- Migrations will use default "semantico" schema during generation
-- Runtime schema specified via existing AddPostgreSqlSemantico/AddSqlServerSemantico configuration
+- Migrations will use default "beacon" schema during generation
+- Runtime schema specified via existing AddPostgreSqlBeacon/AddSqlServerBeacon configuration
 - No hardcoded schema references in entities or migrations
 
 **Rationale**: New entities follow existing schema-agnostic pattern, no violations.
@@ -80,9 +80,9 @@ This extends Semantico beyond simple query execution and data monitoring into in
 
 **Compliance**: PASS
 
-- New migrations will be created for both Semantico.Core.PostgreSql and Semantico.Core.SqlServer
+- New migrations will be created for both Beacon.Core.PostgreSql and Beacon.Core.SqlServer
 - JSON storage for AI conversation history and documentation content may require provider-specific column types (jsonb for PostgreSQL, nvarchar(max) for SQL Server) but this is handled through EF Core configuration
-- No MySQL-specific migrations needed (MySQL is only used for query execution by consumers, not for Semantico's internal storage)
+- No MySQL-specific migrations needed (MySQL is only used for query execution by consumers, not for Beacon's internal storage)
 
 **Rationale**: Follows existing multi-provider pattern, no violations.
 
@@ -118,8 +118,8 @@ This extends Semantico beyond simple query execution and data monitoring into in
 **Compliance**: PASS
 
 - All new code will follow PascalCase for classes/methods/properties, camelCase for parameters/locals
-- Files organized by domain: Semantico.Core/Services/Ai/, Semantico.Core/Models/Ai/
-- Custom exception: AiServiceException inheriting from SemanticoException
+- Files organized by domain: Beacon.Core/Services/Ai/, Beacon.Core/Models/Ai/
+- Custom exception: AiServiceException inheriting from BeaconException
 - Imports ordered: System → third-party (LLM SDKs) → project namespaces
 
 **Rationale**: Follows existing code style conventions, no violations.
@@ -141,9 +141,9 @@ This extends Semantico beyond simple query execution and data monitoring into in
 
 **Verification**:
 - ✅ All entities (DataSourceDocumentation, AiAlertConfiguration, etc.) implement IChangeableEntity
-- ✅ AI services (IAiDocumentationService, IAiAlertGenerationService) defined in Semantico.Core
+- ✅ AI services (IAiDocumentationService, IAiAlertGenerationService) defined in Beacon.Core
 - ✅ LLM provider abstractions (ILlmProvider) isolate external dependencies
-- ✅ UI components in Semantico.UI (GenerateDocumentation.razor, CreateAiAlert.razor)
+- ✅ UI components in Beacon.UI (GenerateDocumentation.razor, CreateAiAlert.razor)
 - ✅ Dependencies flow inward: UI → Handlers → Services → LLM Providers
 - ✅ No infrastructure concerns in domain entities
 
@@ -157,7 +157,7 @@ This extends Semantico beyond simple query execution and data monitoring into in
 **Status**: COMPLIANT
 
 **Verification**:
-- ✅ All migrations use default "semantico" schema
+- ✅ All migrations use default "beacon" schema
 - ✅ No hardcoded schema references in entity configurations
 - ✅ JSON storage uses provider-agnostic string types with EF Core configuration
 - ✅ Indexes created with schema-agnostic syntax
@@ -172,7 +172,7 @@ This extends Semantico beyond simple query execution and data monitoring into in
 **Status**: COMPLIANT
 
 **Verification**:
-- ✅ Migrations will be generated for both Semantico.Core.PostgreSql and Semantico.Core.SqlServer
+- ✅ Migrations will be generated for both Beacon.Core.PostgreSql and Beacon.Core.SqlServer
 - ✅ All data types are provider-neutral (string, int, decimal, DateTime)
 - ✅ Indexes use standard SQL syntax
 - ✅ JSON storage abstracted through EF Core
@@ -233,8 +233,8 @@ This extends Semantico beyond simple query execution and data monitoring into in
 **Verification**:
 - ✅ All entities follow PascalCase for classes/properties
 - ✅ Services organized by domain: Services/Ai/, Services/LlmProviders/
-- ✅ Custom exception: AiServiceException (to be created, inherits from SemanticoException)
-- ✅ Imports will be ordered: System → Microsoft.Extensions → Third-party → Semantico
+- ✅ Custom exception: AiServiceException (to be created, inherits from BeaconException)
+- ✅ Imports will be ordered: System → Microsoft.Extensions → Third-party → Beacon
 - ✅ Files organized in folders: Handlers/Ai/, Models/Ai/, Services/Ai/
 
 **Organization**:
@@ -269,7 +269,7 @@ specs/[###-feature]/
 ### Source Code (repository root)
 
 ```text
-Semantico.Core/                          # Core domain logic (Clean Architecture)
+Beacon.Core/                          # Core domain logic (Clean Architecture)
 ├── Data/
 │   ├── Entities/
 │   │   ├── DataSourceDocumentation.cs   # NEW: Stores AI-generated documentation
@@ -412,17 +412,17 @@ Semantico.Core/                          # Core domain logic (Clean Architecture
             ├── RestorePromptVersionCommand.cs
             └── RestorePromptVersionHandler.cs
 
-Semantico.Core.PostgreSql/              # PostgreSQL provider
+Beacon.Core.PostgreSql/              # PostgreSQL provider
 └── Data/
     └── Migrations/
         └── [Timestamp]_AddAiIntegration.cs  # NEW: AI entities migration
 
-Semantico.Core.SqlServer/               # SQL Server provider
+Beacon.Core.SqlServer/               # SQL Server provider
 └── Data/
     └── Migrations/
         └── [Timestamp]_AddAiIntegration.cs  # NEW: AI entities migration
 
-Semantico.UI/                            # Blazor UI
+Beacon.UI/                            # Blazor UI
 └── Components/
     └── Pages/
         ├── DataSources/
@@ -450,7 +450,7 @@ Semantico.UI/                            # Blazor UI
             ├── AiConfiguration.razor                # NEW: AI provider config, usage monitoring
             └── PromptVersionManager.razor           # NEW: View/create/restore prompt versions
 
-Semantico.Tests/                         # Test project
+Beacon.Tests/                         # Test project
 └── Ai/                                  # NEW: AI tests
     ├── AiDocumentationServiceTests.cs
     ├── AiAlertGenerationServiceTests.cs
@@ -496,11 +496,11 @@ Semantico.Tests/                         # Test project
 
 This feature extends the existing Clean Architecture structure with new AI capabilities:
 
-1. **Core Domain**: All AI logic lives in `Semantico.Core` following existing patterns (services, handlers, entities)
+1. **Core Domain**: All AI logic lives in `Beacon.Core` following existing patterns (services, handlers, entities)
 2. **Provider Abstraction**: `ILlmProvider` interface enables multiple LLM providers (OpenAI, Claude, Azure) without coupling to specific SDKs
 3. **Database Agnostic**: New entities and migrations follow existing schema-agnostic pattern across PostgreSQL and SQL Server
-4. **UI Separation**: All UI components for AI features are isolated in `Semantico.UI/Components/Pages/Ai/`
-5. **Testing**: New test classes follow existing xUnit structure in `Semantico.Tests/`
+4. **UI Separation**: All UI components for AI features are isolated in `Beacon.UI/Components/Pages/Ai/`
+5. **Testing**: New test classes follow existing xUnit structure in `Beacon.Tests/`
 
 No new top-level projects are needed - the feature integrates cleanly into the existing architecture.
 

@@ -67,7 +67,7 @@ docs/
 ```markdown
 ---
 title: "Installation Guide"
-description: "Deploy Semantico with Docker Compose in under 10 minutes"
+description: "Deploy Beacon with Docker Compose in under 10 minutes"
 section: getting-started
 order: 1
 lastUpdated: 2025-10-22
@@ -101,8 +101,8 @@ tags:
 {
   "id": "docker-compose-basic",
   "language": "yaml",
-  "code": "services:\n  semantico:\n    image: 'ghcr.io/MiBu/semantico:latest'\n    ports:\n      - 8080:80\n    environment:\n      - ConnectionStrings__SemanticoContext=...",
-  "description": "Basic Docker Compose configuration for Semantico",
+  "code": "services:\n  beacon:\n    image: 'ghcr.io/moberghr/beacon:latest'\n    ports:\n      - 8080:80\n    environment:\n      - ConnectionStrings__BeaconContext=...",
+  "description": "Basic Docker Compose configuration for Beacon",
   "context": "Use this for quick local deployment without SendGrid",
   "validated": true
 }
@@ -118,17 +118,17 @@ tags:
 
 ### Use Case
 
-**Purpose**: Real-world scenario showing how Semantico solves a problem
+**Purpose**: Real-world scenario showing how Beacon solves a problem
 
 **Attributes**:
 - `id` (string, required): Unique identifier (e.g., "database-threshold-alerts")
 - `title` (string, required): Scenario name (e.g., "Database Threshold Alerts")
 - `category` (enum, required): alerting | reporting | migration
 - `problem` (string, required): User pain point or business need
-- `solution` (string, required): How Semantico addresses the problem
+- `solution` (string, required): How Beacon addresses the problem
 - `benefits` (array of string): Measurable improvements
 - `exampleConfig` (CodeExample, optional): Configuration demonstrating solution
-- `relatedFeatures` (array of string): Semantico features involved
+- `relatedFeatures` (array of string): Beacon features involved
 
 **Three Use Cases for Marketing Site** (from FR-019):
 
@@ -174,7 +174,7 @@ tags:
 **Example**:
 ```markdown
 ![Main dashboard showing query execution statistics with bar chart of successful vs failed executions over the past 7 days](images/dashboard-overview.png)
-*The Semantico dashboard provides at-a-glance visibility into query execution health*
+*The Beacon dashboard provides at-a-glance visibility into query execution health*
 ```
 
 ---
@@ -220,15 +220,15 @@ nav:
 **Purpose**: Site-wide settings for GitHub Pages
 
 **Attributes** (_config.yml):
-- `title` (string, required): "Semantico Documentation"
+- `title` (string, required): "Beacon Documentation"
 - `description` (string, required): Meta description for SEO
 - `baseurl` (string, required): "" (empty for root-level deployment)
-- `url` (string, required): "https://mibu.github.io/semantico"
+- `url` (string, required): "https://moberghr.github.io/beacon"
 - `theme` (string, required): "just-the-docs" (or similar)
 - `markdown` (string, required): "kramdown"
 - `plugins` (array): ["jekyll-feed", "jekyll-seo-tag"]
 - `logo` (string, optional): Path to logo image
-- `color_scheme` (string, optional): "semantico" (custom color scheme)
+- `color_scheme` (string, optional): "beacon" (custom color scheme)
 
 **Accessibility Settings**:
 ```yaml
@@ -236,7 +236,7 @@ nav:
 color_scheme: high-contrast
 aux_links:
   "GitHub":
-    - "https://github.com/MiBu/semantico"
+    - "https://github.com/moberghr/beacon"
 skip_to_content: true  # Skip navigation link for screen readers
 ```
 
@@ -249,7 +249,7 @@ skip_to_content: true  # Skip navigation link for screen readers
 **Purpose**: GitHub repository landing page, quick overview
 
 **Required Sections** (from FR-001 to FR-008):
-1. **Overview** (2-3 sentences): What Semantico does and primary use case
+1. **Overview** (2-3 sentences): What Beacon does and primary use case
 2. **Key Features**: Brief list with links to detailed docs
 3. **Quick Start**: Zero to first notification in 30 minutes
 4. **Installation**: Docker Compose example
@@ -259,12 +259,12 @@ skip_to_content: true  # Skip navigation link for screen readers
 
 **Example Structure**:
 ```markdown
-# Semantico
+# Beacon
 
-[![Build Status](https://github.com/MiBu/semantico/workflows/CI/badge.svg)](...)
+[![Build Status](https://github.com/moberghr/beacon/workflows/CI/badge.svg)](...)
 [![Documentation](https://img.shields.io/badge/docs-github.io-blue)](...)
 
-Semantico is a dockerized semantic alerting and notification system that enables...
+Beacon is a dockerized semantic alerting and notification system that enables...
 
 ## 🚀 Quick Start
 
@@ -272,18 +272,18 @@ Get your first database alert running in under 30 minutes:
 
 1. Deploy with Docker Compose
 2. Create a project...
-3. [View detailed quick start guide →](https://mibu.github.io/semantico/getting-started/quick-start)
+3. [View detailed quick start guide →](https://moberghr.github.io/beacon/getting-started/quick-start)
 
 ## 📚 Documentation
 
-- [Installation Guide](https://mibu.github.io/semantico/getting-started/installation)
-- [Feature Documentation](https://mibu.github.io/semantico/features/)
-- [API Reference](https://mibu.github.io/semantico/api/)
+- [Installation Guide](https://moberghr.github.io/beacon/getting-started/installation)
+- [Feature Documentation](https://moberghr.github.io/beacon/features/)
+- [API Reference](https://moberghr.github.io/beacon/api/)
 
 ## 🤝 Support
 
-- [GitHub Issues](https://github.com/MiBu/semantico/issues)
-- [Contributing Guide](https://mibu.github.io/semantico/contributing/)
+- [GitHub Issues](https://github.com/moberghr/beacon/issues)
+- [Contributing Guide](https://moberghr.github.io/beacon/contributing/)
 ```
 
 ---
@@ -355,7 +355,7 @@ docs/
 - MUST start with goal and prerequisites (FR-030)
 - MUST use consistent terminology (FR-025)
 - MUST include screenshots where beneficial (FR-028)
-- MUST be written for database-aware users with no Semantico experience (FR-029)
+- MUST be written for database-aware users with no Beacon experience (FR-029)
 
 ### Accessibility
 - All images MUST have descriptive alt text

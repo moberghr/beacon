@@ -1,8 +1,8 @@
 # Site settings
-title: "Semantico Documentation"
-description: "Comprehensive documentation for Semantico - semantic database alerting and notification system"
-baseurl: "/semantico" # Project path for GitHub Pages
-url: "https://mibu.github.io"
+title: "Beacon Documentation"
+description: "Comprehensive documentation for Beacon - semantic database alerting and notification system"
+baseurl: "/beacon" # Project path for GitHub Pages
+url: "https://moberghr.github.io"
 
 # Build settings
 markdown: kramdown
@@ -15,26 +15,26 @@ plugins:
   - jekyll-remote-theme
 
 # Theme settings (just-the-docs)
-color_scheme: semantico  # Custom color scheme based on logo
+color_scheme: beacon  # Custom color scheme based on logo
 logo: "assets/images/logo.svg"
 favicon_ico: "/favicon.svg"
 
 # Navigation
 nav_external_links:
   - title: GitHub
-    url: https://github.com/MiBu/semantico
+    url: https://github.com/moberghr/beacon
 
 # Accessibility
 aux_links:
   "View on GitHub":
-    - "https://github.com/MiBu/semantico"
+    - "https://github.com/moberghr/beacon"
 
 # Skip to content for screen readers
 skip_to_content: true
 
 # SEO
 lang: en-US
-author: Semantico Team
+author: Beacon Team
 
 # Exclude from build
 exclude:
@@ -60,19 +60,19 @@ mermaid:
 # Centralized URLs - define URLs once, reference throughout documentation
 urls:
   # Repository
-  github_repo: "https://github.com/MiBu/semantico"
-  github_issues: "https://github.com/MiBu/semantico/issues"
-  github_discussions: "https://github.com/MiBu/semantico/discussions"
+  github_repo: "https://github.com/moberghr/beacon"
+  github_issues: "https://github.com/moberghr/beacon/issues"
+  github_discussions: "https://github.com/moberghr/beacon/discussions"
 
   # Documentation
-  docs_base: "https://mibu.github.io/semantico"
-  docs_installation: "https://mibu.github.io/semantico/getting-started/installation"
-  docs_quick_start: "https://mibu.github.io/semantico/getting-started/quick-start"
-  docs_configuration: "https://mibu.github.io/semantico/getting-started/configuration"
-  docs_features: "https://mibu.github.io/semantico/features/"
-  docs_architecture: "https://mibu.github.io/semantico/advanced/architecture"
-  docs_contributing: "https://mibu.github.io/semantico/contributing/guidelines"
-  docs_troubleshooting: "https://mibu.github.io/semantico/troubleshooting/common-issues"
+  docs_base: "https://moberghr.github.io/beacon"
+  docs_installation: "https://moberghr.github.io/beacon/getting-started/installation"
+  docs_quick_start: "https://moberghr.github.io/beacon/getting-started/quick-start"
+  docs_configuration: "https://moberghr.github.io/beacon/getting-started/configuration"
+  docs_features: "https://moberghr.github.io/beacon/features/"
+  docs_architecture: "https://moberghr.github.io/beacon/advanced/architecture"
+  docs_contributing: "https://moberghr.github.io/beacon/contributing/guidelines"
+  docs_troubleshooting: "https://moberghr.github.io/beacon/troubleshooting/common-issues"
 
   # NuGet packages
   nuget: "https://www.nuget.org/"

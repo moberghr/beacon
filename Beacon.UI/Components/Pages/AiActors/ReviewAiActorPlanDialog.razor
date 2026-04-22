@@ -1,0 +1,377 @@
+@using Beacon.Core.Data.Enums
+@using Beacon.Core.Handlers.Ai.AiActor
+@using Beacon.Core.Models.Ai
+@using MediatR
+
+<MudDialog Class="pb-2" Style="max-height: 90vh; overflow-y: auto;">
+    <TitleContent>
+        <MudStack Row="true" AlignItems="AlignItems.Center">
+            <MudIcon Icon="@Icons.Material.Filled.RateReview" Class="mr-2" />
+            <MudText Typo="Typo.h6">Review AI Plan</MudText>
+            @if (_plan != null)
+            {
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Info" Class="ml-2">
+                    v@_plan.Version
+                </MudChip>
+            }
+        </MudStack>
+    </TitleContent>
+    <DialogContent>
+        @if (_loading)
+        {
+            <div class="d-flex flex-column align-center py-8">
+                <MudProgressCircular Color="Color.Primary" Size="Size.Large" Indeterminate="true" />
+                <MudText Typo="Typo.body1" Class="mt-4">Loading plan...</MudText>
+            </div>
+        }
+        else if (_processing)
+        {
+            <div class="d-flex flex-column align-center py-8">
+                <MudProgressCircular Color="Color.Primary" Size="Size.Large" Indeterminate="true" />
+                <MudText Typo="Typo.body1" Class="mt-4">@_processingMessage</MudText>
+            </div>
+        }
+        else if (_plan == null)
+        {
+            <MudAlert Severity="Severity.Error">Plan not found.</MudAlert>
+        }
+        else
+        {
+            @if (!string.IsNullOrEmpty(_plan.UserInstruction))
+            {
+                <MudAlert Severity="Severity.Info" Class="mb-4" Dense="true">
+                    <strong>Your Request:</strong> @_plan.UserInstruction
+                </MudAlert>
+            }
+
+            <!-- Analysis Section -->
+            <MudPaper Elevation="0" Class="pa-4 mb-4" Style="background: var(--mud-palette-background-grey);">
+                <MudText Typo="Typo.subtitle2" Class="mb-2">
+                    <MudIcon Icon="@Icons.Material.Filled.Psychology" Size="Size.Small" Class="mr-1 mb-n1" />
+                    AI Analysis
+                </MudText>
+                <MudText Typo="Typo.body2" Style="white-space: pre-wrap;">@_plan.Analysis</MudText>
+            </MudPaper>
+
+            @if (_plan.Findings.Any())
+            {
+                <MudText Typo="Typo.subtitle2" Class="mb-2">
+                    <MudIcon Icon="@Icons.Material.Filled.Lightbulb" Size="Size.Small" Class="mr-1 mb-n1" />
+                    Key Findings
+                </MudText>
+                <MudList T="string" Dense="true" Class="mb-4">
+                    @foreach (var finding in _plan.Findings)
+                    {
+                        <MudListItem Icon="@Icons.Material.Filled.ChevronRight">
+                            <MudText Typo="Typo.body2">@finding</MudText>
+                        </MudListItem>
+                    }
+                </MudList>
+            }
+
+            <!-- Proposed Actions -->
+            <MudText Typo="Typo.subtitle2" Class="mb-2">
+                <MudIcon Icon="@Icons.Material.Filled.PlaylistPlay" Size="Size.Small" Class="mr-1 mb-n1" />
+                Proposed Actions (@_plan.ProposedActions.Count)
+            </MudText>
+            <MudExpansionPanels MultiExpansion="true">
+                @foreach (var (action, index) in _plan.ProposedActions.Select((a, i) => (a, i)))
+                {
+                    <MudExpansionPanel @key="index" IsInitiallyExpanded="@(index == 0)">
+                        <TitleContent>
+                            <MudStack Row="true" AlignItems="AlignItems.Center">
+                                <MudChip T="string" Size="Size.Small" Color="@GetActionColor(action.ActionType)" Variant="Variant.Filled">
+                                    @action.ActionType.ToString()
+                                </MudChip>
+                                @if (action.IsLocked)
+                                {
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Outlined">
+                                        <MudIcon Icon="@Icons.Material.Filled.Lock" Size="Size.Small" Class="mr-1" />
+                                        Locked (will skip)
+                                    </MudChip>
+                                }
+                                @if (!string.IsNullOrEmpty(action.TargetQueryName))
+                                {
+                                    <MudText Typo="Typo.body2" Class="ml-2">@action.TargetQueryName</MudText>
+                                }
+                            </MudStack>
+                        </TitleContent>
+                        <ChildContent>
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">Reasoning:</MudText>
+                            <MudText Typo="Typo.body2" Class="mb-3">@action.Reasoning</MudText>
+
+                            @if (action.ActionType == AiActorActionType.RefineQuery && !string.IsNullOrEmpty(action.CurrentSql))
+                            {
+                                <MudText Typo="Typo.caption" Color="Color.Secondary">Current SQL:</MudText>
+                                <MudPaper Elevation="0" Class="pa-2 mb-2" Style="background: var(--mud-palette-background-grey);">
+                                    <pre style="margin: 0; font-size: 12px; overflow-x: auto;">@action.CurrentSql</pre>
+                                </MudPaper>
+
+                                <MudText Typo="Typo.caption" Color="@(action.IsLocked ? Color.Warning : Color.Success)">
+                                    @(action.IsLocked ? "Proposed SQL (won't be applied):" : "Proposed SQL:")
+                                </MudText>
+                                <MudPaper Elevation="0" Class="pa-2" Style="@(action.IsLocked ? "background: var(--mud-palette-warning-lighten); opacity: 0.7;" : "background: var(--mud-palette-success-lighten);")">
+                                    <pre style="margin: 0; font-size: 12px; overflow-x: auto;">@action.ProposedSql</pre>
+                                </MudPaper>
+                            }
+                            else if (action.Parameters.TryGetValue("sql", out var sql))
+                            {
+                                <MudText Typo="Typo.caption" Color="Color.Secondary">SQL:</MudText>
+                                <MudPaper Elevation="0" Class="pa-2" Style="background: var(--mud-palette-background-grey);">
+                                    <pre style="margin: 0; font-size: 12px; overflow-x: auto;">@sql</pre>
+                                </MudPaper>
+                            }
+                        </ChildContent>
+                    </MudExpansionPanel>
+                }
+            </MudExpansionPanels>
+
+            <!-- Cost Info -->
+            <MudStack Row="true" Justify="Justify.SpaceBetween" Class="mt-4">
+                <MudText Typo="Typo.caption" Color="Color.Secondary">
+                    Tokens: @_plan.TokensUsed.ToString("N0")
+                </MudText>
+                <MudText Typo="Typo.caption" Color="Color.Secondary">
+                    Estimated Cost: $@_plan.EstimatedCost.ToString("F4")
+                </MudText>
+            </MudStack>
+
+            <!-- Revision Comment -->
+            @if (_showRevisionInput)
+            {
+                <MudDivider Class="my-4" />
+                <MudTextField
+                    @bind-Value="_revisionFeedback"
+                    Label="Revision Feedback"
+                    Variant="Variant.Outlined"
+                    Lines="3"
+                    Placeholder="Describe what changes you want to the plan..."
+                    Class="mb-2"
+                />
+            }
+        }
+    </DialogContent>
+    <DialogActions>
+        @if (!_loading && !_processing && _plan != null)
+        {
+            @if (_showRevisionInput)
+            {
+                <MudButton OnClick="@(() => _showRevisionInput = false)" Variant="Variant.Text">
+                    Back
+                </MudButton>
+                <MudButton
+                    OnClick="@RequestRevision"
+                    Variant="Variant.Filled"
+                    Color="Color.Warning"
+                    Disabled="@string.IsNullOrWhiteSpace(_revisionFeedback)"
+                >
+                    Submit Revision Request
+                </MudButton>
+            }
+            else
+            {
+                <MudButton OnClick="@Cancel" Variant="Variant.Text">
+                    Cancel
+                </MudButton>
+                <MudButton
+                    OnClick="@(() => _showRevisionInput = true)"
+                    Variant="Variant.Outlined"
+                    Color="Color.Warning"
+                    StartIcon="@Icons.Material.Filled.Edit"
+                >
+                    Request Changes
+                </MudButton>
+                <MudButton
+                    OnClick="@Reject"
+                    Variant="Variant.Outlined"
+                    Color="Color.Error"
+                    StartIcon="@Icons.Material.Filled.Close"
+                >
+                    Reject
+                </MudButton>
+                <MudButton
+                    OnClick="@Approve"
+                    Variant="Variant.Filled"
+                    Color="Color.Success"
+                    StartIcon="@Icons.Material.Filled.Check"
+                >
+                    Approve & Execute
+                </MudButton>
+            }
+        }
+    </DialogActions>
+</MudDialog>
+
+@inject ISnackbar Snackbar
+@inject IMediator Mediator
+@inject IDialogService DialogService
+
+@code {
+    [CascadingParameter]
+    IMudDialogInstance MudDialog { get; set; }
+
+    [Parameter]
+    public int PlanId { get; set; }
+
+    [Parameter]
+    public string? UserId { get; set; }
+
+    private GetAiActorPlanResult? _plan;
+    private bool _loading = true;
+    private bool _processing;
+    private string _processingMessage = "";
+    private bool _showRevisionInput;
+    private string _revisionFeedback = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadPlanAsync();
+    }
+
+    private async Task LoadPlanAsync()
+    {
+        _loading = true;
+        StateHasChanged();
+
+        try
+        {
+            var query = new GetAiActorPlanQuery { PlanId = PlanId };
+            _plan = await Mediator.Send(query);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to load plan: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task Approve()
+    {
+        _processing = true;
+        _processingMessage = "Executing approved plan...";
+        StateHasChanged();
+
+        try
+        {
+            var command = new ApproveAiActorPlanCommand
+            {
+                PlanId = PlanId,
+                UserId = UserId
+            };
+
+            var result = await Mediator.Send(command);
+
+            if (result.Success)
+            {
+                Snackbar.Add($"Plan executed! Created {result.QueriesCreated} queries, refined {result.QueriesRefined} queries.", Severity.Success);
+                MudDialog.Close(DialogResult.Ok(result));
+            }
+            else
+            {
+                Snackbar.Add($"Execution failed: {result.ErrorMessage}", Severity.Error);
+                _processing = false;
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error: {ex.Message}", Severity.Error);
+            _processing = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task Reject()
+    {
+        var result = await DialogService.ShowMessageBox(
+            "Reject Plan",
+            "Are you sure you want to reject this plan? No changes will be made.",
+            yesText: "Reject",
+            cancelText: "Cancel");
+
+        if (result == true)
+        {
+            _processing = true;
+            _processingMessage = "Rejecting plan...";
+            StateHasChanged();
+
+            try
+            {
+                var command = new RejectAiActorPlanCommand
+                {
+                    PlanId = PlanId,
+                    UserId = UserId,
+                    Reason = "User rejected the plan"
+                };
+
+                await Mediator.Send(command);
+                Snackbar.Add("Plan rejected", Severity.Info);
+                MudDialog.Close(DialogResult.Ok(true));
+            }
+            catch (Exception ex)
+            {
+                Snackbar.Add($"Error: {ex.Message}", Severity.Error);
+                _processing = false;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task RequestRevision()
+    {
+        _processing = true;
+        _processingMessage = "Generating revised plan...";
+        StateHasChanged();
+
+        try
+        {
+            var command = new RequestPlanRevisionCommand
+            {
+                PlanId = PlanId,
+                UserId = UserId,
+                Feedback = _revisionFeedback
+            };
+
+            var result = await Mediator.Send(command);
+
+            if (result.Success && result.NewPlanId.HasValue)
+            {
+                Snackbar.Add("New plan generated! Please review.", Severity.Success);
+                // Reload with new plan
+                PlanId = result.NewPlanId.Value;
+                _showRevisionInput = false;
+                _revisionFeedback = "";
+                _processing = false;
+                await LoadPlanAsync();
+            }
+            else
+            {
+                Snackbar.Add($"Failed to generate revision: {result.ErrorMessage}", Severity.Error);
+                _processing = false;
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error: {ex.Message}", Severity.Error);
+            _processing = false;
+            StateHasChanged();
+        }
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private Color GetActionColor(AiActorActionType actionType) => actionType switch
+    {
+        AiActorActionType.CreateQuery => Color.Success,
+        AiActorActionType.RefineQuery => Color.Info,
+        AiActorActionType.ArchiveQuery => Color.Warning,
+        AiActorActionType.CreateSubscription => Color.Primary,
+        AiActorActionType.ArchiveSubscription => Color.Warning,
+        _ => Color.Default
+    };
+}

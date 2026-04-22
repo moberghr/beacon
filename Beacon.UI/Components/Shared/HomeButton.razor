@@ -1,0 +1,20 @@
+@inject NavigationManager NavigationManager
+
+<MudButton
+    Href="@GetBaseHref()"
+    Target="_self"
+    IconSize="Size.Large"
+    Variant="Variant.Text"
+    Style="color: white"
+>
+    <MudText Style="letter-spacing: 2px;"><b>BEACON</b></MudText>
+</MudButton>
+
+@code {
+    private string GetBaseHref()
+    {
+        var baseUri = new Uri(NavigationManager.BaseUri);
+        var path = baseUri.AbsolutePath;
+        return path.EndsWith("/") ? path : $"{path}/";
+    }
+}

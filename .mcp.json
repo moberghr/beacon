@@ -1,8 +1,8 @@
 {
   "mcpServers": {
-    "semantico": {
+    "beacon": {
       "type": "sse",
-      "url": "http://localhost:5296/semantico/mcp/sse",
+      "url": "http://localhost:5296/beacon/mcp/sse",
       "headers": {
         "Authorization": "Bearer sk-sem_mwbEMiCtuprI6yvE9NE8wSBWLc3vHiBtu21RwFVBuA"
       }

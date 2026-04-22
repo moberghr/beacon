@@ -74,7 +74,7 @@ The cron expression determines when the query runs.
 | `0 9 * * 1-5` | Weekdays at 9:00 AM | 5 times/week |
 
 {: .note }
-> **Help**: Hover over the cron expression field in Semantico to see a human-readable description. Or use [crontab.guru](https://crontab.guru/) for assistance.
+> **Help**: Hover over the cron expression field in Beacon to see a human-readable description. Or use [crontab.guru](https://crontab.guru/) for assistance.
 
 ### Step 4: Set Timeout
 
@@ -250,7 +250,7 @@ GROUP BY DATE(created_at)
 
 ### When Subscriptions Run
 
-Semantico uses your configured `ISemanticoScheduler` implementation for job scheduling:
+Beacon uses your configured `IBeaconScheduler` implementation for job scheduling:
 - Cron expressions are evaluated according to your scheduler configuration
 - Execution timing depends on your scheduler implementation
 - Multiple subscriptions can execute concurrently (depending on scheduler worker configuration)

@@ -1,4 +1,4 @@
-# Semantico Feature Roadmap
+# Beacon Feature Roadmap
 
 ## Current Phase (In Progress)
 
@@ -15,7 +15,7 @@ Require approval before query/subscription changes go live. Role-based approval 
 - **Spec:** `specs/006-query-versioning-approval-webhook/`
 
 ### 008 - Webhook Notification Adapter
-Generic HTTP webhook adapter for integrating Semantico with any external system.
+Generic HTTP webhook adapter for integrating Beacon with any external system.
 - **Status:** Planning
 - **Priority:** High
 - **Spec:** `specs/006-query-versioning-approval-webhook/`
@@ -66,7 +66,7 @@ A single page showing all subscriptions, their last run status, anomaly trends, 
 - **Team/workspace support** — Group users, queries, subscriptions by team
 
 ### Integration & Extensibility
-- **REST API exposure** — Expose Semantico features as REST API for external tool integration
+- **REST API exposure** — Expose Beacon features as REST API for external tool integration
 - **Plugin/extension system** — Custom notification adapters or query transformers without modifying core
 - **dbt integration** — Monitor dbt model freshness and test results
-- **Grafana data source** — Let Grafana pull from Semantico query results
+- **Grafana data source** — Let Grafana pull from Beacon query results

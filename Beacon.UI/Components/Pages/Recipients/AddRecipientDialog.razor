@@ -1,0 +1,241 @@
+@using Beacon.Core.Data.Enums
+@using Beacon.Core.Models.Recipients
+@using Beacon.Core.Services
+
+<MudDialog Class="pb-2">
+    <TitleContent>
+        <MudText Typo="Typo.h6">
+            <MudIcon Icon="@Icons.Material.Filled.Add" Class="mr-1 mb-n1" />
+            Add recipient
+        </MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudForm @ref="@_form" Class="pt-1" @bind-Errors="@errors" @bind-IsValid="_isFormValid">
+            <MudSelect T="NotificationType" Label="Notification Type" @bind-Value="@Recipient.NotificationType" Required="true" Margin="Margin.Dense" Variant="Variant.Outlined" Class="mb-2">
+                <MudSelectItem Value="NotificationType.Email">Email</MudSelectItem>
+                <MudSelectItem Value="NotificationType.Teams">Teams</MudSelectItem>
+                <MudSelectItem Value="NotificationType.Slack">Slack</MudSelectItem>
+                <MudSelectItem Value="NotificationType.Jira">Jira</MudSelectItem>
+                <MudSelectItem Value="NotificationType.Webhook">Webhook</MudSelectItem>
+            </MudSelect>
+
+            @if (Recipient.NotificationType == NotificationType.Jira)
+            {
+                <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">
+                    <MudText Typo="Typo.body2"><strong>Jira Destination Format:</strong></MudText>
+                    <MudText Typo="Typo.caption" Style="font-family: monospace;">domain;project-key;email;api-key</MudText>
+                    <MudText Typo="Typo.caption" Class="mt-1">Example: <code>your-domain;PROJ;user@example.com;your-api-key</code></MudText>
+                    <MudText Typo="Typo.caption">Or full URL: <code>https://api.atlassian.com/ex/jira/cloudId;PROJ;email;key</code></MudText>
+                </MudAlert>
+            }
+
+            @if (Recipient.NotificationType == NotificationType.Webhook)
+            {
+                <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">
+                    <MudText Typo="Typo.body2"><strong>Webhook:</strong> A JSON payload will be POSTed to the URL on each notification.</MudText>
+                </MudAlert>
+            }
+
+            <MudTextField OnlyValidateIfDirty="true"
+            Margin="Margin.Dense"
+            Variant="Variant.Outlined"
+            Class="mb-2"
+            @bind-Value="@Recipient.Name"
+            T="String"
+            Label="Name"
+            Required="true" />
+            <MudTextField OnlyValidateIfDirty="true"
+            Margin="Margin.Dense"
+            Variant="Variant.Outlined"
+            Class="mb-2"
+            @bind-Value="@Recipient.Destination"
+            T="String"
+            Label="@GetDestinationLabel()"
+            HelperText="@GetDestinationHelperText()"
+            Required="true" />
+            <MudTextField OnlyValidateIfDirty="true"
+            Immediate="true"
+            Margin="Margin.Dense"
+            Variant="Variant.Outlined"
+            Class="mb-2"
+            @bind-Value="@Recipient.Description"
+            Placeholder="Description (optional)"
+            T="String"
+            Label="Description"
+            Required="false" />
+
+            @if (Recipient.NotificationType == NotificationType.Webhook)
+            {
+                <MudTextField @bind-Value="@Recipient.HeadersJson"
+                              T="String"
+                              Label="Custom Headers (JSON)"
+                              HelperText="Optional JSON object of custom HTTP headers, e.g. {&quot;Authorization&quot;: &quot;Bearer token&quot;}"
+                              Variant="Variant.Outlined"
+                              Margin="Margin.Dense"
+                              Class="mb-2"
+                              Lines="3" />
+
+                <div class="d-flex align-center gap-2 mb-2">
+                    <MudText Typo="Typo.body2" Class="flex-grow-1">
+                        <strong>Body Template (Optional)</strong> - Customize the webhook payload
+                    </MudText>
+                    <MudButton Size="Size.Small"
+                               Variant="Variant.Text"
+                               Color="Color.Primary"
+                               OnClick="@ShowTemplateHelp">
+                        Show Examples
+                    </MudButton>
+                </div>
+                <MudTextField @bind-Value="@Recipient.BodyTemplate"
+                              T="String"
+                              HelperText="Use placeholders like {{Timestamp}}, {{SubscriptionName}}, {{TotalRecords}}, {{Records}}. Leave empty for default."
+                              Variant="Variant.Outlined"
+                              Margin="Margin.Dense"
+                              Class="mb-2"
+                              Lines="12"
+                              OnBlur="@ValidateTemplate"
+                              Error="@_templateHasError"
+                              ErrorText="@_templateErrorText" />
+
+                @if (!string.IsNullOrWhiteSpace(_templateWarning))
+                {
+                    <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">
+                        @_templateWarning
+                    </MudAlert>
+                }
+            }
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton
+        Class="ml-4"
+        OnClick="@Cancel"
+        Variant="Variant.Filled"
+        >
+            Cancel
+        </MudButton>
+
+        <DialogSaveButton Disabled="!_isFormValid" OnClick="@Submit"/>
+    </DialogActions>
+</MudDialog>
+
+@inject ISnackbar Snackbar
+@inject IRecipientService Service
+@inject IDialogService DialogService
+
+@code
+{
+    [CascadingParameter]
+    IMudDialogInstance MudDialog { get; set; }
+
+    [Parameter]
+    public RecipientData Recipient { get; set; } = new RecipientData();
+
+    private MudForm _form;
+    private bool _loading;
+    bool _isFormValid = false;
+    string[] errors = { };
+    private bool _templateHasError = false;
+    private string? _templateErrorText = null;
+    private string? _templateWarning = null;
+
+    async Task Submit()
+    {
+        if (_loading)
+        {
+            return;
+        }
+
+        await _form.Validate();
+
+        if (!_form.IsValid)
+        {
+            return;
+        }
+
+        _loading = true;
+
+        var response = await Service.CreateRecipient(Recipient, CancellationToken.None);
+        
+        if (response.Success)
+        {
+            MudDialog.Close(DialogResult.Ok(true));
+            Snackbar.Add(response.Message, Severity.Success);
+        }
+        else
+        {
+            Snackbar.Add(response.Message, Severity.Error);
+        }
+        _loading = false;
+    }
+
+    void Cancel() => MudDialog.Cancel();
+
+    private string GetDestinationLabel() => Recipient.NotificationType switch
+    {
+        NotificationType.Email => "Email Address",
+        NotificationType.Teams => "Teams Webhook URL",
+        NotificationType.Slack => "Slack Webhook URL",
+        NotificationType.Jira => "Jira Connection String",
+        NotificationType.Webhook => "Webhook URL",
+        _ => "Destination"
+    };
+
+    private string GetDestinationHelperText() => Recipient.NotificationType switch
+    {
+        NotificationType.Email => "Enter the email address",
+        NotificationType.Teams => "Enter the Teams incoming webhook URL",
+        NotificationType.Slack => "Enter the Slack incoming webhook URL",
+        NotificationType.Jira => "Format: domain;project;email;api-key",
+        NotificationType.Webhook => "Enter the URL to POST JSON payloads to",
+        _ => ""
+    };
+
+    private void ValidateTemplate()
+    {
+        _templateHasError = false;
+        _templateErrorText = null;
+        _templateWarning = null;
+
+        if (string.IsNullOrWhiteSpace(Recipient.BodyTemplate))
+        {
+            return;
+        }
+
+        var result = Beacon.Core.Adapters.Shared.TemplateValidator.ValidateWithPlaceholderCheck(Recipient.BodyTemplate);
+
+        if (!result.IsValid)
+        {
+            _templateHasError = true;
+            _templateErrorText = result.ErrorMessage;
+        }
+        else if (!string.IsNullOrWhiteSpace(result.WarningMessage))
+        {
+            _templateWarning = result.WarningMessage;
+        }
+    }
+
+    private async Task ShowTemplateHelp()
+    {
+        var exampleTemplate = Beacon.Core.Adapters.Shared.AdapterTemplateExamples.GetExample(Recipient.NotificationType);
+        var placeholders = Beacon.Core.Adapters.Shared.AdapterTemplateExamples.GetAvailablePlaceholders();
+
+        var message = $"**Example Template:**\n```json\n{exampleTemplate}\n```\n\n{placeholders}";
+
+        var parameters = new DialogParameters
+        {
+            { "Message", message }
+        };
+
+        var options = new DialogOptions
+        {
+            MaxWidth = MaxWidth.Large,
+            CloseButton = true
+        };
+
+        await DialogService.ShowMessageBox(
+            "Body Template Examples & Placeholders",
+            new MarkupString(message.Replace("\n", "<br/>")),
+            options: options);
+    }
+}

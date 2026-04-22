@@ -1,0 +1,193 @@
+@using MediatR
+@using Beacon.Core.Data.Enums
+@using Beacon.Core.Models.Queries
+@using Beacon.Core.Handlers.Approvals
+@using Beacon.UI.Components.Pages.Queries
+
+<MudDialog>
+    <DialogContent>
+        @if (_loading)
+        {
+            <MudProgressLinear Color="Color.Primary" Indeterminate="true" />
+        }
+        else if (_detail == null)
+        {
+            <MudAlert Severity="Severity.Error">Approval request not found.</MudAlert>
+        }
+        else
+        {
+            <MudStack Spacing="3">
+                <MudGrid>
+                    <MudItem xs="6">
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">Query</MudText>
+                        <MudText Typo="Typo.subtitle1" Style="font-weight: 600;">@_detail.QueryName</MudText>
+                    </MudItem>
+                    <MudItem xs="3">
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">Submitted By</MudText>
+                        <MudText>@(_detail.RequestedByUserName ?? "Unknown")</MudText>
+                    </MudItem>
+                    <MudItem xs="3">
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">Submitted At</MudText>
+                        <MudText>@_detail.CreatedTime.ToString("g")</MudText>
+                    </MudItem>
+                </MudGrid>
+
+                @if (!string.IsNullOrEmpty(_detail.ChangeSummary))
+                {
+                    <MudAlert Severity="Severity.Info" Dense="true">@_detail.ChangeSummary</MudAlert>
+                }
+
+                @if (_detail.AutoDiff != null)
+                {
+                    <MudText Typo="Typo.h6">Changes</MudText>
+
+                    @if (_detail.AutoDiff.NameChanged)
+                    {
+                        <MudAlert Severity="Severity.Info" Dense="true">
+                            Name: "@_detail.AutoDiff.VersionA.Name" -> "@_detail.AutoDiff.VersionB.Name"
+                        </MudAlert>
+                    }
+
+                    @if (_detail.AutoDiff.FinalQueryChanged)
+                    {
+                        <MudText Typo="Typo.subtitle1" Style="font-weight: 600;">Final Query Changed</MudText>
+                        <MudGrid>
+                            <MudItem xs="6">
+                                <MudText Typo="Typo.caption">Current</MudText>
+                                <MudPaper Class="pa-2" Style="background-color: #fff3f3; border-radius: 8px; overflow-x: auto;">
+                                    <pre style="margin: 0; white-space: pre-wrap;">@(_detail.AutoDiff.VersionA.FinalQuery ?? "(none)")</pre>
+                                </MudPaper>
+                            </MudItem>
+                            <MudItem xs="6">
+                                <MudText Typo="Typo.caption">Proposed</MudText>
+                                <MudPaper Class="pa-2" Style="background-color: #f3fff3; border-radius: 8px; overflow-x: auto;">
+                                    <pre style="margin: 0; white-space: pre-wrap;">@(_detail.AutoDiff.VersionB.FinalQuery ?? "(none)")</pre>
+                                </MudPaper>
+                            </MudItem>
+                        </MudGrid>
+                    }
+
+                    @foreach (var stepDiff in _detail.AutoDiff.StepDiffs.Where(d => d.DiffType != StepDiffType.Unchanged))
+                    {
+                        <MudCard Outlined="true" Class="pa-3">
+                            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                                <MudText Typo="Typo.subtitle2">Step @stepDiff.StepOrder</MudText>
+                                <MudChip T="string" Size="Size.Small" Color="@GetDiffColor(stepDiff.DiffType)">@stepDiff.DiffType</MudChip>
+                            </MudStack>
+                            @if (stepDiff.DiffType == StepDiffType.Modified)
+                            {
+                                <MudGrid>
+                                    <MudItem xs="6">
+                                        <MudPaper Class="pa-2 mt-2" Style="background-color: #fff3f3; border-radius: 8px; overflow-x: auto;">
+                                            <pre style="margin: 0; white-space: pre-wrap;">@(stepDiff.StepA?.SqlValue)</pre>
+                                        </MudPaper>
+                                    </MudItem>
+                                    <MudItem xs="6">
+                                        <MudPaper Class="pa-2 mt-2" Style="background-color: #f3fff3; border-radius: 8px; overflow-x: auto;">
+                                            <pre style="margin: 0; white-space: pre-wrap;">@(stepDiff.StepB?.SqlValue)</pre>
+                                        </MudPaper>
+                                    </MudItem>
+                                </MudGrid>
+                            }
+                        </MudCard>
+                    }
+                }
+                else
+                {
+                    <MudText Typo="Typo.h6">Proposed SQL</MudText>
+                    @foreach (var step in _detail.ProposedVersion.Steps.OrderBy(s => s.StepOrder))
+                    {
+                        <MudCard Outlined="true" Class="pa-3">
+                            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                                <MudChip T="string" Size="Size.Small" Color="Color.Primary">Step @step.StepOrder</MudChip>
+                                <MudText Typo="Typo.subtitle2">@(step.Name ?? $"Step {step.StepOrder}")</MudText>
+                            </MudStack>
+                            <MudPaper Class="pa-2 mt-2" Style="background-color: #f5f5f5; border-radius: 8px; overflow-x: auto;">
+                                <pre style="margin: 0; white-space: pre-wrap;">@step.SqlValue</pre>
+                            </MudPaper>
+                        </MudCard>
+                    }
+                }
+
+                <MudDivider Class="my-2" />
+
+                <MudTextField @bind-Value="@_reviewComment"
+                              T="string"
+                              Label="Review Comment (optional)"
+                              Variant="Variant.Outlined"
+                              Lines="2" />
+            </MudStack>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel" Variant="Variant.Text">Cancel</MudButton>
+        <MudButton OnClick="Reject" Color="Color.Error" Variant="Variant.Filled"
+                   StartIcon="@Icons.Material.Filled.Close" Disabled="@(_loading || _detail == null)">
+            Reject
+        </MudButton>
+        <MudButton OnClick="Approve" Color="Color.Success" Variant="Variant.Filled"
+                   StartIcon="@Icons.Material.Filled.Check" Disabled="@(_loading || _detail == null)">
+            Approve
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@inject IMediator Mediator
+@inject ISnackbar Snackbar
+@inject Beacon.Core.Authorization.IBeaconUserContext UserContext
+
+@code
+{
+    [CascadingParameter]
+    IMudDialogInstance MudDialog { get; set; } = null!;
+
+    [Parameter]
+    public int ApprovalId { get; set; }
+
+    private ApprovalRequestDetail? _detail;
+    private bool _loading;
+    private string? _reviewComment;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _loading = true;
+        _detail = await Mediator.Send(new GetApprovalDetailQuery { RequestId = ApprovalId });
+        _loading = false;
+    }
+
+    private async Task Approve()
+    {
+        await Mediator.Send(new ApproveQueryChangeCommand
+        {
+            RequestId = ApprovalId,
+            ReviewerUserId = UserContext.UserId,
+            ReviewerName = UserContext.DisplayName ?? UserContext.UserName,
+            Comment = _reviewComment
+        });
+        Snackbar.Add("Changes approved and applied.", Severity.Success);
+        MudDialog.Close(DialogResult.Ok(true));
+    }
+
+    private async Task Reject()
+    {
+        await Mediator.Send(new RejectQueryChangeCommand
+        {
+            RequestId = ApprovalId,
+            ReviewerUserId = UserContext.UserId,
+            ReviewerName = UserContext.DisplayName ?? UserContext.UserName,
+            Comment = _reviewComment
+        });
+        Snackbar.Add("Changes rejected.", Severity.Warning);
+        MudDialog.Close(DialogResult.Ok(true));
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private Color GetDiffColor(StepDiffType diffType) => diffType switch
+    {
+        StepDiffType.Added => Color.Success,
+        StepDiffType.Removed => Color.Error,
+        StepDiffType.Modified => Color.Warning,
+        _ => Color.Default
+    };
+}

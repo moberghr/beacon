@@ -1,0 +1,295 @@
+@page "/data-migration/history"
+@page "/data-migration/history/{JobId:int}"
+@inherits BasePageComponent
+@using Beacon.Core.Models.DataMigration
+@using Beacon.Core.Services
+@using Beacon.Core.Data.Enums
+@using Beacon.UI.Components.Custom
+
+<BeaconPageTitle Title="Migration History"/>
+
+<MudContainer Class="my-4 px-4"  MaxWidth="MaxWidth.ExtraExtraLarge">
+    <BeaconPageHeader Icon="@Icons.Material.Filled.History"
+                        Title="Migration History"
+                        ButtonText="Back to Jobs"
+                        OnClick="@NavigateBack"/>
+
+    <MudAlert Severity="Severity.Warning" Class="mb-4" Variant="Variant.Filled">
+        <strong>Experimental Feature:</strong> Data Migration is currently in experimental phase. Please test thoroughly before using in production environments.
+    </MudAlert>
+
+    @if (JobId.HasValue)
+    {
+        <BeaconPageAlert Text="@($"Showing execution history for migration job ID: {JobId}")"/>
+    }
+    else
+    {
+        <BeaconPageAlert Text="Showing all migration executions"/>
+    }
+    
+    <MudCard>
+        <MudCardHeader>
+            <CardHeaderContent>
+                <MudText Typo="Typo.h6">Execution History</MudText>
+            </CardHeaderContent>
+            <CardHeaderActions>
+                <MudGrid>
+                    <MudItem xs="12" md="3">
+                        <MudSelect T="MigrationStatus?" @bind-Value="_statusFilter"
+                                  Label="Filter by Status"
+                                  Clearable="true"
+                                  OnClearButtonClick="@(() => { _statusFilter = null; })">
+                            <MudSelectItem T="MigrationStatus?" Value="@(MigrationStatus.Queued)">Queued</MudSelectItem>
+                            <MudSelectItem T="MigrationStatus?" Value="@(MigrationStatus.Running)">Running</MudSelectItem>
+                            <MudSelectItem T="MigrationStatus?" Value="@(MigrationStatus.Completed)">Completed</MudSelectItem>
+                            <MudSelectItem T="MigrationStatus?" Value="@(MigrationStatus.Failed)">Failed</MudSelectItem>
+                            <MudSelectItem T="MigrationStatus?" Value="@(MigrationStatus.Cancelled)">Cancelled</MudSelectItem>
+                            <MudSelectItem T="MigrationStatus?" Value="@(MigrationStatus.PartialSuccess)">Partial Success</MudSelectItem>
+                        </MudSelect>
+                    </MudItem>
+                    <MudItem xs="12" md="3">
+                        <MudDatePicker @bind-Date="_startDate" 
+                                      Label="Start Date" 
+                                      Clearable="true" />
+                    </MudItem>
+                    <MudItem xs="12" md="3">
+                        <MudDatePicker @bind-Date="_endDate" 
+                                      Label="End Date" 
+                                      Clearable="true" />
+                    </MudItem>
+                    <MudItem xs="12" md="3" Class="d-flex align-center">
+                        <MudButton Variant="Variant.Filled" 
+                                  Color="Color.Primary" 
+                                  OnClick="@ReloadData"
+                                  StartIcon="@Icons.Material.Filled.Search">
+                            Filter
+                        </MudButton>
+                    </MudItem>
+                </MudGrid>
+            </CardHeaderActions>
+        </MudCardHeader>
+        
+        <MudCardContent>
+            <MudDataGrid @ref="_dataGrid" 
+                        ServerData="ServerReload" 
+                        T="MigrationExecutionDto" 
+                        Hover="true" 
+                        Filterable="false" 
+                        SortMode="SortMode.None">
+                <Columns>
+                    <PropertyColumn Property="x => x.MigrationJobName" Title="Migration Job">
+                        <CellTemplate>
+                            <MudLink Href="@($"data-migration/edit/{context.Item.MigrationJobId}")">
+                                @context.Item.MigrationJobName
+                            </MudLink>
+                        </CellTemplate>
+                    </PropertyColumn>
+                    <PropertyColumn Property="x => x.StartedAt" Title="Started At">
+                        <CellTemplate>
+                            <MudText>@context.Item.StartedAt.ToString("yyyy-MM-dd HH:mm:ss")</MudText>
+                        </CellTemplate>
+                    </PropertyColumn>
+                    <PropertyColumn Property="x => x.Status" Title="Status">
+                        <CellTemplate>
+                            <ExecutionStatusChip Status="@context.Item.Status"/>
+                        </CellTemplate>
+                    </PropertyColumn>
+                    <PropertyColumn Property="x => x.ExecutionDuration" Title="Duration">
+                        <CellTemplate>
+                            @if (context.Item.Status == MigrationStatus.Running)
+                            {
+                                <MudText>Running...</MudText>
+                            }
+                            else
+                            {
+                                <MudText>@FormatDuration(context.Item.ExecutionDuration)</MudText>
+                            }
+                        </CellTemplate>
+                    </PropertyColumn>
+                    <PropertyColumn Property="x => x.SourceRowsRead" Title="Rows Read"/>
+                    <PropertyColumn Property="x => x.DestinationRowsWritten" Title="Rows Written"/>
+                    <PropertyColumn Property="x => x.RowsFailed" Title="Rows Failed">
+                        <CellTemplate>
+                            @if (context.Item.RowsFailed > 0)
+                            {
+                                <MudText Color="Color.Error">@context.Item.RowsFailed</MudText>
+                            }
+                            else
+                            {
+                                <MudText>@context.Item.RowsFailed</MudText>
+                            }
+                        </CellTemplate>
+                    </PropertyColumn>
+                    <PropertyColumn Property="x => x.RowsPerSecond" Title="Performance">
+                        <CellTemplate>
+                            @if (context.Item.RowsPerSecond > 0)
+                            {
+                                <MudText>@context.Item.RowsPerSecond.ToString("F1") rows/sec</MudText>
+                            }
+                            else
+                            {
+                                <MudText>-</MudText>
+                            }
+                        </CellTemplate>
+                    </PropertyColumn>
+                    <TemplateColumn Title="Retry" Sortable="false" Filterable="false">
+                        <CellTemplate>
+                            @if (context.Item.IsRetry)
+                            {
+                                <MudChip Size="Size.Small" Color="Color.Warning">
+                                    Retry #@context.Item.RetryAttempt
+                                </MudChip>
+                            }
+                        </CellTemplate>
+                    </TemplateColumn>
+                    <TemplateColumn Title="Actions" Sortable="false" Filterable="false">
+                        <CellTemplate>
+                            <MudButtonGroup Size="Size.Small" Variant="Variant.Text">
+                                @if ((context.Item.Status == MigrationStatus.Failed || context.Item.Status == MigrationStatus.PartialSuccess) && !string.IsNullOrEmpty(context.Item.ErrorMessage))
+                                {
+                                    <MudButton StartIcon="@Icons.Material.Filled.Error"
+                                              Color="@(context.Item.Status == MigrationStatus.Failed ? Color.Error : Color.Warning)"
+                                              OnClick="@(() => ShowErrorDetails(context.Item))">
+                                        Error Details
+                                    </MudButton>
+                                }
+                                @if (context.Item.Status == MigrationStatus.Failed)
+                                {
+                                    <MudButton StartIcon="@Icons.Material.Filled.Refresh"
+                                              Color="Color.Info"
+                                              OnClick="@(() => RetryExecution(context.Item))">
+                                        Retry
+                                    </MudButton>
+                                }
+                            </MudButtonGroup>
+                        </CellTemplate>
+                    </TemplateColumn>
+                </Columns>
+                <PagerContent>
+                    <MudDataGridPager T="MigrationExecutionDto"/>
+                </PagerContent>
+            </MudDataGrid>
+        </MudCardContent>
+    </MudCard>
+</MudContainer>
+
+@inject IMigrationService _service
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+
+@code {
+    [Parameter] public int? JobId { get; set; }
+    
+    private List<MigrationExecutionDto> _list = new();
+    MudDataGrid<MigrationExecutionDto>? _dataGrid;
+    private bool _loading;
+    
+    // Filter parameters
+    private MigrationStatus? _statusFilter;
+    private DateTime? _startDate;
+    private DateTime? _endDate;
+
+    private async Task<GridData<MigrationExecutionDto>> ServerReload(GridState<MigrationExecutionDto> state)
+    {
+        _loading = true;
+        
+        var request = new GetMigrationExecutionsRequest(
+            MigrationJobId: JobId,
+            Status: _statusFilter,
+            StartDate: _startDate,
+            EndDate: _endDate,
+            Skip: state.Page * state.PageSize,
+            Take: state.PageSize
+        );
+        
+        var response = await _service.GetMigrationExecutions(request, CancellationToken.None);
+        _list = response.Executions;
+        
+        _loading = false;
+
+        return new GridData<MigrationExecutionDto>
+        {
+            TotalItems = response.TotalCount,
+            Items = response.Executions
+        };
+    }
+    
+    private async Task ReloadData()
+    {
+        if (_dataGrid != null)
+        {
+            await _dataGrid.ReloadServerData();
+        }
+    }
+    
+    private void NavigateBack()
+    {
+        NavManager.NavigateTo("data-migration");
+    }
+    
+    private async Task ShowErrorDetails(MigrationExecutionDto execution)
+    {
+        var parameters = new DialogParameters();
+        parameters.Add("ErrorMessage", execution.ErrorMessage);
+        parameters.Add("JobName", execution.MigrationJobName);
+        parameters.Add("ExecutionId", execution.Id);
+
+        var options = new DialogOptions() 
+        { 
+            MaxWidth = MaxWidth.Medium, 
+            FullWidth = true 
+        };
+
+        await DialogService.ShowAsync<ErrorDetailsDialog>("Execution Error Details", parameters, options);
+    }
+    
+    private async Task RetryExecution(MigrationExecutionDto execution)
+    {
+        var confirmed = await DialogService.ShowMessageBox(
+            "Retry Migration", 
+            $"Are you sure you want to retry the failed execution of '{execution.MigrationJobName}'?", 
+            yesText:"Retry", cancelText:"Cancel");
+            
+        if (confirmed == true)
+        {
+            _loading = true;
+            
+            try
+            {
+                var request = new ExecuteMigrationJobRequest(execution.MigrationJobId);
+                var response = await _service.ExecuteMigrationJob(request, CancellationToken.None);
+                
+                if (response.Status == MigrationStatus.Completed)
+                {
+                    Snackbar.Add($"Migration retry completed successfully. Processed {response.SourceRowsRead} rows.", Severity.Success);
+                }
+                else
+                {
+                    Snackbar.Add($"Migration retry status: {response.Status}", Severity.Info);
+                }
+                
+                await ReloadData();
+            }
+            catch (Exception ex)
+            {
+                Snackbar.Add($"Error retrying migration: {ex.Message}", Severity.Error);
+            }
+            finally
+            {
+                _loading = false;
+            }
+        }
+    }
+    
+    private string FormatDuration(TimeSpan duration)
+    {
+        if (duration.TotalSeconds < 1)
+            return "< 1s";
+        else if (duration.TotalMinutes < 1)
+            return $"{duration.Seconds}s";
+        else if (duration.TotalHours < 1)
+            return $"{duration.Minutes}m {duration.Seconds}s";
+        else
+            return $"{duration.Hours}h {duration.Minutes}m";
+    }
+}

@@ -1,0 +1,229 @@
+@using Beacon.Core.Handlers.Dashboards.AddWidget
+@using Beacon.Core.Data.Enums
+@using Beacon.Core.Models.Dashboards
+@using MediatR
+@using System.Text.Json
+@inject IMediator Mediator
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <DialogContent>
+        <MudForm @ref="_form" @bind-IsValid="@_isValid">
+            <MudStack Spacing="3">
+                <MudSelect @bind-Value="_widgetType"
+                           Label="Widget Type"
+                           Variant="Variant.Outlined"
+                           Required="true">
+                    <MudSelectItem Value="@WidgetType.KpiCard">KPI Card</MudSelectItem>
+                    <MudSelectItem Value="@WidgetType.LineChart">Line Chart</MudSelectItem>
+                    <MudSelectItem Value="@WidgetType.BarChart">Bar Chart</MudSelectItem>
+                    <MudSelectItem Value="@WidgetType.Table">Table</MudSelectItem>
+                    <MudSelectItem Value="@WidgetType.Gauge">Gauge</MudSelectItem>
+                </MudSelect>
+
+                <MudTextField @bind-Value="_title"
+                              Label="Widget Title"
+                              Required="true"
+                              RequiredError="Title is required"
+                              MaxLength="200"
+                              Variant="Variant.Outlined"/>
+
+                @* KPI Card Configuration *@
+                @if (_widgetType == WidgetType.KpiCard)
+                {
+                    <MudSelect @bind-Value="_kpiMetric"
+                               Label="Metric"
+                               Variant="Variant.Outlined"
+                               Required="true">
+                        <MudSelectItem Value="@("TotalSubscriptions")">Total Subscriptions</MudSelectItem>
+                        <MudSelectItem Value="@("ActiveSubscriptions")">Active Subscriptions</MudSelectItem>
+                        <MudSelectItem Value="@("TotalQueries")">Total Queries</MudSelectItem>
+                        <MudSelectItem Value="@("TotalNotificationsSent")">Notifications Sent</MudSelectItem>
+                        <MudSelectItem Value="@("UnresolvedTasks")">Unresolved Tasks</MudSelectItem>
+                        <MudSelectItem Value="@("TotalAnomalies")">Total Anomalies</MudSelectItem>
+                    </MudSelect>
+
+                    <MudSelect @bind-Value="_kpiColorClass"
+                               Label="Color"
+                               Variant="Variant.Outlined">
+                        <MudSelectItem Value="@("hero-stat-card-primary")">Primary (Blue)</MudSelectItem>
+                        <MudSelectItem Value="@("hero-stat-card-success")">Success (Green)</MudSelectItem>
+                        <MudSelectItem Value="@("hero-stat-card-warning")">Warning (Orange)</MudSelectItem>
+                        <MudSelectItem Value="@("hero-stat-card-error")">Error (Red)</MudSelectItem>
+                        <MudSelectItem Value="@("hero-stat-card-info")">Info (Cyan)</MudSelectItem>
+                    </MudSelect>
+                }
+
+                @* Chart Configuration *@
+                @if (_widgetType == WidgetType.LineChart || _widgetType == WidgetType.BarChart)
+                {
+                    <MudSelect @bind-Value="_chartTimeRange"
+                               Label="Time Range"
+                               Variant="Variant.Outlined">
+                        <MudSelectItem Value="@("7days")">Last 7 Days</MudSelectItem>
+                        <MudSelectItem Value="@("30days")">Last 30 Days</MudSelectItem>
+                        <MudSelectItem Value="@("90days")">Last 90 Days</MudSelectItem>
+                    </MudSelect>
+                }
+
+                @* Table Configuration *@
+                @if (_widgetType == WidgetType.Table)
+                {
+                    <MudSelect @bind-Value="_tableType"
+                               Label="Table Type"
+                               Variant="Variant.Outlined">
+                        <MudSelectItem Value="@("TopSubscriptions")">Top Subscriptions</MudSelectItem>
+                    </MudSelect>
+
+                    <MudNumericField @bind-Value="_tableMaxRows"
+                                     Label="Max Rows"
+                                     Min="5"
+                                     Max="50"
+                                     Variant="Variant.Outlined"/>
+                }
+
+                @* Gauge Configuration *@
+                @if (_widgetType == WidgetType.Gauge)
+                {
+                    <MudSelect @bind-Value="_gaugeMetric"
+                               Label="Metric"
+                               Variant="Variant.Outlined"
+                               Required="true">
+                        <MudSelectItem Value="@("TotalSubscriptions")">Total Subscriptions</MudSelectItem>
+                        <MudSelectItem Value="@("ActiveSubscriptions")">Active Subscriptions</MudSelectItem>
+                        <MudSelectItem Value="@("UnresolvedTasks")">Unresolved Tasks</MudSelectItem>
+                    </MudSelect>
+
+                    <MudNumericField @bind-Value="_gaugeMin"
+                                     Label="Min Value"
+                                     Variant="Variant.Outlined"/>
+
+                    <MudNumericField @bind-Value="_gaugeMax"
+                                     Label="Max Value"
+                                     Variant="Variant.Outlined"/>
+                }
+            </MudStack>
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary"
+                   Variant="Variant.Filled"
+                   OnClick="AddWidget"
+                   Disabled="@(!_isValid || _isAdding)">
+            @if (_isAdding)
+            {
+                <MudProgressCircular Size="Size.Small" Indeterminate="true"/>
+                <span class="ml-2">Adding...</span>
+            }
+            else
+            {
+                <text>Add Widget</text>
+            }
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter] public int DashboardId { get; set; }
+
+    private MudForm _form = null!;
+    private bool _isValid;
+    private bool _isAdding;
+
+    private WidgetType _widgetType = WidgetType.KpiCard;
+    private string _title = string.Empty;
+
+    // KPI Card config
+    private string _kpiMetric = "TotalSubscriptions";
+    private string _kpiColorClass = "hero-stat-card-primary";
+
+    // Chart config
+    private string _chartTimeRange = "30days";
+
+    // Table config
+    private string _tableType = "TopSubscriptions";
+    private int _tableMaxRows = 10;
+
+    // Gauge config
+    private string _gaugeMetric = "TotalSubscriptions";
+    private double _gaugeMin = 0;
+    private double _gaugeMax = 100;
+
+    private void Cancel()
+    {
+        MudDialog.Cancel();
+    }
+
+    private async Task AddWidget()
+    {
+        if (!_isValid)
+        {
+            return;
+        }
+
+        _isAdding = true;
+
+        try
+        {
+            var configJson = _widgetType switch
+            {
+                WidgetType.KpiCard => JsonSerializer.Serialize(new KpiCardWidgetConfiguration
+                {
+                    Metric = _kpiMetric,
+                    ColorClass = _kpiColorClass,
+                    Icon = Icons.Material.Filled.Dashboard,
+                    Badge = "Live"
+                }),
+                WidgetType.LineChart or WidgetType.BarChart => JsonSerializer.Serialize(new ChartWidgetConfiguration
+                {
+                    ChartType = _widgetType == WidgetType.LineChart ? "Line" : "Bar",
+                    TimeRange = _chartTimeRange,
+                    Series = new List<string> { "Average" }
+                }),
+                WidgetType.Table => JsonSerializer.Serialize(new TableWidgetConfiguration
+                {
+                    TableType = _tableType,
+                    MaxRows = _tableMaxRows
+                }),
+                WidgetType.Gauge => JsonSerializer.Serialize(new GaugeWidgetConfiguration
+                {
+                    Metric = _gaugeMetric,
+                    MinValue = _gaugeMin,
+                    MaxValue = _gaugeMax,
+                    Thresholds = new List<GaugeThreshold>
+                    {
+                        new() { Value = 0, Color = "success", Label = "Good" },
+                        new() { Value = 50, Color = "warning", Label = "Warning" },
+                        new() { Value = 80, Color = "error", Label = "Critical" }
+                    }
+                }),
+                _ => "{}"
+            };
+
+            var command = new AddWidgetCommand(
+                DashboardId: DashboardId,
+                Title: _title,
+                WidgetType: _widgetType,
+                ConfigurationJson: configJson,
+                PositionX: null,
+                PositionY: null,
+                Width: _widgetType == WidgetType.Table ? 12 : 6,
+                Height: _widgetType == WidgetType.KpiCard ? 1 : 2,
+                RefreshIntervalSeconds: null
+            );
+
+            var result = await Mediator.Send(command);
+            MudDialog.Close(DialogResult.Ok(result.WidgetId));
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error adding widget: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _isAdding = false;
+        }
+    }
+}

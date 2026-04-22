@@ -7,26 +7,26 @@ has_children: true
 
 # Getting Started
 
-Welcome to Semantico! This section will guide you through deploying Semantico and creating your first database alert in under 30 minutes.
+Welcome to Beacon! This section will guide you through deploying Beacon and creating your first database alert in under 30 minutes.
 
 ## What You'll Learn
 
-- **Installation** - Deploy Semantico to your environment
+- **Installation** - Deploy Beacon to your environment
 - **Quick Start** - Create your first query and notification
-- **Configuration** - Customize Semantico for your environment
+- **Configuration** - Customize Beacon for your environment
 
 ## Prerequisites
 
 Before you begin, ensure you have:
 
 - .NET 8.0+ runtime
-- PostgreSQL 12+ or SQL Server database for Semantico metadata storage
+- PostgreSQL 12+ or SQL Server database for Beacon metadata storage
 - Basic SQL knowledge
 - (Optional) SendGrid API key for email notifications
 
 ## Quick Overview
 
-Semantico enables you to:
+Beacon enables you to:
 
 1. **Connect** to your databases (PostgreSQL, SQL Server, MySQL)
 2. **Define** SQL queries to monitor your data
@@ -41,7 +41,7 @@ Let's get started!
 <div class="code-example" markdown="1">
 📦 **[Installation Guide →](installation)**
 
-Deploy Semantico to your environment in under 10 minutes
+Deploy Beacon to your environment in under 10 minutes
 </div>
 
 <div class="code-example" markdown="1">

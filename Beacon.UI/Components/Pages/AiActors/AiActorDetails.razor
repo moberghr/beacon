@@ -1,0 +1,507 @@
+@page "/ai-actors/{ActorId:int}"
+@inherits BasePageComponent
+@using Beacon.Core
+@using Beacon.Core.Data.Enums
+@using Beacon.Core.Handlers.Ai.AiActor
+@using Beacon.Core.Handlers.Queries
+@using Beacon.Core.Models.Ai
+@using MediatR
+
+<BeaconPageTitle Title="@(_actor?.Name ?? "AI Actor Details")"/>
+
+<MudContainer Class="my-4 px-4" MaxWidth="MaxWidth.ExtraExtraLarge">
+    @if (_configuration?.UseAI != true)
+    {
+        <MudAlert Severity="Severity.Warning" Class="mb-4">
+            <MudText Typo="Typo.body1" Class="mb-2"><strong>AI features are not enabled.</strong></MudText>
+            <MudText Typo="Typo.body2">
+                To use AI Actors, you need to:
+                <ol class="mt-2 mb-0">
+                    <li>Configure LLM settings in your <code>appsettings.json</code></li>
+                    <li>Set <code>options.UseAI = true</code> in your startup configuration</li>
+                </ol>
+            </MudText>
+        </MudAlert>
+    }
+    else if (_loading)
+    {
+        <MudProgressLinear Color="Color.Primary" Indeterminate="true" />
+    }
+    else if (_actor == null)
+    {
+        <MudAlert Severity="Severity.Error">AI Actor not found.</MudAlert>
+    }
+    else
+    {
+        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-4">
+            <MudStack Row="true" AlignItems="AlignItems.Center">
+                <MudIconButton Icon="@Icons.Material.Filled.ArrowBack" Href="ai-actors" />
+                <MudIcon Icon="@Icons.Material.Filled.SmartToy" Size="Size.Large" Class="mr-2" />
+                <MudText Typo="Typo.h5">@_actor.Name</MudText>
+                <MudChip T="string" Size="Size.Small" Color="@GetStatusColor(_actor.Status)" Variant="Variant.Filled" Class="ml-2">
+                    @_actor.Status.ToString()
+                </MudChip>
+            </MudStack>
+            <MudStack Row="true" Spacing="2">
+                @if (_actor.PendingPlanCount > 0)
+                {
+                    <MudButton Variant="Variant.Filled" Color="Color.Warning" OnClick="@OpenPendingPlanReview" StartIcon="@Icons.Material.Filled.RateReview">
+                        Review Plan (@_actor.PendingPlanCount)
+                    </MudButton>
+                }
+                @if (_actor.Status == AiActorStatus.Active)
+                {
+                    <MudButton Variant="Variant.Outlined" Color="Color.Warning" OnClick="@PauseActor" Disabled="@(!_canWrite)">Pause</MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@TriggerThinkCycle" Disabled="@(!_canWrite || _executingThinkCycle)">
+                        @(_executingThinkCycle ? "Thinking..." : "Trigger Think Cycle")
+                    </MudButton>
+                }
+                else if (_actor.Status == AiActorStatus.Paused || _actor.Status == AiActorStatus.Failed)
+                {
+                    <MudButton Variant="Variant.Filled" Color="Color.Success" OnClick="@ResumeActor" Disabled="@(!_canWrite)">Resume</MudButton>
+                }
+                <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="@OpenRefineDialog" Disabled="@(!_canWrite)">Refine</MudButton>
+                <MudIconButton Icon="@Icons.Material.Filled.Archive" Color="Color.Error" OnClick="@ArchiveActor" Title="Archive Actor" Disabled="@(!_isAdmin)" />
+            </MudStack>
+        </MudStack>
+
+        <MudGrid>
+            <!-- Overview Card -->
+            <MudItem xs="12" md="4">
+                <MudPaper Class="pa-4">
+                    <MudText Typo="Typo.subtitle1" Class="mb-3">Overview</MudText>
+                    <MudStack Spacing="2">
+                        <MudStack Row="true" Justify="Justify.SpaceBetween">
+                            <MudText Typo="Typo.body2" Color="Color.Secondary">Data Source</MudText>
+                            <MudText Typo="Typo.body2">@_actor.DataSourceName</MudText>
+                        </MudStack>
+                        <MudStack Row="true" Justify="Justify.SpaceBetween">
+                            <MudText Typo="Typo.body2" Color="Color.Secondary">Think Cycles</MudText>
+                            <MudText Typo="Typo.body2">@_actor.ThinkCount</MudText>
+                        </MudStack>
+                        <MudStack Row="true" Justify="Justify.SpaceBetween">
+                            <MudText Typo="Typo.body2" Color="Color.Secondary">Tokens Used</MudText>
+                            <MudText Typo="Typo.body2">@_actor.TotalTokensUsed.ToString("N0")</MudText>
+                        </MudStack>
+                        <MudStack Row="true" Justify="Justify.SpaceBetween">
+                            <MudText Typo="Typo.body2" Color="Color.Secondary">Total Cost</MudText>
+                            <MudText Typo="Typo.body2">$@_actor.TotalCost.ToString("F4")</MudText>
+                        </MudStack>
+                        @if (_actor.LastThinkTime.HasValue)
+                        {
+                            <MudStack Row="true" Justify="Justify.SpaceBetween">
+                                <MudText Typo="Typo.body2" Color="Color.Secondary">Last Think</MudText>
+                                <MudText Typo="Typo.body2">@_actor.LastThinkTime.Value.ToString("g")</MudText>
+                            </MudStack>
+                        }
+                        <MudStack Row="true" Justify="Justify.SpaceBetween">
+                            <MudText Typo="Typo.body2" Color="Color.Secondary">Created</MudText>
+                            <MudText Typo="Typo.body2">@_actor.CreatedTime.ToString("g")</MudText>
+                        </MudStack>
+                    </MudStack>
+                    @if (!string.IsNullOrEmpty(_actor.LastError))
+                    {
+                        <MudAlert Severity="Severity.Error" Class="mt-3" Dense="true">@_actor.LastError</MudAlert>
+                    }
+                </MudPaper>
+            </MudItem>
+
+            <!-- Instructions Card -->
+            <MudItem xs="12" md="8">
+                <MudPaper Class="pa-4">
+                    <MudText Typo="Typo.subtitle1" Class="mb-3">Monitoring Instructions</MudText>
+                    <MudText Typo="Typo.body2">@_actor.Instructions</MudText>
+                    @if (!string.IsNullOrEmpty(_actor.AdditionalContext))
+                    {
+                        <MudText Typo="Typo.subtitle2" Class="mt-4 mb-2">Additional Context</MudText>
+                        <MudText Typo="Typo.body2" Color="Color.Secondary">@_actor.AdditionalContext</MudText>
+                    }
+                </MudPaper>
+            </MudItem>
+        </MudGrid>
+
+        <MudTabs Elevation="0" Rounded="true" ApplyEffectsToContainer="true" Class="mt-4">
+            <!-- Queries Tab -->
+            <MudTabPanel Text="Queries" Icon="@Icons.Material.Filled.Code" BadgeData="@_actor.Queries.Count" BadgeColor="Color.Primary">
+                @if (_actor.Queries.Any())
+                {
+                    <MudTable Items="@_actor.Queries" Dense="true" Hover="true" Class="mt-2">
+                        <HeaderContent>
+                            <MudTh>ID</MudTh>
+                            <MudTh>Name</MudTh>
+                            <MudTh>Description</MudTh>
+                            <MudTh>Subscriptions</MudTh>
+                            <MudTh>Locked</MudTh>
+                            <MudTh>Created</MudTh>
+                            <MudTh>Actions</MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd>@context.QueryId</MudTd>
+                            <MudTd>
+                                <MudLink Href="@($"queries/{context.QueryId}")">@context.Name</MudLink>
+                                <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Outlined" Class="ml-2">AI</MudChip>
+                            </MudTd>
+                            <MudTd>@(context.Description?.Length > 50 ? context.Description[..50] + "..." : context.Description)</MudTd>
+                            <MudTd>@context.SubscriptionCount</MudTd>
+                            <MudTd>
+                                <MudTooltip Text="@(context.IsLocked ? "Locked - AI cannot modify this query" : "Unlocked - AI can modify this query")">
+                                    <MudIconButton
+                                        Icon="@(context.IsLocked ? Icons.Material.Filled.Lock : Icons.Material.Filled.LockOpen)"
+                                        Color="@(context.IsLocked ? Color.Warning : Color.Default)"
+                                        Size="Size.Small"
+                                        OnClick="@(() => ToggleQueryLock(context))"
+                                        Disabled="@(!_isAdmin)"
+                                    />
+                                </MudTooltip>
+                            </MudTd>
+                            <MudTd>@context.CreatedTime.ToString("g")</MudTd>
+                            <MudTd>
+                                <MudIconButton Icon="@Icons.Material.Filled.Visibility" Size="Size.Small" Href="@($"queries/{context.QueryId}")" />
+                            </MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                }
+                else
+                {
+                    <MudAlert Severity="Severity.Info" Class="mt-2">No queries created by this actor yet.</MudAlert>
+                }
+            </MudTabPanel>
+
+            <!-- Subscriptions Tab -->
+            <MudTabPanel Text="Subscriptions" Icon="@Icons.Material.Filled.Schedule" BadgeData="@_actor.Subscriptions.Count" BadgeColor="Color.Primary">
+                @if (_actor.Subscriptions.Any())
+                {
+                    <MudTable Items="@_actor.Subscriptions" Dense="true" Hover="true" Class="mt-2">
+                        <HeaderContent>
+                            <MudTh>ID</MudTh>
+                            <MudTh>Query</MudTh>
+                            <MudTh>Schedule</MudTh>
+                            <MudTh>Trigger</MudTh>
+                            <MudTh>Created</MudTh>
+                            <MudTh>Actions</MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd>@context.SubscriptionId</MudTd>
+                            <MudTd>
+                                @context.QueryName
+                                <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Outlined" Class="ml-2">AI</MudChip>
+                            </MudTd>
+                            <MudTd><code>@context.CronExpression</code></MudTd>
+                            <MudTd>@context.NotificationTrigger.ToString()</MudTd>
+                            <MudTd>@context.CreatedTime.ToString("g")</MudTd>
+                            <MudTd>
+                                <MudIconButton Icon="@Icons.Material.Filled.Visibility" Size="Size.Small" Href="@($"subscriptions/{context.SubscriptionId}")" />
+                            </MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                }
+                else
+                {
+                    <MudAlert Severity="Severity.Info" Class="mt-2">No subscriptions created by this actor yet.</MudAlert>
+                }
+            </MudTabPanel>
+
+            <!-- Executions Tab -->
+            <MudTabPanel Text="Executions" Icon="@Icons.Material.Filled.History" BadgeData="@_actor.RecentExecutions.Count" BadgeColor="Color.Primary">
+                @if (_actor.RecentExecutions.Any())
+                {
+                    <MudTable Items="@_actor.RecentExecutions" Dense="true" Hover="true" Class="mt-2">
+                        <HeaderContent>
+                            <MudTh>ID</MudTh>
+                            <MudTh>Phase</MudTh>
+                            <MudTh>Started</MudTh>
+                            <MudTh>Duration</MudTh>
+                            <MudTh>Queries Created</MudTh>
+                            <MudTh>Subs Created</MudTh>
+                            <MudTh>Tokens</MudTh>
+                            <MudTh>Cost</MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd>@context.ExecutionId</MudTd>
+                            <MudTd>
+                                <MudChip T="string" Size="Size.Small" Color="@GetPhaseColor(context.Phase)" Variant="Variant.Filled">
+                                    @context.Phase.ToString()
+                                </MudChip>
+                            </MudTd>
+                            <MudTd>@context.StartedAt.ToString("g")</MudTd>
+                            <MudTd>
+                                @if (context.CompletedAt.HasValue)
+                                {
+                                    var duration = context.CompletedAt.Value - context.StartedAt;
+                                    @($"{duration.TotalSeconds:F1}s")
+                                }
+                                else
+                                {
+                                    <span>-</span>
+                                }
+                            </MudTd>
+                            <MudTd>@context.QueriesCreated</MudTd>
+                            <MudTd>@context.SubscriptionsCreated</MudTd>
+                            <MudTd>@context.TokensUsed.ToString("N0")</MudTd>
+                            <MudTd>$@context.EstimatedCost.ToString("F4")</MudTd>
+                        </RowTemplate>
+                        <ChildRowContent>
+                            @if (!string.IsNullOrEmpty(context.DecisionSummary))
+                            {
+                                <MudTr>
+                                    <td colspan="8">
+                                        <MudPaper Elevation="0" Class="pa-3 ma-2">
+                                            <MudText Typo="Typo.caption" Color="Color.Secondary">Decision Summary</MudText>
+                                            <MudText Typo="Typo.body2">@context.DecisionSummary</MudText>
+                                        </MudPaper>
+                                    </td>
+                                </MudTr>
+                            }
+                            @if (!string.IsNullOrEmpty(context.ErrorMessage))
+                            {
+                                <MudTr>
+                                    <td colspan="8">
+                                        <MudAlert Severity="Severity.Error" Class="ma-2" Dense="true">@context.ErrorMessage</MudAlert>
+                                    </td>
+                                </MudTr>
+                            }
+                        </ChildRowContent>
+                    </MudTable>
+                }
+                else
+                {
+                    <MudAlert Severity="Severity.Info" Class="mt-2">No executions recorded yet.</MudAlert>
+                }
+            </MudTabPanel>
+        </MudTabs>
+    }
+</MudContainer>
+
+@inject ISnackbar Snackbar
+@inject IMediator Mediator
+@inject IDialogService DialogService
+@inject NavigationManager NavigationManager
+@inject BeaconConfiguration _configuration
+@inject Beacon.Core.Authorization.IBeaconAuthorizationProvider AuthorizationProvider
+@inject Beacon.Core.Authorization.IBeaconUserContext UserContext
+
+@code {
+    [Parameter]
+    public int ActorId { get; set; }
+
+    private GetAiActorDetailsResult? _actor;
+    private bool _loading = true;
+    private bool _executingThinkCycle;
+    private bool _canWrite;
+    private bool _isAdmin;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _canWrite = await AuthorizationProvider.HasWritePermissionAsync();
+        _isAdmin = UserContext.HasClaim("role", "Admin") ||
+                   UserContext.HasClaim("http://schemas.microsoft.com/ws/2008/06/identity/claims/role", "Admin") ||
+                   UserContext.HasClaim("beacon:role", "Admin");
+        await LoadActorAsync();
+    }
+
+    private async Task LoadActorAsync()
+    {
+        _loading = true;
+        StateHasChanged();
+
+        try
+        {
+            var query = new GetAiActorDetailsQuery { ActorId = ActorId };
+            _actor = await Mediator.Send(query);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to load actor: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task TriggerThinkCycle()
+    {
+        _executingThinkCycle = true;
+        StateHasChanged();
+
+        try
+        {
+            var command = new ExecuteAiActorThinkCycleCommand { ActorId = ActorId };
+            var result = await Mediator.Send(command);
+
+            if (result.Success)
+            {
+                Snackbar.Add($"Think cycle completed! Created {result.QueriesCreated} queries, {result.SubscriptionsCreated} subscriptions.", Severity.Success);
+            }
+            else
+            {
+                Snackbar.Add($"Think cycle failed: {result.ErrorMessage}", Severity.Error);
+            }
+
+            await LoadActorAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to execute think cycle: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _executingThinkCycle = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task PauseActor()
+    {
+        try
+        {
+            var command = new PauseAiActorCommand { ActorId = ActorId };
+            await Mediator.Send(command);
+            Snackbar.Add("Actor paused", Severity.Success);
+            await LoadActorAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to pause actor: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task ResumeActor()
+    {
+        try
+        {
+            var command = new ResumeAiActorCommand { ActorId = ActorId };
+            await Mediator.Send(command);
+            Snackbar.Add("Actor resumed", Severity.Success);
+            await LoadActorAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to resume actor: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task ArchiveActor()
+    {
+        var confirmed = await DialogService.ShowMessageBox(
+            "Archive Actor",
+            "Are you sure you want to archive this AI Actor? This will stop all monitoring.",
+            yesText: "Archive",
+            cancelText: "Cancel");
+
+        if (confirmed == true)
+        {
+            try
+            {
+                var command = new ArchiveAiActorCommand { ActorId = ActorId };
+                await Mediator.Send(command);
+                Snackbar.Add("Actor archived", Severity.Success);
+                NavigationManager.NavigateTo("ai-actors");
+            }
+            catch (Exception ex)
+            {
+                Snackbar.Add($"Failed to archive actor: {ex.Message}", Severity.Error);
+            }
+        }
+    }
+
+    private async Task OpenRefineDialog()
+    {
+        var parameters = new DialogParameters<RefineAiActorDialog>
+        {
+            { x => x.ActorId, ActorId }
+        };
+
+        var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true };
+        var dialog = await DialogService.ShowAsync<RefineAiActorDialog>("Refine AI Actor", parameters, options);
+        var result = await dialog.Result;
+
+        if (!result.Canceled)
+        {
+            await LoadActorAsync();
+        }
+    }
+
+    private Color GetStatusColor(AiActorStatus status) => status switch
+    {
+        AiActorStatus.Active => Color.Success,
+        AiActorStatus.Paused => Color.Warning,
+        AiActorStatus.Failed => Color.Error,
+        AiActorStatus.Archived => Color.Default,
+        AiActorStatus.Draft => Color.Info,
+        _ => Color.Default
+    };
+
+    private Color GetPhaseColor(AiActorExecutionPhase phase) => phase switch
+    {
+        AiActorExecutionPhase.Completed => Color.Success,
+        AiActorExecutionPhase.Failed => Color.Error,
+        AiActorExecutionPhase.Analyzing or AiActorExecutionPhase.Planning or AiActorExecutionPhase.Executing => Color.Info,
+        AiActorExecutionPhase.Notifying => Color.Warning,
+        _ => Color.Default
+    };
+
+    private async Task ToggleQueryLock(AiActorQueryInfo query)
+    {
+        try
+        {
+            var command = new ToggleQueryLockCommand
+            {
+                QueryId = query.QueryId,
+                Lock = !query.IsLocked
+            };
+
+            await Mediator.Send(command);
+
+            var action = query.IsLocked ? "unlocked" : "locked";
+            Snackbar.Add($"Query {action} successfully", Severity.Success);
+            await LoadActorAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to toggle lock: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task OpenPendingPlanReview()
+    {
+        try
+        {
+            // Get the first pending plan
+            var query = new GetPendingPlansQuery { ActorId = ActorId };
+            var result = await Mediator.Send(query);
+
+            var pendingPlan = result.Plans.FirstOrDefault();
+            if (pendingPlan == null)
+            {
+                Snackbar.Add("No pending plans to review", Severity.Info);
+                return;
+            }
+
+            var parameters = new DialogParameters<ReviewAiActorPlanDialog>
+            {
+                { x => x.PlanId, pendingPlan.PlanId }
+            };
+
+            var options = new DialogOptions
+            {
+                MaxWidth = MaxWidth.Large,
+                FullWidth = true,
+                CloseOnEscapeKey = true
+            };
+
+            var dialog = await DialogService.ShowAsync<ReviewAiActorPlanDialog>("Review AI Plan", parameters, options);
+            var dialogResult = await dialog.Result;
+
+            if (!dialogResult.Canceled)
+            {
+                await LoadActorAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to open plan review: {ex.Message}", Severity.Error);
+        }
+    }
+}

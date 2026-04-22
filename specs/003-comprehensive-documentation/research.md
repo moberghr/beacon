@@ -14,8 +14,8 @@ This research document identifies existing documentation patterns, project struc
 
 | File | Location | Purpose | Status |
 |------|----------|---------|--------|
-| README.md | `/Users/mirkobudimir/Dev/semantico/README.md` | High-level overview, Getting Started | ✅ Exists |
-| CLAUDE.md | `/Users/mirkobudimir/Dev/semantico/CLAUDE.md` | Development guidelines for Claude Code | ✅ Exists |
+| README.md | `/Users/mirkobudimir/Dev/beacon/README.md` | High-level overview, Getting Started | ✅ Exists |
+| CLAUDE.md | `/Users/mirkobudimir/Dev/beacon/CLAUDE.md` | Development guidelines for Claude Code | ✅ Exists |
 | SCHEMA_AGNOSTIC_MIGRATIONS.md | Root | Advanced schema migration guide | ✅ Exists |
 
 ### Documentation Gaps (High Priority)
@@ -32,12 +32,12 @@ This research document identifies existing documentation patterns, project struc
 ### Solution Architecture
 
 ```
-Semantico/
-├── Semantico.Core/                    # Core domain logic
+Beacon/
+├── Beacon.Core/                    # Core domain logic
 │   ├── Data/
 │   │   ├── Entities/                  # Domain models (Project, Query, Subscription, etc.)
 │   │   ├── Enums/
-│   │   └── SemanticoContext.cs       # EF Core DbContext
+│   │   └── BeaconContext.cs       # EF Core DbContext
 │   ├── Services/                      # Domain services (IProjectService, IQueryService, etc.)
 │   ├── Models/                        # DTOs (ProjectData, QueryData, etc.)
 │   ├── Features/
@@ -45,17 +45,17 @@ Semantico/
 │   ├── Adapters/                      # Teams, Jira, Email integration
 │   └── Worker/                        # Hangfire job scheduling
 │
-├── Semantico.UI/                      # Blazor UI components
+├── Beacon.UI/                      # Blazor UI components
 │   ├── Components/
 │   │   ├── Pages/                     # Main pages (Projects, Queries, Subscriptions, etc.)
 │   │   └── Shared/                    # Reusable components
 │   └── wwwroot/                       # Static assets
 │
-├── Semantico.UI.AspNet/               # ASP.NET integration
-├── Semantico.SampleProject/           # Sample application
-├── Semantico.Core.PostgreSql/         # PostgreSQL provider
-├── Semantico.Core.SqlServer/          # SQL Server provider
-└── Semantico.Tests/                   # Unit tests
+├── Beacon.UI.AspNet/               # ASP.NET integration
+├── Beacon.SampleProject/           # Sample application
+├── Beacon.Core.PostgreSql/         # PostgreSQL provider
+├── Beacon.Core.SqlServer/          # SQL Server provider
+└── Beacon.Tests/                   # Unit tests
 ```
 
 ### Key Features to Document
@@ -103,33 +103,33 @@ Based on entity and service analysis:
 dotnet build --property WarningLevel=0
 
 # Run application
-dotnet run --project Semantico.SampleProject
+dotnet run --project Beacon.SampleProject
 
 # Watch for changes
-dotnet watch run --project Semantico.SampleProject
+dotnet watch run --project Beacon.SampleProject
 ```
 
 ### Database Setup
 
 ```bash
 # Generate provider-specific migrations
-dotnet ef migrations add MigrationName --project Semantico.Core.PostgreSql --startup-project Semantico.SampleProject
-dotnet ef migrations add MigrationName --project Semantico.Core.SqlServer --startup-project Semantico.SampleProject
+dotnet ef migrations add MigrationName --project Beacon.Core.PostgreSql --startup-project Beacon.SampleProject
+dotnet ef migrations add MigrationName --project Beacon.Core.SqlServer --startup-project Beacon.SampleProject
 
 # Update database
-dotnet ef database update --project Semantico.Core --startup-project Semantico.SampleProject
+dotnet ef database update --project Beacon.Core --startup-project Beacon.SampleProject
 ```
 
 ### Environment Configuration
 
 **Required:**
-- `ConnectionStrings__SemanticoContext` - PostgreSQL connection string for Semantico base database
+- `ConnectionStrings__BeaconContext` - PostgreSQL connection string for Beacon base database
 
 **Optional:**
 - `SendGridSettings__ApiKey` - SendGrid API key for email notifications
 - `SendGridSettings__SenderEmail` - Sender email address
 - `SendGridSettings__SenderName` - Sender display name
-- `Semantico:Schema` - Custom schema name (default: "semantico")
+- `Beacon:Schema` - Custom schema name (default: "beacon")
 
 ### Docker Deployment
 
@@ -137,12 +137,12 @@ Current deployment method uses Docker Compose (example in README.md):
 
 ```yaml
 services:
-  semantico:
-    image: 'ghcr.io/MiBu/semantico:latest'
+  beacon:
+    image: 'ghcr.io/moberghr/beacon:latest'
     ports:
       - 8080:80
     environment:
-      - ConnectionStrings__SemanticoContext=...
+      - ConnectionStrings__BeaconContext=...
       - SendGridSettings__ApiKey=...
 ```
 

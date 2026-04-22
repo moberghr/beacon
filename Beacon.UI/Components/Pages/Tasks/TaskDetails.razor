@@ -1,0 +1,666 @@
+@page "/tasks/{id:int}"
+@inherits BasePageComponent
+@using Beacon.Core.DTOs
+@using Beacon.Core.Data.Enums
+@using Beacon.Core.Models.Anomaly
+@using Beacon.Core.Services
+@using Beacon.Core.Helpers
+@using Beacon.UI.Helpers
+
+<BeaconPageTitle Title="Task Details"/>
+
+<MudContainer Class="my-4 px-4"  MaxWidth="MaxWidth.ExtraExtraLarge">
+    @if (_loading)
+    {
+        <MudCard>
+            <MudCardContent>
+                <MudSkeleton Animation="Animation.Wave"/>
+            </MudCardContent>
+        </MudCard>
+    }
+    else if (Model == null)
+    {
+        <MudAlert Severity="Severity.Error">Task not found.</MudAlert>
+    }
+    else
+    {
+        <!-- Page Header -->
+        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-6">
+            <MudStack Spacing="1">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                    <MudText Typo="Typo.h3" Style="font-weight: 600;">
+                        <MudIcon Icon="@Icons.Material.Filled.Task" Class="mr-2" />
+                        Task #@Model.Id
+                    </MudText>
+                    <SourceChip AiActorId="@Model.AiActorId" AiActorName="@Model.AiActorName" Compact="false" />
+                </MudStack>
+                <MudText Typo="Typo.body2" Color="Color.Secondary">
+                    Created @Model.CreatedAt.ToString("MMM dd, yyyy HH:mm") • @(Model.Resolved ? "Resolved" : "Open")
+                </MudText>
+            </MudStack>
+            <MudStack Row="true" Spacing="2">
+                @if (!Model.Resolved)
+                {
+                    <MudButton Variant="Variant.Filled" Color="Color.Success" OnClick="@ShowResolveDialog">
+                        <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Class="mr-2"/>
+                        Resolve
+                    </MudButton>
+                }
+                else
+                {
+                    <MudButton Variant="Variant.Filled" Color="Color.Warning" OnClick="@ReopenTask">
+                        <MudIcon Icon="@Icons.Material.Filled.Refresh" Class="mr-2"/>
+                        Reopen
+                    </MudButton>
+                }
+            </MudStack>
+        </MudStack>
+
+        <!-- Hero Statistics Cards -->
+        <MudGrid Spacing="3" Class="mb-4">
+            <MudItem xs="12" sm="6" md="3">
+                <HeroStatCard CardClass="hero-stat-card" Icon="@Icons.Material.Filled.Analytics" Badge="Latest"
+                              Value="@Model.LatestResultCount.ToString()" Label="Latest Result Count" />
+            </MudItem>
+            <MudItem xs="12" sm="6" md="3">
+                <HeroStatCard CardClass="hero-stat-card-warning" Icon="@Icons.Material.Filled.Notifications" Badge="Sent"
+                              Value="@Model.NotificationCount.ToString()" Label="Notifications" />
+            </MudItem>
+            <MudItem xs="12" sm="6" md="3">
+                <HeroStatCard CardClass="hero-stat-card-info" Icon="@Icons.Material.Filled.PlayArrow" Badge="Total"
+                              Value="@_executionHistory.Count.ToString()" Label="Executions" />
+            </MudItem>
+            <MudItem xs="12" sm="6" md="3">
+                <HeroStatCard CardClass="@(Model.Resolved ? "hero-stat-card-success" : "hero-stat-card-warning")"
+                              Icon="@(Model.Resolved ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.Schedule)"
+                              Badge="@(Model.Resolved ? "Resolved" : "Open")"
+                              Value="@GetTaskAge()" Label="Task Age" />
+            </MudItem>
+        </MudGrid>
+
+        <!-- Result Count Chart -->
+        @if (_resultCountHistory.Any())
+        {
+            <MudPaper Class="detail-card pa-4 mb-4" Elevation="2">
+                <MudText Typo="Typo.h6" Class="section-title">
+                    <MudIcon Icon="@Icons.Material.Filled.ShowChart" Class="mr-2" />
+                    Result Count Progression
+                </MudText>
+                <MudChart ChartType="ChartType.Line"
+                          ChartSeries="@_chartSeries"
+                          XAxisLabels="@_xAxisLabels"
+                          Width="@ChartHelper.DefaultChartWidth"
+                          Height="@ChartHelper.DefaultChartHeight"
+                          ChartOptions="@_chartOptions"
+                          AxisChartOptions="@_axisChartOptions"/>
+            </MudPaper>
+        }
+
+        <!-- Anomaly Threshold Chart -->
+        @if (_anomalyChartData?.HasAnomalyDetection == true && _anomalyChartData.DataPoints.Any())
+        {
+            <MudPaper Class="detail-card pa-4 mb-4" Elevation="2">
+                <MudStack Spacing="3">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                        <MudText Typo="Typo.h6" Class="section-title mb-0">
+                            <MudIcon Icon="@Icons.Material.Filled.BubbleChart" Class="mr-2" />
+                            Anomaly Detection - Result Count Thresholds
+                        </MudText>
+                        <MudStack Row="true" Spacing="2">
+                            <MudChip T="string" Size="Size.Small" Color="Color.Info">@_anomalyChartData.DetectionMethod</MudChip>
+                            <MudChip T="string" Size="Size.Small" Color="Color.Secondary">@_anomalyChartData.Sensitivity Sensitivity</MudChip>
+                        </MudStack>
+                    </MudStack>
+
+                    @if (_anomalyChartData.BaselineMean.HasValue)
+                    {
+                        <MudAlert Severity="Severity.Info" Dense="true">
+                            <strong>Baseline:</strong> @_anomalyChartData.BaselineMean.Value.ToString("N0") results
+                            @if (_anomalyChartData.UpperThreshold.HasValue && _anomalyChartData.LowerThreshold.HasValue)
+                            {
+                                <span> | <strong>Threshold Range:</strong> @_anomalyChartData.LowerThreshold.Value.ToString("N0") - @_anomalyChartData.UpperThreshold.Value.ToString("N0")</span>
+                            }
+                            else if (_anomalyChartData.UpperThreshold.HasValue)
+                            {
+                                <span> | <strong>Upper Threshold:</strong> @_anomalyChartData.UpperThreshold.Value.ToString("N0")</span>
+                            }
+                            else if (_anomalyChartData.LowerThreshold.HasValue)
+                            {
+                                <span> | <strong>Lower Threshold:</strong> @_anomalyChartData.LowerThreshold.Value.ToString("N0")</span>
+                            }
+                        </MudAlert>
+                    }
+
+                    <MudChart ChartType="ChartType.Line"
+                              ChartSeries="@_anomalyChartSeries"
+                              XAxisLabels="@_anomalyXAxisLabels"
+                              Width="@ChartHelper.DefaultChartWidth"
+                              Height="@ChartHelper.DefaultChartHeight"
+                              ChartOptions="@_anomalyChartOptions"
+                              AxisChartOptions="@_anomalyAxisChartOptions" />
+
+                    <!-- Anomaly Events Legend (Last 10) -->
+                    @if (_anomalyChartData.DataPoints.Any(x => x.IsAnomaly || x.NotificationSent))
+                    {
+                        <MudStack Spacing="2">
+                            <MudText Typo="Typo.subtitle2">Recent Detection Events (Last 10):</MudText>
+                            <MudStack Row="true" Spacing="2" Style="flex-wrap: wrap;">
+                                @foreach (var point in _anomalyChartData.DataPoints.Where(x => x.IsAnomaly || x.NotificationSent).OrderByDescending(x => x.DateTime).Take(10))
+                                {
+                                    <MudChip T="string"
+                                             Size="Size.Small"
+                                             Color="@(point.IsAnomaly ? Color.Error : Color.Success)"
+                                             Icon="@(point.IsAnomaly ? Icons.Material.Filled.Warning : Icons.Material.Filled.CheckCircle)">
+                                        @point.DateTime.ToString("MMM dd HH:mm"): @point.ResultCount results
+                                        @if (point.IsAnomaly && !string.IsNullOrEmpty(point.AnomalySeverity))
+                                        {
+                                            <text> (@point.AnomalySeverity)</text>
+                                        }
+                                        @if (point.NotificationSent)
+                                        {
+                                            <text> ✓ Notified</text>
+                                        }
+                                    </MudChip>
+                                }
+                            </MudStack>
+                        </MudStack>
+                    }
+                </MudStack>
+            </MudPaper>
+        }
+
+        <!-- Task Information -->
+        <MudPaper Class="detail-card pa-4 mb-4" Elevation="2">
+            <MudText Typo="Typo.h6" Class="section-title">
+                <MudIcon Icon="@Icons.Material.Filled.Info" Class="mr-2" />
+                Task Information
+            </MudText>
+
+            <MudGrid Justify="Justify.FlexStart" Spacing="3">
+                <MudItem xs="12" md="4">
+                    <MudStack Spacing="2">
+                        <div class="info-row">
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">Task ID</MudText>
+                            <MudText Typo="Typo.body1" Style="font-weight: 600;">@Model.Id</MudText>
+                        </div>
+                        <div class="info-row">
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">Created</MudText>
+                            <MudText Typo="Typo.body1" Style="font-weight: 600;">@Model.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss")</MudText>
+                        </div>
+                        @if (Model.LastNotificationAt.HasValue)
+                        {
+                            <div class="info-row">
+                                <MudText Typo="Typo.caption" Color="Color.Secondary">Last Notification</MudText>
+                                <MudText Typo="Typo.body1" Style="font-weight: 600;">@Model.LastNotificationAt.Value.ToString("yyyy-MM-dd HH:mm:ss")</MudText>
+                            </div>
+                        }
+                    </MudStack>
+                </MudItem>
+                <MudItem xs="12" md="4">
+                    <MudStack Spacing="2">
+                        <div class="info-row">
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">Subscription</MudText>
+                            <MudLink Href="@($"subscriptions/{Model.Subscription.Id}")" Typo="Typo.body1" Style="font-weight: 600;">
+                                @Model.Subscription.Name
+                            </MudLink>
+                        </div>
+                        <div class="info-row">
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">Query</MudText>
+                            <MudLink Href="@($"queries/{Model.QueryId}")" Typo="Typo.body1" Style="font-weight: 600;">
+                                @Model.QueryName
+                            </MudLink>
+                        </div>
+                    </MudStack>
+                </MudItem>
+                <MudItem xs="12" md="4">
+                    <MudStack Spacing="2">
+                        @if (Model.Resolved && Model.ResolvedAt.HasValue)
+                        {
+                            <div class="info-row">
+                                <MudText Typo="Typo.caption" Color="Color.Secondary">Resolved At</MudText>
+                                <MudText Typo="Typo.body1" Style="font-weight: 600;">@Model.ResolvedAt.Value.ToString("yyyy-MM-dd HH:mm:ss")</MudText>
+                            </div>
+                            @if (!string.IsNullOrEmpty(Model.ResolutionNotes))
+                            {
+                                <div class="info-row">
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary">Resolution Notes</MudText>
+                                    <MudText Typo="Typo.body1" Style="font-weight: 600;">@Model.ResolutionNotes</MudText>
+                                </div>
+                            }
+                        }
+                        else
+                        {
+                            <div class="info-row">
+                                <MudText Typo="Typo.caption" Color="Color.Secondary">Resolution Status</MudText>
+                                <MudText Typo="Typo.body1" Color="Color.Secondary" Style="font-style: italic;">Not yet resolved</MudText>
+                            </div>
+                        }
+                    </MudStack>
+                </MudItem>
+            </MudGrid>
+        </MudPaper>
+
+        <!-- Tabs for History -->
+        <MudPaper Class="detail-card mb-4" Elevation="2">
+            <MudTabs Elevation="0" Rounded="true" ApplyEffectsToContainer="true" PanelClass="pa-4" Class="px-4 pt-2">
+                <MudTabPanel Text="Notifications" Icon="@Icons.Material.Filled.Notifications" BadgeData="@Model.NotificationCount" BadgeColor="Color.Primary">
+                    @if (Model.Notifications.Any())
+                    {
+                        <MudTable Items="@Model.Notifications" Dense="true" Hover="true" Bordered="true" Striped="true">
+                            <HeaderContent>
+                                <MudTh>ID</MudTh>
+                                <MudTh>Sent At</MudTh>
+                                <MudTh>Result Count</MudTh>
+                                <MudTh>Actions</MudTh>
+                            </HeaderContent>
+                            <RowTemplate>
+                                <MudTd DataLabel="ID">
+                                    <MudLink Href="@($"notifications/{context.Id}")">@context.Id</MudLink>
+                                </MudTd>
+                                <MudTd DataLabel="Sent At">@context.SentAt.ToString("yyyy-MM-dd HH:mm:ss")</MudTd>
+                                <MudTd DataLabel="Result Count">@context.ResultCount</MudTd>
+                                <MudTd DataLabel="Actions">
+                                    @if (!string.IsNullOrEmpty(context.StoredResults))
+                                    {
+                                        <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Primary" Href="@($"notifications/{context.Id}")">
+                                            View Results
+                                        </MudButton>
+                                    }
+                                    else
+                                    {
+                                        <MudText Color="Color.Secondary" Typo="Typo.caption">No stored results</MudText>
+                                    }
+                                </MudTd>
+                            </RowTemplate>
+                        </MudTable>
+                    }
+                    else
+                    {
+                        <MudText Color="Color.Secondary">No notifications yet</MudText>
+                    }
+                </MudTabPanel>
+
+                <MudTabPanel Text="Execution History" Icon="@Icons.Material.Filled.History" BadgeData="@_executionHistory.Count" BadgeColor="Color.Info">
+                    @if (_executionHistory.Any())
+                    {
+                        <MudTable Items="@_executionHistory" Dense="true" Hover="true" Bordered="true" Striped="true">
+                            <HeaderContent>
+                                <MudTh>ID</MudTh>
+                                <MudTh>Executed At</MudTh>
+                                <MudTh>Duration (ms)</MudTh>
+                                <MudTh>Result Count</MudTh>
+                                <MudTh>Status</MudTh>
+                            </HeaderContent>
+                            <RowTemplate>
+                                <MudTd DataLabel="ID">
+                                    <MudLink Href="@($"query-execution-history/{context.Id}")">@context.Id</MudLink>
+                                </MudTd>
+                                <MudTd DataLabel="Executed At">@context.ExecutedAt.ToString("yyyy-MM-dd HH:mm:ss")</MudTd>
+                                <MudTd DataLabel="Duration">@context.ExecutionTimeMs.ToString("F2")</MudTd>
+                                <MudTd DataLabel="Result Count">@context.ResultCount</MudTd>
+                                <MudTd DataLabel="Status">
+                                    <MudChip T="string" Size="Size.Small" Color="@GetStatusColor(context.Status)">@context.Status</MudChip>
+                                </MudTd>
+                            </RowTemplate>
+                        </MudTable>
+                    }
+                    else
+                    {
+                        <MudText Color="Color.Secondary">No execution history</MudText>
+                    }
+                </MudTabPanel>
+
+                <MudTabPanel Text="Related Tasks" Icon="@Icons.Material.Filled.AccountTree" BadgeData="@_relatedTasks.Count" BadgeColor="Color.Secondary">
+                    @if (_relatedTasks.Any())
+                    {
+                        <MudAlert Severity="Severity.Info" Class="mb-3">
+                            These are other tasks created from subscriptions using the same query.
+                        </MudAlert>
+                        <MudTable Items="@_relatedTasks" Dense="true" Hover="true" Bordered="true" Striped="true">
+                            <HeaderContent>
+                                <MudTh>Task ID</MudTh>
+                                <MudTh>Created At</MudTh>
+                                <MudTh>Latest Result Count</MudTh>
+                                <MudTh>Status</MudTh>
+                                <MudTh>Resolved At</MudTh>
+                            </HeaderContent>
+                            <RowTemplate>
+                                <MudTd DataLabel="Task ID">
+                                    <MudLink Href="@($"tasks/{context.Id}")">@context.Id</MudLink>
+                                </MudTd>
+                                <MudTd DataLabel="Created At">@context.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss")</MudTd>
+                                <MudTd DataLabel="Latest Result Count">@context.LatestResultCount</MudTd>
+                                <MudTd DataLabel="Status">
+                                    @if (context.Resolved)
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Success">Resolved</MudChip>
+                                    }
+                                    else
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Warning">Unresolved</MudChip>
+                                    }
+                                </MudTd>
+                                <MudTd DataLabel="Resolved At">
+                                    @(context.ResolvedAt?.ToString("yyyy-MM-dd HH:mm:ss") ?? "-")
+                                </MudTd>
+                            </RowTemplate>
+                        </MudTable>
+                    }
+                    else
+                    {
+                        <MudText Color="Color.Secondary">No related tasks found</MudText>
+                    }
+                </MudTabPanel>
+            </MudTabs>
+        </MudPaper>
+
+        <!-- Comments Section -->
+        <MudPaper Class="detail-card mb-4" Elevation="2">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-4">
+                <MudText Typo="Typo.h6" Class="section-title mb-0">
+                    <MudIcon Icon="@Icons.Material.Filled.Comment" Class="mr-2" />
+                    Comments (@_comments.Count)
+                </MudText>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" OnClick="@ShowAddCommentDialog">
+                    <MudIcon Icon="@Icons.Material.Filled.Add" Class="mr-1" />
+                    Add Comment
+                </MudButton>
+            </MudStack>
+
+            <MudStack Class="pa-4 pt-0" Spacing="3">
+                @if (_comments.Any())
+                {
+                    @foreach (var comment in _comments)
+                    {
+                        <MudPaper Elevation="1" Class="pa-3">
+                            <MudStack Spacing="1">
+                                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                                    <MudText Typo="Typo.subtitle2" Color="Color.Primary">
+                                        @(comment.UserName ?? "Anonymous")
+                                    </MudText>
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                        @comment.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss")
+                                    </MudText>
+                                </MudStack>
+                                <MudText Typo="Typo.body2" Style="white-space: pre-wrap;">@comment.Content</MudText>
+                            </MudStack>
+                        </MudPaper>
+                    }
+                }
+                else
+                {
+                    <MudText Color="Color.Secondary" Align="Align.Center" Class="py-4">
+                        No comments yet. Be the first to add a comment!
+                    </MudText>
+                }
+            </MudStack>
+        </MudPaper>
+    }
+</MudContainer>
+
+@inject ITaskService TaskService;
+@inject IAnomalyDetectionService AnomalyDetectionService;
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+
+@code {
+    [Parameter]
+    public int Id { get; set; }
+
+    private TaskDetailsData? Model { get; set; }
+    private bool _loading = true;
+
+    private List<QueryExecutionSummary> _executionHistory = new();
+    private List<RelatedTaskSummary> _relatedTasks = new();
+    private List<ResultCountDataPoint> _resultCountHistory = new();
+    private List<CommentData> _comments = new();
+
+    // Chart data
+    private List<ChartSeries> _chartSeries = new();
+    private string[] _xAxisLabels = Array.Empty<string>();
+    private ChartOptions _chartOptions = new();
+    private AxisChartOptions _axisChartOptions = new();
+
+    // Anomaly chart data
+    private AnomalyChartData? _anomalyChartData;
+    private List<ChartSeries> _anomalyChartSeries = new();
+    private string[] _anomalyXAxisLabels = Array.Empty<string>();
+    private ChartOptions _anomalyChartOptions = new();
+    private AxisChartOptions _anomalyAxisChartOptions = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAllData();
+    }
+
+    private async Task LoadAllData()
+    {
+        _loading = true;
+
+        Model = await TaskService.GetTaskDetails(Id, CancellationToken.None);
+
+        if (Model != null)
+        {
+            // Load all related data in parallel
+            var executionTask = TaskService.GetTaskExecutionHistory(Id, CancellationToken.None);
+            var relatedTask = TaskService.GetRelatedTasks(Id, CancellationToken.None);
+            var chartTask = TaskService.GetResultCountHistory(Id, CancellationToken.None);
+            var commentsTask = TaskService.GetTaskComments(Id, CancellationToken.None);
+
+            await Task.WhenAll(executionTask, relatedTask, chartTask, commentsTask);
+
+            _executionHistory = await executionTask;
+            _relatedTasks = await relatedTask;
+            _resultCountHistory = await chartTask;
+            _comments = await commentsTask;
+
+            PrepareChartData();
+
+            // Load anomaly chart data if anomaly detection is enabled for the subscription
+            if (Model.Subscription != null)
+            {
+                _anomalyChartData = await AnomalyDetectionService.GetAnomalyChartDataAsync(
+                    Model.Subscription.Id,
+                    30,
+                    CancellationToken.None);
+
+                if (_anomalyChartData.HasAnomalyDetection)
+                {
+                    PrepareAnomalyChart();
+                }
+            }
+        }
+
+        _loading = false;
+    }
+
+    private void PrepareChartData()
+    {
+        if (!_resultCountHistory.Any())
+            return;
+
+        // Limit to last 30 data points for readability
+        var data = _resultCountHistory.OrderBy(x => x.Date).TakeLast(30).ToList();
+
+        _xAxisLabels = data.Select(x => x.Date.ToShortDateWithoutYear()).ToArray();
+
+        _chartSeries = new List<ChartSeries>
+        {
+            new()
+            {
+                Name = "Result Count",
+                Data = data.Select(x => (double)x.ResultCount).ToArray()
+            }
+        };
+
+        _chartOptions = ChartHelper.CreateSingleSeriesChartOptions();
+        _axisChartOptions = ChartHelper.CreateDefaultAxisChartOptions();
+    }
+
+    private void PrepareAnomalyChart()
+    {
+        if (_anomalyChartData == null || !_anomalyChartData.DataPoints.Any())
+            return;
+
+        // Limit to last 30 data points for readability
+        var orderedPoints = _anomalyChartData.DataPoints.OrderBy(x => x.DateTime).TakeLast(30).ToList();
+
+        _anomalyXAxisLabels = orderedPoints.Select(x => x.DateTime.ToString("MM/dd HH:mm")).ToArray();
+
+        _anomalyChartSeries = new List<ChartSeries>
+        {
+            new()
+            {
+                Name = "Result Count",
+                Data = orderedPoints.Select(x => (double)x.ResultCount).ToArray()
+            }
+        };
+
+        // Use rolling baseline if available (shows baseline evolution), otherwise use static baseline
+        if (_anomalyChartData.RollingBaseline != null && _anomalyChartData.RollingBaseline.Any())
+        {
+            _anomalyChartSeries.Add(new ChartSeries
+            {
+                Name = "Rolling Baseline",
+                Data = _anomalyChartData.RollingBaseline.TakeLast(30).Select(x => (double)x).ToArray()
+            });
+        }
+        else if (_anomalyChartData.BaselineMean.HasValue)
+        {
+            var baselineValue = (double)_anomalyChartData.BaselineMean.Value;
+            _anomalyChartSeries.Add(new ChartSeries
+            {
+                Name = "Baseline",
+                Data = Enumerable.Repeat(baselineValue, orderedPoints.Count).ToArray()
+            });
+        }
+
+        // Use rolling upper threshold if available
+        if (_anomalyChartData.RollingUpperThreshold != null && _anomalyChartData.RollingUpperThreshold.Any())
+        {
+            _anomalyChartSeries.Add(new ChartSeries
+            {
+                Name = "Upper Threshold",
+                Data = _anomalyChartData.RollingUpperThreshold.TakeLast(30).Select(x => (double)x).ToArray()
+            });
+        }
+        else if (_anomalyChartData.UpperThreshold.HasValue)
+        {
+            var upperValue = (double)_anomalyChartData.UpperThreshold.Value;
+            _anomalyChartSeries.Add(new ChartSeries
+            {
+                Name = "Upper Threshold",
+                Data = Enumerable.Repeat(upperValue, orderedPoints.Count).ToArray()
+            });
+        }
+
+        // Use rolling lower threshold if available
+        if (_anomalyChartData.RollingLowerThreshold != null && _anomalyChartData.RollingLowerThreshold.Any())
+        {
+            _anomalyChartSeries.Add(new ChartSeries
+            {
+                Name = "Lower Threshold",
+                Data = _anomalyChartData.RollingLowerThreshold.TakeLast(30).Select(x => (double)x).ToArray()
+            });
+        }
+        else if (_anomalyChartData.LowerThreshold.HasValue)
+        {
+            var lowerValue = (double)_anomalyChartData.LowerThreshold.Value;
+            _anomalyChartSeries.Add(new ChartSeries
+            {
+                Name = "Lower Threshold",
+                Data = Enumerable.Repeat(lowerValue, orderedPoints.Count).ToArray()
+            });
+        }
+
+        _anomalyChartOptions = ChartHelper.CreateAnomalyChartOptions();
+        _anomalyAxisChartOptions = ChartHelper.CreateDefaultAxisChartOptions();
+    }
+
+    private string GetTaskAge()
+    {
+        var referenceTime = Model!.Resolved && Model.ResolvedAt.HasValue
+            ? Model.ResolvedAt.Value
+            : DateTime.UtcNow;
+
+        var age = referenceTime - Model.CreatedAt;
+
+        if (age.TotalDays >= 1)
+            return $"{(int)age.TotalDays}d";
+        if (age.TotalHours >= 1)
+            return $"{(int)age.TotalHours}h";
+        return $"{(int)age.TotalMinutes}m";
+    }
+
+    private Color GetStatusColor(NotificationStatus status)
+    {
+        return status switch
+        {
+            NotificationStatus.NotificationSent => Color.Success,
+            NotificationStatus.NoResults => Color.Info,
+            NotificationStatus.Timeout => Color.Error,
+            NotificationStatus.Failed => Color.Error,
+            NotificationStatus.NotificationSilenced => Color.Warning,
+            _ => Color.Default
+        };
+    }
+
+    private async Task ShowResolveDialog()
+    {
+        var parameters = new DialogParameters<ResolveTaskDialog>
+        {
+            { x => x.TaskId, Id }
+        };
+
+        var options = new DialogOptions
+        {
+            MaxWidth = MaxWidth.Small,
+            FullWidth = true
+        };
+
+        var dialog = await DialogService.ShowAsync<ResolveTaskDialog>("", parameters, options);
+        var result = await dialog.Result;
+
+        if (!result!.Canceled)
+        {
+            await LoadAllData();
+        }
+    }
+
+    private async Task ShowAddCommentDialog()
+    {
+        var parameters = new DialogParameters<AddCommentDialog>
+        {
+            { x => x.TaskId, Id }
+        };
+
+        var options = new DialogOptions
+        {
+            MaxWidth = MaxWidth.Small,
+            FullWidth = true
+        };
+
+        var dialog = await DialogService.ShowAsync<AddCommentDialog>("", parameters, options);
+        var result = await dialog.Result;
+
+        if (!result!.Canceled)
+        {
+            _comments = await TaskService.GetTaskComments(Id, CancellationToken.None);
+            StateHasChanged();
+        }
+    }
+
+    private async Task ReopenTask()
+    {
+        try
+        {
+            await TaskService.ReopenTask(Id, CancellationToken.None);
+            await LoadAllData();
+            Snackbar.Add("Task reopened successfully", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error reopening task: {ex.Message}", Severity.Error);
+        }
+    }
+}

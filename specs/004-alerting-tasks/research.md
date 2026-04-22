@@ -4,14 +4,14 @@
 
 ## Overview
 
-This document consolidates research findings for implementing the Tasks recipient feature in the Semantico alerting system. Since this feature extends an existing, well-established architecture, research focuses on validating design decisions against existing patterns and identifying best practices for the specific functionality being added.
+This document consolidates research findings for implementing the Tasks recipient feature in the Beacon alerting system. Since this feature extends an existing, well-established architecture, research focuses on validating design decisions against existing patterns and identifying best practices for the specific functionality being added.
 
 ## Technology Stack Validation
 
-### Decision: Use Existing Semantico Stack
+### Decision: Use Existing Beacon Stack
 **Chosen**: C# 12 / .NET 8.0, EF Core 8.0, MediatR, Blazor Server, xUnit
 **Rationale**:
-- Feature integrates into existing Semantico application
+- Feature integrates into existing Beacon application
 - Maintains consistency with current architecture
 - Leverages existing infrastructure (authentication, database context, UI components)
 - Zero additional dependencies required
@@ -100,7 +100,7 @@ This document consolidates research findings for implementing the Tasks recipien
 
 ## UI Component Research
 
-### Decision: Use Existing Semantico Grid Pattern
+### Decision: Use Existing Beacon Grid Pattern
 **Chosen**: Task list uses QuickGrid component (existing pattern in Recipients, Subscriptions, Notifications pages)
 **Rationale**:
 - Consistency with existing UI
@@ -140,7 +140,7 @@ This document consolidates research findings for implementing the Tasks recipien
 - Meets SC-007: "sorting and filtering without page reload"
 - Reduces server roundtrips
 - Typical usage: 100-1000 tasks per tenant (manageable in browser memory)
-- Consistent with existing Semantico pages
+- Consistent with existing Beacon pages
 **Alternatives Considered**:
 - **Server-side filtering**: Rejected - requires page reload, slower UX
 - **Hybrid approach (load filtered data)**: Deferred - initial version uses client-side, can optimize later if needed
@@ -162,7 +162,7 @@ This document consolidates research findings for implementing the Tasks recipien
 ## Service Layer Design Research
 
 ### Decision: Direct Service Pattern (No MediatR/CQRS)
-**Chosen**: `TaskService` implements business logic directly using `IDbContextFactory<SemanticoContext>`
+**Chosen**: `TaskService` implements business logic directly using `IDbContextFactory<BeaconContext>`
 **Rationale**:
 - Existing codebase uses service pattern, not MediatR/CQRS
 - RecipientService, SubscriptionService, NotificationService all use IDbContextFactory directly
@@ -175,7 +175,7 @@ This document consolidates research findings for implementing the Tasks recipien
 ## Best Practices Applied
 
 ### EF Core Entity Configuration
-- **Practice**: Configure entity in `SemanticoContext.OnModelCreating()` using Fluent API
+- **Practice**: Configure entity in `BeaconContext.OnModelCreating()` using Fluent API
 - **Application**:
   ```csharp
   modelBuilder.Entity<Task>(entity =>
@@ -186,22 +186,22 @@ This document consolidates research findings for implementing the Tasks recipien
       entity.Property(t => t.ResolutionNotes).HasMaxLength(2000);
   });
   ```
-- **Source**: EF Core documentation, existing Semantico entity configurations
+- **Source**: EF Core documentation, existing Beacon entity configurations
 
 ### MediatR Handler Testing
 - **Practice**: Test handlers with in-memory database or mocked context
-- **Application**: Follow existing `Semantico.Tests` patterns for handler unit tests
-- **Source**: Existing Semantico test suite patterns
+- **Application**: Follow existing `Beacon.Tests` patterns for handler unit tests
+- **Source**: Existing Beacon test suite patterns
 
 ### Blazor State Management
 - **Practice**: Use parameter binding and EventCallback for parent-child communication
 - **Application**: TaskFilters component emits filter change events to Tasks page
-- **Source**: Existing Semantico UI component patterns (RecipientFilters, SubscriptionFilters)
+- **Source**: Existing Beacon UI component patterns (RecipientFilters, SubscriptionFilters)
 
 ### Multi-Provider SQL Compatibility
 - **Practice**: Avoid provider-specific SQL types (e.g., jsonb in PostgreSQL, nvarchar(max) in SQL Server)
 - **Application**: Use standard EF Core data types: `string`, `int`, `DateTime`, `bool`
-- **Source**: Constitutional principle III, existing Semantico entities
+- **Source**: Constitutional principle III, existing Beacon entities
 
 ## Migration Strategy
 
@@ -215,7 +215,7 @@ This document consolidates research findings for implementing the Tasks recipien
 - **Auto-generate migrations in workflow**: Rejected - violates project conventions, CLAUDE.md restriction
 
 ### Migration Validation Checklist
-1. ✅ No hardcoded schema references (`"semantico"."Task"` → `"Task"`)
+1. ✅ No hardcoded schema references (`"beacon"."Task"` → `"Task"`)
 2. ✅ Uses `modelBuilder.HasDefaultSchema(DefaultSchema)` for schema application
 3. ✅ Separate migrations for PostgreSQL and SQL Server (dialect differences)
 4. ✅ Test migration on both providers before committing
@@ -247,4 +247,4 @@ This document consolidates research findings for implementing the Tasks recipien
 
 ## Summary
 
-All technical decisions validated against existing Semantico architecture. No new dependencies required. All constitutional principles adhered to. Feature integrates cleanly using established patterns (adapter, CQRS, Blazor components). Ready to proceed to Phase 1 (Data Model & Contracts).
+All technical decisions validated against existing Beacon architecture. No new dependencies required. All constitutional principles adhered to. Feature integrates cleanly using established patterns (adapter, CQRS, Blazor components). Ready to proceed to Phase 1 (Data Model & Contracts).
