@@ -189,7 +189,7 @@
     private DateTime? _startDate;
     private DateTime? _endDate;
 
-    private async Task<GridData<MigrationExecutionDto>> ServerReload(GridState<MigrationExecutionDto> state)
+    private async Task<GridData<MigrationExecutionDto>> ServerReload(GridState<MigrationExecutionDto> state, CancellationToken cancellationToken)
     {
         _loading = true;
         
@@ -245,7 +245,7 @@
     
     private async Task RetryExecution(MigrationExecutionDto execution)
     {
-        var confirmed = await DialogService.ShowMessageBox(
+        var confirmed = await DialogService.ShowMessageBoxAsync(
             "Retry Migration", 
             $"Are you sure you want to retry the failed execution of '{execution.MigrationJobName}'?", 
             yesText:"Retry", cancelText:"Cancel");

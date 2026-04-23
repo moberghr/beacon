@@ -20,7 +20,7 @@
         {
             <MudChart ChartType="@GetChartType()"
                       ChartSeries="@_chartSeries"
-                      XAxisLabels="@_xAxisLabels"
+                      ChartLabels="@_xAxisLabels"
                       Width="@ChartHelper.DefaultChartWidth"
                       Height="@ChartHelper.DefaultChartHeight"
                       ChartOptions="@_chartOptions"/>
@@ -38,7 +38,7 @@
     private bool _loading = true;
     private string? _error;
     private ChartWidgetConfiguration? _config;
-    private List<ChartSeries> _chartSeries = new();
+    private List<ChartSeries<double>> _chartSeries = new();
     private string[] _xAxisLabels = Array.Empty<string>();
     private ChartOptions _chartOptions = ChartHelper.CreateDefaultChartOptions();
 
@@ -61,7 +61,7 @@
             {
                 _xAxisLabels = statistics.ExecutionTimeHistory.Select(x => x.Date.ToString("MM/dd")).ToArray();
 
-                _chartSeries = new List<ChartSeries>
+                _chartSeries = new List<ChartSeries<double>>
                 {
                     new()
                     {

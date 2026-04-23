@@ -237,21 +237,19 @@
                         <MudText Typo="Typo.subtitle1" Style="font-weight: 600;" Class="mb-3">Results Rate Over Time</MudText>
                         <MudChart ChartType="ChartType.Line"
                                   ChartSeries="@_successRateSeriesData"
-                                  XAxisLabels="@_chartLabels"
+                                  ChartLabels="@_chartLabels"
                                   Width="100%"
                                   Height="300px"
-                                  ChartOptions="@_successRateOptions"
-                                  AxisChartOptions="@_successRateAxisOptions" />
+                                  ChartOptions="@_successRateOptions" />
                     </MudItem>
                     <MudItem xs="12" md="6">
                         <MudText Typo="Typo.subtitle1" Style="font-weight: 600;" Class="mb-3">Daily Executions</MudText>
                         <MudChart ChartType="ChartType.Bar"
                                   ChartSeries="@_executionSeriesData"
-                                  XAxisLabels="@_chartLabels"
+                                  ChartLabels="@_chartLabels"
                                   Width="100%"
                                   Height="300px"
-                                  ChartOptions="@_executionOptions"
-                                  AxisChartOptions="@_executionAxisOptions" />
+                                  ChartOptions="@_executionOptions" />
                     </MudItem>
                 </MudGrid>
             </MudPaper>
@@ -267,11 +265,10 @@
                 </MudText>
                 <MudChart ChartType="ChartType.Line"
                           ChartSeries="@_executionTimeChartSeries"
-                          XAxisLabels="@_executionTimeXAxisLabels"
+                          ChartLabels="@_executionTimeXAxisLabels"
                           Width="@ChartHelper.DefaultChartWidth"
                           Height="@ChartHelper.DefaultChartHeight"
-                          ChartOptions="@_executionTimeChartOptions"
-                          AxisChartOptions="@_executionTimeAxisChartOptions"/>
+                          ChartOptions="@_executionTimeChartOptions"/>
             </MudPaper>
         }
 
@@ -539,19 +536,16 @@
     private bool _hasPendingApproval;
 
     // Chart data
-    private List<ChartSeries> _successRateSeriesData = new();
-    private List<ChartSeries> _executionSeriesData = new();
+    private List<ChartSeries<double>> _successRateSeriesData = new();
+    private List<ChartSeries<double>> _executionSeriesData = new();
     private string[] _chartLabels = Array.Empty<string>();
-    private ChartOptions _successRateOptions = new();
-    private AxisChartOptions _successRateAxisOptions = new();
-    private ChartOptions _executionOptions = new();
-    private AxisChartOptions _executionAxisOptions = new();
+    private LineChartOptions _successRateOptions = new();
+    private BarChartOptions _executionOptions = new();
 
     // Execution time chart fields
-    private List<ChartSeries> _executionTimeChartSeries = new();
+    private List<ChartSeries<double>> _executionTimeChartSeries = new();
     private string[] _executionTimeXAxisLabels = Array.Empty<string>();
-    private ChartOptions _executionTimeChartOptions = new();
-    private AxisChartOptions _executionTimeAxisChartOptions = new();
+    private LineChartOptions _executionTimeChartOptions = new();
 
     protected override async Task OnInitializedAsync()
     {
@@ -589,7 +583,7 @@
             .ToArray();
 
         // Results Rate Chart Data
-        _successRateSeriesData = new List<ChartSeries>
+        _successRateSeriesData = new List<ChartSeries<double>>
         {
             new() {
                 Name = "Results Rate (%)",
@@ -598,7 +592,7 @@
         };
 
         // Execution Chart Data
-        _executionSeriesData = new List<ChartSeries>
+        _executionSeriesData = new List<ChartSeries<double>>
         {
             new() {
                 Name = "With Results",
@@ -611,23 +605,23 @@
         };
 
         // Chart options
-        _successRateOptions = new ChartOptions
+        _successRateOptions = new LineChartOptions
         {
             YAxisTicks = 10,
             MaxNumYAxisTicks = 10,
             YAxisFormat = "0'%'",
+            XAxisLabelRotation = 45,
             LineStrokeWidth = 3,
             ChartPalette = new[] { Colors.Green.Default }
         };
-        _successRateAxisOptions = ChartHelper.CreateDefaultAxisChartOptions();
 
-        _executionOptions = new ChartOptions
+        _executionOptions = new BarChartOptions
         {
             YAxisTicks = 10,
             MaxNumYAxisTicks = 10,
+            XAxisLabelRotation = 45,
             ChartPalette = new[] { Colors.Green.Default, Colors.Gray.Default }
         };
-        _executionAxisOptions = ChartHelper.CreateDefaultAxisChartOptions();
     }
 
     private void ToggleParameterDetails(int stepId)
@@ -814,7 +808,6 @@
         _executionTimeChartSeries = chart.Series;
         _executionTimeXAxisLabels = chart.Labels;
         _executionTimeChartOptions = chart.Options;
-        _executionTimeAxisChartOptions = chart.AxisOptions;
     }
 
     private string GetResultsRate()

@@ -147,7 +147,7 @@
 
     private async Task RestoreVersion(int versionId, int versionNumber)
     {
-        var confirmed = await DialogService.ShowMessageBox(
+        var confirmed = await DialogService.ShowMessageBoxAsync(
             "Restore Version",
             $"Are you sure you want to restore version {versionNumber}? This will overwrite the current query with this version's data.",
             yesText: "Restore", cancelText: "Cancel");

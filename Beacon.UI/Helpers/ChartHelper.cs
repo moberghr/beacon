@@ -8,87 +8,73 @@ namespace Beacon.UI.Helpers;
 /// </summary>
 public static class ChartHelper
 {
-    /// <summary>
-    /// Default chart height for all charts
-    /// </summary>
     public const string DefaultChartHeight = "400px";
-
-    /// <summary>
-    /// Default chart width (full container width)
-    /// </summary>
     public const string DefaultChartWidth = "100%";
 
-    /// <summary>
-    /// Creates default chart options with consistent styling
-    /// </summary>
-    public static ChartOptions CreateDefaultChartOptions()
+    public static LineChartOptions CreateDefaultLineChartOptions()
     {
-        return new ChartOptions
+        return new LineChartOptions
         {
             YAxisTicks = 5,
             YAxisLines = true,
             XAxisLines = true,
+            XAxisLabelRotation = 45,
             InterpolationOption = InterpolationOption.Straight
         };
     }
 
-    /// <summary>
-    /// Creates default axis chart options with 45-degree X-axis label rotation
-    /// </summary>
-    public static AxisChartOptions CreateDefaultAxisChartOptions()
+    public static BarChartOptions CreateDefaultBarChartOptions()
     {
-        return new AxisChartOptions
+        return new BarChartOptions
         {
+            YAxisTicks = 5,
+            YAxisLines = true,
+            XAxisLines = true,
             XAxisLabelRotation = 45
         };
     }
 
-    /// <summary>
-    /// Creates chart options for single-series charts (blue palette)
-    /// </summary>
-    public static ChartOptions CreateSingleSeriesChartOptions()
+    public static ChartOptions CreateDefaultChartOptions()
     {
-        var options = CreateDefaultChartOptions();
+        return new ChartOptions();
+    }
+
+    public static LineChartOptions CreateSingleSeriesChartOptions()
+    {
+        var options = CreateDefaultLineChartOptions();
         options.ChartPalette = new[] { "#1f77b4" };
         return options;
     }
 
-    /// <summary>
-    /// Creates chart options for multi-series charts (blue, green, orange, red)
-    /// </summary>
-    public static ChartOptions CreateMultiSeriesChartOptions()
+    public static LineChartOptions CreateMultiSeriesChartOptions()
     {
-        var options = CreateDefaultChartOptions();
+        var options = CreateDefaultLineChartOptions();
         options.ChartPalette = new[] { "#1f77b4", "#2ca02c", "#ff7f0e", "#d62728" };
         return options;
     }
 
-    /// <summary>
-    /// Creates chart options for anomaly detection charts
-    /// </summary>
-    public static ChartOptions CreateAnomalyChartOptions()
+    public static LineChartOptions CreateAnomalyChartOptions()
     {
         return CreateMultiSeriesChartOptions();
     }
 
     /// <summary>
     /// Builds execution time chart data (Average/Min/Max series) from a list of data points.
-    /// Returns the series list and X-axis labels.
     /// </summary>
-    public static (List<ChartSeries> Series, string[] Labels, ChartOptions Options, AxisChartOptions AxisOptions)
+    public static (List<ChartSeries<double>> Series, string[] Labels, LineChartOptions Options)
         BuildExecutionTimeChart(IEnumerable<ExecutionTimeDataPoint> history, string dateFormat = "MM/dd")
     {
         var data = history.OrderBy(x => x.Date).ToList();
 
         var labels = data.Select(x => x.Date.ToString(dateFormat)).ToArray();
 
-        var series = new List<ChartSeries>
+        var series = new List<ChartSeries<double>>
         {
             new() { Name = "Average", Data = data.Select(x => x.AvgExecutionTimeMs).ToArray() },
             new() { Name = "Minimum", Data = data.Select(x => x.MinExecutionTimeMs).ToArray() },
             new() { Name = "Maximum", Data = data.Select(x => x.MaxExecutionTimeMs).ToArray() }
         };
 
-        return (series, labels, CreateMultiSeriesChartOptions(), CreateDefaultAxisChartOptions());
+        return (series, labels, CreateMultiSeriesChartOptions());
     }
 }

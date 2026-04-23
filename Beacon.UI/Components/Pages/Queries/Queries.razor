@@ -104,7 +104,7 @@
         _canWrite = await AuthorizationProvider.HasWritePermissionAsync();
     }
 
-    private async Task<GridData<QueryData>> ServerReload(GridState<QueryData> state)
+    private async Task<GridData<QueryData>> ServerReload(GridState<QueryData> state, CancellationToken cancellationToken)
     {
         var request = DataGridHelper.BuildSortedRequest<GetQueriesRequest, QueryData>(state);
 

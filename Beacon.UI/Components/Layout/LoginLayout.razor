@@ -1,9 +1,10 @@
 @using Blazored.LocalStorage
 @using Color = MudBlazor.Color
+@using Beacon.UI.Components.Helpers
 @inherits LayoutComponentBase
 
 @* Required *@
-<MudThemeProvider IsDarkMode="@_isDark" />
+<MudThemeProvider Theme="BeaconTheme.Theme" IsDarkMode="@_isDark" />
 <MudPopoverProvider />
 
 @* Needed for dialogs *@

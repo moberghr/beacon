@@ -228,7 +228,7 @@
 
     private async Task DeleteUser()
     {
-        var result = await DialogService.ShowMessageBox(
+        var result = await DialogService.ShowMessageBoxAsync(
             "Delete User",
             $"Are you sure you want to delete '{User.UserName}'? This action cannot be undone.",
             yesText: "Delete", cancelText: "Cancel");

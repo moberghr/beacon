@@ -186,7 +186,7 @@
 
     private List<RuleEditModel> _rules = new();
     private List<RecipientData> _recipients = new();
-    private IEnumerable<int> _selectedRecipientIds = new HashSet<int>();
+    private IReadOnlyCollection<int> _selectedRecipientIds = new HashSet<int>();
 
     protected override async Task OnInitializedAsync()
     {

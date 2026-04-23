@@ -503,11 +503,10 @@
 
                                         <MudChart ChartType="ChartType.Line"
                                                   ChartSeries="@_anomalyChartSeries"
-                                                  XAxisLabels="@_anomalyXAxisLabels"
+                                                  ChartLabels="@_anomalyXAxisLabels"
                                                   Width="@ChartHelper.DefaultChartWidth"
                                                   Height="@ChartHelper.DefaultChartHeight"
-                                                  ChartOptions="@_anomalyChartOptions"
-                                                  AxisChartOptions="@_anomalyAxisChartOptions" />
+                                                  ChartOptions="@_anomalyChartOptions" />
 
                                         @if (_anomalyChartData.DataPoints.Any(x => x.IsAnomaly || x.NotificationSent))
                                         {
@@ -642,12 +641,11 @@
 
     // Anomaly chart data
     private AnomalyChartData? _anomalyChartData;
-    private List<ChartSeries> _anomalyChartSeries = new();
+    private List<ChartSeries<double>> _anomalyChartSeries = new();
     private string[] _anomalyXAxisLabels = Array.Empty<string>();
-    private ChartOptions _anomalyChartOptions = new();
-    private AxisChartOptions _anomalyAxisChartOptions = new();
+    private LineChartOptions _anomalyChartOptions = new();
 
-    private async Task<GridData<QueryExecutionHistoryData>> NotificationsServerReload(GridState<QueryExecutionHistoryData> state)
+    private async Task<GridData<QueryExecutionHistoryData>> NotificationsServerReload(GridState<QueryExecutionHistoryData> state, CancellationToken cancellationToken)
     {
         var gridRequest = DataGridHelper.BuildSortedRequest<GetQueryExecutionHistoryRequest, QueryExecutionHistoryData>(state);
 
@@ -714,7 +712,7 @@
 
         _anomalyXAxisLabels = orderedPoints.Select(x => x.DateTime.ToString("MM/dd HH:mm")).ToArray();
 
-        _anomalyChartSeries = new List<ChartSeries>
+        _anomalyChartSeries = new List<ChartSeries<double>>
         {
             new()
             {
@@ -726,7 +724,7 @@
         // Use rolling baseline if available (shows baseline evolution), otherwise use static baseline
         if (_anomalyChartData.RollingBaseline != null && _anomalyChartData.RollingBaseline.Any())
         {
-            _anomalyChartSeries.Add(new ChartSeries
+            _anomalyChartSeries.Add(new ChartSeries<double>
             {
                 Name = "Rolling Baseline",
                 Data = _anomalyChartData.RollingBaseline.Select(x => (double)x).ToArray()
@@ -735,7 +733,7 @@
         else if (_anomalyChartData.BaselineMean.HasValue)
         {
             var baselineValue = (double)_anomalyChartData.BaselineMean.Value;
-            _anomalyChartSeries.Add(new ChartSeries
+            _anomalyChartSeries.Add(new ChartSeries<double>
             {
                 Name = "Baseline",
                 Data = Enumerable.Repeat(baselineValue, orderedPoints.Count).ToArray()
@@ -745,7 +743,7 @@
         // Use rolling upper threshold if available
         if (_anomalyChartData.RollingUpperThreshold != null && _anomalyChartData.RollingUpperThreshold.Any())
         {
-            _anomalyChartSeries.Add(new ChartSeries
+            _anomalyChartSeries.Add(new ChartSeries<double>
             {
                 Name = "Upper Threshold",
                 Data = _anomalyChartData.RollingUpperThreshold.Select(x => (double)x).ToArray()
@@ -754,7 +752,7 @@
         else if (_anomalyChartData.UpperThreshold.HasValue)
         {
             var upperValue = (double)_anomalyChartData.UpperThreshold.Value;
-            _anomalyChartSeries.Add(new ChartSeries
+            _anomalyChartSeries.Add(new ChartSeries<double>
             {
                 Name = "Upper Threshold",
                 Data = Enumerable.Repeat(upperValue, orderedPoints.Count).ToArray()
@@ -764,7 +762,7 @@
         // Use rolling lower threshold if available
         if (_anomalyChartData.RollingLowerThreshold != null && _anomalyChartData.RollingLowerThreshold.Any())
         {
-            _anomalyChartSeries.Add(new ChartSeries
+            _anomalyChartSeries.Add(new ChartSeries<double>
             {
                 Name = "Lower Threshold",
                 Data = _anomalyChartData.RollingLowerThreshold.Select(x => (double)x).ToArray()
@@ -773,7 +771,7 @@
         else if (_anomalyChartData.LowerThreshold.HasValue)
         {
             var lowerValue = (double)_anomalyChartData.LowerThreshold.Value;
-            _anomalyChartSeries.Add(new ChartSeries
+            _anomalyChartSeries.Add(new ChartSeries<double>
             {
                 Name = "Lower Threshold",
                 Data = Enumerable.Repeat(lowerValue, orderedPoints.Count).ToArray()
@@ -781,12 +779,11 @@
         }
 
         _anomalyChartOptions = ChartHelper.CreateAnomalyChartOptions();
-        _anomalyAxisChartOptions = ChartHelper.CreateDefaultAxisChartOptions();
     }
 
     private async Task ArchiveSubscription()
     {
-        bool? result = await DialogService.ShowMessageBox(
+        bool? result = await DialogService.ShowMessageBoxAsync(
             "Warning",
             "Do you want to archive this subscription?",
             yesText: "Yes",

@@ -35,7 +35,7 @@
         <PackageReference Include="BlazorMonaco" Version="3.4.0" />
         <PackageReference Include="Markdig" Version="0.44.0" />
         <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="9.*" />
-        <PackageReference Include="MudBlazor" Version="8.15.0" />
+        <PackageReference Include="MudBlazor" Version="9.0.0" />
     </ItemGroup>
 
     <ItemGroup>

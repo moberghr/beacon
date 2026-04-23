@@ -49,7 +49,7 @@
     }
 
     private async Task<GridData<RecipientData>> ServerReload(GridState
-        <RecipientData> state)
+        <RecipientData> state, CancellationToken cancellationToken)
     {
         RecipientList = await service.GetRecipients(null, _searchString, CancellationToken.None);
 

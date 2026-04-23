@@ -144,8 +144,8 @@
     private CreateInternalUserRequest _internalRequest = new();
     private CreateExternalUserRequest _externalRequest = new();
     private List<BeaconRoleData> _roles = new();
-    private IEnumerable<int> _selectedInternalRoleIds = new List<int>();
-    private IEnumerable<int> _selectedExternalRoleIds = new List<int>();
+    private IReadOnlyCollection<int> _selectedInternalRoleIds = new List<int>();
+    private IReadOnlyCollection<int> _selectedExternalRoleIds = new List<int>();
 
     protected override async Task OnInitializedAsync()
     {

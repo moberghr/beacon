@@ -57,12 +57,12 @@ else
     [Parameter] public EventCallback<int?> ValueChanged { get; set; }
 
     /// <summary>Multi-select binding.</summary>
-    [Parameter] public IEnumerable<int> SelectedValues { get; set; } = [];
-    [Parameter] public EventCallback<IEnumerable<int>> SelectedValuesChanged { get; set; }
+    [Parameter] public IReadOnlyCollection<int> SelectedValues { get; set; } = [];
+    [Parameter] public EventCallback<IReadOnlyCollection<int>> SelectedValuesChanged { get; set; }
 
     private List<DataSourceListData> _dataSources = new();
     private int? _selectedId;
-    private IEnumerable<int> _selectedIds = [];
+    private IReadOnlyCollection<int> _selectedIds = [];
 
     protected override async Task OnInitializedAsync()
     {
@@ -85,7 +85,7 @@ else
         await ValueChanged.InvokeAsync(value);
     }
 
-    private async Task OnMultiSelectionChanged(IEnumerable<int> values)
+    private async Task OnMultiSelectionChanged(IReadOnlyCollection<int> values)
     {
         _selectedIds = values;
         SelectedValues = values;

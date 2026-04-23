@@ -190,7 +190,7 @@
 
     private async Task DeleteWidget(DashboardWidgetData widget)
     {
-        bool? confirm = await DialogService.ShowMessageBox(
+        bool? confirm = await DialogService.ShowMessageBoxAsync(
             "Delete Widget",
             $"Are you sure you want to delete widget '{widget.Title}'?",
             yesText: "Delete",

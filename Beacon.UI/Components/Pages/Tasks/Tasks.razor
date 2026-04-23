@@ -81,7 +81,7 @@
     MudDataGrid<TaskData>? _dataGrid;
     private string _statusFilter = "unresolved";
 
-    private async Task<GridData<TaskData>> ServerReload(GridState<TaskData> state)
+    private async Task<GridData<TaskData>> ServerReload(GridState<TaskData> state, CancellationToken cancellationToken)
     {
         bool? resolvedFilter = _statusFilter switch
         {

@@ -201,7 +201,7 @@
         }
     }
 
-    private async Task<GridData<DataContractData>> ServerReload(GridState<DataContractData> state)
+    private async Task<GridData<DataContractData>> ServerReload(GridState<DataContractData> state, CancellationToken cancellationToken)
     {
         var contracts = await Mediator.Send(new GetDataContractsQuery());
 
@@ -260,7 +260,7 @@
 
     private async Task DeleteContract(DataContractData contract)
     {
-        bool? confirm = await DialogService.ShowMessageBox(
+        bool? confirm = await DialogService.ShowMessageBoxAsync(
             "Delete Contract",
             $"Are you sure you want to delete '{contract.Name}'?",
             yesText: "Delete",
