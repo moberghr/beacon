@@ -60,7 +60,7 @@
         _canWrite = await AuthorizationProvider.HasWritePermissionAsync();
     }
 
-    private async Task<GridData<DataSourceListData>> ServerReload(GridState<DataSourceListData> state)
+    private async Task<GridData<DataSourceListData>> ServerReload(GridState<DataSourceListData> state, CancellationToken cancellationToken)
     {
         _list = await _service.GetDataSources(null, CancellationToken.None);
 

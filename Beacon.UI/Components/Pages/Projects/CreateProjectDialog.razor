@@ -112,7 +112,7 @@
 
     private string _name = string.Empty;
     private string? _description;
-    private IEnumerable<int> _selectedDataSourceIds = [];
+    private IReadOnlyCollection<int> _selectedDataSourceIds = [];
     private List<string> _repoUrls = new();
     private string? _accessToken;
 

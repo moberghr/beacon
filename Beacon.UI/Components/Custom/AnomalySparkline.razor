@@ -7,7 +7,7 @@
         {
             <MudChart ChartType="ChartType.Line"
                       ChartSeries="@_series"
-                      XAxisLabels="@_labels"
+                      ChartLabels="@_labels"
                       Width="80px"
                       Height="30px"
                       ChartOptions="@_options" />
@@ -22,9 +22,9 @@
 @code {
     [Parameter] public List<AnomalySparklinePoint>? Data { get; set; }
 
-    private List<ChartSeries> _series = new();
+    private List<ChartSeries<double>> _series = new();
     private string[] _labels = Array.Empty<string>();
-    private ChartOptions _options = new()
+    private LineChartOptions _options = new()
     {
         YAxisTicks = 0,
         XAxisLines = false,
@@ -37,7 +37,7 @@
         if (Data?.Any() == true)
         {
             _labels = Data.Select(d => "").ToArray(); // No labels for compact view
-            _series = new List<ChartSeries>
+            _series = new List<ChartSeries<double>>
             {
                 new()
                 {

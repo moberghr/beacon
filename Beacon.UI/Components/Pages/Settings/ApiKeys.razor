@@ -206,7 +206,7 @@
 
     private async Task RevokeKey(ApiKeyEntry key)
     {
-        bool? confirm = await DialogService.ShowMessageBox(
+        bool? confirm = await DialogService.ShowMessageBoxAsync(
             "Revoke API Key",
             $"Are you sure you want to revoke '{key.Name}'? This action cannot be undone and any integrations using this key will stop working immediately.",
             yesText: "Revoke Key",

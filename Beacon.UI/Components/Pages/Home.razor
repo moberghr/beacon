@@ -78,11 +78,10 @@
                 </MudText>
                 <MudChart ChartType="ChartType.Line"
                           ChartSeries="@chartSeries"
-                          XAxisLabels="@xAxisLabels"
+                          ChartLabels="@xAxisLabels"
                           Width="100%"
                           Height="350px"
-                          ChartOptions="@chartOptions"
-                          AxisChartOptions="@axisChartOptions"/>
+                          ChartOptions="@chartOptions"/>
             </MudPaper>
 
             <!-- Execution Time Chart -->
@@ -93,11 +92,10 @@
                 </MudText>
                 <MudChart ChartType="ChartType.Line"
                           ChartSeries="@executionTimeChartSeries"
-                          XAxisLabels="@executionTimeXAxisLabels"
+                          ChartLabels="@executionTimeXAxisLabels"
                           Width="@ChartHelper.DefaultChartWidth"
                           Height="@ChartHelper.DefaultChartHeight"
-                          ChartOptions="@executionTimeChartOptions"
-                          AxisChartOptions="@executionTimeAxisChartOptions"/>
+                          ChartOptions="@executionTimeChartOptions"/>
             </MudPaper>
 
             <!-- Notification Channel Breakdown -->
@@ -332,16 +330,14 @@
 
 @code {
     private DashboardStatisticsData? dashboardStatistics;
-    private List<ChartSeries> chartSeries = new();
+    private List<ChartSeries<double>> chartSeries = new();
     private string[] xAxisLabels = Array.Empty<string>();
-    private ChartOptions chartOptions = new();
-    private AxisChartOptions axisChartOptions = new();
+    private LineChartOptions chartOptions = new();
 
     // Execution time chart fields
-    private List<ChartSeries> executionTimeChartSeries = new();
+    private List<ChartSeries<double>> executionTimeChartSeries = new();
     private string[] executionTimeXAxisLabels = Array.Empty<string>();
-    private ChartOptions executionTimeChartOptions = new();
-    private AxisChartOptions executionTimeAxisChartOptions = new();
+    private LineChartOptions executionTimeChartOptions = new();
 
     protected override async Task OnInitializedAsync()
     {
@@ -373,7 +369,7 @@
 
         xAxisLabels = data.Select(x => x.Date.ToShortDateWithoutYear()).ToArray();
 
-        chartSeries = new List<ChartSeries>
+        chartSeries = new List<ChartSeries<double>>
         {
             new()
             {
@@ -395,8 +391,7 @@
         chartOptions.YAxisLines = true;
         chartOptions.XAxisLines = true;
         chartOptions.InterpolationOption = InterpolationOption.Straight;
-
-        axisChartOptions.XAxisLabelRotation = 45;
+        chartOptions.XAxisLabelRotation = 45;
     }
 
     private string FormatNumber(int number)
@@ -490,7 +485,6 @@
         executionTimeChartSeries = chart.Series;
         executionTimeXAxisLabels = chart.Labels;
         executionTimeChartOptions = chart.Options;
-        executionTimeAxisChartOptions = chart.AxisOptions;
     }
 
     private string FormatExecutionTime(double milliseconds) => UiHelpers.FormatExecutionTime(milliseconds);

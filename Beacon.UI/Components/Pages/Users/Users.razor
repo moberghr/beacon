@@ -80,7 +80,7 @@
                    UserContext.HasClaim("beacon:role", "Admin");
     }
 
-    private async Task<GridData<BeaconUserData>> ServerReload(GridState<BeaconUserData> state)
+    private async Task<GridData<BeaconUserData>> ServerReload(GridState<BeaconUserData> state, CancellationToken cancellationToken)
     {
         var users = await UserService.GetUsersAsync(_searchString);
 

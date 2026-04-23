@@ -300,7 +300,7 @@
 
     private async Task DeleteContract()
     {
-        bool? confirm = await DialogService.ShowMessageBox(
+        bool? confirm = await DialogService.ShowMessageBoxAsync(
             "Delete Contract",
             $"Are you sure you want to delete '{_contract?.Name}'?",
             yesText: "Delete",

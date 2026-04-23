@@ -384,7 +384,7 @@
 
     private async Task ArchiveActor()
     {
-        var confirmed = await DialogService.ShowMessageBox(
+        var confirmed = await DialogService.ShowMessageBoxAsync(
             "Archive Actor",
             "Are you sure you want to archive this AI Actor? This will stop all monitoring.",
             yesText: "Archive",

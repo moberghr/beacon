@@ -268,7 +268,7 @@
         _statistics = await ControlTowerService.GetControlTowerStatistics(CancellationToken.None);
     }
 
-    private async Task<GridData<ControlTowerSubscriptionHealthData>> ServerReload(GridState<ControlTowerSubscriptionHealthData> state)
+    private async Task<GridData<ControlTowerSubscriptionHealthData>> ServerReload(GridState<ControlTowerSubscriptionHealthData> state, CancellationToken cancellationToken)
     {
         var request = new GetControlTowerDataRequest
         {

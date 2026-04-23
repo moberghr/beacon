@@ -31,7 +31,7 @@ public partial class AddSubscription
 
     private SubscriptionData Subscription { get; set; } = new();
     private List<RecipientData> _recipients { get; set; } = [];
-    private IEnumerable<string> _selectedRecipientIds { get; set; } = [];
+    private IReadOnlyCollection<string> _selectedRecipientIds { get; set; } = [];
     private string FileAttachmentType { get; set; } = string.Empty;
     private List<QueryStepParameterData> _queryParameters { get; set; } = [];
     private Dictionary<string, string> _parameterValues { get; set; } = new();

@@ -48,7 +48,7 @@
     private string _searchString;
 
     private async Task<GridData<SubscriptionData>> ServerReload(GridState
-        <SubscriptionData> state)
+        <SubscriptionData> state, CancellationToken cancellationToken)
     {
         SubscriptionsList = await service.GetSubscriptions(null, null, null, _searchString, CancellationToken.None);
 

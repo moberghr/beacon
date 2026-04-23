@@ -184,7 +184,7 @@
 
     private async Task RevokeAccess(DashboardPermissionData permission)
     {
-        bool? confirm = await DialogService.ShowMessageBox(
+        bool? confirm = await DialogService.ShowMessageBoxAsync(
             "Revoke Access",
             $"Revoke {permission.PermissionLevel} access for {permission.UserName}?",
             yesText: "Revoke",

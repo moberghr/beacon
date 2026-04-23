@@ -643,7 +643,7 @@
 
     private async Task ArchiveDataSource()
     {
-        var confirmed = await DialogService.ShowMessageBox(
+        var confirmed = await DialogService.ShowMessageBoxAsync(
             "Archive Data Source",
             "Are you sure you want to archive this data source? All associated queries and migration jobs must be archived first.",
             yesText: "Archive",

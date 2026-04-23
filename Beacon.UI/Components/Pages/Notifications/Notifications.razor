@@ -87,7 +87,7 @@
     //private bool _loading;
     private NotificationStatus? _notificationStatus;
     
-    private async Task<GridData<QueryExecutionHistoryData>> ServerReload(GridState<QueryExecutionHistoryData> state)
+    private async Task<GridData<QueryExecutionHistoryData>> ServerReload(GridState<QueryExecutionHistoryData> state, CancellationToken cancellationToken)
     {
         var request = DataGridHelper.BuildSortedRequest<GetQueryExecutionHistoryRequest, QueryExecutionHistoryData>(state);
         request.NotificationStatus = _notificationStatus;

@@ -133,7 +133,7 @@
 @code {
     private MudDataGrid<DashboardListData>? _dataGrid;
 
-    private async Task<GridData<DashboardListData>> ServerReload(GridState<DashboardListData> state)
+    private async Task<GridData<DashboardListData>> ServerReload(GridState<DashboardListData> state, CancellationToken cancellationToken)
     {
         var request = new GetDashboardsRequest
         {
@@ -194,7 +194,7 @@
 
     private async Task DeleteDashboard(DashboardListData dashboard)
     {
-        bool? confirm = await DialogService.ShowMessageBox(
+        bool? confirm = await DialogService.ShowMessageBoxAsync(
             "Delete Dashboard",
             $"Are you sure you want to delete '{dashboard.Name}'? This action cannot be undone.",
             yesText: "Delete",

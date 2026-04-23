@@ -120,7 +120,7 @@
     MudDataGrid<MigrationJobDto>? _dataGrid;
     private bool _loading = false;
 
-    private async Task<GridData<MigrationJobDto>> ServerReload(GridState<MigrationJobDto> state)
+    private async Task<GridData<MigrationJobDto>> ServerReload(GridState<MigrationJobDto> state, CancellationToken cancellationToken)
     {
         try
         {
@@ -162,7 +162,7 @@
     
     private async Task ExecuteJob(MigrationJobDto job)
     {
-        var confirmed = await DialogService.ShowMessageBox(
+        var confirmed = await DialogService.ShowMessageBoxAsync(
             "Execute Migration Job", 
             $"Are you sure you want to execute '{job.Name}'?", 
             yesText:"Execute", cancelText:"Cancel");
@@ -204,7 +204,7 @@
     
     private async Task DeleteJob(MigrationJobDto job)
     {
-        var confirmed = await DialogService.ShowMessageBox(
+        var confirmed = await DialogService.ShowMessageBoxAsync(
             "Delete Migration Job", 
             $"Are you sure you want to delete '{job.Name}'? This action cannot be undone.", 
             yesText:"Delete", cancelText:"Cancel");

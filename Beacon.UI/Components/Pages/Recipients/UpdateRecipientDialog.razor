@@ -215,7 +215,7 @@
             CloseButton = true
         };
 
-        await DialogService.ShowMessageBox(
+        await DialogService.ShowMessageBoxAsync(
             "Body Template Examples & Placeholders",
             new MarkupString(message.Replace("\n", "<br/>")),
             options: options);

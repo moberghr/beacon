@@ -191,7 +191,7 @@
     private bool _scopeRead = true;
     private bool _scopeExecute;
     private bool _scopeAdmin;
-    private IEnumerable<int> _selectedProjectIds = [];
+    private IReadOnlyCollection<int> _selectedProjectIds = [];
     private List<ProjectEntry> _projects = [];
     private DateTime? _expiresAt;
 
