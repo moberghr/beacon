@@ -10,14 +10,10 @@
     <div class="login-card-glow"></div>
     <MudPaper Class="login-card pa-8 pa-sm-10" Elevation="0">
         <MudStack Spacing="5" AlignItems="AlignItems.Center">
-            <!-- Logo and Title -->
-            <MudStack Spacing="1" AlignItems="AlignItems.Center" Class="mb-2">
-                <div class="login-logo-container">
-                    <img src="../_content/Beacon.UI/favicon.svg?v=20260423" alt="Beacon" class="login-logo" />
-                </div>
-                <MudText Typo="Typo.h4" Class="login-title">Beacon</MudText>
-                <MudText Typo="Typo.body2" Class="login-subtitle">Sign in to your workspace</MudText>
-            </MudStack>
+            <div class="login-logo-wrap">
+                <img src="../_content/Beacon.UI/logo.svg?v=20260429" alt="Beacon" class="login-logo" />
+            </div>
+            <MudText Typo="Typo.body2" Class="login-subtitle" Align="Align.Center">Sign in to your workspace</MudText>
 
             <!-- Error Alert -->
             @if (!string.IsNullOrEmpty(_errorMessage))
@@ -105,7 +101,7 @@
         position: absolute;
         inset: -1px;
         border-radius: 20px;
-        background: linear-gradient(135deg, rgba(6, 182, 212, 0.4), rgba(99, 102, 241, 0.3), rgba(168, 85, 247, 0.4));
+        background: linear-gradient(135deg, rgba(52, 211, 153, 0.4), rgba(16, 185, 129, 0.3), rgba(4, 120, 87, 0.4));
         opacity: 0.5;
         filter: blur(1px);
         z-index: 0;
@@ -126,31 +122,18 @@
         border: 1px solid rgba(255, 255, 255, 0.06) !important;
     }
 
-    .login-logo-container {
-        width: 72px;
-        height: 72px;
+    .login-logo-wrap {
         display: flex;
         align-items: center;
         justify-content: center;
-        border-radius: 18px;
-        background: rgba(99, 102, 241, 0.08);
-        border: 1px solid rgba(99, 102, 241, 0.15);
-        margin-bottom: 4px;
+        width: 100%;
     }
 
     .login-logo {
-        width: 48px;
-        height: 48px;
-        filter: drop-shadow(0 0 12px rgba(99, 102, 241, 0.4));
-    }
-
-    .login-title {
-        font-weight: 700 !important;
-        letter-spacing: -0.5px;
-        background: linear-gradient(135deg, #e2e8f0 0%, #f8fafc 50%, #cbd5e1 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
+        width: 220px;
+        max-width: 80%;
+        height: auto;
+        filter: drop-shadow(0 0 24px rgba(52, 211, 153, 0.45)) drop-shadow(0 0 8px rgba(16, 185, 129, 0.35));
     }
 
     .login-subtitle {
@@ -170,16 +153,34 @@
     }
 
     .login-field .mud-input-outlined:hover .mud-input-outlined-border {
-        border-color: rgba(99, 102, 241, 0.4) !important;
+        border-color: rgba(52, 211, 153, 0.4) !important;
     }
 
     .login-field .mud-input-outlined.mud-input-focused .mud-input-outlined-border {
-        border-color: rgba(99, 102, 241, 0.6) !important;
-        box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+        border-color: rgba(16, 185, 129, 0.6) !important;
+        box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1);
     }
 
     .login-field .mud-input-adornment svg {
         color: rgba(148, 163, 184, 0.5);
+    }
+
+    .login-field input,
+    .login-field textarea {
+        color: #e2e8f0 !important;
+        caret-color: #e2e8f0 !important;
+    }
+
+    .login-field .mud-input-label {
+        color: rgba(148, 163, 184, 0.8) !important;
+    }
+
+    .login-field input:-webkit-autofill,
+    .login-field input:-webkit-autofill:hover,
+    .login-field input:-webkit-autofill:focus {
+        -webkit-text-fill-color: #e2e8f0 !important;
+        -webkit-box-shadow: 0 0 0 1000px rgba(15, 20, 35, 0.85) inset !important;
+        caret-color: #e2e8f0 !important;
     }
 
     .login-checkbox .mud-typography {
@@ -188,7 +189,7 @@
     }
 
     .login-submit-btn {
-        background: linear-gradient(135deg, #06b6d4 0%, #6366f1 50%, #a855f7 100%) !important;
+        background: linear-gradient(135deg, #34D399 0%, #10B981 50%, #047857 100%) !important;
         color: white !important;
         font-weight: 600 !important;
         font-size: 0.95rem !important;
@@ -196,12 +197,12 @@
         border-radius: 10px !important;
         height: 48px !important;
         text-transform: none !important;
-        box-shadow: 0 4px 15px rgba(99, 102, 241, 0.3) !important;
+        box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3) !important;
         transition: all 0.3s ease !important;
     }
 
     .login-submit-btn:hover {
-        box-shadow: 0 6px 25px rgba(99, 102, 241, 0.45) !important;
+        box-shadow: 0 6px 25px rgba(16, 185, 129, 0.45) !important;
         transform: translateY(-1px);
     }
 

@@ -11,17 +11,9 @@
 <BeaconPageTitle Title="Approvals"/>
 
 <MudContainer Class="my-4 px-4" MaxWidth="MaxWidth.ExtraExtraLarge">
-    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-6">
-        <MudStack Spacing="1">
-            <MudText Typo="Typo.h3" Style="font-weight: 600;">
-                <MudIcon Icon="@Icons.Material.Filled.Approval" Class="mr-2" />
-                Pending Approvals
-            </MudText>
-            <MudText Typo="Typo.body2" Color="Color.Secondary">
-                Review and approve or reject pending query changes
-            </MudText>
-        </MudStack>
-    </MudStack>
+    <PageHeader Title="Pending Approvals"
+                Icon="@Icons.Material.Filled.Approval"
+                Subtitle="Review and approve or reject pending query changes" />
 
     @if (_loading)
     {

@@ -1,0 +1,36 @@
+<div class="page-header">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Style="gap: 16px;">
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="3" Style="flex: 1; min-width: 0;">
+            @if (!string.IsNullOrEmpty(Icon))
+            {
+                <div class="page-header-icon">
+                    <MudIcon Icon="@Icon" Size="Size.Medium" Style="color: white;" />
+                </div>
+            }
+            <MudStack Spacing="0" Style="min-width: 0;">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Style="flex-wrap: wrap; gap: 8px 12px;">
+                    <MudText Typo="Typo.h4" Style="font-weight: 700; line-height: 1.2;">@Title</MudText>
+                    @Badges
+                </MudStack>
+                @if (!string.IsNullOrEmpty(Subtitle))
+                {
+                    <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mt-1">@Subtitle</MudText>
+                }
+            </MudStack>
+        </MudStack>
+        @if (Actions != null)
+        {
+            <MudStack Row="true" Spacing="2" Style="flex-shrink: 0; align-items: center;">
+                @Actions
+            </MudStack>
+        }
+    </MudStack>
+</div>
+
+@code {
+    [Parameter] public string Title { get; set; } = string.Empty;
+    [Parameter] public string Icon { get; set; } = string.Empty;
+    [Parameter] public string? Subtitle { get; set; }
+    [Parameter] public RenderFragment? Badges { get; set; }
+    [Parameter] public RenderFragment? Actions { get; set; }
+}

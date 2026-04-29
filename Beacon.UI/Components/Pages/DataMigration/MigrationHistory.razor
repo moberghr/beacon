@@ -9,23 +9,16 @@
 <BeaconPageTitle Title="Migration History"/>
 
 <MudContainer Class="my-4 px-4"  MaxWidth="MaxWidth.ExtraExtraLarge">
-    <BeaconPageHeader Icon="@Icons.Material.Filled.History"
-                        Title="Migration History"
-                        ButtonText="Back to Jobs"
-                        OnClick="@NavigateBack"/>
+    <PageHeader Icon="@Icons.Material.Filled.History" Title="Migration History"
+                Subtitle="@(JobId.HasValue ? $"Showing execution history for migration job ID: {JobId}" : "Showing all migration executions")">
+        <Actions>
+            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.ArrowBack" OnClick="@NavigateBack">Back to Jobs</MudButton>
+        </Actions>
+    </PageHeader>
 
     <MudAlert Severity="Severity.Warning" Class="mb-4" Variant="Variant.Filled">
         <strong>Experimental Feature:</strong> Data Migration is currently in experimental phase. Please test thoroughly before using in production environments.
     </MudAlert>
-
-    @if (JobId.HasValue)
-    {
-        <BeaconPageAlert Text="@($"Showing execution history for migration job ID: {JobId}")"/>
-    }
-    else
-    {
-        <BeaconPageAlert Text="Showing all migration executions"/>
-    }
     
     <MudCard>
         <MudCardHeader>

@@ -7,8 +7,7 @@
 <BeaconPageTitle Title="Subscriptions"/>
 
 <MudContainer Class="my-4 px-4"  MaxWidth="MaxWidth.ExtraExtraLarge">
-    <BeaconPageHeader Icon="@Icons.Material.Filled.QueryBuilder" Title="Subscriptions"/>
-    <BeaconPageAlert Text="List of defined subscriptions. Click on subscription to view more."/>
+    <PageHeader Icon="@Icons.Material.Filled.QueryBuilder" Title="Subscriptions" Subtitle="List of defined subscriptions. Click on subscription to view more."/>
     <MudDataGrid @ref="_dataGrid" ServerData="ServerReload" T="SubscriptionData" RowClick="OnRowClick" Hover="true" Filterable="false">
         <ToolBarContent>
             <MudTextField T="string" ValueChanged="@(s => OnSearch(s))" Placeholder="Search by query name..." Adornment="Adornment.Start"

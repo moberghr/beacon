@@ -36,19 +36,17 @@
             <MudDivider Vertical="true" FlexItem="true" Class="appbar-divider" />
             @if (UserContext.IsAuthenticated)
             {
-                <MudMenu AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
-                    <ActivatorContent>
-                        <MudChip T="string" Color="Color.Primary" Variant="Variant.Filled" Size="Size.Small" Class="appbar-user-chip">
-                            <MudAvatar Size="Size.Small" Style="height: 22px; width: 22px; font-size: 0.7rem;" Color="Color.Secondary">@GetUserInitial()</MudAvatar>
-                            <MudText Typo="Typo.body2" Class="ml-2">@(UserContext.DisplayName ?? UserContext.UserName ?? "User")</MudText>
-                        </MudChip>
-                    </ActivatorContent>
-                    <ChildContent>
-                        <MudMenuItem Icon="@Icons.Material.Rounded.Settings" OnClick="NavigateToSettings">Settings</MudMenuItem>
-                        <MudDivider Class="my-1" />
-                        <MudMenuItem Icon="@Icons.Material.Rounded.Logout" OnClick="HandleLogout">Logout</MudMenuItem>
-                    </ChildContent>
-                </MudMenu>
+                <button type="button" class="appbar-user-button" @onclick="NavigateToSettings">
+                    <MudAvatar Size="Size.Small" Style="height: 22px; width: 22px; font-size: 0.7rem;" Color="Color.Secondary">@GetUserInitial()</MudAvatar>
+                    <span class="appbar-user-name">@(UserContext.DisplayName ?? UserContext.UserName ?? "User")</span>
+                </button>
+                <MudTooltip Text="Logout" Placement="Placement.Bottom">
+                    <MudIconButton Icon="@Icons.Material.Rounded.Logout"
+                                   Color="Color.Inherit"
+                                   Size="Size.Small"
+                                   OnClick="HandleLogout"
+                                   Class="appbar-icon-btn" />
+                </MudTooltip>
             }
             else
             {

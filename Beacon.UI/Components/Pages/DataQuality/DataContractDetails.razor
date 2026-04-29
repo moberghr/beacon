@@ -28,27 +28,20 @@
     }
     else if (_contract != null)
     {
-        @* Header *@
-        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-4">
-            <MudStack Spacing="1">
-                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-                    <MudIconButton Icon="@Icons.Material.Filled.ArrowBack" OnClick="@(() => NavManager.NavigateTo("data-quality"))"/>
-                    <MudIcon Icon="@Icons.Material.Filled.VerifiedUser" Size="Size.Large" Color="Color.Primary"/>
-                    <MudText Typo="Typo.h4" Style="font-weight: 700;">@_contract.Name</MudText>
-                    @if (_contract.IsEnabled)
-                    {
-                        <MudChip T="string" Size="Size.Small" Color="Color.Success">Active</MudChip>
-                    }
-                    else
-                    {
-                        <MudChip T="string" Size="Size.Small" Color="Color.Default">Disabled</MudChip>
-                    }
-                </MudStack>
-                <MudText Typo="Typo.body2" Color="Color.Secondary">
-                    @_contract.DataSourceName / @_contract.SchemaName.@_contract.TableName
-                </MudText>
-            </MudStack>
-            <MudStack Row="true" Spacing="2">
+        <PageHeader Title="@_contract.Name"
+                    Icon="@Icons.Material.Filled.VerifiedUser"
+                    Subtitle="@($"{_contract.DataSourceName} / {_contract.SchemaName}.{_contract.TableName}")">
+            <Badges>
+                @if (_contract.IsEnabled)
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Success">Active</MudChip>
+                }
+                else
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Default">Disabled</MudChip>
+                }
+            </Badges>
+            <Actions>
                 <MudIconButton Icon="@Icons.Material.Filled.HelpOutline"
                                Size="Size.Medium" Color="Color.Default"
                                OnClick="OpenHelpDialog" Title="How it works"/>
@@ -70,8 +63,8 @@
                            OnClick="DeleteContract">
                     Delete
                 </MudButton>
-            </MudStack>
-        </MudStack>
+            </Actions>
+        </PageHeader>
 
         @* Hero Metrics *@
         <MudGrid Spacing="3" Class="mb-4">

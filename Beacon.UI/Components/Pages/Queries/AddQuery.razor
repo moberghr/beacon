@@ -8,27 +8,23 @@
 
 <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="pa-6">
     <MudStack Spacing="4">
+        <PageHeader Title="Add New Query" Icon="@Icons.Material.Filled.Add">
+            <Actions>
+                <MudButton Variant="Variant.Outlined"
+                           StartIcon="@Icons.Material.Filled.ArrowBack"
+                           OnClick="@GoBack">
+                    Back
+                </MudButton>
+                <MudButton Variant="Variant.Filled"
+                           Color="Color.Primary"
+                           StartIcon="@Icons.Material.Filled.Save"
+                           Disabled="!IsFormValid"
+                           OnClick="@Submit">
+                    Save Query
+                </MudButton>
+            </Actions>
+        </PageHeader>
         <MudPaper Class="pa-6">
-            <MudStack Row Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-6">
-                <MudText Typo="Typo.h4">
-                    <MudIcon Icon="@Icons.Material.Filled.Add" Class="mr-3" />
-                    Add New Query
-                </MudText>
-                <MudStack Row Spacing="2">
-                    <MudButton Variant="Variant.Outlined"
-                               StartIcon="@Icons.Material.Filled.ArrowBack"
-                               OnClick="@GoBack">
-                        Back
-                    </MudButton>
-                    <MudButton Variant="Variant.Filled"
-                               Color="Color.Primary"
-                               StartIcon="@Icons.Material.Filled.Save"
-                               Disabled="!IsFormValid"
-                               OnClick="@Submit">
-                        Save Query
-                    </MudButton>
-                </MudStack>
-            </MudStack>
 
             <MudGrid>
                 <MudItem xs="12" md="8">

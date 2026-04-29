@@ -24,21 +24,13 @@
     }
     else
     {
-        <!-- Page Header -->
-        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-6">
-            <MudStack Spacing="1">
-                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-                    <MudText Typo="Typo.h3" Style="font-weight: 600;">
-                        <MudIcon Icon="@Icons.Material.Filled.Task" Class="mr-2" />
-                        Task #@Model.Id
-                    </MudText>
-                    <SourceChip AiActorId="@Model.AiActorId" AiActorName="@Model.AiActorName" Compact="false" />
-                </MudStack>
-                <MudText Typo="Typo.body2" Color="Color.Secondary">
-                    Created @Model.CreatedAt.ToString("MMM dd, yyyy HH:mm") • @(Model.Resolved ? "Resolved" : "Open")
-                </MudText>
-            </MudStack>
-            <MudStack Row="true" Spacing="2">
+        <PageHeader Title="@($"Task #{Model.Id}")"
+                    Icon="@Icons.Material.Filled.Task"
+                    Subtitle="@($"Created {Model.CreatedAt:MMM dd, yyyy HH:mm}  ·  {(Model.Resolved ? "Resolved" : "Open")}")">
+            <Badges>
+                <SourceChip AiActorId="@Model.AiActorId" AiActorName="@Model.AiActorName" Compact="false" />
+            </Badges>
+            <Actions>
                 @if (!Model.Resolved)
                 {
                     <MudButton Variant="Variant.Filled" Color="Color.Success" OnClick="@ShowResolveDialog">
@@ -53,8 +45,8 @@
                         Reopen
                     </MudButton>
                 }
-            </MudStack>
-        </MudStack>
+            </Actions>
+        </PageHeader>
 
         <!-- Hero Statistics Cards -->
         <MudGrid Spacing="3" Class="mb-4">

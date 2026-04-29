@@ -10,18 +10,11 @@
 <PageTitle>Add Subscription - Beacon</PageTitle>
 
 <MudContainer MaxWidth="MaxWidth.Large" Class="py-6">
-    <MudPaper Elevation="0" Class="pa-6 mb-4" Style="border: 1px solid var(--mud-palette-divider)">
-        <div class="d-flex align-center mb-4">
-            <MudIcon Icon="@Icons.Material.Filled.NotificationsActive" Size="Size.Large" Class="mr-3" Color="Color.Primary" />
-            <div>
-                <MudText Typo="Typo.h4" Class="mb-1">Create New Subscription</MudText>
-                <MudText Typo="Typo.body2" Color="Color.Secondary">
-                    Configure automated query execution and notification delivery for your data source
-                </MudText>
-            </div>
-        </div>
+    <PageHeader Title="Create New Subscription"
+                Icon="@Icons.Material.Filled.NotificationsActive"
+                Subtitle="Configure automated query execution and notification delivery for your data source" />
 
-        <MudDivider Class="mb-6" />
+    <MudPaper Elevation="0" Class="pa-6 mb-4" Style="border: 1px solid var(--mud-palette-divider)">
 
         <MudForm @ref="@_form" @bind-Errors="@errors" @bind-IsValid="_isFormValid">
 

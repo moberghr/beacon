@@ -12,10 +12,12 @@
 <BeaconPageTitle Title="@(IsEdit ? "Edit Migration Job" : "Create Migration Job")"/>
 
 <MudContainer Class="my-4 px-4"  MaxWidth="MaxWidth.ExtraExtraLarge">
-    <BeaconPageHeader Icon="@Icons.Material.Filled.SwapHoriz"
-                        Title="@(IsEdit ? "Edit Migration Job" : "Create Migration Job")"
-                        ButtonText="Back to List"
-                        OnClick="@NavigateBack"/>
+    <PageHeader Icon="@Icons.Material.Filled.SwapHoriz"
+                Title="@(IsEdit ? "Edit Migration Job" : "Create Migration Job")">
+        <Actions>
+            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.ArrowBack" OnClick="@NavigateBack">Back to List</MudButton>
+        </Actions>
+    </PageHeader>
 
     <MudAlert Severity="Severity.Warning" Class="mb-4" Variant="Variant.Filled">
         <strong>Experimental Feature:</strong> Data Migration is currently in experimental phase. Please test thoroughly before using in production environments.

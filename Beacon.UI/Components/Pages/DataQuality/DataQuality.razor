@@ -15,15 +15,10 @@
 
 <MudContainer MaxWidth="MaxWidth.ExtraExtraLarge" Class="my-4 px-4">
     <MudStack Spacing="4">
-        @* Page Header *@
-        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-            <MudStack Spacing="1">
-                <MudText Typo="Typo.h4">Data Quality</MudText>
-                <MudText Typo="Typo.body2" Color="Color.Secondary">
-                    Monitor data quality across your data sources with automated contracts and checks
-                </MudText>
-            </MudStack>
-            <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+        <PageHeader Title="Data Quality"
+                    Icon="@Icons.Material.Filled.VerifiedUser"
+                    Subtitle="Monitor data quality across your data sources with automated contracts and checks">
+            <Actions>
                 <MudIconButton Icon="@Icons.Material.Filled.HelpOutline"
                                Size="Size.Medium" Color="Color.Default"
                                OnClick="OpenHelpDialog" Title="How it works"/>
@@ -33,8 +28,8 @@
                            OnClick="OpenCreateContractDialog">
                     New Contract
                 </MudButton>
-            </MudStack>
-        </MudStack>
+            </Actions>
+        </PageHeader>
 
         @* Overview Cards *@
         @if (_overviews.Count > 0)

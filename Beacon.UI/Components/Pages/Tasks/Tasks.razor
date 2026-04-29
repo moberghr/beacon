@@ -8,8 +8,7 @@
 <BeaconPageTitle Title="Tasks"/>
 
 <MudContainer Class="my-4 px-4"  MaxWidth="MaxWidth.ExtraExtraLarge">
-    <BeaconPageHeader Icon="@Icons.Material.Filled.Task" Title="Tasks" />
-    <BeaconPageAlert Text="List of tasks generated from subscriptions with 'Create Tasks' enabled. One task is created per subscription and updated with each execution. Tasks auto-resolve when query returns 0 results."/>
+    <PageHeader Icon="@Icons.Material.Filled.Task" Title="Tasks" Subtitle="List of tasks generated from subscriptions with 'Create Tasks' enabled. One task is created per subscription and updated with each execution. Tasks auto-resolve when query returns 0 results."/>
 
     <MudStack Row="true" Class="mb-4">
         <MudSelect T="string" Label="Filter by Status" @bind-Value="_statusFilter" Variant="Variant.Outlined" AnchorOrigin="Origin.BottomCenter">
