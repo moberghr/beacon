@@ -8,13 +8,15 @@
 <BeaconPageTitle Title="Data Migration"/>
 
 <MudContainer Class="my-4 px-4"  MaxWidth="MaxWidth.ExtraExtraLarge">
-    <BeaconPageHeader Icon="@Icons.Material.Filled.SwapHoriz" Title="Data Migration" ButtonText="New Migration Job" OnClick="@AddMigrationJob"/>
+    <PageHeader Icon="@Icons.Material.Filled.SwapHoriz" Title="Data Migration" Subtitle="Manage data migration jobs and view execution history.">
+        <Actions>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Add" OnClick="@AddMigrationJob">New Migration Job</MudButton>
+        </Actions>
+    </PageHeader>
 
     <MudAlert Severity="Severity.Warning" Class="mb-4" Variant="Variant.Filled">
         <strong>Experimental Feature:</strong> Data Migration is currently in experimental phase. Please test thoroughly before using in production environments.
     </MudAlert>
-
-    <BeaconPageAlert Text="Manage data migration jobs and view execution history."/>
 
     <MudDataGrid @ref="_dataGrid" ServerData="@ServerReload" T="MigrationJobDto" Hover="true" Filterable="false" SortMode="SortMode.None">
         <Columns>

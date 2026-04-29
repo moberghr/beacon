@@ -20,38 +20,25 @@
 <BeaconPageTitle Title="Query"/>
 
 <MudContainer Class="my-4 px-4" MaxWidth="MaxWidth.ExtraExtraLarge">
-    <!-- Page Header -->
-    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-6">
-        <MudStack Spacing="1">
-            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-                <MudText Typo="Typo.h3" Style="font-weight: 600;">
-                    <MudIcon Icon="@Icons.Material.Filled.QueryStats" Class="mr-2" />
-                    @(Model?.Name ?? "Query Details")
-                </MudText>
-                <SourceChip AiActorId="@Model?.AiActorId" AiActorName="@Model?.AiActorName" Compact="false" />
-                @if (Model?.IsLocked == true)
-                {
-                    <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Filled">
-                        <MudIcon Icon="@Icons.Material.Filled.Lock" Size="Size.Small" Class="mr-1" />
-                        Locked
-                    </MudChip>
-                }
-            </MudStack>
-            <MudText Typo="Typo.body2" Color="Color.Secondary">
-                @if (!string.IsNullOrEmpty(Model?.Description))
-                {
-                    @Model.Description
-                }
-                else
-                {
-                    <text>Query configuration and execution details</text>
-                }
-            </MudText>
-        </MudStack>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="@AddSubscription" Disabled="@(!_canWrite)">
-            Add Subscription
-        </MudButton>
-    </MudStack>
+    <PageHeader Title="@(Model?.Name ?? "Query Details")"
+                Icon="@Icons.Material.Filled.QueryStats"
+                Subtitle="@(string.IsNullOrEmpty(Model?.Description) ? "Query configuration and execution details" : Model!.Description)">
+        <Badges>
+            <SourceChip AiActorId="@Model?.AiActorId" AiActorName="@Model?.AiActorName" Compact="false" />
+            @if (Model?.IsLocked == true)
+            {
+                <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Filled">
+                    <MudIcon Icon="@Icons.Material.Filled.Lock" Size="Size.Small" Class="mr-1" />
+                    Locked
+                </MudChip>
+            }
+        </Badges>
+        <Actions>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="@AddSubscription" Disabled="@(!_canWrite)">
+                Add Subscription
+            </MudButton>
+        </Actions>
+    </PageHeader>
 
     @if (_loading)
     {

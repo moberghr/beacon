@@ -33,16 +33,14 @@
     }
     else
     {
-        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-4">
-            <MudStack Row="true" AlignItems="AlignItems.Center">
-                <MudIconButton Icon="@Icons.Material.Filled.ArrowBack" Href="ai-actors" />
-                <MudIcon Icon="@Icons.Material.Filled.SmartToy" Size="Size.Large" Class="mr-2" />
-                <MudText Typo="Typo.h5">@_actor.Name</MudText>
-                <MudChip T="string" Size="Size.Small" Color="@GetStatusColor(_actor.Status)" Variant="Variant.Filled" Class="ml-2">
+        <PageHeader Title="@_actor.Name"
+                    Icon="@Icons.Material.Filled.SmartToy">
+            <Badges>
+                <MudChip T="string" Size="Size.Small" Color="@GetStatusColor(_actor.Status)" Variant="Variant.Filled">
                     @_actor.Status.ToString()
                 </MudChip>
-            </MudStack>
-            <MudStack Row="true" Spacing="2">
+            </Badges>
+            <Actions>
                 @if (_actor.PendingPlanCount > 0)
                 {
                     <MudButton Variant="Variant.Filled" Color="Color.Warning" OnClick="@OpenPendingPlanReview" StartIcon="@Icons.Material.Filled.RateReview">
@@ -62,8 +60,8 @@
                 }
                 <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="@OpenRefineDialog" Disabled="@(!_canWrite)">Refine</MudButton>
                 <MudIconButton Icon="@Icons.Material.Filled.Archive" Color="Color.Error" OnClick="@ArchiveActor" Title="Archive Actor" Disabled="@(!_isAdmin)" />
-            </MudStack>
-        </MudStack>
+            </Actions>
+        </PageHeader>
 
         <MudGrid>
             <!-- Overview Card -->

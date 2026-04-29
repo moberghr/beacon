@@ -26,16 +26,10 @@
     else
     {
         <MudStack Spacing="4">
-            @* Header *@
-            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                <MudStack Spacing="1">
-                    <MudText Typo="Typo.h4">@_dashboard.Name</MudText>
-                    @if (!string.IsNullOrWhiteSpace(_dashboard.Description))
-                    {
-                        <MudText Typo="Typo.body2" Color="Color.Secondary">@_dashboard.Description</MudText>
-                    }
-                </MudStack>
-                <MudStack Row="true" Spacing="2">
+            <PageHeader Title="@_dashboard.Name"
+                        Icon="@Icons.Material.Filled.Dashboard"
+                        Subtitle="@_dashboard.Description">
+                <Actions>
                     @if (_dashboard.RefreshIntervalSeconds.HasValue)
                     {
                         <MudChip T="string" Size="Size.Small" Color="Color.Info" Icon="@Icons.Material.Filled.Refresh">
@@ -55,8 +49,8 @@
                             Edit
                         </MudButton>
                     }
-                </MudStack>
-            </MudStack>
+                </Actions>
+            </PageHeader>
 
             @* Dashboard Content *@
             @if (!_dashboard.Widgets.Any())

@@ -20,21 +20,10 @@
     else
     {
         <MudStack Spacing="4">
-            @* Back + Header *@
-            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-                    <MudIconButton Icon="@Icons.Material.Filled.ArrowBack"
-                                   OnClick="@(() => NavManager.NavigateTo("beacon/projects"))"/>
-                    <MudIcon Icon="@Icons.Material.Filled.FolderSpecial" Size="Size.Large" Color="Color.Primary"/>
-                    <MudStack Spacing="0">
-                        <MudText Typo="Typo.h5" Style="font-weight: 600;">@_project.Name</MudText>
-                        @if (!string.IsNullOrWhiteSpace(_project.Description))
-                        {
-                            <MudText Typo="Typo.body2" Color="Color.Secondary">@_project.Description</MudText>
-                        }
-                    </MudStack>
-                </MudStack>
-                <MudStack Row="true" Spacing="2">
+            <PageHeader Title="@_project.Name"
+                        Icon="@Icons.Material.Filled.FolderSpecial"
+                        Subtitle="@_project.Description">
+                <Actions>
                     <MudButton Variant="Variant.Outlined"
                                Color="Color.Info"
                                StartIcon="@Icons.Material.Filled.PlayArrow"
@@ -49,8 +38,8 @@
                                Disabled="_generatingDocs">
                         @(_generatingDocs ? "Generating..." : "Generate Documentation")
                     </MudButton>
-                </MudStack>
-            </MudStack>
+                </Actions>
+            </PageHeader>
 
             @* Overview Summary Cards *@
             <MudGrid Spacing="3">

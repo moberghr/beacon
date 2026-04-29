@@ -8,21 +8,18 @@
 
 <MudContainer MaxWidth="MaxWidth.ExtraExtraLarge" Class="my-4 px-4">
     <MudStack Spacing="4">
-        @* Page Header *@
-        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-            <MudStack Spacing="1">
-                <MudText Typo="Typo.h4">Projects</MudText>
-                <MudText Typo="Typo.body2" Color="Color.Secondary">
-                    Manage multi-source projects with data quality tracking and repository scanning
-                </MudText>
-            </MudStack>
-            <MudButton Variant="Variant.Filled"
-                       Color="Color.Primary"
-                       StartIcon="@Icons.Material.Filled.Add"
-                       OnClick="OpenCreateProjectDialog">
-                Create Project
-            </MudButton>
-        </MudStack>
+        <PageHeader Title="Projects"
+                    Icon="@Icons.Material.Filled.FolderSpecial"
+                    Subtitle="Manage multi-source projects with data quality tracking and repository scanning">
+            <Actions>
+                <MudButton Variant="Variant.Filled"
+                           Color="Color.Primary"
+                           StartIcon="@Icons.Material.Filled.Add"
+                           OnClick="OpenCreateProjectDialog">
+                    Create Project
+                </MudButton>
+            </Actions>
+        </PageHeader>
 
         @* Loading State *@
         @if (_loading)

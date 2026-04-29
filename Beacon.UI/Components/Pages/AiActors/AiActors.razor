@@ -10,7 +10,7 @@
 <BeaconPageTitle Title="AI Actors"/>
 
 <MudContainer Class="my-4 px-4" MaxWidth="MaxWidth.ExtraExtraLarge">
-    <BeaconPageHeader Icon="@Icons.Material.Filled.SmartToy" Title="AI Actors" />
+    <PageHeader Icon="@Icons.Material.Filled.SmartToy" Title="AI Actors" Subtitle="AI Actors autonomously monitor data sources by creating queries, analyzing results, and sending notifications when important patterns are detected."/>
 
     @if (_configuration?.UseAI != true)
     {
@@ -27,8 +27,6 @@
     }
     else
     {
-    <BeaconPageAlert Text="AI Actors autonomously monitor data sources by creating queries, analyzing results, and sending notifications when important patterns are detected."/>
-
     <MudStack Row="true" Class="mb-4" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
         <MudStack Row="true" Class="gap-4">
             <DataSourceSelect @bind-Value="_selectedDataSourceId"

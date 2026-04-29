@@ -9,8 +9,11 @@
 <BeaconPageTitle Title="Data Sources"/>
 
 <MudContainer MaxWidth="MaxWidth.ExtraExtraLarge" Class="my-4 px-4">
-    <BeaconPageHeader Icon="@Icons.Material.Filled.Folder" Title="Data Sources" ButtonText="New Data Source" OnClick="@AddDataSource" ButtonDisabled="@(!_canWrite)"/>
-    <BeaconPageAlert Text="Manage your database data sources and connections."/>
+    <PageHeader Icon="@Icons.Material.Filled.Folder" Title="Data Sources" Subtitle="Manage your database data sources and connections.">
+        <Actions>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Add" OnClick="@AddDataSource" Disabled="@(!_canWrite)">New Data Source</MudButton>
+        </Actions>
+    </PageHeader>
     <MudCard Elevation="2">
         <MudDataGrid @ref="_dataGrid" ServerData="ServerReload" T="DataSourceListData" Hover="true" Filterable="false" SortMode="SortMode.None" Bordered="false">
         <Columns>

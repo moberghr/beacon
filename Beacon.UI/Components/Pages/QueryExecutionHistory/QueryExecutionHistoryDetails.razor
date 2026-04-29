@@ -32,21 +32,13 @@
             _ => Color.Default
         };
 
-        <!-- Page Header -->
-        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-6">
-            <MudStack Spacing="1">
-                <MudText Typo="Typo.h3" Style="font-weight: 600;">
-                    <MudIcon Icon="@Icons.Material.Filled.QueryStats" Class="mr-2" />
-                    Query Execution #@Model.Id
-                </MudText>
-                <MudText Typo="Typo.body2" Color="Color.Secondary">
-                    Executed @Model.CreatedTime.ToString("MMM dd, yyyy HH:mm:ss")
-                </MudText>
-            </MudStack>
-            <MudStack Row="true" Spacing="2">
-                <MudChip T="string" Color="@statusColor" Size="Size.Large">@status</MudChip>
-            </MudStack>
-        </MudStack>
+        <PageHeader Title="@($"Query Execution #{Model.Id}")"
+                    Icon="@Icons.Material.Filled.QueryStats"
+                    Subtitle="@($"Executed {Model.CreatedTime:MMM dd, yyyy HH:mm:ss}")">
+            <Badges>
+                <MudChip T="string" Color="@statusColor" Size="Size.Small">@status</MudChip>
+            </Badges>
+        </PageHeader>
 
         <!-- Hero Statistics Cards -->
         <MudGrid Spacing="3" Class="mb-4">

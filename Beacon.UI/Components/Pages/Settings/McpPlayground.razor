@@ -11,15 +11,10 @@
 <BeaconPageTitle Title="MCP Playground"/>
 
 <MudContainer MaxWidth="MaxWidth.ExtraExtraLarge" Class="my-4 px-4" Style="height: calc(100vh - 100px); display: flex; flex-direction: column;">
-    @* Header *@
-    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-3">
-        <MudStack Spacing="1">
-            <MudText Typo="Typo.h4">MCP Playground</MudText>
-            <MudText Typo="Typo.body2" Color="Color.Secondary">
-                Test MCP tools interactively. Select a project and start asking questions.
-            </MudText>
-        </MudStack>
-        <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+    <PageHeader Title="MCP Playground"
+                Icon="@Icons.Material.Filled.SmartToy"
+                Subtitle="Test MCP tools interactively. Select a project and start asking questions.">
+        <Actions>
             <MudSelect T="int?" @bind-Value="_selectedProjectId"
                        Label="Project"
                        Variant="Variant.Outlined"
@@ -46,8 +41,8 @@
             <MudTooltip Text="Clear conversation">
                 <MudIconButton Icon="@Icons.Material.Filled.DeleteSweep" OnClick="ClearMessages" Disabled="@(_messages.Count == 0)"/>
             </MudTooltip>
-        </MudStack>
-    </MudStack>
+        </Actions>
+    </PageHeader>
 
     @* Chat area *@
     <MudPaper Elevation="0" Class="flex-grow-1 pa-4" Style="overflow-y: auto; background: var(--mud-palette-background-grey); border-radius: 12px 12px 0 0;" @ref="_chatPanel">
