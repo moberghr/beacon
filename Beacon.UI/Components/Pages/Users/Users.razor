@@ -8,12 +8,20 @@
 
 <BeaconPageTitle Title="Users"/>
 
-<MudContainer Class="my-4 px-4" MaxWidth="MaxWidth.ExtraExtraLarge">
-    <PageHeader Icon="@Icons.Material.Filled.People" Title="Users" Subtitle="Manage users and their roles. Internal users authenticate with passwords stored in Beacon. External users are pre-registered and authenticate via JWT/OAuth.">
+<div class="@RootClass">
+    <BeaconPageHero Prefix="Manage"
+                    Emphasis="user"
+                    Suffix="accounts.">
+        <Eyebrow>
+            <span>Beacon</span>
+            <span class="page-hero__sep">/</span>
+            <span>Users</span>
+        </Eyebrow>
+        <Sub>Manage users and their roles. Internal users authenticate with passwords stored in Beacon. External users are pre-registered and authenticate via JWT/OAuth.</Sub>
         <Actions>
             <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Add" OnClick="@AddUser" Disabled="@(!_isAdmin)">Add User</MudButton>
         </Actions>
-    </PageHeader>
+    </BeaconPageHero>
 
     <MudDataGrid @ref="_dataGrid" ServerData="ServerReload" T="BeaconUserData" RowClick="OnRowClick" Hover="true" Filterable="false">
         <ToolBarContent>
@@ -62,7 +70,7 @@
             <MudDataGridPager T="BeaconUserData" />
         </PagerContent>
     </MudDataGrid>
-</MudContainer>
+</div>
 
 @inject IUserManagementService UserService
 @inject IRoleService RoleService
@@ -72,6 +80,7 @@
 @inject IBeaconUserContext UserContext
 
 @code {
+
     private MudDataGrid<BeaconUserData>? _dataGrid;
     private string? _searchString;
     private bool _isAdmin;

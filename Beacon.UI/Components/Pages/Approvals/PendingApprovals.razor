@@ -10,10 +10,18 @@
 
 <BeaconPageTitle Title="Approvals"/>
 
-<MudContainer Class="my-4 px-4" MaxWidth="MaxWidth.ExtraExtraLarge">
-    <PageHeader Title="Pending Approvals"
-                Icon="@Icons.Material.Filled.Approval"
-                Subtitle="Review and approve or reject pending query changes" />
+<div class="@RootClass">
+    <BeaconPageHero Variant="signal"
+                    Prefix="Pending"
+                    Emphasis="approval"
+                    Suffix="queue.">
+        <Eyebrow>
+            <span>Beacon</span>
+            <span class="page-hero__sep">/</span>
+            <span>Approvals</span>
+        </Eyebrow>
+        <Sub>Review and approve or reject pending query changes.</Sub>
+    </BeaconPageHero>
 
     @if (_loading)
     {
@@ -43,10 +51,11 @@
             </Columns>
         </MudDataGrid>
     }
-</MudContainer>
+</div>
 
 @code
 {
+
     private List<ApprovalRequestSummary>? _approvals;
     private bool _loading;
 

@@ -4,15 +4,25 @@
 @using Beacon.Core.Services
 @using Beacon.Core.Data.Enums
 @using Beacon.Core.Helpers
+@using Beacon.UI.Components.Custom
 
 <BeaconPageTitle Title="Data Migration"/>
 
-<MudContainer Class="my-4 px-4"  MaxWidth="MaxWidth.ExtraExtraLarge">
-    <PageHeader Icon="@Icons.Material.Filled.SwapHoriz" Title="Data Migration" Subtitle="Manage data migration jobs and view execution history.">
+<div class="@RootClass">
+    <BeaconPageHero Variant="nodes"
+                    Prefix="Data"
+                    Emphasis="migration"
+                    Suffix="jobs.">
+        <Eyebrow>
+            <span>Beacon</span>
+            <span class="page-hero__sep">/</span>
+            <span>Data Migration</span>
+        </Eyebrow>
+        <Sub>Manage data migration jobs and view execution history.</Sub>
         <Actions>
             <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Add" OnClick="@AddMigrationJob">New Migration Job</MudButton>
         </Actions>
-    </PageHeader>
+    </BeaconPageHero>
 
     <MudAlert Severity="Severity.Warning" Class="mb-4" Variant="Variant.Filled">
         <strong>Experimental Feature:</strong> Data Migration is currently in experimental phase. Please test thoroughly before using in production environments.
@@ -111,7 +121,7 @@
             <MudDataGridPager T="MigrationJobDto"/>
         </PagerContent>
     </MudDataGrid>
-</MudContainer>
+</div>
 
 @inject IMigrationService _service
 @inject IDialogService DialogService

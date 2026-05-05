@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Npgsql;
 using Beacon.Core.Data;
 using Beacon.Core.PostgreSql.Data;
 
@@ -17,9 +18,13 @@ public static class ServiceCollectionExtensions
         string connectionString,
         string schema = "beacon")
     {
+        var dataSource = new NpgsqlDataSourceBuilder(connectionString)
+        {
+            ConnectionStringBuilder = { SearchPath = schema }
+        }.Build();
+
         builder.Services.AddDbContextFactory<PostgreSqlBeaconContext>(options =>
-            options.UseNpgsql(connectionString,
-                    b => b.MigrationsHistoryTable("__EFMigrationsHistory", schema))
+            options.UseNpgsql(dataSource)
                    .UseSnakeCaseNamingConvention());
 
         // Register the base context factory using the PostgreSQL implementation

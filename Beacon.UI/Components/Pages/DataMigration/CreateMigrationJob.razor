@@ -11,13 +11,20 @@
 
 <BeaconPageTitle Title="@(IsEdit ? "Edit Migration Job" : "Create Migration Job")"/>
 
-<MudContainer Class="my-4 px-4"  MaxWidth="MaxWidth.ExtraExtraLarge">
-    <PageHeader Icon="@Icons.Material.Filled.SwapHoriz"
-                Title="@(IsEdit ? "Edit Migration Job" : "Create Migration Job")">
+<div class="@RootClass">
+    <BeaconPageHero Variant="nodes"
+                    Prefix="@(IsEdit ? "Edit" : "Create")"
+                    Emphasis="migration"
+                    Suffix="job.">
+        <Eyebrow>
+            <span>Beacon</span>
+            <span class="page-hero__sep">/</span>
+            <span>@(IsEdit ? "Edit Migration Job" : "Create Migration Job")</span>
+        </Eyebrow>
         <Actions>
             <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.ArrowBack" OnClick="@NavigateBack">Back to List</MudButton>
         </Actions>
-    </PageHeader>
+    </BeaconPageHero>
 
     <MudAlert Severity="Severity.Warning" Class="mb-4" Variant="Variant.Filled">
         <strong>Experimental Feature:</strong> Data Migration is currently in experimental phase. Please test thoroughly before using in production environments.
@@ -164,7 +171,7 @@
         <QueryExecutionResultsPreview ExecutionResult="@_currentQueryResult"
                                       OnClose="@CloseResultsPreview" />
     }
-</MudContainer>
+</div>
 
 @inject IMigrationService _migrationService
 @inject IDataSourceService _dataSourceService

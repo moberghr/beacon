@@ -9,8 +9,18 @@
 
 <BeaconPageTitle Title="AI Actors"/>
 
-<MudContainer Class="my-4 px-4" MaxWidth="MaxWidth.ExtraExtraLarge">
-    <PageHeader Icon="@Icons.Material.Filled.SmartToy" Title="AI Actors" Subtitle="AI Actors autonomously monitor data sources by creating queries, analyzing results, and sending notifications when important patterns are detected."/>
+<div class="@RootClass">
+    <BeaconPageHero Variant="nodes"
+                    Prefix="AI"
+                    Emphasis="actor"
+                    Suffix="automation.">
+        <Eyebrow>
+            <span>Beacon</span>
+            <span class="page-hero__sep">/</span>
+            <span>AI Actors</span>
+        </Eyebrow>
+        <Sub>AI Actors autonomously monitor data sources by creating queries, analyzing results, and sending notifications when important patterns are detected.</Sub>
+    </BeaconPageHero>
 
     @if (_configuration?.UseAI != true)
     {
@@ -116,7 +126,7 @@
         </MudAlert>
     }
     }
-</MudContainer>
+</div>
 
 @inject ISnackbar Snackbar
 @inject IMediator Mediator
@@ -127,6 +137,7 @@
 @inject Beacon.Core.Authorization.IBeaconAuthorizationProvider AuthorizationProvider
 
 @code {
+
     [Parameter]
     public int? DataSourceId { get; set; }
 

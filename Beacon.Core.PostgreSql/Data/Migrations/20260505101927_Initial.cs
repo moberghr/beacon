@@ -12,12 +12,8 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.EnsureSchema(
-                name: "beacon");
-
             migrationBuilder.CreateTable(
                 name: "ai_prompt_templates",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -42,7 +38,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "app_setting_history",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -61,7 +56,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "app_settings",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -79,7 +73,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "comments",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -98,7 +91,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "dashboards",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -122,7 +114,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "data_protection_keys",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -137,7 +128,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "data_sources",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -162,7 +152,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "mcp_documentation_patches",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -187,7 +176,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "mcp_learned_patterns",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -216,7 +204,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "mcp_query_signals",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -250,7 +237,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "mcp_settings",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -279,7 +265,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "projects",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -296,7 +281,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "query_folders",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -315,7 +299,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     table.ForeignKey(
                         name: "fk_query_folders_query_folders_parent_folder_id",
                         column: x => x.parent_folder_id,
-                        principalSchema: "beacon",
                         principalTable: "query_folders",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Restrict);
@@ -323,7 +306,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "recipients",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -344,7 +326,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "roles",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -362,7 +343,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "users",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -388,7 +368,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "dashboard_permissions",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -406,7 +385,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     table.ForeignKey(
                         name: "fk_dashboard_permissions_dashboards_dashboard_id",
                         column: x => x.dashboard_id,
-                        principalSchema: "beacon",
                         principalTable: "dashboards",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
@@ -414,7 +392,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "dashboard_widgets",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -437,7 +414,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     table.ForeignKey(
                         name: "fk_dashboard_widgets_dashboards_dashboard_id",
                         column: x => x.dashboard_id,
-                        principalSchema: "beacon",
                         principalTable: "dashboards",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
@@ -445,7 +421,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "ai_actors",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -473,7 +448,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     table.ForeignKey(
                         name: "fk_ai_actors_data_sources_data_source_id",
                         column: x => x.data_source_id,
-                        principalSchema: "beacon",
                         principalTable: "data_sources",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Restrict);
@@ -481,7 +455,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "data_contracts",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -505,7 +478,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     table.ForeignKey(
                         name: "fk_data_contracts_data_sources_data_source_id",
                         column: x => x.data_source_id,
-                        principalSchema: "beacon",
                         principalTable: "data_sources",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Restrict);
@@ -513,7 +485,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "data_quality_scores",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -533,7 +504,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     table.ForeignKey(
                         name: "fk_data_quality_scores_data_sources_data_source_id",
                         column: x => x.data_source_id,
-                        principalSchema: "beacon",
                         principalTable: "data_sources",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Restrict);
@@ -541,7 +511,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "database_metadata",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -560,7 +529,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     table.ForeignKey(
                         name: "fk_database_metadata_data_sources_data_source_id",
                         column: x => x.data_source_id,
-                        principalSchema: "beacon",
                         principalTable: "data_sources",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
@@ -568,7 +536,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "manual_query_execution_logs",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -589,7 +556,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     table.ForeignKey(
                         name: "fk_manual_query_execution_logs_data_sources_data_source_id",
                         column: x => x.data_source_id,
-                        principalSchema: "beacon",
                         principalTable: "data_sources",
                         principalColumn: "id",
                         onDelete: ReferentialAction.SetNull);
@@ -597,7 +563,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "migration_jobs",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -626,14 +591,12 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     table.ForeignKey(
                         name: "fk_migration_jobs_data_sources_data_source_id",
                         column: x => x.data_source_id,
-                        principalSchema: "beacon",
                         principalTable: "data_sources",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
                         name: "fk_migration_jobs_data_sources_destination_data_source_id",
                         column: x => x.destination_data_source_id,
-                        principalSchema: "beacon",
                         principalTable: "data_sources",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Restrict);
@@ -641,7 +604,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "git_hub_repositories",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -664,7 +626,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     table.ForeignKey(
                         name: "fk_git_hub_repositories_projects_project_id",
                         column: x => x.project_id,
-                        principalSchema: "beacon",
                         principalTable: "projects",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
@@ -672,7 +633,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "project_data_sources",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -687,14 +647,12 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     table.ForeignKey(
                         name: "fk_project_data_sources_data_sources_data_source_id",
                         column: x => x.data_source_id,
-                        principalSchema: "beacon",
                         principalTable: "data_sources",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
                         name: "fk_project_data_sources_projects_project_id",
                         column: x => x.project_id,
-                        principalSchema: "beacon",
                         principalTable: "projects",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
@@ -702,7 +660,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "project_documentations",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -726,7 +683,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     table.ForeignKey(
                         name: "fk_project_documentations_projects_project_id",
                         column: x => x.project_id,
-                        principalSchema: "beacon",
                         principalTable: "projects",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
@@ -734,7 +690,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "api_key_credentials",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -757,7 +712,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     table.ForeignKey(
                         name: "fk_api_key_credentials_users_user_id",
                         column: x => x.user_id,
-                        principalSchema: "beacon",
                         principalTable: "users",
                         principalColumn: "id",
                         onDelete: ReferentialAction.SetNull);
@@ -765,7 +719,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "user_roles",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -782,14 +735,12 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     table.ForeignKey(
                         name: "fk_user_roles_roles_role_id",
                         column: x => x.role_id,
-                        principalSchema: "beacon",
                         principalTable: "roles",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
                     table.ForeignKey(
                         name: "fk_user_roles_users_user_id",
                         column: x => x.user_id,
-                        principalSchema: "beacon",
                         principalTable: "users",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
@@ -797,7 +748,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "ai_actor_plans",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -827,13 +777,11 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     table.ForeignKey(
                         name: "fk_ai_actor_plans_ai_actor_plans_parent_plan_id",
                         column: x => x.parent_plan_id,
-                        principalSchema: "beacon",
                         principalTable: "ai_actor_plans",
                         principalColumn: "id");
                     table.ForeignKey(
                         name: "fk_ai_actor_plans_ai_actors_ai_actor_id",
                         column: x => x.ai_actor_id,
-                        principalSchema: "beacon",
                         principalTable: "ai_actors",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
@@ -841,7 +789,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "data_contract_recipient",
-                schema: "beacon",
                 columns: table => new
                 {
                     data_contracts_id = table.Column<int>(type: "integer", nullable: false),
@@ -853,14 +800,12 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     table.ForeignKey(
                         name: "fk_data_contract_recipient_data_contracts_data_contracts_id",
                         column: x => x.data_contracts_id,
-                        principalSchema: "beacon",
                         principalTable: "data_contracts",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
                     table.ForeignKey(
                         name: "fk_data_contract_recipient_recipients_recipients_id",
                         column: x => x.recipients_id,
-                        principalSchema: "beacon",
                         principalTable: "recipients",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
@@ -868,7 +813,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "data_contract_rules",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -890,7 +834,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     table.ForeignKey(
                         name: "fk_data_contract_rules_data_contracts_data_contract_id",
                         column: x => x.data_contract_id,
-                        principalSchema: "beacon",
                         principalTable: "data_contracts",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
@@ -898,7 +841,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "data_quality_evaluations",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -917,7 +859,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     table.ForeignKey(
                         name: "fk_data_quality_evaluations_data_contracts_data_contract_id",
                         column: x => x.data_contract_id,
-                        principalSchema: "beacon",
                         principalTable: "data_contracts",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Restrict);
@@ -925,7 +866,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "column_metadata",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -950,7 +890,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     table.ForeignKey(
                         name: "fk_column_metadata_database_metadata_database_metadata_id",
                         column: x => x.database_metadata_id,
-                        principalSchema: "beacon",
                         principalTable: "database_metadata",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
@@ -958,7 +897,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "index_metadata",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -976,7 +914,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     table.ForeignKey(
                         name: "fk_index_metadata_database_metadata_database_metadata_id",
                         column: x => x.database_metadata_id,
-                        principalSchema: "beacon",
                         principalTable: "database_metadata",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
@@ -984,7 +921,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "migration_executions",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -1012,13 +948,11 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     table.ForeignKey(
                         name: "fk_migration_executions_migration_executions_parent_execution_",
                         column: x => x.parent_execution_id,
-                        principalSchema: "beacon",
                         principalTable: "migration_executions",
                         principalColumn: "id");
                     table.ForeignKey(
                         name: "fk_migration_executions_migration_jobs_migration_job_id",
                         column: x => x.migration_job_id,
-                        principalSchema: "beacon",
                         principalTable: "migration_jobs",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Restrict);
@@ -1026,7 +960,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "code_references",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -1049,7 +982,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     table.ForeignKey(
                         name: "fk_code_references_git_hub_repositories_git_hub_repository_id",
                         column: x => x.git_hub_repository_id,
-                        principalSchema: "beacon",
                         principalTable: "git_hub_repositories",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
@@ -1057,7 +989,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "project_documentation_sections",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -1075,7 +1006,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     table.ForeignKey(
                         name: "fk_project_documentation_sections_project_documentations_proje",
                         column: x => x.project_documentation_id,
-                        principalSchema: "beacon",
                         principalTable: "project_documentations",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
@@ -1083,7 +1013,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "mcp_sessions",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -1103,14 +1032,12 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     table.ForeignKey(
                         name: "fk_mcp_sessions_api_key_credentials_api_key_id",
                         column: x => x.api_key_id,
-                        principalSchema: "beacon",
                         principalTable: "api_key_credentials",
                         principalColumn: "id",
                         onDelete: ReferentialAction.SetNull);
                     table.ForeignKey(
                         name: "fk_mcp_sessions_users_user_id",
                         column: x => x.user_id,
-                        principalSchema: "beacon",
                         principalTable: "users",
                         principalColumn: "id",
                         onDelete: ReferentialAction.SetNull);
@@ -1118,7 +1045,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "data_quality_rule_results",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -1139,13 +1065,11 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     table.ForeignKey(
                         name: "fk_data_quality_rule_results_data_contract_rules_data_contract",
                         column: x => x.data_contract_rule_id,
-                        principalSchema: "beacon",
                         principalTable: "data_contract_rules",
                         principalColumn: "id");
                     table.ForeignKey(
                         name: "fk_data_quality_rule_results_data_quality_evaluations_data_qua",
                         column: x => x.data_quality_evaluation_id,
-                        principalSchema: "beacon",
                         principalTable: "data_quality_evaluations",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
@@ -1153,7 +1077,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "mcp_audit_logs",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -1175,14 +1098,12 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     table.ForeignKey(
                         name: "fk_mcp_audit_logs_mcp_sessions_session_id",
                         column: x => x.session_id,
-                        principalSchema: "beacon",
                         principalTable: "mcp_sessions",
                         principalColumn: "id",
                         onDelete: ReferentialAction.SetNull);
                     table.ForeignKey(
                         name: "fk_mcp_audit_logs_users_user_id",
                         column: x => x.user_id,
-                        principalSchema: "beacon",
                         principalTable: "users",
                         principalColumn: "id",
                         onDelete: ReferentialAction.SetNull);
@@ -1190,7 +1111,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "ai_actor_conversations",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -1212,7 +1132,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     table.ForeignKey(
                         name: "fk_ai_actor_conversations_ai_actors_ai_actor_id",
                         column: x => x.ai_actor_id,
-                        principalSchema: "beacon",
                         principalTable: "ai_actors",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
@@ -1220,7 +1139,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "ai_actor_executions",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -1252,13 +1170,11 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     table.ForeignKey(
                         name: "fk_ai_actor_executions_ai_actor_plans_ai_actor_plan_id",
                         column: x => x.ai_actor_plan_id,
-                        principalSchema: "beacon",
                         principalTable: "ai_actor_plans",
                         principalColumn: "id");
                     table.ForeignKey(
                         name: "fk_ai_actor_executions_ai_actors_ai_actor_id",
                         column: x => x.ai_actor_id,
-                        principalSchema: "beacon",
                         principalTable: "ai_actors",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
@@ -1266,7 +1182,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "ai_alert_configurations",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -1297,7 +1212,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     table.ForeignKey(
                         name: "fk_ai_alert_configurations_data_sources_data_source_id",
                         column: x => x.data_source_id,
-                        principalSchema: "beacon",
                         principalTable: "data_sources",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
@@ -1305,7 +1219,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "ai_conversation_histories",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -1326,7 +1239,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     table.ForeignKey(
                         name: "fk_ai_conversation_histories_ai_alert_configurations_ai_alert_",
                         column: x => x.ai_alert_configuration_id,
-                        principalSchema: "beacon",
                         principalTable: "ai_alert_configurations",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
@@ -1334,7 +1246,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "ai_usage_metrics",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -1363,14 +1274,12 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     table.ForeignKey(
                         name: "fk_ai_usage_metrics_data_sources_data_source_id",
                         column: x => x.data_source_id,
-                        principalSchema: "beacon",
                         principalTable: "data_sources",
                         principalColumn: "id");
                 });
 
             migrationBuilder.CreateTable(
                 name: "anomaly_baselines",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -1387,7 +1296,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "anomaly_configs",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -1409,7 +1317,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "anomaly_events",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -1434,7 +1341,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "notifications",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -1453,7 +1359,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     table.ForeignKey(
                         name: "fk_notifications_recipients_recipient_id",
                         column: x => x.recipient_id,
-                        principalSchema: "beacon",
                         principalTable: "recipients",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
@@ -1461,7 +1366,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "queries",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -1484,14 +1388,12 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     table.ForeignKey(
                         name: "fk_queries_ai_actors_ai_actor_id",
                         column: x => x.ai_actor_id,
-                        principalSchema: "beacon",
                         principalTable: "ai_actors",
                         principalColumn: "id",
                         onDelete: ReferentialAction.SetNull);
                     table.ForeignKey(
                         name: "fk_queries_query_folders_folder_id",
                         column: x => x.folder_id,
-                        principalSchema: "beacon",
                         principalTable: "query_folders",
                         principalColumn: "id",
                         onDelete: ReferentialAction.SetNull);
@@ -1499,7 +1401,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "query_parameters",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -1518,7 +1419,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     table.ForeignKey(
                         name: "fk_query_parameters_queries_query_id",
                         column: x => x.query_id,
-                        principalSchema: "beacon",
                         principalTable: "queries",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
@@ -1526,7 +1426,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "query_steps",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -1545,14 +1444,12 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     table.ForeignKey(
                         name: "fk_query_steps_data_sources_data_source_id",
                         column: x => x.data_source_id,
-                        principalSchema: "beacon",
                         principalTable: "data_sources",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
                     table.ForeignKey(
                         name: "fk_query_steps_queries_query_id",
                         column: x => x.query_id,
-                        principalSchema: "beacon",
                         principalTable: "queries",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
@@ -1560,7 +1457,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "query_versions",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -1584,7 +1480,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     table.ForeignKey(
                         name: "fk_query_versions_queries_query_id",
                         column: x => x.query_id,
-                        principalSchema: "beacon",
                         principalTable: "queries",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
@@ -1592,7 +1487,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "subscriptions",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -1618,14 +1512,12 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     table.ForeignKey(
                         name: "fk_subscriptions_ai_actors_ai_actor_id",
                         column: x => x.ai_actor_id,
-                        principalSchema: "beacon",
                         principalTable: "ai_actors",
                         principalColumn: "id",
                         onDelete: ReferentialAction.SetNull);
                     table.ForeignKey(
                         name: "fk_subscriptions_queries_query_id",
                         column: x => x.query_id,
-                        principalSchema: "beacon",
                         principalTable: "queries",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
@@ -1633,7 +1525,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "query_step_change_history",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -1656,25 +1547,21 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     table.ForeignKey(
                         name: "fk_query_step_change_history_ai_actor_executions_ai_actor_exec",
                         column: x => x.ai_actor_execution_id,
-                        principalSchema: "beacon",
                         principalTable: "ai_actor_executions",
                         principalColumn: "id");
                     table.ForeignKey(
                         name: "fk_query_step_change_history_ai_actor_plans_ai_actor_plan_id",
                         column: x => x.ai_actor_plan_id,
-                        principalSchema: "beacon",
                         principalTable: "ai_actor_plans",
                         principalColumn: "id");
                     table.ForeignKey(
                         name: "fk_query_step_change_history_ai_actors_ai_actor_id",
                         column: x => x.ai_actor_id,
-                        principalSchema: "beacon",
                         principalTable: "ai_actors",
                         principalColumn: "id");
                     table.ForeignKey(
                         name: "fk_query_step_change_history_query_steps_query_step_id",
                         column: x => x.query_step_id,
-                        principalSchema: "beacon",
                         principalTable: "query_steps",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
@@ -1682,7 +1569,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "query_step_parameters",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -1700,7 +1586,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     table.ForeignKey(
                         name: "fk_query_step_parameters_query_steps_query_step_id",
                         column: x => x.query_step_id,
-                        principalSchema: "beacon",
                         principalTable: "query_steps",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
@@ -1708,7 +1593,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "query_approval_requests",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -1731,21 +1615,18 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     table.ForeignKey(
                         name: "fk_query_approval_requests_queries_query_id",
                         column: x => x.query_id,
-                        principalSchema: "beacon",
                         principalTable: "queries",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
                     table.ForeignKey(
                         name: "fk_query_approval_requests_query_versions_query_version_id",
                         column: x => x.query_version_id,
-                        principalSchema: "beacon",
                         principalTable: "query_versions",
                         principalColumn: "id");
                 });
 
             migrationBuilder.CreateTable(
                 name: "query_execution_history",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -1765,7 +1646,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     table.ForeignKey(
                         name: "fk_query_execution_history_subscriptions_subscription_id",
                         column: x => x.subscription_id,
-                        principalSchema: "beacon",
                         principalTable: "subscriptions",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
@@ -1773,7 +1653,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "query_tasks",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -1794,7 +1673,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     table.ForeignKey(
                         name: "fk_query_tasks_subscriptions_subscription_id",
                         column: x => x.subscription_id,
-                        principalSchema: "beacon",
                         principalTable: "subscriptions",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Restrict);
@@ -1802,7 +1680,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "recipient_subscription",
-                schema: "beacon",
                 columns: table => new
                 {
                     recipients_id = table.Column<int>(type: "integer", nullable: false),
@@ -1814,14 +1691,12 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     table.ForeignKey(
                         name: "fk_recipient_subscription_recipients_recipients_id",
                         column: x => x.recipients_id,
-                        principalSchema: "beacon",
                         principalTable: "recipients",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
                     table.ForeignKey(
                         name: "fk_recipient_subscription_subscriptions_subscriptions_id",
                         column: x => x.subscriptions_id,
-                        principalSchema: "beacon",
                         principalTable: "subscriptions",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
@@ -1829,7 +1704,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "subscription_parameters",
-                schema: "beacon",
                 columns: table => new
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
@@ -1846,7 +1720,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     table.ForeignKey(
                         name: "fk_subscription_parameters_subscriptions_subscription_id",
                         column: x => x.subscription_id,
-                        principalSchema: "beacon",
                         principalTable: "subscriptions",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
@@ -1854,1129 +1727,939 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             migrationBuilder.CreateIndex(
                 name: "ix_ai_actor_conversations_ai_actor_execution_id",
-                schema: "beacon",
                 table: "ai_actor_conversations",
                 column: "ai_actor_execution_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_ai_actor_conversations_ai_actor_id_turn_number",
-                schema: "beacon",
                 table: "ai_actor_conversations",
                 columns: new[] { "ai_actor_id", "turn_number" });
 
             migrationBuilder.CreateIndex(
                 name: "ix_ai_actor_conversations_timestamp",
-                schema: "beacon",
                 table: "ai_actor_conversations",
                 column: "timestamp");
 
             migrationBuilder.CreateIndex(
                 name: "ix_ai_actor_conversations_turn_number",
-                schema: "beacon",
                 table: "ai_actor_conversations",
                 column: "turn_number");
 
             migrationBuilder.CreateIndex(
                 name: "ix_ai_actor_executions_ai_actor_id_started_at",
-                schema: "beacon",
                 table: "ai_actor_executions",
                 columns: new[] { "ai_actor_id", "started_at" });
 
             migrationBuilder.CreateIndex(
                 name: "ix_ai_actor_executions_ai_actor_plan_id",
-                schema: "beacon",
                 table: "ai_actor_executions",
                 column: "ai_actor_plan_id",
                 unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "ix_ai_actor_executions_phase",
-                schema: "beacon",
                 table: "ai_actor_executions",
                 column: "phase");
 
             migrationBuilder.CreateIndex(
                 name: "ix_ai_actor_executions_started_at",
-                schema: "beacon",
                 table: "ai_actor_executions",
                 column: "started_at");
 
             migrationBuilder.CreateIndex(
                 name: "ix_ai_actor_executions_triggering_subscription_id",
-                schema: "beacon",
                 table: "ai_actor_executions",
                 column: "triggering_subscription_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_ai_actor_plans_ai_actor_id_proposed_at",
-                schema: "beacon",
                 table: "ai_actor_plans",
                 columns: new[] { "ai_actor_id", "proposed_at" });
 
             migrationBuilder.CreateIndex(
                 name: "ix_ai_actor_plans_ai_actor_id_status",
-                schema: "beacon",
                 table: "ai_actor_plans",
                 columns: new[] { "ai_actor_id", "status" });
 
             migrationBuilder.CreateIndex(
                 name: "ix_ai_actor_plans_parent_plan_id",
-                schema: "beacon",
                 table: "ai_actor_plans",
                 column: "parent_plan_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_ai_actor_plans_proposed_at",
-                schema: "beacon",
                 table: "ai_actor_plans",
                 column: "proposed_at");
 
             migrationBuilder.CreateIndex(
                 name: "ix_ai_actor_plans_status",
-                schema: "beacon",
                 table: "ai_actor_plans",
                 column: "status");
 
             migrationBuilder.CreateIndex(
                 name: "ix_ai_actors_archived_time",
-                schema: "beacon",
                 table: "ai_actors",
                 column: "archived_time");
 
             migrationBuilder.CreateIndex(
                 name: "ix_ai_actors_data_source_id_status",
-                schema: "beacon",
                 table: "ai_actors",
                 columns: new[] { "data_source_id", "status" });
 
             migrationBuilder.CreateIndex(
                 name: "ix_ai_actors_status",
-                schema: "beacon",
                 table: "ai_actors",
                 column: "status");
 
             migrationBuilder.CreateIndex(
                 name: "ix_ai_actors_status_archived_time",
-                schema: "beacon",
                 table: "ai_actors",
                 columns: new[] { "status", "archived_time" });
 
             migrationBuilder.CreateIndex(
                 name: "ix_ai_alert_configurations_data_source_id",
-                schema: "beacon",
                 table: "ai_alert_configurations",
                 column: "data_source_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_ai_alert_configurations_status",
-                schema: "beacon",
                 table: "ai_alert_configurations",
                 column: "status");
 
             migrationBuilder.CreateIndex(
                 name: "ix_ai_alert_configurations_subscription_id",
-                schema: "beacon",
                 table: "ai_alert_configurations",
                 column: "subscription_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_ai_conversation_histories_ai_alert_configuration_id",
-                schema: "beacon",
                 table: "ai_conversation_histories",
                 column: "ai_alert_configuration_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_ai_conversation_histories_timestamp",
-                schema: "beacon",
                 table: "ai_conversation_histories",
                 column: "timestamp");
 
             migrationBuilder.CreateIndex(
                 name: "ix_ai_conversation_histories_turn_number",
-                schema: "beacon",
                 table: "ai_conversation_histories",
                 column: "turn_number");
 
             migrationBuilder.CreateIndex(
                 name: "ix_ai_prompt_templates_is_active",
-                schema: "beacon",
                 table: "ai_prompt_templates",
                 column: "is_active");
 
             migrationBuilder.CreateIndex(
                 name: "ix_ai_prompt_templates_operation_type",
-                schema: "beacon",
                 table: "ai_prompt_templates",
                 column: "operation_type");
 
             migrationBuilder.CreateIndex(
                 name: "ix_ai_usage_metrics_data_source_id",
-                schema: "beacon",
                 table: "ai_usage_metrics",
                 column: "data_source_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_ai_usage_metrics_operation_type",
-                schema: "beacon",
                 table: "ai_usage_metrics",
                 column: "operation_type");
 
             migrationBuilder.CreateIndex(
                 name: "ix_ai_usage_metrics_provider",
-                schema: "beacon",
                 table: "ai_usage_metrics",
                 column: "provider");
 
             migrationBuilder.CreateIndex(
                 name: "ix_ai_usage_metrics_query_id",
-                schema: "beacon",
                 table: "ai_usage_metrics",
                 column: "query_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_ai_usage_metrics_timestamp",
-                schema: "beacon",
                 table: "ai_usage_metrics",
                 column: "timestamp");
 
             migrationBuilder.CreateIndex(
                 name: "ix_ai_usage_metrics_user_id",
-                schema: "beacon",
                 table: "ai_usage_metrics",
                 column: "user_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_anomaly_baselines_execution_time",
-                schema: "beacon",
                 table: "anomaly_baselines",
                 column: "execution_time");
 
             migrationBuilder.CreateIndex(
                 name: "ix_anomaly_baselines_subscription_id_execution_time",
-                schema: "beacon",
                 table: "anomaly_baselines",
                 columns: new[] { "subscription_id", "execution_time" });
 
             migrationBuilder.CreateIndex(
                 name: "ix_anomaly_configs_enabled",
-                schema: "beacon",
                 table: "anomaly_configs",
                 column: "enabled");
 
             migrationBuilder.CreateIndex(
                 name: "ix_anomaly_configs_subscription_id",
-                schema: "beacon",
                 table: "anomaly_configs",
                 column: "subscription_id",
                 unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "ix_anomaly_events_acknowledged_detected_time",
-                schema: "beacon",
                 table: "anomaly_events",
                 columns: new[] { "acknowledged", "detected_time" });
 
             migrationBuilder.CreateIndex(
                 name: "ix_anomaly_events_detected_time",
-                schema: "beacon",
                 table: "anomaly_events",
                 column: "detected_time");
 
             migrationBuilder.CreateIndex(
                 name: "ix_anomaly_events_notification_id",
-                schema: "beacon",
                 table: "anomaly_events",
                 column: "notification_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_anomaly_events_subscription_id_detected_time",
-                schema: "beacon",
                 table: "anomaly_events",
                 columns: new[] { "subscription_id", "detected_time" });
 
             migrationBuilder.CreateIndex(
                 name: "ix_api_key_credentials_is_revoked",
-                schema: "beacon",
                 table: "api_key_credentials",
                 column: "is_revoked");
 
             migrationBuilder.CreateIndex(
                 name: "ix_api_key_credentials_key_hash",
-                schema: "beacon",
                 table: "api_key_credentials",
                 column: "key_hash",
                 unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "ix_api_key_credentials_key_prefix",
-                schema: "beacon",
                 table: "api_key_credentials",
                 column: "key_prefix");
 
             migrationBuilder.CreateIndex(
                 name: "ix_api_key_credentials_user_id",
-                schema: "beacon",
                 table: "api_key_credentials",
                 column: "user_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_app_setting_history_changed_at",
-                schema: "beacon",
                 table: "app_setting_history",
                 column: "changed_at");
 
             migrationBuilder.CreateIndex(
                 name: "ix_app_setting_history_setting_key",
-                schema: "beacon",
                 table: "app_setting_history",
                 column: "setting_key");
 
             migrationBuilder.CreateIndex(
                 name: "ix_app_settings_category",
-                schema: "beacon",
                 table: "app_settings",
                 column: "category");
 
             migrationBuilder.CreateIndex(
                 name: "ix_app_settings_key",
-                schema: "beacon",
                 table: "app_settings",
                 column: "key",
                 unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "ix_code_references_git_hub_repository_id",
-                schema: "beacon",
                 table: "code_references",
                 column: "git_hub_repository_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_code_references_reference_type",
-                schema: "beacon",
                 table: "code_references",
                 column: "reference_type");
 
             migrationBuilder.CreateIndex(
                 name: "ix_code_references_schema_name_table_name",
-                schema: "beacon",
                 table: "code_references",
                 columns: new[] { "schema_name", "table_name" });
 
             migrationBuilder.CreateIndex(
                 name: "ix_column_metadata_database_metadata_id",
-                schema: "beacon",
                 table: "column_metadata",
                 column: "database_metadata_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_column_metadata_database_metadata_id_column_name",
-                schema: "beacon",
                 table: "column_metadata",
                 columns: new[] { "database_metadata_id", "column_name" });
 
             migrationBuilder.CreateIndex(
                 name: "ix_comments_created_time",
-                schema: "beacon",
                 table: "comments",
                 column: "created_time");
 
             migrationBuilder.CreateIndex(
                 name: "ix_comments_entity_type_entity_id",
-                schema: "beacon",
                 table: "comments",
                 columns: new[] { "entity_type", "entity_id" });
 
             migrationBuilder.CreateIndex(
                 name: "ix_dashboard_permissions_dashboard_id",
-                schema: "beacon",
                 table: "dashboard_permissions",
                 column: "dashboard_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_dashboard_permissions_dashboard_id_user_id",
-                schema: "beacon",
                 table: "dashboard_permissions",
                 columns: new[] { "dashboard_id", "user_id" },
                 unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "ix_dashboard_permissions_user_id",
-                schema: "beacon",
                 table: "dashboard_permissions",
                 column: "user_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_dashboard_widgets_dashboard_id",
-                schema: "beacon",
                 table: "dashboard_widgets",
                 column: "dashboard_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_dashboard_widgets_dashboard_id_sort_order",
-                schema: "beacon",
                 table: "dashboard_widgets",
                 columns: new[] { "dashboard_id", "sort_order" });
 
             migrationBuilder.CreateIndex(
                 name: "ix_dashboard_widgets_widget_type",
-                schema: "beacon",
                 table: "dashboard_widgets",
                 column: "widget_type");
 
             migrationBuilder.CreateIndex(
                 name: "ix_dashboards_archived_time",
-                schema: "beacon",
                 table: "dashboards",
                 column: "archived_time");
 
             migrationBuilder.CreateIndex(
                 name: "ix_dashboards_created_by_user_id",
-                schema: "beacon",
                 table: "dashboards",
                 column: "created_by_user_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_dashboards_is_default",
-                schema: "beacon",
                 table: "dashboards",
                 column: "is_default");
 
             migrationBuilder.CreateIndex(
                 name: "ix_dashboards_is_shared",
-                schema: "beacon",
                 table: "dashboards",
                 column: "is_shared");
 
             migrationBuilder.CreateIndex(
                 name: "ix_data_contract_recipient_recipients_id",
-                schema: "beacon",
                 table: "data_contract_recipient",
                 column: "recipients_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_data_contract_rules_data_contract_id",
-                schema: "beacon",
                 table: "data_contract_rules",
                 column: "data_contract_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_data_contracts_archived_time",
-                schema: "beacon",
                 table: "data_contracts",
                 column: "archived_time");
 
             migrationBuilder.CreateIndex(
                 name: "ix_data_contracts_data_source_id",
-                schema: "beacon",
                 table: "data_contracts",
                 column: "data_source_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_data_contracts_data_source_id_schema_name_table_name",
-                schema: "beacon",
                 table: "data_contracts",
                 columns: new[] { "data_source_id", "schema_name", "table_name" });
 
             migrationBuilder.CreateIndex(
                 name: "ix_data_contracts_is_enabled",
-                schema: "beacon",
                 table: "data_contracts",
                 column: "is_enabled");
 
             migrationBuilder.CreateIndex(
                 name: "ix_data_quality_evaluations_created_time",
-                schema: "beacon",
                 table: "data_quality_evaluations",
                 column: "created_time");
 
             migrationBuilder.CreateIndex(
                 name: "ix_data_quality_evaluations_data_contract_id",
-                schema: "beacon",
                 table: "data_quality_evaluations",
                 column: "data_contract_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_data_quality_rule_results_data_contract_rule_id",
-                schema: "beacon",
                 table: "data_quality_rule_results",
                 column: "data_contract_rule_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_data_quality_rule_results_data_quality_evaluation_id",
-                schema: "beacon",
                 table: "data_quality_rule_results",
                 column: "data_quality_evaluation_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_data_quality_scores_data_source_id_schema_name_table_name",
-                schema: "beacon",
                 table: "data_quality_scores",
                 columns: new[] { "data_source_id", "schema_name", "table_name" },
                 unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "ix_data_quality_scores_evaluated_at",
-                schema: "beacon",
                 table: "data_quality_scores",
                 column: "evaluated_at");
 
             migrationBuilder.CreateIndex(
                 name: "ix_database_metadata_data_source_id",
-                schema: "beacon",
                 table: "database_metadata",
                 column: "data_source_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_database_metadata_data_source_id_schema_name_table_name",
-                schema: "beacon",
                 table: "database_metadata",
                 columns: new[] { "data_source_id", "schema_name", "table_name" },
                 unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "ix_database_metadata_last_refreshed",
-                schema: "beacon",
                 table: "database_metadata",
                 column: "last_refreshed");
 
             migrationBuilder.CreateIndex(
                 name: "ix_git_hub_repositories_project_id",
-                schema: "beacon",
                 table: "git_hub_repositories",
                 column: "project_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_git_hub_repositories_scan_status",
-                schema: "beacon",
                 table: "git_hub_repositories",
                 column: "scan_status");
 
             migrationBuilder.CreateIndex(
                 name: "ix_index_metadata_database_metadata_id",
-                schema: "beacon",
                 table: "index_metadata",
                 column: "database_metadata_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_manual_query_execution_logs_created_time",
-                schema: "beacon",
                 table: "manual_query_execution_logs",
                 column: "created_time");
 
             migrationBuilder.CreateIndex(
                 name: "ix_manual_query_execution_logs_data_source_id",
-                schema: "beacon",
                 table: "manual_query_execution_logs",
                 column: "data_source_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_manual_query_execution_logs_data_source_id_created_time",
-                schema: "beacon",
                 table: "manual_query_execution_logs",
                 columns: new[] { "data_source_id", "created_time" });
 
             migrationBuilder.CreateIndex(
                 name: "ix_manual_query_execution_logs_execution_context",
-                schema: "beacon",
                 table: "manual_query_execution_logs",
                 column: "execution_context");
 
             migrationBuilder.CreateIndex(
                 name: "ix_manual_query_execution_logs_user_id",
-                schema: "beacon",
                 table: "manual_query_execution_logs",
                 column: "user_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_manual_query_execution_logs_user_id_created_time",
-                schema: "beacon",
                 table: "manual_query_execution_logs",
                 columns: new[] { "user_id", "created_time" });
 
             migrationBuilder.CreateIndex(
                 name: "ix_mcp_audit_logs_created_time",
-                schema: "beacon",
                 table: "mcp_audit_logs",
                 column: "created_time");
 
             migrationBuilder.CreateIndex(
                 name: "ix_mcp_audit_logs_session_id",
-                schema: "beacon",
                 table: "mcp_audit_logs",
                 column: "session_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_mcp_audit_logs_tool",
-                schema: "beacon",
                 table: "mcp_audit_logs",
                 column: "tool");
 
             migrationBuilder.CreateIndex(
                 name: "ix_mcp_audit_logs_user_id",
-                schema: "beacon",
                 table: "mcp_audit_logs",
                 column: "user_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_mcp_documentation_patches_data_source_id",
-                schema: "beacon",
                 table: "mcp_documentation_patches",
                 column: "data_source_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_mcp_documentation_patches_project_id_status",
-                schema: "beacon",
                 table: "mcp_documentation_patches",
                 columns: new[] { "project_id", "status" });
 
             migrationBuilder.CreateIndex(
                 name: "ix_mcp_learned_patterns_data_source_id_status_table_name",
-                schema: "beacon",
                 table: "mcp_learned_patterns",
                 columns: new[] { "data_source_id", "status", "table_name" });
 
             migrationBuilder.CreateIndex(
                 name: "ix_mcp_learned_patterns_project_id",
-                schema: "beacon",
                 table: "mcp_learned_patterns",
                 column: "project_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_mcp_query_signals_created_time",
-                schema: "beacon",
                 table: "mcp_query_signals",
                 column: "created_time");
 
             migrationBuilder.CreateIndex(
                 name: "ix_mcp_query_signals_data_source_id",
-                schema: "beacon",
                 table: "mcp_query_signals",
                 column: "data_source_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_mcp_query_signals_is_successful",
-                schema: "beacon",
                 table: "mcp_query_signals",
                 column: "is_successful");
 
             migrationBuilder.CreateIndex(
                 name: "ix_mcp_query_signals_project_id",
-                schema: "beacon",
                 table: "mcp_query_signals",
                 column: "project_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_mcp_sessions_api_key_id",
-                schema: "beacon",
                 table: "mcp_sessions",
                 column: "api_key_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_mcp_sessions_last_activity_at",
-                schema: "beacon",
                 table: "mcp_sessions",
                 column: "last_activity_at");
 
             migrationBuilder.CreateIndex(
                 name: "ix_mcp_sessions_session_id",
-                schema: "beacon",
                 table: "mcp_sessions",
                 column: "session_id",
                 unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "ix_mcp_sessions_user_id",
-                schema: "beacon",
                 table: "mcp_sessions",
                 column: "user_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_migration_executions_migration_job_id",
-                schema: "beacon",
                 table: "migration_executions",
                 column: "migration_job_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_migration_executions_parent_execution_id",
-                schema: "beacon",
                 table: "migration_executions",
                 column: "parent_execution_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_migration_executions_started_at",
-                schema: "beacon",
                 table: "migration_executions",
                 column: "started_at");
 
             migrationBuilder.CreateIndex(
                 name: "ix_migration_executions_status_started_at",
-                schema: "beacon",
                 table: "migration_executions",
                 columns: new[] { "status", "started_at" });
 
             migrationBuilder.CreateIndex(
                 name: "ix_migration_jobs_data_source_id",
-                schema: "beacon",
                 table: "migration_jobs",
                 column: "data_source_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_migration_jobs_destination_data_source_id",
-                schema: "beacon",
                 table: "migration_jobs",
                 column: "destination_data_source_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_migration_jobs_is_enabled_archived_time",
-                schema: "beacon",
                 table: "migration_jobs",
                 columns: new[] { "is_enabled", "archived_time" });
 
             migrationBuilder.CreateIndex(
                 name: "ix_notifications_query_execution_history_id",
-                schema: "beacon",
                 table: "notifications",
                 column: "query_execution_history_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_notifications_recipient_id",
-                schema: "beacon",
                 table: "notifications",
                 column: "recipient_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_notifications_task_id",
-                schema: "beacon",
                 table: "notifications",
                 column: "task_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_project_data_sources_data_source_id",
-                schema: "beacon",
                 table: "project_data_sources",
                 column: "data_source_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_project_data_sources_project_id_data_source_id",
-                schema: "beacon",
                 table: "project_data_sources",
                 columns: new[] { "project_id", "data_source_id" },
                 unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "ix_project_documentation_sections_project_documentation_id",
-                schema: "beacon",
                 table: "project_documentation_sections",
                 column: "project_documentation_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_project_documentation_sections_section_type",
-                schema: "beacon",
                 table: "project_documentation_sections",
                 column: "section_type");
 
             migrationBuilder.CreateIndex(
                 name: "ix_project_documentations_generated_at",
-                schema: "beacon",
                 table: "project_documentations",
                 column: "generated_at");
 
             migrationBuilder.CreateIndex(
                 name: "ix_project_documentations_project_id",
-                schema: "beacon",
                 table: "project_documentations",
                 column: "project_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_projects_name",
-                schema: "beacon",
                 table: "projects",
                 column: "name");
 
             migrationBuilder.CreateIndex(
                 name: "ix_queries_active_version_id",
-                schema: "beacon",
                 table: "queries",
                 column: "active_version_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_queries_ai_actor_id",
-                schema: "beacon",
                 table: "queries",
                 column: "ai_actor_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_queries_folder_id",
-                schema: "beacon",
                 table: "queries",
                 column: "folder_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_queries_is_locked",
-                schema: "beacon",
                 table: "queries",
                 column: "is_locked");
 
             migrationBuilder.CreateIndex(
                 name: "ix_query_approval_requests_query_id_status",
-                schema: "beacon",
                 table: "query_approval_requests",
                 columns: new[] { "query_id", "status" });
 
             migrationBuilder.CreateIndex(
                 name: "ix_query_approval_requests_query_version_id",
-                schema: "beacon",
                 table: "query_approval_requests",
                 column: "query_version_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_query_approval_requests_status",
-                schema: "beacon",
                 table: "query_approval_requests",
                 column: "status");
 
             migrationBuilder.CreateIndex(
                 name: "ix_query_approval_requests_status_created_time",
-                schema: "beacon",
                 table: "query_approval_requests",
                 columns: new[] { "status", "created_time" });
 
             migrationBuilder.CreateIndex(
                 name: "ix_query_execution_history_subscription_id",
-                schema: "beacon",
                 table: "query_execution_history",
                 column: "subscription_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_query_folders_archived_time",
-                schema: "beacon",
                 table: "query_folders",
                 column: "archived_time");
 
             migrationBuilder.CreateIndex(
                 name: "ix_query_folders_parent_folder_id",
-                schema: "beacon",
                 table: "query_folders",
                 column: "parent_folder_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_query_folders_parent_folder_id_name",
-                schema: "beacon",
                 table: "query_folders",
                 columns: new[] { "parent_folder_id", "name" },
                 unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "ix_query_folders_parent_folder_id_sort_order",
-                schema: "beacon",
                 table: "query_folders",
                 columns: new[] { "parent_folder_id", "sort_order" });
 
             migrationBuilder.CreateIndex(
                 name: "ix_query_folders_path",
-                schema: "beacon",
                 table: "query_folders",
                 column: "path");
 
             migrationBuilder.CreateIndex(
                 name: "ix_query_parameters_query_id",
-                schema: "beacon",
                 table: "query_parameters",
                 column: "query_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_query_step_change_history_ai_actor_execution_id",
-                schema: "beacon",
                 table: "query_step_change_history",
                 column: "ai_actor_execution_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_query_step_change_history_ai_actor_id",
-                schema: "beacon",
                 table: "query_step_change_history",
                 column: "ai_actor_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_query_step_change_history_ai_actor_plan_id",
-                schema: "beacon",
                 table: "query_step_change_history",
                 column: "ai_actor_plan_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_query_step_change_history_change_source",
-                schema: "beacon",
                 table: "query_step_change_history",
                 column: "change_source");
 
             migrationBuilder.CreateIndex(
                 name: "ix_query_step_change_history_changed_at",
-                schema: "beacon",
                 table: "query_step_change_history",
                 column: "changed_at");
 
             migrationBuilder.CreateIndex(
                 name: "ix_query_step_change_history_query_step_id_changed_at",
-                schema: "beacon",
                 table: "query_step_change_history",
                 columns: new[] { "query_step_id", "changed_at" });
 
             migrationBuilder.CreateIndex(
                 name: "ix_query_step_parameters_query_step_id",
-                schema: "beacon",
                 table: "query_step_parameters",
                 column: "query_step_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_query_steps_data_source_id",
-                schema: "beacon",
                 table: "query_steps",
                 column: "data_source_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_query_steps_query_id",
-                schema: "beacon",
                 table: "query_steps",
                 column: "query_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_query_tasks_created_time",
-                schema: "beacon",
                 table: "query_tasks",
                 column: "created_time");
 
             migrationBuilder.CreateIndex(
                 name: "ix_query_tasks_resolved_created_time",
-                schema: "beacon",
                 table: "query_tasks",
                 columns: new[] { "resolved", "created_time" });
 
             migrationBuilder.CreateIndex(
                 name: "ix_query_tasks_subscription_id",
-                schema: "beacon",
                 table: "query_tasks",
                 column: "subscription_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_query_versions_query_id_status",
-                schema: "beacon",
                 table: "query_versions",
                 columns: new[] { "query_id", "status" });
 
             migrationBuilder.CreateIndex(
                 name: "ix_query_versions_query_id_version_number",
-                schema: "beacon",
                 table: "query_versions",
                 columns: new[] { "query_id", "version_number" },
                 unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "ix_recipient_subscription_subscriptions_id",
-                schema: "beacon",
                 table: "recipient_subscription",
                 column: "subscriptions_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_roles_name",
-                schema: "beacon",
                 table: "roles",
                 column: "name",
                 unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "ix_subscription_parameters_subscription_id",
-                schema: "beacon",
                 table: "subscription_parameters",
                 column: "subscription_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_subscriptions_ai_actor_id",
-                schema: "beacon",
                 table: "subscriptions",
                 column: "ai_actor_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_subscriptions_query_id",
-                schema: "beacon",
                 table: "subscriptions",
                 column: "query_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_user_roles_assigned_at",
-                schema: "beacon",
                 table: "user_roles",
                 column: "assigned_at");
 
             migrationBuilder.CreateIndex(
                 name: "ix_user_roles_role_id",
-                schema: "beacon",
                 table: "user_roles",
                 column: "role_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_user_roles_user_id",
-                schema: "beacon",
                 table: "user_roles",
                 column: "user_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_user_roles_user_id_role_id",
-                schema: "beacon",
                 table: "user_roles",
                 columns: new[] { "user_id", "role_id" },
                 unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "ix_users_archived_time",
-                schema: "beacon",
                 table: "users",
                 column: "archived_time");
 
             migrationBuilder.CreateIndex(
                 name: "ix_users_email",
-                schema: "beacon",
                 table: "users",
                 column: "email");
 
             migrationBuilder.CreateIndex(
                 name: "ix_users_external_id",
-                schema: "beacon",
                 table: "users",
                 column: "external_id",
                 unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "ix_users_identity_provider_external_id",
-                schema: "beacon",
                 table: "users",
                 columns: new[] { "identity_provider", "external_id" });
 
             migrationBuilder.CreateIndex(
                 name: "ix_users_is_enabled",
-                schema: "beacon",
                 table: "users",
                 column: "is_enabled");
 
             migrationBuilder.CreateIndex(
                 name: "ix_users_is_internal_user",
-                schema: "beacon",
                 table: "users",
                 column: "is_internal_user");
 
             migrationBuilder.CreateIndex(
                 name: "ix_users_is_super_admin",
-                schema: "beacon",
                 table: "users",
                 column: "is_super_admin");
 
             migrationBuilder.CreateIndex(
                 name: "ix_users_user_name_archived_time",
-                schema: "beacon",
                 table: "users",
                 columns: new[] { "user_name", "archived_time" });
 
             migrationBuilder.AddForeignKey(
                 name: "fk_ai_actor_conversations_ai_actor_executions_ai_actor_executi",
-                schema: "beacon",
                 table: "ai_actor_conversations",
                 column: "ai_actor_execution_id",
-                principalSchema: "beacon",
                 principalTable: "ai_actor_executions",
                 principalColumn: "id");
 
             migrationBuilder.AddForeignKey(
                 name: "fk_ai_actor_executions_subscriptions_triggering_subscription_id",
-                schema: "beacon",
                 table: "ai_actor_executions",
                 column: "triggering_subscription_id",
-                principalSchema: "beacon",
                 principalTable: "subscriptions",
                 principalColumn: "id",
                 onDelete: ReferentialAction.SetNull);
 
             migrationBuilder.AddForeignKey(
                 name: "fk_ai_alert_configurations_subscriptions_subscription_id",
-                schema: "beacon",
                 table: "ai_alert_configurations",
                 column: "subscription_id",
-                principalSchema: "beacon",
                 principalTable: "subscriptions",
                 principalColumn: "id",
                 onDelete: ReferentialAction.SetNull);
 
             migrationBuilder.AddForeignKey(
                 name: "fk_ai_usage_metrics_queries_query_id",
-                schema: "beacon",
                 table: "ai_usage_metrics",
                 column: "query_id",
-                principalSchema: "beacon",
                 principalTable: "queries",
                 principalColumn: "id");
 
             migrationBuilder.AddForeignKey(
                 name: "fk_anomaly_baselines_subscriptions_subscription_id",
-                schema: "beacon",
                 table: "anomaly_baselines",
                 column: "subscription_id",
-                principalSchema: "beacon",
                 principalTable: "subscriptions",
                 principalColumn: "id",
                 onDelete: ReferentialAction.Cascade);
 
             migrationBuilder.AddForeignKey(
                 name: "fk_anomaly_configs_subscriptions_subscription_id",
-                schema: "beacon",
                 table: "anomaly_configs",
                 column: "subscription_id",
-                principalSchema: "beacon",
                 principalTable: "subscriptions",
                 principalColumn: "id",
                 onDelete: ReferentialAction.Cascade);
 
             migrationBuilder.AddForeignKey(
                 name: "fk_anomaly_events_notifications_notification_id",
-                schema: "beacon",
                 table: "anomaly_events",
                 column: "notification_id",
-                principalSchema: "beacon",
                 principalTable: "notifications",
                 principalColumn: "id",
                 onDelete: ReferentialAction.SetNull);
 
             migrationBuilder.AddForeignKey(
                 name: "fk_anomaly_events_subscriptions_subscription_id",
-                schema: "beacon",
                 table: "anomaly_events",
                 column: "subscription_id",
-                principalSchema: "beacon",
                 principalTable: "subscriptions",
                 principalColumn: "id");
 
             migrationBuilder.AddForeignKey(
                 name: "fk_notifications_query_execution_history_query_execution_histo",
-                schema: "beacon",
                 table: "notifications",
                 column: "query_execution_history_id",
-                principalSchema: "beacon",
                 principalTable: "query_execution_history",
                 principalColumn: "id",
                 onDelete: ReferentialAction.Cascade);
 
             migrationBuilder.AddForeignKey(
                 name: "fk_notifications_query_tasks_task_id",
-                schema: "beacon",
                 table: "notifications",
                 column: "task_id",
-                principalSchema: "beacon",
                 principalTable: "query_tasks",
                 principalColumn: "id",
                 onDelete: ReferentialAction.Restrict);
 
             migrationBuilder.AddForeignKey(
                 name: "fk_queries_query_versions_active_version_id",
-                schema: "beacon",
                 table: "queries",
                 column: "active_version_id",
-                principalSchema: "beacon",
                 principalTable: "query_versions",
                 principalColumn: "id");
         }
@@ -2986,261 +2669,197 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
         {
             migrationBuilder.DropForeignKey(
                 name: "fk_queries_ai_actors_ai_actor_id",
-                schema: "beacon",
                 table: "queries");
 
             migrationBuilder.DropForeignKey(
                 name: "fk_query_versions_queries_query_id",
-                schema: "beacon",
                 table: "query_versions");
 
             migrationBuilder.DropTable(
-                name: "ai_actor_conversations",
-                schema: "beacon");
+                name: "ai_actor_conversations");
 
             migrationBuilder.DropTable(
-                name: "ai_conversation_histories",
-                schema: "beacon");
+                name: "ai_conversation_histories");
 
             migrationBuilder.DropTable(
-                name: "ai_prompt_templates",
-                schema: "beacon");
+                name: "ai_prompt_templates");
 
             migrationBuilder.DropTable(
-                name: "ai_usage_metrics",
-                schema: "beacon");
+                name: "ai_usage_metrics");
 
             migrationBuilder.DropTable(
-                name: "anomaly_baselines",
-                schema: "beacon");
+                name: "anomaly_baselines");
 
             migrationBuilder.DropTable(
-                name: "anomaly_configs",
-                schema: "beacon");
+                name: "anomaly_configs");
 
             migrationBuilder.DropTable(
-                name: "anomaly_events",
-                schema: "beacon");
+                name: "anomaly_events");
 
             migrationBuilder.DropTable(
-                name: "app_setting_history",
-                schema: "beacon");
+                name: "app_setting_history");
 
             migrationBuilder.DropTable(
-                name: "app_settings",
-                schema: "beacon");
+                name: "app_settings");
 
             migrationBuilder.DropTable(
-                name: "code_references",
-                schema: "beacon");
+                name: "code_references");
 
             migrationBuilder.DropTable(
-                name: "column_metadata",
-                schema: "beacon");
+                name: "column_metadata");
 
             migrationBuilder.DropTable(
-                name: "comments",
-                schema: "beacon");
+                name: "comments");
 
             migrationBuilder.DropTable(
-                name: "dashboard_permissions",
-                schema: "beacon");
+                name: "dashboard_permissions");
 
             migrationBuilder.DropTable(
-                name: "dashboard_widgets",
-                schema: "beacon");
+                name: "dashboard_widgets");
 
             migrationBuilder.DropTable(
-                name: "data_contract_recipient",
-                schema: "beacon");
+                name: "data_contract_recipient");
 
             migrationBuilder.DropTable(
-                name: "data_protection_keys",
-                schema: "beacon");
+                name: "data_protection_keys");
 
             migrationBuilder.DropTable(
-                name: "data_quality_rule_results",
-                schema: "beacon");
+                name: "data_quality_rule_results");
 
             migrationBuilder.DropTable(
-                name: "data_quality_scores",
-                schema: "beacon");
+                name: "data_quality_scores");
 
             migrationBuilder.DropTable(
-                name: "index_metadata",
-                schema: "beacon");
+                name: "index_metadata");
 
             migrationBuilder.DropTable(
-                name: "manual_query_execution_logs",
-                schema: "beacon");
+                name: "manual_query_execution_logs");
 
             migrationBuilder.DropTable(
-                name: "mcp_audit_logs",
-                schema: "beacon");
+                name: "mcp_audit_logs");
 
             migrationBuilder.DropTable(
-                name: "mcp_documentation_patches",
-                schema: "beacon");
+                name: "mcp_documentation_patches");
 
             migrationBuilder.DropTable(
-                name: "mcp_learned_patterns",
-                schema: "beacon");
+                name: "mcp_learned_patterns");
 
             migrationBuilder.DropTable(
-                name: "mcp_query_signals",
-                schema: "beacon");
+                name: "mcp_query_signals");
 
             migrationBuilder.DropTable(
-                name: "mcp_settings",
-                schema: "beacon");
+                name: "mcp_settings");
 
             migrationBuilder.DropTable(
-                name: "migration_executions",
-                schema: "beacon");
+                name: "migration_executions");
 
             migrationBuilder.DropTable(
-                name: "project_data_sources",
-                schema: "beacon");
+                name: "project_data_sources");
 
             migrationBuilder.DropTable(
-                name: "project_documentation_sections",
-                schema: "beacon");
+                name: "project_documentation_sections");
 
             migrationBuilder.DropTable(
-                name: "query_approval_requests",
-                schema: "beacon");
+                name: "query_approval_requests");
 
             migrationBuilder.DropTable(
-                name: "query_parameters",
-                schema: "beacon");
+                name: "query_parameters");
 
             migrationBuilder.DropTable(
-                name: "query_step_change_history",
-                schema: "beacon");
+                name: "query_step_change_history");
 
             migrationBuilder.DropTable(
-                name: "query_step_parameters",
-                schema: "beacon");
+                name: "query_step_parameters");
 
             migrationBuilder.DropTable(
-                name: "recipient_subscription",
-                schema: "beacon");
+                name: "recipient_subscription");
 
             migrationBuilder.DropTable(
-                name: "subscription_parameters",
-                schema: "beacon");
+                name: "subscription_parameters");
 
             migrationBuilder.DropTable(
-                name: "user_roles",
-                schema: "beacon");
+                name: "user_roles");
 
             migrationBuilder.DropTable(
-                name: "ai_alert_configurations",
-                schema: "beacon");
+                name: "ai_alert_configurations");
 
             migrationBuilder.DropTable(
-                name: "notifications",
-                schema: "beacon");
+                name: "notifications");
 
             migrationBuilder.DropTable(
-                name: "git_hub_repositories",
-                schema: "beacon");
+                name: "git_hub_repositories");
 
             migrationBuilder.DropTable(
-                name: "dashboards",
-                schema: "beacon");
+                name: "dashboards");
 
             migrationBuilder.DropTable(
-                name: "data_contract_rules",
-                schema: "beacon");
+                name: "data_contract_rules");
 
             migrationBuilder.DropTable(
-                name: "data_quality_evaluations",
-                schema: "beacon");
+                name: "data_quality_evaluations");
 
             migrationBuilder.DropTable(
-                name: "database_metadata",
-                schema: "beacon");
+                name: "database_metadata");
 
             migrationBuilder.DropTable(
-                name: "mcp_sessions",
-                schema: "beacon");
+                name: "mcp_sessions");
 
             migrationBuilder.DropTable(
-                name: "migration_jobs",
-                schema: "beacon");
+                name: "migration_jobs");
 
             migrationBuilder.DropTable(
-                name: "project_documentations",
-                schema: "beacon");
+                name: "project_documentations");
 
             migrationBuilder.DropTable(
-                name: "ai_actor_executions",
-                schema: "beacon");
+                name: "ai_actor_executions");
 
             migrationBuilder.DropTable(
-                name: "query_steps",
-                schema: "beacon");
+                name: "query_steps");
 
             migrationBuilder.DropTable(
-                name: "roles",
-                schema: "beacon");
+                name: "roles");
 
             migrationBuilder.DropTable(
-                name: "query_execution_history",
-                schema: "beacon");
+                name: "query_execution_history");
 
             migrationBuilder.DropTable(
-                name: "query_tasks",
-                schema: "beacon");
+                name: "query_tasks");
 
             migrationBuilder.DropTable(
-                name: "recipients",
-                schema: "beacon");
+                name: "recipients");
 
             migrationBuilder.DropTable(
-                name: "data_contracts",
-                schema: "beacon");
+                name: "data_contracts");
 
             migrationBuilder.DropTable(
-                name: "api_key_credentials",
-                schema: "beacon");
+                name: "api_key_credentials");
 
             migrationBuilder.DropTable(
-                name: "projects",
-                schema: "beacon");
+                name: "projects");
 
             migrationBuilder.DropTable(
-                name: "ai_actor_plans",
-                schema: "beacon");
+                name: "ai_actor_plans");
 
             migrationBuilder.DropTable(
-                name: "subscriptions",
-                schema: "beacon");
+                name: "subscriptions");
 
             migrationBuilder.DropTable(
-                name: "users",
-                schema: "beacon");
+                name: "users");
 
             migrationBuilder.DropTable(
-                name: "ai_actors",
-                schema: "beacon");
+                name: "ai_actors");
 
             migrationBuilder.DropTable(
-                name: "data_sources",
-                schema: "beacon");
+                name: "data_sources");
 
             migrationBuilder.DropTable(
-                name: "queries",
-                schema: "beacon");
+                name: "queries");
 
             migrationBuilder.DropTable(
-                name: "query_folders",
-                schema: "beacon");
+                name: "query_folders");
 
             migrationBuilder.DropTable(
-                name: "query_versions",
-                schema: "beacon");
+                name: "query_versions");
         }
     }
 }

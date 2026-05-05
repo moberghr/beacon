@@ -8,13 +8,21 @@
 
 <BeaconPageTitle Title="Migration History"/>
 
-<MudContainer Class="my-4 px-4"  MaxWidth="MaxWidth.ExtraExtraLarge">
-    <PageHeader Icon="@Icons.Material.Filled.History" Title="Migration History"
-                Subtitle="@(JobId.HasValue ? $"Showing execution history for migration job ID: {JobId}" : "Showing all migration executions")">
+<div class="@RootClass">
+    <BeaconPageHero Variant="nodes"
+                    Prefix="Migration"
+                    Emphasis="execution"
+                    Suffix="history.">
+        <Eyebrow>
+            <span>Beacon</span>
+            <span class="page-hero__sep">/</span>
+            <span>Migration History</span>
+        </Eyebrow>
+        <Sub>@(JobId.HasValue ? $"Showing execution history for migration job ID: {JobId}" : "Showing all migration executions.")</Sub>
         <Actions>
             <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.ArrowBack" OnClick="@NavigateBack">Back to Jobs</MudButton>
         </Actions>
-    </PageHeader>
+    </BeaconPageHero>
 
     <MudAlert Severity="Severity.Warning" Class="mb-4" Variant="Variant.Filled">
         <strong>Experimental Feature:</strong> Data Migration is currently in experimental phase. Please test thoroughly before using in production environments.
@@ -164,7 +172,7 @@
             </MudDataGrid>
         </MudCardContent>
     </MudCard>
-</MudContainer>
+</div>
 
 @inject IMigrationService _service
 @inject IDialogService DialogService

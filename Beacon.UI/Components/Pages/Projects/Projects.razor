@@ -2,25 +2,32 @@
 @inherits BasePageComponent
 @using MediatR
 @using Beacon.Core.Handlers.Projects
+@using Beacon.UI.Components.Custom
 @inject IMediator Mediator
 
 <BeaconPageTitle Title="Projects"/>
 
-<MudContainer MaxWidth="MaxWidth.ExtraExtraLarge" Class="my-4 px-4">
+<div class="@RootClass">
+    <BeaconPageHero Variant="nodes"
+                    Prefix="Manage"
+                    Emphasis="project"
+                    Suffix="catalog.">
+        <Eyebrow>
+            <span>Beacon</span>
+            <span class="page-hero__sep">/</span>
+            <span>Projects</span>
+        </Eyebrow>
+        <Sub>Manage multi-source projects with data quality tracking and repository scanning.</Sub>
+        <Actions>
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       StartIcon="@Icons.Material.Filled.Add"
+                       OnClick="OpenCreateProjectDialog">
+                Create Project
+            </MudButton>
+        </Actions>
+    </BeaconPageHero>
     <MudStack Spacing="4">
-        <PageHeader Title="Projects"
-                    Icon="@Icons.Material.Filled.FolderSpecial"
-                    Subtitle="Manage multi-source projects with data quality tracking and repository scanning">
-            <Actions>
-                <MudButton Variant="Variant.Filled"
-                           Color="Color.Primary"
-                           StartIcon="@Icons.Material.Filled.Add"
-                           OnClick="OpenCreateProjectDialog">
-                    Create Project
-                </MudButton>
-            </Actions>
-        </PageHeader>
-
         @* Loading State *@
         @if (_loading)
         {
@@ -111,7 +118,7 @@
             </MudGrid>
         }
     </MudStack>
-</MudContainer>
+</div>
 
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService

@@ -6,8 +6,18 @@
 
 <BeaconPageTitle Title="Subscriptions"/>
 
-<MudContainer Class="my-4 px-4"  MaxWidth="MaxWidth.ExtraExtraLarge">
-    <PageHeader Icon="@Icons.Material.Filled.QueryBuilder" Title="Subscriptions" Subtitle="List of defined subscriptions. Click on subscription to view more."/>
+<div class="@RootClass">
+    <BeaconPageHero Variant="signal"
+                    Prefix="Active"
+                    Emphasis="subscription"
+                    Suffix="monitor.">
+        <Eyebrow>
+            <span>Beacon</span>
+            <span class="page-hero__sep">/</span>
+            <span>Subscriptions</span>
+        </Eyebrow>
+        <Sub>List of defined subscriptions. Click on a subscription to view more.</Sub>
+    </BeaconPageHero>
     <MudDataGrid @ref="_dataGrid" ServerData="ServerReload" T="SubscriptionData" RowClick="OnRowClick" Hover="true" Filterable="false">
         <ToolBarContent>
             <MudTextField T="string" ValueChanged="@(s => OnSearch(s))" Placeholder="Search by query name..." Adornment="Adornment.Start"
@@ -38,9 +48,10 @@
             <MudDataGridPager T="SubscriptionData"/>
         </PagerContent>
     </MudDataGrid>
-</MudContainer>
+</div>
 
 @code {
+
     private List<SubscriptionData> SubscriptionsList { get; set; } = new();
     MudDataGrid<SubscriptionData>? _dataGrid;
     private bool _loading;

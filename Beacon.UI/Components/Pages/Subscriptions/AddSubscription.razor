@@ -1,4 +1,6 @@
 @page "/subscriptions/add/{QueryId:int}"
+@inherits BasePageComponent
+@using Beacon.UI.Components.Shared
 @using Beacon.Core.Data.Enums
 @using Beacon.Core.Models.Subscriptions
 @using Beacon.Core.Models.Recipients
@@ -7,12 +9,19 @@
 @using Beacon.Core.Services
 @using Beacon.UI.Components.Custom
 
-<PageTitle>Add Subscription - Beacon</PageTitle>
+<BeaconPageTitle Title="Add Subscription"/>
 
-<MudContainer MaxWidth="MaxWidth.Large" Class="py-6">
-    <PageHeader Title="Create New Subscription"
-                Icon="@Icons.Material.Filled.NotificationsActive"
-                Subtitle="Configure automated query execution and notification delivery for your data source" />
+<div class="@RootClass">
+    <BeaconPageHero Prefix="Create"
+                    Emphasis="subscription"
+                    Suffix="">
+        <Eyebrow>
+            <span>Beacon</span>
+            <span class="page-hero__sep">/</span>
+            <span>Add Subscription</span>
+        </Eyebrow>
+        <Sub>Configure automated query execution and notification delivery for your data source.</Sub>
+    </BeaconPageHero>
 
     <MudPaper Elevation="0" Class="pa-6 mb-4" Style="border: 1px solid var(--mud-palette-divider)">
 
@@ -385,4 +394,4 @@
             </MudButton>
         </div>
     </MudPaper>
-</MudContainer>
+</div>

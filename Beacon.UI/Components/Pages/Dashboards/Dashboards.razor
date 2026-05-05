@@ -4,6 +4,7 @@
 @using Beacon.Core.Handlers.Dashboards.DeleteDashboard
 @using Beacon.Core.Models.Dashboards
 @using MediatR
+@using Beacon.UI.Components.Custom
 @inject IMediator Mediator
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
@@ -12,21 +13,26 @@
 
 <BeaconPageTitle Title="Dashboards"/>
 
-<MudContainer MaxWidth="MaxWidth.ExtraExtraLarge" Class="my-4 px-4">
+<div class="@RootClass">
+    <BeaconPageHero Prefix="Custom"
+                    Emphasis="dashboard"
+                    Suffix="library.">
+        <Eyebrow>
+            <span>Beacon</span>
+            <span class="page-hero__sep">/</span>
+            <span>Dashboards</span>
+        </Eyebrow>
+        <Sub>Create and manage personalized dashboards with custom widgets.</Sub>
+        <Actions>
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       StartIcon="@Icons.Material.Filled.Add"
+                       OnClick="OpenCreateDashboardDialog">
+                Create Dashboard
+            </MudButton>
+        </Actions>
+    </BeaconPageHero>
     <MudStack Spacing="4">
-        <PageHeader Title="Custom Dashboards"
-                    Icon="@Icons.Material.Filled.Dashboard"
-                    Subtitle="Create and manage personalized dashboards with custom widgets">
-            <Actions>
-                <MudButton Variant="Variant.Filled"
-                           Color="Color.Primary"
-                           StartIcon="@Icons.Material.Filled.Add"
-                           OnClick="OpenCreateDashboardDialog">
-                    Create Dashboard
-                </MudButton>
-            </Actions>
-        </PageHeader>
-
         @* Dashboard Grid *@
         <MudDataGrid @ref="_dataGrid"
                      T="DashboardListData"
@@ -125,7 +131,7 @@
             </PagerContent>
         </MudDataGrid>
     </MudStack>
-</MudContainer>
+</div>
 
 @code {
     private MudDataGrid<DashboardListData>? _dataGrid;

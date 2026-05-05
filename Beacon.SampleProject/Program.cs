@@ -93,7 +93,7 @@ builder.Services.AddBeaconServices(builder.Configuration, options =>
     .AddBigQueryConnector()
     .AddApiConnector()
     // Configure EF Core database provider for Beacon's own data store
-    .UsePostgreSql(builder.Configuration.GetConnectionString("BeaconContext")!, "beacon")
+    .UsePostgreSql(builder.Configuration.GetConnectionString("BeaconContext")!, "semantico")
     //.UseSqlServer(builder.Configuration.GetConnectionString("BeaconContextSql")!, "beacon")
     ;
 

@@ -3,25 +3,31 @@
 @inherits BasePageComponent
 @using MediatR
 @using Beacon.Core.Handlers.ApiKeys
+@using Beacon.UI.Components.Custom
 @inject IMediator Mediator
 
 <BeaconPageTitle Title="API Keys"/>
 
-<MudContainer MaxWidth="MaxWidth.ExtraExtraLarge" Class="my-4 px-4">
+<div class="@RootClass">
+    <BeaconPageHero Prefix="Manage"
+                    Emphasis="API"
+                    Suffix="keys.">
+        <Eyebrow>
+            <span>Beacon</span>
+            <span class="page-hero__sep">/</span>
+            <span>API Keys</span>
+        </Eyebrow>
+        <Sub>Manage programmatic access to the Beacon API.</Sub>
+        <Actions>
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       StartIcon="@Icons.Material.Filled.VpnKey"
+                       OnClick="OpenGenerateKeyDialog">
+                Generate New Key
+            </MudButton>
+        </Actions>
+    </BeaconPageHero>
     <MudStack Spacing="4">
-        <PageHeader Title="API Keys"
-                    Icon="@Icons.Material.Filled.VpnKey"
-                    Subtitle="Manage programmatic access to the Beacon API">
-            <Actions>
-                <MudButton Variant="Variant.Filled"
-                           Color="Color.Primary"
-                           StartIcon="@Icons.Material.Filled.VpnKey"
-                           OnClick="OpenGenerateKeyDialog">
-                    Generate New Key
-                </MudButton>
-            </Actions>
-        </PageHeader>
-
         @* Warning Banner *@
         <MudAlert Severity="Severity.Warning" Icon="@Icons.Material.Filled.Security">
             API keys grant programmatic access to Beacon. Keep them secret and rotate them regularly. Revoke any key that may have been exposed.
@@ -160,7 +166,7 @@
             </MudDataGrid>
         }
     </MudStack>
-</MudContainer>
+</div>
 
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService

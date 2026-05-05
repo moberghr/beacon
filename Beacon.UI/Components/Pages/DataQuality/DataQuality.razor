@@ -5,6 +5,7 @@
 @using Beacon.Core.Handlers.DataQuality.DeleteDataContract
 @using Beacon.Core.Models.DataQuality
 @using MediatR
+@using Beacon.UI.Components.Custom
 @inject IMediator Mediator
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
@@ -13,24 +14,30 @@
 
 <BeaconPageTitle Title="Data Quality"/>
 
-<MudContainer MaxWidth="MaxWidth.ExtraExtraLarge" Class="my-4 px-4">
+<div class="@RootClass">
+    <BeaconPageHero Variant="nodes"
+                    Prefix="Data"
+                    Emphasis="quality"
+                    Suffix="contracts.">
+        <Eyebrow>
+            <span>Beacon</span>
+            <span class="page-hero__sep">/</span>
+            <span>Data Quality</span>
+        </Eyebrow>
+        <Sub>Monitor data quality across your data sources with automated contracts and checks.</Sub>
+        <Actions>
+            <MudIconButton Icon="@Icons.Material.Filled.HelpOutline"
+                           Size="Size.Medium" Color="Color.Default"
+                           OnClick="OpenHelpDialog" Title="How it works"/>
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       StartIcon="@Icons.Material.Filled.Add"
+                       OnClick="OpenCreateContractDialog">
+                New Contract
+            </MudButton>
+        </Actions>
+    </BeaconPageHero>
     <MudStack Spacing="4">
-        <PageHeader Title="Data Quality"
-                    Icon="@Icons.Material.Filled.VerifiedUser"
-                    Subtitle="Monitor data quality across your data sources with automated contracts and checks">
-            <Actions>
-                <MudIconButton Icon="@Icons.Material.Filled.HelpOutline"
-                               Size="Size.Medium" Color="Color.Default"
-                               OnClick="OpenHelpDialog" Title="How it works"/>
-                <MudButton Variant="Variant.Filled"
-                           Color="Color.Primary"
-                           StartIcon="@Icons.Material.Filled.Add"
-                           OnClick="OpenCreateContractDialog">
-                    New Contract
-                </MudButton>
-            </Actions>
-        </PageHeader>
-
         @* Overview Cards *@
         @if (_overviews.Count > 0)
         {
@@ -173,7 +180,7 @@
             </PagerContent>
         </MudDataGrid>
     </MudStack>
-</MudContainer>
+</div>
 
 @code {
     private MudDataGrid<DataContractData>? _dataGrid;

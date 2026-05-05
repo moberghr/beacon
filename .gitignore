@@ -357,3 +357,9 @@ docs/Gemfile.lock
 settings.local.json
 docs/specs/
 docs/plans/
+
+# MTK
+tasks/todo.md
+.claude/.mtk-cache/
+.claude/references.index
+.mtk/

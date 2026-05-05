@@ -1,0 +1,125 @@
+@* Compact page-level hero shared across sub-pages (not the dashboard).
+   Variants: signal (queries/build), nodes (catalog/sources/migration), grid (default).
+   All share the same Beacon DNA as BeaconDashboardHero but at reduced height. *@
+
+<section class="page-hero">
+    <svg class="page-hero__bg" viewBox="0 0 800 120" preserveAspectRatio="none" aria-hidden="true">
+        <defs>
+            <pattern id="@GridId" width="24" height="24" patternUnits="userSpaceOnUse">
+                <path d="M 24 0 L 0 0 0 24" fill="none" stroke="currentColor" stroke-width="0.5" />
+            </pattern>
+            @if (Variant == "signal")
+            {
+                <linearGradient id="@ScanGradId" x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0%" stop-color="var(--bx-brand-500)" stop-opacity="0" />
+                    <stop offset="60%" stop-color="var(--bx-brand-500)" stop-opacity="0.18" />
+                    <stop offset="100%" stop-color="var(--bx-brand-500)" stop-opacity="0" />
+                </linearGradient>
+            }
+            else if (Variant == "grid" || string.IsNullOrEmpty(Variant))
+            {
+                <radialGradient id="@RadGradId" cx="0%" cy="50%" r="50%">
+                    <stop offset="0%" stop-color="var(--bx-brand-500)" stop-opacity="0.30" />
+                    <stop offset="100%" stop-color="var(--bx-brand-500)" stop-opacity="0" />
+                </radialGradient>
+            }
+        </defs>
+
+        <rect class="page-hero__grid" width="800" height="120" fill="url(#@GridId)" />
+
+        @if (Variant == "signal")
+        {
+            @* Concentric arcs at origin — CSS animation translates them to right edge *@
+            <g class="page-hero__arcs" fill="none">
+                <path d="M -180 0 A 180 180 0 0 0 -160 60"
+                      stroke="var(--bx-brand-500)" stroke-opacity="0.30" stroke-width="1" />
+                <path d="M -120 0 A 120 120 0 0 0 -106 40"
+                      stroke="var(--bx-brand-500)" stroke-opacity="0.40" stroke-width="1" />
+                <path d="M -60 0 A 60 60 0 0 0 -54 22"
+                      stroke="var(--bx-brand-500)" stroke-opacity="0.55" stroke-width="1" />
+                <circle cx="0" cy="0" r="4" fill="var(--bx-brand-500)" />
+            </g>
+            @* 120px-wide gradient rect that scans left→right via CSS *@
+            <rect class="page-hero__scan" x="0" y="0" width="120" height="120"
+                  fill="url(#@ScanGradId)" />
+        }
+        else if (Variant == "nodes")
+        {
+            @* Pulsing connected-node graph — for catalog/sources/migration pages *@
+            <g class="page-hero__nodes" stroke="var(--bx-brand-500)" fill="var(--bx-brand-500)">
+                <circle cx="640" cy="30" r="3" opacity="0.8" />
+                <circle cx="680" cy="60" r="3" opacity="0.8" />
+                <circle cx="600" cy="70" r="3" opacity="0.8" />
+                <circle cx="720" cy="40" r="3" opacity="0.8" />
+                <circle cx="560" cy="40" r="3" opacity="0.8" />
+                <circle cx="630" cy="95" r="3" opacity="0.8" />
+                <path d="M560 40 L640 30 L680 60 L600 70 L630 95 M640 30 L720 40 M680 60 L720 40"
+                      stroke-opacity="0.4" fill="none" />
+            </g>
+        }
+        else
+        {
+            @* Grid variant: radial glow from left — quiet default *@
+            <rect width="800" height="120" fill="url(#@RadGradId)" />
+        }
+    </svg>
+
+    <div class="page-hero__inner">
+        <div class="page-hero__main">
+            @if (Eyebrow != null)
+            {
+                <div class="page-hero__eyebrow">
+                    <span class="page-hero__pin" aria-hidden="true"></span>
+                    @Eyebrow
+                </div>
+            }
+            <h1 class="page-hero__title">
+                @if (!string.IsNullOrEmpty(Prefix))
+                {
+                    <span>@Prefix</span>
+                    @((MarkupString)"&nbsp;")
+                }
+                @if (!string.IsNullOrEmpty(Emphasis))
+                {
+                    <span class="page-hero__word">
+                        @Emphasis
+                        <svg class="page-hero__underline" viewBox="0 0 240 10"
+                             preserveAspectRatio="none" aria-hidden="true">
+                            <path d="M2 6 Q 60 2, 120 5 T 238 4"
+                                  fill="none" stroke="var(--bx-brand-500)"
+                                  stroke-width="2" stroke-linecap="round" />
+                        </svg>
+                    </span>
+                }
+                @if (!string.IsNullOrEmpty(Suffix))
+                {
+                    @((MarkupString)"&nbsp;")
+                    <span>@Suffix</span>
+                }
+            </h1>
+            @if (Sub != null)
+            {
+                <p class="page-hero__sub">@Sub</p>
+            }
+        </div>
+        @if (Actions != null)
+        {
+            <div class="page-hero__actions">@Actions</div>
+        }
+    </div>
+</section>
+
+@code {
+    [Parameter] public string Variant { get; set; } = "signal";
+    [Parameter] public RenderFragment? Eyebrow { get; set; }
+    [Parameter] public string Prefix { get; set; } = "";
+    [Parameter] public string Emphasis { get; set; } = "";
+    [Parameter] public string Suffix { get; set; } = "";
+    [Parameter] public RenderFragment? Sub { get; set; }
+    [Parameter] public RenderFragment? Actions { get; set; }
+
+    private readonly string _id = Guid.NewGuid().ToString("N")[..8];
+    private string GridId     => $"ph-grid-{_id}";
+    private string ScanGradId => $"ph-scan-{_id}";
+    private string RadGradId  => $"ph-rad-{_id}";
+}
