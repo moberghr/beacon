@@ -1,0 +1,16 @@
+@* Compact label / mono-value / detail row used in the Beacon Query info card. *@
+
+<div class="info-row">
+    <span class="info-row__label">@Label</span>
+    <span class="info-row__value">@Value</span>
+    @if (!string.IsNullOrEmpty(Detail))
+    {
+        <span class="info-row__detail">@Detail</span>
+    }
+</div>
+
+@code {
+    [Parameter] public string Label { get; set; } = string.Empty;
+    [Parameter] public string Value { get; set; } = string.Empty;
+    [Parameter] public string? Detail { get; set; }
+}

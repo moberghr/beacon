@@ -7,8 +7,18 @@
 
 <BeaconPageTitle Title="Notifications" />
 
-<MudContainer MaxWidth="MaxWidth.ExtraExtraLarge"  Class="my-4 px-4">
-    <PageHeader Icon="@Icons.Material.Filled.QueryBuilder" Title="Notifications" Subtitle="List of sent notifications."/>
+<div class="@RootClass">
+    <BeaconPageHero Variant="signal"
+                    Prefix="Sent"
+                    Emphasis="notification"
+                    Suffix="log.">
+        <Eyebrow>
+            <span>Beacon</span>
+            <span class="page-hero__sep">/</span>
+            <span>Notifications</span>
+        </Eyebrow>
+        <Sub>List of sent notifications.</Sub>
+    </BeaconPageHero>
     <MudDataGrid @ref="_dataGrid" ServerData="ServerReload" T="QueryExecutionHistoryData" Filterable="false">
         <ToolBarContent>
         </ToolBarContent>
@@ -76,11 +86,12 @@
             <MudDataGridPager T="QueryExecutionHistoryData" />
         </PagerContent>
     </MudDataGrid>
-</MudContainer>
+</div>
 
 @inject Beacon.Core.Services.INotificationService service;
 
 @code {
+
     private QueryExecutionHistoryListData List { get; set; }
     MudDataGrid<QueryExecutionHistoryData>? _dataGrid;
     //private bool _loading;

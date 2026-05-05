@@ -6,6 +6,7 @@ using Beacon.Core.Models.Queries;
 using Beacon.Core.Models.Recipients;
 using Beacon.Core.Models.Subscriptions;
 using Beacon.Core.Services;
+using Beacon.UI.Components.Shared;
 
 namespace Beacon.UI.Components.Pages.Subscriptions;
 

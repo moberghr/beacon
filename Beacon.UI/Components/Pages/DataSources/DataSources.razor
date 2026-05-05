@@ -5,15 +5,25 @@
 @inject IDataSourceService _service
 @inject IDialogService DialogService
 @inject Beacon.Core.Authorization.IBeaconAuthorizationProvider AuthorizationProvider
+@using Beacon.UI.Components.Custom
 
 <BeaconPageTitle Title="Data Sources"/>
 
-<MudContainer MaxWidth="MaxWidth.ExtraExtraLarge" Class="my-4 px-4">
-    <PageHeader Icon="@Icons.Material.Filled.Folder" Title="Data Sources" Subtitle="Manage your database data sources and connections.">
+<div class="@RootClass">
+    <BeaconPageHero Variant="nodes"
+                    Prefix="Configure"
+                    Emphasis="data"
+                    Suffix="sources.">
+        <Eyebrow>
+            <span>Beacon</span>
+            <span class="page-hero__sep">/</span>
+            <span>Data Sources</span>
+        </Eyebrow>
+        <Sub>Manage your database data sources and connections.</Sub>
         <Actions>
             <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Add" OnClick="@AddDataSource" Disabled="@(!_canWrite)">New Data Source</MudButton>
         </Actions>
-    </PageHeader>
+    </BeaconPageHero>
     <MudCard Elevation="2">
         <MudDataGrid @ref="_dataGrid" ServerData="ServerReload" T="DataSourceListData" Hover="true" Filterable="false" SortMode="SortMode.None" Bordered="false">
         <Columns>
@@ -50,9 +60,10 @@
             </PagerContent>
         </MudDataGrid>
     </MudCard>
-</MudContainer>
+</div>
 
 @code {
+
     private List<DataSourceListData> _list;
     MudDataGrid<DataSourceListData>? _dataGrid;
     private bool _loading;

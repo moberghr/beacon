@@ -150,8 +150,10 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        // Set default schema for all entities
-        modelBuilder.HasDefaultSchema(DefaultSchema);
+        if (!string.IsNullOrEmpty(DefaultSchema))
+        {
+            modelBuilder.HasDefaultSchema(DefaultSchema);
+        }
 
         SetSoftDeleteQueryFilter(modelBuilder);
         ConfigureMigrationEntities(modelBuilder);

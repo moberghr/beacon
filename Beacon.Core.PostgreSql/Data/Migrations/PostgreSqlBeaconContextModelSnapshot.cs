@@ -17,7 +17,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasDefaultSchema("beacon")
                 .HasAnnotation("ProductVersion", "9.0.11")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
@@ -116,7 +115,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasIndex("Status", "ArchivedTime")
                         .HasDatabaseName("ix_ai_actors_status_archived_time");
 
-                    b.ToTable("ai_actors", "beacon");
+                    b.ToTable("ai_actors", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.AiActorConversation", b =>
@@ -185,7 +184,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasIndex("AiActorId", "TurnNumber")
                         .HasDatabaseName("ix_ai_actor_conversations_ai_actor_id_turn_number");
 
-                    b.ToTable("ai_actor_conversations", "beacon");
+                    b.ToTable("ai_actor_conversations", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.AiActorExecution", b =>
@@ -299,7 +298,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasIndex("AiActorId", "StartedAt")
                         .HasDatabaseName("ix_ai_actor_executions_ai_actor_id_started_at");
 
-                    b.ToTable("ai_actor_executions", "beacon");
+                    b.ToTable("ai_actor_executions", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.AiActorPlan", b =>
@@ -406,7 +405,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasIndex("AiActorId", "Status")
                         .HasDatabaseName("ix_ai_actor_plans_ai_actor_id_status");
 
-                    b.ToTable("ai_actor_plans", "beacon");
+                    b.ToTable("ai_actor_plans", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.AiAlertConfiguration", b =>
@@ -512,7 +511,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasIndex("SubscriptionId")
                         .HasDatabaseName("ix_ai_alert_configurations_subscription_id");
 
-                    b.ToTable("ai_alert_configurations", "beacon");
+                    b.ToTable("ai_alert_configurations", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.AiConversationHistory", b =>
@@ -574,7 +573,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasIndex("TurnNumber")
                         .HasDatabaseName("ix_ai_conversation_histories_turn_number");
 
-                    b.ToTable("ai_conversation_histories", "beacon");
+                    b.ToTable("ai_conversation_histories", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.AiPromptTemplate", b =>
@@ -647,7 +646,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasIndex("OperationType")
                         .HasDatabaseName("ix_ai_prompt_templates_operation_type");
 
-                    b.ToTable("ai_prompt_templates", "beacon");
+                    b.ToTable("ai_prompt_templates", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.AiUsageMetrics", b =>
@@ -750,7 +749,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasIndex("UserId")
                         .HasDatabaseName("ix_ai_usage_metrics_user_id");
 
-                    b.ToTable("ai_usage_metrics", "beacon");
+                    b.ToTable("ai_usage_metrics", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.AnomalyBaseline", b =>
@@ -787,7 +786,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasIndex("SubscriptionId", "ExecutionTime")
                         .HasDatabaseName("ix_anomaly_baselines_subscription_id_execution_time");
 
-                    b.ToTable("anomaly_baselines", "beacon");
+                    b.ToTable("anomaly_baselines", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.AnomalyConfig", b =>
@@ -845,7 +844,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .IsUnique()
                         .HasDatabaseName("ix_anomaly_configs_subscription_id");
 
-                    b.ToTable("anomaly_configs", "beacon");
+                    b.ToTable("anomaly_configs", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.AnomalyEvent", b =>
@@ -924,7 +923,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasIndex("SubscriptionId", "DetectedTime")
                         .HasDatabaseName("ix_anomaly_events_subscription_id_detected_time");
 
-                    b.ToTable("anomaly_events", "beacon");
+                    b.ToTable("anomaly_events", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.ApiKeyCredential", b =>
@@ -1004,7 +1003,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasIndex("UserId")
                         .HasDatabaseName("ix_api_key_credentials_user_id");
 
-                    b.ToTable("api_key_credentials", "beacon");
+                    b.ToTable("api_key_credentials", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.AppSetting", b =>
@@ -1051,7 +1050,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .IsUnique()
                         .HasDatabaseName("ix_app_settings_key");
 
-                    b.ToTable("app_settings", "beacon");
+                    b.ToTable("app_settings", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.AppSettingHistory", b =>
@@ -1101,7 +1100,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasIndex("SettingKey")
                         .HasDatabaseName("ix_app_setting_history_setting_key");
 
-                    b.ToTable("app_setting_history", "beacon");
+                    b.ToTable("app_setting_history", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.BeaconRole", b =>
@@ -1143,7 +1142,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .IsUnique()
                         .HasDatabaseName("ix_roles_name");
 
-                    b.ToTable("roles", "beacon");
+                    b.ToTable("roles", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.BeaconUser", b =>
@@ -1244,7 +1243,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasIndex("UserName", "ArchivedTime")
                         .HasDatabaseName("ix_users_user_name_archived_time");
 
-                    b.ToTable("users", "beacon");
+                    b.ToTable("users", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.BeaconUserRole", b =>
@@ -1293,7 +1292,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .IsUnique()
                         .HasDatabaseName("ix_user_roles_user_id_role_id");
 
-                    b.ToTable("user_roles", "beacon");
+                    b.ToTable("user_roles", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.Comment", b =>
@@ -1342,7 +1341,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasIndex("EntityType", "EntityId")
                         .HasDatabaseName("ix_comments_entity_type_entity_id");
 
-                    b.ToTable("comments", "beacon");
+                    b.ToTable("comments", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.Dashboard", b =>
@@ -1418,7 +1417,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasIndex("IsShared")
                         .HasDatabaseName("ix_dashboards_is_shared");
 
-                    b.ToTable("dashboards", "beacon");
+                    b.ToTable("dashboards", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.DashboardPermission", b =>
@@ -1470,7 +1469,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .IsUnique()
                         .HasDatabaseName("ix_dashboard_permissions_dashboard_id_user_id");
 
-                    b.ToTable("dashboard_permissions", "beacon");
+                    b.ToTable("dashboard_permissions", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.DashboardWidget", b =>
@@ -1541,7 +1540,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasIndex("DashboardId", "SortOrder")
                         .HasDatabaseName("ix_dashboard_widgets_dashboard_id_sort_order");
 
-                    b.ToTable("dashboard_widgets", "beacon");
+                    b.ToTable("dashboard_widgets", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.DataMigration.MigrationExecutionHistory", b =>
@@ -1634,7 +1633,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasIndex("Status", "StartedAt")
                         .HasDatabaseName("ix_migration_executions_status_started_at");
 
-                    b.ToTable("migration_executions", "beacon");
+                    b.ToTable("migration_executions", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.DataMigration.MigrationJob", b =>
@@ -1734,7 +1733,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasIndex("IsEnabled", "ArchivedTime")
                         .HasDatabaseName("ix_migration_jobs_is_enabled_archived_time");
 
-                    b.ToTable("migration_jobs", "beacon");
+                    b.ToTable("migration_jobs", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.DataQuality.DataContract", b =>
@@ -1819,7 +1818,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasIndex("DataSourceId", "SchemaName", "TableName")
                         .HasDatabaseName("ix_data_contracts_data_source_id_schema_name_table_name");
 
-                    b.ToTable("data_contracts", "beacon");
+                    b.ToTable("data_contracts", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.DataQuality.DataContractRule", b =>
@@ -1882,7 +1881,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasIndex("DataContractId")
                         .HasDatabaseName("ix_data_contract_rules_data_contract_id");
 
-                    b.ToTable("data_contract_rules", "beacon");
+                    b.ToTable("data_contract_rules", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.DataQuality.DataQualityEvaluation", b =>
@@ -1931,7 +1930,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasIndex("DataContractId")
                         .HasDatabaseName("ix_data_quality_evaluations_data_contract_id");
 
-                    b.ToTable("data_quality_evaluations", "beacon");
+                    b.ToTable("data_quality_evaluations", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.DataQuality.DataQualityRuleResult", b =>
@@ -1991,7 +1990,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasIndex("DataQualityEvaluationId")
                         .HasDatabaseName("ix_data_quality_rule_results_data_quality_evaluation_id");
 
-                    b.ToTable("data_quality_rule_results", "beacon");
+                    b.ToTable("data_quality_rule_results", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.DataQuality.DataQualityScore", b =>
@@ -2049,7 +2048,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .IsUnique()
                         .HasDatabaseName("ix_data_quality_scores_data_source_id_schema_name_table_name");
 
-                    b.ToTable("data_quality_scores", "beacon");
+                    b.ToTable("data_quality_scores", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.DataSource", b =>
@@ -2114,7 +2113,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasKey("Id")
                         .HasName("pk_data_sources");
 
-                    b.ToTable("data_sources", "beacon");
+                    b.ToTable("data_sources", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.ManualQueryExecutionLog", b =>
@@ -2187,7 +2186,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasIndex("UserId", "CreatedTime")
                         .HasDatabaseName("ix_manual_query_execution_logs_user_id_created_time");
 
-                    b.ToTable("manual_query_execution_logs", "beacon");
+                    b.ToTable("manual_query_execution_logs", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.McpAuditLog", b =>
@@ -2258,7 +2257,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasIndex("UserId")
                         .HasDatabaseName("ix_mcp_audit_logs_user_id");
 
-                    b.ToTable("mcp_audit_logs", "beacon");
+                    b.ToTable("mcp_audit_logs", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.McpDocumentationPatch", b =>
@@ -2332,7 +2331,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasIndex("ProjectId", "Status")
                         .HasDatabaseName("ix_mcp_documentation_patches_project_id_status");
 
-                    b.ToTable("mcp_documentation_patches", "beacon");
+                    b.ToTable("mcp_documentation_patches", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.McpLearnedPattern", b =>
@@ -2424,7 +2423,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasIndex("DataSourceId", "Status", "TableName")
                         .HasDatabaseName("ix_mcp_learned_patterns_data_source_id_status_table_name");
 
-                    b.ToTable("mcp_learned_patterns", "beacon");
+                    b.ToTable("mcp_learned_patterns", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.McpQuerySignal", b =>
@@ -2542,7 +2541,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasIndex("ProjectId")
                         .HasDatabaseName("ix_mcp_query_signals_project_id");
 
-                    b.ToTable("mcp_query_signals", "beacon");
+                    b.ToTable("mcp_query_signals", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.McpSession", b =>
@@ -2604,7 +2603,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasIndex("UserId")
                         .HasDatabaseName("ix_mcp_sessions_user_id");
 
-                    b.ToTable("mcp_sessions", "beacon");
+                    b.ToTable("mcp_sessions", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.McpSettings", b =>
@@ -2691,7 +2690,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasKey("Id")
                         .HasName("pk_mcp_settings");
 
-                    b.ToTable("mcp_settings", "beacon");
+                    b.ToTable("mcp_settings", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.Metadata.ColumnMetadata", b =>
@@ -2772,7 +2771,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasIndex("DatabaseMetadataId", "ColumnName")
                         .HasDatabaseName("ix_column_metadata_database_metadata_id_column_name");
 
-                    b.ToTable("column_metadata", "beacon");
+                    b.ToTable("column_metadata", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.Metadata.DatabaseMetadata", b =>
@@ -2830,7 +2829,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .IsUnique()
                         .HasDatabaseName("ix_database_metadata_data_source_id_schema_name_table_name");
 
-                    b.ToTable("database_metadata", "beacon");
+                    b.ToTable("database_metadata", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.Metadata.IndexMetadata", b =>
@@ -2875,7 +2874,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasIndex("DatabaseMetadataId")
                         .HasDatabaseName("ix_index_metadata_database_metadata_id");
 
-                    b.ToTable("index_metadata", "beacon");
+                    b.ToTable("index_metadata", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.Notification", b =>
@@ -2927,7 +2926,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasIndex("TaskId")
                         .HasDatabaseName("ix_notifications_task_id");
 
-                    b.ToTable("notifications", "beacon");
+                    b.ToTable("notifications", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.Projects.CodeReference", b =>
@@ -3003,7 +3002,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasIndex("SchemaName", "TableName")
                         .HasDatabaseName("ix_code_references_schema_name_table_name");
 
-                    b.ToTable("code_references", "beacon");
+                    b.ToTable("code_references", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.Projects.GitHubRepository", b =>
@@ -3074,7 +3073,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasIndex("ScanStatus")
                         .HasDatabaseName("ix_git_hub_repositories_scan_status");
 
-                    b.ToTable("git_hub_repositories", "beacon");
+                    b.ToTable("git_hub_repositories", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.Projects.Project", b =>
@@ -3111,7 +3110,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasIndex("Name")
                         .HasDatabaseName("ix_projects_name");
 
-                    b.ToTable("projects", "beacon");
+                    b.ToTable("projects", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.Projects.ProjectDataSource", b =>
@@ -3145,7 +3144,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .IsUnique()
                         .HasDatabaseName("ix_project_data_sources_project_id_data_source_id");
 
-                    b.ToTable("project_data_sources", "beacon");
+                    b.ToTable("project_data_sources", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.Projects.ProjectDocumentation", b =>
@@ -3215,7 +3214,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasIndex("ProjectId")
                         .HasDatabaseName("ix_project_documentations_project_id");
 
-                    b.ToTable("project_documentations", "beacon");
+                    b.ToTable("project_documentations", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.Projects.ProjectDocumentationSection", b =>
@@ -3262,7 +3261,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasIndex("SectionType")
                         .HasDatabaseName("ix_project_documentation_sections_section_type");
 
-                    b.ToTable("project_documentation_sections", "beacon");
+                    b.ToTable("project_documentation_sections", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.Query", b =>
@@ -3335,7 +3334,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasIndex("IsLocked")
                         .HasDatabaseName("ix_queries_is_locked");
 
-                    b.ToTable("queries", "beacon");
+                    b.ToTable("queries", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.QueryApprovalRequest", b =>
@@ -3412,7 +3411,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasIndex("Status", "CreatedTime")
                         .HasDatabaseName("ix_query_approval_requests_status_created_time");
 
-                    b.ToTable("query_approval_requests", "beacon");
+                    b.ToTable("query_approval_requests", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.QueryExecutionHistory", b =>
@@ -3463,7 +3462,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasIndex("SubscriptionId")
                         .HasDatabaseName("ix_query_execution_history_subscription_id");
 
-                    b.ToTable("query_execution_history", "beacon");
+                    b.ToTable("query_execution_history", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.QueryFolder", b =>
@@ -3527,7 +3526,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasIndex("ParentFolderId", "SortOrder")
                         .HasDatabaseName("ix_query_folders_parent_folder_id_sort_order");
 
-                    b.ToTable("query_folders", "beacon");
+                    b.ToTable("query_folders", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.QueryParameter", b =>
@@ -3576,7 +3575,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasIndex("QueryId")
                         .HasDatabaseName("ix_query_parameters_query_id");
 
-                    b.ToTable("query_parameters", "beacon");
+                    b.ToTable("query_parameters", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.QueryStep", b =>
@@ -3626,7 +3625,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasIndex("QueryId")
                         .HasDatabaseName("ix_query_steps_query_id");
 
-                    b.ToTable("query_steps", "beacon");
+                    b.ToTable("query_steps", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.QueryStepChangeHistory", b =>
@@ -3707,7 +3706,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasIndex("QueryStepId", "ChangedAt")
                         .HasDatabaseName("ix_query_step_change_history_query_step_id_changed_at");
 
-                    b.ToTable("query_step_change_history", "beacon");
+                    b.ToTable("query_step_change_history", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.QueryStepParameter", b =>
@@ -3750,7 +3749,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasIndex("QueryStepId")
                         .HasDatabaseName("ix_query_step_parameters_query_step_id");
 
-                    b.ToTable("query_step_parameters", "beacon");
+                    b.ToTable("query_step_parameters", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.QueryTask", b =>
@@ -3812,7 +3811,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasIndex("Resolved", "CreatedTime")
                         .HasDatabaseName("ix_query_tasks_resolved_created_time");
 
-                    b.ToTable("query_tasks", "beacon");
+                    b.ToTable("query_tasks", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.QueryVersion", b =>
@@ -3889,7 +3888,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .IsUnique()
                         .HasDatabaseName("ix_query_versions_query_id_version_number");
 
-                    b.ToTable("query_versions", "beacon");
+                    b.ToTable("query_versions", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.Recipient", b =>
@@ -3938,7 +3937,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasKey("Id")
                         .HasName("pk_recipients");
 
-                    b.ToTable("recipients", "beacon");
+                    b.ToTable("recipients", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.Subscription", b =>
@@ -4016,7 +4015,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasIndex("QueryId")
                         .HasDatabaseName("ix_subscriptions_query_id");
 
-                    b.ToTable("subscriptions", "beacon");
+                    b.ToTable("subscriptions", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.SubscriptionParameter", b =>
@@ -4056,7 +4055,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasIndex("SubscriptionId")
                         .HasDatabaseName("ix_subscription_parameters_subscription_id");
 
-                    b.ToTable("subscription_parameters", "beacon");
+                    b.ToTable("subscription_parameters", (string)null);
                 });
 
             modelBuilder.Entity("DataContractRecipient", b =>
@@ -4075,7 +4074,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasIndex("RecipientsId")
                         .HasDatabaseName("ix_data_contract_recipient_recipients_id");
 
-                    b.ToTable("data_contract_recipient", "beacon");
+                    b.ToTable("data_contract_recipient", (string)null);
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.DataProtection.EntityFrameworkCore.DataProtectionKey", b =>
@@ -4098,7 +4097,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasKey("Id")
                         .HasName("pk_data_protection_keys");
 
-                    b.ToTable("data_protection_keys", "beacon");
+                    b.ToTable("data_protection_keys", (string)null);
                 });
 
             modelBuilder.Entity("RecipientSubscription", b =>
@@ -4117,7 +4116,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasIndex("SubscriptionsId")
                         .HasDatabaseName("ix_recipient_subscription_subscriptions_id");
 
-                    b.ToTable("recipient_subscription", "beacon");
+                    b.ToTable("recipient_subscription", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.AiActor", b =>

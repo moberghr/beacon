@@ -797,9 +797,6 @@ stateDiagram-v2
 @inject IJSRuntime JS
 
 @code {
-    [CascadingParameter(Name = "IsDarkMode")]
-    public bool IsDarkMode { get; set; }
-
     private bool _lastDarkMode = false;
     private bool _needsRerender = false;
 

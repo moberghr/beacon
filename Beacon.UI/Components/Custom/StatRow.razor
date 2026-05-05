@@ -1,0 +1,34 @@
+@* Single row in the System overview list — icon, label, mono value, trailing pill, chevron. *@
+
+@if (!string.IsNullOrEmpty(Href))
+{
+    <a class="stat-row" href="@Href">@RowContent</a>
+}
+else
+{
+    <div class="stat-row">@RowContent</div>
+}
+
+@code {
+    [Parameter] public string Icon { get; set; } = Icons.Material.Rounded.Circle;
+    [Parameter] public string Label { get; set; } = string.Empty;
+    [Parameter] public string Value { get; set; } = string.Empty;
+    [Parameter] public RenderFragment? Trail { get; set; }
+    [Parameter] public string? Href { get; set; }
+
+    private RenderFragment RowContent => __builder =>
+    {
+        <div class="stat-row__icon">
+            <MudIcon Icon="@Icon" Size="Size.Small" />
+        </div>
+        <div class="stat-row__main">
+            <div class="stat-row__label">@Label</div>
+            <div class="stat-row__value">@Value</div>
+        </div>
+        @if (Trail != null)
+        {
+            @Trail
+        }
+        <MudIcon Icon="@Icons.Material.Rounded.ChevronRight" Size="Size.Small" Class="stat-row__chevron" />
+    };
+}

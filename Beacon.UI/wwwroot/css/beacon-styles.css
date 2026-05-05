@@ -776,10 +776,6 @@ html, body {
 /* === Responsive === */
 
 @media (max-width: 960px) {
-    .mud-main-content {
-        padding: 1rem !important;
-    }
-
     .mud-container {
         padding-left: 16px !important;
         padding-right: 16px !important;

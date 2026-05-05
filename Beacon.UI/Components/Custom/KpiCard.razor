@@ -1,0 +1,48 @@
+@* KPI card — status dot + uppercase label, large mono number, supporting line, micro sparkline. *@
+
+<div class="kpi">
+    <div class="kpi__head">
+        <span class="kpi__dot kpi__dot--@Dot"></span>
+        <span class="kpi__label">@Label</span>
+    </div>
+    <div class="kpi__value">
+        @Value
+        @if (!string.IsNullOrEmpty(Unit))
+        {
+            <span class="kpi__unit">@Unit</span>
+        }
+    </div>
+    <div class="kpi__sub">
+        @if (!string.IsNullOrEmpty(Delta))
+        {
+            <span class="kpi__delta @(DeltaDir == "down" ? "kpi__delta--down" : DeltaDir == "flat" ? "kpi__delta--flat" : "")">
+                @Delta
+            </span>
+        }
+        @if (Sub != null)
+        {
+            @Sub
+        }
+        else if (!string.IsNullOrEmpty(SubText))
+        {
+            <span>@SubText</span>
+        }
+    </div>
+    @if (SparkPoints != null && SparkPoints.Count > 0)
+    {
+        <Sparkline Points="@SparkPoints" Color="@SparkColor" />
+    }
+</div>
+
+@code {
+    [Parameter] public string Dot { get; set; } = "brand";
+    [Parameter] public string Label { get; set; } = string.Empty;
+    [Parameter] public string Value { get; set; } = string.Empty;
+    [Parameter] public string? Unit { get; set; }
+    [Parameter] public string? Delta { get; set; }
+    [Parameter] public string DeltaDir { get; set; } = "up";
+    [Parameter] public string? SubText { get; set; }
+    [Parameter] public RenderFragment? Sub { get; set; }
+    [Parameter] public IReadOnlyList<double>? SparkPoints { get; set; }
+    [Parameter] public string SparkColor { get; set; } = "var(--bx-brand-500)";
+}

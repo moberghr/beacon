@@ -1,0 +1,54 @@
+@* Tiny inline sparkline used inside KPI cards. *@
+
+<svg class="kpi__spark" viewBox="0 0 88 28" preserveAspectRatio="none" aria-hidden="true">
+    <path d="@_path" fill="none" stroke="@Color" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" opacity="0.9" />
+    <path d="@_fill" fill="@Color" opacity="0.10" />
+</svg>
+
+@code {
+    [Parameter] public IReadOnlyList<double> Points { get; set; } = Array.Empty<double>();
+    [Parameter] public string Color { get; set; } = "var(--bx-brand-500)";
+
+    private string _path = "";
+    private string _fill = "";
+
+    protected override void OnParametersSet()
+    {
+        if (Points == null || Points.Count == 0)
+        {
+            _path = "";
+            _fill = "";
+            return;
+        }
+
+        const double w = 88;
+        const double h = 28;
+
+        var min = double.MaxValue;
+        var max = double.MinValue;
+        foreach (var p in Points)
+        {
+            if (p < min) min = p;
+            if (p > max) max = p;
+        }
+        var range = max - min;
+        if (range <= 0) range = 1;
+
+        var stepX = Points.Count <= 1 ? 0 : w / (Points.Count - 1);
+        var sb = new System.Text.StringBuilder();
+        var fill = new System.Text.StringBuilder();
+
+        for (var i = 0; i < Points.Count; i++)
+        {
+            var x = i * stepX;
+            var y = h - 2 - ((Points[i] - min) / range) * (h - 4);
+            sb.Append(i == 0 ? "M " : " L ");
+            sb.Append(x.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture));
+            sb.Append(' ');
+            sb.Append(y.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture));
+        }
+
+        _path = sb.ToString();
+        _fill = $"{_path} L {w.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)} {h.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)} L 0 {h.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)} Z";
+    }
+}

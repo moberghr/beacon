@@ -3,6 +3,7 @@
 @using Beacon.Core
 @using Beacon.UI.Components.Helpers
 @inherits LayoutComponentBase
+@implements IDisposable
 
 @* Required *@
 <MudThemeProvider Theme="BeaconTheme.Theme" IsDarkMode="@_isDark" />
@@ -15,48 +16,74 @@
 <MudSnackbarProvider />
 
 <MudLayout Class="@($"beacon-layout {(_isDark ? "mud-theme-dark" : "")}")">
-    <MudAppBar Elevation="0" Dense="false" Class="beacon-appbar">
-        <div class="appbar-brand-spacer"></div>
-        <MudSpacer />
-        <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
-            <MudTooltip Text="@(_isDark ? "Light Mode" : "Dark Mode")" Placement="Placement.Bottom">
-                <MudIconButton Icon="@(_isDark ? Icons.Material.Rounded.LightMode : Icons.Material.Rounded.DarkMode)"
-                               Color="Color.Inherit"
-                               Size="Size.Small"
-                               OnClick="@ChangeTheme"
-                               Class="appbar-icon-btn" />
-            </MudTooltip>
-            <MudTooltip Text="Settings" Placement="Placement.Bottom">
-                <MudIconButton Icon="@Icons.Material.Rounded.Settings"
-                               Color="Color.Inherit"
-                               Size="Size.Small"
-                               OnClick="@NavigateToSettings"
-                               Class="appbar-icon-btn" />
-            </MudTooltip>
-            <MudDivider Vertical="true" FlexItem="true" Class="appbar-divider" />
-            @if (UserContext.IsAuthenticated)
-            {
-                <button type="button" class="appbar-user-button" @onclick="NavigateToSettings">
-                    <MudAvatar Size="Size.Small" Style="height: 22px; width: 22px; font-size: 0.7rem;" Color="Color.Secondary">@GetUserInitial()</MudAvatar>
-                    <span class="appbar-user-name">@(UserContext.DisplayName ?? UserContext.UserName ?? "User")</span>
-                </button>
-                <MudTooltip Text="Logout" Placement="Placement.Bottom">
-                    <MudIconButton Icon="@Icons.Material.Rounded.Logout"
-                                   Color="Color.Inherit"
-                                   Size="Size.Small"
-                                   OnClick="HandleLogout"
-                                   Class="appbar-icon-btn" />
+    <MudAppBar Elevation="0" Dense="false" Class="beacon-appbar beacon-topbar">
+        <div class="bx-topbar">
+            <nav class="bx-breadcrumb" aria-label="Breadcrumb">
+                <a class="bx-breadcrumb__crumb" href="@($"{GetBaseHref()}dashboard")">Workspace</a>
+                @foreach (var crumb in _breadcrumbs)
+                {
+                    <span class="bx-breadcrumb__sep">/</span>
+                    @if (!string.IsNullOrEmpty(crumb.Href) && crumb != _breadcrumbs.Last())
+                    {
+                        <a class="bx-breadcrumb__crumb" href="@crumb.Href">@crumb.Label</a>
+                    }
+                    else
+                    {
+                        <span class="bx-breadcrumb__current">@crumb.Label</span>
+                    }
+                }
+            </nav>
+            <button type="button" class="bx-topbar__search" @onclick="NavigateToSearch">
+                <MudIcon Icon="@Icons.Material.Rounded.Search" Size="Size.Small" />
+                <span class="bx-topbar__search-text">Search queries, sources, recipients…</span>
+                <span class="bx-topbar__search-kbd">
+                    <span class="bx-kbd">⌘</span><span class="bx-kbd">K</span>
+                </span>
+            </button>
+            <div class="bx-topbar__right">
+                <MudTooltip Text="@(_isDark ? "Light Mode" : "Dark Mode")" Placement="Placement.Bottom">
+                    <button type="button" class="bx-icon-btn" @onclick="@ChangeTheme">
+                        <MudIcon Icon="@(_isDark ? Icons.Material.Rounded.LightMode : Icons.Material.Rounded.DarkMode)" Size="Size.Small" />
+                    </button>
                 </MudTooltip>
-            }
-            else
-            {
-                <MudChip T="string" Color="Color.Default" Variant="Variant.Outlined" Size="Size.Small" Class="appbar-user-chip">
-                    <MudText Typo="Typo.body2">Guest</MudText>
-                </MudChip>
-            }
-        </MudStack>
+                <MudTooltip Text="Notifications" Placement="Placement.Bottom">
+                    <button type="button" class="bx-icon-btn" @onclick="NavigateToNotifications">
+                        <MudIcon Icon="@Icons.Material.Rounded.Notifications" Size="Size.Small" />
+                        @if (_pendingApprovalCount > 0 || _hasUnreadNotifications)
+                        {
+                            <span class="bx-icon-btn__dot"></span>
+                        }
+                    </button>
+                </MudTooltip>
+                <MudTooltip Text="Settings" Placement="Placement.Bottom">
+                    <button type="button" class="bx-icon-btn" @onclick="@NavigateToSettings">
+                        <MudIcon Icon="@Icons.Material.Rounded.Settings" Size="Size.Small" />
+                    </button>
+                </MudTooltip>
+                <span class="bx-topbar__divider"></span>
+                @if (UserContext.IsAuthenticated)
+                {
+                    <button type="button" class="bx-user-chip" @onclick="NavigateToSettings">
+                        <span class="bx-user-chip__avatar">@GetUserInitial()</span>
+                        <span class="bx-user-chip__name">@(UserContext.DisplayName ?? UserContext.UserName ?? "User")</span>
+                    </button>
+                    <MudTooltip Text="Logout" Placement="Placement.Bottom">
+                        <button type="button" class="bx-icon-btn" @onclick="HandleLogout">
+                            <MudIcon Icon="@Icons.Material.Rounded.Logout" Size="Size.Small" />
+                        </button>
+                    </MudTooltip>
+                }
+                else
+                {
+                    <span class="bx-user-chip bx-user-chip--guest">
+                        <span class="bx-user-chip__avatar">?</span>
+                        <span class="bx-user-chip__name">Guest</span>
+                    </span>
+                }
+            </div>
+        </div>
     </MudAppBar>
-    <MudDrawer Open="true" ClipMode="DrawerClipMode.Never" Elevation="0" Width="280px" Class="beacon-drawer">
+    <MudDrawer Open="@_drawerOpen" OpenChanged="@(v => _drawerOpen = v)" ClipMode="DrawerClipMode.Never" Elevation="0" Width="280px" Class="beacon-drawer">
         <div class="drawer-header-wrapper">
             <div class="drawer-brand-header">
                 <img src="../_content/Beacon.UI/logo.svg?v=20260423e" alt="Beacon" class="drawer-logo" />
@@ -127,9 +154,11 @@
             </div>
         </MudNavMenu>
     </MudDrawer>
-    <MudMainContent Class="pb-12">
+    <MudMainContent Class="bx-main pb-12">
         <CascadingValue Value="@_isDark" Name="IsDarkMode">
-            @Body
+            <div class="bx-content">
+                @Body
+            </div>
         </CascadingValue>
     </MudMainContent>
 </MudLayout>
@@ -153,7 +182,40 @@
 {
     private bool _isDark = true;
     private Breakpoint _breakpoint;
+    private bool _drawerOpen = true;
     private int _pendingApprovalCount;
+    private bool _hasUnreadNotifications;
+    private List<Crumb> _breadcrumbs = new();
+
+    private record Crumb(string Label, string? Href);
+
+    private static readonly Dictionary<string, (string Section, string Label)> _routeMap = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["dashboard"] = ("Overview", "Mission Control"),
+        ["control-tower"] = ("Overview", "Control Tower"),
+        ["dashboards"] = ("Overview", "Dashboards"),
+        ["data-sources"] = ("Data", "Data Sources"),
+        ["data-quality"] = ("Data", "Data Quality"),
+        ["data-migration"] = ("Data", "Data Migration"),
+        ["beacon/projects"] = ("Data", "Projects"),
+        ["beacon/data-catalog"] = ("MCP", "Data Catalog"),
+        ["ai-actors"] = ("Data", "AI Actors"),
+        ["queries"] = ("Alerts", "Queries"),
+        ["queries/add"] = ("Alerts", "New query"),
+        ["subscriptions"] = ("Alerts", "Subscriptions"),
+        ["notifications"] = ("Alerts", "Notifications"),
+        ["recipients"] = ("Alerts", "Recipients"),
+        ["tasks"] = ("Alerts", "Tasks"),
+        ["beacon/settings/api-keys"] = ("MCP", "API Keys"),
+        ["beacon/settings/mcp"] = ("MCP", "MCP Settings"),
+        ["beacon/settings/mcp/playground"] = ("MCP", "MCP Playground"),
+        ["beacon/settings/mcp-learning"] = ("MCP", "MCP Learning"),
+        ["users"] = ("Admin", "User Management"),
+        ["admin/settings"] = ("Admin", "Admin Settings"),
+        ["approvals"] = ("Admin", "Approvals"),
+        ["settings"] = ("You", "Settings"),
+        ["about"] = ("You", "About"),
+    };
 
     private string GetBaseHref()
     {
@@ -171,11 +233,92 @@
         return name.Substring(0, 1).ToUpperInvariant();
     }
 
+    protected override void OnInitialized()
+    {
+        UpdateBreadcrumbs(NavigationManager.Uri);
+        NavigationManager.LocationChanged += OnLocationChanged;
+    }
+
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+    {
+        UpdateBreadcrumbs(e.Location);
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void UpdateBreadcrumbs(string uri)
+    {
+        var basePath = new Uri(NavigationManager.BaseUri).AbsolutePath.TrimEnd('/');
+        var path = new Uri(uri).AbsolutePath;
+        if (basePath.Length > 0 && path.StartsWith(basePath, StringComparison.OrdinalIgnoreCase))
+        {
+            path = path.Substring(basePath.Length);
+        }
+        path = path.Trim('/');
+
+        var crumbs = new List<Crumb>();
+        if (string.IsNullOrEmpty(path) || path.Equals("dashboard", StringComparison.OrdinalIgnoreCase))
+        {
+            crumbs.Add(new Crumb("Overview", null));
+            crumbs.Add(new Crumb("Mission Control", null));
+        }
+        else
+        {
+            var matchKey = _routeMap.Keys
+                .Where(k => path.Equals(k, StringComparison.OrdinalIgnoreCase) || path.StartsWith(k + "/", StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(k => k.Length)
+                .FirstOrDefault();
+
+            if (matchKey != null)
+            {
+                var (section, label) = _routeMap[matchKey];
+                crumbs.Add(new Crumb(section, null));
+                crumbs.Add(new Crumb(label, $"{GetBaseHref()}{matchKey}"));
+                if (!path.Equals(matchKey, StringComparison.OrdinalIgnoreCase))
+                {
+                    var rest = path.Substring(matchKey.Length).Trim('/');
+                    if (!string.IsNullOrEmpty(rest))
+                    {
+                        crumbs.Add(new Crumb(rest, null));
+                    }
+                }
+            }
+            else
+            {
+                var segments = path.Split('/');
+                foreach (var seg in segments)
+                {
+                    if (!string.IsNullOrEmpty(seg))
+                    {
+                        crumbs.Add(new Crumb(seg, null));
+                    }
+                }
+            }
+        }
+        _breadcrumbs = crumbs;
+    }
+
+    private void NavigateToSearch()
+    {
+        // Search command palette not yet implemented — link to queries for now.
+        NavigationManager.NavigateTo($"{GetBaseHref()}queries");
+    }
+
+    private void NavigateToNotifications()
+    {
+        NavigationManager.NavigateTo($"{GetBaseHref()}notifications");
+    }
+
+    public void Dispose()
+    {
+        NavigationManager.LocationChanged -= OnLocationChanged;
+    }
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
         {
             _breakpoint = await BrowserViewportService.GetCurrentBreakpointAsync();
+            _drawerOpen = _breakpoint >= Breakpoint.Lg;
             _isDark = await LocalStorage.GetItemAsync<string>("IsDark") == "True";
             await LoadTheme();
 
