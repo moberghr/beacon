@@ -4,10 +4,11 @@
 
 <MudDialog>
     <TitleContent>
-        <MudText Typo="Typo.h6">
-            <MudIcon Icon="@Icons.Material.Filled.Add" Class="mr-3 mb-n1" />
-            Add Recipients
-        </MudText>
+        <BeaconDialogHeader Variant="signal"
+            Eyebrow="SUBSCRIPTIONS"
+            Prefix="Add"
+            Emphasis="recipients"
+            Suffix="." />
     </TitleContent>
     <DialogContent>
         <MudList T="int" @bind-SelectedValues="_selectedRecipientIds" SelectionMode="SelectionMode.MultiSelection" ReadOnly="false" CheckBoxColor="Color.Primary">

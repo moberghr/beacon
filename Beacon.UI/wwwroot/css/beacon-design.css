@@ -1296,3 +1296,477 @@
   padding-bottom: 0;
 }
 
+
+/* ===== Dialog / Modal header — Beacon visual language ===== */
+
+/* Variables scoped so --bx-* work inside the dialog portal (outside .beacon-page) */
+.bx-dialog-head {
+  --bx-brand-50:  oklch(97% 0.02 175);
+  --bx-brand-100: oklch(94% 0.04 175);
+  --bx-brand-200: oklch(88% 0.07 175);
+  --bx-brand-300: oklch(78% 0.09 175);
+  --bx-brand-500: oklch(58% 0.095 175);
+  --bx-brand-700: oklch(42% 0.08 175);
+  --bx-surface:   #ffffff;
+  --bx-surface-2: oklch(99.2% 0.003 240);
+  --bx-border:    oklch(93.5% 0.006 240);
+  --bx-text:      oklch(16% 0.008 240);
+  --bx-text-muted: oklch(55% 0.014 240);
+  --bx-text-subtle: oklch(68% 0.012 240);
+
+  position: relative;
+  border-bottom: 1px solid var(--bx-border);
+  background: linear-gradient(180deg, var(--bx-surface) 0%, var(--bx-surface-2) 100%);
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.bx-dialog-head--dark {
+  --bx-brand-50:  oklch(22% 0.04 175);
+  --bx-brand-100: oklch(26% 0.06 175);
+  --bx-brand-300: oklch(78% 0.09 175);
+  --bx-brand-500: oklch(58% 0.095 175);
+  --bx-brand-700: oklch(42% 0.08 175);
+  --bx-surface:   oklch(17% 0.009 240);
+  --bx-surface-2: oklch(20% 0.010 240);
+  --bx-border:    oklch(24% 0.010 240);
+  --bx-text:      oklch(96% 0.005 240);
+  --bx-text-muted: oklch(68% 0.012 240);
+  --bx-text-subtle: oklch(50% 0.012 240);
+}
+
+.bx-dialog-head__bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  color: var(--bx-text-subtle);
+  opacity: 0.9;
+}
+.bx-dialog-head__grid {
+  color: var(--bx-text-subtle);
+  opacity: 0.18;
+}
+.bx-dialog-head--dark .bx-dialog-head__grid { opacity: 0.10; }
+
+.bx-dialog-head__arcs {
+  animation: bx-dh-pulse 3.4s ease-out infinite;
+}
+@keyframes bx-dh-pulse {
+  0%   { opacity: 0; transform: scale(0.6); transform-origin: 560px 0; }
+  20%  { opacity: 1; }
+  100% { opacity: 0; transform: scale(1.2); transform-origin: 560px 0; }
+}
+
+.bx-dialog-head__nodes circle {
+  animation: bx-dh-blink 2.6s ease-in-out infinite;
+}
+.bx-dialog-head__nodes circle:nth-child(2) { animation-delay: 0.3s; }
+.bx-dialog-head__nodes circle:nth-child(3) { animation-delay: 0.7s; }
+.bx-dialog-head__nodes circle:nth-child(4) { animation-delay: 1.0s; }
+.bx-dialog-head__nodes circle:nth-child(5) { animation-delay: 1.3s; }
+.bx-dialog-head__nodes circle:nth-child(6) { animation-delay: 1.7s; }
+@keyframes bx-dh-blink { 50% { opacity: 0.3; } }
+
+.bx-dialog-head__scan {
+  animation: bx-dh-scan 4s linear infinite;
+}
+@keyframes bx-dh-scan {
+  from { transform: translateX(-120px); }
+  to   { transform: translateX(600px); }
+}
+
+.bx-dialog-head__inner {
+  position: relative;
+  z-index: 1;
+  padding: 18px 20px 16px;
+}
+.bx-dialog-head__main { min-width: 0; }
+
+.bx-dialog-head__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  color: var(--bx-text-muted);
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+.bx-dialog-head__pin {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--bx-brand-500);
+  box-shadow: 0 0 0 3px oklch(58% 0.095 175 / 0.18);
+  flex-shrink: 0;
+  display: inline-block;
+}
+.bx-dialog-head__sep { color: var(--bx-text-subtle); opacity: 0.7; }
+
+.bx-dialog-head__title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  color: var(--bx-text);
+}
+
+.bx-dialog-head__word {
+  position: relative;
+  display: inline-block;
+  color: var(--bx-brand-700);
+  font-style: italic;
+  font-weight: 600;
+}
+.bx-dialog-head--dark .bx-dialog-head__word { color: var(--bx-brand-300); }
+
+.bx-dialog-head__underline {
+  position: absolute;
+  left: 0; right: 0; bottom: -7px;
+  width: 100%; height: 12px;
+  stroke-dasharray: 240;
+  stroke-dashoffset: 240;
+  animation: bx-dh-draw 1.2s 0.2s ease-out forwards;
+}
+@keyframes bx-dh-draw { to { stroke-dashoffset: 0; } }
+
+.bx-dialog-head__sub {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--bx-text-muted);
+}
+
+/* Remove MudBlazor's default title padding when our header is inside */
+.mud-dialog-title:has(.bx-dialog-head) {
+  padding: 0 !important;
+  border-bottom: none !important;
+  margin-bottom: 0 !important;
+}
+
+/* Keyboard shortcut chips for dialog footers */
+.bx-kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 10.5px;
+  color: var(--mud-palette-text-secondary);
+  background: var(--mud-palette-surface);
+  border: 1px solid var(--mud-palette-lines-default);
+  border-radius: 4px;
+  box-shadow: 0 1px 0 var(--mud-palette-lines-default);
+}
+.bx-kbd-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  color: var(--mud-palette-text-secondary);
+  flex-shrink: 0;
+}
+
+
+/* ===== Reusable form field — Beacon visual language =====
+   Unscoped (works inside .beacon-page AND inside MudDialog portal).
+   Variables fall back to local defaults so the field renders correctly
+   even outside .beacon-page. */
+
+.bx-field {
+  --bx-brand-500:    oklch(58% 0.095 175);
+  --bx-surface:      var(--mud-palette-surface, #ffffff);
+  --bx-text:         var(--mud-palette-text-primary, oklch(16% 0.008 240));
+  --bx-text-subtle:  var(--mud-palette-text-secondary, oklch(68% 0.012 240));
+  --bx-border:       var(--mud-palette-lines-default, oklch(86% 0.008 240));
+  --bx-crit:         oklch(58% 0.18 25);
+  --bx-r-sm:         8px;
+  --bx-ring:         0 0 0 3px oklch(58% 0.095 175 / 0.18);
+
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
+.bx-field + .bx-field { margin-top: 12px; }
+
+.bx-field--full { grid-column: 1 / -1; }
+
+.bx-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--bx-text);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.bx-label__req { color: var(--bx-crit); }
+
+.bx-help {
+  font-size: 11.5px;
+  color: var(--bx-text-subtle);
+}
+.bx-help--error { color: var(--bx-crit); }
+
+.bx-input,
+.bx-textarea {
+  width: 100%;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 13px;
+  background: var(--bx-surface);
+  border: 1px solid var(--bx-border);
+  border-radius: var(--bx-r-sm);
+  color: var(--bx-text);
+  transition: border-color 0.12s, box-shadow 0.12s;
+  box-sizing: border-box;
+}
+.bx-textarea {
+  min-height: 64px;
+  resize: vertical;
+  font-family: inherit;
+}
+.bx-input:hover,
+.bx-textarea:hover { border-color: var(--bx-text-subtle); }
+.bx-input:focus,
+.bx-textarea:focus {
+  outline: none;
+  border-color: var(--bx-brand-500);
+  box-shadow: var(--bx-ring);
+}
+.bx-input::placeholder,
+.bx-textarea::placeholder { color: var(--bx-text-subtle); }
+
+.bx-input:disabled,
+.bx-textarea:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.bx-input--error,
+.bx-textarea--error {
+  border-color: var(--bx-crit);
+}
+.bx-input--error:focus,
+.bx-textarea--error:focus {
+  border-color: var(--bx-crit);
+  box-shadow: 0 0 0 3px oklch(58% 0.18 25 / 0.18);
+}
+
+/* Adornment wrapper */
+.bx-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+}
+.bx-input-wrap .bx-input { padding-right: 36px; }
+.bx-input-wrap--start .bx-input { padding-right: 10px; padding-left: 36px; }
+.bx-input__adornment {
+  position: absolute;
+  top: 0; bottom: 0;
+  right: 4px;
+  width: 32px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; border: 0; cursor: pointer;
+  color: var(--bx-text-subtle);
+  border-radius: var(--bx-r-sm);
+}
+.bx-input-wrap--start .bx-input__adornment { right: auto; left: 4px; }
+.bx-input__adornment:hover:not(:disabled) { color: var(--bx-text); }
+.bx-input__adornment:disabled { cursor: not-allowed; opacity: 0.5; }
+
+/* Select */
+.bx-select-wrap {
+  position: relative;
+  display: flex;
+}
+.bx-select {
+  width: 100%;
+  padding: 8px 32px 8px 10px;
+  font: inherit;
+  font-size: 13px;
+  background: var(--bx-surface);
+  border: 1px solid var(--bx-border);
+  border-radius: var(--bx-r-sm);
+  color: var(--bx-text);
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path d='M1 1l5 5 5-5' fill='none' stroke='%23888' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  transition: border-color 0.12s, box-shadow 0.12s;
+  box-sizing: border-box;
+  cursor: pointer;
+}
+.bx-select[multiple] {
+  padding-right: 10px;
+  background-image: none;
+  cursor: default;
+  min-height: 96px;
+}
+.bx-select:hover { border-color: var(--bx-text-subtle); }
+.bx-select:focus {
+  outline: none;
+  border-color: var(--bx-brand-500);
+  box-shadow: var(--bx-ring);
+}
+.bx-select:disabled { opacity: 0.6; cursor: not-allowed; }
+.bx-select--error { border-color: var(--bx-crit); }
+.bx-select--error:focus {
+  border-color: var(--bx-crit);
+  box-shadow: 0 0 0 3px oklch(58% 0.18 25 / 0.18);
+}
+.bx-select__clear {
+  position: absolute;
+  top: 0; bottom: 0;
+  right: 28px;
+  width: 24px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; border: 0; cursor: pointer;
+  color: var(--bx-text-subtle);
+  border-radius: var(--bx-r-sm);
+}
+.bx-select__clear:hover { color: var(--bx-text); }
+.bx-select option {
+  background: var(--bx-surface);
+  color: var(--bx-text);
+}
+
+/* Checkbox */
+.bx-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+  --bx-brand-500: oklch(58% 0.095 175);
+  --bx-surface:   var(--mud-palette-surface, #ffffff);
+  --bx-text:      var(--mud-palette-text-primary, oklch(16% 0.008 240));
+  --bx-text-subtle: var(--mud-palette-text-secondary, oklch(68% 0.012 240));
+  --bx-border:    var(--mud-palette-lines-default, oklch(86% 0.008 240));
+  --bx-r-sm:      6px;
+  color: var(--bx-text);
+  font-size: 13px;
+}
+.bx-check + .bx-check { margin-top: 8px; }
+.bx-check__input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+  width: 0; height: 0;
+}
+.bx-check__box {
+  flex-shrink: 0;
+  width: 18px; height: 18px;
+  border: 1.5px solid var(--bx-border);
+  border-radius: var(--bx-r-sm);
+  background: var(--bx-surface);
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: background-color 0.12s, border-color 0.12s, box-shadow 0.12s;
+  margin-top: 1px;
+  color: #fff;
+}
+.bx-check__tick {
+  width: 14px; height: 14px;
+  opacity: 0;
+  transform: scale(0.6);
+  transition: opacity 0.12s, transform 0.12s;
+}
+.bx-check__input:checked + .bx-check__box {
+  background: var(--bx-brand-500);
+  border-color: var(--bx-brand-500);
+}
+.bx-check__input:checked + .bx-check__box .bx-check__tick {
+  opacity: 1;
+  transform: scale(1);
+}
+.bx-check__input:focus-visible + .bx-check__box {
+  box-shadow: 0 0 0 3px oklch(58% 0.095 175 / 0.18);
+}
+.bx-check:hover .bx-check__box { border-color: var(--bx-text-subtle); }
+.bx-check__input:checked + .bx-check__box,
+.bx-check:hover .bx-check__input:checked + .bx-check__box { border-color: var(--bx-brand-500); }
+.bx-check--disabled { opacity: 0.55; cursor: not-allowed; }
+.bx-check__body {
+  display: flex; flex-direction: column; gap: 2px; min-width: 0;
+}
+.bx-check__label { font-weight: 500; line-height: 1.3; }
+.bx-check__help { font-size: 11.5px; color: var(--bx-text-subtle); }
+
+/* Switch */
+.bx-switch {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+  --bx-brand-500: oklch(58% 0.095 175);
+  --bx-surface:   var(--mud-palette-surface, #ffffff);
+  --bx-text:      var(--mud-palette-text-primary, oklch(16% 0.008 240));
+  --bx-text-subtle: var(--mud-palette-text-secondary, oklch(68% 0.012 240));
+  --bx-border:    var(--mud-palette-lines-default, oklch(86% 0.008 240));
+  color: var(--bx-text);
+  font-size: 13px;
+}
+.bx-switch + .bx-switch { margin-top: 8px; }
+.bx-switch__input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+  width: 0; height: 0;
+}
+.bx-switch__track {
+  flex-shrink: 0;
+  position: relative;
+  width: 34px; height: 20px;
+  background: var(--bx-border);
+  border-radius: 999px;
+  transition: background-color 0.18s;
+  margin-top: 1px;
+}
+.bx-switch__thumb {
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 16px; height: 16px;
+  background: #fff;
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.18);
+  transition: transform 0.18s;
+}
+.bx-switch__input:checked + .bx-switch__track {
+  background: var(--bx-brand-500);
+}
+.bx-switch__input:checked + .bx-switch__track .bx-switch__thumb {
+  transform: translateX(14px);
+}
+.bx-switch__input:focus-visible + .bx-switch__track {
+  box-shadow: 0 0 0 3px oklch(58% 0.095 175 / 0.18);
+}
+.bx-switch--disabled { opacity: 0.55; cursor: not-allowed; }
+.bx-switch__body {
+  display: flex; flex-direction: column; gap: 2px; min-width: 0;
+}
+.bx-switch__label { font-weight: 500; line-height: 1.3; }
+.bx-switch__help { font-size: 11.5px; color: var(--bx-text-subtle); }
+
+/* DatePicker wrapper — restyle the embedded MudDatePicker textfield to match bx-input */
+.bx-field--datepicker .mud-input-control {
+  margin-top: 0;
+}
+.bx-field--datepicker .mud-input-outlined-border {
+  border-color: var(--bx-border, var(--mud-palette-lines-default));
+  border-radius: var(--bx-r-sm, 8px);
+}
+.bx-field--datepicker .mud-input-control:hover .mud-input-outlined-border {
+  border-color: var(--bx-text-subtle, var(--mud-palette-text-secondary));
+}
+.bx-field--datepicker .mud-input-outlined.mud-shrink .mud-input-outlined-border {
+  border-color: var(--bx-brand-500);
+}
+.bx-field--datepicker .mud-input-label {
+  display: none;
+}

@@ -1,0 +1,76 @@
+@* Date picker — Beacon visual language wrapper around MudDatePicker.
+   Reuses MudBlazor's calendar UX but renders inside a .bx-field with bx-label / bx-help.
+
+   Usage:
+       <BeaconDatePicker @bind-Date="_expiresAt"
+                         Label="Expiration date"
+                         HelpText="Leave empty for no expiration."
+                         Clearable="true"
+                         MinDate="DateTime.Today" /> *@
+
+<div class="bx-field bx-field--datepicker @CssClass">
+    @if (!string.IsNullOrEmpty(Label))
+    {
+        <label class="bx-label">
+            @Label
+            @if (Required)
+            {
+                <span class="bx-label__req">*</span>
+            }
+        </label>
+    }
+
+    <MudDatePicker @bind-Date="DateInternal"
+                   Variant="Variant.Outlined"
+                   Margin="Margin.Dense"
+                   Clearable="@Clearable"
+                   Disabled="@Disabled"
+                   ReadOnly="@ReadOnly"
+                   MinDate="@MinDate"
+                   MaxDate="@MaxDate"
+                   Placeholder="@Placeholder"
+                   DateFormat="@DateFormat" />
+
+    @if (HasError)
+    {
+        <span class="bx-help bx-help--error">@ErrorText</span>
+    }
+    else if (!string.IsNullOrEmpty(HelpText))
+    {
+        <span class="bx-help">@HelpText</span>
+    }
+</div>
+
+@code {
+    [Parameter] public DateTime? Date { get; set; }
+    [Parameter] public EventCallback<DateTime?> DateChanged { get; set; }
+
+    [Parameter] public string? Label { get; set; }
+    [Parameter] public string? Placeholder { get; set; }
+    [Parameter] public string? HelpText { get; set; }
+    [Parameter] public string? ErrorText { get; set; }
+
+    [Parameter] public bool Required { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public bool ReadOnly { get; set; }
+    [Parameter] public bool Clearable { get; set; }
+
+    [Parameter] public DateTime? MinDate { get; set; }
+    [Parameter] public DateTime? MaxDate { get; set; }
+    [Parameter] public string DateFormat { get; set; } = "yyyy-MM-dd";
+
+    [Parameter] public string? CssClass { get; set; }
+
+    private bool HasError => !string.IsNullOrEmpty(ErrorText);
+
+    private DateTime? DateInternal
+    {
+        get => Date;
+        set
+        {
+            if (Date == value) return;
+            Date = value;
+            DateChanged.InvokeAsync(value);
+        }
+    }
+}

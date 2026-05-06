@@ -4,20 +4,19 @@
 
 <MudDialog Class="pb-2">
     <TitleContent>
-        <MudText Typo="Typo.h6">
-            <MudIcon Icon="@Icons.Material.Filled.Add" Class="mr-1 mb-n1" />
-            Add recipient
-        </MudText>
+        <BeaconDialogHeader Variant="signal"
+            Eyebrow="RECIPIENTS"
+            Prefix="Add a"
+            Emphasis="recipient"
+            Suffix="."
+            Sub="Configure where Beacon sends alerts — email, Slack, Teams, or webhook." />
     </TitleContent>
     <DialogContent>
-        <MudForm @ref="@_form" Class="pt-1" @bind-Errors="@errors" @bind-IsValid="_isFormValid">
-            <MudSelect T="NotificationType" Label="Notification Type" @bind-Value="@Recipient.NotificationType" Required="true" Margin="Margin.Dense" Variant="Variant.Outlined" Class="mb-2">
-                <MudSelectItem Value="NotificationType.Email">Email</MudSelectItem>
-                <MudSelectItem Value="NotificationType.Teams">Teams</MudSelectItem>
-                <MudSelectItem Value="NotificationType.Slack">Slack</MudSelectItem>
-                <MudSelectItem Value="NotificationType.Jira">Jira</MudSelectItem>
-                <MudSelectItem Value="NotificationType.Webhook">Webhook</MudSelectItem>
-            </MudSelect>
+        <div class="pt-1">
+            <BeaconSelect T="NotificationType"
+                          Label="Notification Type"
+                          @bind-Value="@Recipient.NotificationType"
+                          Required="true" />
 
             @if (Recipient.NotificationType == NotificationType.Jira)
             {
@@ -36,44 +35,24 @@
                 </MudAlert>
             }
 
-            <MudTextField OnlyValidateIfDirty="true"
-            Margin="Margin.Dense"
-            Variant="Variant.Outlined"
-            Class="mb-2"
-            @bind-Value="@Recipient.Name"
-            T="String"
-            Label="Name"
-            Required="true" />
-            <MudTextField OnlyValidateIfDirty="true"
-            Margin="Margin.Dense"
-            Variant="Variant.Outlined"
-            Class="mb-2"
-            @bind-Value="@Recipient.Destination"
-            T="String"
-            Label="@GetDestinationLabel()"
-            HelperText="@GetDestinationHelperText()"
-            Required="true" />
-            <MudTextField OnlyValidateIfDirty="true"
-            Immediate="true"
-            Margin="Margin.Dense"
-            Variant="Variant.Outlined"
-            Class="mb-2"
-            @bind-Value="@Recipient.Description"
-            Placeholder="Description (optional)"
-            T="String"
-            Label="Description"
-            Required="false" />
+            <BeaconTextField @bind-Value="@Recipient.Name"
+                             Label="Name"
+                             Required="true" />
+            <BeaconTextField @bind-Value="@Recipient.Destination"
+                             Label="@GetDestinationLabel()"
+                             HelpText="@GetDestinationHelperText()"
+                             Required="true" />
+            <BeaconTextField @bind-Value="@Recipient.Description"
+                             Placeholder="Description (optional)"
+                             Label="Description" />
 
             @if (Recipient.NotificationType == NotificationType.Webhook)
             {
-                <MudTextField @bind-Value="@Recipient.HeadersJson"
-                              T="String"
-                              Label="Custom Headers (JSON)"
-                              HelperText="Optional JSON object of custom HTTP headers, e.g. {&quot;Authorization&quot;: &quot;Bearer token&quot;}"
-                              Variant="Variant.Outlined"
-                              Margin="Margin.Dense"
-                              Class="mb-2"
-                              Lines="3" />
+                <BeaconTextField @bind-Value="@Recipient.HeadersJson"
+                                 Label="Custom Headers (JSON)"
+                                 HelpText="Optional JSON object of custom HTTP headers, e.g. {&quot;Authorization&quot;: &quot;Bearer token&quot;}"
+                                 Multiline="true"
+                                 Rows="3" />
 
                 <div class="d-flex align-center gap-2 mb-2">
                     <MudText Typo="Typo.body2" Class="flex-grow-1">
@@ -86,16 +65,12 @@
                         Show Examples
                     </MudButton>
                 </div>
-                <MudTextField @bind-Value="@Recipient.BodyTemplate"
-                              T="String"
-                              HelperText="Use placeholders like {{Timestamp}}, {{SubscriptionName}}, {{TotalRecords}}, {{Records}}. Leave empty for default."
-                              Variant="Variant.Outlined"
-                              Margin="Margin.Dense"
-                              Class="mb-2"
-                              Lines="12"
-                              OnBlur="@ValidateTemplate"
-                              Error="@_templateHasError"
-                              ErrorText="@_templateErrorText" />
+                <BeaconTextField @bind-Value="@Recipient.BodyTemplate"
+                                 Multiline="true"
+                                 Rows="12"
+                                 HelpText="Use placeholders like {{Timestamp}}, {{SubscriptionName}}, {{TotalRecords}}, {{Records}}. Leave empty for default."
+                                 OnBlur="@(_ => ValidateTemplate())"
+                                 ErrorText="@(_templateHasError ? _templateErrorText : null)" />
 
                 @if (!string.IsNullOrWhiteSpace(_templateWarning))
                 {
@@ -104,7 +79,7 @@
                     </MudAlert>
                 }
             }
-        </MudForm>
+        </div>
     </DialogContent>
     <DialogActions>
         <MudButton
@@ -115,7 +90,7 @@
             Cancel
         </MudButton>
 
-        <DialogSaveButton Disabled="!_isFormValid" OnClick="@Submit"/>
+        <DialogSaveButton Disabled="@(!CanSubmit)" OnClick="@Submit"/>
     </DialogActions>
 </MudDialog>
 
@@ -131,24 +106,19 @@
     [Parameter]
     public RecipientData Recipient { get; set; } = new RecipientData();
 
-    private MudForm _form;
     private bool _loading;
-    bool _isFormValid = false;
-    string[] errors = { };
     private bool _templateHasError = false;
     private string? _templateErrorText = null;
     private string? _templateWarning = null;
 
+    private bool CanSubmit => !_loading
+        && !string.IsNullOrWhiteSpace(Recipient.Name)
+        && !string.IsNullOrWhiteSpace(Recipient.Destination)
+        && !_templateHasError;
+
     async Task Submit()
     {
-        if (_loading)
-        {
-            return;
-        }
-
-        await _form.Validate();
-
-        if (!_form.IsValid)
+        if (!CanSubmit)
         {
             return;
         }

@@ -1,10 +1,13 @@
 <MudDialog>
+    <TitleContent>
+        <BeaconDialogHeader Variant="grid"
+            Eyebrow="ERROR"
+            Prefix="Error"
+            Emphasis="details"
+            Suffix="." />
+    </TitleContent>
     <DialogContent>
         <MudContainer Style="max-height: 500px; overflow-y: auto;">
-            <MudText Typo="Typo.h6" Class="mb-4">
-                Error Details - @JobName (Execution #@ExecutionId)
-            </MudText>
-            
             <MudPaper Class="pa-4" Elevation="1">
                 <MudText Typo="Typo.body2" Style="white-space: pre-wrap; font-family: monospace;">
                     @ErrorMessage

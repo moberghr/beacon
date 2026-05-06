@@ -3,23 +3,28 @@
 @inject IMediator Mediator
 
 <MudDialog>
+    <TitleContent>
+        <BeaconDialogHeader Variant="nodes"
+            Eyebrow="WORKSPACE &nbsp;/&nbsp; PROJECTS"
+            Prefix="Create a new"
+            Emphasis="project"
+            Suffix="."
+            Sub="Group queries, data sources, and repos together so dashboards and alerts have shared context." />
+    </TitleContent>
     <DialogContent>
         <MudForm @ref="_form" @bind-IsValid="_isValid">
             <MudStack Spacing="3">
-                <MudTextField @bind-Value="_name"
-                              Label="Project Name"
-                              Required="true"
-                              RequiredError="Name is required"
-                              MaxLength="200"
-                              Immediate="true"
-                              Variant="Variant.Outlined"/>
+                <BeaconTextField @bind-Value="_name"
+                                 Label="Project Name"
+                                 Required="true"
+                                 MaxLength="200" />
 
-                <MudTextField @bind-Value="_description"
-                              Label="Description"
-                              Lines="3"
-                              MaxLength="1000"
-                              Variant="Variant.Outlined"
-                              HelperText="Briefly describe what this project tracks"/>
+                <BeaconTextField @bind-Value="_description"
+                                 Label="Description"
+                                 Multiline="true"
+                                 Rows="3"
+                                 MaxLength="1000"
+                                 HelpText="Briefly describe what this project tracks" />
 
                 @* Data Sources *@
                 <MudDivider Class="my-1"/>
@@ -43,14 +48,11 @@
                     </MudButton>
                 </MudStack>
 
-                <MudTextField @bind-Value="_accessToken"
-                              Label="GitHub Access Token"
-                              Placeholder="ghp_..."
-                              InputType="InputType.Password"
-                              Variant="Variant.Outlined"
-                              Adornment="Adornment.Start"
-                              AdornmentIcon="@Icons.Material.Filled.Key"
-                              HelperText="Required for private repositories. Token is encrypted at rest."/>
+                <BeaconTextField @bind-Value="_accessToken"
+                                 Label="GitHub Access Token"
+                                 Placeholder="ghp_..."
+                                 InputType="password"
+                                 HelpText="Required for private repositories. Token is encrypted at rest." />
 
                 @if (_repoUrls.Count == 0)
                 {
@@ -64,14 +66,12 @@
                     {
                         var index = i;
                         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-                            <MudTextField @bind-Value="_repoUrls[index]"
-                                          Label="@($"Repository URL {index + 1}")"
-                                          Placeholder="https://github.com/org/repo"
-                                          Variant="Variant.Outlined"
-                                          Margin="Margin.Dense"
-                                          Adornment="Adornment.Start"
-                                          AdornmentIcon="@Icons.Material.Filled.Code"
-                                          Style="flex: 1;"/>
+                            <div style="flex: 1;">
+                                <BeaconTextField Value="@_repoUrls[index]"
+                                                 ValueChanged="@(v => _repoUrls[index] = v ?? string.Empty)"
+                                                 Label="@($"Repository URL {index + 1}")"
+                                                 Placeholder="https://github.com/org/repo" />
+                            </div>
                             <MudIconButton Icon="@Icons.Material.Filled.Delete"
                                            Size="Size.Small"
                                            Color="Color.Error"
@@ -110,7 +110,7 @@
     private bool _isValid;
     private bool _submitting;
 
-    private string _name = string.Empty;
+    private string? _name = string.Empty;
     private string? _description;
     private IReadOnlyCollection<int> _selectedDataSourceIds = [];
     private List<string> _repoUrls = new();
@@ -137,7 +137,7 @@
         try
         {
             await Mediator.Send(new CreateProjectCommand(
-                _name,
+                _name ?? string.Empty,
                 _description,
                 _selectedDataSourceIds.ToList(),
                 _repoUrls,

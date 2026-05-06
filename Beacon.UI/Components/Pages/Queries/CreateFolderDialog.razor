@@ -2,18 +2,26 @@
 @using MediatR
 
 <MudDialog>
+    <TitleContent>
+        <BeaconDialogHeader Variant="signal"
+            Eyebrow="QUERIES"
+            Prefix="Create a"
+            Emphasis="folder"
+            Suffix="." />
+    </TitleContent>
     <DialogContent>
-        <MudTextField @bind-Value="_folderName"
-                      Label="Folder Name"
-                      Required="true"
-                      Immediate="true"
-                      HelperText="Enter a unique name for the folder" />
+        <BeaconTextField @bind-Value="_folderName"
+                         Label="Folder name"
+                         Required="true"
+                         Placeholder="e.g. Customer KPIs"
+                         HelpText="Enter a unique name for the folder." />
 
-        <MudTextField @bind-Value="_description"
-                      Label="Description"
-                      Lines="3"
-                      Class="mt-3"
-                      HelperText="Optional description" />
+        <BeaconTextField @bind-Value="_description"
+                         Label="Description"
+                         Multiline="true"
+                         Rows="3"
+                         Placeholder="What is this folder for?"
+                         HelpText="Optional description." />
 
         @if (ParentFolderId.HasValue)
         {
@@ -50,7 +58,7 @@
     [Parameter]
     public int? ParentFolderId { get; set; }
 
-    private string _folderName = "";
+    private string? _folderName;
     private string? _description;
     private bool _saving;
 

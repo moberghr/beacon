@@ -2,6 +2,13 @@
 @using MediatR
 
 <MudDialog>
+    <TitleContent>
+        <BeaconDialogHeader Variant="grid"
+            Eyebrow="QUERIES"
+            Prefix="Delete"
+            Emphasis="folder"
+            Suffix="." />
+    </TitleContent>
     <DialogContent>
         <MudText>Are you sure you want to delete the folder <strong>@Folder.Name</strong>?</MudText>
 
@@ -17,10 +24,9 @@
                 This folder contains @Folder.QueryCount query(ies).
             </MudAlert>
 
-            <MudCheckBox @bind-Value="_moveQueriesToParent"
-                         Label="Move queries to parent folder"
-                         Color="Color.Primary"
-                         Class="mt-2" />
+            <BeaconCheckBox @bind-Value="_moveQueriesToParent"
+                            Label="Move queries to parent folder"
+                            CssClass="mt-2" />
 
             @if (_moveQueriesToParent)
             {

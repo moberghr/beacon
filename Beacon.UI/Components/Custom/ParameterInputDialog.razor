@@ -3,12 +3,14 @@
 @using QueryParameterValue = Beacon.Core.Models.Queries.ParameterValue
 
 <MudDialog>
+    <TitleContent>
+        <BeaconDialogHeader Variant="signal"
+            Eyebrow="QUERIES"
+            Prefix="Enter"
+            Emphasis="parameters"
+            Suffix="." />
+    </TitleContent>
     <DialogContent>
-        <MudText Typo="Typo.h6" Class="mb-4">
-            <MudIcon Icon="@Icons.Material.Filled.Settings" Class="mr-2" />
-            Set Parameter Values for Step @StepOrder Preview
-        </MudText>
-        
         @if (Parameters?.Any() == true)
         {
             <MudStack Spacing="3">
@@ -35,29 +37,26 @@
                             @switch (param.Type)
                             {
                                 case ParameterType.String:
-                                    <MudTextField @bind-Value="ParameterValues[param.Name]"
-                                                  Label="Value"
-                                                  Variant="Variant.Outlined"
-                                                  Placeholder="@(param.Placeholder ?? "Enter string value")"
-                                                  Required="true" />
+                                    <BeaconTextField @bind-Value="ParameterValues[param.Name]"
+                                                     Label="Value"
+                                                     Placeholder="@(param.Placeholder ?? "Enter string value")"
+                                                     Required="true" />
                                     break;
-                                    
+
                                 case ParameterType.Number:
-                                    <MudTextField @bind-Value="ParameterValues[param.Name]"
-                                                  Label="Value"
-                                                  Variant="Variant.Outlined"
-                                                  Placeholder="@(param.Placeholder ?? "Enter number value")"
-                                                  Required="true"
-                                                  InputType="InputType.Number" />
+                                    <BeaconTextField @bind-Value="ParameterValues[param.Name]"
+                                                     Label="Value"
+                                                     Placeholder="@(param.Placeholder ?? "Enter number value")"
+                                                     Required="true"
+                                                     InputType="number" />
                                     break;
-                                    
+
                                 case ParameterType.DateTime:
-                                    <MudTextField @bind-Value="ParameterValues[param.Name]"
-                                                  Label="Value"
-                                                  Variant="Variant.Outlined"
-                                                  Placeholder="@(param.Placeholder ?? "Enter date/time value")"
-                                                  Required="true"
-                                                  HelperText="Format: YYYY-MM-DD HH:MM:SS or YYYY-MM-DD" />
+                                    <BeaconTextField @bind-Value="ParameterValues[param.Name]"
+                                                     Label="Value"
+                                                     Placeholder="@(param.Placeholder ?? "Enter date/time value")"
+                                                     Required="true"
+                                                     HelpText="Format: YYYY-MM-DD HH:MM:SS or YYYY-MM-DD" />
                                     break;
                             }
                         </MudStack>
@@ -89,7 +88,7 @@
     [Parameter] public List<QueryStepParameterData>? Parameters { get; set; }
     [Parameter] public int StepOrder { get; set; }
     
-    public Dictionary<string, string> ParameterValues { get; set; } = new();
+    public Dictionary<string, string?> ParameterValues { get; set; } = new();
     
     protected override void OnParametersSet()
     {
@@ -117,7 +116,7 @@
             var result = Parameters?.Select(p => new QueryParameterValue
             {
                 Name = p.Name,
-                Value = ParameterValues[p.Name]
+                Value = ParameterValues[p.Name] ?? ""
             }).ToList() ?? new List<QueryParameterValue>();
             
             MudDialog.Close(DialogResult.Ok(result));

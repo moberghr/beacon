@@ -7,10 +7,12 @@
 @using Beacon.UI.Components.Custom
 <MudDialog Class="pb-2">
     <TitleContent>
-        <MudText Typo="Typo.h6">
-            <MudIcon Icon="@Icons.Material.Filled.Add" Class="mr-1 mb-n1" />
-            Add subscription
-        </MudText>
+        <BeaconDialogHeader Variant="signal"
+            Eyebrow="SUBSCRIPTIONS"
+            Prefix="Add a"
+            Emphasis="subscription"
+            Suffix="."
+            Sub="Schedule when Beacon runs this query and where to send the results." />
     </TitleContent>
     <DialogContent>
         <MudForm @ref="@_form" Class="pt-1" @bind-Errors="@errors" @bind-IsValid="_isFormValid">
@@ -18,60 +20,51 @@
                                  Label="Cron"
                                  Required="true" />
 
-            <MudNumericField @bind-Value="Subscription.MaxRows" 
-                Label="Max Rows" 
-                Variant="Variant.Outlined" 
-                Margin="Margin.Dense"
-                Min="0"
-                HelperText="Maximum number of rows to include in email (leave empty for all)" 
-                Class="mb-2" />
-                
-            <MudNumericField @bind-Value="Subscription.TimeoutSeconds" 
-                Label="Timeout (seconds)" 
-                Variant="Variant.Outlined" 
-                Margin="Margin.Dense"
-                Min="0"
-                HelperText="Maximum execution time in seconds (leave empty for no timeout)" 
-                Class="mb-2" />
+            <BeaconNumericField T="int?"
+                                @bind-Value="Subscription.MaxRows"
+                                Label="Max Rows"
+                                Min="0"
+                                HelpText="Maximum number of rows to include in email (leave empty for all)" />
+
+            <BeaconNumericField T="int?"
+                                @bind-Value="Subscription.TimeoutSeconds"
+                                Label="Timeout (seconds)"
+                                Min="0"
+                                HelpText="Maximum execution time in seconds (leave empty for no timeout)" />
             
-            <MudCheckBox @bind-Value="Subscription.IncludeAttachment"
-                Label="Include Attachment"
-                Color="Color.Primary"
-                Class="mb-2" />
+            <BeaconCheckBox @bind-Value="Subscription.IncludeAttachment"
+                            Label="Include Attachment"
+                            CssClass="mb-2" />
 
-            <MudSelect T="string" Label="Result Attachment Type" @bind-Value="FileAttachmentType" Clearable Required="false" Margin="Margin.Dense" Variant="Variant.Outlined" Class="mb-2">
-                <MudSelectItem Value="FileType.Csv.ToString()">Csv</MudSelectItem>
-                <MudSelectItem Value="FileType.Xlsx.ToString()">Xlsx</MudSelectItem>
-            </MudSelect>
+            <BeaconSelect T="string"
+                          Label="Result Attachment Type"
+                          @bind-Value="FileAttachmentType"
+                          Clearable="true"
+                          Items="@_fileTypeOptions"
+                          ItemValueSelector="@(x => ((StringOption)x).Value)"
+                          ItemTextSelector="@(x => ((StringOption)x).Text)" />
 
-            <MudCheckBox @bind-Value="Subscription.ShowQuery"
-                Label="Show Query in Notification"
-                Color="Color.Primary"
-                Class="mb-2" />
+            <BeaconCheckBox @bind-Value="Subscription.ShowQuery"
+                            Label="Show Query in Notification"
+                            CssClass="mb-2" />
             
-            <MudCheckBox @bind-Value="Subscription.StoreResults"
-                Label="Store Results in Notification"
-                Color="Color.Primary"
-                HelperText="Store query results in the notification record for later viewing"
-                Class="mb-2" />
+            <BeaconCheckBox @bind-Value="Subscription.StoreResults"
+                            Label="Store Results in Notification"
+                            HelpText="Store query results in the notification record for later viewing"
+                            CssClass="mb-2" />
 
-            <MudCheckBox @bind-Value="Subscription.CreateTasks"
-                Label="Create Tasks"
-                Color="Color.Primary"
-                HelperText="Automatically create and update a task for this subscription on each execution"
-                Class="mb-2" />
+            <BeaconCheckBox @bind-Value="Subscription.CreateTasks"
+                            Label="Create Tasks"
+                            HelpText="Automatically create and update a task for this subscription on each execution"
+                            CssClass="mb-2" />
 
-            <MudSelect T="NotificationTrigger"
-                @bind-Value="Subscription.NotificationTrigger"
-                Label="Send Notification"
-                Variant="Variant.Outlined"
-                Margin="Margin.Dense"
-                HelperText="Controls when notifications should be sent for this subscription"
-                Class="mb-2">
-                <MudSelectItem Value="NotificationTrigger.OnResultCountChange">When result count changes</MudSelectItem>
-                <MudSelectItem Value="NotificationTrigger.Always">Always (every execution)</MudSelectItem>
-                <MudSelectItem Value="NotificationTrigger.OnResultCountIncrease">When result count increases</MudSelectItem>
-            </MudSelect>
+            <BeaconSelect T="NotificationTrigger"
+                          @bind-Value="Subscription.NotificationTrigger"
+                          Label="Send Notification"
+                          HelpText="Controls when notifications should be sent for this subscription"
+                          Items="@_notificationTriggerOptions"
+                          ItemValueSelector="@(x => ((NotificationTriggerOption)x).Value)"
+                          ItemTextSelector="@(x => ((NotificationTriggerOption)x).Text)" />
 
             <MudExpansionPanels Class="mb-3">
                 <MudExpansionPanel Text="Anomaly Detection" IsExpanded="@_anomalyDetectionEnabled">
@@ -87,73 +80,58 @@
                             The system automatically learns normal patterns from past executions.
                         </MudAlert>
 
-                        <MudCheckBox @bind-Value="_anomalyDetectionEnabled"
-                            Label="Enable Anomaly Detection"
-                            Color="Color.Primary"
-                            HelperText="Monitor result counts and alert on unusual deviations"
-                            Class="mb-2" />
+                        <BeaconCheckBox @bind-Value="_anomalyDetectionEnabled"
+                                        Label="Enable Anomaly Detection"
+                                        HelpText="Monitor result counts and alert on unusual deviations"
+                                        CssClass="mb-2" />
 
                         @if (_anomalyDetectionEnabled)
                         {
-                            <MudSelect T="AnomalyDetectionMethod"
-                                @bind-Value="_anomalyMethod"
-                                Label="Detection Method"
-                                Variant="Variant.Outlined"
-                                Margin="Margin.Dense"
-                                Class="mb-2">
-                                <MudSelectItem Value="AnomalyDetectionMethod.StandardDeviation">Standard Deviation (Z-Score)</MudSelectItem>
-                                <MudSelectItem Value="AnomalyDetectionMethod.IQR">IQR (Interquartile Range)</MudSelectItem>
-                                <MudSelectItem Value="AnomalyDetectionMethod.PercentageChange">Percentage Change</MudSelectItem>
-                            </MudSelect>
+                            <BeaconSelect T="AnomalyDetectionMethod"
+                                          @bind-Value="_anomalyMethod"
+                                          Label="Detection Method"
+                                          Items="@_anomalyMethodOptions"
+                                          ItemValueSelector="@(x => ((AnomalyMethodOption)x).Value)"
+                                          ItemTextSelector="@(x => ((AnomalyMethodOption)x).Text)" />
 
                             <MudText Typo="Typo.body2" Class="mb-2 mud-text-secondary">
                                 @GetDetectionMethodDescription()
                             </MudText>
 
-                            <MudSelect T="AnomalySensitivity"
-                                @bind-Value="_anomalySensitivity"
-                                Label="Sensitivity"
-                                Variant="Variant.Outlined"
-                                Margin="Margin.Dense"
-                                Class="mb-2">
-                                <MudSelectItem Value="AnomalySensitivity.Low">Low (fewer alerts)</MudSelectItem>
-                                <MudSelectItem Value="AnomalySensitivity.Medium">Medium (balanced)</MudSelectItem>
-                                <MudSelectItem Value="AnomalySensitivity.High">High (more alerts)</MudSelectItem>
-                            </MudSelect>
+                            <BeaconSelect T="AnomalySensitivity"
+                                          @bind-Value="_anomalySensitivity"
+                                          Label="Sensitivity"
+                                          Items="@_anomalySensitivityOptions"
+                                          ItemValueSelector="@(x => ((AnomalySensitivityOption)x).Value)"
+                                          ItemTextSelector="@(x => ((AnomalySensitivityOption)x).Text)" />
 
                             <MudText Typo="Typo.body2" Class="mb-2 mud-text-secondary">
                                 @GetSensitivityDescription()
                             </MudText>
 
-                            <MudNumericField @bind-Value="_anomalyLookbackDays"
-                                Label="Lookback Period (days)"
-                                Variant="Variant.Outlined"
-                                Margin="Margin.Dense"
-                                Min="7"
-                                Max="365"
-                                HelperText="How far back to analyze historical data. Longer periods provide more stable baselines but may miss recent trend changes."
-                                Class="mb-2" />
+                            <BeaconNumericField T="int"
+                                                @bind-Value="_anomalyLookbackDays"
+                                                Label="Lookback Period (days)"
+                                                Min="7"
+                                                Max="365"
+                                                HelpText="How far back to analyze historical data. Longer periods provide more stable baselines but may miss recent trend changes." />
 
-                            <MudNumericField @bind-Value="_anomalyMinDataPoints"
-                                Label="Minimum Data Points"
-                                Variant="Variant.Outlined"
-                                Margin="Margin.Dense"
-                                Min="3"
-                                Max="100"
-                                HelperText="Number of successful executions needed before anomaly detection starts. During this initial period, the system learns your baseline."
-                                Class="mb-2" />
+                            <BeaconNumericField T="int"
+                                                @bind-Value="_anomalyMinDataPoints"
+                                                Label="Minimum Data Points"
+                                                Min="3"
+                                                Max="100"
+                                                HelpText="Number of successful executions needed before anomaly detection starts. During this initial period, the system learns your baseline." />
 
-                            <MudCheckBox @bind-Value="_anomalyAlertOnIncrease"
-                                Label="Alert on Increase"
-                                Color="Color.Primary"
-                                HelperText="Send notification when result count is significantly higher than expected (e.g., sudden spike in errors)"
-                                Class="mb-1" />
+                            <BeaconCheckBox @bind-Value="_anomalyAlertOnIncrease"
+                                            Label="Alert on Increase"
+                                            HelpText="Send notification when result count is significantly higher than expected (e.g., sudden spike in errors)"
+                                            CssClass="mb-1" />
 
-                            <MudCheckBox @bind-Value="_anomalyAlertOnDecrease"
-                                Label="Alert on Decrease"
-                                Color="Color.Primary"
-                                HelperText="Send notification when result count is significantly lower than expected (e.g., drop in activity)"
-                                Class="mb-2" />
+                            <BeaconCheckBox @bind-Value="_anomalyAlertOnDecrease"
+                                            Label="Alert on Decrease"
+                                            HelpText="Send notification when result count is significantly lower than expected (e.g., drop in activity)"
+                                            CssClass="mb-2" />
 
                             @if (_anomalyAlertOnIncrease || _anomalyAlertOnDecrease)
                             {
@@ -167,21 +145,15 @@
                 </MudExpansionPanel>
             </MudExpansionPanels>
 
-            <MudSelect T="string"
-                Label="Recipient"
-                MultiSelection="true"
-                @bind-SelectedValues="_selectedRecipientIds"
-                Required="@(!Subscription.CreateTasks)"
-                Variant="Variant.Outlined"
-                Margin="Margin.Dense"
-                HelperText="@(Subscription.CreateTasks ? "Optional when 'Create Tasks' is enabled" : "Required - select at least one recipient")">
-                @{
-                    foreach (var recipient in _recipients)
-                    {
-                        <MudSelectItem T="string" Value="@recipient.RecipientId.ToString()">@recipient.Name</MudSelectItem>
-                    }
-                }
-            </MudSelect>
+            <BeaconSelect T="string"
+                          Label="Recipient"
+                          MultiSelection="true"
+                          @bind-SelectedValues="_selectedRecipientIds"
+                          Required="@(!Subscription.CreateTasks)"
+                          HelpText="@(Subscription.CreateTasks ? "Optional when 'Create Tasks' is enabled" : "Required - select at least one recipient")"
+                          Items="@(_recipients.Cast<object>())"
+                          ItemValueSelector="@(x => ((RecipientData)x).RecipientId.ToString())"
+                          ItemTextSelector="@(x => ((RecipientData)x).Name)" />
 
             @if (_queryParameters.Any())
             {
@@ -194,37 +166,30 @@
                     {
                         @if (param.Type == ParameterType.String)
                         {
-                            <MudTextField T="string"
-                                Label="@param.Name"
-                                @bind-Value="_parameterValues[param.Placeholder]"
-                                Variant="Variant.Outlined"
-                                Margin="Margin.Dense"
-                                Required="true"
-                                HelperText="@($"{param.Description} (Placeholder: {param.Placeholder})")"
-                                Class="mb-2" />
+                            <BeaconTextField Label="@param.Name"
+                                             @bind-Value="_parameterValues[param.Placeholder]"
+                                             Required="true"
+                                             HelpText="@($"{param.Description} (Placeholder: {param.Placeholder})")" />
                         }
                         else if (param.Type == ParameterType.Number)
                         {
-                            <MudTextField T="string"
-                                Label="@param.Name"
-                                @bind-Value="_parameterValues[param.Placeholder]"
-                                Variant="Variant.Outlined"
-                                Margin="Margin.Dense"
-                                Required="true"
-                                HelperText="@($"{param.Description} (Placeholder: {param.Placeholder})")"
-                                Validation="@(new Func<string, string?>(value => ValidateNumber(value)))"
-                                Class="mb-2" />
+                            <BeaconTextField Label="@param.Name"
+                                             @bind-Value="_parameterValues[param.Placeholder]"
+                                             InputType="number"
+                                             Required="true"
+                                             HelpText="@($"{param.Description} (Placeholder: {param.Placeholder})")" />
                         }
                         else if (param.Type == ParameterType.DateTime)
                         {
-                            <MudTextField T="string"
+                            @* TODO: pass 2 will wrap MudDatePicker *@
+                            <MudTextField T="string?"
                                 Label="@param.Name"
                                 @bind-Value="_parameterValues[param.Placeholder]"
                                 Variant="Variant.Outlined"
                                 Margin="Margin.Dense"
                                 Required="true"
                                 HelperText="@($"{param.Description} (Format: yyyy-MM-dd HH:mm:ss) (Placeholder: {param.Placeholder})")"
-                                Validation="@(new Func<string, string?>(value => ValidateDateTime(value)))"
+                                Validation="@(new Func<string?, string?>(value => ValidateDateTime(value)))"
                                 Class="mb-2" />
                         }
                     }
@@ -259,10 +224,10 @@
     public SubscriptionData Subscription { get; set; } = new SubscriptionData();
 
     private List<RecipientData> _recipients { get; set; } = [];
-    private IReadOnlyCollection<string> _selectedRecipientIds { get; set; } = [];
+    private IEnumerable<string> _selectedRecipientIds { get; set; } = [];
     private string FileAttachmentType { get; set; } = string.Empty;
     private List<QueryStepParameterData> _queryParameters { get; set; } = [];
-    private Dictionary<string, string> _parameterValues { get; set; } = new();
+    private Dictionary<string, string?> _parameterValues { get; set; } = new();
 
     // Anomaly detection fields
     private bool _anomalyDetectionEnabled = false;
@@ -277,6 +242,38 @@
     private bool _loading;
     bool _isFormValid = false;
     string[] errors = { };
+
+    private record StringOption(string Value, string Text);
+    private record NotificationTriggerOption(NotificationTrigger Value, string Text);
+    private record AnomalyMethodOption(AnomalyDetectionMethod Value, string Text);
+    private record AnomalySensitivityOption(AnomalySensitivity Value, string Text);
+
+    private static readonly List<object> _fileTypeOptions = new()
+    {
+        new StringOption(FileType.Csv.ToString(), "Csv"),
+        new StringOption(FileType.Xlsx.ToString(), "Xlsx"),
+    };
+
+    private static readonly List<object> _notificationTriggerOptions = new()
+    {
+        new NotificationTriggerOption(NotificationTrigger.OnResultCountChange, "When result count changes"),
+        new NotificationTriggerOption(NotificationTrigger.Always, "Always (every execution)"),
+        new NotificationTriggerOption(NotificationTrigger.OnResultCountIncrease, "When result count increases"),
+    };
+
+    private static readonly List<object> _anomalyMethodOptions = new()
+    {
+        new AnomalyMethodOption(AnomalyDetectionMethod.StandardDeviation, "Standard Deviation (Z-Score)"),
+        new AnomalyMethodOption(AnomalyDetectionMethod.IQR, "IQR (Interquartile Range)"),
+        new AnomalyMethodOption(AnomalyDetectionMethod.PercentageChange, "Percentage Change"),
+    };
+
+    private static readonly List<object> _anomalySensitivityOptions = new()
+    {
+        new AnomalySensitivityOption(AnomalySensitivity.Low, "Low (fewer alerts)"),
+        new AnomalySensitivityOption(AnomalySensitivity.Medium, "Medium (balanced)"),
+        new AnomalySensitivityOption(AnomalySensitivity.High, "High (more alerts)"),
+    };
 
     protected override async Task OnInitializedAsync()
     {
@@ -345,7 +342,7 @@
             .Select(kvp => new SubscriptionParameterData
             {
                 QueryPlaceholder = kvp.Key,
-                Value = kvp.Value
+                Value = kvp.Value ?? string.Empty
             })
             .ToList();
 
@@ -464,7 +461,7 @@
         };
     }
 
-    string? ValidateNumber(string value)
+    string? ValidateNumber(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
         {
@@ -479,7 +476,7 @@
         return null;
     }
 
-    string? ValidateDateTime(string value)
+    string? ValidateDateTime(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
         {

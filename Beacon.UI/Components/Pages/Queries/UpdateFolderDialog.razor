@@ -2,18 +2,24 @@
 @using MediatR
 
 <MudDialog>
+    <TitleContent>
+        <BeaconDialogHeader Variant="signal"
+            Eyebrow="QUERIES"
+            Prefix="Rename"
+            Emphasis="folder"
+            Suffix="." />
+    </TitleContent>
     <DialogContent>
-        <MudTextField @bind-Value="_folderName"
-                      Label="Folder Name"
-                      Required="true"
-                      Immediate="true"
-                      HelperText="Enter a unique name for the folder" />
+        <BeaconTextField @bind-Value="_folderName"
+                         Label="Folder Name"
+                         Required="true"
+                         HelpText="Enter a unique name for the folder" />
 
-        <MudTextField @bind-Value="_description"
-                      Label="Description"
-                      Lines="3"
-                      Class="mt-3"
-                      HelperText="Optional description" />
+        <BeaconTextField @bind-Value="_description"
+                         Label="Description"
+                         Multiline="true"
+                         Rows="3"
+                         HelpText="Optional description" />
 
         <MudAlert Severity="Severity.Info" Class="mt-3">
             Path: @Folder.Path
@@ -54,7 +60,7 @@
     [Parameter]
     public QueryFolderData Folder { get; set; } = null!;
 
-    private string _folderName = "";
+    private string? _folderName = "";
     private string? _description;
     private bool _saving;
 
@@ -82,7 +88,7 @@
         {
             var command = new UpdateQueryFolderCommand(
                 FolderId: Folder.Id,
-                Name: _folderName.Trim(),
+                Name: _folderName!.Trim(),
                 Description: string.IsNullOrWhiteSpace(_description) ? null : _description.Trim()
             );
 

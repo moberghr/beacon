@@ -1,0 +1,58 @@
+@* Checkbox — Beacon visual language.
+
+   Usage:
+       <BeaconCheckBox @bind-Value="_agreed"
+                       Label="I agree to the terms"
+                       HelpText="Required to continue." />
+
+       <BeaconCheckBox @bind-Value="_scopeAdmin" Label="Admin scope">
+           <ChildContent>
+               <span class="bx-chip bx-chip--warn">DANGEROUS</span>
+           </ChildContent>
+       </BeaconCheckBox> *@
+
+<label class="bx-check @(Disabled ? "bx-check--disabled" : "") @CssClass">
+    <input type="checkbox"
+           class="bx-check__input"
+           checked="@Value"
+           disabled="@Disabled"
+           @onchange="OnChangeInternal" />
+    <span class="bx-check__box" aria-hidden="true">
+        <svg viewBox="0 0 16 16" class="bx-check__tick">
+            <path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="2"
+                  stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+    </span>
+    <span class="bx-check__body">
+        @if (!string.IsNullOrEmpty(Label))
+        {
+            <span class="bx-check__label">@Label</span>
+        }
+        @if (ChildContent != null)
+        {
+            @ChildContent
+        }
+        @if (!string.IsNullOrEmpty(HelpText))
+        {
+            <span class="bx-check__help">@HelpText</span>
+        }
+    </span>
+</label>
+
+@code {
+    [Parameter] public bool Value { get; set; }
+    [Parameter] public EventCallback<bool> ValueChanged { get; set; }
+
+    [Parameter] public string? Label { get; set; }
+    [Parameter] public string? HelpText { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public string? CssClass { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    private async Task OnChangeInternal(ChangeEventArgs e)
+    {
+        var newValue = e.Value is bool b && b;
+        Value = newValue;
+        await ValueChanged.InvokeAsync(newValue);
+    }
+}
