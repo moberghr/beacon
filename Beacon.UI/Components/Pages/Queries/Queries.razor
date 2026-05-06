@@ -10,97 +10,96 @@
 
 <BeaconPageTitle Title="Queries"/>
 
-<div class="@RootClass">
-    <BeaconPageHero Variant="signal"
-                    Prefix="Manage"
-                    Emphasis="query"
-                    Suffix="monitoring.">
-        <Eyebrow>
-            <span>Beacon</span>
-            <span class="page-hero__sep">/</span>
-            <span>Queries</span>
-        </Eyebrow>
-        <Sub>Manage your queries and subscriptions. Click on a row to view details and configure subscriptions.</Sub>
-        <Actions>
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Add" OnClick="@NewQuery" Disabled="@(!_canWrite)">New Query</MudButton>
-        </Actions>
-    </BeaconPageHero>
+<BeaconPageHero Variant="signal"
+                Prefix="Manage"
+                Emphasis="query"
+                Suffix="monitoring.">
+    <Eyebrow>
+        <span>Beacon</span>
+        <span class="page-hero__sep">/</span>
+        <span>Queries</span>
+    </Eyebrow>
+    <Sub>Manage your queries and subscriptions. Click on a row to view details and configure subscriptions.</Sub>
+    <Actions>
+        <BeaconButton Variant="primary" Icon="@Icons.Material.Outlined.Add" OnClick="@NewQuery" Disabled="@(!_canWrite)">New Query</BeaconButton>
+    </Actions>
+</BeaconPageHero>
 
-    <MudGrid>
-        @if (!_foldersCollapsed)
-        {
-            <MudItem xs="12" md="3">
-                <QueryFolderTreeView OnFolderSelected="@OnFolderSelected" />
-            </MudItem>
-        }
-        <MudItem xs="12" md="@(_foldersCollapsed ? 12 : 9)">
-            <MudCard Elevation="2">
-                <MudCardHeader>
-                    <CardHeaderContent>
-                        <div class="d-flex align-center gap-2">
-                            <MudIconButton Icon="@(_foldersCollapsed ? Icons.Material.Filled.ChevronRight : Icons.Material.Filled.ChevronLeft)"
-                                           Size="Size.Small"
-                                           OnClick="@(() => _foldersCollapsed = !_foldersCollapsed)"
-                                           Title="@(_foldersCollapsed ? "Show Folders" : "Hide Folders")" />
-                            <MudTextField @bind-Value="_searchString"
-                                          Placeholder="Search queries..."
-                                          Adornment="Adornment.Start"
-                                          AdornmentIcon="@Icons.Material.Filled.Search"
-                                          IconSize="Size.Medium"
-                                          Class="mt-0 flex-grow-1"
-                                          Immediate="true"
-                                          DebounceInterval="300"
-                                          OnDebounceIntervalElapsed="@(() => _dataGrid?.ReloadServerData())" />
-                        </div>
-                    </CardHeaderContent>
-                </MudCardHeader>
-                <MudDataGrid @ref="_dataGrid" ServerData="ServerReload" T="QueryData" RowClick="OnRowClick" Hover="true" Filterable="false" Bordered="false">
-                    <Columns>
-                        <PropertyColumn Property="x => x.QueryId" Title="Id"/>
-                        <PropertyColumn InitialDirection="SortDirection.Ascending" Property="x => x.Name" Title="Name"/>
-                        <TemplateColumn Title="Folder" Sortable="false">
-                            <CellTemplate>
-                                @if (!string.IsNullOrEmpty(context.Item.FolderPath))
-                                {
-                                    <MudChip T="string" Size="Size.Small" Icon="@Icons.Material.Filled.Folder" Variant="Variant.Text">
-                                        @context.Item.FolderPath
-                                    </MudChip>
-                                }
-                                else
-                                {
-                                    <MudChip T="string" Size="Size.Small" Icon="@Icons.Material.Filled.FolderOff" Variant="Variant.Text" Color="Color.Default">
-                                        Root
-                                    </MudChip>
-                                }
-                            </CellTemplate>
-                        </TemplateColumn>
-                        <PropertyColumn Property="x => x.Description" Title="Description"/>
-                        <PropertyColumn Property="x => x.CreatedTime" Title="Created"/>
-                        <PropertyColumn Property="x => x.DataSourceName"/>
-                        <PropertyColumn Property="x => x.SubscriptionsCount" Title="Subscriptions Count"/>
-                        <TemplateColumn Title="Source" Sortable="false">
-                            <CellTemplate>
-                                <SourceChip AiActorId="@context.Item.AiActorId" AiActorName="@context.Item.AiActorName" />
-                            </CellTemplate>
-                        </TemplateColumn>
-                        <TemplateColumn Title="Actions" Sortable="false">
-                            <CellTemplate>
-                                <MudIconButton Icon="@Icons.Material.Filled.DriveFileMove"
-                                               Size="Size.Small"
-                                               OnClick="@(() => MoveQueryToFolder(context.Item))"
-                                               Title="Move to Folder"
-                                               Disabled="@(!_canWrite)" />
-                            </CellTemplate>
-                        </TemplateColumn>
-                    </Columns>
-                    <PagerContent>
-                        <MudDataGridPager T="QueryData"/>
-                    </PagerContent>
-                </MudDataGrid>
-            </MudCard>
+<MudGrid>
+    @if (!_foldersCollapsed)
+    {
+        <MudItem xs="12" md="3">
+            <QueryFolderTreeView OnFolderSelected="@OnFolderSelected" />
         </MudItem>
-    </MudGrid>
-</div>
+    }
+    <MudItem xs="12" md="@(_foldersCollapsed ? 12 : 9)">
+        <MudCard Elevation="2">
+            <MudCardHeader>
+                <CardHeaderContent>
+                    <div class="d-flex align-center gap-2">
+                        <BeaconIconButton Icon="@(_foldersCollapsed ? Icons.Material.Filled.ChevronRight : Icons.Material.Filled.ChevronLeft)"
+                                          Size="sm"
+                                          OnClick="@(() => _foldersCollapsed = !_foldersCollapsed)"
+                                          Title="@(_foldersCollapsed ? "Show Folders" : "Hide Folders")" />
+                        @* TODO: Beacon migration — DebounceInterval + OnDebounceIntervalElapsed not supported by BeaconTextField. *@
+                        <MudTextField @bind-Value="_searchString"
+                                      Placeholder="Search queries..."
+                                      Adornment="Adornment.Start"
+                                      AdornmentIcon="@Icons.Material.Filled.Search"
+                                      IconSize="Size.Medium"
+                                      Class="mt-0 flex-grow-1"
+                                      Immediate="true"
+                                      DebounceInterval="300"
+                                      OnDebounceIntervalElapsed="@(() => _dataGrid?.ReloadServerData())" />
+                    </div>
+                </CardHeaderContent>
+            </MudCardHeader>
+            <MudDataGrid @ref="_dataGrid" ServerData="ServerReload" T="QueryData" RowClick="OnRowClick" Hover="true" Filterable="false" Bordered="false">
+                <Columns>
+                    <PropertyColumn Property="x => x.QueryId" Title="Id"/>
+                    <PropertyColumn InitialDirection="SortDirection.Ascending" Property="x => x.Name" Title="Name"/>
+                    <TemplateColumn Title="Folder" Sortable="false">
+                        <CellTemplate>
+                            @if (!string.IsNullOrEmpty(context.Item.FolderPath))
+                            {
+                                <MudChip T="string" Size="Size.Small" Icon="@Icons.Material.Filled.Folder" Variant="Variant.Text">
+                                    @context.Item.FolderPath
+                                </MudChip>
+                            }
+                            else
+                            {
+                                <MudChip T="string" Size="Size.Small" Icon="@Icons.Material.Filled.FolderOff" Variant="Variant.Text" Color="Color.Default">
+                                    Root
+                                </MudChip>
+                            }
+                        </CellTemplate>
+                    </TemplateColumn>
+                    <PropertyColumn Property="x => x.Description" Title="Description"/>
+                    <PropertyColumn Property="x => x.CreatedTime" Title="Created"/>
+                    <PropertyColumn Property="x => x.DataSourceName"/>
+                    <PropertyColumn Property="x => x.SubscriptionsCount" Title="Subscriptions Count"/>
+                    <TemplateColumn Title="Source" Sortable="false">
+                        <CellTemplate>
+                            <SourceChip AiActorId="@context.Item.AiActorId" AiActorName="@context.Item.AiActorName" />
+                        </CellTemplate>
+                    </TemplateColumn>
+                    <TemplateColumn Title="Actions" Sortable="false">
+                        <CellTemplate>
+                            <BeaconIconButton Icon="@Icons.Material.Filled.DriveFileMove"
+                                              Size="sm"
+                                              OnClick="@(() => MoveQueryToFolder(context.Item))"
+                                              Title="Move to Folder"
+                                              Disabled="@(!_canWrite)" />
+                        </CellTemplate>
+                    </TemplateColumn>
+                </Columns>
+                <PagerContent>
+                    <MudDataGridPager T="QueryData"/>
+                </PagerContent>
+            </MudDataGrid>
+        </MudCard>
+    </MudItem>
+</MudGrid>
 
 @code {
 

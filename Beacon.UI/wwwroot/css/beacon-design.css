@@ -1753,6 +1753,101 @@
 .bx-switch__label { font-weight: 500; line-height: 1.3; }
 .bx-switch__help { font-size: 11.5px; color: var(--bx-text-subtle); }
 
+/* ===== Buttons (unscoped — work in pages and dialogs) ===== */
+.bx-btn {
+  --bx-brand-500:    oklch(58% 0.095 175);
+  --bx-brand-600:    oklch(50% 0.090 175);
+  --bx-brand-700:    oklch(42% 0.080 175);
+  --bx-surface:      var(--mud-palette-surface, #ffffff);
+  --bx-surface-2:    var(--mud-palette-background-grey, oklch(99.2% 0.003 240));
+  --bx-text:         var(--mud-palette-text-primary, oklch(16% 0.008 240));
+  --bx-text-subtle:  var(--mud-palette-text-secondary, oklch(68% 0.012 240));
+  --bx-border:       var(--mud-palette-lines-default, oklch(86% 0.008 240));
+  --bx-border-strong: var(--mud-palette-lines-inputs, oklch(80% 0.010 240));
+  --bx-n-100:        var(--mud-palette-background-grey, oklch(96% 0.005 240));
+  --bx-n-300:        var(--mud-palette-lines-inputs, oklch(80% 0.010 240));
+  --bx-crit:         oklch(58% 0.18 25);
+  --bx-r-sm:         8px;
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 7px 12px;
+  border-radius: var(--bx-r-sm);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.2;
+  cursor: pointer;
+  border: 1px solid var(--bx-border-strong);
+  background: var(--bx-surface);
+  color: var(--bx-text);
+  transition: background-color 0.12s, border-color 0.12s, transform 0.06s, color 0.12s;
+  text-decoration: none;
+  white-space: nowrap;
+  user-select: none;
+}
+.bx-btn:hover { background: var(--bx-n-100); border-color: var(--bx-n-300); }
+.bx-btn:active { transform: translateY(0.5px); }
+.bx-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px oklch(58% 0.095 175 / 0.18);
+}
+.bx-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+.bx-btn--primary {
+  background: var(--bx-brand-600);
+  color: #fff;
+  border-color: var(--bx-brand-700);
+  box-shadow: 0 1px 0 var(--bx-brand-700) inset, 0 1px 2px oklch(50% 0.09 175 / 0.3);
+}
+.bx-btn--primary:hover { background: var(--bx-brand-500); border-color: var(--bx-brand-700); }
+.bx-btn--ghost {
+  border-color: transparent;
+  background: transparent;
+}
+.bx-btn--ghost:hover { background: var(--bx-n-100); border-color: transparent; }
+.bx-btn--danger {
+  background: var(--bx-crit);
+  color: #fff;
+  border-color: oklch(48% 0.18 25);
+}
+.bx-btn--danger:hover { background: oklch(53% 0.18 25); }
+.bx-btn--sm { padding: 4px 8px; font-size: 12px; gap: 5px; }
+.bx-btn--lg { padding: 10px 16px; font-size: 14px; gap: 8px; }
+.bx-btn--full { width: 100%; justify-content: center; }
+.bx-floating-action {
+  background: var(--bx-surface, #fff) !important;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08);
+}
+.bx-floating-action:hover { background: var(--bx-n-100) !important; }
+
+/* Icon-only */
+.bx-btn--icon {
+  padding: 6px;
+  width: 32px; height: 32px;
+  gap: 0;
+}
+.bx-btn--icon.bx-btn--sm { width: 26px; height: 26px; padding: 4px; }
+.bx-btn--icon.bx-btn--lg { width: 40px; height: 40px; padding: 8px; }
+
+/* Spinner */
+.bx-btn__spinner {
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  animation: bx-btn-spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes bx-btn-spin {
+  to { transform: rotate(360deg); }
+}
+
 /* DatePicker wrapper — restyle the embedded MudDatePicker textfield to match bx-input */
 .bx-field--datepicker .mud-input-control {
   margin-top: 0;

@@ -43,11 +43,11 @@
                     <MudText Typo="Typo.h6">Overview</MudText>
                 </CardHeaderContent>
                 <CardHeaderActions>
-                    <MudIconButton Icon="@Icons.Material.Filled.Archive"
-                                   Color="Color.Error"
-                                   OnClick="@ArchiveDataSource"
-                                   Title="Archive Data Source"
-                                   Disabled="@(!_canWrite)"/>
+                    <BeaconIconButton Icon="@Icons.Material.Filled.Archive"
+                                      Variant="danger"
+                                      OnClick="@ArchiveDataSource"
+                                      Title="Archive Data Source"
+                                      Disabled="@(!_canWrite)"/>
                 </CardHeaderActions>
             </MudCardHeader>
             <MudCardContent>
@@ -144,20 +144,17 @@
                     </MudAlert>
 
                     <div class="d-flex align-center gap-2 mb-2">
-                        <MudButton Variant="Variant.Filled"
-                                  Color="Color.Primary"
-                                  StartIcon="@Icons.Material.Filled.PlayArrow"
-                                  OnClick="ExecuteQuery"
-                                  Disabled="@_executing">
+                        <BeaconButton Variant="primary"
+                                      Icon="@Icons.Material.Filled.PlayArrow"
+                                      OnClick="ExecuteQuery"
+                                      Disabled="@_executing">
                             @(_executing ? "Executing..." : "Execute Query")
-                        </MudButton>
-                        <MudButton Variant="Variant.Outlined"
-                                  Color="Color.Secondary"
-                                  StartIcon="@Icons.Material.Filled.Refresh"
-                                  OnClick="RefreshMetadata"
-                                  Disabled="@_refreshingMetadata">
+                        </BeaconButton>
+                        <BeaconButton Icon="@Icons.Material.Filled.Refresh"
+                                      OnClick="RefreshMetadata"
+                                      Disabled="@_refreshingMetadata">
                             @(_refreshingMetadata ? "Refreshing..." : "Refresh Metadata")
-                        </MudButton>
+                        </BeaconButton>
                         @if (_metadata != null)
                         {
                             <MudText Typo="Typo.caption" Class="ml-auto">
@@ -204,9 +201,8 @@
                             </MudText>
                         </CardHeaderContent>
                         <CardHeaderActions>
-                            <MudIconButton Icon="@Icons.Material.Filled.Close"
-                                          Color="Color.Default"
-                                          OnClick="@(() => _queryResult = null)"/>
+                            <BeaconIconButton Icon="@Icons.Material.Filled.Close"
+                                              OnClick="@(() => _queryResult = null)"/>
                         </CardHeaderActions>
                     </MudCardHeader>
                     <MudCardContent>

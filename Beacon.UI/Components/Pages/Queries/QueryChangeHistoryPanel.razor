@@ -8,9 +8,9 @@
             <MudIcon Icon="@Icons.Material.Filled.History" Size="Size.Small" Class="mr-1 mb-n1" />
             Change History
         </MudText>
-        <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@LoadHistoryAsync" StartIcon="@Icons.Material.Filled.Refresh">
+        <BeaconButton Variant="ghost" Size="sm" OnClick="@LoadHistoryAsync" Icon="@Icons.Material.Filled.Refresh">
             Refresh
-        </MudButton>
+        </BeaconButton>
     </MudStack>
 
     @if (_loading)

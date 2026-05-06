@@ -10,44 +10,42 @@
 
 <BeaconPageTitle Title="Recipients"/>
 
-<div class="@RootClass">
-    <BeaconPageHero Variant="signal"
-                    Prefix="Manage"
-                    Emphasis="notification"
-                    Suffix="recipients.">
-        <Eyebrow>
-            <span>Beacon</span>
-            <span class="page-hero__sep">/</span>
-            <span>Recipients</span>
-        </Eyebrow>
-        <Sub>Recipients need to be defined and then added to a subscription to receive notifications.</Sub>
-        <Actions>
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Add" OnClick="@NewRecipient" Disabled="@(!_canWrite)">New Recipient</MudButton>
-        </Actions>
-    </BeaconPageHero>
-    <MudDataGrid @ref="_dataGrid" ServerData="ServerReload" T="RecipientData" RowClick="OnRowClick" Hover="true" Filterable="false" >
-        <ToolBarContent>
-            <MudTextField T="string" ValueChanged="@(s=>OnSearch(s))" Placeholder="Search" Adornment="Adornment.Start"
-                          Immediate="true"
-                          AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium" Class="mt-0">
-            </MudTextField>
-        </ToolBarContent>
-        <Columns>
-            <PropertyColumn Property="x => x.RecipientId" Title="Id"/>
-            <PropertyColumn InitialDirection="SortDirection.Ascending"  Property="x => x.Name" Title="Name"/>
-            <TemplateColumn Title="Destination">
-                <CellTemplate>
-                    @UiHelpers.FormatRecipientDestination(context.Item)
-                </CellTemplate>
-            </TemplateColumn>
-            <PropertyColumn Property="x => x.NotificationType" Title="Notification Type" />
-            <PropertyColumn Property="x => x.Description" Title="Description" />
-        </Columns>
-        <PagerContent>
-            <MudDataGridPager T="RecipientData"/>
-        </PagerContent>
-    </MudDataGrid>
-</div>
+<BeaconPageHero Variant="signal"
+                Prefix="Manage"
+                Emphasis="notification"
+                Suffix="recipients.">
+    <Eyebrow>
+        <span>Beacon</span>
+        <span class="page-hero__sep">/</span>
+        <span>Recipients</span>
+    </Eyebrow>
+    <Sub>Recipients need to be defined and then added to a subscription to receive notifications.</Sub>
+    <Actions>
+        <BeaconButton Variant="primary" Icon="@Icons.Material.Outlined.Add" OnClick="@NewRecipient" Disabled="@(!_canWrite)">New Recipient</BeaconButton>
+    </Actions>
+</BeaconPageHero>
+<MudDataGrid @ref="_dataGrid" ServerData="ServerReload" T="RecipientData" RowClick="OnRowClick" Hover="true" Filterable="false" >
+    <ToolBarContent>
+        <MudTextField T="string" ValueChanged="@(s=>OnSearch(s))" Placeholder="Search" Adornment="Adornment.Start"
+                      Immediate="true"
+                      AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium" Class="mt-0">
+        </MudTextField>
+    </ToolBarContent>
+    <Columns>
+        <PropertyColumn Property="x => x.RecipientId" Title="Id"/>
+        <PropertyColumn InitialDirection="SortDirection.Ascending"  Property="x => x.Name" Title="Name"/>
+        <TemplateColumn Title="Destination">
+            <CellTemplate>
+                @UiHelpers.FormatRecipientDestination(context.Item)
+            </CellTemplate>
+        </TemplateColumn>
+        <PropertyColumn Property="x => x.NotificationType" Title="Notification Type" />
+        <PropertyColumn Property="x => x.Description" Title="Description" />
+    </Columns>
+    <PagerContent>
+        <MudDataGridPager T="RecipientData"/>
+    </PagerContent>
+</MudDataGrid>
 
 @code {
 

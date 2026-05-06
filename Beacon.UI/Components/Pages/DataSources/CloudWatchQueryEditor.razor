@@ -51,13 +51,12 @@
         </MudAlert>
 
         <div class="d-flex align-center gap-2 mb-2">
-            <MudButton Variant="Variant.Filled"
-                      Color="Color.Primary"
-                      StartIcon="@Icons.Material.Filled.PlayArrow"
-                      OnClick="ExecuteQuery"
-                      Disabled="@_executing">
+            <BeaconButton Variant="primary"
+                          Icon="@Icons.Material.Filled.PlayArrow"
+                          OnClick="ExecuteQuery"
+                          Disabled="@_executing">
                 @(_executing ? "Executing..." : "Execute Query")
-            </MudButton>
+            </BeaconButton>
             <MudText Typo="Typo.caption" Color="Color.Secondary" Class="ml-2">
                 Query timeout: @(_config?.QueryTimeoutSeconds ?? 300) seconds
             </MudText>
@@ -113,9 +112,8 @@
                 </MudText>
             </CardHeaderContent>
             <CardHeaderActions>
-                <MudIconButton Icon="@Icons.Material.Filled.Close"
-                              Color="Color.Default"
-                              OnClick="@(() => _queryResult = null)"/>
+                <BeaconIconButton Icon="@Icons.Material.Filled.Close"
+                                  OnClick="@(() => _queryResult = null)"/>
             </CardHeaderActions>
         </MudCardHeader>
         <MudCardContent>

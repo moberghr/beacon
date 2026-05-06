@@ -8,120 +8,119 @@
 
 <BeaconPageTitle Title="Data Migration"/>
 
-<div class="@RootClass">
-    <BeaconPageHero Variant="nodes"
-                    Prefix="Data"
-                    Emphasis="migration"
-                    Suffix="jobs.">
-        <Eyebrow>
-            <span>Beacon</span>
-            <span class="page-hero__sep">/</span>
-            <span>Data Migration</span>
-        </Eyebrow>
-        <Sub>Manage data migration jobs and view execution history.</Sub>
-        <Actions>
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Add" OnClick="@AddMigrationJob">New Migration Job</MudButton>
-        </Actions>
-    </BeaconPageHero>
+<BeaconPageHero Variant="nodes"
+                Prefix="Data"
+                Emphasis="migration"
+                Suffix="jobs.">
+    <Eyebrow>
+        <span>Beacon</span>
+        <span class="page-hero__sep">/</span>
+        <span>Data Migration</span>
+    </Eyebrow>
+    <Sub>Manage data migration jobs and view execution history.</Sub>
+    <Actions>
+        <BeaconButton Variant="primary" Icon="@Icons.Material.Outlined.Add" OnClick="@AddMigrationJob">New Migration Job</BeaconButton>
+    </Actions>
+</BeaconPageHero>
 
-    <MudAlert Severity="Severity.Warning" Class="mb-4" Variant="Variant.Filled">
-        <strong>Experimental Feature:</strong> Data Migration is currently in experimental phase. Please test thoroughly before using in production environments.
-    </MudAlert>
+<MudAlert Severity="Severity.Warning" Class="mb-4" Variant="Variant.Filled">
+    <strong>Experimental Feature:</strong> Data Migration is currently in experimental phase. Please test thoroughly before using in production environments.
+</MudAlert>
 
-    <MudDataGrid @ref="_dataGrid" ServerData="@ServerReload" T="MigrationJobDto" Hover="true" Filterable="false" SortMode="SortMode.None">
-        <Columns>
-            <PropertyColumn Property="x => x.Name" Title="Name">
-                <CellTemplate>
-                    <MudLink Href="@($"data-migration/edit/{context.Item.Id}")">
-                        @context.Item.Name
-                    </MudLink>
-                </CellTemplate>
-            </PropertyColumn>
-            <PropertyColumn Property="x => x.DataSourceName" Title="Source Data Source"/>
-            <PropertyColumn Property="x => x.DestinationDataSourceName" Title="Destination Data Source"/>
-            <PropertyColumn Property="x => x.DestinationTable" Title="Destination Table"/>
-            <PropertyColumn Property="x => x.Mode" Title="Migration Mode">
-                <CellTemplate>
-                    <MudChip Size="Size.Small" Color="@GetModeColor(context.Item.Mode)">
-                        @context.Item.Mode
-                    </MudChip>
-                </CellTemplate>
-            </PropertyColumn>
-            <PropertyColumn Property="x => x.Schedule" Title="Schedule">
-                <CellTemplate>
-                    @if (string.IsNullOrEmpty(context.Item.Schedule))
-                    {
-                        <MudText>Manual</MudText>
-                    }
-                    else
-                    {
-                        <MudText>@context.Item.Schedule</MudText>
-                    }
-                </CellTemplate>
-            </PropertyColumn>
-            <PropertyColumn Property="x => x.IsEnabled" Title="Status">
-                <CellTemplate>
-                    <MudChip Size="Size.Small" Color="@(context.Item.IsEnabled ? Color.Success : Color.Default)">
-                        @(context.Item.IsEnabled ? "Enabled" : "Disabled")
-                    </MudChip>
-                </CellTemplate>
-            </PropertyColumn>
-            <PropertyColumn Property="x => x.LastExecuted" Title="Last Execution">
-                <CellTemplate>
-                    @if (context.Item.LastExecuted.HasValue)
-                    {
-                        <div>
-                            <MudText Typo="Typo.body2">@context.Item.LastExecuted.Value.ToString("yyyy-MM-dd HH:mm")</MudText>
-                            @if (context.Item.LastExecutionStatus.HasValue)
-                            {
-                                <ExecutionStatusChip Status="@context.Item.LastExecutionStatus.Value"/>
-                            }
-                        </div>
-                    }
-                    else
-                    {
-                        <MudText Typo="Typo.body2">Never</MudText>
-                    }
-                </CellTemplate>
-            </PropertyColumn>
-            <PropertyColumn Property="x => x.TotalExecutions" Title="Executions">
-                <CellTemplate>
-                    <MudText>@context.Item.SuccessfulExecutions / @context.Item.TotalExecutions</MudText>
-                </CellTemplate>
-            </PropertyColumn>
-            <TemplateColumn Title="Actions" Sortable="false" Filterable="false">
-                <CellTemplate>
-                    <MudButtonGroup Size="Size.Small" Variant="Variant.Text">
-                        <MudButton StartIcon="@Icons.Material.Filled.PlayArrow" 
-                                  Color="Color.Primary" 
-                                  OnClick="@(() => ExecuteJob(context.Item))"
-                                  Disabled="@(!context.Item.IsEnabled)">
-                            Execute
-                        </MudButton>
-                        <MudButton StartIcon="@Icons.Material.Filled.Edit" 
-                                  Color="Color.Info" 
-                                  Href="@($"data-migration/edit/{context.Item.Id}")">
-                            Edit
-                        </MudButton>
-                        <MudButton StartIcon="@Icons.Material.Filled.History" 
-                                  Color="Color.Info" 
-                                  Href="@($"data-migration/history/{context.Item.Id}")">
-                            History
-                        </MudButton>
-                        <MudButton StartIcon="@Icons.Material.Filled.Delete" 
-                                  Color="Color.Error" 
-                                  OnClick="@(() => DeleteJob(context.Item))">
-                            Delete
-                        </MudButton>
-                    </MudButtonGroup>
-                </CellTemplate>
-            </TemplateColumn>
-        </Columns>
-        <PagerContent>
-            <MudDataGridPager T="MigrationJobDto"/>
-        </PagerContent>
-    </MudDataGrid>
-</div>
+<MudDataGrid @ref="_dataGrid" ServerData="@ServerReload" T="MigrationJobDto" Hover="true" Filterable="false" SortMode="SortMode.None">
+    <Columns>
+        <PropertyColumn Property="x => x.Name" Title="Name">
+            <CellTemplate>
+                <MudLink Href="@($"data-migration/edit/{context.Item.Id}")">
+                    @context.Item.Name
+                </MudLink>
+            </CellTemplate>
+        </PropertyColumn>
+        <PropertyColumn Property="x => x.DataSourceName" Title="Source Data Source"/>
+        <PropertyColumn Property="x => x.DestinationDataSourceName" Title="Destination Data Source"/>
+        <PropertyColumn Property="x => x.DestinationTable" Title="Destination Table"/>
+        <PropertyColumn Property="x => x.Mode" Title="Migration Mode">
+            <CellTemplate>
+                <MudChip Size="Size.Small" Color="@GetModeColor(context.Item.Mode)">
+                    @context.Item.Mode
+                </MudChip>
+            </CellTemplate>
+        </PropertyColumn>
+        <PropertyColumn Property="x => x.Schedule" Title="Schedule">
+            <CellTemplate>
+                @if (string.IsNullOrEmpty(context.Item.Schedule))
+                {
+                    <MudText>Manual</MudText>
+                }
+                else
+                {
+                    <MudText>@context.Item.Schedule</MudText>
+                }
+            </CellTemplate>
+        </PropertyColumn>
+        <PropertyColumn Property="x => x.IsEnabled" Title="Status">
+            <CellTemplate>
+                <MudChip Size="Size.Small" Color="@(context.Item.IsEnabled ? Color.Success : Color.Default)">
+                    @(context.Item.IsEnabled ? "Enabled" : "Disabled")
+                </MudChip>
+            </CellTemplate>
+        </PropertyColumn>
+        <PropertyColumn Property="x => x.LastExecuted" Title="Last Execution">
+            <CellTemplate>
+                @if (context.Item.LastExecuted.HasValue)
+                {
+                    <div>
+                        <MudText Typo="Typo.body2">@context.Item.LastExecuted.Value.ToString("yyyy-MM-dd HH:mm")</MudText>
+                        @if (context.Item.LastExecutionStatus.HasValue)
+                        {
+                            <ExecutionStatusChip Status="@context.Item.LastExecutionStatus.Value"/>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <MudText Typo="Typo.body2">Never</MudText>
+                }
+            </CellTemplate>
+        </PropertyColumn>
+        <PropertyColumn Property="x => x.TotalExecutions" Title="Executions">
+            <CellTemplate>
+                <MudText>@context.Item.SuccessfulExecutions / @context.Item.TotalExecutions</MudText>
+            </CellTemplate>
+        </PropertyColumn>
+        <TemplateColumn Title="Actions" Sortable="false" Filterable="false">
+            <CellTemplate>
+                @* TODO: Beacon migration — buttons in MudButtonGroup with Href= mix; left intact to preserve grouping. *@
+                <MudButtonGroup Size="Size.Small" Variant="Variant.Text">
+                    <MudButton StartIcon="@Icons.Material.Filled.PlayArrow"
+                              Color="Color.Primary"
+                              OnClick="@(() => ExecuteJob(context.Item))"
+                              Disabled="@(!context.Item.IsEnabled)">
+                        Execute
+                    </MudButton>
+                    <MudButton StartIcon="@Icons.Material.Filled.Edit"
+                              Color="Color.Info"
+                              Href="@($"data-migration/edit/{context.Item.Id}")">
+                        Edit
+                    </MudButton>
+                    <MudButton StartIcon="@Icons.Material.Filled.History"
+                              Color="Color.Info"
+                              Href="@($"data-migration/history/{context.Item.Id}")">
+                        History
+                    </MudButton>
+                    <MudButton StartIcon="@Icons.Material.Filled.Delete"
+                              Color="Color.Error"
+                              OnClick="@(() => DeleteJob(context.Item))">
+                        Delete
+                    </MudButton>
+                </MudButtonGroup>
+            </CellTemplate>
+        </TemplateColumn>
+    </Columns>
+    <PagerContent>
+        <MudDataGridPager T="MigrationJobDto"/>
+    </PagerContent>
+</MudDataGrid>
 
 @inject IMigrationService _service
 @inject IDialogService DialogService

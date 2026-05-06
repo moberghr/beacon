@@ -8,171 +8,170 @@
 
 <BeaconPageTitle Title="Migration History"/>
 
-<div class="@RootClass">
-    <BeaconPageHero Variant="nodes"
-                    Prefix="Migration"
-                    Emphasis="execution"
-                    Suffix="history.">
-        <Eyebrow>
-            <span>Beacon</span>
-            <span class="page-hero__sep">/</span>
-            <span>Migration History</span>
-        </Eyebrow>
-        <Sub>@(JobId.HasValue ? $"Showing execution history for migration job ID: {JobId}" : "Showing all migration executions.")</Sub>
-        <Actions>
-            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.ArrowBack" OnClick="@NavigateBack">Back to Jobs</MudButton>
-        </Actions>
-    </BeaconPageHero>
+<BeaconPageHero Variant="nodes"
+                Prefix="Migration"
+                Emphasis="execution"
+                Suffix="history.">
+    <Eyebrow>
+        <span>Beacon</span>
+        <span class="page-hero__sep">/</span>
+        <span>Migration History</span>
+    </Eyebrow>
+    <Sub>@(JobId.HasValue ? $"Showing execution history for migration job ID: {JobId}" : "Showing all migration executions.")</Sub>
+    <Actions>
+        <BeaconButton Icon="@Icons.Material.Filled.ArrowBack" OnClick="@NavigateBack">Back to Jobs</BeaconButton>
+    </Actions>
+</BeaconPageHero>
 
-    <MudAlert Severity="Severity.Warning" Class="mb-4" Variant="Variant.Filled">
-        <strong>Experimental Feature:</strong> Data Migration is currently in experimental phase. Please test thoroughly before using in production environments.
-    </MudAlert>
-    
-    <MudCard>
-        <MudCardHeader>
-            <CardHeaderContent>
-                <MudText Typo="Typo.h6">Execution History</MudText>
-            </CardHeaderContent>
-            <CardHeaderActions>
-                <MudGrid>
-                    <MudItem xs="12" md="3">
-                        <MudSelect T="MigrationStatus?" @bind-Value="_statusFilter"
-                                  Label="Filter by Status"
-                                  Clearable="true"
-                                  OnClearButtonClick="@(() => { _statusFilter = null; })">
-                            <MudSelectItem T="MigrationStatus?" Value="@(MigrationStatus.Queued)">Queued</MudSelectItem>
-                            <MudSelectItem T="MigrationStatus?" Value="@(MigrationStatus.Running)">Running</MudSelectItem>
-                            <MudSelectItem T="MigrationStatus?" Value="@(MigrationStatus.Completed)">Completed</MudSelectItem>
-                            <MudSelectItem T="MigrationStatus?" Value="@(MigrationStatus.Failed)">Failed</MudSelectItem>
-                            <MudSelectItem T="MigrationStatus?" Value="@(MigrationStatus.Cancelled)">Cancelled</MudSelectItem>
-                            <MudSelectItem T="MigrationStatus?" Value="@(MigrationStatus.PartialSuccess)">Partial Success</MudSelectItem>
-                        </MudSelect>
-                    </MudItem>
-                    <MudItem xs="12" md="3">
-                        <MudDatePicker @bind-Date="_startDate" 
-                                      Label="Start Date" 
+<MudAlert Severity="Severity.Warning" Class="mb-4" Variant="Variant.Filled">
+    <strong>Experimental Feature:</strong> Data Migration is currently in experimental phase. Please test thoroughly before using in production environments.
+</MudAlert>
+
+<MudCard>
+    <MudCardHeader>
+        <CardHeaderContent>
+            <MudText Typo="Typo.h6">Execution History</MudText>
+        </CardHeaderContent>
+        <CardHeaderActions>
+            <MudGrid>
+                <MudItem xs="12" md="3">
+                    @* TODO: Beacon migration — custom label "Partial Success" differs from enum name. Leave as MudSelect. *@
+                    <MudSelect T="MigrationStatus?" @bind-Value="_statusFilter"
+                              Label="Filter by Status"
+                              Clearable="true"
+                              OnClearButtonClick="@(() => { _statusFilter = null; })">
+                        <MudSelectItem T="MigrationStatus?" Value="@(MigrationStatus.Queued)">Queued</MudSelectItem>
+                        <MudSelectItem T="MigrationStatus?" Value="@(MigrationStatus.Running)">Running</MudSelectItem>
+                        <MudSelectItem T="MigrationStatus?" Value="@(MigrationStatus.Completed)">Completed</MudSelectItem>
+                        <MudSelectItem T="MigrationStatus?" Value="@(MigrationStatus.Failed)">Failed</MudSelectItem>
+                        <MudSelectItem T="MigrationStatus?" Value="@(MigrationStatus.Cancelled)">Cancelled</MudSelectItem>
+                        <MudSelectItem T="MigrationStatus?" Value="@(MigrationStatus.PartialSuccess)">Partial Success</MudSelectItem>
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" md="3">
+                    <BeaconDatePicker @bind-Date="_startDate"
+                                      Label="Start Date"
                                       Clearable="true" />
-                    </MudItem>
-                    <MudItem xs="12" md="3">
-                        <MudDatePicker @bind-Date="_endDate" 
-                                      Label="End Date" 
+                </MudItem>
+                <MudItem xs="12" md="3">
+                    <BeaconDatePicker @bind-Date="_endDate"
+                                      Label="End Date"
                                       Clearable="true" />
-                    </MudItem>
-                    <MudItem xs="12" md="3" Class="d-flex align-center">
-                        <MudButton Variant="Variant.Filled" 
-                                  Color="Color.Primary" 
+                </MudItem>
+                <MudItem xs="12" md="3" Class="d-flex align-center">
+                    <BeaconButton Variant="primary"
                                   OnClick="@ReloadData"
-                                  StartIcon="@Icons.Material.Filled.Search">
-                            Filter
-                        </MudButton>
-                    </MudItem>
-                </MudGrid>
-            </CardHeaderActions>
-        </MudCardHeader>
-        
-        <MudCardContent>
-            <MudDataGrid @ref="_dataGrid" 
-                        ServerData="ServerReload" 
-                        T="MigrationExecutionDto" 
-                        Hover="true" 
-                        Filterable="false" 
-                        SortMode="SortMode.None">
-                <Columns>
-                    <PropertyColumn Property="x => x.MigrationJobName" Title="Migration Job">
-                        <CellTemplate>
-                            <MudLink Href="@($"data-migration/edit/{context.Item.MigrationJobId}")">
-                                @context.Item.MigrationJobName
-                            </MudLink>
-                        </CellTemplate>
-                    </PropertyColumn>
-                    <PropertyColumn Property="x => x.StartedAt" Title="Started At">
-                        <CellTemplate>
-                            <MudText>@context.Item.StartedAt.ToString("yyyy-MM-dd HH:mm:ss")</MudText>
-                        </CellTemplate>
-                    </PropertyColumn>
-                    <PropertyColumn Property="x => x.Status" Title="Status">
-                        <CellTemplate>
-                            <ExecutionStatusChip Status="@context.Item.Status"/>
-                        </CellTemplate>
-                    </PropertyColumn>
-                    <PropertyColumn Property="x => x.ExecutionDuration" Title="Duration">
-                        <CellTemplate>
-                            @if (context.Item.Status == MigrationStatus.Running)
+                                  Icon="@Icons.Material.Filled.Search">
+                        Filter
+                    </BeaconButton>
+                </MudItem>
+            </MudGrid>
+        </CardHeaderActions>
+    </MudCardHeader>
+    
+    <MudCardContent>
+        <MudDataGrid @ref="_dataGrid" 
+                    ServerData="ServerReload" 
+                    T="MigrationExecutionDto" 
+                    Hover="true" 
+                    Filterable="false" 
+                    SortMode="SortMode.None">
+            <Columns>
+                <PropertyColumn Property="x => x.MigrationJobName" Title="Migration Job">
+                    <CellTemplate>
+                        <MudLink Href="@($"data-migration/edit/{context.Item.MigrationJobId}")">
+                            @context.Item.MigrationJobName
+                        </MudLink>
+                    </CellTemplate>
+                </PropertyColumn>
+                <PropertyColumn Property="x => x.StartedAt" Title="Started At">
+                    <CellTemplate>
+                        <MudText>@context.Item.StartedAt.ToString("yyyy-MM-dd HH:mm:ss")</MudText>
+                    </CellTemplate>
+                </PropertyColumn>
+                <PropertyColumn Property="x => x.Status" Title="Status">
+                    <CellTemplate>
+                        <ExecutionStatusChip Status="@context.Item.Status"/>
+                    </CellTemplate>
+                </PropertyColumn>
+                <PropertyColumn Property="x => x.ExecutionDuration" Title="Duration">
+                    <CellTemplate>
+                        @if (context.Item.Status == MigrationStatus.Running)
+                        {
+                            <MudText>Running...</MudText>
+                        }
+                        else
+                        {
+                            <MudText>@FormatDuration(context.Item.ExecutionDuration)</MudText>
+                        }
+                    </CellTemplate>
+                </PropertyColumn>
+                <PropertyColumn Property="x => x.SourceRowsRead" Title="Rows Read"/>
+                <PropertyColumn Property="x => x.DestinationRowsWritten" Title="Rows Written"/>
+                <PropertyColumn Property="x => x.RowsFailed" Title="Rows Failed">
+                    <CellTemplate>
+                        @if (context.Item.RowsFailed > 0)
+                        {
+                            <MudText Color="Color.Error">@context.Item.RowsFailed</MudText>
+                        }
+                        else
+                        {
+                            <MudText>@context.Item.RowsFailed</MudText>
+                        }
+                    </CellTemplate>
+                </PropertyColumn>
+                <PropertyColumn Property="x => x.RowsPerSecond" Title="Performance">
+                    <CellTemplate>
+                        @if (context.Item.RowsPerSecond > 0)
+                        {
+                            <MudText>@context.Item.RowsPerSecond.ToString("F1") rows/sec</MudText>
+                        }
+                        else
+                        {
+                            <MudText>-</MudText>
+                        }
+                    </CellTemplate>
+                </PropertyColumn>
+                <TemplateColumn Title="Retry" Sortable="false" Filterable="false">
+                    <CellTemplate>
+                        @if (context.Item.IsRetry)
+                        {
+                            <MudChip Size="Size.Small" Color="Color.Warning">
+                                Retry #@context.Item.RetryAttempt
+                            </MudChip>
+                        }
+                    </CellTemplate>
+                </TemplateColumn>
+                <TemplateColumn Title="Actions" Sortable="false" Filterable="false">
+                    <CellTemplate>
+                        @* TODO: Beacon migration — buttons are children of MudButtonGroup; left intact to preserve grouping behavior. *@
+                        <MudButtonGroup Size="Size.Small" Variant="Variant.Text">
+                            @if ((context.Item.Status == MigrationStatus.Failed || context.Item.Status == MigrationStatus.PartialSuccess) && !string.IsNullOrEmpty(context.Item.ErrorMessage))
                             {
-                                <MudText>Running...</MudText>
+                                <MudButton StartIcon="@Icons.Material.Filled.Error"
+                                          Color="@(context.Item.Status == MigrationStatus.Failed ? Color.Error : Color.Warning)"
+                                          OnClick="@(() => ShowErrorDetails(context.Item))">
+                                    Error Details
+                                </MudButton>
                             }
-                            else
+                            @if (context.Item.Status == MigrationStatus.Failed)
                             {
-                                <MudText>@FormatDuration(context.Item.ExecutionDuration)</MudText>
+                                <MudButton StartIcon="@Icons.Material.Filled.Refresh"
+                                          Color="Color.Info"
+                                          OnClick="@(() => RetryExecution(context.Item))">
+                                    Retry
+                                </MudButton>
                             }
-                        </CellTemplate>
-                    </PropertyColumn>
-                    <PropertyColumn Property="x => x.SourceRowsRead" Title="Rows Read"/>
-                    <PropertyColumn Property="x => x.DestinationRowsWritten" Title="Rows Written"/>
-                    <PropertyColumn Property="x => x.RowsFailed" Title="Rows Failed">
-                        <CellTemplate>
-                            @if (context.Item.RowsFailed > 0)
-                            {
-                                <MudText Color="Color.Error">@context.Item.RowsFailed</MudText>
-                            }
-                            else
-                            {
-                                <MudText>@context.Item.RowsFailed</MudText>
-                            }
-                        </CellTemplate>
-                    </PropertyColumn>
-                    <PropertyColumn Property="x => x.RowsPerSecond" Title="Performance">
-                        <CellTemplate>
-                            @if (context.Item.RowsPerSecond > 0)
-                            {
-                                <MudText>@context.Item.RowsPerSecond.ToString("F1") rows/sec</MudText>
-                            }
-                            else
-                            {
-                                <MudText>-</MudText>
-                            }
-                        </CellTemplate>
-                    </PropertyColumn>
-                    <TemplateColumn Title="Retry" Sortable="false" Filterable="false">
-                        <CellTemplate>
-                            @if (context.Item.IsRetry)
-                            {
-                                <MudChip Size="Size.Small" Color="Color.Warning">
-                                    Retry #@context.Item.RetryAttempt
-                                </MudChip>
-                            }
-                        </CellTemplate>
-                    </TemplateColumn>
-                    <TemplateColumn Title="Actions" Sortable="false" Filterable="false">
-                        <CellTemplate>
-                            <MudButtonGroup Size="Size.Small" Variant="Variant.Text">
-                                @if ((context.Item.Status == MigrationStatus.Failed || context.Item.Status == MigrationStatus.PartialSuccess) && !string.IsNullOrEmpty(context.Item.ErrorMessage))
-                                {
-                                    <MudButton StartIcon="@Icons.Material.Filled.Error"
-                                              Color="@(context.Item.Status == MigrationStatus.Failed ? Color.Error : Color.Warning)"
-                                              OnClick="@(() => ShowErrorDetails(context.Item))">
-                                        Error Details
-                                    </MudButton>
-                                }
-                                @if (context.Item.Status == MigrationStatus.Failed)
-                                {
-                                    <MudButton StartIcon="@Icons.Material.Filled.Refresh"
-                                              Color="Color.Info"
-                                              OnClick="@(() => RetryExecution(context.Item))">
-                                        Retry
-                                    </MudButton>
-                                }
-                            </MudButtonGroup>
-                        </CellTemplate>
-                    </TemplateColumn>
-                </Columns>
-                <PagerContent>
-                    <MudDataGridPager T="MigrationExecutionDto"/>
-                </PagerContent>
-            </MudDataGrid>
-        </MudCardContent>
-    </MudCard>
-</div>
+                        </MudButtonGroup>
+                    </CellTemplate>
+                </TemplateColumn>
+            </Columns>
+            <PagerContent>
+                <MudDataGridPager T="MigrationExecutionDto"/>
+            </PagerContent>
+        </MudDataGrid>
+    </MudCardContent>
+</MudCard>
 
 @inject IMigrationService _service
 @inject IDialogService DialogService

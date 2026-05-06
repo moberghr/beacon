@@ -24,16 +24,16 @@
             <MudText Typo="Typo.h6" Class="mb-4">Account Information</MudText>
             <MudGrid>
                 <MudItem xs="12" sm="6">
-                    <MudTextField Value="@_user.UserName" Label="Username" ReadOnly="true" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                    <BeaconTextField Value="@_user.UserName" Label="Username" ReadOnly="true" />
                 </MudItem>
                 <MudItem xs="12" sm="6">
-                    <MudTextField Value="@(_user.DisplayName ?? "—")" Label="Display Name" ReadOnly="true" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                    <BeaconTextField Value="@(_user.DisplayName ?? "—")" Label="Display Name" ReadOnly="true" />
                 </MudItem>
                 <MudItem xs="12" sm="6">
-                    <MudTextField Value="@(_user.Email ?? "—")" Label="Email" ReadOnly="true" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                    <BeaconTextField Value="@(_user.Email ?? "—")" Label="Email" ReadOnly="true" />
                 </MudItem>
                 <MudItem xs="12" sm="6">
-                    <MudTextField Value="@(string.Join(", ", _user.Roles.Select(r => r.Name)))" Label="Roles" ReadOnly="true" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                    <BeaconTextField Value="@(string.Join(", ", _user.Roles.Select(r => r.Name)))" Label="Roles" ReadOnly="true" />
                 </MudItem>
             </MudGrid>
         </MudPaper>
@@ -102,20 +102,12 @@
                         </MudText>
                     </MudAlert>
 
-                    <MudButton Variant="Variant.Filled"
-                               Color="Color.Primary"
-                               Disabled="@(!_isFormValid || _isSubmitting)"
-                               OnClick="HandleChangePassword">
-                        @if (_isSubmitting)
-                        {
-                            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
-                            <text>Changing Password...</text>
-                        }
-                        else
-                        {
-                            <text>Change Password</text>
-                        }
-                    </MudButton>
+                    <BeaconButton Variant="primary"
+                                  Loading="@_isSubmitting"
+                                  Disabled="@(!_isFormValid || _isSubmitting)"
+                                  OnClick="HandleChangePassword">
+                        @(_isSubmitting ? "Changing Password..." : "Change Password")
+                    </BeaconButton>
                 </MudForm>
             </MudPaper>
         }

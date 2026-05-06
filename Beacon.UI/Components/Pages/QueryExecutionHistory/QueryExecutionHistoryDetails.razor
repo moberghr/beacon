@@ -207,11 +207,10 @@
                         <MudIcon Icon="@Icons.Material.Filled.Storage" Class="mr-2" />
                         Query Results
                     </MudText>
-                    <MudButton Variant="Variant.Outlined"
-                               StartIcon="@Icons.Material.Filled.ContentCopy"
-                               OnClick="@CopyResults">
+                    <BeaconButton Icon="@Icons.Material.Filled.ContentCopy"
+                                  OnClick="@CopyResults">
                         Copy Results
-                    </MudButton>
+                    </BeaconButton>
                 </MudStack>
                 @if (_formattedResults != null)
                 {

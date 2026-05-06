@@ -33,17 +33,15 @@
             <Actions>
                 @if (!Model.Resolved)
                 {
-                    <MudButton Variant="Variant.Filled" Color="Color.Success" OnClick="@ShowResolveDialog">
-                        <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Class="mr-2"/>
+                    <BeaconButton Variant="primary" Icon="@Icons.Material.Filled.CheckCircle" OnClick="@ShowResolveDialog">
                         Resolve
-                    </MudButton>
+                    </BeaconButton>
                 }
                 else
                 {
-                    <MudButton Variant="Variant.Filled" Color="Color.Warning" OnClick="@ReopenTask">
-                        <MudIcon Icon="@Icons.Material.Filled.Refresh" Class="mr-2"/>
+                    <BeaconButton Variant="primary" Icon="@Icons.Material.Filled.Refresh" OnClick="@ReopenTask">
                         Reopen
-                    </MudButton>
+                    </BeaconButton>
                 }
             </Actions>
         </PageHeader>
@@ -252,6 +250,7 @@
                                 <MudTd DataLabel="Actions">
                                     @if (!string.IsNullOrEmpty(context.StoredResults))
                                     {
+                                        @* TODO: Beacon migration — Href= not supported by BeaconButton. *@
                                         <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Primary" Href="@($"notifications/{context.Id}")">
                                             View Results
                                         </MudButton>
@@ -351,10 +350,9 @@
                     <MudIcon Icon="@Icons.Material.Filled.Comment" Class="mr-2" />
                     Comments (@_comments.Count)
                 </MudText>
-                <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" OnClick="@ShowAddCommentDialog">
-                    <MudIcon Icon="@Icons.Material.Filled.Add" Class="mr-1" />
+                <BeaconButton Variant="primary" Size="sm" Icon="@Icons.Material.Filled.Add" OnClick="@ShowAddCommentDialog">
                     Add Comment
-                </MudButton>
+                </BeaconButton>
             </MudStack>
 
             <MudStack Class="pa-4 pt-0" Spacing="3">

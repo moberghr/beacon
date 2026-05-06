@@ -42,27 +42,18 @@
                 }
             </Badges>
             <Actions>
-                <MudIconButton Icon="@Icons.Material.Filled.HelpOutline"
-                               Size="Size.Medium" Color="Color.Default"
-                               OnClick="OpenHelpDialog" Title="How it works"/>
-                <MudButton Variant="Variant.Filled" Color="Color.Primary"
-                           StartIcon="@Icons.Material.Filled.PlayArrow"
-                           OnClick="RunEvaluation" Disabled="_evaluating">
-                    @if (_evaluating)
-                    {
-                        <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2"/>
-                        <text>Evaluating...</text>
-                    }
-                    else
-                    {
-                        <text>Evaluate Now</text>
-                    }
-                </MudButton>
-                <MudButton Variant="Variant.Outlined" Color="Color.Error"
-                           StartIcon="@Icons.Material.Filled.Delete"
-                           OnClick="DeleteContract">
+                <BeaconIconButton Icon="@Icons.Material.Filled.HelpOutline"
+                                  OnClick="OpenHelpDialog" Title="How it works"/>
+                <BeaconButton Variant="primary"
+                              Icon="@Icons.Material.Filled.PlayArrow"
+                              OnClick="RunEvaluation" Disabled="_evaluating" Loading="_evaluating">
+                    @(_evaluating ? "Evaluating..." : "Evaluate Now")
+                </BeaconButton>
+                <BeaconButton Variant="danger"
+                              Icon="@Icons.Material.Filled.Delete"
+                              OnClick="DeleteContract">
                     Delete
-                </MudButton>
+                </BeaconButton>
             </Actions>
         </PageHeader>
 

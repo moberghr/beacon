@@ -53,22 +53,20 @@
                 <SourceChip AiActorId="@Model.AiActorId" AiActorName="@Model.AiActorName" Compact="false" />
             </Badges>
             <Actions>
-                <MudButton Variant="Variant.Filled"
-                           Color="Color.Primary"
-                           StartIcon="@Icons.Material.Filled.PlayArrow"
-                           Size="Size.Large"
-                           OnClick="@TestSubscription"
-                           Disabled="@(!_canWrite)">
+                <BeaconButton Variant="primary"
+                              Icon="@Icons.Material.Filled.PlayArrow"
+                              Size="lg"
+                              OnClick="@TestSubscription"
+                              Disabled="@(!_canWrite)">
                     Test Now
-                </MudButton>
-                <MudButton Variant="Variant.Outlined"
-                           Color="Color.Error"
-                           StartIcon="@Icons.Material.Filled.Archive"
-                           Size="Size.Large"
-                           Disabled="@(!_isAdmin || !isSubscriptionActive)"
-                           OnClick="@ArchiveSubscription">
+                </BeaconButton>
+                <BeaconButton Variant="danger"
+                              Icon="@Icons.Material.Filled.Archive"
+                              Size="lg"
+                              Disabled="@(!_isAdmin || !isSubscriptionActive)"
+                              OnClick="@ArchiveSubscription">
                     Archive
-                </MudButton>
+                </BeaconButton>
             </Actions>
         </PageHeader>
 
@@ -335,13 +333,12 @@
                             <MudText Typo="Typo.h6" Style="font-weight: 600;">
                                 Notification Recipients (@Model.Recipients.Count)
                             </MudText>
-                            <MudButton Variant="Variant.Filled"
-                                       Color="Color.Primary"
-                                       StartIcon="@Icons.Material.Filled.Add"
-                                       OnClick="@AddRecipientsAsync"
-                                       Disabled="@(!_canWrite)">
+                            <BeaconButton Variant="primary"
+                                          Icon="@Icons.Material.Filled.Add"
+                                          OnClick="@AddRecipientsAsync"
+                                          Disabled="@(!_canWrite)">
                                 Add Recipient
-                            </MudButton>
+                            </BeaconButton>
                         </MudStack>
 
                         <MudGrid Spacing="3">
@@ -357,11 +354,11 @@
                                                          Icon="@GetNotificationIcon(recipient.NotificationType)">
                                                     @recipient.NotificationType
                                                 </MudChip>
-                                                <MudIconButton Icon="@Icons.Material.Filled.Delete"
-                                                              Color="Color.Error"
-                                                              Size="Size.Small"
-                                                              Disabled="@(!_isAdmin || Model.Recipients.Count <= 1)"
-                                                              OnClick="@(() => RemoveRecipientAsync(recipient))" />
+                                                <BeaconIconButton Icon="@Icons.Material.Filled.Delete"
+                                                                  Variant="danger"
+                                                                  Size="sm"
+                                                                  Disabled="@(!_isAdmin || Model.Recipients.Count <= 1)"
+                                                                  OnClick="@(() => RemoveRecipientAsync(recipient))" />
                                             </MudStack>
 
                                             <MudText Typo="Typo.h6" Style="font-weight: 600;">@recipient.Name</MudText>
