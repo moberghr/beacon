@@ -5,6 +5,14 @@
 @using Beacon.UI.Components.Pages.Queries
 
 <MudDialog>
+    <TitleContent>
+        <BeaconDialogHeader Variant="grid"
+            Eyebrow="APPROVALS"
+            Prefix="Review"
+            Emphasis="approval"
+            Suffix="."
+            Sub="Inspect the proposed changes before approving or rejecting." />
+    </TitleContent>
     <DialogContent>
         @if (_loading)
         {
@@ -111,11 +119,10 @@
 
                 <MudDivider Class="my-2" />
 
-                <MudTextField @bind-Value="@_reviewComment"
-                              T="string"
-                              Label="Review Comment (optional)"
-                              Variant="Variant.Outlined"
-                              Lines="2" />
+                <BeaconTextField @bind-Value="@_reviewComment"
+                                 Label="Review Comment (optional)"
+                                 Multiline="true"
+                                 Rows="2" />
             </MudStack>
         }
     </DialogContent>

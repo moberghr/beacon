@@ -10,9 +10,16 @@
 @inject ISnackbar Snackbar
 
 <MudDialog>
+    <TitleContent>
+        <BeaconDialogHeader Variant="nodes"
+            Eyebrow="DASHBOARDS"
+            Prefix="Share"
+            Emphasis="dashboard"
+            Suffix="."
+            Sub="Grant other workspace members view or edit access." />
+    </TitleContent>
     <DialogContent>
         <MudStack Spacing="3">
-            <MudText Typo="Typo.h6">Share Dashboard</MudText>
 
             @* Add User Section *@
             <MudPaper Elevation="1" Class="pa-3">
@@ -25,14 +32,12 @@
                                      Variant="Variant.Outlined"
                                      ToStringFunc="@(userId => _userCache.GetValueOrDefault(userId, userId))"/>
 
-                    <MudSelect @bind-Value="_selectedPermissionLevel"
-                               Label="Permission Level"
-                               Variant="Variant.Outlined"
-                               T="DashboardPermissionLevel">
-                        <MudSelectItem Value="@DashboardPermissionLevel.View">View (Read-only)</MudSelectItem>
-                        <MudSelectItem Value="@DashboardPermissionLevel.Edit">Edit (Can modify widgets)</MudSelectItem>
-                        <MudSelectItem Value="@DashboardPermissionLevel.Admin">Admin (Full control)</MudSelectItem>
-                    </MudSelect>
+                    <BeaconSelect T="DashboardPermissionLevel"
+                                  @bind-Value="_selectedPermissionLevel"
+                                  Label="Permission Level"
+                                  Items="@_permissionLevelOptions"
+                                  ItemValueSelector="@(x => ((PermissionLevelOption)x).Value)"
+                                  ItemTextSelector="@(x => ((PermissionLevelOption)x).Text)" />
 
                     <MudButton Variant="Variant.Filled"
                                Color="Color.Primary"
@@ -112,6 +117,15 @@
 
     private string? _selectedUserId;
     private DashboardPermissionLevel _selectedPermissionLevel = DashboardPermissionLevel.View;
+
+    private record PermissionLevelOption(DashboardPermissionLevel Value, string Text);
+
+    private static readonly List<object> _permissionLevelOptions = new()
+    {
+        new PermissionLevelOption(DashboardPermissionLevel.View, "View (Read-only)"),
+        new PermissionLevelOption(DashboardPermissionLevel.Edit, "Edit (Can modify widgets)"),
+        new PermissionLevelOption(DashboardPermissionLevel.Admin, "Admin (Full control)"),
+    };
 
     protected override async Task OnInitializedAsync()
     {

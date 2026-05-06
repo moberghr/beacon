@@ -3,10 +3,12 @@
 @using Beacon.Core.Models.Queries
 <MudDialog>
     <TitleContent>
-        <MudText Typo="Typo.h6">
-            <MudIcon Icon="@Icons.Material.Filled.Settings" Class="mr-1 mb-n1" />
-            Step Parameters
-        </MudText>
+        <BeaconDialogHeader Variant="signal"
+            Eyebrow="QUERIES"
+            Prefix="Execute with"
+            Emphasis="parameters"
+            Suffix="."
+            Sub="Override the default parameter values for this run." />
     </TitleContent>
     <DialogContent>
         <MudText Typo="Typo.body2" Class="mb-3">Provide values for the query parameters before executing the step.</MudText>
@@ -17,37 +19,33 @@
                 {
                     @if (param.Type == ParameterType.String)
                     {
-                        <MudTextField T="string"
-                            Label="@param.Name"
-                            @bind-Value="_parameterValues[param.Placeholder]"
-                            Variant="Variant.Outlined"
-                            Margin="Margin.Dense"
-                            Required="true"
-                            HelperText="@($"{param.Description} (Placeholder: {param.Placeholder})")"
-                            Class="mb-2" />
+                        <BeaconTextField Label="@param.Name"
+                                         @bind-Value="_parameterValues[param.Placeholder]"
+                                         Required="true"
+                                         HelpText="@($"{param.Description} (Placeholder: {param.Placeholder})")" />
                     }
                     else if (param.Type == ParameterType.Number)
                     {
-                        <MudTextField T="string"
+                        <MudTextField T="string?"
                             Label="@param.Name"
                             @bind-Value="_parameterValues[param.Placeholder]"
                             Variant="Variant.Outlined"
                             Margin="Margin.Dense"
                             Required="true"
                             HelperText="@($"{param.Description} (Placeholder: {param.Placeholder})")"
-                            Validation="@(new Func<string, string?>(value => ValidateNumber(value)))"
+                            Validation="@(new Func<string?, string?>(value => ValidateNumber(value)))"
                             Class="mb-2" />
                     }
                     else if (param.Type == ParameterType.DateTime)
                     {
-                        <MudTextField T="string"
+                        <MudTextField T="string?"
                             Label="@param.Name"
                             @bind-Value="_parameterValues[param.Placeholder]"
                             Variant="Variant.Outlined"
                             Margin="Margin.Dense"
                             Required="true"
                             HelperText="@($"{param.Description} (Format: yyyy-MM-dd HH:mm:ss) (Placeholder: {param.Placeholder})")"
-                            Validation="@(new Func<string, string?>(value => ValidateDateTime(value)))"
+                            Validation="@(new Func<string?, string?>(value => ValidateDateTime(value)))"
                             Class="mb-2" />
                     }
                 }
@@ -75,7 +73,7 @@
 
     private MudForm _form = null!;
     private bool _isFormValid = false;
-    private Dictionary<string, string> _parameterValues = new();
+    private Dictionary<string, string?> _parameterValues = new();
 
     protected override void OnInitialized()
     {
@@ -94,7 +92,7 @@
             .Select(kvp => new Beacon.Core.Models.Queries.ParameterValue
             {
                 Name = Parameters.First(p => p.Placeholder == kvp.Key).Name,
-                Value = kvp.Value
+                Value = kvp.Value ?? string.Empty
             })
             .ToList();
 
@@ -103,7 +101,7 @@
 
     void Cancel() => MudDialog.Cancel();
 
-    string? ValidateNumber(string value)
+    string? ValidateNumber(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
         {
@@ -118,7 +116,7 @@
         return null;
     }
 
-    string? ValidateDateTime(string value)
+    string? ValidateDateTime(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
         {

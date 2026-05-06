@@ -7,38 +7,39 @@
 @inject NavigationManager NavManager
 
 <MudDialog>
+    <TitleContent>
+        <BeaconDialogHeader Variant="nodes"
+            Eyebrow="DASHBOARDS"
+            Prefix="Dashboard"
+            Emphasis="settings"
+            Suffix="." />
+    </TitleContent>
     <DialogContent>
         <MudForm @ref="_form" @bind-IsValid="@_isValid">
             <MudStack Spacing="3">
-                <MudTextField @bind-Value="_name"
-                              Label="Dashboard Name"
-                              Required="true"
-                              RequiredError="Name is required"
-                              MaxLength="200"
-                              Variant="Variant.Outlined"/>
+                <BeaconTextField @bind-Value="_name"
+                                 Label="Dashboard Name"
+                                 Required="true"
+                                 MaxLength="200" />
 
-                <MudTextField @bind-Value="_description"
-                              Label="Description"
-                              Lines="3"
-                              MaxLength="1000"
-                              Variant="Variant.Outlined"/>
+                <BeaconTextField @bind-Value="_description"
+                                 Label="Description"
+                                 Multiline="true"
+                                 Rows="3"
+                                 MaxLength="1000" />
 
-                <MudSwitch @bind-Value="_isShared"
-                           Color="Color.Info"
-                           Label="Share with all users"
-                           T="bool"/>
+                <BeaconSwitch @bind-Value="_isShared"
+                              Label="Share with all users" />
 
-                <MudSwitch @bind-Value="_isDefault"
-                           Color="Color.Success"
-                           Label="Set as default dashboard"
-                           T="bool"/>
+                <BeaconSwitch @bind-Value="_isDefault"
+                              Label="Set as default dashboard" />
 
-                <MudNumericField @bind-Value="_refreshIntervalSeconds"
-                                 Label="Auto-Refresh Interval (seconds)"
-                                 Min="5"
-                                 Max="3600"
-                                 Variant="Variant.Outlined"
-                                 HelpText="Leave empty for no auto-refresh"/>
+                <BeaconNumericField T="int?"
+                                    @bind-Value="_refreshIntervalSeconds"
+                                    Label="Auto-Refresh Interval (seconds)"
+                                    Min="5"
+                                    Max="3600"
+                                    HelpText="Leave empty for no auto-refresh"/>
 
                 <MudDivider Class="my-2"/>
 
@@ -88,7 +89,7 @@
     private bool _isSaving;
     private bool _isDeleting;
 
-    private string _name = string.Empty;
+    private string? _name = string.Empty;
     private string? _description;
     private bool _isShared;
     private bool _isDefault;
@@ -121,7 +122,7 @@
         {
             var command = new UpdateDashboardCommand(
                 DashboardId: Dashboard.Id,
-                Name: _name,
+                Name: _name ?? string.Empty,
                 Description: _description,
                 IsShared: _isShared,
                 IsDefault: _isDefault,

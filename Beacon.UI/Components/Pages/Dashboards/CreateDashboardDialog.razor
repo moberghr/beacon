@@ -5,32 +5,37 @@
 @inject ISnackbar Snackbar
 
 <MudDialog>
+    <TitleContent>
+        <BeaconDialogHeader Variant="nodes"
+            Eyebrow="DASHBOARDS"
+            Prefix="Create a"
+            Emphasis="dashboard"
+            Suffix="."
+            Sub="Pin queries side-by-side and keep them live during incidents." />
+    </TitleContent>
     <DialogContent>
         <MudForm @ref="_form" @bind-IsValid="@_isValid">
             <MudStack Spacing="3">
-                <MudTextField @bind-Value="_name"
-                              Label="Dashboard Name"
-                              Required="true"
-                              RequiredError="Name is required"
-                              MaxLength="200"
-                              Variant="Variant.Outlined"/>
+                <BeaconTextField @bind-Value="_name"
+                                 Label="Dashboard Name"
+                                 Required="true"
+                                 MaxLength="200" />
 
-                <MudTextField @bind-Value="_description"
-                              Label="Description"
-                              Lines="3"
-                              MaxLength="1000"
-                              Variant="Variant.Outlined"/>
+                <BeaconTextField @bind-Value="_description"
+                                 Label="Description"
+                                 Multiline="true"
+                                 Rows="3"
+                                 MaxLength="1000" />
 
-                <MudSwitch @bind-Value="_isShared"
-                           Color="Color.Info"
-                           Label="Share with all users"/>
+                <BeaconSwitch @bind-Value="_isShared"
+                              Label="Share with all users" />
 
-                <MudNumericField @bind-Value="_refreshIntervalSeconds"
-                                 Label="Auto-Refresh Interval (seconds)"
-                                 Min="5"
-                                 Max="3600"
-                                 Variant="Variant.Outlined"
-                                 HelpText="Leave empty for no auto-refresh"/>
+                <BeaconNumericField T="int?"
+                                    @bind-Value="_refreshIntervalSeconds"
+                                    Label="Auto-Refresh Interval (seconds)"
+                                    Min="5"
+                                    Max="3600"
+                                    HelpText="Leave empty for no auto-refresh"/>
             </MudStack>
         </MudForm>
     </DialogContent>
@@ -60,7 +65,7 @@
     private bool _isValid;
     private bool _isCreating;
 
-    private string _name = string.Empty;
+    private string? _name = string.Empty;
     private string? _description;
     private bool _isShared;
     private int? _refreshIntervalSeconds;
@@ -82,7 +87,7 @@
         try
         {
             var command = new CreateDashboardCommand(
-                Name: _name,
+                Name: _name ?? string.Empty,
                 Description: _description,
                 IsShared: _isShared,
                 RefreshIntervalSeconds: _refreshIntervalSeconds

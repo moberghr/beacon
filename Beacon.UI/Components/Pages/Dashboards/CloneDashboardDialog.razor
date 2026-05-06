@@ -4,6 +4,13 @@
 @inject ISnackbar Snackbar
 
 <MudDialog>
+    <TitleContent>
+        <BeaconDialogHeader Variant="nodes"
+            Eyebrow="DASHBOARDS"
+            Prefix="Clone"
+            Emphasis="dashboard"
+            Suffix="." />
+    </TitleContent>
     <DialogContent>
         <MudForm @ref="_form" @bind-IsValid="@_isValid">
             <MudStack Spacing="3">
@@ -11,12 +18,10 @@
                     Clone dashboard <strong>@SourceDashboardName</strong> with all its widgets
                 </MudAlert>
 
-                <MudTextField @bind-Value="_newName"
-                              Label="New Dashboard Name"
-                              Required="true"
-                              RequiredError="Name is required"
-                              MaxLength="200"
-                              Variant="Variant.Outlined"/>
+                <BeaconTextField @bind-Value="_newName"
+                                 Label="New Dashboard Name"
+                                 Required="true"
+                                 MaxLength="200" />
             </MudStack>
         </MudForm>
     </DialogContent>
@@ -48,7 +53,7 @@
     private bool _isValid;
     private bool _isCloning;
 
-    private string _newName = string.Empty;
+    private string? _newName = string.Empty;
 
     protected override void OnInitialized()
     {
@@ -73,7 +78,7 @@
         {
             var command = new CloneDashboardCommand(
                 SourceDashboardId: SourceDashboardId,
-                NewName: _newName
+                NewName: _newName ?? string.Empty
             );
 
             var result = await Mediator.Send(command);

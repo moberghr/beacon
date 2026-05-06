@@ -3,10 +3,12 @@
 
 <MudDialog Class="pb-2">
     <TitleContent>
-        <MudText Typo="Typo.h6">
-            <MudIcon Icon="@Icons.Material.Filled.Tune" Class="mr-1 mb-n1" />
-            Refine AI Actor
-        </MudText>
+        <BeaconDialogHeader Variant="signal"
+            Eyebrow="AI ACTORS"
+            Prefix="Refine"
+            Emphasis="instructions"
+            Suffix="."
+            Sub="Update the actor's goal, constraints, and behavior." />
     </TitleContent>
     <DialogContent>
         @if (_refining)
@@ -58,17 +60,12 @@
             </MudText>
 
             <MudForm @ref="@_form" Class="pt-1" @bind-IsValid="_isFormValid">
-                <MudTextField
-                    Margin="Margin.Dense"
-                    Variant="Variant.Outlined"
-                    @bind-Value="@_feedback"
-                    T="String"
-                    Label="Your Feedback"
-                    Required="true"
-                    RequiredError="Feedback is required"
-                    Lines="5"
-                    Placeholder="e.g., 'Add monitoring for user login failures' or 'Check for transactions more frequently'"
-                />
+                <BeaconTextField @bind-Value="@_feedback"
+                                 Label="Your Feedback"
+                                 Required="true"
+                                 Multiline="true"
+                                 Rows="5"
+                                 Placeholder="e.g., 'Add monitoring for user login failures' or 'Check for transactions more frequently'" />
             </MudForm>
 
             <MudExpansionPanels Class="mt-4">
@@ -123,7 +120,7 @@
     private bool _isFormValid;
     private RefineAiActorResult? _result;
 
-    private string _feedback = "";
+    private string? _feedback = "";
 
     async Task Refine()
     {
@@ -140,7 +137,7 @@
             var command = new RefineAiActorCommand
             {
                 ActorId = ActorId,
-                Feedback = _feedback
+                Feedback = _feedback ?? string.Empty
             };
 
             _result = await Mediator.Send(command);

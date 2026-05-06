@@ -6,326 +6,177 @@
 @using System.Text.Json
 <MudDialog Class="pb-2">
     <TitleContent>
-        <MudText Typo="Typo.h6">
-            <MudIcon Icon="@Icons.Material.Filled.Add" Class="mr-1 mb-n1" />
-            Add data source
-        </MudText>
+        <BeaconDialogHeader Variant="nodes"
+            Eyebrow="DATA SOURCES"
+            Prefix="Add a data"
+            Emphasis="source"
+            Suffix="."
+            Sub="Connect a database, cloud service, or API as a Beacon data source." />
     </TitleContent>
     <DialogContent>
-        <MudForm @ref="@_form" Class="pt-1" @bind-Errors="@errors" @bind-IsValid="_isFormValid">
-            <MudSelect T="DataSourceType" Label="Data Source Type" @bind-Value="_selectedDataSourceType" Required="true" Class="mb-4">
-                @if (_registeredEngines.Any())
-                {
-                    <MudSelectItem Value="DataSourceType.Database">Database (@string.Join(", ", _registeredEngines.Values))</MudSelectItem>
-                }
-                @foreach (var dsType in _registeredDataSourceTypes)
-                {
-                    <MudSelectItem Value="@dsType.Key">@dsType.Value</MudSelectItem>
-                }
-            </MudSelect>
+        <div class="pt-1">
+            <BeaconSelect T="DataSourceType"
+                          Label="Data Source Type"
+                          @bind-Value="_selectedDataSourceType"
+                          Required="true"
+                          Items="@DataSourceTypeOptions"
+                          ItemValueSelector="@(x => ((DataSourceTypeOption)x).Value)"
+                          ItemTextSelector="@(x => ((DataSourceTypeOption)x).Text)" />
 
             @if (_selectedDataSourceType == DataSourceType.Database)
             {
-                <MudSelect T="DatabaseEngineType" Label="Database Engine Type" @bind-Value="@_selectedDatabaseEngine" Required="true" Class="mb-4">
-                    @foreach (var engine in _registeredEngines)
-                    {
-                        <MudSelectItem Value="@engine.Key">@engine.Value</MudSelectItem>
-                    }
-                </MudSelect>
+                <BeaconSelect T="DatabaseEngineType"
+                              Label="Database Engine Type"
+                              @bind-Value="@_selectedDatabaseEngine"
+                              Required="true"
+                              Items="@(_registeredEngines.Select(x => (object)new DatabaseEngineOption(x.Key, x.Value)))"
+                              ItemValueSelector="@(x => ((DatabaseEngineOption)x).Value)"
+                              ItemTextSelector="@(x => ((DatabaseEngineOption)x).Text)" />
 
-                <MudTextField
-                    OnlyValidateIfDirty="true"
-                    Immediate="true"
-                    Margin="Margin.Dense"
-                    Variant="Variant.Outlined"
-                    Class="mb-2"
-                    @bind-Value="@DataSource.ConnectionString"
-                    T="string"
-                    Label="Connection string"
-                    Required="true"
-                    InputType="InputType.Password"
-                    Adornment="Adornment.End"
-                    AdornmentIcon="@Icons.Material.Filled.Lock"
-                />
+                <BeaconTextField @bind-Value="@DataSource.ConnectionString"
+                                 Label="Connection string"
+                                 Required="true"
+                                 InputType="password" />
             }
             else if (_selectedDataSourceType == DataSourceType.CloudWatch)
             {
-                <MudTextField
-                    Margin="Margin.Dense"
-                    Variant="Variant.Outlined"
-                    Class="mb-2"
-                    @bind-Value="@_cloudWatchRegion"
-                    T="string"
-                    Label="AWS Region"
-                    Required="true"
-                    HelperText="e.g., us-east-1, eu-west-1"
-                />
+                <BeaconTextField @bind-Value="@_cloudWatchRegion"
+                                 Label="AWS Region"
+                                 Required="true"
+                                 HelpText="e.g., us-east-1, eu-west-1" />
 
-                <MudTextField
-                    Margin="Margin.Dense"
-                    Variant="Variant.Outlined"
-                    Class="mb-2"
-                    @bind-Value="@_cloudWatchAccessKeyId"
-                    T="string"
-                    Label="AWS Access Key ID (optional)"
-                    HelperText="Leave empty to use IAM role or AWS profile"
-                />
+                <BeaconTextField @bind-Value="@_cloudWatchAccessKeyId"
+                                 Label="AWS Access Key ID (optional)"
+                                 HelpText="Leave empty to use IAM role or AWS profile" />
 
-                <MudTextField
-                    Margin="Margin.Dense"
-                    Variant="Variant.Outlined"
-                    Class="mb-2"
-                    @bind-Value="@_cloudWatchSecretAccessKey"
-                    T="string"
-                    Label="AWS Secret Access Key (optional)"
-                    InputType="InputType.Password"
-                    Adornment="Adornment.End"
-                    AdornmentIcon="@Icons.Material.Filled.Lock"
-                />
+                <BeaconTextField @bind-Value="@_cloudWatchSecretAccessKey"
+                                 Label="AWS Secret Access Key (optional)"
+                                 InputType="password" />
 
-                <MudTextField
-                    Margin="Margin.Dense"
-                    Variant="Variant.Outlined"
-                    Class="mb-2"
-                    @bind-Value="@_cloudWatchLogGroups"
-                    T="string"
-                    Label="Log Groups (comma-separated)"
-                    Required="true"
-                    HelperText="e.g., /aws/lambda/function1, /aws/lambda/function2"
-                    Lines="2"
-                />
+                <BeaconTextField @bind-Value="@_cloudWatchLogGroups"
+                                 Label="Log Groups (comma-separated)"
+                                 Required="true"
+                                 HelpText="e.g., /aws/lambda/function1, /aws/lambda/function2"
+                                 Multiline="true"
+                                 Rows="2" />
 
-                <MudTextField
-                    Margin="Margin.Dense"
-                    Variant="Variant.Outlined"
-                    Class="mb-2"
-                    @bind-Value="@_cloudWatchProfileName"
-                    T="string"
-                    Label="AWS Profile Name (optional)"
-                    HelperText="Use profile from ~/.aws/credentials"
-                />
+                <BeaconTextField @bind-Value="@_cloudWatchProfileName"
+                                 Label="AWS Profile Name (optional)"
+                                 HelpText="Use profile from ~/.aws/credentials" />
             }
             else if (_selectedDataSourceType == DataSourceType.Databricks)
             {
-                <MudTextField
-                    Margin="Margin.Dense"
-                    Variant="Variant.Outlined"
-                    Class="mb-2"
-                    @bind-Value="@_databricksHost"
-                    T="string"
-                    Label="Host"
-                    Required="true"
-                    HelperText="e.g., adb-1234567890123456.7.azuredatabricks.net"
-                />
+                <BeaconTextField @bind-Value="@_databricksHost"
+                                 Label="Host"
+                                 Required="true"
+                                 HelpText="e.g., adb-1234567890123456.7.azuredatabricks.net" />
 
-                <MudTextField
-                    Margin="Margin.Dense"
-                    Variant="Variant.Outlined"
-                    Class="mb-2"
-                    @bind-Value="@_databricksHttpPath"
-                    T="string"
-                    Label="HTTP Path"
-                    Required="true"
-                    HelperText="e.g., /sql/1.0/warehouses/abc123def456"
-                />
+                <BeaconTextField @bind-Value="@_databricksHttpPath"
+                                 Label="HTTP Path"
+                                 Required="true"
+                                 HelpText="e.g., /sql/1.0/warehouses/abc123def456" />
 
-                <MudTextField
-                    Margin="Margin.Dense"
-                    Variant="Variant.Outlined"
-                    Class="mb-2"
-                    @bind-Value="@_databricksToken"
-                    T="string"
-                    Label="Personal Access Token"
-                    Required="true"
-                    InputType="InputType.Password"
-                    Adornment="Adornment.End"
-                    AdornmentIcon="@Icons.Material.Filled.Lock"
-                />
+                <BeaconTextField @bind-Value="@_databricksToken"
+                                 Label="Personal Access Token"
+                                 Required="true"
+                                 InputType="password" />
 
-                <MudTextField
-                    Margin="Margin.Dense"
-                    Variant="Variant.Outlined"
-                    Class="mb-2"
-                    @bind-Value="@_databricksCatalog"
-                    T="string"
-                    Label="Catalog (optional)"
-                    HelperText="Unity Catalog name"
-                />
+                <BeaconTextField @bind-Value="@_databricksCatalog"
+                                 Label="Catalog (optional)"
+                                 HelpText="Unity Catalog name" />
 
-                <MudTextField
-                    Margin="Margin.Dense"
-                    Variant="Variant.Outlined"
-                    Class="mb-2"
-                    @bind-Value="@_databricksSchema"
-                    T="string"
-                    Label="Schema (optional)"
-                    HelperText="Default schema"
-                />
+                <BeaconTextField @bind-Value="@_databricksSchema"
+                                 Label="Schema (optional)"
+                                 HelpText="Default schema" />
             }
             else if (_selectedDataSourceType == DataSourceType.BigQuery)
             {
-                <MudTextField
-                    Margin="Margin.Dense"
-                    Variant="Variant.Outlined"
-                    Class="mb-2"
-                    @bind-Value="@_bigQueryProjectId"
-                    T="string"
-                    Label="Project ID"
-                    Required="true"
-                    HelperText="Google Cloud project ID"
-                />
+                <BeaconTextField @bind-Value="@_bigQueryProjectId"
+                                 Label="Project ID"
+                                 Required="true"
+                                 HelpText="Google Cloud project ID" />
 
-                <MudTextField
-                    Margin="Margin.Dense"
-                    Variant="Variant.Outlined"
-                    Class="mb-2"
-                    @bind-Value="@_bigQueryDatasetId"
-                    T="string"
-                    Label="Dataset ID (optional)"
-                    HelperText="Default dataset for queries"
-                />
+                <BeaconTextField @bind-Value="@_bigQueryDatasetId"
+                                 Label="Dataset ID (optional)"
+                                 HelpText="Default dataset for queries" />
 
-                <MudTextField
-                    Margin="Margin.Dense"
-                    Variant="Variant.Outlined"
-                    Class="mb-2"
-                    @bind-Value="@_bigQueryLocation"
-                    T="string"
-                    Label="Location (optional)"
-                    HelperText="e.g., US, EU, us-central1"
-                />
+                <BeaconTextField @bind-Value="@_bigQueryLocation"
+                                 Label="Location (optional)"
+                                 HelpText="e.g., US, EU, us-central1" />
 
-                <MudTextField
-                    Margin="Margin.Dense"
-                    Variant="Variant.Outlined"
-                    Class="mb-2"
-                    @bind-Value="@_bigQueryServiceAccountJson"
-                    T="string"
-                    Label="Service Account JSON Key"
-                    Required="true"
-                    Lines="4"
-                    InputType="InputType.Password"
-                    Adornment="Adornment.End"
-                    AdornmentIcon="@Icons.Material.Filled.Lock"
-                    HelperText="Paste the full JSON key file content"
-                />
+                <BeaconTextField @bind-Value="@_bigQueryServiceAccountJson"
+                                 Label="Service Account JSON Key"
+                                 Required="true"
+                                 Multiline="true"
+                                 Rows="4"
+                                 HelpText="Paste the full JSON key file content" />
             }
             else if (_selectedDataSourceType == DataSourceType.Api)
             {
-                <MudTextField
-                    Margin="Margin.Dense"
-                    Variant="Variant.Outlined"
-                    Class="mb-2"
-                    @bind-Value="@_apiBaseUrl"
-                    T="string"
-                    Label="Base URL"
-                    Required="true"
-                    HelperText="e.g., https://api.example.com"
-                />
+                <BeaconTextField @bind-Value="@_apiBaseUrl"
+                                 Label="Base URL"
+                                 Required="true"
+                                 HelpText="e.g., https://api.example.com" />
 
-                <MudTextField
-                    Margin="Margin.Dense"
-                    Variant="Variant.Outlined"
-                    Class="mb-2"
-                    @bind-Value="@_apiSpecUrl"
-                    T="string"
-                    Label="OpenAPI Spec URL"
-                    Required="true"
-                    HelperText="e.g., https://api.example.com/swagger/v1/swagger.json"
-                />
+                <BeaconTextField @bind-Value="@_apiSpecUrl"
+                                 Label="OpenAPI Spec URL"
+                                 Required="true"
+                                 HelpText="e.g., https://api.example.com/swagger/v1/swagger.json" />
 
-                <MudSelect T="string" Label="Authentication" @bind-Value="_apiAuthType" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-2">
-                    <MudSelectItem Value="@("none")">None</MudSelectItem>
-                    <MudSelectItem Value="@("apiKey")">API Key</MudSelectItem>
-                    <MudSelectItem Value="@("bearer")">Bearer Token</MudSelectItem>
-                    <MudSelectItem Value="@("basic")">Basic Auth</MudSelectItem>
-                </MudSelect>
+                <BeaconSelect T="string"
+                              Label="Authentication"
+                              @bind-Value="_apiAuthType"
+                              Items="@_apiAuthTypeOptions"
+                              ItemValueSelector="@(x => ((StringOption)x).Value)"
+                              ItemTextSelector="@(x => ((StringOption)x).Text)" />
 
                 @if (_apiAuthType == "apiKey")
                 {
-                    <MudTextField
-                        Margin="Margin.Dense"
-                        Variant="Variant.Outlined"
-                        Class="mb-2"
-                        @bind-Value="@_apiKeyName"
-                        T="string"
-                        Label="Header / Parameter Name"
-                        Required="true"
-                        HelperText="e.g., X-Api-Key"
-                    />
-                    <MudTextField
-                        Margin="Margin.Dense"
-                        Variant="Variant.Outlined"
-                        Class="mb-2"
-                        @bind-Value="@_apiKeyValue"
-                        T="string"
-                        Label="API Key Value"
-                        Required="true"
-                        InputType="InputType.Password"
-                        Adornment="Adornment.End"
-                        AdornmentIcon="@Icons.Material.Filled.Lock"
-                    />
-                    <MudSelect T="string" Label="Key Location" @bind-Value="_apiKeyLocation" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-2">
-                        <MudSelectItem Value="@("header")">Header</MudSelectItem>
-                        <MudSelectItem Value="@("query")">Query Parameter</MudSelectItem>
-                    </MudSelect>
+                    <BeaconTextField @bind-Value="@_apiKeyName"
+                                     Label="Header / Parameter Name"
+                                     Required="true"
+                                     HelpText="e.g., X-Api-Key" />
+                    <BeaconTextField @bind-Value="@_apiKeyValue"
+                                     Label="API Key Value"
+                                     Required="true"
+                                     InputType="password" />
+                    <BeaconSelect T="string"
+                                  Label="Key Location"
+                                  @bind-Value="_apiKeyLocation"
+                                  Items="@_apiKeyLocationOptions"
+                                  ItemValueSelector="@(x => ((StringOption)x).Value)"
+                                  ItemTextSelector="@(x => ((StringOption)x).Text)" />
                 }
                 else if (_apiAuthType == "bearer")
                 {
-                    <MudTextField
-                        Margin="Margin.Dense"
-                        Variant="Variant.Outlined"
-                        Class="mb-2"
-                        @bind-Value="@_apiBearerToken"
-                        T="string"
-                        Label="Bearer Token"
-                        Required="true"
-                        InputType="InputType.Password"
-                        Adornment="Adornment.End"
-                        AdornmentIcon="@Icons.Material.Filled.Lock"
-                    />
+                    <BeaconTextField @bind-Value="@_apiBearerToken"
+                                     Label="Bearer Token"
+                                     Required="true"
+                                     InputType="password" />
                 }
                 else if (_apiAuthType == "basic")
                 {
-                    <MudTextField
-                        Margin="Margin.Dense"
-                        Variant="Variant.Outlined"
-                        Class="mb-2"
-                        @bind-Value="@_apiBasicUsername"
-                        T="string"
-                        Label="Username"
-                        Required="true"
-                    />
-                    <MudTextField
-                        Margin="Margin.Dense"
-                        Variant="Variant.Outlined"
-                        Class="mb-2"
-                        @bind-Value="@_apiBasicPassword"
-                        T="string"
-                        Label="Password"
-                        Required="true"
-                        InputType="InputType.Password"
-                        Adornment="Adornment.End"
-                        AdornmentIcon="@Icons.Material.Filled.Lock"
-                    />
+                    <BeaconTextField @bind-Value="@_apiBasicUsername"
+                                     Label="Username"
+                                     Required="true" />
+                    <BeaconTextField @bind-Value="@_apiBasicPassword"
+                                     Label="Password"
+                                     Required="true"
+                                     InputType="password" />
                 }
 
                 <MudExpansionPanels Class="mb-4" Elevation="0">
                     <MudExpansionPanel Text="Endpoint Filter (optional)" IsInitiallyExpanded="false">
                         <MudGrid Spacing="2">
                             <MudItem xs="12" sm="6">
-                                <MudTextField @bind-Value="_apiIncludePatterns"
-                                              Label="Include Path Patterns"
-                                              HelperText="Comma-separated (e.g., /api/v2/**)"
-                                              Variant="Variant.Outlined"
-                                              Margin="Margin.Dense" />
+                                <BeaconTextField @bind-Value="_apiIncludePatterns"
+                                                 Label="Include Path Patterns"
+                                                 HelpText="Comma-separated (e.g., /api/v2/**)" />
                             </MudItem>
                             <MudItem xs="12" sm="6">
-                                <MudTextField @bind-Value="_apiExcludePatterns"
-                                              Label="Exclude Path Patterns"
-                                              HelperText="Comma-separated (e.g., /api/internal/**)"
-                                              Variant="Variant.Outlined"
-                                              Margin="Margin.Dense" />
+                                <BeaconTextField @bind-Value="_apiExcludePatterns"
+                                                 Label="Exclude Path Patterns"
+                                                 HelpText="Comma-separated (e.g., /api/internal/**)" />
                             </MudItem>
                         </MudGrid>
                     </MudExpansionPanel>
@@ -338,44 +189,36 @@
                     <MudExpansionPanel Text="Metadata Loading Options" IsInitiallyExpanded="false">
                         <MudGrid Spacing="2">
                             <MudItem xs="12">
-                                <MudSwitch @bind-Value="DataSource.MetadataLoadingEnabled"
-                                           Label="Enable Metadata Loading"
-                                           Color="Color.Primary" />
+                                <BeaconSwitch @bind-Value="DataSource.MetadataLoadingEnabled"
+                                              Label="Enable Metadata Loading" />
                             </MudItem>
                             <MudItem xs="12" sm="6">
-                                <MudNumericField @bind-Value="DataSource.MetadataMaxTables"
-                                                 Label="Max Tables"
-                                                 HelperText="0 = unlimited"
-                                                 Variant="Variant.Outlined"
-                                                 Margin="Margin.Dense"
-                                                 Min="0" />
+                                <BeaconNumericField T="int"
+                                                    @bind-Value="DataSource.MetadataMaxTables"
+                                                    Label="Max Tables"
+                                                    HelpText="0 = unlimited"
+                                                    Min="0" />
                             </MudItem>
                             <MudItem xs="12" sm="6">
-                                <MudNumericField @bind-Value="DataSource.MetadataMaxColumnsPerTable"
-                                                 Label="Max Columns Per Table"
-                                                 HelperText="0 = unlimited"
-                                                 Variant="Variant.Outlined"
-                                                 Margin="Margin.Dense"
-                                                 Min="0" />
+                                <BeaconNumericField T="int"
+                                                    @bind-Value="DataSource.MetadataMaxColumnsPerTable"
+                                                    Label="Max Columns Per Table"
+                                                    HelpText="0 = unlimited"
+                                                    Min="0" />
                             </MudItem>
                             <MudItem xs="12">
-                                <MudSwitch @bind-Value="DataSource.MetadataLoadTableNamesOnly"
-                                           Label="Load Table Names Only"
-                                           Color="Color.Primary" />
+                                <BeaconSwitch @bind-Value="DataSource.MetadataLoadTableNamesOnly"
+                                              Label="Load Table Names Only" />
                             </MudItem>
                             <MudItem xs="12" sm="6">
-                                <MudTextField @bind-Value="_metadataExcludeSchemas"
-                                              Label="Exclude Schemas"
-                                              HelperText="Comma-separated (e.g., information_schema, pg_catalog)"
-                                              Variant="Variant.Outlined"
-                                              Margin="Margin.Dense" />
+                                <BeaconTextField @bind-Value="_metadataExcludeSchemas"
+                                                 Label="Exclude Schemas"
+                                                 HelpText="Comma-separated (e.g., information_schema, pg_catalog)" />
                             </MudItem>
                             <MudItem xs="12" sm="6">
-                                <MudTextField @bind-Value="_metadataIncludeSchemas"
-                                              Label="Include Schemas"
-                                              HelperText="Comma-separated. If set, only these schemas are loaded."
-                                              Variant="Variant.Outlined"
-                                              Margin="Margin.Dense" />
+                                <BeaconTextField @bind-Value="_metadataIncludeSchemas"
+                                                 Label="Include Schemas"
+                                                 HelpText="Comma-separated. If set, only these schemas are loaded." />
                             </MudItem>
                         </MudGrid>
                     </MudExpansionPanel>
@@ -413,17 +256,10 @@
                 <MudAlert Severity="Severity.Error" Class="mb-4">@_connectionErrorMessage</MudAlert>
             }
 
-            <MudTextField
-                OnlyValidateIfDirty="true"
-                Margin="Margin.Normal"
-                Variant="Variant.Text"
-                Class="mb-2"
-                @bind-Value="@DataSource.Name"
-                T="String"
-                Label="Name"
-                Required="true"
-            />
-        </MudForm>
+            <BeaconTextField @bind-Value="@DataSource.Name"
+                             Label="Name"
+                             Required="true" />
+        </div>
     </DialogContent>
     <DialogActions>
         <MudButton
@@ -434,7 +270,7 @@
             Cancel
         </MudButton>
 
-        <DialogSaveButton Disabled="!_isFormValid" OnClick="@Submit"/>
+        <DialogSaveButton Disabled="@(!CanSubmit)" OnClick="@Submit"/>
     </DialogActions>
 </MudDialog>
 
@@ -449,14 +285,11 @@
     [Parameter]
     public DataSourceData DataSource { get; set; }
 
-    private MudForm _form;
     private bool _loading;
     private bool _testingConnection;
     private bool _connectionTested;
     private bool _connectionSuccess;
     private string _connectionErrorMessage = string.Empty;
-    bool _isFormValid = false;
-    string[] errors = { };
 
     // Registered connectors (populated from ConnectorRegistry)
     private IReadOnlyDictionary<DatabaseEngineType, string> _registeredEngines = ConnectorRegistry.GetRegisteredDatabaseEngines();
@@ -467,41 +300,79 @@
     private DatabaseEngineType _selectedDatabaseEngine = ConnectorRegistry.GetRegisteredDatabaseEngines().Keys.FirstOrDefault();
 
     // CloudWatch fields
-    private string _cloudWatchRegion = "";
-    private string _cloudWatchAccessKeyId = "";
-    private string _cloudWatchSecretAccessKey = "";
-    private string _cloudWatchLogGroups = "";
-    private string _cloudWatchProfileName = "";
+    private string? _cloudWatchRegion = "";
+    private string? _cloudWatchAccessKeyId = "";
+    private string? _cloudWatchSecretAccessKey = "";
+    private string? _cloudWatchLogGroups = "";
+    private string? _cloudWatchProfileName = "";
 
     // Databricks fields
-    private string _databricksHost = "";
-    private string _databricksHttpPath = "";
-    private string _databricksToken = "";
-    private string _databricksCatalog = "";
-    private string _databricksSchema = "";
+    private string? _databricksHost = "";
+    private string? _databricksHttpPath = "";
+    private string? _databricksToken = "";
+    private string? _databricksCatalog = "";
+    private string? _databricksSchema = "";
 
     // BigQuery fields
-    private string _bigQueryProjectId = "";
-    private string _bigQueryDatasetId = "";
-    private string _bigQueryLocation = "";
-    private string _bigQueryServiceAccountJson = "";
+    private string? _bigQueryProjectId = "";
+    private string? _bigQueryDatasetId = "";
+    private string? _bigQueryLocation = "";
+    private string? _bigQueryServiceAccountJson = "";
 
     // API fields
-    private string _apiBaseUrl = "";
-    private string _apiSpecUrl = "";
+    private string? _apiBaseUrl = "";
+    private string? _apiSpecUrl = "";
     private string _apiAuthType = "none";
-    private string _apiKeyName = "";
-    private string _apiKeyValue = "";
+    private string? _apiKeyName = "";
+    private string? _apiKeyValue = "";
     private string _apiKeyLocation = "header";
-    private string _apiBearerToken = "";
-    private string _apiBasicUsername = "";
-    private string _apiBasicPassword = "";
-    private string _apiIncludePatterns = "";
-    private string _apiExcludePatterns = "";
+    private string? _apiBearerToken = "";
+    private string? _apiBasicUsername = "";
+    private string? _apiBasicPassword = "";
+    private string? _apiIncludePatterns = "";
+    private string? _apiExcludePatterns = "";
 
     // Metadata loading fields
-    private string _metadataExcludeSchemas = "";
-    private string _metadataIncludeSchemas = "";
+    private string? _metadataExcludeSchemas = "";
+    private string? _metadataIncludeSchemas = "";
+
+    private record DataSourceTypeOption(DataSourceType Value, string Text);
+    private record DatabaseEngineOption(DatabaseEngineType Value, string Text);
+    private record StringOption(string Value, string Text);
+
+    private List<object> DataSourceTypeOptions => BuildDataSourceTypeOptions();
+
+    private List<object> BuildDataSourceTypeOptions()
+    {
+        var list = new List<object>();
+        if (_registeredEngines.Any())
+        {
+            list.Add(new DataSourceTypeOption(DataSourceType.Database, $"Database ({string.Join(", ", _registeredEngines.Values)})"));
+        }
+        foreach (var dsType in _registeredDataSourceTypes)
+        {
+            list.Add(new DataSourceTypeOption(dsType.Key, dsType.Value));
+        }
+        return list;
+    }
+
+    private static readonly List<object> _apiAuthTypeOptions = new()
+    {
+        new StringOption("none", "None"),
+        new StringOption("apiKey", "API Key"),
+        new StringOption("bearer", "Bearer Token"),
+        new StringOption("basic", "Basic Auth"),
+    };
+
+    private static readonly List<object> _apiKeyLocationOptions = new()
+    {
+        new StringOption("header", "Header"),
+        new StringOption("query", "Query Parameter"),
+    };
+
+    private bool CanSubmit => !_loading
+        && !string.IsNullOrWhiteSpace(DataSource?.Name)
+        && CanTestConnection();
 
     bool CanTestConnection()
     {
@@ -578,7 +449,7 @@
                     Region = _cloudWatchRegion,
                     AccessKeyId = NullIfEmpty(_cloudWatchAccessKeyId),
                     SecretAccessKey = NullIfEmpty(_cloudWatchSecretAccessKey),
-                    LogGroups = _cloudWatchLogGroups.Split(',').Select(lg => lg.Trim()).Where(lg => !string.IsNullOrEmpty(lg)).ToList(),
+                    LogGroups = (_cloudWatchLogGroups ?? "").Split(',').Select(lg => lg.Trim()).Where(lg => !string.IsNullOrEmpty(lg)).ToList(),
                     ProfileName = NullIfEmpty(_cloudWatchProfileName),
                     QueryTimeoutSeconds = 300
                 });
@@ -637,14 +508,7 @@
 
     async Task Submit()
     {
-        if (_loading)
-        {
-            return;
-        }
-
-        await _form.Validate();
-
-        if (!_form.IsValid)
+        if (_loading || !CanSubmit)
         {
             return;
         }
@@ -689,7 +553,7 @@
 
     static string? NullIfEmpty(string? value) => string.IsNullOrWhiteSpace(value) ? null : value;
 
-    static List<string> ParseSchemaList(string text)
+    static List<string> ParseSchemaList(string? text)
     {
         if (string.IsNullOrWhiteSpace(text)) return new();
         return text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();

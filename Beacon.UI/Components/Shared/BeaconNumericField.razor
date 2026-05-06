@@ -1,0 +1,106 @@
+@* Numeric input field — Beacon visual language. Generic over T (int, decimal, double, etc.).
+
+   Usage:
+       <BeaconNumericField T="int"
+                           @bind-Value="_count"
+                           Label="Row limit"
+                           Min="0" Max="10000" Step="100"
+                           HelpText="Maximum rows returned per query." /> *@
+
+@typeparam T
+
+<div class="bx-field @CssClass">
+    @if (!string.IsNullOrEmpty(Label))
+    {
+        <label class="bx-label" for="@_id">
+            @Label
+            @if (Required)
+            {
+                <span class="bx-label__req">*</span>
+            }
+        </label>
+    }
+
+    <input id="@_id"
+           class="bx-input @(HasError ? "bx-input--error" : "")"
+           type="number"
+           placeholder="@Placeholder"
+           min="@(Min?.ToString())"
+           max="@(Max?.ToString())"
+           step="@(Step?.ToString())"
+           disabled="@Disabled"
+           readonly="@ReadOnly"
+           value="@FormatValue(Value)"
+           @oninput="OnInput"
+           @onblur="OnBlurInternal" />
+
+    @if (HasError)
+    {
+        <span class="bx-help bx-help--error">@ErrorText</span>
+    }
+    else if (!string.IsNullOrEmpty(HelpText))
+    {
+        <span class="bx-help">@HelpText</span>
+    }
+</div>
+
+@code {
+    [Parameter] public T? Value { get; set; }
+    [Parameter] public EventCallback<T?> ValueChanged { get; set; }
+
+    [Parameter] public string? Label { get; set; }
+    [Parameter] public string? Placeholder { get; set; }
+    [Parameter] public string? HelpText { get; set; }
+    [Parameter] public string? ErrorText { get; set; }
+
+    [Parameter] public bool Required { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public bool ReadOnly { get; set; }
+
+    [Parameter] public T? Min { get; set; }
+    [Parameter] public T? Max { get; set; }
+    [Parameter] public T? Step { get; set; }
+
+    [Parameter] public string? CssClass { get; set; }
+
+    [Parameter] public EventCallback<FocusEventArgs> OnBlur { get; set; }
+
+    private readonly string _id = $"bxn-{Guid.NewGuid().ToString("N")[..8]}";
+
+    private bool HasError => !string.IsNullOrEmpty(ErrorText);
+
+    private static string FormatValue(T? value) =>
+        value is null ? "" : Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture) ?? "";
+
+    private async Task OnInput(ChangeEventArgs e)
+    {
+        var raw = e.Value?.ToString();
+
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            Value = default;
+            await ValueChanged.InvokeAsync(default);
+            return;
+        }
+
+        var targetType = Nullable.GetUnderlyingType(typeof(T)) ?? typeof(T);
+        try
+        {
+            var parsed = (T?)Convert.ChangeType(raw, targetType, System.Globalization.CultureInfo.InvariantCulture);
+            Value = parsed;
+            await ValueChanged.InvokeAsync(parsed);
+        }
+        catch
+        {
+            // Ignore unparseable input — keep last value.
+        }
+    }
+
+    private async Task OnBlurInternal(FocusEventArgs e)
+    {
+        if (OnBlur.HasDelegate)
+        {
+            await OnBlur.InvokeAsync(e);
+        }
+    }
+}

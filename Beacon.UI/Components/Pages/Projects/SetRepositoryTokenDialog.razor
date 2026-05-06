@@ -3,6 +3,13 @@
 @inject IMediator Mediator
 
 <MudDialog>
+    <TitleContent>
+        <BeaconDialogHeader Variant="nodes"
+            Eyebrow="PROJECTS &nbsp;/&nbsp; REPOSITORIES"
+            Prefix="Set repository"
+            Emphasis="token"
+            Suffix="." />
+    </TitleContent>
     <DialogContent>
         <MudStack Spacing="3">
             <MudText Typo="Typo.body2" Color="Color.Secondary">
@@ -16,15 +23,11 @@
                 </MudAlert>
             }
 
-            <MudTextField @bind-Value="_token"
-                          Label="GitHub Access Token"
-                          Placeholder="ghp_..."
-                          InputType="InputType.Password"
-                          Variant="Variant.Outlined"
-                          Adornment="Adornment.Start"
-                          AdornmentIcon="@Icons.Material.Filled.Key"
-                          Immediate="true"
-                          HelperText="Token is encrypted at rest. Leave empty to remove."/>
+            <BeaconTextField @bind-Value="_token"
+                             Label="GitHub Access Token"
+                             Placeholder="ghp_..."
+                             InputType="password"
+                             HelpText="Token is encrypted at rest. Leave empty to remove." />
         </MudStack>
     </DialogContent>
     <DialogActions>

@@ -2,6 +2,13 @@
 @using MediatR
 
 <MudDialog>
+    <TitleContent>
+        <BeaconDialogHeader Variant="signal"
+            Eyebrow="QUERIES"
+            Prefix="Move to"
+            Emphasis="folder"
+            Suffix="." />
+    </TitleContent>
     <DialogContent>
         <MudText Class="mb-3">
             Move query <strong>@QueryName</strong> to:

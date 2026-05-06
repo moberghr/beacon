@@ -4,25 +4,30 @@
 @inject IMediator Mediator
 
 <MudDialog>
+    <TitleContent>
+        <BeaconDialogHeader Variant="signal"
+            Eyebrow="SETTINGS &nbsp;/&nbsp; API KEYS"
+            Prefix="Generate an API"
+            Emphasis="key"
+            Suffix="."
+            Sub="Scoped keys for CI pipelines, monitoring bots, and MCP clients." />
+    </TitleContent>
     <DialogContent>
         @if (_generatedKey == null)
         {
             @* --- Step 1: Configure the key --- *@
-            <MudForm @ref="_form" @bind-IsValid="_isValid">
-                <MudStack Spacing="3">
-                    <MudTextField @bind-Value="_name"
-                                  Label="Key Name"
-                                  Required="true"
-                                  RequiredError="Name is required"
-                                  MaxLength="100"
-                                  Variant="Variant.Outlined"
-                                  HelperText="A memorable name for this key, e.g. 'CI Pipeline' or 'Monitoring Bot'"/>
+            <MudStack Spacing="3">
+                    <BeaconTextField @bind-Value="_name"
+                                     Label="Key Name"
+                                     Required="true"
+                                     MaxLength="100"
+                                     HelpText="A memorable name for this key, e.g. 'CI Pipeline' or 'Monitoring Bot'" />
 
-                    <MudTextField @bind-Value="_description"
-                                  Label="Description (optional)"
-                                  Lines="2"
-                                  MaxLength="500"
-                                  Variant="Variant.Outlined"/>
+                    <BeaconTextField @bind-Value="_description"
+                                     Label="Description (optional)"
+                                     Multiline="true"
+                                     Rows="2"
+                                     MaxLength="500" />
 
                     @* Scopes *@
                     <MudDivider Class="my-1"/>
@@ -31,24 +36,15 @@
                         Grant only the permissions this key requires.
                     </MudText>
                     <MudStack Spacing="1">
-                        <MudCheckBox @bind-Value="_scopeRead" Color="Color.Info" Dense="true">
-                            <MudStack Spacing="0">
-                                <MudText Typo="Typo.body2" Style="font-weight: 600;">Read</MudText>
-                                <MudText Typo="Typo.caption" Color="Color.Secondary">Query data, read configurations and reports</MudText>
-                            </MudStack>
-                        </MudCheckBox>
-                        <MudCheckBox @bind-Value="_scopeExecute" Color="Color.Warning" Dense="true">
-                            <MudStack Spacing="0">
-                                <MudText Typo="Typo.body2" Style="font-weight: 600;">Execute</MudText>
-                                <MudText Typo="Typo.caption" Color="Color.Secondary">Trigger scans, run queries and execute jobs</MudText>
-                            </MudStack>
-                        </MudCheckBox>
-                        <MudCheckBox @bind-Value="_scopeAdmin" Color="Color.Error" Dense="true">
-                            <MudStack Spacing="0">
-                                <MudText Typo="Typo.body2" Style="font-weight: 600;">Admin</MudText>
-                                <MudText Typo="Typo.caption" Color="Color.Secondary">Full access including user management and settings</MudText>
-                            </MudStack>
-                        </MudCheckBox>
+                        <BeaconCheckBox @bind-Value="_scopeRead"
+                                        Label="Read"
+                                        HelpText="Query data, read configurations and reports" />
+                        <BeaconCheckBox @bind-Value="_scopeExecute"
+                                        Label="Execute"
+                                        HelpText="Trigger scans, run queries and execute jobs" />
+                        <BeaconCheckBox @bind-Value="_scopeAdmin"
+                                        Label="Admin"
+                                        HelpText="Full access including user management and settings" />
                     </MudStack>
 
                     @if (!_scopeRead && !_scopeExecute && !_scopeAdmin)
@@ -68,29 +64,25 @@
                     }
                     else
                     {
-                        <MudSelect T="int" MultiSelection="true" @bind-SelectedValues="_selectedProjectIds"
-                                   Label="Projects"
-                                   MultiSelectionTextFunc="@(ids => $"{ids.Count()} project(s) selected")"
-                                   Variant="Variant.Outlined"
-                                   HelperText="Select at least one project for MCP access.">
-                            @foreach (var project in _projects)
-                            {
-                                <MudSelectItem T="int" Value="@project.Id">@project.Name</MudSelectItem>
-                            }
-                        </MudSelect>
+                        <BeaconSelect T="int"
+                                      MultiSelection="true"
+                                      @bind-SelectedValues="_selectedProjectIds"
+                                      Items="@(_projects.Cast<object>())"
+                                      ItemValueSelector="@(x => ((ProjectEntry)x).Id)"
+                                      ItemTextSelector="@(x => ((ProjectEntry)x).Name)"
+                                      Label="Projects"
+                                      HelpText="Select at least one project for MCP access." />
                     }
 
                     @* Expiration *@
                     <MudDivider Class="my-1"/>
                     <MudText Typo="Typo.subtitle2" Style="font-weight: 600;">Expiration (optional)</MudText>
-                    <MudDatePicker @bind-Date="_expiresAt"
-                                   Label="Expiration Date"
-                                   Variant="Variant.Outlined"
-                                   Clearable="true"
-                                   HelperText="Leave empty for a non-expiring key"
-                                   MinDate="@DateTime.Today.AddDays(1)"/>
-                </MudStack>
-            </MudForm>
+                    <BeaconDatePicker @bind-Date="_expiresAt"
+                                     Label="Expiration Date"
+                                     Clearable="true"
+                                     HelpText="Leave empty for a non-expiring key"
+                                     MinDate="@DateTime.Today.AddDays(1)" />
+            </MudStack>
         }
         else
         {
@@ -154,7 +146,7 @@
             <MudButton Color="Color.Primary"
                        Variant="Variant.Filled"
                        OnClick="Generate"
-                       Disabled="@(!_isValid || !HasScope() || _submitting)">
+                       Disabled="@(!CanSubmit)">
                 @if (_submitting)
                 {
                     <MudProgressCircular Size="Size.Small" Indeterminate="true"/>
@@ -181,17 +173,15 @@
 @code {
     [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
 
-    private MudForm _form = null!;
-    private bool _isValid;
     private bool _submitting;
     private bool _copied;
 
-    private string _name = string.Empty;
+    private string? _name = string.Empty;
     private string? _description;
     private bool _scopeRead = true;
     private bool _scopeExecute;
     private bool _scopeAdmin;
-    private IReadOnlyCollection<int> _selectedProjectIds = [];
+    private IEnumerable<int> _selectedProjectIds = [];
     private List<ProjectEntry> _projects = [];
     private DateTime? _expiresAt;
 
@@ -210,6 +200,10 @@
 
     private bool HasScope() => _scopeRead || _scopeExecute || _scopeAdmin;
 
+    private bool CanSubmit => !_submitting
+        && !string.IsNullOrWhiteSpace(_name)
+        && HasScope();
+
     private List<string> GetSelectedScopes()
     {
         var scopes = new List<string>();
@@ -223,7 +217,7 @@
 
     private async Task Generate()
     {
-        if (!_isValid || !HasScope()) return;
+        if (!CanSubmit) return;
 
         _submitting = true;
         try
@@ -231,7 +225,7 @@
             var projectIds = _selectedProjectIds.ToArray();
 
             var result = await Mediator.Send(new CreateApiKeyCommand(
-                _name,
+                _name ?? string.Empty,
                 GetSelectedScopes().ToArray(),
                 projectIds.Length > 0 ? projectIds : null,
                 _expiresAt));

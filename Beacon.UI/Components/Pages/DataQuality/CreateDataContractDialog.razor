@@ -11,6 +11,14 @@
 @inject ISnackbar Snackbar
 
 <MudDialog>
+    <TitleContent>
+        <BeaconDialogHeader Variant="signal"
+            Eyebrow="DATA QUALITY"
+            Prefix="New data"
+            Emphasis="contract"
+            Suffix="."
+            Sub="Define rules on a table to automatically monitor data quality." />
+    </TitleContent>
     <DialogContent>
         <MudForm @ref="_form" @bind-IsValid="_isValid">
             <MudStack Spacing="3">
@@ -26,11 +34,11 @@
                     }
                 </MudStack>
 
-                <MudTextField @bind-Value="_name" Label="Contract Name" Required="true"
-                              RequiredError="Name is required" MaxLength="200" Variant="Variant.Outlined"/>
+                <BeaconTextField @bind-Value="_name" Label="Contract Name" Required="true"
+                                 MaxLength="200" />
 
-                <MudTextField @bind-Value="_description" Label="Description" Lines="2"
-                              MaxLength="1000" Variant="Variant.Outlined"/>
+                <BeaconTextField @bind-Value="_description" Label="Description"
+                                 Multiline="true" Rows="2" MaxLength="1000" />
 
                 <DataSourceSelect @bind-Value="_dataSourceId"
                                    Label="Data Source"
@@ -39,47 +47,45 @@
 
                 <MudGrid Spacing="2">
                     <MudItem xs="6">
-                        <MudTextField @bind-Value="_schemaName" Label="Schema Name" Required="true"
-                                      RequiredError="Schema is required" MaxLength="200" Variant="Variant.Outlined"/>
+                        <BeaconTextField @bind-Value="_schemaName" Label="Schema Name" Required="true"
+                                         MaxLength="200" />
                     </MudItem>
                     <MudItem xs="6">
-                        <MudTextField @bind-Value="_tableName" Label="Table Name" Required="true"
-                                      RequiredError="Table is required" MaxLength="200" Variant="Variant.Outlined"/>
+                        <BeaconTextField @bind-Value="_tableName" Label="Table Name" Required="true"
+                                         MaxLength="200" />
                     </MudItem>
                 </MudGrid>
 
                 <MudGrid Spacing="2">
                     <MudItem xs="6">
-                        <MudTextField @bind-Value="_cronExpression" Label="Cron Expression" Required="true"
-                                      RequiredError="Cron is required" MaxLength="100" Variant="Variant.Outlined"
-                                      HelperText="e.g. 0 */6 * * * (every 6 hours)"/>
+                        <BeaconTextField @bind-Value="_cronExpression" Label="Cron Expression" Required="true"
+                                         MaxLength="100"
+                                         HelpText="e.g. 0 */6 * * * (every 6 hours)" />
                     </MudItem>
                     <MudItem xs="6">
-                        <MudNumericField @bind-Value="_failureThreshold" Label="Failure Threshold (%)"
-                                         Min="0" Max="100" Variant="Variant.Outlined"/>
+                        <BeaconNumericField T="int"
+                                            @bind-Value="_failureThreshold"
+                                            Label="Failure Threshold (%)"
+                                            Min="0" Max="100" />
                     </MudItem>
                 </MudGrid>
 
                 <MudStack Row="true" Spacing="4">
-                    <MudSwitch @bind-Value="_isEnabled" Color="Color.Success" Label="Enabled"/>
-                    <MudSwitch @bind-Value="_alertOnFailure" Color="Color.Warning" Label="Alert on Failure"/>
+                    <BeaconSwitch @bind-Value="_isEnabled" Label="Enabled" />
+                    <BeaconSwitch @bind-Value="_alertOnFailure" Label="Alert on Failure" />
                 </MudStack>
 
                 @* Recipients (visible when Alert on Failure is on) *@
                 @if (_alertOnFailure)
                 {
-                    <MudSelect T="int" Label="Notification Recipients" MultiSelection="true"
-                               @bind-SelectedValues="_selectedRecipientIds"
-                               Variant="Variant.Outlined"
-                               AdornmentIcon="@Icons.Material.Filled.NotificationsActive"
-                               HelperText="Select recipients to notify when the score drops below the threshold">
-                        @foreach (var recipient in _recipients)
-                        {
-                            <MudSelectItem T="int" Value="@recipient.RecipientId!.Value">
-                                @recipient.Name (@recipient.NotificationType)
-                            </MudSelectItem>
-                        }
-                    </MudSelect>
+                    <BeaconSelect T="int"
+                                  Label="Notification Recipients"
+                                  MultiSelection="true"
+                                  @bind-SelectedValues="_selectedRecipientIds"
+                                  HelpText="Select recipients to notify when the score drops below the threshold"
+                                  Items="@(_recipients.Cast<object>())"
+                                  ItemValueSelector="@(x => ((RecipientData)x).RecipientId!.Value)"
+                                  ItemTextSelector="@(x => $"{((RecipientData)x).Name} ({((RecipientData)x).NotificationType})")" />
                 }
 
                 @* Rules *@
@@ -103,44 +109,42 @@
 
                             <MudGrid Spacing="2">
                                 <MudItem xs="6">
-                                    <MudTextField @bind-Value="_rules[index].Name" Label="Rule Name" Required="true"
-                                                  MaxLength="200" Variant="Variant.Outlined" Margin="Margin.Dense"/>
+                                    <BeaconTextField Value="@_rules[index].Name"
+                                                     ValueChanged="@(v => _rules[index].Name = v ?? string.Empty)"
+                                                     Label="Rule Name" Required="true"
+                                                     MaxLength="200" />
                                 </MudItem>
                                 <MudItem xs="6">
-                                    <MudSelect T="DataContractRuleType" @bind-Value="_rules[index].RuleType"
-                                               Label="Rule Type" Required="true" Variant="Variant.Outlined" Margin="Margin.Dense">
-                                        @foreach (DataContractRuleType rt in Enum.GetValues<DataContractRuleType>())
-                                        {
-                                            <MudSelectItem T="DataContractRuleType" Value="@rt">@rt</MudSelectItem>
-                                        }
-                                    </MudSelect>
+                                    <BeaconSelect T="DataContractRuleType"
+                                                  @bind-Value="_rules[index].RuleType"
+                                                  Label="Rule Type"
+                                                  Required="true" />
                                 </MudItem>
                             </MudGrid>
 
                             <MudGrid Spacing="2">
                                 <MudItem xs="4">
-                                    <MudTextField @bind-Value="_rules[index].ColumnName" Label="Column (optional)"
-                                                  MaxLength="200" Variant="Variant.Outlined" Margin="Margin.Dense"/>
+                                    <BeaconTextField @bind-Value="_rules[index].ColumnName" Label="Column (optional)"
+                                                     MaxLength="200" />
                                 </MudItem>
                                 <MudItem xs="4">
-                                    <MudSelect T="DataContractSeverity" @bind-Value="_rules[index].Severity"
-                                               Label="Severity" Variant="Variant.Outlined" Margin="Margin.Dense">
-                                        @foreach (DataContractSeverity s in Enum.GetValues<DataContractSeverity>())
-                                        {
-                                            <MudSelectItem T="DataContractSeverity" Value="@s">@s</MudSelectItem>
-                                        }
-                                    </MudSelect>
+                                    <BeaconSelect T="DataContractSeverity"
+                                                  @bind-Value="_rules[index].Severity"
+                                                  Label="Severity" />
                                 </MudItem>
                                 <MudItem xs="4">
-                                    <MudNumericField @bind-Value="_rules[index].Weight" Label="Weight"
-                                                     Min="0.1" Max="10.0" Step="0.1"
-                                                     Variant="Variant.Outlined" Margin="Margin.Dense"/>
+                                    <BeaconNumericField T="double"
+                                                        @bind-Value="_rules[index].Weight"
+                                                        Label="Weight"
+                                                        Min="0.1" Max="10.0" Step="0.1" />
                                 </MudItem>
                             </MudGrid>
 
-                            <MudTextField @bind-Value="_rules[index].Configuration" Label="Configuration (JSON)"
-                                          Lines="2" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                          HelperText="@GetConfigHint(_rules[index].RuleType)"/>
+                            <BeaconTextField Value="@_rules[index].Configuration"
+                                             ValueChanged="@(v => _rules[index].Configuration = v ?? string.Empty)"
+                                             Label="Configuration (JSON)"
+                                             Multiline="true" Rows="2"
+                                             HelpText="@GetConfigHint(_rules[index].RuleType)" />
                         </MudStack>
                     </MudPaper>
                 }
@@ -174,19 +178,19 @@
     private bool _submitting;
     private bool _isEdit;
 
-    private string _name = string.Empty;
+    private string? _name = string.Empty;
     private string? _description;
     private int? _dataSourceId;
-    private string _schemaName = string.Empty;
-    private string _tableName = string.Empty;
-    private string _cronExpression = "0 */6 * * *";
+    private string? _schemaName = string.Empty;
+    private string? _tableName = string.Empty;
+    private string? _cronExpression = "0 */6 * * *";
     private bool _isEnabled = true;
     private bool _alertOnFailure = true;
     private int _failureThreshold = 80;
 
     private List<RuleEditModel> _rules = new();
     private List<RecipientData> _recipients = new();
-    private IReadOnlyCollection<int> _selectedRecipientIds = new HashSet<int>();
+    private IEnumerable<int> _selectedRecipientIds = new HashSet<int>();
 
     protected override async Task OnInitializedAsync()
     {
@@ -323,11 +327,11 @@
                 await Mediator.Send(new UpdateDataContractCommand(
                     DataContractId: EditContractId!.Value,
                     DataSourceId: _dataSourceId.Value,
-                    SchemaName: _schemaName,
-                    TableName: _tableName,
-                    Name: _name,
+                    SchemaName: _schemaName ?? string.Empty,
+                    TableName: _tableName ?? string.Empty,
+                    Name: _name ?? string.Empty,
                     Description: _description,
-                    CronExpression: _cronExpression,
+                    CronExpression: _cronExpression ?? string.Empty,
                     IsEnabled: _isEnabled,
                     OwnerUserId: null,
                     AlertOnFailure: _alertOnFailure,
@@ -341,11 +345,11 @@
             {
                 var result = await Mediator.Send(new CreateDataContractCommand(
                     DataSourceId: _dataSourceId.Value,
-                    SchemaName: _schemaName,
-                    TableName: _tableName,
-                    Name: _name,
+                    SchemaName: _schemaName ?? string.Empty,
+                    TableName: _tableName ?? string.Empty,
+                    Name: _name ?? string.Empty,
                     Description: _description,
-                    CronExpression: _cronExpression,
+                    CronExpression: _cronExpression ?? string.Empty,
                     IsEnabled: _isEnabled,
                     OwnerUserId: null,
                     AlertOnFailure: _alertOnFailure,

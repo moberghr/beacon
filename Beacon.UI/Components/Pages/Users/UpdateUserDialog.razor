@@ -6,37 +6,29 @@
 
 <MudDialog Class="pb-2">
     <TitleContent>
-        <MudText Typo="Typo.h6">
-            <MudIcon Icon="@Icons.Material.Filled.Edit" Class="mr-1 mb-n1" />
-            Edit User
-        </MudText>
+        <BeaconDialogHeader Variant="grid"
+            Eyebrow="USERS"
+            Prefix="Edit"
+            Emphasis="user"
+            Suffix="." />
     </TitleContent>
     <DialogContent>
         <MudForm @ref="_form" @bind-IsValid="_isFormValid">
-            <MudTextField @bind-Value="_request.UserName"
-                          Label="Username"
-                          Required="true"
-                          RequiredError="Username is required"
-                          Variant="Variant.Outlined"
-                          Margin="Margin.Dense"
-                          Class="mb-3" />
+            <BeaconTextField @bind-Value="_request.UserName"
+                             Label="Username"
+                             Required="true" />
 
-            <MudTextField @bind-Value="_request.Email"
-                          Label="Email"
-                          InputType="InputType.Email"
-                          Variant="Variant.Outlined"
-                          Margin="Margin.Dense"
-                          Class="mb-3" />
+            <BeaconTextField @bind-Value="_request.Email"
+                             Label="Email"
+                             InputType="email" />
 
-            <MudTextField @bind-Value="_request.DisplayName"
-                          Label="Display Name"
-                          Variant="Variant.Outlined"
-                          Margin="Margin.Dense"
-                          Class="mb-3" />
+            <BeaconTextField @bind-Value="_request.DisplayName"
+                             Label="Display Name" />
 
-            <MudSwitch @bind-Value="_request.IsEnabled" Label="@(_request.IsEnabled ? "Enabled" : "Disabled")"
-                       Color="Color.Success" UnCheckedColor="Color.Error"
-                       Disabled="@User.IsSuperAdmin" Class="mb-3" />
+            <BeaconSwitch @bind-Value="_request.IsEnabled"
+                          Label="@(_request.IsEnabled ? "Enabled" : "Disabled")"
+                          Disabled="@User.IsSuperAdmin"
+                          CssClass="mb-3" />
 
             @if (!User.IsInternalUser)
             {
@@ -83,17 +75,14 @@
             <MudDivider Class="my-4" />
 
             <MudText Typo="Typo.subtitle1" Class="mb-2">Reset Password</MudText>
-            <MudStack Row="true" Spacing="2">
-                <MudTextField @bind-Value="_newPassword"
-                              Label="New Password"
-                              InputType="@(_showNewPassword ? InputType.Text : InputType.Password)"
-                              Variant="Variant.Outlined"
-                              Margin="Margin.Dense"
-                              Validation="@(new Func<string, string?>(ValidatePassword))"
-                              Adornment="Adornment.End"
-                              AdornmentIcon="@(_showNewPassword ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)"
-                              OnAdornmentClick="@(() => _showNewPassword = !_showNewPassword)"
-                              Style="flex: 1;" />
+            <MudStack Row="true" Spacing="2" AlignItems="AlignItems.End">
+                <BeaconTextField @bind-Value="_newPassword"
+                                 Label="New Password"
+                                 InputType="@(_showNewPassword ? "text" : "password")"
+                                 ErrorText="@ValidatePassword(_newPassword)"
+                                 AdornmentIcon="@(_showNewPassword ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)"
+                                 OnAdornmentClick="@(() => _showNewPassword = !_showNewPassword)"
+                                 CssClass="bx-field--full" />
                 <MudButton Variant="Variant.Outlined" Color="Color.Warning"
                            Disabled="@(string.IsNullOrEmpty(_newPassword) || ValidatePassword(_newPassword) != null)"
                            OnClick="ResetPassword">
