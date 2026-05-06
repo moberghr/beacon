@@ -43,23 +43,23 @@
             <Actions>
                 @if (_actor.PendingPlanCount > 0)
                 {
-                    <MudButton Variant="Variant.Filled" Color="Color.Warning" OnClick="@OpenPendingPlanReview" StartIcon="@Icons.Material.Filled.RateReview">
+                    <BeaconButton Variant="primary" OnClick="@OpenPendingPlanReview" Icon="@Icons.Material.Filled.RateReview">
                         Review Plan (@_actor.PendingPlanCount)
-                    </MudButton>
+                    </BeaconButton>
                 }
                 @if (_actor.Status == AiActorStatus.Active)
                 {
-                    <MudButton Variant="Variant.Outlined" Color="Color.Warning" OnClick="@PauseActor" Disabled="@(!_canWrite)">Pause</MudButton>
-                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@TriggerThinkCycle" Disabled="@(!_canWrite || _executingThinkCycle)">
+                    <BeaconButton OnClick="@PauseActor" Disabled="@(!_canWrite)">Pause</BeaconButton>
+                    <BeaconButton Variant="primary" OnClick="@TriggerThinkCycle" Disabled="@(!_canWrite || _executingThinkCycle)" Loading="@_executingThinkCycle">
                         @(_executingThinkCycle ? "Thinking..." : "Trigger Think Cycle")
-                    </MudButton>
+                    </BeaconButton>
                 }
                 else if (_actor.Status == AiActorStatus.Paused || _actor.Status == AiActorStatus.Failed)
                 {
-                    <MudButton Variant="Variant.Filled" Color="Color.Success" OnClick="@ResumeActor" Disabled="@(!_canWrite)">Resume</MudButton>
+                    <BeaconButton Variant="primary" OnClick="@ResumeActor" Disabled="@(!_canWrite)">Resume</BeaconButton>
                 }
-                <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="@OpenRefineDialog" Disabled="@(!_canWrite)">Refine</MudButton>
-                <MudIconButton Icon="@Icons.Material.Filled.Archive" Color="Color.Error" OnClick="@ArchiveActor" Title="Archive Actor" Disabled="@(!_isAdmin)" />
+                <BeaconButton Variant="ghost" OnClick="@OpenRefineDialog" Disabled="@(!_canWrite)">Refine</BeaconButton>
+                <BeaconIconButton Icon="@Icons.Material.Filled.Archive" Variant="danger" OnClick="@ArchiveActor" Title="Archive Actor" Disabled="@(!_isAdmin)" />
             </Actions>
         </PageHeader>
 
@@ -143,10 +143,9 @@
                             <MudTd>@context.SubscriptionCount</MudTd>
                             <MudTd>
                                 <MudTooltip Text="@(context.IsLocked ? "Locked - AI cannot modify this query" : "Unlocked - AI can modify this query")">
-                                    <MudIconButton
+                                    <BeaconIconButton
                                         Icon="@(context.IsLocked ? Icons.Material.Filled.Lock : Icons.Material.Filled.LockOpen)"
-                                        Color="@(context.IsLocked ? Color.Warning : Color.Default)"
-                                        Size="Size.Small"
+                                        Size="sm"
                                         OnClick="@(() => ToggleQueryLock(context))"
                                         Disabled="@(!_isAdmin)"
                                     />
@@ -154,6 +153,7 @@
                             </MudTd>
                             <MudTd>@context.CreatedTime.ToString("g")</MudTd>
                             <MudTd>
+                                @* TODO: Beacon migration — Href= not supported by BeaconIconButton. *@
                                 <MudIconButton Icon="@Icons.Material.Filled.Visibility" Size="Size.Small" Href="@($"queries/{context.QueryId}")" />
                             </MudTd>
                         </RowTemplate>
@@ -188,6 +188,7 @@
                             <MudTd>@context.NotificationTrigger.ToString()</MudTd>
                             <MudTd>@context.CreatedTime.ToString("g")</MudTd>
                             <MudTd>
+                                @* TODO: Beacon migration — Href= not supported by BeaconIconButton. *@
                                 <MudIconButton Icon="@Icons.Material.Filled.Visibility" Size="Size.Small" Href="@($"subscriptions/{context.SubscriptionId}")" />
                             </MudTd>
                         </RowTemplate>

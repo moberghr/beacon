@@ -11,167 +11,154 @@
 
 <BeaconPageTitle Title="@(IsEdit ? "Edit Migration Job" : "Create Migration Job")"/>
 
-<div class="@RootClass">
-    <BeaconPageHero Variant="nodes"
-                    Prefix="@(IsEdit ? "Edit" : "Create")"
-                    Emphasis="migration"
-                    Suffix="job.">
-        <Eyebrow>
-            <span>Beacon</span>
-            <span class="page-hero__sep">/</span>
-            <span>@(IsEdit ? "Edit Migration Job" : "Create Migration Job")</span>
-        </Eyebrow>
-        <Actions>
-            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.ArrowBack" OnClick="@NavigateBack">Back to List</MudButton>
-        </Actions>
-    </BeaconPageHero>
+<BeaconPageHero Variant="nodes"
+                Prefix="@(IsEdit ? "Edit" : "Create")"
+                Emphasis="migration"
+                Suffix="job.">
+    <Eyebrow>
+        <span>Beacon</span>
+        <span class="page-hero__sep">/</span>
+        <span>@(IsEdit ? "Edit Migration Job" : "Create Migration Job")</span>
+    </Eyebrow>
+    <Actions>
+        <BeaconButton Icon="@Icons.Material.Filled.ArrowBack" OnClick="@NavigateBack">Back to List</BeaconButton>
+    </Actions>
+</BeaconPageHero>
 
-    <MudAlert Severity="Severity.Warning" Class="mb-4" Variant="Variant.Filled">
-        <strong>Experimental Feature:</strong> Data Migration is currently in experimental phase. Please test thoroughly before using in production environments.
-    </MudAlert>
+<MudAlert Severity="Severity.Warning" Class="mb-4" Variant="Variant.Filled">
+    <strong>Experimental Feature:</strong> Data Migration is currently in experimental phase. Please test thoroughly before using in production environments.
+</MudAlert>
 
-    <MudForm @ref="_form" Model="_model" @onsubmit="SaveJob">
-        <MudCard>
-            <MudCardContent>
-                <MudGrid>
-                    <!-- Basic Information -->
-                    <MudItem xs="12" md="6">
-                        <MudTextField @bind-Value="_model.Name"
-                                     Label="Job Name"
-                                     Required="true"
-                                     MaxLength="200" />
-                    </MudItem>
+<MudForm @ref="_form" Model="_model" @onsubmit="SaveJob">
+    <MudCard>
+        <MudCardContent>
+            <MudGrid>
+                <!-- Basic Information -->
+                <MudItem xs="12" md="6">
+                    <MudTextField @bind-Value="_model.Name"
+                                 Label="Job Name"
+                                 Required="true"
+                                 MaxLength="200" />
+                </MudItem>
 
+                <MudItem xs="12">
+                    <MudTextField @bind-Value="_model.Description"
+                                 Label="Description"
+                                 Required="true"
+                                 Lines="3"
+                                 MaxLength="1000" />
+                </MudItem>
+                
+                
+                <MudItem xs="12">
+                    <MudText Typo="Typo.h6" Class="mb-2">Source Query Configuration</MudText>
+                    <MudText Typo="Typo.body2" Class="mb-4">Build your data extraction query using multiple steps across different data sources if needed.</MudText>
+                    
+                    <QueryStepBuilder Query="@_queryModel"
+                                      AvailableProjects="@_availableProjects"
+                                      OnQueryChanged="@OnQueryChanged"
+                                      OnPreviewStep="@OnPreviewStep"
+                                      OnPreviewStepWithParameters="@OnPreviewStepWithParameters"
+                                      OnExecuteQuery="@OnExecuteQuery"
+                                      OnSaveQuery="@(async () => {})" />
+                </MudItem>
+                
+                @if (_queryModel?.Steps?.Any() == true)
+                {
                     <MudItem xs="12">
-                        <MudTextField @bind-Value="_model.Description"
-                                     Label="Description"
-                                     Required="true"
-                                     Lines="3"
-                                     MaxLength="1000" />
+                        <QueryFlowDiagram Query="@_queryModel" />
                     </MudItem>
-                    
-                    
-                    <MudItem xs="12">
-                        <MudText Typo="Typo.h6" Class="mb-2">Source Query Configuration</MudText>
-                        <MudText Typo="Typo.body2" Class="mb-4">Build your data extraction query using multiple steps across different data sources if needed.</MudText>
-                        
-                        <QueryStepBuilder Query="@_queryModel"
-                                          AvailableProjects="@_availableProjects"
-                                          OnQueryChanged="@OnQueryChanged"
-                                          OnPreviewStep="@OnPreviewStep"
-                                          OnPreviewStepWithParameters="@OnPreviewStepWithParameters"
-                                          OnExecuteQuery="@OnExecuteQuery"
-                                          OnSaveQuery="@(async () => {})" />
-                    </MudItem>
-                    
-                    @if (_queryModel?.Steps?.Any() == true)
-                    {
-                        <MudItem xs="12">
-                            <QueryFlowDiagram Query="@_queryModel" />
-                        </MudItem>
-                    }
-                    
-                    <!-- Destination Configuration -->
-                    <MudItem xs="12" md="6">
-                        <DataSourceSelect Value="@((int?)_model.DestinationDataSourceId)"
-                                           ValueChanged="@(v => _model.DestinationDataSourceId = v ?? 0)"
-                                           Label="Destination Data Source"
-                                           Required="true"
-                                           ShowEngineType="true"/>
-                    </MudItem>
-                    
-                    <MudItem xs="12" md="6">
-                        <MudTextField @bind-Value="_model.DestinationTable" 
-                                     Label="Destination Table" 
-                                     Required="true" 
-                                                                          HelperText="Table name in destination database" />
-                    </MudItem>
-                    
-                    <MudItem xs="12" md="6">
-                        <MudSelect @bind-Value="_model.Mode" Label="Migration Mode" >
-                            <MudSelectItem Value="MigrationMode.Insert">Insert Only</MudSelectItem>
-                            <MudSelectItem Value="MigrationMode.Upsert">Insert or Update</MudSelectItem>
-                            <MudSelectItem Value="MigrationMode.Truncate">Truncate & Insert</MudSelectItem>
-                        </MudSelect>
-                    </MudItem>
-                    
-                    <!-- Execution Options -->
-                    <MudItem xs="12" md="6">
-                        <CronExpressionField @bind-Value="_model.Schedule"
-                                            Label="Schedule (Cron Expression)"
-                                            Required="false"
-                                            Placeholder="* * * * * (leave empty for manual execution only)" />
-                    </MudItem>
-                    
-                    <MudItem xs="12" md="3">
-                        <MudNumericField @bind-Value="_model.MaxRetries" 
-                                        Label="Max Retries" 
-                                                                                Min="0" Max="10" />
-                    </MudItem>
-                    
-                    <MudItem xs="12" md="3">
-                        <MudNumericField @bind-Value="_model.TimeoutMinutes" 
-                                        Label="Timeout (Minutes)" 
-                                                                                Min="1" Max="1440" />
-                    </MudItem>
-                    
-                    <MudItem xs="12" md="6">
-                        <MudCheckBox T="bool" @bind-Checked="_model.IsEnabled" 
-                                    Label="Enable migration job" />
-                    </MudItem>
-                    
-                    <MudItem xs="12" md="6">
-                        <MudCheckBox T="bool" @bind-Checked="_model.ValidateBeforeExecution" 
-                                    Label="Validate query before execution" />
-                    </MudItem>
-                    
-                    <!-- Advanced Options -->
-                    <MudItem xs="12">
-                        <MudTextField @bind-Value="_model.TransformationScript" 
-                                     Label="Data Transformation Script" 
-                                     Lines="5"
-                                                                          HelperText="Optional: Use result1, result2 syntax for data transformation" />
-                    </MudItem>
-                </MudGrid>
-            </MudCardContent>
-            
-            <MudCardActions>
-                <MudButton ButtonType="ButtonType.Submit" 
-                          Variant="Variant.Filled" 
-                          Color="Color.Primary"
+                }
+                
+                <!-- Destination Configuration -->
+                <MudItem xs="12" md="6">
+                    <DataSourceSelect Value="@((int?)_model.DestinationDataSourceId)"
+                                       ValueChanged="@(v => _model.DestinationDataSourceId = v ?? 0)"
+                                       Label="Destination Data Source"
+                                       Required="true"
+                                       ShowEngineType="true"/>
+                </MudItem>
+                
+                <MudItem xs="12" md="6">
+                    <MudTextField @bind-Value="_model.DestinationTable" 
+                                 Label="Destination Table" 
+                                 Required="true" 
+                                                                      HelperText="Table name in destination database" />
+                </MudItem>
+                
+                <MudItem xs="12" md="6">
+                    <MudSelect @bind-Value="_model.Mode" Label="Migration Mode" >
+                        <MudSelectItem Value="MigrationMode.Insert">Insert Only</MudSelectItem>
+                        <MudSelectItem Value="MigrationMode.Upsert">Insert or Update</MudSelectItem>
+                        <MudSelectItem Value="MigrationMode.Truncate">Truncate & Insert</MudSelectItem>
+                    </MudSelect>
+                </MudItem>
+                
+                <!-- Execution Options -->
+                <MudItem xs="12" md="6">
+                    <CronExpressionField @bind-Value="_model.Schedule"
+                                        Label="Schedule (Cron Expression)"
+                                        Required="false"
+                                        Placeholder="* * * * * (leave empty for manual execution only)" />
+                </MudItem>
+                
+                <MudItem xs="12" md="3">
+                    <MudNumericField @bind-Value="_model.MaxRetries" 
+                                    Label="Max Retries" 
+                                                                            Min="0" Max="10" />
+                </MudItem>
+                
+                <MudItem xs="12" md="3">
+                    <MudNumericField @bind-Value="_model.TimeoutMinutes" 
+                                    Label="Timeout (Minutes)" 
+                                                                            Min="1" Max="1440" />
+                </MudItem>
+                
+                <MudItem xs="12" md="6">
+                    <MudCheckBox T="bool" @bind-Checked="_model.IsEnabled" 
+                                Label="Enable migration job" />
+                </MudItem>
+                
+                <MudItem xs="12" md="6">
+                    <MudCheckBox T="bool" @bind-Checked="_model.ValidateBeforeExecution" 
+                                Label="Validate query before execution" />
+                </MudItem>
+                
+                <!-- Advanced Options -->
+                <MudItem xs="12">
+                    <MudTextField @bind-Value="_model.TransformationScript" 
+                                 Label="Data Transformation Script" 
+                                 Lines="5"
+                                                                      HelperText="Optional: Use result1, result2 syntax for data transformation" />
+                </MudItem>
+            </MudGrid>
+        </MudCardContent>
+        
+        <MudCardActions>
+            <BeaconButton ButtonType="submit"
+                          Variant="primary"
                           Disabled="@_loading"
+                          Loading="@_loading"
                           OnClick="@SaveJob">
-                    @if (_loading)
-                    {
-                        <MudProgressCircular Class="ms-n1" Size="Size.Small" Indeterminate="true"/>
-                        <MudText Class="ms-2">Saving...</MudText>
-                    }
-                    else
-                    {
-                        @(IsEdit ? "Update" : "Create")
-                    }
-                </MudButton>
-                <MudButton OnClick="@NavigateBack" 
-                          Variant="Variant.Text">
-                    Cancel
-                </MudButton>
-                <MudButton OnClick="@ValidateOnly" 
-                          Variant="Variant.Outlined"
-                          Color="Color.Info"
+                @(_loading ? "Saving..." : (IsEdit ? "Update" : "Create"))
+            </BeaconButton>
+            <BeaconButton Variant="ghost" OnClick="@NavigateBack">
+                Cancel
+            </BeaconButton>
+            <BeaconButton OnClick="@ValidateOnly"
                           Disabled="@_loading">
-                    Validate
-                </MudButton>
-            </MudCardActions>
-        </MudCard>
-    </MudForm>
+                Validate
+            </BeaconButton>
+        </MudCardActions>
+    </MudCard>
+</MudForm>
 
-    @* Query Execution Results Preview *@
-    @if (_currentQueryResult != null)
-    {
-        <QueryExecutionResultsPreview ExecutionResult="@_currentQueryResult"
-                                      OnClose="@CloseResultsPreview" />
-    }
-</div>
+@* Query Execution Results Preview *@
+@if (_currentQueryResult != null)
+{
+    <QueryExecutionResultsPreview ExecutionResult="@_currentQueryResult"
+                                  OnClose="@CloseResultsPreview" />
+}
 
 @inject IMigrationService _migrationService
 @inject IDataSourceService _dataSourceService

@@ -1,0 +1,73 @@
+@* Icon-only button — Beacon visual language.
+
+   Usage:
+       <BeaconIconButton Icon="@Icons.Material.Rounded.Edit" OnClick="Edit" Title="Edit" />
+       <BeaconIconButton Icon="@Icons.Material.Rounded.Delete" Variant="danger" OnClick="Delete" Title="Delete" /> *@
+
+<button type="button"
+        class="bx-btn bx-btn--icon @VariantClass @SizeClass @CssClass"
+        disabled="@(Disabled || Loading)"
+        @onclick="OnClickInternal"
+        @onclick:stopPropagation="@StopPropagation"
+        title="@Title"
+        aria-label="@(string.IsNullOrEmpty(AriaLabel) ? Title : AriaLabel)">
+    @if (Loading)
+    {
+        <span class="bx-btn__spinner" aria-hidden="true"></span>
+    }
+    else
+    {
+        <MudIcon Icon="@Icon" Size="@IconSize" />
+    }
+</button>
+
+@code {
+    [Parameter, EditorRequired] public string Icon { get; set; } = "";
+
+    /// <summary>"default" (transparent), "primary", "ghost", "danger".</summary>
+    [Parameter] public string Variant { get; set; } = "ghost";
+
+    /// <summary>"sm", "md" (default), "lg".</summary>
+    [Parameter] public string Size { get; set; } = "md";
+
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public bool Loading { get; set; }
+    [Parameter] public bool StopPropagation { get; set; }
+
+    [Parameter] public string? Title { get; set; }
+    [Parameter] public string? AriaLabel { get; set; }
+    [Parameter] public string? CssClass { get; set; }
+
+    [Parameter] public EventCallback<MouseEventArgs> OnClick { get; set; }
+
+    private string VariantClass => Variant switch
+    {
+        "primary" => "bx-btn--primary",
+        "ghost"   => "bx-btn--ghost",
+        "danger"  => "bx-btn--danger",
+        _         => ""
+    };
+
+    private string SizeClass => Size switch
+    {
+        "sm" => "bx-btn--sm",
+        "lg" => "bx-btn--lg",
+        _    => ""
+    };
+
+    private MudBlazor.Size IconSize => Size switch
+    {
+        "sm" => MudBlazor.Size.Small,
+        "lg" => MudBlazor.Size.Medium,
+        _    => MudBlazor.Size.Small
+    };
+
+    private async Task OnClickInternal(MouseEventArgs e)
+    {
+        if (Loading || Disabled) return;
+        if (OnClick.HasDelegate)
+        {
+            await OnClick.InvokeAsync(e);
+        }
+    }
+}

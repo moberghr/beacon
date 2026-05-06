@@ -72,19 +72,15 @@
                 <MudTabPanel Text="Learned Patterns" Icon="@Icons.Material.Filled.Lightbulb" BadgeData="@(_stats.PatternsPending > 0 ? _stats.PatternsPending : null)" BadgeColor="Color.Warning">
                     <MudStack Spacing="2">
                         <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+                            @* TODO: Beacon migration — custom label "Auto-Approved" differs from enum name. Leave as MudSelect. *@
                             <MudSelect T="McpPatternStatus?" @bind-Value="_patternStatusFilter" Label="Status" Variant="Variant.Outlined" Dense="true" Clearable="true" Style="max-width: 200px;">
                                 <MudSelectItem T="McpPatternStatus?" Value="McpPatternStatus.Pending">Pending</MudSelectItem>
                                 <MudSelectItem T="McpPatternStatus?" Value="McpPatternStatus.AutoApproved">Auto-Approved</MudSelectItem>
                                 <MudSelectItem T="McpPatternStatus?" Value="McpPatternStatus.Approved">Approved</MudSelectItem>
                                 <MudSelectItem T="McpPatternStatus?" Value="McpPatternStatus.Rejected">Rejected</MudSelectItem>
                             </MudSelect>
-                            <MudSelect T="McpPatternType?" @bind-Value="_patternTypeFilter" Label="Type" Variant="Variant.Outlined" Dense="true" Clearable="true" Style="max-width: 200px;">
-                                @foreach (var t in Enum.GetValues<McpPatternType>())
-                                {
-                                    <MudSelectItem T="McpPatternType?" Value="t">@t</MudSelectItem>
-                                }
-                            </MudSelect>
-                            <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="LoadPatterns" StartIcon="@Icons.Material.Filled.Refresh">Refresh</MudButton>
+                            <BeaconSelect T="McpPatternType?" @bind-Value="_patternTypeFilter" Label="Type" Clearable="true" CssClass="bx-field--narrow" />
+                            <BeaconButton Icon="@Icons.Material.Filled.Refresh" OnClick="LoadPatterns">Refresh</BeaconButton>
                         </MudStack>
 
                         <MudDataGrid Items="@FilteredPatterns" Dense="true" Hover="true" Bordered="true" Striped="true">
@@ -115,16 +111,16 @@
                                     <CellTemplate>
                                         @if (context.Item.Status == McpPatternStatus.Pending)
                                         {
-                                            <MudIconButton Icon="@Icons.Material.Filled.Check" Color="Color.Success" Size="Size.Small"
-                                                           OnClick="() => UpdatePatternStatus(context.Item.Id, McpPatternStatus.Approved)"/>
-                                            <MudIconButton Icon="@Icons.Material.Filled.Close" Color="Color.Error" Size="Size.Small"
-                                                           OnClick="() => UpdatePatternStatus(context.Item.Id, McpPatternStatus.Rejected)"/>
+                                            <BeaconIconButton Icon="@Icons.Material.Filled.Check" Variant="primary" Size="sm"
+                                                              OnClick="() => UpdatePatternStatus(context.Item.Id, McpPatternStatus.Approved)"/>
+                                            <BeaconIconButton Icon="@Icons.Material.Filled.Close" Variant="danger" Size="sm"
+                                                              OnClick="() => UpdatePatternStatus(context.Item.Id, McpPatternStatus.Rejected)"/>
                                         }
                                         @if (context.Item.Status == McpPatternStatus.AutoApproved)
                                         {
-                                            <MudIconButton Icon="@Icons.Material.Filled.Close" Color="Color.Error" Size="Size.Small"
-                                                           OnClick="() => UpdatePatternStatus(context.Item.Id, McpPatternStatus.Rejected)"
-                                                           Title="Reject"/>
+                                            <BeaconIconButton Icon="@Icons.Material.Filled.Close" Variant="danger" Size="sm"
+                                                              OnClick="() => UpdatePatternStatus(context.Item.Id, McpPatternStatus.Rejected)"
+                                                              Title="Reject"/>
                                         }
                                     </CellTemplate>
                                 </TemplateColumn>
@@ -166,10 +162,10 @@
                                 <CellTemplate>
                                     @if (context.Item.Status == McpDocPatchStatus.Proposed)
                                     {
-                                        <MudIconButton Icon="@Icons.Material.Filled.Check" Color="Color.Success" Size="Size.Small"
-                                                       OnClick="() => ApplyPatch(context.Item.Id)"/>
-                                        <MudIconButton Icon="@Icons.Material.Filled.Close" Color="Color.Error" Size="Size.Small"
-                                                       OnClick="() => RejectPatch(context.Item.Id)"/>
+                                        <BeaconIconButton Icon="@Icons.Material.Filled.Check" Variant="primary" Size="sm"
+                                                          OnClick="() => ApplyPatch(context.Item.Id)"/>
+                                        <BeaconIconButton Icon="@Icons.Material.Filled.Close" Variant="danger" Size="sm"
+                                                          OnClick="() => RejectPatch(context.Item.Id)"/>
                                     }
                                 </CellTemplate>
                             </TemplateColumn>

@@ -36,12 +36,13 @@
                             Auto-refresh: @_dashboard.RefreshIntervalSeconds.Value s
                         </MudChip>
                     }
-                    <MudIconButton Icon="@Icons.Material.Filled.Refresh"
-                                   Color="Color.Primary"
-                                   OnClick="RefreshDashboard"
-                                   Title="Refresh now"/>
+                    <BeaconIconButton Icon="@Icons.Material.Filled.Refresh"
+                                      Variant="primary"
+                                      OnClick="RefreshDashboard"
+                                      Title="Refresh now"/>
                     @if (_dashboard.UserPermissionLevel >= DashboardPermissionLevel.Edit)
                     {
+                        @* TODO: Beacon migration — Href= not supported by BeaconButton. *@
                         <MudButton Variant="Variant.Outlined"
                                    StartIcon="@Icons.Material.Filled.Edit"
                                    Color="Color.Info"
@@ -64,6 +65,7 @@
                         </MudText>
                         @if (_dashboard.UserPermissionLevel >= DashboardPermissionLevel.Edit)
                         {
+                            @* TODO: Beacon migration — Href= not supported by BeaconButton. *@
                             <MudButton Variant="Variant.Filled"
                                        Color="Color.Primary"
                                        StartIcon="@Icons.Material.Filled.Edit"

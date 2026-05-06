@@ -30,10 +30,9 @@
             </MudStack>
         </CardHeaderContent>
         <CardHeaderActions>
-            <MudIconButton Icon="@Icons.Material.Filled.Close" 
-                           Color="Color.Default" 
-                           Size="Size.Small"
-                           OnClick="OnClose" />
+            <BeaconIconButton Icon="@Icons.Material.Filled.Close"
+                              Size="sm"
+                              OnClick="OnClose" />
         </CardHeaderActions>
     </MudCardHeader>
     <MudCardContent>
@@ -191,12 +190,12 @@
                                                     </MudText>
                                                 }
                                             </MudCollapse>
-                                            <MudButton Size="Size.Small" 
-                                                       Variant="Variant.Text"
-                                                       StartIcon="@(_expandedSteps.GetValueOrDefault(stepResult.StepOrder, false) ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)"
-                                                       OnClick="@(() => ToggleStepExpansion(stepResult.StepOrder))">
+                                            <BeaconButton Size="sm"
+                                                          Variant="ghost"
+                                                          Icon="@(_expandedSteps.GetValueOrDefault(stepResult.StepOrder, false) ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)"
+                                                          OnClick="@(() => ToggleStepExpansion(stepResult.StepOrder))">
                                                 @(_expandedSteps.GetValueOrDefault(stepResult.StepOrder, false) ? "Hide Data" : "Show Data")
-                                            </MudButton>
+                                            </BeaconButton>
                                         }
                                         else
                                         {

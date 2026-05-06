@@ -33,11 +33,9 @@
         <MudTabPanel Text="General" Icon="@Icons.Material.Filled.Settings">
             <MudGrid>
                 <MudItem xs="12">
-                    <MudTextField @bind-Value="_settings.BaseUrl"
-                                  Label="Base URL"
-                                  HelperText="Base URL of the Beacon admin UI (e.g., https://your-domain.com/beacon). Used for notification links."
-                                  Variant="Variant.Outlined"
-                                  Margin="Margin.Dense" />
+                    <BeaconTextField @bind-Value="_settings.BaseUrl"
+                                     Label="Base URL"
+                                     HelpText="Base URL of the Beacon admin UI (e.g., https://your-domain.com/beacon). Used for notification links." />
                 </MudItem>
             </MudGrid>
         </MudTabPanel>
@@ -45,66 +43,45 @@
         <MudTabPanel Text="AI Configuration" Icon="@Icons.Material.Filled.Psychology">
             <MudGrid Spacing="3">
                 <MudItem xs="12" sm="6">
-                    <MudSelect @bind-Value="_selectedProvider"
-                               Label="Provider"
-                               Variant="Variant.Outlined"
-                               Margin="Margin.Dense"
-                               Clearable="true">
-                        @foreach (var provider in Enum.GetValues<AiProvider>())
-                        {
-                            <MudSelectItem Value="@((AiProvider?)provider)">@provider</MudSelectItem>
-                        }
-                    </MudSelect>
+                    <BeaconSelect T="AiProvider?" @bind-Value="_selectedProvider"
+                                  Label="Provider"
+                                  Clearable="true" />
                 </MudItem>
                 <MudItem xs="12" sm="6">
-                    <MudTextField @bind-Value="_settings.LlmModel"
-                                  Label="Model"
-                                  HelperText="e.g., gpt-4o, claude-sonnet-4-20250514"
-                                  Variant="Variant.Outlined"
-                                  Margin="Margin.Dense" />
+                    <BeaconTextField @bind-Value="_settings.LlmModel"
+                                     Label="Model"
+                                     HelpText="e.g., gpt-4o, claude-sonnet-4-20250514" />
                 </MudItem>
                 <MudItem xs="12" sm="6">
-                    <MudTextField @bind-Value="_settings.LlmApiKey"
-                                  Label="API Key"
-                                  InputType="@(_showApiKey ? InputType.Text : InputType.Password)"
-                                  Variant="Variant.Outlined"
-                                  Margin="Margin.Dense"
-                                  Adornment="Adornment.End"
-                                  AdornmentIcon="@(_showApiKey ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)"
-                                  OnAdornmentClick="@(() => _showApiKey = !_showApiKey)" />
+                    <BeaconTextField @bind-Value="_settings.LlmApiKey"
+                                     Label="API Key"
+                                     InputType="@(_showApiKey ? "text" : "password")"
+                                     AdornmentIcon="@(_showApiKey ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)"
+                                     OnAdornmentClick="@(() => _showApiKey = !_showApiKey)" />
                 </MudItem>
                 <MudItem xs="12" sm="6">
-                    <MudTextField @bind-Value="_settings.LlmFastModel"
-                                  Label="Fast Model (optional)"
-                                  HelperText="For simple operations. Falls back to main model if empty."
-                                  Variant="Variant.Outlined"
-                                  Margin="Margin.Dense" />
+                    <BeaconTextField @bind-Value="_settings.LlmFastModel"
+                                     Label="Fast Model (optional)"
+                                     HelpText="For simple operations. Falls back to main model if empty." />
                 </MudItem>
                 <MudItem xs="12" sm="6">
-                    <MudTextField @bind-Value="_settings.LlmEndpoint"
-                                  Label="Endpoint"
-                                  HelperText="Required for Azure OpenAI"
-                                  InputType="@(_showEndpoint ? InputType.Text : InputType.Password)"
-                                  Variant="Variant.Outlined"
-                                  Margin="Margin.Dense"
-                                  Adornment="Adornment.End"
-                                  AdornmentIcon="@(_showEndpoint ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)"
-                                  OnAdornmentClick="@(() => _showEndpoint = !_showEndpoint)" />
+                    <BeaconTextField @bind-Value="_settings.LlmEndpoint"
+                                     Label="Endpoint"
+                                     HelpText="Required for Azure OpenAI"
+                                     InputType="@(_showEndpoint ? "text" : "password")"
+                                     AdornmentIcon="@(_showEndpoint ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)"
+                                     OnAdornmentClick="@(() => _showEndpoint = !_showEndpoint)" />
                 </MudItem>
                 <MudItem xs="12" sm="6">
-                    <MudTextField @bind-Value="_settings.LlmRegion"
-                                  Label="Region"
-                                  HelperText="AWS Region for Bedrock (e.g., us-east-1)"
-                                  Variant="Variant.Outlined"
-                                  Margin="Margin.Dense" />
+                    <BeaconTextField @bind-Value="_settings.LlmRegion"
+                                     Label="Region"
+                                     HelpText="AWS Region for Bedrock (e.g., us-east-1)" />
                 </MudItem>
                 <MudItem xs="12" sm="6">
-                    <MudTextField @bind-Value="_settings.LlmSessionToken"
-                                  Label="Session Token"
-                                  HelperText="AWS temporary credentials"
-                                  InputType="InputType.Password"
-                                  Variant="Variant.Outlined"
-                                  Margin="Margin.Dense" />
+                    <BeaconTextField @bind-Value="_settings.LlmSessionToken"
+                                     Label="Session Token"
+                                     HelpText="AWS temporary credentials"
+                                     InputType="password" />
                 </MudItem>
 
                 <MudItem xs="12">
@@ -112,32 +89,24 @@
                     <MudText Typo="Typo.subtitle1" Class="mb-2">Rate Limits &amp; Budget</MudText>
                 </MudItem>
                 <MudItem xs="12" sm="6" md="3">
-                    <MudNumericField @bind-Value="_settings.LlmMaxConcurrentRequests"
-                                     Label="Max Concurrent Requests"
-                                     Variant="Variant.Outlined"
-                                     Margin="Margin.Dense"
-                                     Min="1" Max="500" />
+                    <BeaconNumericField T="int" @bind-Value="_settings.LlmMaxConcurrentRequests"
+                                        Label="Max Concurrent Requests"
+                                        Min="1" Max="500" />
                 </MudItem>
                 <MudItem xs="12" sm="6" md="3">
-                    <MudNumericField @bind-Value="_settings.LlmTokensPerMinute"
-                                     Label="Tokens/Minute"
-                                     Variant="Variant.Outlined"
-                                     Margin="Margin.Dense"
-                                     Min="1000" />
+                    <BeaconNumericField T="int" @bind-Value="_settings.LlmTokensPerMinute"
+                                        Label="Tokens/Minute"
+                                        Min="1000" />
                 </MudItem>
                 <MudItem xs="12" sm="6" md="3">
-                    <MudNumericField @bind-Value="_settings.LlmRequestsPerMinute"
-                                     Label="Requests/Minute"
-                                     Variant="Variant.Outlined"
-                                     Margin="Margin.Dense"
-                                     Min="1" />
+                    <BeaconNumericField T="int" @bind-Value="_settings.LlmRequestsPerMinute"
+                                        Label="Requests/Minute"
+                                        Min="1" />
                 </MudItem>
                 <MudItem xs="12" sm="6" md="3">
-                    <MudNumericField @bind-Value="_settings.LlmMonthlyBudget"
-                                     Label="Monthly Budget ($)"
-                                     Variant="Variant.Outlined"
-                                     Margin="Margin.Dense"
-                                     Min="0m" />
+                    <BeaconNumericField T="decimal" @bind-Value="_settings.LlmMonthlyBudget"
+                                        Label="Monthly Budget ($)"
+                                        Min="0m" />
                 </MudItem>
             </MudGrid>
         </MudTabPanel>
@@ -181,21 +150,13 @@
     </MudTabs>
 
     <MudStack Row="true" Justify="Justify.FlexEnd" Class="mt-4">
-        <MudButton Variant="Variant.Filled"
-                   Color="Color.Primary"
-                   Disabled="@_saving"
-                   OnClick="SaveSettings"
-                   StartIcon="@Icons.Material.Filled.Save">
-            @if (_saving)
-            {
-                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
-                <text>Saving...</text>
-            }
-            else
-            {
-                <text>Save Settings</text>
-            }
-        </MudButton>
+        <BeaconButton Variant="primary"
+                      Loading="@_saving"
+                      Disabled="@_saving"
+                      OnClick="SaveSettings"
+                      Icon="@Icons.Material.Filled.Save">
+            @(_saving ? "Saving..." : "Save Settings")
+        </BeaconButton>
     </MudStack>
 </MudContainer>
 

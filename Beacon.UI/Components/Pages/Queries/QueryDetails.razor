@@ -74,6 +74,7 @@
             <MudAlert Severity="Severity.Warning" Class="mb-4" Dense="false">
                 <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
                     <MudText>This query has pending changes awaiting approval.</MudText>
+                    @* TODO: Beacon migration — MudButton uses Href= (link-style); BeaconButton doesn't support Href. *@
                     <MudButton Variant="Variant.Filled" Color="Color.Warning" Size="Size.Small" Href="@($"approvals")">
                         Review Changes
                     </MudButton>

@@ -24,20 +24,17 @@
                         Icon="@Icons.Material.Filled.FolderSpecial"
                         Subtitle="@_project.Description">
                 <Actions>
-                    <MudButton Variant="Variant.Outlined"
-                               Color="Color.Info"
-                               StartIcon="@Icons.Material.Filled.PlayArrow"
-                               OnClick="ScanAll"
-                               Disabled="_scanning">
+                    <BeaconButton Icon="@Icons.Material.Filled.PlayArrow"
+                                  OnClick="ScanAll"
+                                  Disabled="_scanning">
                         @(_scanning ? "Scanning..." : "Scan All")
-                    </MudButton>
-                    <MudButton Variant="Variant.Filled"
-                               Color="Color.Primary"
-                               StartIcon="@Icons.Material.Filled.MenuBook"
-                               OnClick="GenerateDocumentation"
-                               Disabled="_generatingDocs">
+                    </BeaconButton>
+                    <BeaconButton Variant="primary"
+                                  Icon="@Icons.Material.Filled.MenuBook"
+                                  OnClick="GenerateDocumentation"
+                                  Disabled="_generatingDocs">
                         @(_generatingDocs ? "Generating..." : "Generate Documentation")
-                    </MudButton>
+                    </BeaconButton>
                 </Actions>
             </PageHeader>
 
@@ -214,11 +211,11 @@
                                     <MudTd><MudText Typo="Typo.caption">@(context.LastScanAt?.ToString("MMM dd HH:mm") ?? "—")</MudText></MudTd>
                                     <MudTd><MudText Typo="Typo.body2">@context.ReferenceCount</MudText></MudTd>
                                     <MudTd>
-                                        <MudIconButton Icon="@Icons.Material.Filled.Key"
-                                                       Size="Size.Small"
-                                                       Color="Color.Primary"
-                                                       Title="Set access token"
-                                                       OnClick="@(() => SetRepoToken(context))"/>
+                                        <BeaconIconButton Icon="@Icons.Material.Filled.Key"
+                                                          Size="sm"
+                                                          Variant="primary"
+                                                          Title="Set access token"
+                                                          OnClick="@(() => SetRepoToken(context))"/>
                                     </MudTd>
                                 </RowTemplate>
                             </MudTable>
@@ -239,12 +236,12 @@
                                 No documentation generated yet. Click the button below to generate comprehensive AI-powered documentation
                                 covering business domains, data model, data flows, code lineage, and more.
                             </MudAlert>
-                            <MudButton Variant="Variant.Filled" Color="Color.Primary"
-                                       StartIcon="@Icons.Material.Filled.AutoAwesome"
-                                       OnClick="GenerateDocumentation"
-                                       Disabled="_generatingDocs" Size="Size.Large">
+                            <BeaconButton Variant="primary"
+                                          Icon="@Icons.Material.Filled.AutoAwesome"
+                                          OnClick="GenerateDocumentation"
+                                          Disabled="_generatingDocs" Size="lg">
                                 @(_generatingDocs ? "Generating Documentation..." : "Generate Documentation")
-                            </MudButton>
+                            </BeaconButton>
                         }
                         else
                         {
@@ -266,21 +263,20 @@
                                         </MudText>
                                     </MudStack>
                                     <MudStack Row="true" Spacing="1">
-                                        <MudIconButton Icon="@Icons.Material.Filled.Download"
-                                                       Size="Size.Small" Color="Color.Primary"
-                                                       Title="Export as Markdown"
-                                                       OnClick="@(() => ExportDocumentation(false))"/>
-                                        <MudIconButton Icon="@Icons.Material.Filled.Html"
-                                                       Size="Size.Small" Color="Color.Primary"
-                                                       Title="Export as HTML"
-                                                       OnClick="@(() => ExportDocumentation(true))"/>
-                                        <MudButton Variant="Variant.Outlined" Color="Color.Primary"
-                                                   Size="Size.Small"
-                                                   StartIcon="@Icons.Material.Filled.Refresh"
-                                                   OnClick="GenerateDocumentation"
-                                                   Disabled="_generatingDocs">
+                                        <BeaconIconButton Icon="@Icons.Material.Filled.Download"
+                                                          Size="sm" Variant="primary"
+                                                          Title="Export as Markdown"
+                                                          OnClick="@(() => ExportDocumentation(false))"/>
+                                        <BeaconIconButton Icon="@Icons.Material.Filled.Html"
+                                                          Size="sm" Variant="primary"
+                                                          Title="Export as HTML"
+                                                          OnClick="@(() => ExportDocumentation(true))"/>
+                                        <BeaconButton Size="sm"
+                                                      Icon="@Icons.Material.Filled.Refresh"
+                                                      OnClick="GenerateDocumentation"
+                                                      Disabled="_generatingDocs">
                                             Regenerate
-                                        </MudButton>
+                                        </BeaconButton>
                                     </MudStack>
                                 </MudStack>
                             </MudPaper>
@@ -321,11 +317,11 @@
                                         <MudPaper Elevation="1" Class="pa-4 mb-3" Style="border-radius: 8px;" id="@docSection.SectionType.ToString()">
                                             <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-3">
                                                 <MudText Typo="Typo.h6" Style="font-weight: 600;">@docSection.Title</MudText>
-                                                <MudIconButton Icon="@Icons.Material.Filled.Edit"
-                                                               Size="Size.Small"
-                                                               Color="Color.Primary"
-                                                               Title="Edit section"
-                                                               OnClick="@(() => EditSection(docSection))"/>
+                                                <BeaconIconButton Icon="@Icons.Material.Filled.Edit"
+                                                                  Size="sm"
+                                                                  Variant="primary"
+                                                                  Title="Edit section"
+                                                                  OnClick="@(() => EditSection(docSection))"/>
                                             </MudStack>
                                             @((MarkupString)RenderMarkdown(docSection.Content))
                                         </MudPaper>

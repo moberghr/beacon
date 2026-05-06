@@ -52,15 +52,13 @@
                     </MudTreeView>
                 }
 
-                <MudButton Variant="Variant.Text"
-                           Color="Color.Primary"
-                           Size="Size.Small"
-                           StartIcon="@Icons.Material.Filled.Refresh"
-                           OnClick="RefreshEndpoints"
-                           Disabled="_refreshing"
-                           Class="mt-2">
+                <BeaconButton Variant="ghost"
+                              Size="sm"
+                              Icon="@Icons.Material.Filled.Refresh"
+                              OnClick="RefreshEndpoints"
+                              Disabled="_refreshing">
                     @(_refreshing ? "Refreshing..." : "Refresh Endpoints")
-                </MudButton>
+                </BeaconButton>
             </div>
 
             @* Right: Request Builder *@
@@ -99,12 +97,10 @@
                                 @foreach (var param in _parameterValues)
                                 {
                                     <MudItem xs="12" sm="6">
-                                        <MudTextField @bind-Value="param.Value"
-                                                      Label="@($"{param.Name} ({param.In})")"
-                                                      Variant="Variant.Outlined"
-                                                      Margin="Margin.Dense"
-                                                      HelperText="@param.Description"
-                                                      Required="@param.Required"/>
+                                        <BeaconTextField @bind-Value="param.Value"
+                                                         Label="@($"{param.Name} ({param.In})")"
+                                                         HelpText="@param.Description"
+                                                         Required="@param.Required"/>
                                     </MudItem>
                                 }
                             </MudGrid>
@@ -112,39 +108,33 @@
 
                         @* Result Mapping *@
                         <MudText Typo="Typo.subtitle2">Result Mapping</MudText>
-                        <MudTextField @bind-Value="_arrayPath"
-                                      Label="Array Path (JSONPath)"
-                                      Variant="Variant.Outlined"
-                                      Margin="Margin.Dense"
-                                      HelperText="JSONPath to the array in the response, e.g. $.data or $"/>
+                        <BeaconTextField @bind-Value="_arrayPath"
+                                         Label="Array Path (JSONPath)"
+                                         HelpText="JSONPath to the array in the response, e.g. $.data or $"/>
 
-                        <MudSwitch @bind-Value="_autoDetectColumns" Label="Auto-detect columns" Color="Color.Primary"/>
+                        <BeaconSwitch @bind-Value="_autoDetectColumns" Label="Auto-detect columns"/>
 
                         @* Execute *@
                         <div class="d-flex gap-2">
-                            <MudButton Variant="Variant.Filled"
-                                       Color="Color.Primary"
-                                       StartIcon="@Icons.Material.Filled.PlayArrow"
-                                       OnClick="ExecuteQuery"
-                                       Disabled="@_executing">
+                            <BeaconButton Variant="primary"
+                                          Icon="@Icons.Material.Filled.PlayArrow"
+                                          OnClick="ExecuteQuery"
+                                          Disabled="@_executing">
                                 @(_executing ? "Executing..." : "Preview")
-                            </MudButton>
-                            <MudButton Variant="Variant.Outlined"
-                                       Color="Color.Default"
-                                       StartIcon="@Icons.Material.Filled.Code"
-                                       OnClick="@(() => _showRawJson = !_showRawJson)">
+                            </BeaconButton>
+                            <BeaconButton Icon="@Icons.Material.Filled.Code"
+                                          OnClick="@(() => _showRawJson = !_showRawJson)">
                                 @(_showRawJson ? "Hide JSON" : "Show JSON")
-                            </MudButton>
+                            </BeaconButton>
                         </div>
 
                         @if (_showRawJson)
                         {
-                            <MudTextField Value="@BuildQueryJson()"
-                                          Label="Query Definition (JSON)"
-                                          Variant="Variant.Outlined"
-                                          Lines="10"
-                                          ReadOnly="true"
-                                          Style="font-family: monospace; font-size: 0.85rem;"/>
+                            <BeaconTextField Value="@BuildQueryJson()"
+                                             Label="Query Definition (JSON)"
+                                             Multiline="true"
+                                             Rows="10"
+                                             ReadOnly="true"/>
                         }
                     </MudStack>
                 }

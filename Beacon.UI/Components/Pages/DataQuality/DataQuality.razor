@@ -14,173 +14,168 @@
 
 <BeaconPageTitle Title="Data Quality"/>
 
-<div class="@RootClass">
-    <BeaconPageHero Variant="nodes"
-                    Prefix="Data"
-                    Emphasis="quality"
-                    Suffix="contracts.">
-        <Eyebrow>
-            <span>Beacon</span>
-            <span class="page-hero__sep">/</span>
-            <span>Data Quality</span>
-        </Eyebrow>
-        <Sub>Monitor data quality across your data sources with automated contracts and checks.</Sub>
-        <Actions>
-            <MudIconButton Icon="@Icons.Material.Filled.HelpOutline"
-                           Size="Size.Medium" Color="Color.Default"
-                           OnClick="OpenHelpDialog" Title="How it works"/>
-            <MudButton Variant="Variant.Filled"
-                       Color="Color.Primary"
-                       StartIcon="@Icons.Material.Filled.Add"
-                       OnClick="OpenCreateContractDialog">
-                New Contract
-            </MudButton>
-        </Actions>
-    </BeaconPageHero>
-    <MudStack Spacing="4">
-        @* Overview Cards *@
-        @if (_overviews.Count > 0)
-        {
-            <MudGrid Spacing="3">
-                @foreach (var overview in _overviews)
-                {
-                    <MudItem xs="12" sm="6" md="4" lg="3">
-                        <MudPaper Elevation="2" Class="pa-4" Style="border-radius: 12px;">
-                            <MudStack Spacing="2">
-                                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                                    <MudText Typo="Typo.subtitle1" Style="font-weight: 600;">@overview.DataSourceName</MudText>
-                                    <MudChip T="string" Size="Size.Small"
-                                             Color="@GetScoreColor(overview.AverageScore)"
-                                             Variant="Variant.Filled">
-                                        @overview.AverageScore.ToString("F0")%
-                                    </MudChip>
-                                </MudStack>
-                                <MudStack Row="true" Spacing="3">
-                                    <MudStack Spacing="0">
-                                        <MudText Typo="Typo.h5" Style="font-weight: 700;" Color="Color.Success">@overview.HealthyTables</MudText>
-                                        <MudText Typo="Typo.caption" Color="Color.Secondary">Healthy</MudText>
-                                    </MudStack>
-                                    <MudStack Spacing="0">
-                                        <MudText Typo="Typo.h5" Style="font-weight: 700;" Color="Color.Error">@overview.DegradingTables</MudText>
-                                        <MudText Typo="Typo.caption" Color="Color.Secondary">Degrading</MudText>
-                                    </MudStack>
-                                    <MudStack Spacing="0">
-                                        <MudText Typo="Typo.h5" Style="font-weight: 700;">@overview.ActiveContracts</MudText>
-                                        <MudText Typo="Typo.caption" Color="Color.Secondary">Contracts</MudText>
-                                    </MudStack>
-                                </MudStack>
-                                @if (overview.TableScores.Count > 0)
-                                {
-                                    <MudDivider Class="my-1"/>
-                                    @foreach (var score in overview.TableScores.Take(5))
-                                    {
-                                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                                            <MudText Typo="Typo.body2">@score.SchemaName.@score.TableName</MudText>
-                                            <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
-                                                <MudIcon Icon="@GetTrendIcon(score.TrendDirection)" Size="Size.Small"
-                                                         Color="@GetTrendColor(score.TrendDirection)"/>
-                                                <MudText Typo="Typo.body2" Style="font-weight: 600;"
-                                                         Color="@GetScoreColor(score.Score)">
-                                                    @score.Score.ToString("F0")%
-                                                </MudText>
-                                            </MudStack>
-                                        </MudStack>
-                                    }
-                                }
+<BeaconPageHero Variant="nodes"
+                Prefix="Data"
+                Emphasis="quality"
+                Suffix="contracts.">
+    <Eyebrow>
+        <span>Beacon</span>
+        <span class="page-hero__sep">/</span>
+        <span>Data Quality</span>
+    </Eyebrow>
+    <Sub>Monitor data quality across your data sources with automated contracts and checks.</Sub>
+    <Actions>
+        <BeaconIconButton Icon="@Icons.Material.Filled.HelpOutline"
+                          OnClick="OpenHelpDialog" Title="How it works"/>
+        <BeaconButton Variant="primary"
+                      Icon="@Icons.Material.Filled.Add"
+                      OnClick="OpenCreateContractDialog">
+            New Contract
+        </BeaconButton>
+    </Actions>
+</BeaconPageHero>
+<MudStack Spacing="4">
+    @* Overview Cards *@
+    @if (_overviews.Count > 0)
+    {
+        <MudGrid Spacing="3">
+            @foreach (var overview in _overviews)
+            {
+                <MudItem xs="12" sm="6" md="4" lg="3">
+                    <MudPaper Elevation="2" Class="pa-4" Style="border-radius: 12px;">
+                        <MudStack Spacing="2">
+                            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                                <MudText Typo="Typo.subtitle1" Style="font-weight: 600;">@overview.DataSourceName</MudText>
+                                <MudChip T="string" Size="Size.Small"
+                                         Color="@GetScoreColor(overview.AverageScore)"
+                                         Variant="Variant.Filled">
+                                    @overview.AverageScore.ToString("F0")%
+                                </MudChip>
                             </MudStack>
-                        </MudPaper>
-                    </MudItem>
-                }
-            </MudGrid>
-        }
-
-        @* Contracts Table *@
-        <MudText Typo="Typo.h5" Class="mt-4">Contracts</MudText>
-        <MudDataGrid @ref="_dataGrid"
-                     T="DataContractData"
-                     ServerData="ServerReload"
-                     Dense="true"
-                     Hover="true"
-                     Striped="true"
-                     FixedHeader="true"
-                     Height="calc(100vh - 500px)">
-            <Columns>
-                <PropertyColumn Property="x => x.Name" Title="Name"/>
-
-                <TemplateColumn Title="Table">
-                    <CellTemplate>
-                        <MudText Typo="Typo.body2">@context.Item.SchemaName.@context.Item.TableName</MudText>
-                    </CellTemplate>
-                </TemplateColumn>
-
-                <TemplateColumn Title="Data Source">
-                    <CellTemplate>
-                        <MudChip T="string" Size="Size.Small" Icon="@Icons.Material.Filled.Storage">
-                            @context.Item.DataSourceName
-                        </MudChip>
-                    </CellTemplate>
-                </TemplateColumn>
-
-                <TemplateColumn Title="Score">
-                    <CellTemplate>
-                        @if (context.Item.LatestScore.HasValue)
-                        {
-                            <MudChip T="string" Size="Size.Small" Variant="Variant.Filled"
-                                     Color="@GetScoreColor(context.Item.LatestScore.Value)">
-                                @context.Item.LatestScore.Value.ToString("F0")%
-                            </MudChip>
-                        }
-                        else
-                        {
-                            <MudText Typo="Typo.body2" Color="Color.Secondary">Not evaluated</MudText>
-                        }
-                    </CellTemplate>
-                </TemplateColumn>
-
-                <TemplateColumn Title="Status">
-                    <CellTemplate>
-                        @if (context.Item.IsEnabled)
-                        {
-                            <MudChip T="string" Size="Size.Small" Color="Color.Success" Icon="@Icons.Material.Filled.CheckCircle">Active</MudChip>
-                        }
-                        else
-                        {
-                            <MudChip T="string" Size="Size.Small" Color="Color.Default" Icon="@Icons.Material.Filled.PauseCircle">Disabled</MudChip>
-                        }
-                    </CellTemplate>
-                </TemplateColumn>
-
-                <PropertyColumn Property="x => x.CronExpression" Title="Schedule"/>
-
-                <TemplateColumn Title="Actions" Sortable="false">
-                    <CellTemplate>
-                        <MudStack Row="true" Spacing="1">
-                            <MudIconButton Icon="@Icons.Material.Filled.Visibility"
-                                           Size="Size.Small"
-                                           Color="Color.Primary"
-                                           OnClick="@(() => ViewContract(context.Item.Id))"
-                                           Title="View contract"/>
-                            <MudIconButton Icon="@Icons.Material.Filled.Edit"
-                                           Size="Size.Small"
-                                           Color="Color.Info"
-                                           OnClick="@(() => EditContract(context.Item))"
-                                           Title="Edit contract"/>
-                            <MudIconButton Icon="@Icons.Material.Filled.Delete"
-                                           Size="Size.Small"
-                                           Color="Color.Error"
-                                           OnClick="@(() => DeleteContract(context.Item))"
-                                           Title="Delete contract"/>
+                            <MudStack Row="true" Spacing="3">
+                                <MudStack Spacing="0">
+                                    <MudText Typo="Typo.h5" Style="font-weight: 700;" Color="Color.Success">@overview.HealthyTables</MudText>
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary">Healthy</MudText>
+                                </MudStack>
+                                <MudStack Spacing="0">
+                                    <MudText Typo="Typo.h5" Style="font-weight: 700;" Color="Color.Error">@overview.DegradingTables</MudText>
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary">Degrading</MudText>
+                                </MudStack>
+                                <MudStack Spacing="0">
+                                    <MudText Typo="Typo.h5" Style="font-weight: 700;">@overview.ActiveContracts</MudText>
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary">Contracts</MudText>
+                                </MudStack>
+                            </MudStack>
+                            @if (overview.TableScores.Count > 0)
+                            {
+                                <MudDivider Class="my-1"/>
+                                @foreach (var score in overview.TableScores.Take(5))
+                                {
+                                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                                        <MudText Typo="Typo.body2">@score.SchemaName.@score.TableName</MudText>
+                                        <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                                            <MudIcon Icon="@GetTrendIcon(score.TrendDirection)" Size="Size.Small"
+                                                     Color="@GetTrendColor(score.TrendDirection)"/>
+                                            <MudText Typo="Typo.body2" Style="font-weight: 600;"
+                                                     Color="@GetScoreColor(score.Score)">
+                                                @score.Score.ToString("F0")%
+                                            </MudText>
+                                        </MudStack>
+                                    </MudStack>
+                                }
+                            }
                         </MudStack>
-                    </CellTemplate>
-                </TemplateColumn>
-            </Columns>
+                    </MudPaper>
+                </MudItem>
+            }
+        </MudGrid>
+    }
 
-            <PagerContent>
-                <MudDataGridPager T="DataContractData"/>
-            </PagerContent>
-        </MudDataGrid>
-    </MudStack>
-</div>
+    @* Contracts Table *@
+    <MudText Typo="Typo.h5" Class="mt-4">Contracts</MudText>
+    <MudDataGrid @ref="_dataGrid"
+                 T="DataContractData"
+                 ServerData="ServerReload"
+                 Dense="true"
+                 Hover="true"
+                 Striped="true"
+                 FixedHeader="true"
+                 Height="calc(100vh - 500px)">
+        <Columns>
+            <PropertyColumn Property="x => x.Name" Title="Name"/>
+
+            <TemplateColumn Title="Table">
+                <CellTemplate>
+                    <MudText Typo="Typo.body2">@context.Item.SchemaName.@context.Item.TableName</MudText>
+                </CellTemplate>
+            </TemplateColumn>
+
+            <TemplateColumn Title="Data Source">
+                <CellTemplate>
+                    <MudChip T="string" Size="Size.Small" Icon="@Icons.Material.Filled.Storage">
+                        @context.Item.DataSourceName
+                    </MudChip>
+                </CellTemplate>
+            </TemplateColumn>
+
+            <TemplateColumn Title="Score">
+                <CellTemplate>
+                    @if (context.Item.LatestScore.HasValue)
+                    {
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Filled"
+                                 Color="@GetScoreColor(context.Item.LatestScore.Value)">
+                            @context.Item.LatestScore.Value.ToString("F0")%
+                        </MudChip>
+                    }
+                    else
+                    {
+                        <MudText Typo="Typo.body2" Color="Color.Secondary">Not evaluated</MudText>
+                    }
+                </CellTemplate>
+            </TemplateColumn>
+
+            <TemplateColumn Title="Status">
+                <CellTemplate>
+                    @if (context.Item.IsEnabled)
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Success" Icon="@Icons.Material.Filled.CheckCircle">Active</MudChip>
+                    }
+                    else
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Default" Icon="@Icons.Material.Filled.PauseCircle">Disabled</MudChip>
+                    }
+                </CellTemplate>
+            </TemplateColumn>
+
+            <PropertyColumn Property="x => x.CronExpression" Title="Schedule"/>
+
+            <TemplateColumn Title="Actions" Sortable="false">
+                <CellTemplate>
+                    <MudStack Row="true" Spacing="1">
+                        <BeaconIconButton Icon="@Icons.Material.Filled.Visibility"
+                                          Size="sm"
+                                          Variant="primary"
+                                          OnClick="@(() => ViewContract(context.Item.Id))"
+                                          Title="View contract"/>
+                        <BeaconIconButton Icon="@Icons.Material.Filled.Edit"
+                                          Size="sm"
+                                          OnClick="@(() => EditContract(context.Item))"
+                                          Title="Edit contract"/>
+                        <BeaconIconButton Icon="@Icons.Material.Filled.Delete"
+                                          Size="sm"
+                                          Variant="danger"
+                                          OnClick="@(() => DeleteContract(context.Item))"
+                                          Title="Delete contract"/>
+                    </MudStack>
+                </CellTemplate>
+            </TemplateColumn>
+        </Columns>
+
+        <PagerContent>
+            <MudDataGridPager T="DataContractData"/>
+        </PagerContent>
+    </MudDataGrid>
+</MudStack>
 
 @code {
     private MudDataGrid<DataContractData>? _dataGrid;

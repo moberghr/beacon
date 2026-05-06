@@ -32,24 +32,19 @@
                         Icon="@Icons.Material.Filled.Dashboard"
                         Subtitle="@_dashboard.Description">
                 <Actions>
-                    <MudButton Variant="Variant.Outlined"
-                               StartIcon="@Icons.Material.Filled.Add"
-                               Color="Color.Primary"
-                               OnClick="OpenAddWidgetDialog">
+                    <BeaconButton Icon="@Icons.Material.Filled.Add"
+                                  OnClick="OpenAddWidgetDialog">
                         Add Widget
-                    </MudButton>
-                    <MudButton Variant="Variant.Outlined"
-                               StartIcon="@Icons.Material.Filled.Share"
-                               Color="Color.Tertiary"
-                               OnClick="OpenShareDialog">
+                    </BeaconButton>
+                    <BeaconButton Icon="@Icons.Material.Filled.Share"
+                                  OnClick="OpenShareDialog">
                         Share
-                    </MudButton>
-                    <MudButton Variant="Variant.Outlined"
-                               StartIcon="@Icons.Material.Filled.Settings"
-                               Color="Color.Secondary"
-                               OnClick="OpenSettingsDialog">
+                    </BeaconButton>
+                    <BeaconButton Icon="@Icons.Material.Filled.Settings"
+                                  OnClick="OpenSettingsDialog">
                         Settings
-                    </MudButton>
+                    </BeaconButton>
+                    @* TODO: Beacon migration — Href= not supported by BeaconButton. *@
                     <MudButton Variant="Variant.Filled"
                                StartIcon="@Icons.Material.Filled.Visibility"
                                Color="Color.Info"
@@ -69,12 +64,11 @@
                         <MudText Typo="Typo.body1" Color="Color.Secondary">
                             Add your first widget to start building your dashboard
                         </MudText>
-                        <MudButton Variant="Variant.Filled"
-                                   Color="Color.Primary"
-                                   StartIcon="@Icons.Material.Filled.Add"
-                                   OnClick="OpenAddWidgetDialog">
+                        <BeaconButton Variant="primary"
+                                      Icon="@Icons.Material.Filled.Add"
+                                      OnClick="OpenAddWidgetDialog">
                             Add Widget
-                        </MudButton>
+                        </BeaconButton>
                     </MudStack>
                 </MudPaper>
             }
@@ -87,12 +81,12 @@
                             <div style="position: relative;">
                                 @RenderWidget(widget)
                                 <div style="position: absolute; top: 8px; right: 8px;">
-                                    <MudIconButton Icon="@Icons.Material.Filled.Delete"
-                                                   Size="Size.Small"
-                                                   Color="Color.Error"
-                                                   OnClick="@(() => DeleteWidget(widget))"
-                                                   Title="Delete widget"
-                                                   Style="background-color: rgba(255, 255, 255, 0.9);"/>
+                                    <BeaconIconButton Icon="@Icons.Material.Filled.Delete"
+                                                      Size="sm"
+                                                      Variant="danger"
+                                                      OnClick="@(() => DeleteWidget(widget))"
+                                                      Title="Delete widget"
+                                                      CssClass="bx-floating-action"/>
                                 </div>
                             </div>
                         </MudItem>

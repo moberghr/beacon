@@ -1,0 +1,85 @@
+@* Button — Beacon visual language. Matches the .btn / .btn--primary / .btn--ghost
+   pattern from beacon-design.css, but uses unscoped .bx-btn so it works in
+   dialogs and pages alike.
+
+   Usage:
+       <BeaconButton OnClick="Save" Variant="primary" Icon="@Icons.Material.Rounded.Check">Save</BeaconButton>
+       <BeaconButton OnClick="Cancel">Cancel</BeaconButton>
+       <BeaconButton Variant="ghost" Icon="@Icons.Material.Rounded.ArrowBack">Back</BeaconButton>
+       <BeaconButton OnClick="Run" Loading="@_running" Icon="@Icons.Material.Rounded.Bolt">Run</BeaconButton> *@
+
+<button type="@ButtonType"
+        class="bx-btn @VariantClass @SizeClass @CssClass"
+        disabled="@(Disabled || Loading)"
+        @onclick="OnClickInternal"
+        @onclick:stopPropagation="@StopPropagation"
+        title="@Title">
+    @if (Loading)
+    {
+        <span class="bx-btn__spinner" aria-hidden="true"></span>
+    }
+    else if (!string.IsNullOrEmpty(Icon))
+    {
+        <MudIcon Icon="@Icon" Size="MudBlazor.Size.Small" />
+    }
+    @if (ChildContent != null)
+    {
+        <span class="bx-btn__label">@ChildContent</span>
+    }
+    else if (!string.IsNullOrEmpty(Text))
+    {
+        <span class="bx-btn__label">@Text</span>
+    }
+</button>
+
+@code {
+    /// <summary>"default" (outlined neutral), "primary", "ghost", "danger".</summary>
+    [Parameter] public string Variant { get; set; } = "default";
+
+    /// <summary>"sm", "md" (default), "lg".</summary>
+    [Parameter] public string Size { get; set; } = "md";
+
+    /// <summary>MudBlazor icon string (e.g. Icons.Material.Rounded.Check).</summary>
+    [Parameter] public string? Icon { get; set; }
+
+    /// <summary>Inline text. Prefer ChildContent; this is a shortcut for the icon-+-text case.</summary>
+    [Parameter] public string? Text { get; set; }
+
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public bool Loading { get; set; }
+    [Parameter] public bool StopPropagation { get; set; }
+
+    /// <summary>"button" (default), "submit", "reset".</summary>
+    [Parameter] public string ButtonType { get; set; } = "button";
+
+    [Parameter] public string? Title { get; set; }
+    [Parameter] public string? CssClass { get; set; }
+
+    [Parameter] public EventCallback<MouseEventArgs> OnClick { get; set; }
+
+    private string VariantClass => Variant switch
+    {
+        "primary" => "bx-btn--primary",
+        "ghost"   => "bx-btn--ghost",
+        "danger"  => "bx-btn--danger",
+        _         => ""
+    };
+
+    private string SizeClass => Size switch
+    {
+        "sm" => "bx-btn--sm",
+        "lg" => "bx-btn--lg",
+        _    => ""
+    };
+
+    private async Task OnClickInternal(MouseEventArgs e)
+    {
+        if (Loading || Disabled) return;
+        if (OnClick.HasDelegate)
+        {
+            await OnClick.InvokeAsync(e);
+        }
+    }
+}

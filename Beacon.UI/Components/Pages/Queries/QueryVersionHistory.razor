@@ -11,10 +11,10 @@
         </MudText>
         @if (_selectedForCompare.Count == 2)
         {
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
-                       StartIcon="@Icons.Material.Filled.Compare" OnClick="CompareSelected">
+            <BeaconButton Variant="primary" Size="sm"
+                          Icon="@Icons.Material.Filled.Compare" OnClick="CompareSelected">
                 Compare Selected
-            </MudButton>
+            </BeaconButton>
         }
     </MudStack>
 
@@ -61,23 +61,23 @@
                                     }
                                 </MudStack>
                                 <MudStack Row="true" Spacing="1">
-                                    <MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Visibility"
-                                               OnClick="@(() => ViewVersion(version.Id))">
+                                    <BeaconButton Size="sm" Variant="ghost" Icon="@Icons.Material.Filled.Visibility"
+                                                  OnClick="@(() => ViewVersion(version.Id))">
                                         View
-                                    </MudButton>
+                                    </BeaconButton>
                                     @if (version.Status == QueryVersionStatus.Archived)
                                     {
-                                        <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Warning"
-                                                   StartIcon="@Icons.Material.Filled.RestorePage"
-                                                   OnClick="@(() => RestoreVersion(version.Id, version.VersionNumber))">
+                                        @* TODO: Beacon migration — Color.Warning has no Beacon variant; using default. *@
+                                        <BeaconButton Size="sm" Variant="ghost"
+                                                      Icon="@Icons.Material.Filled.RestorePage"
+                                                      OnClick="@(() => RestoreVersion(version.Id, version.VersionNumber))">
                                             Restore
-                                        </MudButton>
+                                        </BeaconButton>
                                     }
-                                    <MudCheckBox T="bool" Size="Size.Small" Dense="true"
-                                                 Value="@_selectedForCompare.Contains(version.Id)"
-                                                 ValueChanged="@((val) => ToggleCompare(version.Id, val))"
-                                                 Label="Compare"
-                                                 Disabled="@(!_selectedForCompare.Contains(version.Id) && _selectedForCompare.Count >= 2)" />
+                                    <BeaconCheckBox Value="@_selectedForCompare.Contains(version.Id)"
+                                                    ValueChanged="@((val) => ToggleCompare(version.Id, val))"
+                                                    Label="Compare"
+                                                    Disabled="@(!_selectedForCompare.Contains(version.Id) && _selectedForCompare.Count >= 2)" />
                                 </MudStack>
                             </MudStack>
                         </MudCard>

@@ -30,9 +30,9 @@
             }
         </CardHeaderContent>
         <CardHeaderActions>
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="AddStep" StartIcon="@Icons.Material.Filled.Add">
+            <BeaconButton Variant="primary" OnClick="AddStep" Icon="@Icons.Material.Filled.Add">
                 Add Step
-            </MudButton>
+            </BeaconButton>
         </CardHeaderActions>
     </MudCardHeader>
     <MudCardContent>
@@ -54,24 +54,17 @@
                             <MudCard Outlined="true" Class="pa-4">
                                 <MudGrid>
                                     <MudItem xs="12" sm="6">
-                                        <MudTextField @bind-Value="step.Name"
-                                                      Label="Step Name"
-                                                      Variant="Variant.Outlined"
-                                                      Margin="Margin.Dense" />
+                                        <BeaconTextField @bind-Value="step.Name"
+                                                         Label="Step Name" />
                                     </MudItem>
                                     <MudItem xs="12" sm="6">
-                                        <MudSelect Value="@step.DataSourceId"
-                                                   ValueChanged="@((int newDataSourceId) => OnDataSourceChanged(step, newDataSourceId))"
-                                                   Label="Target Database"
-                                                   Variant="Variant.Outlined"
-                                                   Margin="Margin.Dense">
-                                            @foreach (var dataSource in AvailableProjects)
-                                            {
-                                                <MudSelectItem Value="dataSource.Key">
-                                                    @dataSource.Value.Name (@dataSource.Value.DatabaseEngine)
-                                                </MudSelectItem>
-                                            }
-                                        </MudSelect>
+                                        <BeaconSelect T="int"
+                                                      Value="@step.DataSourceId"
+                                                      ValueChanged="@((int newDataSourceId) => OnDataSourceChanged(step, newDataSourceId))"
+                                                      Label="Target Database"
+                                                      Items="@(AvailableProjects.Cast<object>())"
+                                                      ItemValueSelector="@(x => ((KeyValuePair<int, ProjectInfo>)x).Key)"
+                                                      ItemTextSelector="@(x => { var kv = (KeyValuePair<int, ProjectInfo>)x; return $"{kv.Value.Name} ({kv.Value.DatabaseEngine})"; })" />
                                     </MudItem>
                                     <MudItem xs="12">
                                         <MudText Typo="Typo.body2" Class="mb-1">
@@ -101,12 +94,12 @@
                                     <MudItem xs="12">
                                         <MudStack Row Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
                                             <MudText Typo="Typo.subtitle2">Parameters</MudText>
-                                            <MudButton Size="Size.Small" 
-                                                       Variant="Variant.Text" 
-                                                       StartIcon="@Icons.Material.Filled.Refresh"
-                                                       OnClick="() => DetectParameters(step)">
+                                            <BeaconButton Size="sm"
+                                                          Variant="ghost"
+                                                          Icon="@Icons.Material.Filled.Refresh"
+                                                          OnClick="() => DetectParameters(step)">
                                                 Detect Parameters
-                                            </MudButton>
+                                            </BeaconButton>
                                         </MudStack>
                                         @if (step.Parameters.Any())
                                         {
@@ -118,30 +111,21 @@
                                                             <MudStack Spacing="2">
                                                                 <MudStack Row Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
                                                                     <MudText Typo="Typo.subtitle2">{@param.Name}</MudText>
-                                                                    <MudIconButton Icon="@Icons.Material.Filled.Delete"
-                                                                                   Size="Size.Small"
-                                                                                   Color="Color.Error"
-                                                                                   OnClick="() => RemoveParameter(step, param.Name)" />
+                                                                    <BeaconIconButton Icon="@Icons.Material.Filled.Delete"
+                                                                                      Size="sm"
+                                                                                      Variant="danger"
+                                                                                      OnClick="() => RemoveParameter(step, param.Name)" />
                                                                 </MudStack>
-                                                                <MudSelect @bind-Value="param.Type"
-                                                                           Label="Type"
-                                                                           Variant="Variant.Outlined"
-                                                                           Margin="Margin.Dense">
-                                                                    <MudSelectItem Value="ParameterType.String">String</MudSelectItem>
-                                                                    <MudSelectItem Value="ParameterType.Number">Number</MudSelectItem>
-                                                                    <MudSelectItem Value="ParameterType.DateTime">DateTime</MudSelectItem>
-                                                                </MudSelect>
-                                                                <MudTextField @bind-Value="param.Description"
-                                                                              Label="Description"
-                                                                              Variant="Variant.Outlined"
-                                                                              Margin="Margin.Dense"
-                                                                              Lines="2" />
-                                                                <MudTextField @bind-Value="param.Placeholder"
-                                                                              Label="Placeholder"
-                                                                              Variant="Variant.Outlined"
-                                                                              Margin="Margin.Dense"
-                                                                              ReadOnly="true"
-                                                                              HelperText="Auto-detected from query" />
+                                                                <BeaconSelect T="ParameterType" @bind-Value="param.Type"
+                                                                              Label="Type" />
+                                                                <BeaconTextField @bind-Value="param.Description"
+                                                                                 Label="Description"
+                                                                                 Multiline="true"
+                                                                                 Rows="2" />
+                                                                <BeaconTextField @bind-Value="param.Placeholder"
+                                                                                 Label="Placeholder"
+                                                                                 ReadOnly="true"
+                                                                                 HelpText="Auto-detected from query" />
                                                             </MudStack>
                                                         </MudPaper>
                                                     </MudItem>
@@ -157,31 +141,31 @@
                                     </MudItem>
                                 </MudGrid>
                                 <MudCardActions>
-                                    <MudButton StartIcon="@Icons.Material.Filled.PlayArrow" 
-                                               Color="Color.Primary" 
-                                               Size="Size.Small"
-                                               OnClick="() => PreviewStep(step.StepOrder)">
+                                    <BeaconButton Icon="@Icons.Material.Filled.PlayArrow"
+                                                  Variant="primary"
+                                                  Size="sm"
+                                                  OnClick="() => PreviewStep(step.StepOrder)">
                                         Preview
-                                    </MudButton>
+                                    </BeaconButton>
                                     <MudSpacer />
                                     @if (step.StepOrder > 1)
                                     {
-                                        <MudIconButton Icon="@Icons.Material.Filled.ArrowUpward" 
-                                                       Size="Size.Small" 
-                                                       OnClick="() => MoveStepUp(step.StepOrder)" />
+                                        <BeaconIconButton Icon="@Icons.Material.Filled.ArrowUpward"
+                                                          Size="sm"
+                                                          OnClick="() => MoveStepUp(step.StepOrder)" />
                                     }
                                     @if (step.StepOrder < Query.Steps.Count)
                                     {
-                                        <MudIconButton Icon="@Icons.Material.Filled.ArrowDownward" 
-                                                       Size="Size.Small" 
-                                                       OnClick="() => MoveStepDown(step.StepOrder)" />
+                                        <BeaconIconButton Icon="@Icons.Material.Filled.ArrowDownward"
+                                                          Size="sm"
+                                                          OnClick="() => MoveStepDown(step.StepOrder)" />
                                     }
                                     @if (Query.Steps.Count > 1)
                                     {
-                                        <MudIconButton Icon="@Icons.Material.Filled.Delete" 
-                                                       Color="Color.Error" 
-                                                       Size="Size.Small" 
-                                                       OnClick="() => RemoveStep(step.StepOrder)" />
+                                        <BeaconIconButton Icon="@Icons.Material.Filled.Delete"
+                                                          Variant="danger"
+                                                          Size="sm"
+                                                          OnClick="() => RemoveStep(step.StepOrder)" />
                                     }
                                 </MudCardActions>
                             </MudCard>
@@ -214,19 +198,17 @@
         }
     </MudCardContent>
     <MudCardActions>
-        <MudButton Variant="Variant.Filled" 
-                   Color="Color.Success" 
-                   StartIcon="@Icons.Material.Filled.PlayArrow"
-                   OnClick="ExecuteQuery"
-                   Disabled="@(Query?.Steps?.Any() != true)">
+        <BeaconButton Variant="primary"
+                      Icon="@Icons.Material.Filled.PlayArrow"
+                      OnClick="ExecuteQuery"
+                      Disabled="@(Query?.Steps?.Any() != true)">
             Execute Query Chain
-        </MudButton>
-        <MudButton Variant="Variant.Outlined" 
-                   StartIcon="@Icons.Material.Filled.Save"
-                   OnClick="SaveQuery"
-                   Disabled="@(Query?.Steps?.Any() != true)">
+        </BeaconButton>
+        <BeaconButton Icon="@Icons.Material.Filled.Save"
+                      OnClick="SaveQuery"
+                      Disabled="@(Query?.Steps?.Any() != true)">
             Save Query
-        </MudButton>
+        </BeaconButton>
     </MudCardActions>
 </MudCard>
 

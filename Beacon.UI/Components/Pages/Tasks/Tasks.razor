@@ -7,80 +7,80 @@
 
 <BeaconPageTitle Title="Tasks"/>
 
-<div class="@RootClass">
-    <BeaconPageHero Variant="signal"
-                    Prefix="Active"
-                    Emphasis="task"
-                    Suffix="management.">
-        <Eyebrow>
-            <span>Beacon</span>
-            <span class="page-hero__sep">/</span>
-            <span>Tasks</span>
-        </Eyebrow>
-        <Sub>Tasks generated from subscriptions with 'Create Tasks' enabled. One task per subscription, auto-resolved when query returns 0 results.</Sub>
-    </BeaconPageHero>
+<BeaconPageHero Variant="signal"
+                Prefix="Active"
+                Emphasis="task"
+                Suffix="management.">
+    <Eyebrow>
+        <span>Beacon</span>
+        <span class="page-hero__sep">/</span>
+        <span>Tasks</span>
+    </Eyebrow>
+    <Sub>Tasks generated from subscriptions with 'Create Tasks' enabled. One task per subscription, auto-resolved when query returns 0 results.</Sub>
+</BeaconPageHero>
 
-    <MudStack Row="true" Class="mb-4">
-        <MudSelect T="string" Label="Filter by Status" @bind-Value="_statusFilter" Variant="Variant.Outlined" AnchorOrigin="Origin.BottomCenter">
-            <MudSelectItem T="string" Value="@("all")">All</MudSelectItem>
-            <MudSelectItem T="string" Value="@("unresolved")">Unresolved</MudSelectItem>
-            <MudSelectItem T="string" Value="@("resolved")">Resolved</MudSelectItem>
-        </MudSelect>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@LoadTasks">Refresh</MudButton>
-    </MudStack>
+<MudStack Row="true" Class="mb-4">
+    @* TODO: Beacon migration — custom labels per option; leave as MudSelect. *@
+    <MudSelect T="string" Label="Filter by Status" @bind-Value="_statusFilter" Variant="Variant.Outlined" AnchorOrigin="Origin.BottomCenter">
+        <MudSelectItem T="string" Value="@("all")">All</MudSelectItem>
+        <MudSelectItem T="string" Value="@("unresolved")">Unresolved</MudSelectItem>
+        <MudSelectItem T="string" Value="@("resolved")">Resolved</MudSelectItem>
+    </MudSelect>
+    <BeaconButton Variant="primary" OnClick="@LoadTasks">Refresh</BeaconButton>
+</MudStack>
 
-    <MudDataGrid @ref="_dataGrid" ServerData="ServerReload" T="TaskData" Filterable="false" >
-        <Columns>
-            <TemplateColumn Title="Id" SortBy="x => x.Id">
-                <CellTemplate>
-                    <MudLink Href="@($"tasks/{context.Item.Id}")">@context.Item.Id</MudLink>
-                </CellTemplate>
-            </TemplateColumn>
-            <PropertyColumn InitialDirection="SortDirection.Descending" Property="x => x.CreatedAt" Title="Created" />
-            <PropertyColumn Property="x => x.SubscriptionName" Title="Subscription"/>
-            <PropertyColumn Property="x => x.LatestResultCount" Title="Latest Results" />
-            <PropertyColumn Property="x => x.ExecutionCount" Title="Executions" />
-            <PropertyColumn Property="x => x.UniqueResultCounts" Title="Unique Results" />
-            <TemplateColumn Title="Status">
-                <CellTemplate>
-                    @if (context.Item.Resolved)
-                    {
-                        <MudChip T="string" Size="Size.Small" Color="Color.Success">Resolved</MudChip>
-                    }
-                    else
-                    {
-                        <MudChip T="string" Size="Size.Small" Color="Color.Warning">Unresolved</MudChip>
-                    }
-                </CellTemplate>
-            </TemplateColumn>
-            <TemplateColumn Title="Source" Sortable="false">
-                <CellTemplate>
-                    <SourceChip AiActorId="@context.Item.AiActorId" AiActorName="@context.Item.AiActorName" />
-                </CellTemplate>
-            </TemplateColumn>
-            <TemplateColumn Title="Resolved At">
-                <CellTemplate>
-                    @if (context.Item.ResolvedAt.HasValue)
-                    {
-                        @context.Item.ResolvedAt.Value.ToString("g")
-                    }
-                    else
-                    {
-                        <span>-</span>
-                    }
-                </CellTemplate>
-            </TemplateColumn>
-            <TemplateColumn Title="Actions" Sortable="false">
-                <CellTemplate>
-                    <MudIconButton Icon="@Icons.Material.Filled.Visibility" Size="Size.Small" Color="Color.Primary" Href="@($"tasks/{context.Item.Id}")" Title="View Details"/>
-                </CellTemplate>
-            </TemplateColumn>
-        </Columns>
-        <PagerContent>
-            <MudDataGridPager T="TaskData"/>
-        </PagerContent>
-    </MudDataGrid>
-</div>
+<MudDataGrid @ref="_dataGrid" ServerData="ServerReload" T="TaskData" Filterable="false" >
+    <Columns>
+        <TemplateColumn Title="Id" SortBy="x => x.Id">
+            <CellTemplate>
+                <MudLink Href="@($"tasks/{context.Item.Id}")">@context.Item.Id</MudLink>
+            </CellTemplate>
+        </TemplateColumn>
+        <PropertyColumn InitialDirection="SortDirection.Descending" Property="x => x.CreatedAt" Title="Created" />
+        <PropertyColumn Property="x => x.SubscriptionName" Title="Subscription"/>
+        <PropertyColumn Property="x => x.LatestResultCount" Title="Latest Results" />
+        <PropertyColumn Property="x => x.ExecutionCount" Title="Executions" />
+        <PropertyColumn Property="x => x.UniqueResultCounts" Title="Unique Results" />
+        <TemplateColumn Title="Status">
+            <CellTemplate>
+                @if (context.Item.Resolved)
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Success">Resolved</MudChip>
+                }
+                else
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Warning">Unresolved</MudChip>
+                }
+            </CellTemplate>
+        </TemplateColumn>
+        <TemplateColumn Title="Source" Sortable="false">
+            <CellTemplate>
+                <SourceChip AiActorId="@context.Item.AiActorId" AiActorName="@context.Item.AiActorName" />
+            </CellTemplate>
+        </TemplateColumn>
+        <TemplateColumn Title="Resolved At">
+            <CellTemplate>
+                @if (context.Item.ResolvedAt.HasValue)
+                {
+                    @context.Item.ResolvedAt.Value.ToString("g")
+                }
+                else
+                {
+                    <span>-</span>
+                }
+            </CellTemplate>
+        </TemplateColumn>
+        <TemplateColumn Title="Actions" Sortable="false">
+            <CellTemplate>
+                @* TODO: Beacon migration — Href= not supported by BeaconIconButton. *@
+                <MudIconButton Icon="@Icons.Material.Filled.Visibility" Size="Size.Small" Color="Color.Primary" Href="@($"tasks/{context.Item.Id}")" Title="View Details"/>
+            </CellTemplate>
+        </TemplateColumn>
+    </Columns>
+    <PagerContent>
+        <MudDataGridPager T="TaskData"/>
+    </PagerContent>
+</MudDataGrid>
 
 @inject ITaskService TaskService
 
