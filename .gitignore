@@ -366,7 +366,7 @@ tasks/todo.md
 
 # React (Phase 0 — beacon UI migration)
 Beacon.SampleProject/web/dist/
-Beacon.SampleProject/web/src/api/generated/
+# Beacon.SampleProject/web/src/api/generated/  — committed since Phase 1 batch 12
 Beacon.SampleProject/wwwroot/app/
 Beacon.SampleProject/web/*.tsbuildinfo
 Beacon.SampleProject/web/vite.config.js
