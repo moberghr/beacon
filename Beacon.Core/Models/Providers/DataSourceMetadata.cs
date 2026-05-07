@@ -18,11 +18,6 @@ public class DataSourceMetadata
     public List<LogFieldMetadata>? LogFields { get; set; }
 
     /// <summary>
-    /// For CloudWatch Metrics: available metrics and dimensions
-    /// </summary>
-    public List<MetricMetadata>? Metrics { get; set; }
-
-    /// <summary>
     /// For API types: discovered endpoints from OpenAPI spec
     /// </summary>
     public List<ApiEndpointMetadata>? Endpoints { get; set; }
@@ -36,14 +31,6 @@ public class LogFieldMetadata
     public string DataType { get; set; } = null!; // "string", "number", "timestamp"
     public int SampleCount { get; set; }
     public List<string>? SampleValues { get; set; }
-}
-
-public class MetricMetadata
-{
-    public string MetricName { get; set; } = null!;
-    public string Namespace { get; set; } = null!;
-    public List<string> Dimensions { get; set; } = new();
-    public string Unit { get; set; } = null!;
 }
 
 public class ApiEndpointMetadata
