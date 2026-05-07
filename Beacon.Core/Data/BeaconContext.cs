@@ -64,8 +64,6 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
 
     public DbSet<AiUsageMetrics> AiUsageMetrics => Set<AiUsageMetrics>();
 
-    public DbSet<AiPromptTemplate> AiPromptTemplates => Set<AiPromptTemplate>();
-
     public DbSet<AiAlertConfiguration> AiAlertConfigurations => Set<AiAlertConfiguration>();
 
     public DbSet<AiConversationHistory> AiConversationHistories => Set<AiConversationHistory>();
@@ -472,14 +470,6 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             entity.HasIndex(e => e.Provider);
             entity.HasIndex(e => e.OperationType);
             entity.HasIndex(e => e.DataSourceId);
-        });
-
-        // AiPromptTemplate configuration
-        modelBuilder.Entity<AiPromptTemplate>(entity =>
-        {
-            entity.HasKey(e => e.Id);
-            entity.HasIndex(e => e.OperationType);
-            entity.HasIndex(e => e.IsActive);
         });
 
         // AiAlertConfiguration configuration
