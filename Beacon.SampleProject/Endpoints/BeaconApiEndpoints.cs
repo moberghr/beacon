@@ -31,6 +31,9 @@ internal static class BeaconApiEndpoints
         group.MapAuthEndpoints();
         group.MapAntiforgeryEndpoints();
         group.MapProjectsEndpoints();
+        group.MapQueryFoldersEndpoints();
+        group.MapQueriesEndpoints();
+        group.MapQueryVersionsEndpoints();
 
         return endpoints;
     }
