@@ -26,7 +26,7 @@ public class BeaconMailSender : IEmailAdapter
             IsBodyHtml = true,
         };
         mailMessage.To.Add(to);
-        
+
         // Add attachment if provided
         if (file != null)
         {

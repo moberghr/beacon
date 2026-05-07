@@ -3,7 +3,7 @@ using MudBlazor;
 
 namespace Beacon.UI.Components.Shared;
 
-public class BasePageComponent: ComponentBase
+public class BasePageComponent : ComponentBase
 {
     [CascadingParameter(Name = "IsDarkMode")]
     public bool IsDarkMode { get; set; }

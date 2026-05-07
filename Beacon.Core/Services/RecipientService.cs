@@ -14,7 +14,7 @@ public interface IRecipientService
     Task<BaseResponse> UpdateRecipient(RecipientData recipientData, CancellationToken cancellationToken);
 
     Task DeleteRecipient(int recipientId, CancellationToken cancellationToken);
-    
+
     Task<List<RecipientData>> GetRecipients(int? recipientId, string? searchQuery, CancellationToken cancellationToken);
 }
 
@@ -79,7 +79,7 @@ internal class RecipientService(IDbContextFactory<BeaconContext> contextFactory)
     public async Task<List<RecipientData>> GetRecipients(int? recipientId, string? searchQuery, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-        
+
         return await context.Recipients
             .WhereIf(recipientId.HasValue, x => x.Id == recipientId)
             .WhereIf(!string.IsNullOrWhiteSpace(searchQuery),

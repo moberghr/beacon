@@ -56,7 +56,7 @@ public class TaskService(IDbContextFactory<BeaconContext> contextFactory, ILogge
         if (existingTask != null)
         {
             UpdateTaskWithResultCount(existingTask, resultCount);
-            
+
             await context.SaveChangesAsync(cancellationToken);
             return existingTask.Id;
         }
@@ -71,7 +71,7 @@ public class TaskService(IDbContextFactory<BeaconContext> contextFactory, ILogge
         var task = CreateNewTask(subscriptionId, resultCount, autoResolveIfZero: false);
         context.QueryTasks.Add(task);
         await context.SaveChangesAsync(cancellationToken);
-        
+
         return task.Id;
     }
 

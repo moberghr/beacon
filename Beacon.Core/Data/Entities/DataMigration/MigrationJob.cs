@@ -10,7 +10,7 @@ public class MigrationJob : ArchivableBaseEntity, IScheduledJob, IMultiStepWorkf
 {
     public required string Name { get; set; }
     public required string Description { get; set; }
-    
+
     // Query Configuration
     public int DataSourceId { get; set; }
     public DataSource DataSource { get; set; } = null!;
@@ -21,20 +21,20 @@ public class MigrationJob : ArchivableBaseEntity, IScheduledJob, IMultiStepWorkf
     public DataSource DestinationDataSource { get; set; } = null!;
     public required string DestinationTable { get; set; }
     public MigrationMode Mode { get; set; } = MigrationMode.Insert;
-    
+
     // Scheduling & Execution
     public bool IsEnabled { get; set; } = true;
     public string? Schedule { get; set; }  // Cron expression
     public int MaxRetries { get; set; } = 3;
     public int TimeoutMinutes { get; set; } = 30;
-    
+
     // Validation & Transformation
     public bool ValidateBeforeExecution { get; set; } = true;
     public string? TransformationScript { get; set; }  // @result syntax transformations
-    
+
     // Relationships
     public ICollection<MigrationExecutionHistory> Executions { get; set; } = new List<MigrationExecutionHistory>();
-    
+
     // Auditing fields for tracking changes
     public string? ChangedBy { get; set; }
     public DateTime? ChangedOn { get; set; }

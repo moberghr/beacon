@@ -65,7 +65,7 @@ builder.Services.AddBeaconServices(builder.Configuration, options =>
         options.AddBeaconScheduler<BeaconScheduler>();
         options.BaseUrl = "https://localhost:7187/beacon"; // For notification links
         options.UseAI = true; // Enable AI features (requires LLM configuration)
-        
+
         options.AddEmailAdapter<BeaconMailSender>();
 
         // Enable authorization with role-based access control
@@ -77,9 +77,9 @@ builder.Services.AddBeaconServices(builder.Configuration, options =>
         options.AddAuthenticationProvider<DatabaseAuthenticationProvider>();
         options.UserManagement = new UserManagementOptions
         {
-                // For demo purposes, allow user registration. In production, you would likely disable this.
-                Enabled =  true
-            
+            // For demo purposes, allow user registration. In production, you would likely disable this.
+            Enabled = true
+
         };
     })
     // Register data source connectors (enables each engine type)

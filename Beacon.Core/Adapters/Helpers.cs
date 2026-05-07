@@ -86,7 +86,7 @@ public static class Helpers
 
         var headers = string.Join("|", firstRecord.Select(property => property.Key));
         var rows = string.Join("\n", queryResult.TopRecords.Select(record =>
-            $"|{string.Join("|", record.Select(property => CellValueFormatter.FormatAndSanitize(property.Value) ))}|"));
+            $"|{string.Join("|", record.Select(property => CellValueFormatter.FormatAndSanitize(property.Value)))}|"));
 
         return $@"
         {querySection}

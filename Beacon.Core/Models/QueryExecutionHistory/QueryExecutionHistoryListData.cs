@@ -2,7 +2,7 @@
 
 namespace Beacon.Core.Models.QueryExecutionHistory;
 
-public class QueryExecutionHistoryListData: IPagedListResponse<QueryExecutionHistoryData>
+public class QueryExecutionHistoryListData : IPagedListResponse<QueryExecutionHistoryData>
 {
     public List<QueryExecutionHistoryData> Data { get; set; }
 

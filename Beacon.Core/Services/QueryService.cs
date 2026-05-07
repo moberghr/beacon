@@ -30,21 +30,21 @@ public interface IQueryService
     Task<PagedList<QueryData>> GetQueries(GetQueriesRequest request, CancellationToken cancellationToken);
 
     Task<QueryDetailsData> GetQueryDetails(int queryId, CancellationToken cancellationToken);
-    
+
     Task<QueryResult> ExecuteQuery(int subscriptionId, CancellationToken cancellationToken);
-    
+
     // ===== ENHANCED METHODS FOR CROSS-DATA-SOURCE FUNCTIONALITY =====
     Task<QueryExecutionResult> ExecuteQueryAdvanced(int queryId, string? finalQuery = null, List<ParameterValue>? parameters = null, CancellationToken cancellationToken = default);
-    
+
     Task<QueryStepResult> PreviewQueryStep(int queryId, int stepOrder, CancellationToken cancellationToken);
-    
+
     Task<QueryStepResult> PreviewQueryStep(int queryId, int stepOrder, List<ParameterValue>? parameters, CancellationToken cancellationToken);
-    
+
     // Step management with data source context
     Task<BaseResponse> AddQueryStep(int queryId, QueryStepData stepData, CancellationToken cancellationToken);
-    
+
     Task<BaseResponse> UpdateQueryStep(int queryId, int stepOrder, QueryStepData stepData, CancellationToken cancellationToken);
-    
+
     Task DeleteQueryStep(int queryId, int stepOrder, CancellationToken cancellationToken);
 }
 
@@ -127,7 +127,7 @@ public class QueryDetailsData
     public string SqlValue => Steps.OrderBy(s => s.StepOrder).FirstOrDefault()?.SqlValue ?? "";
 
     public string DataSourceName => Steps.OrderBy(s => s.StepOrder).FirstOrDefault()?.DataSourceName ?? "";
-    
+
     public List<QueryParameterData> Parameters => Steps.OrderBy(s => s.StepOrder).FirstOrDefault()?.Parameters.Select(p => new QueryParameterData
     {
         Name = p.Name,
@@ -152,7 +152,7 @@ public class SubscriptionListData
 
     public DateTime CreatedTime { get; set; }
     public string Name { get; set; }
-    
+
     public string Subscribers { get; set; }
 
     public string CronExpression { get; set; }
@@ -185,7 +185,7 @@ internal class QueryService(IDbContextFactory<BeaconContext> contextFactory, IEn
         {
             QueryValidator.CheckForFlaggedWords(queryData.SqlValue);
             QueryValidator.CheckForParameters(queryData.SqlValue, queryData.Parameters);
-            
+
             queryData.Steps.Add(new QueryStepData
             {
                 StepOrder = 1,
@@ -218,7 +218,7 @@ internal class QueryService(IDbContextFactory<BeaconContext> contextFactory, IEn
         }
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-        
+
         var query = new Query
         {
             Name = queryData.Name,
@@ -262,7 +262,7 @@ internal class QueryService(IDbContextFactory<BeaconContext> contextFactory, IEn
     public async Task DeleteQuery(int queryId, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-        
+
         var query = await context.Queries
             .Include(x => x.Steps)
                 .ThenInclude(s => s.Parameters)
@@ -342,7 +342,7 @@ internal class QueryService(IDbContextFactory<BeaconContext> contextFactory, IEn
     public async Task<QueryDetailsData> GetQueryDetails(int queryId, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-        
+
         var result = await context.Queries
             .AsSplitQuery()
             .Where(x => x.Id == queryId)
@@ -387,7 +387,7 @@ internal class QueryService(IDbContextFactory<BeaconContext> contextFactory, IEn
                             Subscribers = y.Recipients.Select(r => r.Name).ToJson()
                         }).ToList()
                 }).SingleAsync(cancellationToken);
-        
+
         // Get notification history for the last 30 days
         var cutoffDate = DateTime.UtcNow.AddDays(-30);
         var notificationHistory = await context.QueryExecutionHistory
@@ -442,7 +442,7 @@ internal class QueryService(IDbContextFactory<BeaconContext> contextFactory, IEn
     public async Task<QueryResult> ExecuteQuery(int subscriptionId, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-        
+
         var subscription = await context.Subscriptions
             .Include(x => x.Recipients)
             .Include(x => x.Query)
@@ -456,9 +456,9 @@ internal class QueryService(IDbContextFactory<BeaconContext> contextFactory, IEn
 
         // Use the advanced step-based execution with stored final query if available
         var executionResult = await ExecuteQueryAdvanced(
-            subscription.QueryId, 
-            finalQuery: subscription.Query.FinalQuery, 
-            parameters: null, 
+            subscription.QueryId,
+            finalQuery: subscription.Query.FinalQuery,
+            parameters: null,
             cancellationToken);
 
         // Convert QueryExecutionResult to QueryResult for backward compatibility
@@ -506,10 +506,10 @@ internal class QueryService(IDbContextFactory<BeaconContext> contextFactory, IEn
         }).ToList();
 
         queryResult.MaxRows = subscription.MaxRows ?? Constants.Query.DefaultMaxRows;
-        
+
         queryResult.TopRecords = queryResult.TopRecords.Take(queryResult.MaxRows.Value).ToList();
         queryResult.AllRecords = queryResult.AllRecords.Take(queryResult.MaxRows.Value).ToList();
-        
+
         // Need to create a new QueryResult with updated QueryResults since it's init-only
         queryResult = new QueryResult
         {
@@ -529,7 +529,7 @@ internal class QueryService(IDbContextFactory<BeaconContext> contextFactory, IEn
             SaveResults = subscription.StoreResults
         };
 
-        
+
         return queryResult;
     }
 
@@ -589,7 +589,7 @@ internal class QueryService(IDbContextFactory<BeaconContext> contextFactory, IEn
         {
             QueryValidator.CheckForFlaggedWords(queryData.SqlValue);
             QueryValidator.CheckForParameters(queryData.SqlValue, queryData.Parameters);
-            
+
             // Update the first (and typically only) step for backward compatibility
             var firstStep = query.Steps.OrderBy(s => s.StepOrder).First();
             firstStep.SqlValue = queryData.SqlValue;
@@ -611,7 +611,7 @@ internal class QueryService(IDbContextFactory<BeaconContext> contextFactory, IEn
             foreach (var stepData in queryData.Steps)
             {
                 QueryValidator.CheckForFlaggedWords(stepData.SqlValue);
-                
+
                 var step = query.Steps.FirstOrDefault(s => s.Id == stepData.StepId);
                 if (step != null)
                 {
@@ -738,11 +738,11 @@ internal class QueryService(IDbContextFactory<BeaconContext> contextFactory, IEn
     }
 
     // ===== ENHANCED METHODS FOR CROSS-PROJECT FUNCTIONALITY =====
-    
+
     public async Task<QueryExecutionResult> ExecuteQueryAdvanced(int queryId, string? finalQuery = null, List<ParameterValue>? parameters = null, CancellationToken cancellationToken = default)
     {
         var query = await GetQueryWithSteps(queryId, cancellationToken);
-        
+
         // Use provided parameters or fall back to stored values from query
         var effectiveFinalQuery = finalQuery ?? query.FinalQuery;
 
@@ -754,7 +754,7 @@ internal class QueryService(IDbContextFactory<BeaconContext> contextFactory, IEn
     {
         return await PreviewQueryStep(queryId, stepOrder, null, cancellationToken);
     }
-    
+
     public async Task<QueryStepResult> PreviewQueryStep(int queryId, int stepOrder, List<ParameterValue>? parameters, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
@@ -771,7 +771,7 @@ internal class QueryService(IDbContextFactory<BeaconContext> contextFactory, IEn
     public async Task<BaseResponse> AddQueryStep(int queryId, QueryStepData stepData, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-        
+
         var queryStep = new QueryStep
         {
             QueryId = queryId,
@@ -801,7 +801,7 @@ internal class QueryService(IDbContextFactory<BeaconContext> contextFactory, IEn
     public async Task<BaseResponse> UpdateQueryStep(int queryId, int stepOrder, QueryStepData stepData, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-        
+
         var queryStep = await context.QuerySteps
             .Include(s => s.Parameters)
             .Where(s => s.QueryId == queryId && s.StepOrder == stepOrder)
@@ -834,7 +834,7 @@ internal class QueryService(IDbContextFactory<BeaconContext> contextFactory, IEn
     public async Task DeleteQueryStep(int queryId, int stepOrder, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-        
+
         var queryStep = await context.QuerySteps
             .Where(s => s.QueryId == queryId && s.StepOrder == stepOrder)
             .SingleAsync(cancellationToken);
@@ -851,11 +851,11 @@ internal class QueryService(IDbContextFactory<BeaconContext> contextFactory, IEn
     }
 
     // ===== PRIVATE HELPER METHODS FOR CROSS-DATA-SOURCE EXECUTION =====
-    
+
     private async Task<Query> GetQueryWithSteps(int queryId, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-        
+
         return await context.Queries
             .Include(q => q.Steps)
                 .ThenInclude(s => s.DataSource)
@@ -874,13 +874,13 @@ internal class QueryService(IDbContextFactory<BeaconContext> contextFactory, IEn
 
         logger.LogInformation("Executing query chain {QueryId}: {StepCount} steps across {DataSourceCount} data sources",
             query.Id, query.Steps.Count, query.DataSourceIds.Count);
-        
+
         // Execute each step against its own database
         foreach (var step in query.Steps.OrderBy(s => s.StepOrder))
         {
             logger.LogDebug("Executing step {StepOrder} against data source {DataSourceName} ({DatabaseEngine})",
                 step.StepOrder, step.DataSource.Name, step.DataSource.DatabaseEngineType);
-            
+
             var stepResult = await ExecuteStep(step, parameters);
             stepResults.Add(stepResult);
             totalExecutionTime += stepResult.ExecutionTimeMs;
@@ -888,7 +888,7 @@ internal class QueryService(IDbContextFactory<BeaconContext> contextFactory, IEn
             // Track execution time by data source
             var dataSourceKey = $"{step.DataSource.Name} ({step.DataSource.DatabaseEngineType})";
             dataSourceExecutionTimes[dataSourceKey] = dataSourceExecutionTimes.GetValueOrDefault(dataSourceKey, 0) + stepResult.ExecutionTimeMs;
-            
+
             if (stepResult.Success)
             {
                 // Add results to virtual table manager with data source context
@@ -907,10 +907,10 @@ internal class QueryService(IDbContextFactory<BeaconContext> contextFactory, IEn
                 break; // Stop execution on first failure
             }
         }
-        
+
         QueryResult? finalResult = null;
         bool allStepsSucceeded = stepResults.All(s => s.Success);
-        
+
         if (!string.IsNullOrEmpty(finalQuery) && allStepsSucceeded)
         {
             finalResult = await ExecuteFinalQuery(finalQuery, virtualTableManager);
@@ -921,7 +921,7 @@ internal class QueryService(IDbContextFactory<BeaconContext> contextFactory, IEn
             // Single-step query - convert step result to QueryResult
             finalResult = ConvertStepToQueryResult(stepResults[0], query);
         }
-        
+
         var executionResult = new QueryExecutionResult
         {
             StepResults = stepResults,
@@ -1012,12 +1012,12 @@ internal class QueryService(IDbContextFactory<BeaconContext> contextFactory, IEn
 
     private async Task<QueryResult> ExecuteFinalQuery(string finalQuery, VirtualTableManager virtualTableManager)
     {
-            logger.LogInformation("Using in-memory SQLite database for final query execution");
-            var inMemoryDbLogger = loggerFactory.CreateLogger<InMemoryDatabaseManager>();
-            return await virtualTableManager.ExecuteFinalQueryWithInMemoryDatabase(
-                finalQuery, 
-                inMemoryDbLogger, 
-                CancellationToken.None);
+        logger.LogInformation("Using in-memory SQLite database for final query execution");
+        var inMemoryDbLogger = loggerFactory.CreateLogger<InMemoryDatabaseManager>();
+        return await virtualTableManager.ExecuteFinalQueryWithInMemoryDatabase(
+            finalQuery,
+            inMemoryDbLogger,
+            CancellationToken.None);
     }
 
     private QueryResult ConvertStepToQueryResult(QueryStepResult stepResult, Query query)

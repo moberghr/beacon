@@ -210,156 +210,156 @@ internal class DataQualityEvaluationService(
         switch (rule.RuleType)
         {
             case DataContractRuleType.Freshness:
-            {
-                var failed = Convert.ToInt32(dict["failed"]);
-                var actualValue = dict.ContainsKey("actual_value") ? Convert.ToString(dict["actual_value"]) : null;
-                return new DataQualityRuleResult
                 {
-                    DataContractRuleId = rule.Id,
-                    Passed = failed == 0,
-                    Score = failed == 0 ? 100 : 0,
-                    ActualValue = actualValue != null ? $"{actualValue} minutes" : null,
-                    ExpectedValue = config.RootElement.TryGetProperty("maxAgeMinutes", out var maxAge) ? $"< {maxAge} minutes" : null,
-                    Message = failed == 0 ? "Data is fresh" : "Data is stale",
-                    ExecutionTimeMs = executionTimeMs
-                };
-            }
+                    var failed = Convert.ToInt32(dict["failed"]);
+                    var actualValue = dict.ContainsKey("actual_value") ? Convert.ToString(dict["actual_value"]) : null;
+                    return new DataQualityRuleResult
+                    {
+                        DataContractRuleId = rule.Id,
+                        Passed = failed == 0,
+                        Score = failed == 0 ? 100 : 0,
+                        ActualValue = actualValue != null ? $"{actualValue} minutes" : null,
+                        ExpectedValue = config.RootElement.TryGetProperty("maxAgeMinutes", out var maxAge) ? $"< {maxAge} minutes" : null,
+                        Message = failed == 0 ? "Data is fresh" : "Data is stale",
+                        ExecutionTimeMs = executionTimeMs
+                    };
+                }
 
             case DataContractRuleType.Volume:
-            {
-                var rowCount = Convert.ToInt64(dict["row_count"]);
-                var minRows = config.RootElement.TryGetProperty("minRows", out var minEl) ? (long?)minEl.GetInt64() : null;
-                var maxRows = config.RootElement.TryGetProperty("maxRows", out var maxEl) ? (long?)maxEl.GetInt64() : null;
-
-                var passed = true;
-                if (minRows.HasValue && rowCount < minRows.Value) passed = false;
-                if (maxRows.HasValue && rowCount > maxRows.Value) passed = false;
-
-                var expected = (minRows, maxRows) switch
                 {
-                    (not null, not null) => $"{minRows} - {maxRows}",
-                    (not null, null) => $">= {minRows}",
-                    (null, not null) => $"<= {maxRows}",
-                    _ => null
-                };
+                    var rowCount = Convert.ToInt64(dict["row_count"]);
+                    var minRows = config.RootElement.TryGetProperty("minRows", out var minEl) ? (long?)minEl.GetInt64() : null;
+                    var maxRows = config.RootElement.TryGetProperty("maxRows", out var maxEl) ? (long?)maxEl.GetInt64() : null;
 
-                return new DataQualityRuleResult
-                {
-                    DataContractRuleId = rule.Id,
-                    Passed = passed,
-                    Score = passed ? 100 : 0,
-                    ActualValue = rowCount.ToString(),
-                    ExpectedValue = expected,
-                    Message = passed ? "Row count within expected range" : "Row count outside expected range",
-                    ExecutionTimeMs = executionTimeMs
-                };
-            }
+                    var passed = true;
+                    if (minRows.HasValue && rowCount < minRows.Value) passed = false;
+                    if (maxRows.HasValue && rowCount > maxRows.Value) passed = false;
+
+                    var expected = (minRows, maxRows) switch
+                    {
+                        (not null, not null) => $"{minRows} - {maxRows}",
+                        (not null, null) => $">= {minRows}",
+                        (null, not null) => $"<= {maxRows}",
+                        _ => null
+                    };
+
+                    return new DataQualityRuleResult
+                    {
+                        DataContractRuleId = rule.Id,
+                        Passed = passed,
+                        Score = passed ? 100 : 0,
+                        ActualValue = rowCount.ToString(),
+                        ExpectedValue = expected,
+                        Message = passed ? "Row count within expected range" : "Row count outside expected range",
+                        ExecutionTimeMs = executionTimeMs
+                    };
+                }
 
             case DataContractRuleType.NullRate:
-            {
-                var nullPercent = dict["null_percent"] != null ? Convert.ToDouble(dict["null_percent"]) : 0;
-                var maxNullPercent = config.RootElement.TryGetProperty("maxNullPercent", out var maxNullEl) ? maxNullEl.GetDouble() : 0;
-                var passed = nullPercent <= maxNullPercent;
-
-                return new DataQualityRuleResult
                 {
-                    DataContractRuleId = rule.Id,
-                    Passed = passed,
-                    Score = passed ? 100 : Math.Max(0, 100 - (nullPercent - maxNullPercent)),
-                    ActualValue = $"{nullPercent:F2}%",
-                    ExpectedValue = $"<= {maxNullPercent}%",
-                    Message = passed ? "Null rate within threshold" : $"Null rate {nullPercent:F2}% exceeds threshold {maxNullPercent}%",
-                    ExecutionTimeMs = executionTimeMs
-                };
-            }
+                    var nullPercent = dict["null_percent"] != null ? Convert.ToDouble(dict["null_percent"]) : 0;
+                    var maxNullPercent = config.RootElement.TryGetProperty("maxNullPercent", out var maxNullEl) ? maxNullEl.GetDouble() : 0;
+                    var passed = nullPercent <= maxNullPercent;
+
+                    return new DataQualityRuleResult
+                    {
+                        DataContractRuleId = rule.Id,
+                        Passed = passed,
+                        Score = passed ? 100 : Math.Max(0, 100 - (nullPercent - maxNullPercent)),
+                        ActualValue = $"{nullPercent:F2}%",
+                        ExpectedValue = $"<= {maxNullPercent}%",
+                        Message = passed ? "Null rate within threshold" : $"Null rate {nullPercent:F2}% exceeds threshold {maxNullPercent}%",
+                        ExecutionTimeMs = executionTimeMs
+                    };
+                }
 
             case DataContractRuleType.Uniqueness:
-            {
-                var duplicateCount = Convert.ToInt64(dict["duplicate_count"]);
-                var passed = duplicateCount == 0;
-
-                return new DataQualityRuleResult
                 {
-                    DataContractRuleId = rule.Id,
-                    Passed = passed,
-                    Score = passed ? 100 : 0,
-                    ActualValue = duplicateCount.ToString(),
-                    ExpectedValue = "0",
-                    Message = passed ? "All values are unique" : $"{duplicateCount} duplicate values found",
-                    ExecutionTimeMs = executionTimeMs
-                };
-            }
+                    var duplicateCount = Convert.ToInt64(dict["duplicate_count"]);
+                    var passed = duplicateCount == 0;
+
+                    return new DataQualityRuleResult
+                    {
+                        DataContractRuleId = rule.Id,
+                        Passed = passed,
+                        Score = passed ? 100 : 0,
+                        ActualValue = duplicateCount.ToString(),
+                        ExpectedValue = "0",
+                        Message = passed ? "All values are unique" : $"{duplicateCount} duplicate values found",
+                        ExecutionTimeMs = executionTimeMs
+                    };
+                }
 
             case DataContractRuleType.Referential:
-            {
-                var orphaned = Convert.ToInt64(dict["orphaned"]);
-                var passed = orphaned == 0;
-
-                return new DataQualityRuleResult
                 {
-                    DataContractRuleId = rule.Id,
-                    Passed = passed,
-                    Score = passed ? 100 : 0,
-                    ActualValue = orphaned.ToString(),
-                    ExpectedValue = "0",
-                    Message = passed ? "All references are valid" : $"{orphaned} orphaned records found",
-                    ExecutionTimeMs = executionTimeMs
-                };
-            }
+                    var orphaned = Convert.ToInt64(dict["orphaned"]);
+                    var passed = orphaned == 0;
+
+                    return new DataQualityRuleResult
+                    {
+                        DataContractRuleId = rule.Id,
+                        Passed = passed,
+                        Score = passed ? 100 : 0,
+                        ActualValue = orphaned.ToString(),
+                        ExpectedValue = "0",
+                        Message = passed ? "All references are valid" : $"{orphaned} orphaned records found",
+                        ExecutionTimeMs = executionTimeMs
+                    };
+                }
 
             case DataContractRuleType.Range:
-            {
-                var outOfRange = Convert.ToInt64(dict["out_of_range"]);
-                var total = dict.ContainsKey("total") ? Convert.ToInt64(dict["total"]) : 0;
-                var passed = outOfRange == 0;
-
-                return new DataQualityRuleResult
                 {
-                    DataContractRuleId = rule.Id,
-                    Passed = passed,
-                    Score = total > 0 ? Math.Round((1 - (double)outOfRange / total) * 100, 2) : 100,
-                    ActualValue = $"{outOfRange} out of range",
-                    ExpectedValue = "0 out of range",
-                    Message = passed ? "All values within range" : $"{outOfRange} values out of range",
-                    ExecutionTimeMs = executionTimeMs
-                };
-            }
+                    var outOfRange = Convert.ToInt64(dict["out_of_range"]);
+                    var total = dict.ContainsKey("total") ? Convert.ToInt64(dict["total"]) : 0;
+                    var passed = outOfRange == 0;
+
+                    return new DataQualityRuleResult
+                    {
+                        DataContractRuleId = rule.Id,
+                        Passed = passed,
+                        Score = total > 0 ? Math.Round((1 - (double)outOfRange / total) * 100, 2) : 100,
+                        ActualValue = $"{outOfRange} out of range",
+                        ExpectedValue = "0 out of range",
+                        Message = passed ? "All values within range" : $"{outOfRange} values out of range",
+                        ExecutionTimeMs = executionTimeMs
+                    };
+                }
 
             case DataContractRuleType.Pattern:
-            {
-                var nonMatching = Convert.ToInt64(dict["non_matching"]);
-                var passed = nonMatching == 0;
-
-                return new DataQualityRuleResult
                 {
-                    DataContractRuleId = rule.Id,
-                    Passed = passed,
-                    Score = passed ? 100 : 0,
-                    ActualValue = nonMatching.ToString(),
-                    ExpectedValue = "0",
-                    Message = passed ? "All values match pattern" : $"{nonMatching} values don't match pattern",
-                    ExecutionTimeMs = executionTimeMs
-                };
-            }
+                    var nonMatching = Convert.ToInt64(dict["non_matching"]);
+                    var passed = nonMatching == 0;
+
+                    return new DataQualityRuleResult
+                    {
+                        DataContractRuleId = rule.Id,
+                        Passed = passed,
+                        Score = passed ? 100 : 0,
+                        ActualValue = nonMatching.ToString(),
+                        ExpectedValue = "0",
+                        Message = passed ? "All values match pattern" : $"{nonMatching} values don't match pattern",
+                        ExecutionTimeMs = executionTimeMs
+                    };
+                }
 
             case DataContractRuleType.CustomSql:
-            {
-                // Custom SQL should return: passed (0/1), score (optional), actual_value (optional), message (optional)
-                var passed = dict.ContainsKey("passed") ? Convert.ToInt32(dict["passed"]) == 1 : false;
-                var score = dict.ContainsKey("score") ? Convert.ToDouble(dict["score"]) : (passed ? 100.0 : 0.0);
-                var actualValue = dict.ContainsKey("actual_value") ? Convert.ToString(dict["actual_value"]) : null;
-                var message = dict.ContainsKey("message") ? Convert.ToString(dict["message"]) : null;
-
-                return new DataQualityRuleResult
                 {
-                    DataContractRuleId = rule.Id,
-                    Passed = passed,
-                    Score = score,
-                    ActualValue = actualValue,
-                    Message = message ?? (passed ? "Custom check passed" : "Custom check failed"),
-                    ExecutionTimeMs = executionTimeMs
-                };
-            }
+                    // Custom SQL should return: passed (0/1), score (optional), actual_value (optional), message (optional)
+                    var passed = dict.ContainsKey("passed") ? Convert.ToInt32(dict["passed"]) == 1 : false;
+                    var score = dict.ContainsKey("score") ? Convert.ToDouble(dict["score"]) : (passed ? 100.0 : 0.0);
+                    var actualValue = dict.ContainsKey("actual_value") ? Convert.ToString(dict["actual_value"]) : null;
+                    var message = dict.ContainsKey("message") ? Convert.ToString(dict["message"]) : null;
+
+                    return new DataQualityRuleResult
+                    {
+                        DataContractRuleId = rule.Id,
+                        Passed = passed,
+                        Score = score,
+                        ActualValue = actualValue,
+                        Message = message ?? (passed ? "Custom check passed" : "Custom check failed"),
+                        ExecutionTimeMs = executionTimeMs
+                    };
+                }
 
             default:
                 return new DataQualityRuleResult
