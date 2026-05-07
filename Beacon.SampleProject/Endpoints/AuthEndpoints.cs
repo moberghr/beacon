@@ -14,7 +14,6 @@ internal static class AuthEndpoints
             .Produces<CurrentUserResponse>(StatusCodes.Status200OK);
 
         group.MapGet("/auth/permissions", GetCurrentPermissions)
-            .RequireAuthorization()
             .WithName("GetCurrentPermissions")
             .WithTags("Auth")
             .Produces<CurrentPermissionsResponse>(StatusCodes.Status200OK)
