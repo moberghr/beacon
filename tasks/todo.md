@@ -1,122 +1,99 @@
-# Todo — React Migration Phase 3 Batch 2
+# Todo — React Migration Phase 3 Batch 3 (Simple CRUD)
 
-**Spec:** `ClaudePlans/ReactMigration-Phase3.md` (Batch 2 section)
-**Predecessor:** `ClaudePlans/ReactMigration-Phase3-Batch1-Diff.md`
+**Spec:** `ClaudePlans/ReactMigration-Phase3.md` (Batch 3 section)
+**Predecessor diffs:** `ClaudePlans/ReactMigration-Phase3-Batch1-Diff.md`, `Phase3-Batch2-Diff.md`
 **Branch:** `feat/react-phase3` (continue — push to existing draft PR #13)
 **Worktree:** `/Users/mirkobudimir/Dev/MiBu/semantico-react`
 
 ---
 
-## Session entry point
+## Critical constraints (carry over from Batches 1 & 2)
+- **NO Tailwind, NO shadcn primitives.** Beacon-design CSS in `web/src/styles-beacon.css`. Add patterns there if missing.
+- **NO fake/seed/demo data.** Pages and forms start empty; populate from real endpoints.
+- All routes lazy-loaded; one file per page in `routes/<area>/`.
+- Tables via `<DataTable>`, icons via `Icon.Xxx` (extend `Icon.tsx`), formatters via `lib/format.ts`.
+- API via `beaconApi()` singleton + TanStack Query hooks per area.
+- Add migrated slug to `web/src/feature-flags.ts` `MIGRATED_PAGES` only after the page renders end-to-end.
+- **In-app `<Link>` and `navigate()` paths must NOT include `/app/` prefix** — `BrowserRouter basename="/app"` adds it.
+- After every React-only build, sync `web/dist/` → `wwwroot/app/` (or run `dotnet build` to trigger the copy target).
+- Backend: MediatR handler+request+result in one file as `internal sealed class` + primary ctor; `IDbContextFactory<BeaconContext>`; `.Select(new ...)` without `.Include()`; `InvalidOperationException`/`BeaconException` (no Result pattern); Beacon C# style guide.
 
-Open the worktree and confirm:
-
-```bash
-cd /Users/mirkobudimir/Dev/MiBu/semantico-react
-git log --oneline -3   # top should mention "phase 3 batch 1 — foundation"
-git status --short     # tasks/todo.md may be modified, ignored
-```
-
-Read `ClaudePlans/ReactMigration-Phase3-Batch1-Diff.md` first — it's the contract for what patterns Batch 2 must follow. Then `ClaudePlans/ReactMigration-Phase3.md` § "Batch 2 — Read-only pages + project detail (~4 days)".
-
-**Critical constraints (from Batch 1):**
-- **NO Tailwind utility classes, NO shadcn primitives.** Use the Beacon-design system in `web/src/styles-beacon.css`. Add new CSS to `styles-beacon.css` if a needed pattern is missing.
-- All routes lazy-loaded. One file per page in `routes/<area>/`.
-- Tables via `<DataTable>`. Icons via `Icon.Xxx` (add to `Icon.tsx` rather than installing lucide).
-- Format helpers always via `lib/format.ts`.
-- API via `beaconApi()` singleton + TanStack Query hooks in `routes/<area>/queries.ts`.
-- Add migrated route slug to `web/src/feature-flags.ts` `MIGRATED_PAGES` after each page goes live.
+## New patterns introduced in Batch 3
+- **First mutations.** TanStack Query `useMutation` invalidating queries on success.
+- **React Hook Form + Zod** for every form. `@hookform/resolvers/zod`. Encode handler validation in Zod.
+- **First SignalR consumer.** `lib/hub.ts` already exists; subscribe to the approval-updated hub event and call `queryClient.invalidateQueries({queryKey: ['approvals']})`.
+- **Dialog component.** Add `components/ui/Dialog.tsx` to Beacon-design (or whatever pattern matches Blazor's MudDialog). One reusable shell — header, body, footer with primary/cancel.
+- **Toast on mutation.** Sonner already wired; surface success/error via `toast.success` / `toast.error` from RFC 7807 response.
 
 ---
 
-## Batch 2 pages to ship
+## Pages to ship
 
-### 2.1 — Project detail (`/app/projects/:id`)
-- [x] Replace `routes/projects/ProjectDetailPage.tsx` placeholder with the real page
-- [x] `useProjectDetailQuery(id)` calling `beaconApi().getProjectDetail(id)`
-- [x] Use design-system tabs (look in `Beacon-design/query-detail.jsx` for the pattern)
-- [x] Tabs: Overview, Repositories, Documentation (placeholder until Batch 4), AI Actors (placeholder until Batch 4)
-- [x] Verify: `/app/projects/{id}` loads, shows project, tab navigation works
+### 3.1 — Recipients (`/app/recipients`)
+Blazor: `Recipients.razor`, dialogs `AddRecipientDialog.razor`, `AddRecipientsDialog.razor`, `UpdateRecipientDialog.razor`.
 
-### 2.2 — Notifications list (`/app/notifications`)
-**FIRST D3 WORK** — Notifications has no MediatR handler today; Blazor calls `INotificationService` directly. Per spec D3, add MediatR handlers + endpoints first.
+- [x] Audit Blazor page + dialogs to list endpoints used and field shapes.
+- [x] D3 if needed: add MediatR handlers (`GetRecipients`, `CreateRecipient`, `UpdateRecipient`, `DeleteRecipient`) + endpoints under `/beacon/api/recipients`.
+- [x] `routes/recipients/RecipientsListPage.tsx` — DataTable, click row → edit dialog. Top-right "Add recipient" button.
+- [x] `routes/recipients/RecipientDialog.tsx` — RHF + Zod, used for both Add and Update.
+- [x] `routes/recipients/queries.ts` — `useRecipientsQuery`, `useCreateRecipient`, `useUpdateRecipient`, `useDeleteRecipient`.
+- [x] `MIGRATED_PAGES += 'recipients'`. Lazy-route. Smoke test.
 
-- [x] Add `Beacon.Core/Handlers/Notifications/GetNotificationsQuery.cs` + handler. Pattern: see `Beacon.Core/Handlers/Projects/GetProjectsHandler.cs`. Wraps `INotificationService.GetNotificationsAsync(...)`.
-- [x] Add HTTP endpoint in `Beacon.SampleProject/Endpoints/NotificationsEndpoints.cs` (new file, registered in `BeaconApiEndpoints.cs`). `WithName("GetNotifications")` so the OpenAPI contract test passes.
-- [x] Run `npm run codegen` against the running app to regenerate `web/src/api/generated/beacon-api.ts`
-- [x] Add Notifications page: list with severity, message, timestamp, status. Read-only (actions deferred to Batch 4).
-- [x] Add to `MIGRATED_PAGES`
-- [x] Verify: `dotnet test` passes (contract test should pass automatically once endpoint exists), `/app/notifications` loads
+### 3.2 — Tasks (`/app/tasks` + `/app/tasks/:id`)
+Blazor: `Tasks.razor`, `TaskDetails.razor`, `ResolveTaskDialog.razor`.
 
-### 2.3 — Home page with Tremor widgets (`/app/home`)
-- [x] Install `@tremor/react` is already done; first usage here
-- [x] Read `Beacon-design/dashboard.jsx` for the KPI grid + chart patterns. **Match it** — same `kpi-grid` + KPI cards. The design has its own charting; Tremor is the React equivalent.
-- [x] Hooks: `useDashboardsQuery()` (already wrapped in Phase 1) for any aggregate stats
-- [x] If no aggregate dashboard endpoint exists yet, build the page with placeholder values from real data sources (per §9.1: NEVER fake/seed data)
-- [x] Add to `MIGRATED_PAGES` as `home`
-- [x] Verify: `/app/home` renders KPIs without fake data
+- [x] D3 if needed: handlers for `GetTasks`, `GetTaskDetail`, `ResolveTask`.
+- [x] `routes/tasks/TasksListPage.tsx` — DataTable with status filter, click → detail.
+- [x] `routes/tasks/TaskDetailPage.tsx` — fields + "Resolve" action opens dialog.
+- [x] `routes/tasks/ResolveTaskDialog.tsx` — RHF + Zod.
+- [x] `MIGRATED_PAGES += 'tasks'`. Lazy-routes. Smoke.
 
-### 2.4 — About page (`/app/about`)
-- [x] Trivial port. Static content; whatever Blazor's About.razor shows.
-- [x] Add to `MIGRATED_PAGES`
+### 3.3 — Pending approvals (`/app/approvals`) — FIRST SIGNALR
+Blazor: `PendingApprovals.razor`, `ReviewApprovalDialog.razor`.
 
-### 2.5 — ControlTower (`/app/control-tower`)
-- [x] Read Blazor's `ControlTower.razor` to understand what data it shows. May need new MediatR handlers if it uses services directly.
-- [x] If new handlers needed, follow same D3 pattern as Notifications (add handler + endpoint + regen TS).
-- [x] Add to `MIGRATED_PAGES`
+- [x] Endpoints exist or need D3? Confirm.
+- [x] `routes/approvals/ApprovalsListPage.tsx` — list, click → review dialog.
+- [x] `routes/approvals/ReviewApprovalDialog.tsx` — RHF + Zod, approve/reject with optional comment.
+- [x] **SignalR**: subscribe to the existing approval-updated hub event in this page (or in `queries.ts`). On event → `queryClient.invalidateQueries(['approvals'])`. Cleanup on unmount.
+- [x] `MIGRATED_PAGES += 'approvals'`. Smoke including the realtime path.
 
-### 2.6 — Migration history (`/app/migration-history`)
-- [x] Existing endpoint: check Phase 1 endpoints for migration jobs.
-- [x] Read-only list. Add to `MIGRATED_PAGES`.
+### 3.4 — API keys (`/app/api-keys`)
+Blazor: `ApiKeys.razor`, `GenerateApiKeyDialog.razor`.
 
-### 2.7 — Query version history (`/app/queries/:id/versions`)
-- [x] Phase 1 wrapped this — endpoint is `/beacon/api/queries/{id}/versions`.
-- [x] Read-only list. Click version → version detail (placeholder until Batch 5).
+- [x] List with scopes + status. Generate dialog returns the raw key ONCE; show in a copy-to-clipboard banner. Per CLAUDE.md §1.3, never echo or log the raw key.
+- [x] Revoke action with confirmation prompt.
+- [x] `MIGRATED_PAGES += 'api-keys'`. Smoke.
+
+### 3.5 — Users (`/app/users`)
+Blazor: `Users.razor`, `AddUserDialog.razor`, `UpdateUserDialog.razor`.
+
+- [x] List with roles. Add/update dialogs (RHF + Zod). Delete with confirm.
+- [x] If user editing requires admin role, gate the page (route-level + button-level).
+- [x] `MIGRATED_PAGES += 'users'`. Smoke.
 
 ---
 
-## Test infrastructure (do this once during 2.1 or 2.2)
-
-- [x] Set up Vitest + React Testing Library + MSW
-  - `npm install -D vitest @testing-library/react @testing-library/jest-dom jsdom msw`
-  - Add `vitest.config.ts`, `vitest.setup.ts`
-  - Add `npm test` script
-- [x] First test: `routes/projects/ProjectsListPage.test.tsx` — render with MSW-mocked `/beacon/api/projects`, assert table shows rows
-- [x] CI: figure out how to run vitest in `dotnet test` flow OR add a separate npm step to `.github/workflows/`. For now, just running it manually in the worktree is acceptable.
+## Cross-cutting
+- [x] `components/ui/Dialog.tsx` — single dialog shell (header + body + footer). Beacon-design CSS only.
+- [x] `components/ui/ConfirmDialog.tsx` — used by destructive actions (delete recipient, revoke key, delete user).
+- [x] `lib/hub.ts` consumer hook helper, e.g. `useHubEvent('approvalUpdated', cb)` — clean up on unmount.
+- [x] Vitest: add at least one mutation test (RecipientDialog) using MSW to mock POST.
 
 ---
 
 ## Acceptance gate
-
 - [x] `dotnet build -c Release --property WarningLevel=0` green
-- [x] `dotnet test` — all tests pass (35 + any new translation tests for new handlers + OpenAPI contract still passes)
+- [x] `dotnet test` — all green; new translation tests for any non-trivial new query (per §4.6); OpenAPI contract test still passes for every new handler
 - [x] `npm run build` green
-- [x] `npm test` (vitest) green if set up
-- [ ] Manual browser smoke per migrated page
-- [x] `ClaudePlans/ReactMigration-Phase3-Batch2-Diff.md` written
-- [ ] Commit + push to `feat/react-phase3`, PR #13 stays draft
+- [x] `npm test` green (existing + new mutation test)
+- [ ] Manual browser smoke each new page (CRUD + SignalR) — pending user verification + `npm run codegen` against a running backend
+- [x] `ClaudePlans/ReactMigration-Phase3-Batch3-Diff.md` written
+- [x] `git commit` only — DO NOT push (user pushes manually)
 
 ---
 
-## Out of scope (deferred to later batches)
-
-- Mutations (Add project, edit project, delete project) — Batch 3
-- Notifications actions (mark read, dismiss) — Batch 4
-- Subscriptions / Tasks / Recipients pages — Batch 3
-- Heavy 6 (QueryEditor etc.) — Batch 5
-
----
-
-## Pending verification from Batch 1 (do FIRST in fresh session)
-
-The user may not have browser-loaded `/app/projects` yet. **Verify before adding new pages:**
-1. Run `dotnet run --project Beacon.SampleProject -c Release` (or have user do it)
-2. Open `http://localhost:5296/app/projects` (or 7187/app/projects on https) while logged in
-3. Confirm: project list renders, design-system styling matches Blazor, sidebar nav shows other links going to `/beacon/...`
-4. If it doesn't work, fix that BEFORE starting any Batch 2 page
-
----
-
-## Subagent caveat
-
-In the previous session, subagent Bash was denied by the sandbox. If you want to run pieces of Batch 2 in parallel via subagent, that constraint may still hold — fall back to inline execution if the subagent reports it can't run shell.
+## Out of scope (deferred)
+- Project detail repositories/docs/ai-actors content — Batch 4
+- Subscriptions, DataSources — Batch 4
+- QueryDetails, QueryEditor — Batch 5
+- Settings/AdminSettings — Batch 4

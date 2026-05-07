@@ -2781,3 +2781,47 @@ button { font-family: inherit; }
   box-shadow: 0 1px 0 oklch(50% 0.13 155) inset, 0 1px 2px oklch(50% 0.13 155 / 0.3);
 }
 .btn--resolve:hover { background: oklch(58% 0.13 155); border-color: oklch(50% 0.13 155); }
+
+/* ===== Phase 3 Batch 3 — dialog sizing + form helpers ===== */
+.modal--sm { width: 100%; max-width: 440px; }
+.modal--md { width: 100%; max-width: 560px; }
+.modal--lg { width: 100%; max-width: 760px; }
+
+.q-error {
+  font-size: 11.5px;
+  color: var(--crit);
+  margin-top: 4px;
+}
+.q-input--error,
+.q-select--error,
+.q-textarea--error {
+  border-color: var(--crit);
+}
+.q-input--error:focus,
+.q-select--error:focus,
+.q-textarea--error:focus {
+  box-shadow: 0 0 0 2px oklch(58% 0.16 25 / 0.2);
+}
+
+/* destructive button */
+.btn--danger {
+  background: var(--crit);
+  color: white;
+  border-color: var(--crit);
+}
+.btn--danger:hover { background: oklch(55% 0.18 25); border-color: oklch(55% 0.18 25); }
+
+/* api-key reveal banner */
+.api-key-reveal {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--ok-bg);
+  border: 1px solid var(--ok);
+  border-radius: var(--r-sm);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+  word-break: break-all;
+}
+.api-key-reveal__key { flex: 1; min-width: 0; color: var(--text); }
