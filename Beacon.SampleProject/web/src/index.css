@@ -1,7 +1,4 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
-html, body, #root {
-  height: 100%;
-}
+/* Primary stylesheet imported by main.tsx. The full Beacon design system
+   lives in styles-beacon.css (vendored from Beacon-design/). Tailwind is
+   NOT loaded — the design system is plain CSS with custom properties. */
+@import './styles-beacon.css';

@@ -1,70 +1,79 @@
-# Todo — SSO for Login & MCP Auth
+# Todo — React Migration Phase 3
 
-**Spec:** `docs/specs/2026-04-15-sso-login-and-mcp-auth.md`
-**Plan:** `docs/plans/2026-04-15-sso-login-and-mcp-auth.md`
-**Status:** Implementation complete (batches 1–6). Pending review (Phase 3.5–7).
+**Spec:** `ClaudePlans/ReactMigration-Phase3.md`
+**Branch:** `feat/react-phase3` (off `feat/react`)
+**Status:** Pending Batch 1 approval
 
 ---
 
-## Batch 1 — Entity + migrations + query-translation test
+## This session: Batch 1 only — Foundation + reference page (`/app/projects`)
 
-- [x] Add `IdentityProvider` (nullable string) to `Beacon.Core/Data/Entities/BeaconUser.cs`
-- [x] Configure composite non-unique index `(IdentityProvider, ExternalId)` in `Beacon.Core/Data/BeaconContext.cs`
-- [x] Add `GetUserByExternalIdAndProviderAsync` to `IUserManagementService` + `UserManagementService`
-- [x] Generate PostgreSQL migration `AddIdentityProvider` (`20260415135907`)
-- [x] Generate SQL Server migration `AddIdentityProvider` (`20260415140019`)
-- [x] Add `GetUserByExternalIdAndProviderQuery_Translates` + `_WithNullProvider_Translates` to `QueryTranslationTests`
-- [x] Checkpoint: build green, 6 query tests pass, both migration files exist
+### 1.1 — npm packages
+- [ ] Add: `react-router-dom`, `@tanstack/react-table`, `@tremor/react`, `react-hook-form`, `zod`, `@hookform/resolvers`, `sonner`, `class-variance-authority`, `clsx`, `tailwind-merge`, `lucide-react`
+- [ ] Initialize shadcn primitives via `npx shadcn@latest init` then `add` for: `button card dialog input label select table toast tabs badge avatar dropdown-menu skeleton separator`
+- [ ] Verify `npm run build` still green
 
-## Batch 2 — OIDC options + service-extension wiring
+### 1.2 — Auth + router scaffold
+- [ ] `App.tsx` rewrite: BrowserRouter + Routes + lazy-loaded route files
+- [ ] `auth/RequireAuth.tsx` — wraps protected routes; redirects to `/beacon` (Blazor login) when unauthenticated. Reuses existing `useAuth` hook.
+- [ ] All routes wrapped in `<RequireAuth>`. No exceptions in batch 1.
 
-- [x] Create `Beacon.Core/Authentication/OidcAuthenticationOptions.cs`
-- [x] Add `Oidc` property to `AuthenticationOptions`
-- [x] Implement `AddBeaconOidcAuthentication(services, configuration)` in `Beacon.UI/ServiceExtensions.cs`
-- [x] Add `Microsoft.AspNetCore.Authentication.OpenIdConnect` 10.0.6 NuGet package to `Beacon.UI`
-- [x] Wire into `Beacon.SampleProject/Program.cs`
-- [x] Add commented OIDC sample block to `appsettings.json`
-- [x] Checkpoint: build green; app starts unchanged with OIDC disabled
+### 1.3 — Layout: AppShell + Sidebar
+- [ ] `components/layout/AppShell.tsx` — sidebar + main content + (optional) topbar slot. CSS Grid layout matching `beacon-design.css` shell.
+- [ ] `components/layout/Sidebar.tsx` — nav grouped: Overview, Data, Alerts, MCP, Admin, Settings. Each nav link reads `feature-flags.ts` `MIGRATED_PAGES` to decide `/app/<path>` vs `/beacon/<path>` href.
+- [ ] `feature-flags.ts` — exports `MIGRATED_PAGES: ReadonlyArray<string>` initially `['/app/projects']`.
+- [ ] User chip footer in sidebar (existing pattern in canonical design system).
 
-## Batch 3 — JIT + claims enrichment handler
+### 1.4 — Shared data primitives
+- [ ] `components/data/DataTable.tsx` — TanStack Table wrapper. Generic over `<TData>`. Column defs, sort, filter slot, row click callback, empty state.
+- [ ] `components/data/EmptyState.tsx` — icon + title + description + optional action button.
+- [ ] `components/data/KpiCard.tsx` — Tremor `<Card>` wrapper with title, value, optional delta.
+- [ ] `lib/format.ts` — `formatDate`, `formatRelativeTime`, `formatCron`, `formatBytes`, `formatPercentage`. Locale via `Intl.*`.
 
-- [x] Add `GetOrCreateExternalUserAsync` to `IUserManagementService` + `UserManagementService`
-- [x] Create `Beacon.UI/Authentication/OidcEventHandlers.cs` with `HandleTokenValidatedAsync` + `HandleRemoteFailureAsync`
-- [x] Wire handler into `AddBeaconOidcAuthentication` (Events.OnTokenValidated + OnRemoteFailure)
-- [x] Add `InternalsVisibleTo("Beacon.Tests")` to `Beacon.UI.csproj`
-- [x] Create `Beacon.Tests/Unit/OidcEventHandlersTests.cs` (4 tests: unknown sub, no sub, disabled user, username fallback)
-- [x] Checkpoint: build green; 4 unit tests pass
+### 1.5 — Toast / error handling
+- [ ] Mount `<Toaster />` from `sonner` in `App.tsx`.
+- [ ] React Query default `onError`: 401 → `window.location.href = '/beacon'`; otherwise `toast.error(...)`.
+- [ ] `lib/api.ts` parses RFC 7807 `application/problem+json` error bodies and throws an `ApiError` carrying `title`, `status`.
 
-## Batch 4 — Challenge endpoint + SSO button UI
+### 1.6 — Reference page: Projects list
+- [ ] `routes/projects/ProjectsListPage.tsx` — DataTable with columns: name, description (truncated), datasource count, repo count, last scan (relative), created (relative). Row click → `/app/projects/{id}` (route registered, page placeholder showing "Detail coming in Batch 2").
+- [ ] `routes/projects/queries.ts` — `useProjectsQuery()` calling generated client. Stale time 30s (default).
+- [ ] Search/filter slot in DataTable header. Empty-state when no projects.
+- [ ] Loading state via `<Skeleton>` (shadcn). Error toast + retry button.
+- [ ] Page header: title "Projects", optional "+ New project" button (disabled with tooltip "Coming in Batch 4").
 
-- [x] Add `GET /api/auth/sso/challenge` in `LoginEndpoints.cs` with `IsSafeReturnUrl` open-redirect guard
-- [x] LoginFormAuthMiddleware already allows `/api/auth/` — no change needed. OIDC callback runs at root (before `/beacon` branch) — no change needed.
-- [x] Create `Beacon.UI/Components/Shared/SsoLoginButton.razor`
-- [x] Render `<SsoLoginButton />` above password form in `Login.razor`
-- [x] Add `ssoError` query param detection in `Login.razor` for OIDC failure feedback
-- [x] Create `Beacon.Tests/Unit/SsoChallengeReturnUrlTests.cs` (16 parameterized tests for open-redirect guard)
-- [x] Checkpoint: build green; 20 unit tests pass
+### 1.7 — Verify + test
+- [ ] `npm run build` green
+- [ ] `dotnet build -c Release` green (Release build runs the React build target)
+- [ ] `dotnet test` — 35/35 (no new tests required for Batch 1; visual verification sufficient)
+- [ ] Manual smoke:
+    - `/app` → redirects/lands on something sensible (likely `/app/projects` per default route)
+    - `/app/projects` → renders, lists real projects from DB, sort works, row click navigates to placeholder detail page
+    - `/app/projects` while logged out → redirects to `/beacon`
+    - Sidebar shows all nav items; "Projects" link goes to `/app/projects`, others go to `/beacon/<path>`
+    - `/beacon` (Blazor) still works fully unchanged
 
-## Batch 5 — Promote JwtBearer middleware to root pipeline for MCP
+### 1.8 — Behavioral diff + commit
+- [ ] `ClaudePlans/ReactMigration-Phase3-Batch1-Diff.md` — what shipped, what's deferred, what compounds
+- [ ] Update sidebar `MIGRATED_PAGES` to `['/app/projects']`
+- [ ] Commit + push to `feat/react-phase3`
+- [ ] Open draft PR `feat/react-phase3` → `feat/react`
 
-- [x] Add `UseBeaconJwtBearerAuthentication()` public extension in `ServiceExtensions.cs` (wraps internal middleware)
-- [x] Call `UseBeaconJwtBearerAuthentication()` at root pipeline in `Program.cs` (after `ApiKeyAuthMiddleware`)
-- [x] Auto-populate `JwtAuthenticationOptions` from `Oidc.Authority` when OIDC is enabled
-- [x] McpBearerJwtTests deferred to integration-test follow-up (needs WebApplicationFactory + mock JWKS)
-- [x] Checkpoint: build green; 28 tests pass; API-key flow unchanged
+---
 
-## Batch 6 — Behavioral diff + gitignore
+## Approval gate (Phase 2.5)
 
-- [x] `.gitignore` already updated with `docs/specs/` and `docs/plans/` (done in Phase 2)
-- [x] Behavioral diff written in `docs/plans/2026-04-15-sso-login-and-mcp-auth.md`
-- [ ] Full mock-OIDC integration tests (SsoLoginFlowTests, McpBearerJwtTests) — follow-up slice
-- [x] Checkpoint: full `dotnet test` passes (28/28)
+Before batch 1 starts, confirm:
+1. The patterns in `ClaudePlans/ReactMigration-Phase3.md` match what you actually want.
+2. Projects list is the right reference page (alternatives: Recipients, Notifications, Home/dashboard widgets — only the first establishes a list-detail pattern).
+3. The 9-week / 7-batch breakdown is realistic for your team's calendar.
 
-## Post-implementation review (Phase 3.5 → 7)
+---
 
-- [ ] Phase 3.5: run spec-drift-detection against `2026-04-15-sso-login-and-mcp-auth.json`
-- [ ] Phase 4 Stage 1: `mtk:compliance-reviewer`
-- [ ] Phase 4 Stage 2: `mtk:test-reviewer` + `mtk:architecture-reviewer`
-- [ ] Phase 5: fix review findings (≤ 3 iterations)
-- [ ] Phase 6: `code-simplification` sweep on new files
-- [ ] Phase 7: append lessons, update `CLAUDE.md` / `pre-commit-review-list.md` if warranted
+## Out of scope for batch 1 (deferred)
+
+- Project detail page (Batch 2)
+- "+ New project" button real action (Batch 4)
+- Project documentation tab + Mermaid (Batch 4)
+- Any other page (later batches)
+- Login flow (still redirects to Blazor `/beacon` until Batch 7 cutover)

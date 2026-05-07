@@ -1,44 +1,48 @@
-import { useAuth } from './auth/useAuth';
+import { lazy, Suspense } from 'react';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { Toaster } from 'sonner';
+import { RequireAuth } from './auth/RequireAuth';
+import { AppShell } from './components/layout/AppShell';
+
+const ProjectsListPage = lazy(() => import('./routes/projects/ProjectsListPage'));
+const ProjectDetailPage = lazy(() => import('./routes/projects/ProjectDetailPage'));
+
+function PageFallback() {
+  return (
+    <div className="page" style={{ display: 'grid', placeItems: 'center', minHeight: '60vh' }}>
+      <span className="muted">Loading page…</span>
+    </div>
+  );
+}
 
 export default function App() {
-  const { data, isLoading, isError } = useAuth();
-
-  if (isLoading) {
-    return (
-      <div className="flex h-full items-center justify-center text-slate-500">
-        Loading…
-      </div>
-    );
-  }
-
-  if (isError) {
-    return (
-      <div className="flex h-full items-center justify-center text-red-600">
-        Failed to load authentication state.
-      </div>
-    );
-  }
-
-  if (!data?.isAuthenticated) {
-    if (typeof window !== 'undefined') {
-      window.location.href = '/beacon';
-    }
-    return null;
-  }
-
   return (
-    <div className="flex h-full items-center justify-center">
-      <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-        <p className="text-sm text-slate-500">Beacon (React shell)</p>
-        <h1 className="mt-1 text-xl font-semibold text-slate-900">
-          Signed in as {data.displayName ?? data.email ?? data.userId}
-        </h1>
-        {data.roles && data.roles.length > 0 && (
-          <p className="mt-2 text-sm text-slate-600">
-            Roles: {data.roles.join(', ')}
-          </p>
-        )}
-      </div>
-    </div>
+    <BrowserRouter basename="/app">
+      <RequireAuth>
+        <Routes>
+          <Route element={<AppShell />}>
+            <Route path="/" element={<Navigate to="/projects" replace />} />
+            <Route
+              path="/projects"
+              element={
+                <Suspense fallback={<PageFallback />}>
+                  <ProjectsListPage />
+                </Suspense>
+              }
+            />
+            <Route
+              path="/projects/:id"
+              element={
+                <Suspense fallback={<PageFallback />}>
+                  <ProjectDetailPage />
+                </Suspense>
+              }
+            />
+            <Route path="*" element={<Navigate to="/projects" replace />} />
+          </Route>
+        </Routes>
+      </RequireAuth>
+      <Toaster richColors position="top-right" />
+    </BrowserRouter>
   );
 }
