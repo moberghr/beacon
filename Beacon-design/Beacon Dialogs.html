@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Beacon · Dialogs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css?v=4">
+<style>
+  .dialogs-stage {
+    min-height: 100vh;
+    background:
+      radial-gradient(circle at 20% 20%, oklch(96% 0.018 175) 0%, transparent 40%),
+      radial-gradient(circle at 80% 80%, oklch(96% 0.014 240) 0%, transparent 40%),
+      var(--bg);
+    padding: 40px;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+  }
+  [data-theme="dark"] .dialogs-stage {
+    background:
+      radial-gradient(circle at 20% 20%, oklch(20% 0.025 175) 0%, transparent 40%),
+      radial-gradient(circle at 80% 80%, oklch(18% 0.018 240) 0%, transparent 40%),
+      var(--bg);
+  }
+  .stage-head { display: flex; align-items: center; gap: 12px; }
+  .stage-head h1 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
+  .stage-head p { margin: 0; color: var(--text-muted); font-size: 13px; }
+  .stage-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+  .stage-card {
+    flex: 1;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    padding: 16px;
+  }
+  .stage-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .preview-frame {
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    background: var(--surface-2);
+    padding: 0;
+    overflow: hidden;
+    position: relative;
+  }
+  .preview-frame .modal-scrim {
+    position: relative;
+    inset: auto;
+    padding: 24px;
+    background: transparent;
+    backdrop-filter: none;
+    animation: none;
+  }
+  .preview-frame .modal-scrim::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: oklch(70% 0.01 240 / 0.18);
+    pointer-events: none;
+  }
+  [data-theme="dark"] .preview-frame .modal-scrim::before {
+    background: oklch(10% 0.01 240 / 0.45);
+  }
+  .preview-frame .modal {
+    width: 100% !important;
+    max-width: 580px;
+    margin: 0 auto;
+    animation: none;
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+<script type="text/babel" src="icons.jsx"></script>
+<script type="text/babel" src="page-header.jsx"></script>
+<script type="text/babel" src="dialogs.jsx"></script>
+
+<script type="text/babel">
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "theme": "light",
+  "view": "live"
+}/*EDITMODE-END*/;
+
+function App() {
+  const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
+  const [openProject, setOpenProject] = React.useState(false);
+  const [openDashboard, setOpenDashboard] = React.useState(false);
+
+  React.useEffect(() => {
+    document.documentElement.setAttribute("data-theme", tweaks.theme);
+  }, [tweaks.theme]);
+
+  return (
+    <div className="dialogs-stage">
+      <div className="stage-head">
+        <div style={{ flex: 1 }}>
+          <div className="page-hero__eyebrow">
+            <span className="page-hero__pin"></span>
+            BEACON · DIALOG SYSTEM
+          </div>
+          <h1>Dialogs, in the Beacon system.</h1>
+          <p>Two examples — Create Project and Create Dashboard — applying the page-hero header pattern, dashed section dividers, mono metadata, and proper status pills.</p>
+        </div>
+        <div className="stage-actions">
+          <button className="btn" onClick={() => setOpenProject(true)}>
+            <Icon.Plus size={14} className="btn__icon" /> Open Create Project
+          </button>
+          <button className="btn btn--primary" onClick={() => setOpenDashboard(true)}>
+            <Icon.Plus size={14} className="btn__icon" /> Open Create Dashboard
+          </button>
+        </div>
+      </div>
+
+      <div className="stage-card">
+        <p style={{ margin: 0, color: "var(--text-muted)", fontSize: 13 }}>
+          Click a button above to open the dialog. Press <span className="kbd">Esc</span> to close.
+        </p>
+      </div>
+
+      <CreateProjectDialog open={openProject} onClose={() => setOpenProject(false)} />
+      <CreateDashboardDialog open={openDashboard} onClose={() => setOpenDashboard(false)} />
+
+      <TweaksPanel title="Tweaks">
+        <TweakSection title="Theme">
+          <TweakRadio label="Mode" value={tweaks.theme}
+            onChange={(v) => setTweak("theme", v)}
+            options={[{ value: "light", label: "Light" }, { value: "dark", label: "Dark" }]} />
+        </TweakSection>
+      </TweaksPanel>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
