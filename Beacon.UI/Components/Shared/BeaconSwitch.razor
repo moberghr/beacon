@@ -1,29 +1,24 @@
-@* Toggle switch — Beacon visual language.
+@* Toggle switch — uses canonical .check-row + .toggle classes. *@
 
-   Usage:
-       <BeaconSwitch @bind-Value="_isShared"
-                     Label="Share with all users"
-                     HelpText="Anyone in the workspace can see this." /> *@
-
-<label class="bx-switch @(Disabled ? "bx-switch--disabled" : "") @CssClass">
+<label class="check-row @CssClass">
     <input type="checkbox"
-           class="bx-switch__input"
+           class="check-row__native"
            checked="@Value"
            disabled="@Disabled"
            @onchange="OnChangeInternal" />
-    <span class="bx-switch__track" aria-hidden="true">
-        <span class="bx-switch__thumb"></span>
+    <span class="toggle @(Value ? "toggle--on" : "")" aria-hidden="true">
+        <span class="toggle__thumb"></span>
     </span>
-    <span class="bx-switch__body">
+    <div class="check-row__main">
         @if (!string.IsNullOrEmpty(Label))
         {
-            <span class="bx-switch__label">@Label</span>
+            <div class="check-row__title">@Label</div>
         }
         @if (!string.IsNullOrEmpty(HelpText))
         {
-            <span class="bx-switch__help">@HelpText</span>
+            <div class="check-row__sub">@HelpText</div>
         }
-    </span>
+    </div>
 </label>
 
 @code {

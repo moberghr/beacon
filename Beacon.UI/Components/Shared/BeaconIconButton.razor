@@ -1,11 +1,7 @@
-@* Icon-only button — Beacon visual language.
-
-   Usage:
-       <BeaconIconButton Icon="@Icons.Material.Rounded.Edit" OnClick="Edit" Title="Edit" />
-       <BeaconIconButton Icon="@Icons.Material.Rounded.Delete" Variant="danger" OnClick="Delete" Title="Delete" /> *@
+@* Icon-only button — uses canonical .btn .btn--icon. *@
 
 <button type="button"
-        class="bx-btn bx-btn--icon @VariantClass @SizeClass @CssClass"
+        class="btn btn--icon @VariantClass @SizeClass @CssClass"
         disabled="@(Disabled || Loading)"
         @onclick="OnClickInternal"
         @onclick:stopPropagation="@StopPropagation"
@@ -13,18 +9,18 @@
         aria-label="@(string.IsNullOrEmpty(AriaLabel) ? Title : AriaLabel)">
     @if (Loading)
     {
-        <span class="bx-btn__spinner" aria-hidden="true"></span>
+        <span class="btn__spinner" aria-hidden="true"></span>
     }
     else
     {
-        <MudIcon Icon="@Icon" Size="@IconSize" />
+        <MudIcon Icon="@Icon" Class="btn__icon" Size="@IconSize" />
     }
 </button>
 
 @code {
     [Parameter, EditorRequired] public string Icon { get; set; } = "";
 
-    /// <summary>"default" (transparent), "primary", "ghost", "danger".</summary>
+    /// <summary>"default", "primary", "ghost" (default), "danger", "subtle".</summary>
     [Parameter] public string Variant { get; set; } = "ghost";
 
     /// <summary>"sm", "md" (default), "lg".</summary>
@@ -42,16 +38,17 @@
 
     private string VariantClass => Variant switch
     {
-        "primary" => "bx-btn--primary",
-        "ghost"   => "bx-btn--ghost",
-        "danger"  => "bx-btn--danger",
+        "primary" => "btn--primary",
+        "ghost"   => "btn--ghost",
+        "danger"  => "btn--danger",
+        "subtle"  => "btn--subtle",
         _         => ""
     };
 
     private string SizeClass => Size switch
     {
-        "sm" => "bx-btn--sm",
-        "lg" => "bx-btn--lg",
+        "sm" => "btn--sm",
+        "lg" => "btn--lg",
         _    => ""
     };
 

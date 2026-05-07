@@ -64,7 +64,7 @@
     <KpiCard Dot="brand" Label="Active subscriptions"
              Value="@((dashboardStatistics?.ActiveSubscriptions ?? 0).ToString())"
              SubText="@($"of {dashboardStatistics?.TotalSubscriptions ?? 0} configured")"
-             SparkPoints="@_sparkA" SparkColor="var(--bx-brand-500)" />
+             SparkPoints="@_sparkA" SparkColor="var(--brand-500)" />
     <KpiCard Dot="info" Label="Query executions"
              Value="@FormatNumber(dashboardStatistics?.TotalQueriesExecuted ?? 0)"
              SubText="@($"{dashboardStatistics?.TotalQueries ?? 0} queries configured")"
@@ -109,7 +109,7 @@
             <div class="card__actions">
                 <div class="legend">
                     <span class="legend__item">
-                        <span class="legend__sw" style="background: var(--bx-brand-500);"></span>Queries executed
+                        <span class="legend__sw" style="background: var(--brand-500);"></span>Queries executed
                     </span>
                     <span class="legend__item">
                         <span class="legend__sw" style="background: oklch(70% 0.15 70);"></span>Notifications sent
@@ -142,7 +142,7 @@
             <h3 class="card__title">System overview</h3>
             <div class="card__actions">
                 <span class="pill pill--ok">
-                    <span style="width: 6px; height: 6px; border-radius: 99px; background: var(--bx-ok);"></span>
+                    <span style="width: 6px; height: 6px; border-radius: 99px; background: var(--ok);"></span>
                     Healthy
                 </span>
             </div>
@@ -241,19 +241,19 @@
     </div>
     <div style="display: flex; gap: 16px; padding: 0 16px 14px; align-items: center; flex-wrap: wrap;">
         <span class="legend__item legend">
-            <span class="legend__sw" style="background: var(--bx-brand-500);"></span>typical
+            <span class="legend__sw" style="background: var(--brand-500);"></span>typical
         </span>
         <span class="legend__item legend">
-            <span class="legend__sw" style="background: var(--bx-warn);"></span>p95 spike
+            <span class="legend__sw" style="background: var(--warn);"></span>p95 spike
         </span>
         <span class="legend__item legend">
-            <span class="legend__sw" style="background: var(--bx-crit);"></span>p99 spike
+            <span class="legend__sw" style="background: var(--crit);"></span>p99 spike
         </span>
         <div class="spacer"></div>
         <span class="mono subtle" style="font-size: 12px;">
             @if ((dashboardStatistics?.MaxExecutionTimeMs ?? 0) > 1000)
             {
-                <span>review: <a href="query-execution-history/0" style="color: var(--bx-brand-600);">slowest →</a></span>
+                <span>review: <a href="query-execution-history/0" style="color: var(--brand-600);">slowest →</a></span>
             }
         </span>
     </div>
@@ -268,7 +268,7 @@
                 <h3 class="card__title">Data migration</h3>
                 <span class="card__sub">overview</span>
                 <div class="card__actions">
-                    <a href="data-migration" style="font-size: 12.5px; color: var(--bx-brand-600); text-decoration: none; font-weight: 500;">Open jobs →</a>
+                    <a href="data-migration" style="font-size: 12.5px; color: var(--brand-600); text-decoration: none; font-weight: 500;">Open jobs →</a>
                 </div>
             </div>
             <div class="card__body card__body--flush">
@@ -276,19 +276,19 @@
                     <MiniMetric Label="Total jobs"
                                 Value="@((dashboardStatistics?.TotalMigrationJobs ?? 0).ToString())"
                                 Bar="100%"
-                                DotColor="var(--bx-info)" BarColor="var(--bx-info)" />
+                                DotColor="var(--info)" BarColor="var(--info)" />
                     <MiniMetric Label="Enabled"
                                 Value="@((dashboardStatistics?.EnabledMigrationJobs ?? 0).ToString())"
                                 Bar="@PercentBar(dashboardStatistics?.EnabledMigrationJobs ?? 0, dashboardStatistics?.TotalMigrationJobs ?? 1)"
-                                DotColor="var(--bx-ok)" BarColor="var(--bx-ok)" />
+                                DotColor="var(--ok)" BarColor="var(--ok)" />
                     <MiniMetric Label="Executions"
                                 Value="@FormatNumber(dashboardStatistics?.TotalMigrationExecutions ?? 0)"
                                 Bar="62%"
-                                DotColor="var(--bx-brand-500)" BarColor="var(--bx-brand-500)" />
+                                DotColor="var(--brand-500)" BarColor="var(--brand-500)" />
                     <MiniMetric Label="Successful"
                                 Value="@FormatNumber(dashboardStatistics?.SuccessfulMigrationExecutions ?? 0)"
                                 Bar="@PercentBar(dashboardStatistics?.SuccessfulMigrationExecutions ?? 0, dashboardStatistics?.TotalMigrationExecutions ?? 1)"
-                                DotColor="var(--bx-ok)" BarColor="var(--bx-ok)" />
+                                DotColor="var(--ok)" BarColor="var(--ok)" />
                 </div>
             </div>
         </div>
@@ -299,7 +299,7 @@
                 <h3 class="card__title">Task management</h3>
                 <span class="card__sub">@(dashboardStatistics?.UnresolvedTasks ?? 0) unresolved</span>
                 <div class="card__actions">
-                    <a href="tasks" style="font-size: 12.5px; color: var(--bx-brand-600); text-decoration: none; font-weight: 500;">Open →</a>
+                    <a href="tasks" style="font-size: 12.5px; color: var(--brand-600); text-decoration: none; font-weight: 500;">Open →</a>
                 </div>
             </div>
             <div class="card__body card__body--flush">
@@ -307,15 +307,15 @@
                     <MiniMetric Label="Total"
                                 Value="@((dashboardStatistics?.TotalTasks ?? 0).ToString())"
                                 Bar="100%"
-                                DotColor="var(--bx-text-muted)" BarColor="var(--bx-text-muted)" />
+                                DotColor="var(--text-muted)" BarColor="var(--text-muted)" />
                     <MiniMetric Label="Open"
                                 Value="@((dashboardStatistics?.UnresolvedTasks ?? 0).ToString())"
                                 Bar="@PercentBar(dashboardStatistics?.UnresolvedTasks ?? 0, dashboardStatistics?.TotalTasks ?? 1)"
-                                DotColor="var(--bx-warn)" BarColor="var(--bx-warn)" />
+                                DotColor="var(--warn)" BarColor="var(--warn)" />
                     <MiniMetric Label="Resolved"
                                 Value="@((dashboardStatistics?.ResolvedTasks ?? 0).ToString())"
                                 Bar="@PercentBar(dashboardStatistics?.ResolvedTasks ?? 0, dashboardStatistics?.TotalTasks ?? 1)"
-                                DotColor="var(--bx-ok)" BarColor="var(--bx-ok)" />
+                                DotColor="var(--ok)" BarColor="var(--ok)" />
                 </div>
             </div>
         </div>
@@ -326,7 +326,7 @@
             <MudIcon Icon="@Icons.Material.Rounded.Bolt" Size="Size.Small" Class="muted" />
             <h3 class="card__title">Recent activity</h3>
             <div class="card__actions">
-                <a href="notifications" style="font-size: 12.5px; color: var(--bx-brand-600); text-decoration: none; font-weight: 500;">View all →</a>
+                <a href="notifications" style="font-size: 12.5px; color: var(--brand-600); text-decoration: none; font-weight: 500;">View all →</a>
             </div>
         </div>
         <div class="feed">

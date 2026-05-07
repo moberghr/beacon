@@ -33,7 +33,7 @@
                 <span class="mono">#@Model.Id</span>
                 <span class="page-hero__sep">·</span>
                 <span class="pill pill--ok" style="display:inline-flex;align-items:center;gap:4px;">
-                    <span style="width:6px;height:6px;border-radius:50%;background:var(--bx-ok);"></span>ACTIVE
+                    <span style="width:6px;height:6px;border-radius:50%;background:var(--ok);"></span>ACTIVE
                 </span>
                 <span class="page-hero__sep">·</span>
                 @if (Model.IsMultiStep)
@@ -111,7 +111,7 @@
                 <!-- Query information -->
                 <div class="card">
                     <div class="card__head">
-                        <MudIcon Icon="@Icons.Material.Rounded.Info" Style="font-size:15px;color:var(--bx-text-muted);" />
+                        <MudIcon Icon="@Icons.Material.Rounded.Info" Style="font-size:15px;color:var(--text-muted);" />
                         <h3 class="card__title">Query information</h3>
                         <div class="card__actions">
                             <SourceChip AiActorId="@Model.AiActorId" AiActorName="@Model.AiActorName" Compact="false" />
@@ -156,13 +156,13 @@
                                         @foreach (var ds in Model.DataSourceNames)
                                         {
                                             <span class="mono" style="display:inline-flex;align-items:center;gap:5px;">
-                                                <span style="width:6px;height:6px;border-radius:50%;background:var(--bx-ok);flex-shrink:0;"></span>@ds
+                                                <span style="width:6px;height:6px;border-radius:50%;background:var(--ok);flex-shrink:0;"></span>@ds
                                             </span>
                                         }
                                     }
                                     else
                                     {
-                                        <span class="mono" style="color:var(--bx-text-muted);">—</span>
+                                        <span class="mono" style="color:var(--text-muted);">—</span>
                                     }
                                 </span>
                             </div>
@@ -200,7 +200,7 @@
                 <!-- Query steps -->
                 <div class="card">
                     <div class="card__head">
-                        <MudIcon Icon="@Icons.Material.Rounded.AccountTree" Style="font-size:15px;color:var(--bx-text-muted);" />
+                        <MudIcon Icon="@Icons.Material.Rounded.AccountTree" Style="font-size:15px;color:var(--text-muted);" />
                         <h3 class="card__title">Query steps</h3>
                         <span class="card__sub">@(Model.Steps?.Count ?? 0) step@(Model.Steps?.Count != 1 ? "s" : "") · @(Model.Steps?.Sum(s => s.Parameters?.Count ?? 0) ?? 0) params</span>
                         <div class="card__actions">
@@ -294,7 +294,7 @@
                 {
                     <div class="card">
                         <div class="card__head">
-                            <MudIcon Icon="@Icons.Material.Rounded.TableChart" Style="font-size:15px;color:var(--bx-text-muted);" />
+                            <MudIcon Icon="@Icons.Material.Rounded.TableChart" Style="font-size:15px;color:var(--text-muted);" />
                             <h3 class="card__title">Final query</h3>
                             <span class="pill pill--info mono" style="font-size:10px;">@("@")result refs</span>
                             <div class="card__actions">
@@ -305,7 +305,7 @@
                             </div>
                         </div>
                         <div class="card__body">
-                            <p style="font-size:12.5px;color:var(--bx-text-muted);margin:0 0 12px;">
+                            <p style="font-size:12.5px;color:var(--text-muted);margin:0 0 12px;">
                                 Executes against in-memory SQLite containing all step results.
                                 Use <code class="mono">@("@")result1</code>, <code class="mono">@("@")result2</code>, etc. to reference prior steps.
                             </p>
@@ -325,7 +325,7 @@
                             }
                             else
                             {
-                                <MudPaper Class="pa-2" Style="border-radius:6px;overflow:hidden;border-left:3px solid var(--bx-brand-500);">
+                                <MudPaper Class="pa-2" Style="border-radius:6px;overflow:hidden;border-left:3px solid var(--brand-500);">
                                     <CodeHiglight Code="@Model.FinalQuery" />
                                 </MudPaper>
                             }
@@ -338,7 +338,7 @@
                 {
                     <div class="card">
                         <div class="card__head">
-                            <MudIcon Icon="@Icons.Material.Rounded.AccountTree" Style="font-size:15px;color:var(--bx-text-muted);" />
+                            <MudIcon Icon="@Icons.Material.Rounded.AccountTree" Style="font-size:15px;color:var(--text-muted);" />
                             <h3 class="card__title">Query flow diagram</h3>
                         </div>
                         <div class="card__body" style="padding:0;">
@@ -350,7 +350,7 @@
                 <!-- Version history -->
                 <div class="card">
                     <div class="card__head">
-                        <MudIcon Icon="@Icons.Material.Rounded.History" Style="font-size:15px;color:var(--bx-text-muted);" />
+                        <MudIcon Icon="@Icons.Material.Rounded.History" Style="font-size:15px;color:var(--text-muted);" />
                         <h3 class="card__title">Version history</h3>
                     </div>
                     <div class="card__body" style="padding:0;">
@@ -361,7 +361,7 @@
                 <!-- Subscriptions -->
                 <div class="card">
                     <div class="card__head">
-                        <MudIcon Icon="@Icons.Material.Rounded.Subscriptions" Style="font-size:15px;color:var(--bx-text-muted);" />
+                        <MudIcon Icon="@Icons.Material.Rounded.Subscriptions" Style="font-size:15px;color:var(--text-muted);" />
                         <h3 class="card__title">Subscriptions</h3>
                         <span class="card__sub">@(Model.Subscriptions?.Count ?? 0) attached</span>
                         <div class="card__actions">
@@ -390,7 +390,7 @@
                                         <div class="mono" style="font-size:12px;">@sub.CreatedTime.ToString("dd MMM yy")</div>
                                         <div class="mono">@sub.Subscribers</div>
                                         <div><span class="pill pill--neutral mono" style="font-size:10px;">@sub.CronExpression</span></div>
-                                        <div><MudIcon Icon="@Icons.Material.Rounded.ChevronRight" Style="font-size:16px;color:var(--bx-text-subtle);" /></div>
+                                        <div><MudIcon Icon="@Icons.Material.Rounded.ChevronRight" Style="font-size:16px;color:var(--text-subtle);" /></div>
                                     </div>
                                 }
                             </div>
@@ -417,7 +417,7 @@
                 {
                     <div class="card">
                         <div class="card__head">
-                            <MudIcon Icon="@Icons.Material.Rounded.Analytics" Style="font-size:15px;color:var(--bx-text-muted);" />
+                            <MudIcon Icon="@Icons.Material.Rounded.Analytics" Style="font-size:15px;color:var(--text-muted);" />
                             <h3 class="card__title">Execution analytics</h3>
                             <span class="card__sub">last 30 days</span>
                         </div>
@@ -465,7 +465,7 @@
                 <!-- Run history -->
                 <div class="card">
                     <div class="card__head">
-                        <MudIcon Icon="@Icons.Material.Rounded.Timeline" Style="font-size:15px;color:var(--bx-text-muted);" />
+                        <MudIcon Icon="@Icons.Material.Rounded.Timeline" Style="font-size:15px;color:var(--text-muted);" />
                         <h3 class="card__title">Run history</h3>
                         <span class="card__sub">last 30d</span>
                     </div>
@@ -502,11 +502,11 @@
                 <!-- Recipients -->
                 <div class="card">
                     <div class="card__head">
-                        <MudIcon Icon="@Icons.Material.Rounded.People" Style="font-size:15px;color:var(--bx-text-muted);" />
+                        <MudIcon Icon="@Icons.Material.Rounded.People" Style="font-size:15px;color:var(--text-muted);" />
                         <h3 class="card__title">Recipients</h3>
                         <span class="card__sub">@(Model.Subscriptions?.Count ?? 0) attached</span>
                     </div>
-                    <div class="card__body" style="font-size:12.5px;color:var(--bx-text-muted);">
+                    <div class="card__body" style="font-size:12.5px;color:var(--text-muted);">
                         @if (Model.Subscriptions?.Any() == true)
                         {
                             var subCount = Model.Subscriptions.Count;
@@ -524,7 +524,7 @@
                     <MudIcon Icon="@Icons.Material.Rounded.Lightbulb" Style="font-size:16px;flex-shrink:0;margin-top:2px;" Class="callout__icon" />
                     <div>
                         <div class="callout__title">Tip · faster iteration</div>
-                        <div class="callout__sub">Click Edit on any step, then use <span class="bx-kbd">⌘</span> <span class="bx-kbd">↵</span> in the SQL editor to run just that step without saving.</div>
+                        <div class="callout__sub">Click Edit on any step, then use <span class="kbd">⌘</span> <span class="kbd">↵</span> in the SQL editor to run just that step without saving.</div>
                     </div>
                 </div>
 
@@ -535,15 +535,15 @@
         <div class="save-bar">
             <span class="save-bar__hint">
                 <span class="pill pill--ok" style="display:inline-flex;align-items:center;gap:4px;">
-                    <span style="width:6px;height:6px;border-radius:50%;background:var(--bx-ok);"></span>ACTIVE
+                    <span style="width:6px;height:6px;border-radius:50%;background:var(--ok);"></span>ACTIVE
                 </span>
-                <span class="mono" style="color:var(--bx-text);">@Model.TotalExecutions</span>
+                <span class="mono" style="color:var(--text);">@Model.TotalExecutions</span>
                 <span>run@(Model.TotalExecutions != 1 ? "s" : "") to date</span>
             </span>
             <span class="spacer"></span>
             <span class="save-bar__hint">
                 <span>Press</span>
-                <span class="bx-kbd">⌘</span><span class="bx-kbd">↵</span>
+                <span class="kbd">⌘</span><span class="kbd">↵</span>
                 <span>to execute in editor</span>
             </span>
             <button class="btn" @onclick="AddSubscription" disabled="@(!_canWrite)">

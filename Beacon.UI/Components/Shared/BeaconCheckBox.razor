@@ -1,32 +1,16 @@
-@* Checkbox — Beacon visual language.
+@* Checkbox — uses canonical .check-row + .cbox classes. *@
 
-   Usage:
-       <BeaconCheckBox @bind-Value="_agreed"
-                       Label="I agree to the terms"
-                       HelpText="Required to continue." />
-
-       <BeaconCheckBox @bind-Value="_scopeAdmin" Label="Admin scope">
-           <ChildContent>
-               <span class="bx-chip bx-chip--warn">DANGEROUS</span>
-           </ChildContent>
-       </BeaconCheckBox> *@
-
-<label class="bx-check @(Disabled ? "bx-check--disabled" : "") @CssClass">
+<label class="check-row @CssClass">
     <input type="checkbox"
-           class="bx-check__input"
+           class="check-row__native"
            checked="@Value"
            disabled="@Disabled"
            @onchange="OnChangeInternal" />
-    <span class="bx-check__box" aria-hidden="true">
-        <svg viewBox="0 0 16 16" class="bx-check__tick">
-            <path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="2"
-                  stroke-linecap="round" stroke-linejoin="round" />
-        </svg>
-    </span>
-    <span class="bx-check__body">
+    <span class="cbox @(Value ? "is-on" : "")" aria-hidden="true"></span>
+    <div class="check-row__main">
         @if (!string.IsNullOrEmpty(Label))
         {
-            <span class="bx-check__label">@Label</span>
+            <div class="check-row__title">@Label</div>
         }
         @if (ChildContent != null)
         {
@@ -34,9 +18,9 @@
         }
         @if (!string.IsNullOrEmpty(HelpText))
         {
-            <span class="bx-check__help">@HelpText</span>
+            <div class="check-row__sub">@HelpText</div>
         }
-    </span>
+    </div>
 </label>
 
 @code {
