@@ -24,9 +24,11 @@ export function isMigrated(slug: string): boolean {
 }
 
 /**
- * Resolve a nav item's slug to either /app/<slug> (React) or
- * /beacon/<blazorPath> (Blazor) based on the migration flag.
+ * Resolve a nav item's slug to a routing path.
+ *
+ * Migrated → `/<slug>` (React Router basename="/app" auto-prefixes /app).
+ * Not migrated → `/beacon/<blazorPath>` (absolute, used with native <a>).
  */
 export function resolveNavHref(slug: string, blazorPath: string): string {
-  return isMigrated(slug) ? `/app/${slug}` : `/beacon/${blazorPath}`;
+  return isMigrated(slug) ? `/${slug}` : `/beacon/${blazorPath}`;
 }

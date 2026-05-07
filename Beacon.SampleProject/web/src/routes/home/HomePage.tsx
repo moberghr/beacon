@@ -92,19 +92,19 @@ export default function HomePage() {
             </div>
             <div className="card__body">
               <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                <Link className="btn" to="/app/projects">
+                <Link className="btn" to="/projects">
                   <Icon.Folder size={14} className="btn__icon" />
                   Projects
                 </Link>
-                <Link className="btn" to="/app/notifications">
+                <Link className="btn" to="/notifications">
                   <Icon.Bell size={14} className="btn__icon" />
                   Notifications
                 </Link>
-                <Link className="btn" to="/app/control-tower">
+                <Link className="btn" to="/control-tower">
                   <Icon.Tower size={14} className="btn__icon" />
                   Control Tower
                 </Link>
-                <Link className="btn" to="/app/migration-history">
+                <Link className="btn" to="/migration-history">
                   <Icon.ArrowsLR size={14} className="btn__icon" />
                   Migration history
                 </Link>

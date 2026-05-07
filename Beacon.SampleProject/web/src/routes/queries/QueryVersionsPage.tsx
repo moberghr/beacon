@@ -92,7 +92,7 @@ export default function QueryVersionsPage() {
             rows={versions}
             rowKey={v => v.id ?? Math.random()}
             gridTemplate={GRID_TEMPLATE}
-            onRowClick={v => v.id && navigate(`/app/queries/${queryId}/versions/${v.id}`)}
+            onRowClick={v => v.id && navigate(`/queries/${queryId}/versions/${v.id}`)}
             empty={
               <EmptyState
                 icon={<Icon.Layers size={20} />}
