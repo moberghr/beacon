@@ -15,7 +15,7 @@ export class BeaconApiClient {
 
     constructor(baseUrl?: string, http?: { fetch(url: RequestInfo, init?: RequestInit): Promise<Response> }) {
         this.http = http ? http : window as any;
-        this.baseUrl = baseUrl ?? "https://localhost:7187/";
+        this.baseUrl = baseUrl ?? "http://localhost:5296/";
     }
 
     /**
@@ -3107,6 +3107,235 @@ export class BeaconApiClient {
     }
 
     /**
+     * @param page (optional) 
+     * @param pageSize (optional) 
+     * @param status (optional) 
+     * @param subscriptionId (optional) 
+     * @return OK
+     */
+    getNotifications(page: number | undefined, pageSize: number | undefined, status: number | undefined, subscriptionId: number | undefined): Promise<GetNotificationsResult> {
+        let url_ = this.baseUrl + "/beacon/api/notifications?";
+        if (page === null)
+            throw new Error("The parameter 'page' cannot be null.");
+        else if (page !== undefined)
+            url_ += "page=" + encodeURIComponent("" + page) + "&";
+        if (pageSize === null)
+            throw new Error("The parameter 'pageSize' cannot be null.");
+        else if (pageSize !== undefined)
+            url_ += "pageSize=" + encodeURIComponent("" + pageSize) + "&";
+        if (status === null)
+            throw new Error("The parameter 'status' cannot be null.");
+        else if (status !== undefined)
+            url_ += "status=" + encodeURIComponent("" + status) + "&";
+        if (subscriptionId === null)
+            throw new Error("The parameter 'subscriptionId' cannot be null.");
+        else if (subscriptionId !== undefined)
+            url_ += "subscriptionId=" + encodeURIComponent("" + subscriptionId) + "&";
+        url_ = url_.replace(/[?&]$/, "");
+
+        let options_: RequestInit = {
+            method: "GET",
+            headers: {
+                "Accept": "application/json"
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processGetNotifications(_response);
+        });
+    }
+
+    protected processGetNotifications(response: Response): Promise<GetNotificationsResult> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 200) {
+            return response.text().then((_responseText) => {
+            let result200: any = null;
+            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as GetNotificationsResult;
+            return result200;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<GetNotificationsResult>(null as any);
+    }
+
+    /**
+     * @return OK
+     */
+    getControlTowerStatistics(): Promise<GetControlTowerStatisticsResult> {
+        let url_ = this.baseUrl + "/beacon/api/control-tower/statistics";
+        url_ = url_.replace(/[?&]$/, "");
+
+        let options_: RequestInit = {
+            method: "GET",
+            headers: {
+                "Accept": "application/json"
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processGetControlTowerStatistics(_response);
+        });
+    }
+
+    protected processGetControlTowerStatistics(response: Response): Promise<GetControlTowerStatisticsResult> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 200) {
+            return response.text().then((_responseText) => {
+            let result200: any = null;
+            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as GetControlTowerStatisticsResult;
+            return result200;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<GetControlTowerStatisticsResult>(null as any);
+    }
+
+    /**
+     * @param page (optional) 
+     * @param pageSize (optional) 
+     * @param dataSourceId (optional) 
+     * @param folderId (optional) 
+     * @param healthStatus (optional) 
+     * @param hasUnresolvedTasks (optional) 
+     * @param searchKeyword (optional) 
+     * @return OK
+     */
+    getControlTowerHealth(page: number | undefined, pageSize: number | undefined, dataSourceId: number | undefined, folderId: number | undefined, healthStatus: number | undefined, hasUnresolvedTasks: boolean | undefined, searchKeyword: string | undefined): Promise<GetControlTowerHealthResult> {
+        let url_ = this.baseUrl + "/beacon/api/control-tower/health?";
+        if (page === null)
+            throw new Error("The parameter 'page' cannot be null.");
+        else if (page !== undefined)
+            url_ += "page=" + encodeURIComponent("" + page) + "&";
+        if (pageSize === null)
+            throw new Error("The parameter 'pageSize' cannot be null.");
+        else if (pageSize !== undefined)
+            url_ += "pageSize=" + encodeURIComponent("" + pageSize) + "&";
+        if (dataSourceId === null)
+            throw new Error("The parameter 'dataSourceId' cannot be null.");
+        else if (dataSourceId !== undefined)
+            url_ += "dataSourceId=" + encodeURIComponent("" + dataSourceId) + "&";
+        if (folderId === null)
+            throw new Error("The parameter 'folderId' cannot be null.");
+        else if (folderId !== undefined)
+            url_ += "folderId=" + encodeURIComponent("" + folderId) + "&";
+        if (healthStatus === null)
+            throw new Error("The parameter 'healthStatus' cannot be null.");
+        else if (healthStatus !== undefined)
+            url_ += "healthStatus=" + encodeURIComponent("" + healthStatus) + "&";
+        if (hasUnresolvedTasks === null)
+            throw new Error("The parameter 'hasUnresolvedTasks' cannot be null.");
+        else if (hasUnresolvedTasks !== undefined)
+            url_ += "hasUnresolvedTasks=" + encodeURIComponent("" + hasUnresolvedTasks) + "&";
+        if (searchKeyword === null)
+            throw new Error("The parameter 'searchKeyword' cannot be null.");
+        else if (searchKeyword !== undefined)
+            url_ += "searchKeyword=" + encodeURIComponent("" + searchKeyword) + "&";
+        url_ = url_.replace(/[?&]$/, "");
+
+        let options_: RequestInit = {
+            method: "GET",
+            headers: {
+                "Accept": "application/json"
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processGetControlTowerHealth(_response);
+        });
+    }
+
+    protected processGetControlTowerHealth(response: Response): Promise<GetControlTowerHealthResult> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 200) {
+            return response.text().then((_responseText) => {
+            let result200: any = null;
+            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as GetControlTowerHealthResult;
+            return result200;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<GetControlTowerHealthResult>(null as any);
+    }
+
+    /**
+     * @param migrationJobId (optional) 
+     * @param status (optional) 
+     * @param startDate (optional) 
+     * @param endDate (optional) 
+     * @param skip (optional) 
+     * @param take (optional) 
+     * @return OK
+     */
+    getMigrationExecutions(migrationJobId: number | undefined, status: number | undefined, startDate: Date | undefined, endDate: Date | undefined, skip: number | undefined, take: number | undefined): Promise<GetMigrationExecutionsResult> {
+        let url_ = this.baseUrl + "/beacon/api/migrations/executions?";
+        if (migrationJobId === null)
+            throw new Error("The parameter 'migrationJobId' cannot be null.");
+        else if (migrationJobId !== undefined)
+            url_ += "migrationJobId=" + encodeURIComponent("" + migrationJobId) + "&";
+        if (status === null)
+            throw new Error("The parameter 'status' cannot be null.");
+        else if (status !== undefined)
+            url_ += "status=" + encodeURIComponent("" + status) + "&";
+        if (startDate === null)
+            throw new Error("The parameter 'startDate' cannot be null.");
+        else if (startDate !== undefined)
+            url_ += "startDate=" + encodeURIComponent(startDate ? "" + startDate.toISOString() : "") + "&";
+        if (endDate === null)
+            throw new Error("The parameter 'endDate' cannot be null.");
+        else if (endDate !== undefined)
+            url_ += "endDate=" + encodeURIComponent(endDate ? "" + endDate.toISOString() : "") + "&";
+        if (skip === null)
+            throw new Error("The parameter 'skip' cannot be null.");
+        else if (skip !== undefined)
+            url_ += "skip=" + encodeURIComponent("" + skip) + "&";
+        if (take === null)
+            throw new Error("The parameter 'take' cannot be null.");
+        else if (take !== undefined)
+            url_ += "take=" + encodeURIComponent("" + take) + "&";
+        url_ = url_.replace(/[?&]$/, "");
+
+        let options_: RequestInit = {
+            method: "GET",
+            headers: {
+                "Accept": "application/json"
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processGetMigrationExecutions(_response);
+        });
+    }
+
+    protected processGetMigrationExecutions(response: Response): Promise<GetMigrationExecutionsResult> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 200) {
+            return response.text().then((_responseText) => {
+            let result200: any = null;
+            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as GetMigrationExecutionsResult;
+            return result200;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<GetMigrationExecutionsResult>(null as any);
+    }
+
+    /**
      * @return OK
      */
     status(): Promise<void> {
@@ -3303,6 +3532,13 @@ export interface AiActorSubscriptionInfo {
     [key: string]: any;
 }
 
+export interface AnomalySparklinePoint {
+    date?: Date;
+    anomalyCount?: number;
+
+    [key: string]: any;
+}
+
 export interface ApiKeyEntry {
     id: number;
     name: string;
@@ -3387,6 +3623,45 @@ export interface ArchiveAiActorResult {
 
 export interface CloneDashboardBody {
     newName: string;
+
+    [key: string]: any;
+}
+
+export interface ControlTowerStatistics {
+    totalSubscriptions?: number;
+    healthySubscriptions?: number;
+    warningSubscriptions?: number;
+    criticalSubscriptions?: number;
+    totalUnresolvedTasks?: number;
+    totalAnomalies30Days?: number;
+    overallSuccessRate?: number;
+
+    [key: string]: any;
+}
+
+export interface ControlTowerSubscriptionHealthData {
+    subscriptionId?: number;
+    queryName?: string;
+    dataSourceName?: string | null;
+    folderPath?: string | null;
+    healthStatus?: number;
+    totalExecutions?: number;
+    successfulExecutions?: number;
+    failedExecutions?: number;
+    successRate?: number;
+    lastExecutionTime?: Date | null;
+    lastExecutionStatus?: number | null;
+    lastResultCount?: number | null;
+    unresolvedTaskCount?: number;
+    totalTaskCount?: number;
+    anomalyCount30Days?: number;
+    anomalySparkline?: AnomalySparklinePoint[];
+    isActive?: boolean;
+    createTasks?: boolean;
+    storeResults?: boolean;
+    hasAnomalyDetection?: boolean;
+    aiActorId?: number | null;
+    aiActorName?: string | null;
 
     [key: string]: any;
 }
@@ -3823,6 +4098,19 @@ export interface GetApiKeysResult {
     [key: string]: any;
 }
 
+export interface GetControlTowerHealthResult {
+    entries: ControlTowerSubscriptionHealthData[];
+    totalCount: number;
+
+    [key: string]: any;
+}
+
+export interface GetControlTowerStatisticsResult {
+    statistics: ControlTowerStatistics;
+
+    [key: string]: any;
+}
+
 export interface GetDataCatalogResult {
     entries: DataCatalogEntry[];
 
@@ -3837,6 +4125,21 @@ export interface GetDocumentationPatchesResult {
 
 export interface GetLearnedPatternsResult {
     patterns: LearnedPatternEntry[];
+
+    [key: string]: any;
+}
+
+export interface GetMigrationExecutionsResult {
+    executions: MigrationExecutionDto[];
+    totalCount: number;
+    hasMore: boolean;
+
+    [key: string]: any;
+}
+
+export interface GetNotificationsResult {
+    entries: NotificationEntry[];
+    totalCount: number;
 
     [key: string]: any;
 }
@@ -3962,8 +4265,44 @@ export interface McpSettingsData {
     [key: string]: any;
 }
 
+export interface MigrationExecutionDto {
+    id: number;
+    migrationJobId: number;
+    migrationJobName: string;
+    startedAt: Date;
+    completedAt: Date | null;
+    status: number;
+    sourceRowsRead: number;
+    destinationRowsWritten: number;
+    rowsSkipped: number;
+    rowsFailed: number;
+    executionDuration: string;
+    rowsPerSecond: number;
+    errorMessage: string | null;
+    retryAttempt: number;
+    isRetry: boolean;
+
+    [key: string]: any;
+}
+
 export interface MoveQueryToFolderRequest {
     folderId: number | null;
+
+    [key: string]: any;
+}
+
+export interface NotificationEntry {
+    id: number;
+    subscriptionId: number;
+    queryName: string;
+    status: number;
+    resultCount: number;
+    executionTimeMs: number;
+    createdTime: Date;
+    aiActorId: number | null;
+    aiActorName: string | null;
+    comment: string | null;
+    recipientNames: string[];
 
     [key: string]: any;
 }
