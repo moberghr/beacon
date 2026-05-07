@@ -13,6 +13,12 @@ const ControlTowerPage = lazy(() => import('./routes/control-tower/ControlTowerP
 const MigrationHistoryPage = lazy(() => import('./routes/migration-history/MigrationHistoryPage'));
 const QueryVersionsPage = lazy(() => import('./routes/queries/QueryVersionsPage'));
 const QueryVersionDetailPage = lazy(() => import('./routes/queries/QueryVersionDetailPage'));
+const RecipientsListPage = lazy(() => import('./routes/recipients/RecipientsListPage'));
+const TasksListPage = lazy(() => import('./routes/tasks/TasksListPage'));
+const TaskDetailPage = lazy(() => import('./routes/tasks/TaskDetailPage'));
+const ApprovalsListPage = lazy(() => import('./routes/approvals/ApprovalsListPage'));
+const ApiKeysListPage = lazy(() => import('./routes/api-keys/ApiKeysListPage'));
+const UsersListPage = lazy(() => import('./routes/users/UsersListPage'));
 
 function PageFallback() {
   return (
@@ -46,6 +52,12 @@ export default function App() {
             <Route path="/migration-history" element={lazyRoute(MigrationHistoryPage)} />
             <Route path="/queries/:id/versions" element={lazyRoute(QueryVersionsPage)} />
             <Route path="/queries/:id/versions/:versionId" element={lazyRoute(QueryVersionDetailPage)} />
+            <Route path="/recipients" element={lazyRoute(RecipientsListPage)} />
+            <Route path="/tasks" element={lazyRoute(TasksListPage)} />
+            <Route path="/tasks/:id" element={lazyRoute(TaskDetailPage)} />
+            <Route path="/approvals" element={lazyRoute(ApprovalsListPage)} />
+            <Route path="/api-keys" element={lazyRoute(ApiKeysListPage)} />
+            <Route path="/users" element={lazyRoute(UsersListPage)} />
             <Route path="*" element={<Navigate to="/home" replace />} />
           </Route>
         </Routes>

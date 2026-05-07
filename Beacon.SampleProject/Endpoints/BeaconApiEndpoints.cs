@@ -43,6 +43,9 @@ internal static class BeaconApiEndpoints
         group.MapNotificationsEndpoints();
         group.MapControlTowerEndpoints();
         group.MapMigrationsEndpoints();
+        group.MapRecipientsEndpoints();
+        group.MapTasksEndpoints();
+        group.MapUsersEndpoints();
 
         return endpoints;
     }

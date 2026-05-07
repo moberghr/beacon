@@ -15,6 +15,11 @@ export const MIGRATED_PAGES = [
   'notifications',
   'control-tower',
   'migration-history',
+  'recipients',
+  'tasks',
+  'approvals',
+  'api-keys',
+  'users',
 ] as const;
 
 export type MigratedPage = (typeof MIGRATED_PAGES)[number];
