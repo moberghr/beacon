@@ -82,7 +82,7 @@
                                  ErrorText="@ValidatePassword(_newPassword)"
                                  AdornmentIcon="@(_showNewPassword ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)"
                                  OnAdornmentClick="@(() => _showNewPassword = !_showNewPassword)"
-                                 CssClass="bx-field--full" />
+                                 CssClass="field--full" />
                 <MudButton Variant="Variant.Outlined" Color="Color.Warning"
                            Disabled="@(string.IsNullOrEmpty(_newPassword) || ValidatePassword(_newPassword) != null)"
                            OnClick="ResetPassword">

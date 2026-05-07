@@ -17,67 +17,67 @@
 
 <MudLayout Class="@($"beacon-layout {(_isDark ? "mud-theme-dark" : "")}")">
     <MudAppBar Elevation="0" Dense="false" Class="beacon-appbar beacon-topbar">
-        <div class="bx-topbar">
-            <nav class="bx-breadcrumb" aria-label="Breadcrumb">
-                <a class="bx-breadcrumb__crumb" href="@($"{GetBaseHref()}dashboard")">Workspace</a>
+        <div class="topbar">
+            <nav class="breadcrumb" aria-label="Breadcrumb">
+                <a class="breadcrumb__crumb" href="@($"{GetBaseHref()}dashboard")">Workspace</a>
                 @foreach (var crumb in _breadcrumbs)
                 {
-                    <span class="bx-breadcrumb__sep">/</span>
+                    <span class="breadcrumb__sep">/</span>
                     @if (!string.IsNullOrEmpty(crumb.Href) && crumb != _breadcrumbs.Last())
                     {
-                        <a class="bx-breadcrumb__crumb" href="@crumb.Href">@crumb.Label</a>
+                        <a class="breadcrumb__crumb" href="@crumb.Href">@crumb.Label</a>
                     }
                     else
                     {
-                        <span class="bx-breadcrumb__current">@crumb.Label</span>
+                        <span class="breadcrumb__current">@crumb.Label</span>
                     }
                 }
             </nav>
-            <button type="button" class="bx-topbar__search" @onclick="NavigateToSearch">
+            <button type="button" class="topbar__search" @onclick="NavigateToSearch">
                 <MudIcon Icon="@Icons.Material.Rounded.Search" Size="Size.Small" />
-                <span class="bx-topbar__search-text">Search queries, sources, recipients…</span>
-                <span class="bx-topbar__search-kbd">
-                    <span class="bx-kbd">⌘</span><span class="bx-kbd">K</span>
+                <span>Search queries, sources, recipients…</span>
+                <span class="topbar__search-kbd">
+                    <span class="kbd">⌘</span><span class="kbd">K</span>
                 </span>
             </button>
-            <div class="bx-topbar__right">
+            <div class="topbar__right">
                 <MudTooltip Text="@(_isDark ? "Light Mode" : "Dark Mode")" Placement="Placement.Bottom">
-                    <button type="button" class="bx-icon-btn" @onclick="@ChangeTheme">
+                    <button type="button" class="icon-btn" @onclick="@ChangeTheme">
                         <MudIcon Icon="@(_isDark ? Icons.Material.Rounded.LightMode : Icons.Material.Rounded.DarkMode)" Size="Size.Small" />
                     </button>
                 </MudTooltip>
                 <MudTooltip Text="Notifications" Placement="Placement.Bottom">
-                    <button type="button" class="bx-icon-btn" @onclick="NavigateToNotifications">
+                    <button type="button" class="icon-btn" @onclick="NavigateToNotifications">
                         <MudIcon Icon="@Icons.Material.Rounded.Notifications" Size="Size.Small" />
                         @if (_pendingApprovalCount > 0 || _hasUnreadNotifications)
                         {
-                            <span class="bx-icon-btn__dot"></span>
+                            <span class="icon-btn__dot"></span>
                         }
                     </button>
                 </MudTooltip>
                 <MudTooltip Text="Settings" Placement="Placement.Bottom">
-                    <button type="button" class="bx-icon-btn" @onclick="@NavigateToSettings">
+                    <button type="button" class="icon-btn" @onclick="@NavigateToSettings">
                         <MudIcon Icon="@Icons.Material.Rounded.Settings" Size="Size.Small" />
                     </button>
                 </MudTooltip>
-                <span class="bx-topbar__divider"></span>
+                <span class="divider-v"></span>
                 @if (UserContext.IsAuthenticated)
                 {
-                    <button type="button" class="bx-user-chip" @onclick="NavigateToSettings">
-                        <span class="bx-user-chip__avatar">@GetUserInitial()</span>
-                        <span class="bx-user-chip__name">@(UserContext.DisplayName ?? UserContext.UserName ?? "User")</span>
+                    <button type="button" class="user-chip" @onclick="NavigateToSettings">
+                        <span class="user-chip__avatar">@GetUserInitial()</span>
+                        <span class="user-chip__name">@(UserContext.DisplayName ?? UserContext.UserName ?? "User")</span>
                     </button>
                     <MudTooltip Text="Logout" Placement="Placement.Bottom">
-                        <button type="button" class="bx-icon-btn" @onclick="HandleLogout">
+                        <button type="button" class="icon-btn" @onclick="HandleLogout">
                             <MudIcon Icon="@Icons.Material.Rounded.Logout" Size="Size.Small" />
                         </button>
                     </MudTooltip>
                 }
                 else
                 {
-                    <span class="bx-user-chip bx-user-chip--guest">
-                        <span class="bx-user-chip__avatar">?</span>
-                        <span class="bx-user-chip__name">Guest</span>
+                    <span class="user-chip">
+                        <span class="user-chip__avatar">?</span>
+                        <span class="user-chip__name">Guest</span>
                     </span>
                 }
             </div>
@@ -154,9 +154,9 @@
             </div>
         </MudNavMenu>
     </MudDrawer>
-    <MudMainContent Class="bx-main pb-12">
+    <MudMainContent Class="main pb-12">
         <CascadingValue Value="@_isDark" Name="IsDarkMode">
-            <div class="bx-content">
+            <div class="@($"page beacon-page{(_isDark ? " beacon-page--dark" : "")}")">
                 @Body
             </div>
         </CascadingValue>

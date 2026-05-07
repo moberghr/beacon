@@ -1,39 +1,31 @@
-@* Button — Beacon visual language. Matches the .btn / .btn--primary / .btn--ghost
-   pattern from beacon-design.css, but uses unscoped .bx-btn so it works in
-   dialogs and pages alike.
-
-   Usage:
-       <BeaconButton OnClick="Save" Variant="primary" Icon="@Icons.Material.Rounded.Check">Save</BeaconButton>
-       <BeaconButton OnClick="Cancel">Cancel</BeaconButton>
-       <BeaconButton Variant="ghost" Icon="@Icons.Material.Rounded.ArrowBack">Back</BeaconButton>
-       <BeaconButton OnClick="Run" Loading="@_running" Icon="@Icons.Material.Rounded.Bolt">Run</BeaconButton> *@
+@* Button — Beacon visual language. Uses canonical .btn / .btn--primary etc. *@
 
 <button type="@ButtonType"
-        class="bx-btn @VariantClass @SizeClass @CssClass"
+        class="btn @VariantClass @SizeClass @CssClass"
         disabled="@(Disabled || Loading)"
         @onclick="OnClickInternal"
         @onclick:stopPropagation="@StopPropagation"
         title="@Title">
     @if (Loading)
     {
-        <span class="bx-btn__spinner" aria-hidden="true"></span>
+        <span class="btn__spinner" aria-hidden="true"></span>
     }
     else if (!string.IsNullOrEmpty(Icon))
     {
-        <MudIcon Icon="@Icon" Size="MudBlazor.Size.Small" />
+        <MudIcon Icon="@Icon" Class="btn__icon" Size="MudBlazor.Size.Small" />
     }
     @if (ChildContent != null)
     {
-        <span class="bx-btn__label">@ChildContent</span>
+        @ChildContent
     }
     else if (!string.IsNullOrEmpty(Text))
     {
-        <span class="bx-btn__label">@Text</span>
+        @Text
     }
 </button>
 
 @code {
-    /// <summary>"default" (outlined neutral), "primary", "ghost", "danger".</summary>
+    /// <summary>"default" (outlined neutral), "primary", "ghost", "danger", "subtle".</summary>
     [Parameter] public string Variant { get; set; } = "default";
 
     /// <summary>"sm", "md" (default), "lg".</summary>
@@ -61,16 +53,17 @@
 
     private string VariantClass => Variant switch
     {
-        "primary" => "bx-btn--primary",
-        "ghost"   => "bx-btn--ghost",
-        "danger"  => "bx-btn--danger",
+        "primary" => "btn--primary",
+        "ghost"   => "btn--ghost",
+        "danger"  => "btn--danger",
+        "subtle"  => "btn--subtle",
         _         => ""
     };
 
     private string SizeClass => Size switch
     {
-        "sm" => "bx-btn--sm",
-        "lg" => "bx-btn--lg",
+        "sm" => "btn--sm",
+        "lg" => "btn--lg",
         _    => ""
     };
 

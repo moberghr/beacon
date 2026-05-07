@@ -1,28 +1,21 @@
-@* Numeric input field — Beacon visual language. Generic over T (int, decimal, double, etc.).
-
-   Usage:
-       <BeaconNumericField T="int"
-                           @bind-Value="_count"
-                           Label="Row limit"
-                           Min="0" Max="10000" Step="100"
-                           HelpText="Maximum rows returned per query." /> *@
+@* Numeric input field — Beacon visual language. Uses canonical .field / .input. *@
 
 @typeparam T
 
-<div class="bx-field @CssClass">
+<div class="field @CssClass">
     @if (!string.IsNullOrEmpty(Label))
     {
-        <label class="bx-label" for="@_id">
+        <label class="field__label" for="@_id">
             @Label
             @if (Required)
             {
-                <span class="bx-label__req">*</span>
+                <span class="field__req">*</span>
             }
         </label>
     }
 
     <input id="@_id"
-           class="bx-input @(HasError ? "bx-input--error" : "")"
+           class="input @(HasError ? "input--error" : "")"
            type="number"
            placeholder="@Placeholder"
            min="@(Min?.ToString())"
@@ -36,11 +29,11 @@
 
     @if (HasError)
     {
-        <span class="bx-help bx-help--error">@ErrorText</span>
+        <span class="field__error">@ErrorText</span>
     }
     else if (!string.IsNullOrEmpty(HelpText))
     {
-        <span class="bx-help">@HelpText</span>
+        <span class="field__hint">@HelpText</span>
     }
 </div>
 
@@ -65,7 +58,7 @@
 
     [Parameter] public EventCallback<FocusEventArgs> OnBlur { get; set; }
 
-    private readonly string _id = $"bxn-{Guid.NewGuid().ToString("N")[..8]}";
+    private readonly string _id = $"bnn-{Guid.NewGuid().ToString("N")[..8]}";
 
     private bool HasError => !string.IsNullOrEmpty(ErrorText);
 

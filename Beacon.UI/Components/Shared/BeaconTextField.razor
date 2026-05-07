@@ -1,27 +1,14 @@
-@* Reusable Beacon-styled text field. Matches the q-field design used on AddQuery,
-   but with unscoped .bx-field classes so it works in both pages and dialogs.
+@* Reusable Beacon-styled text field. Uses canonical .field / .label / .input
+   classes from beacon-design.css so it works in pages and dialogs alike. *@
 
-   Usage:
-       <BeaconTextField @bind-Value="_name"
-                        Label="Folder name"
-                        Required="true"
-                        Placeholder="e.g. Customer KPIs"
-                        HelpText="Shown in lists and notifications." />
-
-       <BeaconTextField @bind-Value="_description"
-                        Label="Description"
-                        Multiline="true"
-                        Rows="3"
-                        HelpText="Optional." /> *@
-
-<div class="bx-field @CssClass">
+<div class="field @CssClass">
     @if (!string.IsNullOrEmpty(Label))
     {
-        <label class="bx-label" for="@_id">
+        <label class="field__label" for="@_id">
             @Label
             @if (Required)
             {
-                <span class="bx-label__req">*</span>
+                <span class="field__req">*</span>
             }
         </label>
     }
@@ -29,8 +16,8 @@
     @if (Multiline)
     {
         <textarea id="@_id"
-                  class="bx-textarea @(HasError ? "bx-textarea--error" : "")"
-                  style="@(Rows > 0 ? $"min-height: {Rows * 22 + 16}px;" : "")"
+                  class="textarea @(HasError ? "input--error" : "")"
+                  style="@(Rows > 0 ? $"min-height: {Rows * 22 + 16}px;" : null)"
                   placeholder="@Placeholder"
                   maxlength="@(MaxLength > 0 ? MaxLength.ToString() : null)"
                   disabled="@Disabled"
@@ -41,9 +28,9 @@
     }
     else if (!string.IsNullOrEmpty(AdornmentIcon))
     {
-        <div class="bx-input-wrap @(AdornmentPosition == "start" ? "bx-input-wrap--start" : "bx-input-wrap--end")">
+        <div class="input-wrap @(AdornmentPosition == "start" ? "input-wrap--start" : "input-wrap--end")">
             <input id="@_id"
-                   class="bx-input @(HasError ? "bx-input--error" : "")"
+                   class="input @(HasError ? "input--error" : "")"
                    type="@InputType"
                    placeholder="@Placeholder"
                    maxlength="@(MaxLength > 0 ? MaxLength.ToString() : null)"
@@ -54,18 +41,18 @@
                    @onchange="OnChange"
                    @onblur="OnBlurInternal" />
             <button type="button"
-                    class="bx-input__adornment"
+                    class="input-wrap__adornment"
                     tabindex="-1"
                     disabled="@Disabled"
                     @onclick="OnAdornmentClickInternal">
-                <MudIcon Icon="@AdornmentIcon" Size="Size.Small" />
+                <MudIcon Icon="@AdornmentIcon" Size="MudBlazor.Size.Small" />
             </button>
         </div>
     }
     else
     {
         <input id="@_id"
-               class="bx-input @(HasError ? "bx-input--error" : "")"
+               class="input @(HasError ? "input--error" : "")"
                type="@InputType"
                placeholder="@Placeholder"
                maxlength="@(MaxLength > 0 ? MaxLength.ToString() : null)"
@@ -79,11 +66,11 @@
 
     @if (HasError)
     {
-        <span class="bx-help bx-help--error">@ErrorText</span>
+        <span class="field__error">@ErrorText</span>
     }
     else if (!string.IsNullOrEmpty(HelpText))
     {
-        <span class="bx-help">@HelpText</span>
+        <span class="field__hint">@HelpText</span>
     }
 </div>
 
@@ -107,13 +94,13 @@
     /// <summary>Input type: text, email, password, number, url, tel, search.</summary>
     [Parameter] public string InputType { get; set; } = "text";
 
-    /// <summary>Fire ValueChanged on every keystroke. Default true (matches MudTextField Immediate).</summary>
+    /// <summary>Fire ValueChanged on every keystroke. Default true.</summary>
     [Parameter] public bool Immediate { get; set; } = true;
 
-    /// <summary>Extra class on the wrapper (e.g. "bx-field--full" for full-width grid cell).</summary>
+    /// <summary>Extra class on the wrapper.</summary>
     [Parameter] public string? CssClass { get; set; }
 
-    /// <summary>MudBlazor icon string (e.g. Icons.Material.Rounded.Visibility). When set, renders an adornment button.</summary>
+    /// <summary>MudBlazor icon string. When set, renders an adornment button.</summary>
     [Parameter] public string? AdornmentIcon { get; set; }
 
     /// <summary>"start" or "end" (default).</summary>
@@ -123,7 +110,7 @@
 
     [Parameter] public EventCallback<FocusEventArgs> OnBlur { get; set; }
 
-    private readonly string _id = $"bxf-{Guid.NewGuid().ToString("N")[..8]}";
+    private readonly string _id = $"bnf-{Guid.NewGuid().ToString("N")[..8]}";
 
     private bool HasError => !string.IsNullOrEmpty(ErrorText);
 

@@ -1,21 +1,13 @@
-@* Date picker — Beacon visual language wrapper around MudDatePicker.
-   Reuses MudBlazor's calendar UX but renders inside a .bx-field with bx-label / bx-help.
+@* Date picker — wraps MudDatePicker with canonical .field styling. *@
 
-   Usage:
-       <BeaconDatePicker @bind-Date="_expiresAt"
-                         Label="Expiration date"
-                         HelpText="Leave empty for no expiration."
-                         Clearable="true"
-                         MinDate="DateTime.Today" /> *@
-
-<div class="bx-field bx-field--datepicker @CssClass">
+<div class="field field--datepicker @CssClass">
     @if (!string.IsNullOrEmpty(Label))
     {
-        <label class="bx-label">
+        <label class="field__label">
             @Label
             @if (Required)
             {
-                <span class="bx-label__req">*</span>
+                <span class="field__req">*</span>
             }
         </label>
     }
@@ -33,11 +25,11 @@
 
     @if (HasError)
     {
-        <span class="bx-help bx-help--error">@ErrorText</span>
+        <span class="field__error">@ErrorText</span>
     }
     else if (!string.IsNullOrEmpty(HelpText))
     {
-        <span class="bx-help">@HelpText</span>
+        <span class="field__hint">@HelpText</span>
     }
 </div>
 
