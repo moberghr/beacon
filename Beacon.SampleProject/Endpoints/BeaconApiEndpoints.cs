@@ -40,6 +40,9 @@ internal static class BeaconApiEndpoints
         group.MapDataQualityEndpoints();
         group.MapMcpManagementEndpoints();
         group.MapAiActorsEndpoints();
+        group.MapNotificationsEndpoints();
+        group.MapControlTowerEndpoints();
+        group.MapMigrationsEndpoints();
 
         return endpoints;
     }

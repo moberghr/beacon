@@ -8,7 +8,14 @@
  *
  * After Phase 3 cutover, this file goes away.
  */
-export const MIGRATED_PAGES = ['projects'] as const;
+export const MIGRATED_PAGES = [
+  'projects',
+  'home',
+  'about',
+  'notifications',
+  'control-tower',
+  'migration-history',
+] as const;
 
 export type MigratedPage = (typeof MIGRATED_PAGES)[number];
 
