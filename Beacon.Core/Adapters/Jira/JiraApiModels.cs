@@ -1,7 +1,6 @@
 using System.Text.Json.Serialization;
-using Beacon.Core.Adapters.Jira;
 
-namespace Adapters.Adapters.Jira;
+namespace Beacon.Core.Adapters.Jira;
 
 public record JiraIssueResponse(
     [property: JsonPropertyName("id")] string Id,
@@ -77,24 +76,8 @@ public record JiraProject(
 public record JiraPriorityRef(
     [property: JsonPropertyName("name")] string Name);
 
-public record JiraComponentRef(
-    [property: JsonPropertyName("id")] string Id);
-
 public record JiraParentRef(
     [property: JsonPropertyName("key")] string Key);
-
-public record JiraDescription(
-    [property: JsonPropertyName("type")] string Type,
-    [property: JsonPropertyName("version")] int Version,
-    [property: JsonPropertyName("content")] JiraDescriptionContent[] Content);
-
-public record JiraDescriptionContent(
-    [property: JsonPropertyName("type")] string Type,
-    [property: JsonPropertyName("content")] JiraDescriptionText[]? Content);
-
-public record JiraDescriptionText(
-    [property: JsonPropertyName("type")] string Type,
-    [property: JsonPropertyName("text")] string Text);
 
 public record JiraIssueTypeRef(
     [property: JsonPropertyName("name")] string Name);
@@ -106,12 +89,6 @@ public record JiraCreateIssueResponse(
     [property: JsonPropertyName("id")] string Id,
     [property: JsonPropertyName("key")] string Key,
     [property: JsonPropertyName("self")] string Self);
-
-public record JiraCommentsResponse(
-    [property: JsonPropertyName("startAt")] int StartAt,
-    [property: JsonPropertyName("maxResults")] int MaxResults,
-    [property: JsonPropertyName("total")] int Total,
-    [property: JsonPropertyName("comments")] JiraCommentResponse[] Comments);
 
 public record JiraCommentResponse(
     [property: JsonPropertyName("id")] string Id,
