@@ -60,26 +60,6 @@
                         <MudIcon Icon="@Icons.Material.Rounded.Settings" Size="Size.Small" />
                     </button>
                 </MudTooltip>
-                <span class="divider-v"></span>
-                @if (UserContext.IsAuthenticated)
-                {
-                    <button type="button" class="user-chip" @onclick="NavigateToSettings">
-                        <span class="user-chip__avatar">@GetUserInitial()</span>
-                        <span class="user-chip__name">@(UserContext.DisplayName ?? UserContext.UserName ?? "User")</span>
-                    </button>
-                    <MudTooltip Text="Logout" Placement="Placement.Bottom">
-                        <button type="button" class="icon-btn" @onclick="HandleLogout">
-                            <MudIcon Icon="@Icons.Material.Rounded.Logout" Size="Size.Small" />
-                        </button>
-                    </MudTooltip>
-                }
-                else
-                {
-                    <span class="user-chip">
-                        <span class="user-chip__avatar">?</span>
-                        <span class="user-chip__name">Guest</span>
-                    </span>
-                }
             </div>
         </div>
     </MudAppBar>
@@ -228,6 +208,34 @@
                     </NavLink>
                 </div>
             </nav>
+
+            <div class="sidebar__footer">
+                @if (UserContext.IsAuthenticated)
+                {
+                    <button type="button" class="user-chip" @onclick="NavigateToSettings" title="Account settings">
+                        <span class="user-chip__avatar">@GetUserInitial()</span>
+                        <span class="user-chip__info">
+                            <span class="user-chip__name">@(UserContext.DisplayName ?? UserContext.UserName ?? "User")</span>
+                            <span class="user-chip__role">@GetUserRoleLabel()</span>
+                        </span>
+                    </button>
+                    <MudTooltip Text="Logout" Placement="Placement.Right">
+                        <button type="button" class="icon-btn" @onclick="HandleLogout">
+                            <MudIcon Icon="@Icons.Material.Rounded.Logout" Size="Size.Small" />
+                        </button>
+                    </MudTooltip>
+                }
+                else
+                {
+                    <span class="user-chip">
+                        <span class="user-chip__avatar">?</span>
+                        <span class="user-chip__info">
+                            <span class="user-chip__name">Guest</span>
+                            <span class="user-chip__role">Not signed in</span>
+                        </span>
+                    </span>
+                }
+            </div>
         </aside>
     </MudDrawer>
     <MudMainContent Class="main pb-12">
@@ -307,6 +315,20 @@
             return "?";
 
         return name.Substring(0, 1).ToUpperInvariant();
+    }
+
+    private string GetUserRoleLabel()
+    {
+        var role = HasAdminRole() ? "Admin" : "User";
+        var email = UserContext.Email;
+        if (string.IsNullOrWhiteSpace(email))
+            return role;
+
+        var atIndex = email.IndexOf('@');
+        if (atIndex < 0 || atIndex == email.Length - 1)
+            return role;
+
+        return $"{role} · {email[(atIndex + 1)..]}";
     }
 
     protected override void OnInitialized()
