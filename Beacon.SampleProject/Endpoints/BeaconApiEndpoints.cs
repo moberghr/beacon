@@ -39,6 +39,7 @@ internal static class BeaconApiEndpoints
         group.MapDashboardsEndpoints();
         group.MapDataQualityEndpoints();
         group.MapMcpManagementEndpoints();
+        group.MapAiActorsEndpoints();
 
         return endpoints;
     }
