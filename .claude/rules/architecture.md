@@ -6,6 +6,8 @@
 
 §2.1 **Every UI action goes through `IMediator.Send()`.** Query/command records and handlers live in `Beacon.Core/Handlers/` and `Beacon.AI/Handlers/`. Each project registers its own assembly via `services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(...))`.
 
+§2.1.1 **One MediatR handler = one HTTP endpoint.** Every `IRequest` / `IRequest<TResult>` must be reachable via `/beacon/api/*` exposed in `Beacon.SampleProject/Endpoints/{Area}Endpoints.cs`. Endpoints stay thin — accept path/body, call `mediator.Send(...)`, return the result. CI's `OpenApiContractTests.EveryMediatRHandlerIsExposedViaHttp` enforces this.
+
 §2.2 **Handler file convention — one slice per file.** The handler class, request record, and result record all live in the same file. Handler is `internal sealed class` using primary-constructor injection.
 
 ```csharp
