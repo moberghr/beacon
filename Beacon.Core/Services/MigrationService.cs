@@ -13,7 +13,6 @@ using Beacon.Core.Helpers.BulkHelpers;
 using Beacon.Core.Models;
 using Beacon.Core.Models.DataMigration;
 using Beacon.Core.Models.Queries;
-using static Beacon.Core.Helpers.BulkExtension;
 
 namespace Beacon.Core.Services;
 
