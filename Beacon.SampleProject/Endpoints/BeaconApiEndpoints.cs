@@ -36,6 +36,7 @@ internal static class BeaconApiEndpoints
         group.MapQueryVersionsEndpoints();
         group.MapApprovalsEndpoints();
         group.MapApiKeysEndpoints();
+        group.MapDashboardsEndpoints();
 
         return endpoints;
     }
