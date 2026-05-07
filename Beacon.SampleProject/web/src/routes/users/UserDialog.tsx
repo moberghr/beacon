@@ -15,7 +15,7 @@ import {
 
 const COMMON = {
   userName: z.string().trim().min(3, 'Min 3 characters').max(100),
-  email: z.string().trim().email('Invalid email').max(200).optional().or(z.literal('')),
+  email: z.union([z.literal(''), z.email('Invalid email').max(200)]).optional(),
   displayName: z.string().trim().max(100).optional(),
 };
 
