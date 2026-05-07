@@ -17,7 +17,11 @@ using Beacon.Connector.Api;
 using Beacon.Connector.BigQuery;
 using Beacon.MCP;
 using Beacon.SampleProject.Endpoints;
+using Beacon.SampleProject.Hubs;
+using Beacon.SampleProject.Middleware;
 using Beacon.SampleProject.Services;
+using Beacon.SampleProject.SignalR;
+using Microsoft.AspNetCore.SignalR;
 using Beacon.UI;
 using Beacon.UI.Authentication;
 
@@ -54,6 +58,10 @@ builder.Services.AddHangfire(hangfireConfiguration => hangfireConfiguration
         }));
 
 builder.Services.AddHangfireServer();
+
+// Hangfire filter that publishes job-state changes via SignalR to the enqueueing user.
+// Jobs without a BeaconUserId parameter publish nothing — see HangfireSignalRJobFilter.
+builder.Services.AddSingleton<HangfireSignalRJobFilter>();
 
 // ============================================================================
 // BEACON SETUP
@@ -155,6 +163,9 @@ builder.Services.AddAntiforgery(options =>
     options.HeaderName = "X-XSRF-TOKEN";
     options.Cookie.Name = ".Beacon.Antiforgery";
 });
+builder.Services.AddBeaconApiAuthorization();
+builder.Services.AddSignalR();
+builder.Services.AddSingleton<IUserIdProvider, HubUserIdProvider>();
 
 var app = builder.Build();
 
@@ -187,8 +198,18 @@ app.UseAntiforgery();
 // OpenAPI document at /openapi/v1.json - consumed by NSwag for React TS codegen.
 app.MapOpenApi();
 
+// Convert exceptions thrown inside /beacon/api/* into RFC 7807 problem+json responses.
+// Scoped via UseWhen so Blazor and MCP keep their existing error semantics.
+app.UseApiExceptionHandler("/beacon/api");
+
 // REST API surface for the React shell. Adds /beacon/api/{health, auth/me, auth/permissions, csrf}.
 app.MapBeaconApi();
+
+// SignalR hub for the React shell. Auth required (cookie scheme).
+app.MapHub<BeaconHub>("/beacon/api/hub").RequireAuthorization(BeaconApiEndpoints.AuthPolicyName);
+
+// Register the Hangfire SignalR filter against the global JobStorage, now that DI is built.
+Hangfire.GlobalJobFilters.Filters.Add(app.Services.GetRequiredService<HangfireSignalRJobFilter>());
 
 // Beacon MCP Server - available at /beacon/mcp (Streamable HTTP, SDK transport)
 // AI tools like Claude Code connect here via API key authentication
@@ -216,3 +237,6 @@ RecurringJob.AddOrUpdate<IJobService>("mcp-learning-aggregate", x => x.Aggregate
 RecurringJob.AddOrUpdate<IJobService>("mcp-learning-cleanup", x => x.CleanupOldSignals(), "0 3 * * *");
 
 app.Run();
+
+// Marker partial class for WebApplicationFactory<Program> in Beacon.Tests integration tests.
+public partial class Program;

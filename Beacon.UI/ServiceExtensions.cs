@@ -89,10 +89,19 @@ public static class ServiceExtensions
                 options.SlidingExpiration = true;
                 options.Events.OnRedirectToLogin = context =>
                 {
-                    if (context.Request.Path.StartsWithSegments("/beacon/mcp"))
+                    if (IsApiRequest(context))
                     {
-                        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-                        return Task.CompletedTask;
+                        return WriteJsonStatusAsync(context, StatusCodes.Status401Unauthorized, "Unauthorized");
+                    }
+
+                    context.Response.Redirect(context.RedirectUri);
+                    return Task.CompletedTask;
+                };
+                options.Events.OnRedirectToAccessDenied = context =>
+                {
+                    if (IsApiRequest(context))
+                    {
+                        return WriteJsonStatusAsync(context, StatusCodes.Status403Forbidden, "Forbidden");
                     }
 
                     context.Response.Redirect(context.RedirectUri);
@@ -206,6 +215,34 @@ public static class ServiceExtensions
         }
 
         return app;
+    }
+
+    private static bool IsApiRequest(Microsoft.AspNetCore.Authentication.RedirectContext<Microsoft.AspNetCore.Authentication.Cookies.CookieAuthenticationOptions> context)
+    {
+        var path = context.Request.Path;
+        if (path.StartsWithSegments("/beacon/api") || path.StartsWithSegments("/beacon/mcp"))
+        {
+            return true;
+        }
+
+        var accept = context.Request.Headers.Accept.ToString();
+        if (!string.IsNullOrEmpty(accept) && accept.Contains("application/json", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    private static async Task WriteJsonStatusAsync(
+        Microsoft.AspNetCore.Authentication.RedirectContext<Microsoft.AspNetCore.Authentication.Cookies.CookieAuthenticationOptions> context,
+        int statusCode,
+        string title)
+    {
+        context.Response.StatusCode = statusCode;
+        context.Response.ContentType = "application/problem+json";
+        var payload = $"{{\"type\":\"about:blank\",\"title\":\"{title}\",\"status\":{statusCode}}}";
+        await context.Response.WriteAsync(payload, context.HttpContext.RequestAborted);
     }
 }
 
