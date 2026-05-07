@@ -230,7 +230,10 @@ app.UseHangfireDashboard("/hangfire", new DashboardOptions
 
 // React SPA shell at /app/* - falls back to index.html for client-side routes.
 // Mounted at root /app rather than /beacon/app to avoid Blazor's /beacon catch-all.
-app.MapFallbackToFile("/app/{**path}", "app/index.html");
+// Constraint: only paths that look like client routes (no file extension); paths
+// with extensions (assets/foo.js, foo.css) fall through to UseStaticFiles.
+app.MapFallbackToFile("/app", "app/index.html");
+app.MapFallbackToFile("/app/{**path:regex(^([^.]*|.*/[^./]*)$)}", "app/index.html");
 
 // MCP Learning: aggregate patterns every 6 hours, cleanup old signals daily
 RecurringJob.AddOrUpdate<IJobService>("mcp-learning-aggregate", x => x.AggregateLearnedPatterns(), "0 */6 * * *");
