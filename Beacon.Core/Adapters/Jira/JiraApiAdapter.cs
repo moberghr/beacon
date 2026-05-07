@@ -1,6 +1,5 @@
 using System.Text;
 using System.Text.Json;
-using Adapters.Adapters.Jira;
 using Microsoft.Extensions.Logging;
 using Refit;
 using Beacon.Core.Models;
@@ -20,11 +19,7 @@ public interface IJiraApiAdapter
         string? priorityName = null,
         string? parentKey = null);
 
-    Task<JiraTicketDto?> GetTicketById(JiraCredentials credentials, string ticketId, CancellationToken cancellationToken);
-
     Task<List<JiraTicketSearchDto>> SearchTickets(JiraCredentials credentials, string jql, int maxResults, CancellationToken cancellationToken);
-
-    Task<List<JiraCommentDto>> GetTicketComments(JiraCredentials credentials, string ticketId, CancellationToken cancellationToken);
 
     Task AddCommentToTicket(JiraCredentials credentials, string ticketId, AdfDocument comment, CancellationToken cancellationToken);
 
@@ -36,31 +31,12 @@ public record CreateWorkItemResult(
     string TicketUrl,
     bool IsNewTicket);
 
-public record JiraTicketDto(
-    string Key,
-    string Summary,
-    string Description,
-    string Status,
-    string? Assignee,
-    string? Reporter,
-    DateTime Created,
-    DateTime Updated,
-    string Priority,
-    string IssueType);
-
 public record JiraTicketSearchDto(
     string Key,
     string Summary,
     string Description,
     string Status,
     string? Reporter,
-    DateTime Created,
-    DateTime Updated);
-
-public record JiraCommentDto(
-    string Id,
-    string Author,
-    string Body,
     DateTime Created,
     DateTime Updated);
 
@@ -127,46 +103,11 @@ public class JiraApiAdapter(
         }
     }
 
-    public async Task<JiraTicketDto?> GetTicketById(JiraCredentials credentials, string ticketId, CancellationToken cancellationToken)
-    {
-        try
-        {
-            var client = clientFactory.CreateClient(credentials);
-            var issue = await client.GetIssueAsync(ticketId, cancellationToken);
-            return MapToTicketDto(issue);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Failed to get Jira ticket {TicketId}", ticketId);
-            return null;
-        }
-    }
-
     public async Task<List<JiraTicketSearchDto>> SearchTickets(JiraCredentials credentials, string jql, int maxResults, CancellationToken cancellationToken)
     {
         var client = clientFactory.CreateClient(credentials);
         var searchResponse = await client.SearchAsync(jql, maxResults, 0, "key,summary,description,status,reporter,created,updated", cancellationToken);
         return searchResponse.Issues.Select(MapToTicketSearchDto).ToList();
-    }
-
-    public async Task<List<JiraCommentDto>> GetTicketComments(JiraCredentials credentials, string ticketId, CancellationToken cancellationToken)
-    {
-        try
-        {
-            var client = clientFactory.CreateClient(credentials);
-            var commentsResponse = await client.GetCommentsAsync(ticketId, cancellationToken);
-            return commentsResponse.Comments.Select(comment => new JiraCommentDto(
-                comment.Id,
-                comment.Author?.DisplayName ?? "Unknown",
-                ExtractTextFromJiraContent(comment.Body),
-                ParseDateTime(comment.Created),
-                ParseDateTime(comment.Updated))).ToList();
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Failed to get comments for Jira ticket {TicketId}", ticketId);
-            return [];
-        }
     }
 
     public async Task AddCommentToTicket(JiraCredentials credentials, string ticketId, AdfDocument comment, CancellationToken cancellationToken)
@@ -191,21 +132,6 @@ public class JiraApiAdapter(
         }
 
         await client.TransitionIssueAsync(issueKey, new JiraTransitionRequest(new JiraTransitionId(transition.Id)), cancellationToken);
-    }
-
-    private static JiraTicketDto MapToTicketDto(JiraIssueResponse issue)
-    {
-        return new JiraTicketDto(
-            issue.Key,
-            issue.Fields.Summary ?? string.Empty,
-            ExtractTextFromJiraContent(issue.Fields.Description),
-            issue.Fields.Status.Name,
-            issue.Fields.Assignee?.DisplayName,
-            issue.Fields.Reporter?.DisplayName,
-            ParseDateTime(issue.Fields.Created),
-            ParseDateTime(issue.Fields.Updated),
-            issue.Fields.Priority?.Name ?? "Unknown",
-            issue.Fields.IssueType?.Name ?? "Unknown");
     }
 
     private static JiraTicketSearchDto MapToTicketSearchDto(JiraIssueResponse issue)
