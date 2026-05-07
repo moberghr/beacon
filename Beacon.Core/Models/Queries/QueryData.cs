@@ -77,7 +77,7 @@ public class QueryData
             Steps[0].SqlValue = value;
         }
     }
-    
+
     public int DataSourceId
     {
         get => Steps.OrderBy(s => s.StepOrder).FirstOrDefault()?.DataSourceId ?? 0;
@@ -97,7 +97,7 @@ public class QueryData
             Steps[0].DataSourceName = value;
         }
     }
-    
+
     public List<QueryParameterData> Parameters
     {
         get => Steps.OrderBy(s => s.StepOrder).FirstOrDefault()?.Parameters.Select(ConvertToQueryParameterData).ToList() ?? new();

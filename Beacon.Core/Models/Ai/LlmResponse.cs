@@ -12,6 +12,6 @@ public record LlmResponse
     public string Model { get; init; } = null!;
     public decimal Cost { get; init; }
     public bool PromptCacheHit { get; init; }
-    
+
     public int TotalTokens => InputTokens + OutputTokens;
 }

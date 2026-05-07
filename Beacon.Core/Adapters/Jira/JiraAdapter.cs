@@ -58,7 +58,7 @@ internal class JiraAdapter(
             title: $"BEACON: {recipientQueryResult.QueryResult.SubscriptionName}",
             description: description,
             issueType: "Task",
-            label:"Beacon",
+            label: "Beacon",
             cancellationToken: cancellationToken);
 
         await AddCommentToIssueAsync(credentials, result.TicketKey, recipientQueryResult, cancellationToken);

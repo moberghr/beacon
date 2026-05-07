@@ -30,7 +30,7 @@ public class QueryStepResult
     public string DataSourceName { get; set; } = null!;
     public string DatabaseEngine { get; set; } = null!;
     public DatabaseEngineType DatabaseEngineType { get; set; }
-    
+
     public List<IDictionary<string, object?>> PreviewResults { get; set; } = new();
     public List<IDictionary<string, object?>> AllResults { get; set; } = new();
     public int TotalRows { get; set; }

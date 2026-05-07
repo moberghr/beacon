@@ -104,7 +104,7 @@ internal sealed class QueryExecutionPreviewService : IQueryExecutionPreviewServi
             {
                 QueryName = tempQueryName
             }, cancellationToken);
-            
+
             var createdQuery = queries.Items?.OrderByDescending(q => q.CreatedTime).FirstOrDefault();
             if (createdQuery?.QueryId == null)
             {
@@ -158,7 +158,7 @@ internal sealed class QueryExecutionPreviewService : IQueryExecutionPreviewServi
             {
                 QueryName = tempQueryName
             }, cancellationToken);
-            
+
             var createdQuery = queries.Items?.OrderByDescending(q => q.CreatedTime).FirstOrDefault();
             if (createdQuery?.QueryId == null)
             {

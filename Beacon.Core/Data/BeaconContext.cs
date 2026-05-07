@@ -225,7 +225,7 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             entity.Property(e => e.QueryText).IsRequired();
             entity.Property(e => e.DestinationTable).HasMaxLength(100).IsRequired();
             entity.Property(e => e.Schedule).HasMaxLength(50);
-            
+
             // Relationships
             entity.HasOne(e => e.DataSource)
                   .WithMany()
@@ -236,7 +236,7 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
                   .WithMany()
                   .HasForeignKey(e => e.DestinationDataSourceId)
                   .OnDelete(DeleteBehavior.Restrict);
-                  
+
             entity.HasMany(e => e.Executions)
                   .WithOne(e => e.MigrationJob)
                   .HasForeignKey(e => e.MigrationJobId)
@@ -254,7 +254,7 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             entity.HasKey(e => e.Id);
             entity.Property(e => e.ExecutedQuery).IsRequired();
             entity.Property(e => e.ErrorMessage).HasMaxLength(4000);
-            
+
             // Self-reference for retry tracking
             entity.HasOne(e => e.ParentExecution)
                   .WithMany()

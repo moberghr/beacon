@@ -12,7 +12,7 @@ internal class EmailAdapter(IEmailAdapter emailAdapter) : IAdapter
     {
         var to = recipientQueryResult.RecipientDestination;
         var subject = $"{AdapterConstants.NotificationPrefix} {recipientQueryResult.QueryResult.DataSourceName} - {recipientQueryResult.QueryResult.SubscriptionName}";
-        
+
         var htmlBody = Helpers.GenerateEmailContent(recipientQueryResult.QueryResult);
 
         await emailAdapter.SendEmailAsync(to, subject, htmlBody, recipientQueryResult.QueryResultFile);

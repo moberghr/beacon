@@ -11,11 +11,11 @@ public static class Helpers
     {
         return JsonSerializer.Serialize(value);
     }
-    
+
     public static string ToShortDate(this DateTime? value)
     {
         return value == null
-            ? string.Empty 
+            ? string.Empty
             : value.Value.ToShortDate();
     }
 
@@ -23,12 +23,12 @@ public static class Helpers
     {
         return value.ToString("dd.MM.yyyy");
     }
-    
+
     public static string ToShortDateWithoutYear(this DateTime value)
     {
         return value.ToString("dd.MM.");
     }
-    
+
     public static string GetSubstring(this string value, int length)
     {
         if (string.IsNullOrEmpty(value) || value.Length <= length)
@@ -70,6 +70,6 @@ public static class Helpers
 public class BaseResponse
 {
     public bool Success { get; set; }
-    
+
     public string Message { get; set; }
 }

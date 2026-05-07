@@ -18,7 +18,7 @@ internal static class ExportProvider
             case FileType.Csv:
                 var reportCsv = await CsvBuilder.GetReport(data);
                 var (contentTypeCsv, filenameCsv) = FileHelper.GetContentTypeAndFilename(FileType.Csv);
-                return new QueryResultFile 
+                return new QueryResultFile
                 {
                     Data = reportCsv,
                     ContentType = contentTypeCsv,

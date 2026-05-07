@@ -39,7 +39,7 @@ internal class SubscriptionService(
     public async Task<BaseResponse> CreateSubscription(SubscriptionData subscriptionData, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-        
+
         CronExpression.Parse(subscriptionData.CronExpression);
 
         var queryParams = await context.QuerySteps
@@ -105,7 +105,7 @@ internal class SubscriptionService(
     public async Task DeleteSubscription(int subscriptionId, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-        
+
         var subscription = await context.Subscriptions
             .Include(x => x.Parameters)
             .Include(x => x.Query)
@@ -127,7 +127,7 @@ internal class SubscriptionService(
     public async Task<List<SubscriptionData>> GetSubscriptions(int? subscriptionId, int? queryId, NotificationType? notificationType, string? keyword, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-        
+
         return await context.Subscriptions
             .WhereIf(subscriptionId.HasValue, x => x.Id == subscriptionId)
             .WhereIf(queryId.HasValue, x => x.QueryId == queryId)
@@ -169,7 +169,7 @@ internal class SubscriptionService(
     public async Task UpdateSubscription(SubscriptionData subscriptionData, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-        
+
         CronExpression.Parse(subscriptionData.CronExpression);
 
         var subscription = await context.Subscriptions
@@ -243,7 +243,7 @@ internal class SubscriptionService(
     public async Task<SubscriptionDetailsData> GetSubscriptionDetails(int subscriptionId, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-        
+
         var subscription = await context.Subscriptions
             .IgnoreQueryFilters()
             .Where(x => x.Id == subscriptionId)
@@ -290,7 +290,7 @@ internal class SubscriptionService(
     public async Task RemoveRecipient(int subscriptionId, int recipientId, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-        
+
         var subscription = await context.Subscriptions
             .Where(x => x.Id == subscriptionId)
             .Include(x => x.Recipients)
@@ -304,7 +304,7 @@ internal class SubscriptionService(
     public async Task AddRecipients(int subscriptionId, List<int> recipientIds, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-        
+
         var subscription = await context.Subscriptions
             .Where(x => x.Id == subscriptionId)
             .Include(x => x.Recipients)

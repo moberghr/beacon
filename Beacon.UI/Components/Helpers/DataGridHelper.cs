@@ -17,12 +17,12 @@ public static class DataGridHelper
         {
             Page = state.Page,
             PageSize = state.PageSize,
-            SortCriteria = sortCriteria is null 
+            SortCriteria = sortCriteria is null
                 ? []
                 : [sortCriteria]
         };
     }
-    
+
     public static T BuildSortedRequest<T, TData>(GridState<TData> state) where T : SortedListRequest, new()
     {
         var sortDefinition = state.SortDefinitions.FirstOrDefault();
@@ -34,7 +34,7 @@ public static class DataGridHelper
         {
             Page = state.Page,
             PageSize = state.PageSize,
-            SortCriteria = sortCriteria is null 
+            SortCriteria = sortCriteria is null
                 ? []
                 : [sortCriteria]
         };

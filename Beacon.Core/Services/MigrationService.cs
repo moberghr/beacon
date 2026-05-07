@@ -118,7 +118,7 @@ internal class MigrationService(
             {
                 // Execute the migration using existing query service
                 var migrationResult = await ExecuteMigrationInternal(migrationJob, execution, request, cancellationToken);
-                
+
                 // Update execution record
                 execution.CompletedAt = DateTime.UtcNow;
                 execution.Status = migrationResult.Status;
@@ -130,7 +130,7 @@ internal class MigrationService(
 
                 await context.SaveChangesAsync(cancellationToken);
 
-                logger.LogInformation("Completed migration job {Name} execution {ExecutionId} with status {Status}", 
+                logger.LogInformation("Completed migration job {Name} execution {ExecutionId} with status {Status}",
                     migrationJob.Name, execution.Id, execution.Status);
 
                 return new ExecuteMigrationJobResponse(
@@ -217,7 +217,7 @@ internal class MigrationService(
                 m.Executions.Count(e => e.Status == MigrationStatus.Completed)
             ))
             .ToPagedListAsync(request, cancellationToken);
-        
+
         return results;
     }
 
@@ -279,13 +279,13 @@ internal class MigrationService(
         // Apply sorting
         query = request.SortBy switch
         {
-            MigrationExecutionSortBy.StartedAt => request.SortDescending ? 
+            MigrationExecutionSortBy.StartedAt => request.SortDescending ?
                 query.OrderByDescending(e => e.StartedAt) : query.OrderBy(e => e.StartedAt),
-            MigrationExecutionSortBy.CompletedAt => request.SortDescending ? 
+            MigrationExecutionSortBy.CompletedAt => request.SortDescending ?
                 query.OrderByDescending(e => e.CompletedAt) : query.OrderBy(e => e.CompletedAt),
-            MigrationExecutionSortBy.Status => request.SortDescending ? 
+            MigrationExecutionSortBy.Status => request.SortDescending ?
                 query.OrderByDescending(e => e.Status) : query.OrderBy(e => e.Status),
-            MigrationExecutionSortBy.RowsProcessed => request.SortDescending ? 
+            MigrationExecutionSortBy.RowsProcessed => request.SortDescending ?
                 query.OrderByDescending(e => e.SourceRowsRead) : query.OrderBy(e => e.SourceRowsRead),
             _ => query.OrderByDescending(e => e.StartedAt)
         };
@@ -396,14 +396,14 @@ internal class MigrationService(
     private async Task<ValidationResult> ValidateMigrationJobRequest(CreateMigrationJobRequest request, CancellationToken cancellationToken)
     {
         var errors = new List<string>();
-        
+
         // Basic validation
         if (string.IsNullOrWhiteSpace(request.Name))
             errors.Add("Name is required");
-        
+
         if (string.IsNullOrWhiteSpace(request.QueryText))
             errors.Add("Query text is required");
-        
+
         if (string.IsNullOrWhiteSpace(request.DestinationTable))
             errors.Add("Destination table is required");
 
@@ -420,18 +420,18 @@ internal class MigrationService(
     }
 
     private async Task<ExecuteMigrationJobResponse> ExecuteMigrationInternal(
-        MigrationJob migrationJob, 
-        MigrationExecutionHistory execution, 
-        ExecuteMigrationJobRequest request, 
+        MigrationJob migrationJob,
+        MigrationExecutionHistory execution,
+        ExecuteMigrationJobRequest request,
         CancellationToken cancellationToken)
     {
         var warnings = new List<string>();
-        
+
         try
         {
             // Parse query steps from JSON format
             var querySteps = ParseQueryStepsFromJson(migrationJob.QueryText);
-            
+
             if (!querySteps.Any())
             {
                 throw new InvalidOperationException("No query steps found in migration job");
@@ -446,14 +446,14 @@ internal class MigrationService(
             };
 
             // Execute the query to get source data using preview service
-            var parameters = request.Parameters?.Select(kvp => new ParameterValue 
-            { 
-                Name = kvp.Key, 
+            var parameters = request.Parameters?.Select(kvp => new ParameterValue
+            {
+                Name = kvp.Key,
                 Value = kvp.Value?.ToString() ?? ""
             }).ToList() ?? new List<ParameterValue>();
 
             var queryResult = await previewService.ExecuteTemporaryQueryPreview(queryData, cancellationToken);
-            
+
             if (!queryResult.Success || queryResult.FinalResult?.AllRecords == null)
             {
                 throw new InvalidOperationException($"Source query execution failed: {queryResult.ErrorMessage}");

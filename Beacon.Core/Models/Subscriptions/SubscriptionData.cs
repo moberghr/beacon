@@ -13,7 +13,7 @@ public class SubscriptionData
     public string QueryName { get; set; }
 
     public string CronExpression { get; set; }
-    
+
     public int? MaxRows { get; set; }
 
     /// <summary>
@@ -27,12 +27,12 @@ public class SubscriptionData
     public FileType? ResultAttachmentType { get; set; }
 
     public bool ShowQuery { get; set; } = true;
-    
+
     /// <summary>
     /// Query execution timeout in seconds. If null, no timeout is applied.
     /// </summary>
     public int? TimeoutSeconds { get; set; }
-    
+
     /// <summary>
     /// When true, query results will be stored in the notification record.
     /// </summary>

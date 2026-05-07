@@ -25,7 +25,7 @@ public class SubscriptionDetailsData
     /// Name of the AI Actor managing this subscription
     /// </summary>
     public string? AiActorName { get; set; }
-    
+
     public int? MaxRows { get; set; }
 
     /// <summary>
@@ -39,12 +39,12 @@ public class SubscriptionDetailsData
     public FileType? ResultAttachmentType { get; set; }
 
     public bool ShowQuery { get; set; } = true;
-    
+
     /// <summary>
     /// Query execution timeout in seconds. If null, no timeout is applied.
     /// </summary>
     public int? TimeoutSeconds { get; set; }
-    
+
     /// <summary>
     /// When true, query results will be stored in the notification record.
     /// </summary>

@@ -133,7 +133,7 @@ internal class TeamsAdapter(IHttpClientFactory httpClientFactory, BeaconConfigur
         }
 
         var columnNames = queryResults.GetColumnNamesSafe(MaxColumns);
-        
+
         // Create columns
         var columns = columnNames.Select(_ => new AdaptiveCards.AdaptiveTableColumnDefinition
         {

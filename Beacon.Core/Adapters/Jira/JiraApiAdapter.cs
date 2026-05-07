@@ -160,7 +160,7 @@ public class JiraApiAdapter(
 
         return DateTime.UtcNow;
     }
-    
+
     private static async Task<JiraCommentResponse> CreateJiraCommentAsync(IJiraRestClient client, string issueKey, AdfDocument body, CancellationToken cancellationToken)
     {
         var commentRequest = new JiraAddCommentRequest(body);

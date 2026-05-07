@@ -20,31 +20,32 @@ internal class NotificationService(IDbContextFactory<BeaconContext> contextFacto
     public async Task<QueryExecutionHistoryListData> GetQueryExecutionHistory(GetQueryExecutionHistoryRequest request, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-        
+
         var queryExecutionHistory = await context.QueryExecutionHistory
             .WhereIf(request.SubscriptionId.HasValue, x => x.SubscriptionId == request.SubscriptionId)
             .WhereIf(request.LastQueryExecutionHistoryId.HasValue, x => x.Id < request.LastQueryExecutionHistoryId)
             .WhereIf(request.NotificationStatus.HasValue, x => x.NotificationStatus == request.NotificationStatus)
-            .Select(x => new QueryExecutionHistoryData {
-                    QueryExecutionHistoryId = x.Id,
-                    Notifications = x.Notifications.Select(y => new NotificationData
-                    {
-                        Id = y.Id,
-                        Created = y.CreatedTime,
-                        NotificationType = y.Type,
-                        RecipientName = y.Recipient.Name,
-                        SentAt = y.SentAt
-                    }).ToList(),
-                    ResultCount = x.ResultCount,
-                    CreatedTime = x.CreatedTime,
-                    NotificationStatus = x.NotificationStatus,
-                    QueryName = x.Subscription.Query.Name,
-                    SubscriptionId = x.SubscriptionId,
-                    ExecutionTimeMs = x.ExecutionTimeMs,
-                    Comment = x.Comment,
-                    AiActorId = x.Subscription.AiActorId,
-                    AiActorName = x.Subscription.AiActor != null ? x.Subscription.AiActor.Name : null
-                })
+            .Select(x => new QueryExecutionHistoryData
+            {
+                QueryExecutionHistoryId = x.Id,
+                Notifications = x.Notifications.Select(y => new NotificationData
+                {
+                    Id = y.Id,
+                    Created = y.CreatedTime,
+                    NotificationType = y.Type,
+                    RecipientName = y.Recipient.Name,
+                    SentAt = y.SentAt
+                }).ToList(),
+                ResultCount = x.ResultCount,
+                CreatedTime = x.CreatedTime,
+                NotificationStatus = x.NotificationStatus,
+                QueryName = x.Subscription.Query.Name,
+                SubscriptionId = x.SubscriptionId,
+                ExecutionTimeMs = x.ExecutionTimeMs,
+                Comment = x.Comment,
+                AiActorId = x.Subscription.AiActorId,
+                AiActorName = x.Subscription.AiActor != null ? x.Subscription.AiActor.Name : null
+            })
             .ToPagedListAsync(request, cancellationToken);
 
         return new QueryExecutionHistoryListData
