@@ -20,7 +20,7 @@ internal static class AiActorsEndpoints
                     DataSourceId = dataSourceId,
                     IncludeArchived = includeArchived,
                 }, ct)))
-            .WithName("GetAiActors")
+            .WithName("GetAiActorList")
             .Produces<GetAiActorListResult>(StatusCodes.Status200OK);
 
         actors.MapPost("/", async (CreateAiActorCommand command, IMediator mediator, CancellationToken ct) =>
@@ -76,7 +76,7 @@ internal static class AiActorsEndpoints
 
         actors.MapGet("/{id:int}/pending-plans", async (int id, IMediator mediator, CancellationToken ct) =>
                 Results.Ok(await mediator.Send(new GetPendingPlansQuery { ActorId = id }, ct)))
-            .WithName("GetPendingAiActorPlans")
+            .WithName("GetPendingPlans")
             .Produces<GetPendingPlansResult>(StatusCodes.Status200OK);
 
         actors.MapGet("/plans/{id:int}", async (int id, IMediator mediator, CancellationToken ct) =>
@@ -115,7 +115,7 @@ internal static class AiActorsEndpoints
                     UserId = body.UserId,
                     Feedback = body.Feedback,
                 }, ct)))
-            .WithName("RequestAiActorPlanRevision")
+            .WithName("RequestPlanRevision")
             .Produces<RequestPlanRevisionResult>(StatusCodes.Status200OK);
 
         return group;
