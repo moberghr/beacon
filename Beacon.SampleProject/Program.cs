@@ -16,6 +16,7 @@ using Beacon.Connector.Databricks;
 using Beacon.Connector.Api;
 using Beacon.Connector.BigQuery;
 using Beacon.MCP;
+using Beacon.SampleProject.Endpoints;
 using Beacon.SampleProject.Services;
 using Beacon.UI;
 using Beacon.UI.Authentication;
@@ -146,6 +147,15 @@ builder.Services.AddBeaconAI(builder.Configuration);
 // Step 5: Add Beacon MCP server (exposes data to AI tools via SSE)
 builder.Services.AddBeaconMcp();
 
+// Step 6: REST API surface for the React shell at /beacon/app
+// OpenAPI document is emitted at /openapi/v1.json (consumed by NSwag for TS codegen).
+builder.Services.AddOpenApi();
+builder.Services.AddAntiforgery(options =>
+{
+    options.HeaderName = "X-XSRF-TOKEN";
+    options.Cookie.Name = ".Beacon.Antiforgery";
+});
+
 var app = builder.Build();
 
 // ============================================================================
@@ -171,6 +181,15 @@ app.UseBeaconJwtBearerAuthentication();
 app.UseAuthentication();
 app.UseAuthorization();
 
+// Antiforgery middleware must run after auth so it can issue tokens for the current user.
+app.UseAntiforgery();
+
+// OpenAPI document at /openapi/v1.json - consumed by NSwag for React TS codegen.
+app.MapOpenApi();
+
+// REST API surface for the React shell. Adds /beacon/api/{health, auth/me, auth/permissions, csrf}.
+app.MapBeaconApi();
+
 // Beacon MCP Server - available at /beacon/mcp (Streamable HTTP, SDK transport)
 // AI tools like Claude Code connect here via API key authentication
 app.MapMcp("/beacon/mcp").RequireAuthorization();
@@ -187,6 +206,10 @@ app.UseHangfireDashboard("/hangfire", new DashboardOptions
 {
     IgnoreAntiforgeryToken = true,
 });
+
+// React SPA shell at /app/* - falls back to index.html for client-side routes.
+// Mounted at root /app rather than /beacon/app to avoid Blazor's /beacon catch-all.
+app.MapFallbackToFile("/app/{**path}", "app/index.html");
 
 // MCP Learning: aggregate patterns every 6 hours, cleanup old signals daily
 RecurringJob.AddOrUpdate<IJobService>("mcp-learning-aggregate", x => x.AggregateLearnedPatterns(), "0 */6 * * *");

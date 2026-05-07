@@ -43,6 +43,8 @@ Framework details in `.claude/skills/tech-stack-dotnet/SKILL.md`.
 - **Patterns:** MediatR/CQRS (handler+request+result in one file, `internal sealed class` + primary ctor), `IDbContextFactory<BeaconContext>`, builder-pattern DI, soft delete via `ArchivableBaseEntity`
 - **Hosting:** Kestrel self-hosted, Blazor Server (MudBlazor), Hangfire on PostgreSQL (`/hangfire`)
 - **MCP:** Streamable HTTP at `/beacon/mcp` (auth required); 5 tools + 4 resources
+- **REST API:** Minimal-API endpoints under `/beacon/api/*` for the React shell. Composition root: `Beacon.SampleProject/Endpoints/BeaconApiEndpoints.MapBeaconApi()`. OpenAPI document at `/openapi/v1.json`. Convention: one endpoint = one MediatR handler (Phase 1+). Endpoints must call `.RequireAuthorization()` unless explicitly anonymous.
+- **React shell:** `Beacon.SampleProject/web/` (Vite + React + TS + Tailwind + shadcn). Builds into `wwwroot/app/`, served at `/app/*` via SPA fallback. Mounted at root `/app` (not `/beacon/app`) because Blazor's `/beacon` middleware swallows nested fallbacks. `npm run codegen` regenerates the typed fetch client from `/openapi/v1.json` via NSwag local tool.
 - **Test stack:** NUnit 4 + Moq + FluentAssertions + bUnit; query-translation tests via `NpgsqlTestContext`
 - **`Beacon.Web/`:** empty directory — treat as removed
 
