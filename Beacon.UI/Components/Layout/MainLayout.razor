@@ -83,76 +83,152 @@
             </div>
         </div>
     </MudAppBar>
-    <MudDrawer Open="@_drawerOpen" OpenChanged="@(v => _drawerOpen = v)" ClipMode="DrawerClipMode.Never" Elevation="0" Width="280px" Class="beacon-drawer">
-        <div class="drawer-header-wrapper">
-            <div class="drawer-brand-header">
-                <img src="../_content/Beacon.UI/logo.svg?v=20260423e" alt="Beacon" class="drawer-logo" />
-                <span class="drawer-version">v0.99</span>
+    <MudDrawer Open="@_drawerOpen" OpenChanged="@(v => _drawerOpen = v)" ClipMode="DrawerClipMode.Never" Elevation="0" Width="232px" Class="beacon-drawer">
+        <aside class="sidebar">
+            <div class="sidebar__brand">
+                <div class="sidebar__logo">
+                    <div class="sidebar__logo-dot" aria-hidden="true"></div>
+                    <span>Beacon</span>
+                </div>
+                <span class="sidebar__version">v0.99</span>
             </div>
-        </div>
-        <MudNavMenu Class="drawer-nav" Bordered="false">
-            <div class="nav-section-label">Overview</div>
-            <MudNavLink Href="@($"{GetBaseHref()}dashboard")" Icon="@Icons.Material.Rounded.SpaceDashboard" IconColor="Color.Default">Home</MudNavLink>
-            <MudNavLink Href="@($"{GetBaseHref()}control-tower")" Icon="@Icons.Material.Rounded.MonitorHeart" IconColor="Color.Default">Control Tower</MudNavLink>
-            <MudNavLink Href="@($"{GetBaseHref()}dashboards")" Icon="@Icons.Material.Rounded.Widgets" IconColor="Color.Default">Dashboards</MudNavLink>
 
-            <div class="nav-section-label">Data</div>
-            <MudNavLink Href="@($"{GetBaseHref()}data-sources")" Icon="@Icons.Material.Rounded.Storage" IconColor="Color.Default">Data Sources</MudNavLink>
-            <MudNavLink Href="@($"{GetBaseHref()}beacon/projects")" Icon="@Icons.Material.Rounded.FolderSpecial" IconColor="Color.Default">Projects</MudNavLink>
-            <MudNavLink Href="@($"{GetBaseHref()}data-quality")" Icon="@Icons.Material.Rounded.VerifiedUser" IconColor="Color.Default">
-                Data Quality
-                <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Filled" Style="font-size: 0.55rem; height: 16px; margin-left: 4px; border-radius: 4px;">BETA</MudChip>
-            </MudNavLink>
-            <MudNavLink Href="@($"{GetBaseHref()}data-migration")" Icon="@Icons.Material.Rounded.SwapHoriz" IconColor="Color.Default">Data Migration</MudNavLink>
-            @if (Configuration?.UseAI == true)
-            {
-                <MudNavLink Href="@($"{GetBaseHref()}ai-actors")" Icon="@Icons.Material.Rounded.SmartToy" IconColor="Color.Default">AI Actors</MudNavLink>
-            }
+            <nav class="sidebar__nav">
+                <div class="sidebar__section">
+                    <div class="sidebar__section-label">Overview</div>
+                    <NavLink href="@($"{GetBaseHref()}dashboard")" class="nav-item" ActiveClass="active" Match="NavLinkMatch.All">
+                        <MudIcon Icon="@Icons.Material.Rounded.SpaceDashboard" Class="nav-item__icon" />
+                        <span>Home</span>
+                    </NavLink>
+                    <NavLink href="@($"{GetBaseHref()}control-tower")" class="nav-item" ActiveClass="active">
+                        <MudIcon Icon="@Icons.Material.Rounded.MonitorHeart" Class="nav-item__icon" />
+                        <span>Control Tower</span>
+                    </NavLink>
+                    <NavLink href="@($"{GetBaseHref()}dashboards")" class="nav-item" ActiveClass="active">
+                        <MudIcon Icon="@Icons.Material.Rounded.Widgets" Class="nav-item__icon" />
+                        <span>Dashboards</span>
+                    </NavLink>
+                </div>
 
-            <div class="nav-section-label">Alerts</div>
-            <MudNavLink Href="@($"{GetBaseHref()}queries")" Icon="@Icons.Material.Rounded.ManageSearch" IconColor="Color.Default">Queries</MudNavLink>
-            <MudNavLink Href="@($"{GetBaseHref()}subscriptions")" Icon="@Icons.Material.Rounded.Schedule" IconColor="Color.Default">Subscriptions</MudNavLink>
-            <MudNavLink Href="@($"{GetBaseHref()}notifications")" Icon="@Icons.Material.Rounded.Notifications" IconColor="Color.Default">Notifications</MudNavLink>
-            <MudNavLink Href="@($"{GetBaseHref()}recipients")" Icon="@Icons.Material.Rounded.People" IconColor="Color.Default">Recipients</MudNavLink>
-            <MudNavLink Href="@($"{GetBaseHref()}tasks")" Icon="@Icons.Material.Rounded.TaskAlt" IconColor="Color.Default">Tasks</MudNavLink>
+                <div class="sidebar__section">
+                    <div class="sidebar__section-label">Data</div>
+                    <NavLink href="@($"{GetBaseHref()}data-sources")" class="nav-item" ActiveClass="active">
+                        <MudIcon Icon="@Icons.Material.Rounded.Storage" Class="nav-item__icon" />
+                        <span>Data Sources</span>
+                    </NavLink>
+                    <NavLink href="@($"{GetBaseHref()}beacon/projects")" class="nav-item" ActiveClass="active">
+                        <MudIcon Icon="@Icons.Material.Rounded.FolderSpecial" Class="nav-item__icon" />
+                        <span>Projects</span>
+                    </NavLink>
+                    <NavLink href="@($"{GetBaseHref()}data-quality")" class="nav-item" ActiveClass="active">
+                        <MudIcon Icon="@Icons.Material.Rounded.VerifiedUser" Class="nav-item__icon" />
+                        <span>Data Quality</span>
+                        <span class="nav-item__badge">BETA</span>
+                    </NavLink>
+                    <NavLink href="@($"{GetBaseHref()}data-migration")" class="nav-item" ActiveClass="active">
+                        <MudIcon Icon="@Icons.Material.Rounded.SwapHoriz" Class="nav-item__icon" />
+                        <span>Data Migration</span>
+                    </NavLink>
+                    @if (Configuration?.UseAI == true)
+                    {
+                        <NavLink href="@($"{GetBaseHref()}ai-actors")" class="nav-item" ActiveClass="active">
+                            <MudIcon Icon="@Icons.Material.Rounded.SmartToy" Class="nav-item__icon" />
+                            <span>AI Actors</span>
+                        </NavLink>
+                    }
+                </div>
 
-            <div class="nav-section-label">MCP</div>
-            <MudNavLink Href="@($"{GetBaseHref()}beacon/data-catalog")" Icon="@Icons.Material.Rounded.MenuBook" IconColor="Color.Default">Data Catalog</MudNavLink>
-            @if (HasAdminRole())
-            {
-                <MudNavLink Href="@($"{GetBaseHref()}beacon/settings/api-keys")" Icon="@Icons.Material.Rounded.Key" IconColor="Color.Default">API Keys</MudNavLink>
-                <MudNavLink Href="@($"{GetBaseHref()}beacon/settings/mcp")" Icon="@Icons.Material.Rounded.Tune" IconColor="Color.Default">MCP Settings</MudNavLink>
-                <MudNavLink Href="@($"{GetBaseHref()}beacon/settings/mcp/playground")" Icon="@Icons.Material.Rounded.Terminal" IconColor="Color.Default">MCP Playground</MudNavLink>
-                <MudNavLink Href="@($"{GetBaseHref()}beacon/settings/mcp-learning")" Icon="@Icons.Material.Rounded.Psychology" IconColor="Color.Default">MCP Learning</MudNavLink>
-            }
+                <div class="sidebar__section">
+                    <div class="sidebar__section-label">Alerts</div>
+                    <NavLink href="@($"{GetBaseHref()}queries")" class="nav-item" ActiveClass="active">
+                        <MudIcon Icon="@Icons.Material.Rounded.ManageSearch" Class="nav-item__icon" />
+                        <span>Queries</span>
+                    </NavLink>
+                    <NavLink href="@($"{GetBaseHref()}subscriptions")" class="nav-item" ActiveClass="active">
+                        <MudIcon Icon="@Icons.Material.Rounded.Schedule" Class="nav-item__icon" />
+                        <span>Subscriptions</span>
+                    </NavLink>
+                    <NavLink href="@($"{GetBaseHref()}notifications")" class="nav-item" ActiveClass="active">
+                        <MudIcon Icon="@Icons.Material.Rounded.Notifications" Class="nav-item__icon" />
+                        <span>Notifications</span>
+                    </NavLink>
+                    <NavLink href="@($"{GetBaseHref()}recipients")" class="nav-item" ActiveClass="active">
+                        <MudIcon Icon="@Icons.Material.Rounded.People" Class="nav-item__icon" />
+                        <span>Recipients</span>
+                    </NavLink>
+                    <NavLink href="@($"{GetBaseHref()}tasks")" class="nav-item" ActiveClass="active">
+                        <MudIcon Icon="@Icons.Material.Rounded.TaskAlt" Class="nav-item__icon" />
+                        <span>Tasks</span>
+                    </NavLink>
+                </div>
 
-            @if (HasAdminRole() || (Configuration?.ApprovalWorkflow.Enabled == true && HasAdminRole()))
-            {
-                <div class="nav-section-label">Admin</div>
-                @if (Configuration?.ApprovalWorkflow.Enabled == true && HasAdminRole())
+                <div class="sidebar__section">
+                    <div class="sidebar__section-label">MCP</div>
+                    <NavLink href="@($"{GetBaseHref()}beacon/data-catalog")" class="nav-item" ActiveClass="active">
+                        <MudIcon Icon="@Icons.Material.Rounded.MenuBook" Class="nav-item__icon" />
+                        <span>Data Catalog</span>
+                    </NavLink>
+                    @if (HasAdminRole())
+                    {
+                        <NavLink href="@($"{GetBaseHref()}beacon/settings/api-keys")" class="nav-item" ActiveClass="active">
+                            <MudIcon Icon="@Icons.Material.Rounded.Key" Class="nav-item__icon" />
+                            <span>API Keys</span>
+                        </NavLink>
+                        <NavLink href="@($"{GetBaseHref()}beacon/settings/mcp")" class="nav-item" ActiveClass="active" Match="NavLinkMatch.All">
+                            <MudIcon Icon="@Icons.Material.Rounded.Tune" Class="nav-item__icon" />
+                            <span>MCP Settings</span>
+                        </NavLink>
+                        <NavLink href="@($"{GetBaseHref()}beacon/settings/mcp/playground")" class="nav-item" ActiveClass="active">
+                            <MudIcon Icon="@Icons.Material.Rounded.Terminal" Class="nav-item__icon" />
+                            <span>MCP Playground</span>
+                        </NavLink>
+                        <NavLink href="@($"{GetBaseHref()}beacon/settings/mcp-learning")" class="nav-item" ActiveClass="active">
+                            <MudIcon Icon="@Icons.Material.Rounded.Psychology" Class="nav-item__icon" />
+                            <span>MCP Learning</span>
+                        </NavLink>
+                    }
+                </div>
+
+                @if (HasAdminRole() || (Configuration?.ApprovalWorkflow.Enabled == true && HasAdminRole()))
                 {
-                    <MudNavLink Href="@($"{GetBaseHref()}approvals")" Icon="@Icons.Material.Rounded.Approval" IconColor="Color.Default">
-                        Approvals
-                        @if (_pendingApprovalCount > 0)
+                    <div class="sidebar__section">
+                        <div class="sidebar__section-label">Admin</div>
+                        @if (Configuration?.ApprovalWorkflow.Enabled == true && HasAdminRole())
                         {
-                            <MudBadge Content="@_pendingApprovalCount" Color="Color.Error" Overlap="true" Class="ml-2" />
+                            <NavLink href="@($"{GetBaseHref()}approvals")" class="nav-item" ActiveClass="active">
+                                <MudIcon Icon="@Icons.Material.Rounded.Approval" Class="nav-item__icon" />
+                                <span>Approvals</span>
+                                @if (_pendingApprovalCount > 0)
+                                {
+                                    <span class="nav-item__count">@_pendingApprovalCount</span>
+                                }
+                            </NavLink>
                         }
-                    </MudNavLink>
+                        @if (Configuration?.UserManagement.Enabled == true && HasAdminRole())
+                        {
+                            <NavLink href="@($"{GetBaseHref()}users")" class="nav-item" ActiveClass="active">
+                                <MudIcon Icon="@Icons.Material.Rounded.AdminPanelSettings" Class="nav-item__icon" />
+                                <span>User Management</span>
+                            </NavLink>
+                        }
+                        @if (HasAdminRole())
+                        {
+                            <NavLink href="@($"{GetBaseHref()}admin/settings")" class="nav-item" ActiveClass="active">
+                                <MudIcon Icon="@Icons.Material.Rounded.Settings" Class="nav-item__icon" />
+                                <span>Admin Settings</span>
+                            </NavLink>
+                        }
+                    </div>
                 }
-                @if (Configuration?.UserManagement.Enabled == true && HasAdminRole())
-                {
-                    <MudNavLink Href="@($"{GetBaseHref()}users")" Icon="@Icons.Material.Rounded.AdminPanelSettings" IconColor="Color.Default">User Management</MudNavLink>
-                }
-                @if (HasAdminRole())
-                {
-                    <MudNavLink Href="@($"{GetBaseHref()}admin/settings")" Icon="@Icons.Material.Rounded.Settings" IconColor="Color.Default">Admin Settings</MudNavLink>
-                }
-            }
 
-            <div class="drawer-footer">
-                <MudNavLink Href="@($"{GetBaseHref()}about")" Icon="@Icons.Material.Rounded.Info" IconColor="Color.Default">About</MudNavLink>
-            </div>
-        </MudNavMenu>
+                <div class="sidebar__section" style="margin-top: 18px;">
+                    <NavLink href="@($"{GetBaseHref()}about")" class="nav-item" ActiveClass="active">
+                        <MudIcon Icon="@Icons.Material.Rounded.Info" Class="nav-item__icon" />
+                        <span>About</span>
+                    </NavLink>
+                </div>
+            </nav>
+        </aside>
     </MudDrawer>
     <MudMainContent Class="main pb-12">
         <CascadingValue Value="@_isDark" Name="IsDarkMode">
