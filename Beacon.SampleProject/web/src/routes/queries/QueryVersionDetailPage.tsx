@@ -16,7 +16,7 @@ export default function QueryVersionDetailPage() {
         title="Query version detail"
         sub={
           <span className="muted">
-            <Link to={`/app/queries/${id}/versions`} className="muted">← back to versions</Link>
+            <Link to={`/queries/${id}/versions`} className="muted">← back to versions</Link>
             <span style={{ margin: '0 6px' }}>·</span>
             v{versionId}
           </span>

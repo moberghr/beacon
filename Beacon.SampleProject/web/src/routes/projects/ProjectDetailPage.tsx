@@ -93,7 +93,7 @@ export default function ProjectDetailPage() {
       <div className="page">
         <PageHeader
           title={`Project #${projectId}`}
-          sub={<Link to="/app/projects" className="muted">← back to projects</Link>}
+          sub={<Link to="/projects" className="muted">← back to projects</Link>}
         />
         <EmptyState icon={<Icon.Folder size={20} />} title="Project not found" />
       </div>
@@ -113,7 +113,7 @@ export default function ProjectDetailPage() {
         title={project.name}
         sub={
           <span className="muted">
-            <Link to="/app/projects" className="muted">Projects</Link>
+            <Link to="/projects" className="muted">Projects</Link>
             <span style={{ margin: '0 6px' }}>/</span>
             #{project.id}
           </span>

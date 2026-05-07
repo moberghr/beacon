@@ -98,7 +98,7 @@ export function Sidebar() {
               const IconCmp = Icon[item.icon];
               const href = resolveNavHref(item.slug, item.blazorPath);
               const migrated = isMigrated(item.slug);
-              const isActive = migrated && location.pathname.startsWith(`/app/${item.slug}`);
+              const isActive = migrated && location.pathname.startsWith(`/${item.slug}`);
 
               const className = 'nav-item' + (isActive ? ' active' : '');
               const content = (

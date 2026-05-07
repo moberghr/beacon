@@ -97,7 +97,7 @@ export default function ProjectsListPage() {
             rows={entries}
             rowKey={p => p.id}
             gridTemplate={GRID_TEMPLATE}
-            onRowClick={p => navigate(`/app/projects/${p.id}`)}
+            onRowClick={p => navigate(`/projects/${p.id}`)}
             empty={
               <EmptyState
                 icon={<Icon.Folder size={20} />}
