@@ -12,115 +12,77 @@
 
 <BeaconPageTitle Title="Subscription Details"/>
 
-<MudContainer MaxWidth="MaxWidth.ExtraExtraLarge" Class="mt-4">
+<div class="beacon-aq">
     @if (_loading)
     {
-        <MudGrid Spacing="3">
-            <MudItem xs="12" md="3">
-                <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="120px" />
-            </MudItem>
-            <MudItem xs="12" md="3">
-                <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="120px" />
-            </MudItem>
-            <MudItem xs="12" md="3">
-                <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="120px" />
-            </MudItem>
-            <MudItem xs="12" md="3">
-                <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="120px" />
-            </MudItem>
-        </MudGrid>
+        <MudProgressLinear Color="Color.Primary" Indeterminate="true" />
     }
     else if (Model != null)
     {
-        <PageHeader Title="@Model.QueryName"
-                    Icon="@Icons.Material.Filled.Subscriptions"
-                    Subtitle="@GetHeaderSubtitle()">
-            <Badges>
+        <BeaconPageHero Variant="signal" Emphasis="@Model.QueryName">
+            <Eyebrow>
+                <a href="/subscriptions" class="mono" style="color:inherit;text-decoration:none;">Subscriptions</a>
+                <span class="page-hero__sep">/</span>
+                <span class="mono">#@Model.SubscriptionId</span>
+                <span class="page-hero__sep">·</span>
                 @if (isSubscriptionActive)
                 {
-                    <div class="status-badge-large status-badge-success">
-                        <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Small" />
-                        Active
-                    </div>
+                    <span class="pill pill--ok" style="display:inline-flex;align-items:center;gap:4px;">
+                        <span style="width:6px;height:6px;border-radius:50%;background:var(--ok);"></span>ACTIVE
+                    </span>
                 }
                 else
                 {
-                    <div class="status-badge-large status-badge-error">
-                        <MudIcon Icon="@Icons.Material.Filled.Archive" Size="Size.Small" />
-                        Archived
-                    </div>
+                    <span class="pill pill--neutral" style="display:inline-flex;align-items:center;gap:4px;">
+                        <span style="width:6px;height:6px;border-radius:50%;background:var(--text-muted);"></span>ARCHIVED
+                    </span>
                 }
-                <SourceChip AiActorId="@Model.AiActorId" AiActorName="@Model.AiActorName" Compact="false" />
-            </Badges>
+                @if (Model.AiActorId.HasValue)
+                {
+                    <span class="page-hero__sep">·</span>
+                    <span class="pill pill--info mono" style="font-size:10px;">AI</span>
+                }
+            </Eyebrow>
+            <Sub>
+                @if (!string.IsNullOrEmpty(_cronDescription))
+                {
+                    <span>@_cronDescription</span>
+                }
+                @if (!string.IsNullOrEmpty(_cronNextAt))
+                {
+                    <span style="opacity:0.5;">·</span>
+                    <span>next </span><span class="mono">@_cronNextAt</span>
+                }
+            </Sub>
             <Actions>
-                <BeaconButton Variant="primary"
-                              Icon="@Icons.Material.Filled.PlayArrow"
-                              Size="lg"
-                              OnClick="@TestSubscription"
-                              Disabled="@(!_canWrite)">
-                    Test Now
-                </BeaconButton>
-                <BeaconButton Variant="danger"
-                              Icon="@Icons.Material.Filled.Archive"
-                              Size="lg"
-                              Disabled="@(!_isAdmin || !isSubscriptionActive)"
-                              OnClick="@ArchiveSubscription">
-                    Archive
-                </BeaconButton>
+                <button class="btn btn--primary" @onclick="TestSubscription" disabled="@(!_canWrite)">
+                    <MudIcon Icon="@Icons.Material.Rounded.PlayArrow" Style="font-size:13px;margin-right:3px;" />Test now
+                </button>
+                <button class="btn" @onclick="ArchiveSubscription" disabled="@(!_isAdmin || !isSubscriptionActive)">
+                    <MudIcon Icon="@Icons.Material.Rounded.Archive" Style="font-size:13px;margin-right:3px;" />Archive
+                </button>
             </Actions>
-        </PageHeader>
+        </BeaconPageHero>
 
-        <!-- Hero Metrics Dashboard -->
-        <MudGrid Spacing="3" Class="mb-6">
-            <MudItem xs="12" sm="6" md="3">
-                <MudPaper Elevation="0" Class="hero-metric-card-blue pa-4">
-                    <MudStack Spacing="2">
-                        <MudIcon Icon="@Icons.Material.Filled.QueryStats" Size="Size.Large" Style="opacity: 0.9;" />
-                        <div class="hero-stat-number">@GetTotalExecutions()</div>
-                        <div class="hero-stat-label">Total Executions</div>
-                    </MudStack>
-                </MudPaper>
-            </MudItem>
-
-            <MudItem xs="12" sm="6" md="3">
-                <MudPaper Elevation="0" Class="hero-metric-card-purple pa-4">
-                    <MudStack Spacing="2">
-                        <MudIcon Icon="@Icons.Material.Filled.Notifications" Size="Size.Large" Style="opacity: 0.9;" />
-                        <div class="hero-stat-number">@GetTotalNotifications()</div>
-                        <div class="hero-stat-label">Notifications Sent</div>
-                    </MudStack>
-                </MudPaper>
-            </MudItem>
-
-            <MudItem xs="12" sm="6" md="3">
-                <MudPaper Elevation="0" Class="hero-metric-card-orange pa-4">
-                    <MudStack Spacing="2">
-                        <MudIcon Icon="@Icons.Material.Filled.Group" Size="Size.Large" Style="opacity: 0.9;" />
-                        <div class="hero-stat-number">@Model.Recipients.Count</div>
-                        <div class="hero-stat-label">Recipients</div>
-                    </MudStack>
-                </MudPaper>
-            </MudItem>
-
-            <MudItem xs="12" sm="6" md="3">
-                <MudPaper Elevation="0" Class="hero-metric-card-red pa-4">
-                    <MudStack Spacing="2">
-                        @if (Model.AnomalyConfig?.Enabled == true)
-                        {
-                            <MudIcon Icon="@Icons.Material.Filled.BubbleChart" Size="Size.Large" Style="opacity: 0.9;" />
-                            <div class="hero-stat-number">ON</div>
-                            <div class="hero-stat-label">Anomaly Detection</div>
-                        }
-                        else
-                        {
-                            <MudIcon Icon="@Icons.Material.Filled.TrendingUp" Size="Size.Large" Style="opacity: 0.9;" />
-                            <div class="hero-stat-number">@GetLatestResultCount()</div>
-                            <div class="hero-stat-label">Latest Results</div>
-                        }
-                    </MudStack>
-                </MudPaper>
-            </MudItem>
-        </MudGrid>
+        <!-- KPI row -->
+        <div class="kpi-grid">
+            <KpiCard Dot="info" Label="Total executions" Value="@GetTotalExecutions().ToString()"
+                     SubText="@(GetTotalExecutions() == 0 ? "never run" : "to date")" />
+            <KpiCard Dot="brand" Label="Notifications sent" Value="@GetTotalNotifications().ToString()"
+                     SubText="@(GetTotalNotifications() == 0 ? "none yet" : "delivered")" />
+            <KpiCard Dot="ok" Label="Recipients" Value="@Model.Recipients.Count.ToString()"
+                     SubText="@(Model.Recipients.Count == 0 ? "none configured" : "configured")" />
+            @if (Model.AnomalyConfig?.Enabled == true)
+            {
+                <KpiCard Dot="warn" Label="Anomaly detection" Value="ON"
+                         SubText="@($"{Model.AnomalyConfig.Sensitivity.ToString().ToLower()} sensitivity")" />
+            }
+            else
+            {
+                <KpiCard Dot="warn" Label="Latest results" Value="@GetLatestResultCount().ToString()"
+                         SubText="@(GetTotalExecutions() == 0 ? "no executions yet" : "last run")" />
+            }
+        </div>
 
         <!-- Main Content Tabs -->
         <MudPaper Elevation="2" Class="pa-0" Style="border-radius: 12px; overflow: hidden;">
@@ -133,197 +95,135 @@
 
                 <!-- Overview Tab -->
                 <MudTabPanel Text="Overview" Icon="@Icons.Material.Filled.Dashboard">
-                    <MudGrid Spacing="3">
-                        <!-- Query Configuration -->
-                        <MudItem xs="12" md="6">
-                            <div class="section-header" style="margin-bottom: 16px;">
-                                <MudText Typo="Typo.h6" Style="font-weight: 600;">
-                                    <MudIcon Icon="@Icons.Material.Filled.Code" Class="mr-2" Style="vertical-align: middle;" />
-                                    Query Configuration
-                                </MudText>
-                            </div>
-
-                            <MudStack Spacing="3">
-                                <MudPaper Elevation="0" Class="pa-3" Style="border: 1px solid var(--mud-palette-divider); border-radius: 8px;">
-                                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-                                        <MudIcon Icon="@Icons.Material.Filled.Link" Color="Color.Primary" />
-                                        <div>
-                                            <MudText Typo="Typo.caption" Color="Color.Secondary">QUERY</MudText>
-                                            <MudLink Href="@($"queries/{Model.QueryId}")" Style="font-weight: 600; font-size: 0.875rem;">
-                                                @Model.QueryName
-                                            </MudLink>
+                    <div class="row row--2-up" style="align-items:start;">
+                        <div class="q-section">
+                            <!-- Query configuration -->
+                            <div class="card">
+                                <div class="card__head">
+                                    <MudIcon Icon="@Icons.Material.Rounded.Code" Style="font-size:15px;color:var(--text-muted);" />
+                                    <h3 class="card__title">Query configuration</h3>
+                                </div>
+                                <div class="card__body">
+                                    <div class="kv">
+                                        <div class="kv__row">
+                                            <span class="kv__label">Query</span>
+                                            <span class="kv__value">
+                                                <a href="@($"queries/{Model.QueryId}")" class="mono" style="color:var(--brand-500);">@Model.QueryName</a>
+                                            </span>
                                         </div>
-                                    </MudStack>
-                                </MudPaper>
-
-                                <MudPaper Elevation="0" Class="pa-3" Style="border: 1px solid var(--mud-palette-divider); border-radius: 8px;">
-                                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-                                            <MudIcon Icon="@Icons.Material.Filled.Schedule" Color="Color.Primary" />
-                                            <div>
-                                                <MudText Typo="Typo.caption" Color="Color.Secondary">SCHEDULE</MudText>
-                                                <MudText Typo="Typo.body2" Style="font-weight: 600;">@_cronDescription</MudText>
-                                            </div>
-                                        </MudStack>
-                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Text">@Model.CronExpression</MudChip>
-                                    </MudStack>
-                                </MudPaper>
-
-                                <MudPaper Elevation="0" Class="pa-3" Style="border: 1px solid var(--mud-palette-divider); border-radius: 8px;">
-                                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-                                        <MudIcon Icon="@Icons.Material.Filled.Numbers" Color="Color.Primary" />
-                                        <div>
-                                            <MudText Typo="Typo.caption" Color="Color.Secondary">RESULT LIMIT</MudText>
-                                            <MudText Typo="Typo.body2" Style="font-weight: 600;">
-                                                @(Model.MaxRows.HasValue ? Model.MaxRows.ToString() + " rows" : "No limit")
-                                            </MudText>
+                                        <div class="kv__row">
+                                            <span class="kv__label">Schedule</span>
+                                            <span class="kv__value">
+                                                <span>@_cronDescription</span>
+                                                <span class="pill pill--neutral mono" style="font-size:10px;margin-left:6px;">@Model.CronExpression</span>
+                                            </span>
                                         </div>
-                                    </MudStack>
-                                </MudPaper>
-
-                                <MudPaper Elevation="0" Class="pa-3" Style="border: 1px solid var(--mud-palette-divider); border-radius: 8px;">
-                                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-                                            <MudIcon Icon="@Icons.Material.Filled.FilterAlt" Color="@(Model.MinimumRowCount.HasValue ? Color.Warning : Color.Default)" />
-                                            <div>
-                                                <MudText Typo="Typo.caption" Color="Color.Secondary">MIN ROW THRESHOLD</MudText>
+                                        <div class="kv__row">
+                                            <span class="kv__label">Result limit</span>
+                                            <span class="kv__value mono">
+                                                @(Model.MaxRows.HasValue ? Model.MaxRows + " rows" : "no limit")
+                                            </span>
+                                        </div>
+                                        <div class="kv__row">
+                                            <span class="kv__label">Min row threshold</span>
+                                            <span class="kv__value">
                                                 @if (Model.MinimumRowCount.HasValue)
                                                 {
-                                                    <MudText Typo="Typo.body2" Style="font-weight: 600;">≥ @Model.MinimumRowCount rows</MudText>
-                                                    <MudText Typo="Typo.caption" Color="Color.Secondary">Notify only when result count meets or exceeds threshold</MudText>
+                                                    <span class="mono">≥ @Model.MinimumRowCount rows</span>
+                                                    <span class="pill pill--warn mono" style="font-size:10px;margin-left:6px;">active</span>
                                                 }
                                                 else
                                                 {
-                                                    <MudText Typo="Typo.body2" Style="font-weight: 600;">No minimum threshold</MudText>
+                                                    <span class="mono" style="color:var(--text-muted);">none</span>
                                                 }
-                                            </div>
-                                        </MudStack>
-                                        @if (Model.MinimumRowCount.HasValue)
-                                        {
-                                            <MudChip T="string" Size="Size.Small" Color="Color.Warning">Active</MudChip>
-                                        }
-                                    </MudStack>
-                                </MudPaper>
-
-                                <MudPaper Elevation="0" Class="pa-3" Style="border: 1px solid var(--mud-palette-divider); border-radius: 8px;">
-                                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-                                        <MudIcon Icon="@Icons.Material.Filled.Timer" Color="Color.Primary" />
-                                        <div>
-                                            <MudText Typo="Typo.caption" Color="Color.Secondary">QUERY TIMEOUT</MudText>
-                                            <MudText Typo="Typo.body2" Style="font-weight: 600;">
-                                                @(Model.TimeoutSeconds.HasValue ? Model.TimeoutSeconds + " seconds" : "No timeout")
-                                            </MudText>
+                                            </span>
                                         </div>
-                                    </MudStack>
-                                </MudPaper>
-                            </MudStack>
-                        </MudItem>
-
-                        <!-- Notification Settings -->
-                        <MudItem xs="12" md="6">
-                            <div class="section-header" style="margin-bottom: 16px;">
-                                <MudText Typo="Typo.h6" Style="font-weight: 600;">
-                                    <MudIcon Icon="@Icons.Material.Filled.Settings" Class="mr-2" Style="vertical-align: middle;" />
-                                    Notification Settings
-                                </MudText>
+                                        <div class="kv__row">
+                                            <span class="kv__label">Query timeout</span>
+                                            <span class="kv__value mono">
+                                                @(Model.TimeoutSeconds.HasValue ? Model.TimeoutSeconds + " seconds" : "no timeout")
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
 
-                            <MudStack Spacing="3">
-                                <MudPaper Elevation="0" Class="pa-3" Style="border: 1px solid var(--mud-palette-divider); border-radius: 8px;">
-                                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-                                            <MudIcon Icon="@Icons.Material.Filled.AttachFile" Color="@(Model.IncludeAttachment ? Color.Success : Color.Default)" />
-                                            <div>
-                                                <MudText Typo="Typo.body2" Style="font-weight: 600;">Include Attachment</MudText>
-                                                <MudText Typo="Typo.caption" Color="Color.Secondary">
-                                                    @(Model.IncludeAttachment ? $"Format: {Model.ResultAttachmentType}" : "Disabled")
-                                                </MudText>
-                                            </div>
-                                        </MudStack>
-                                        <MudChip T="string" Size="Size.Small" Color="@(Model.IncludeAttachment ? Color.Success : Color.Default)">
-                                            @(Model.IncludeAttachment ? "Enabled" : "Disabled")
-                                        </MudChip>
-                                    </MudStack>
-                                </MudPaper>
-
-                                <MudPaper Elevation="0" Class="pa-3" Style="border: 1px solid var(--mud-palette-divider); border-radius: 8px;">
-                                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-                                            <MudIcon Icon="@Icons.Material.Filled.Code" Color="@(Model.ShowQuery ? Color.Success : Color.Default)" />
-                                            <div>
-                                                <MudText Typo="Typo.body2" Style="font-weight: 600;">Show Query</MudText>
-                                                <MudText Typo="Typo.caption" Color="Color.Secondary">Display SQL in notifications</MudText>
-                                            </div>
-                                        </MudStack>
-                                        <MudChip T="string" Size="Size.Small" Color="@(Model.ShowQuery ? Color.Success : Color.Default)">
-                                            @(Model.ShowQuery ? "Enabled" : "Disabled")
-                                        </MudChip>
-                                    </MudStack>
-                                </MudPaper>
-
-                                <MudPaper Elevation="0" Class="pa-3" Style="border: 1px solid var(--mud-palette-divider); border-radius: 8px;">
-                                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-                                            <MudIcon Icon="@Icons.Material.Filled.Storage" Color="@(Model.StoreResults ? Color.Success : Color.Default)" />
-                                            <div>
-                                                <MudText Typo="Typo.body2" Style="font-weight: 600;">Store Results</MudText>
-                                                <MudText Typo="Typo.caption" Color="Color.Secondary">Persist query results</MudText>
-                                            </div>
-                                        </MudStack>
-                                        <MudChip T="string" Size="Size.Small" Color="@(Model.StoreResults ? Color.Success : Color.Default)">
-                                            @(Model.StoreResults ? "Enabled" : "Disabled")
-                                        </MudChip>
-                                    </MudStack>
-                                </MudPaper>
-
-                                <MudPaper Elevation="0" Class="pa-3" Style="border: 1px solid var(--mud-palette-divider); border-radius: 8px;">
-                                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-                                            <MudIcon Icon="@Icons.Material.Filled.Task" Color="@(Model.CreateTasks ? Color.Success : Color.Default)" />
-                                            <div>
-                                                <MudText Typo="Typo.body2" Style="font-weight: 600;">Create Tasks</MudText>
-                                                <MudText Typo="Typo.caption" Color="Color.Secondary">Auto-create tracking tasks</MudText>
-                                            </div>
-                                        </MudStack>
-                                        <MudChip T="string" Size="Size.Small" Color="@(Model.CreateTasks ? Color.Success : Color.Default)">
-                                            @(Model.CreateTasks ? "Enabled" : "Disabled")
-                                        </MudChip>
-                                    </MudStack>
-                                </MudPaper>
-
-                                <MudPaper Elevation="0" Class="pa-3" Style="border: 1px solid var(--mud-palette-divider); border-radius: 8px;">
-                                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-                                            <MudIcon Icon="@Icons.Material.Filled.NotificationAdd" Color="Color.Primary" />
-                                            <div>
-                                                <MudText Typo="Typo.body2" Style="font-weight: 600;">Send Notification</MudText>
-                                                <MudText Typo="Typo.caption" Color="Color.Secondary">@GetNotificationTriggerDescription()</MudText>
-                                            </div>
-                                        </MudStack>
-                                        <MudChip T="string" Size="Size.Small" Color="Color.Primary">
-                                            @GetNotificationTriggerLabel()
-                                        </MudChip>
-                                    </MudStack>
-                                </MudPaper>
-                            </MudStack>
-                        </MudItem>
-
-                        <!-- Query Parameters -->
-                        @if (!string.IsNullOrEmpty(Model.Parameters.ToJson()) && Model.Parameters.ToJson() != "{}" && Model.Parameters.ToJson() != "[]")
-                        {
-                            <MudItem xs="12">
-                                <div class="section-header">
-                                    <MudText Typo="Typo.h6" Style="font-weight: 600;">
-                                        <MudIcon Icon="@Icons.Material.Filled.DataObject" Class="mr-2" Style="vertical-align: middle;" />
-                                        Query Parameters
-                                    </MudText>
+                            @if (!string.IsNullOrEmpty(Model.Parameters.ToJson()) && Model.Parameters.ToJson() != "{}" && Model.Parameters.ToJson() != "[]")
+                            {
+                                <div class="card">
+                                    <div class="card__head">
+                                        <MudIcon Icon="@Icons.Material.Rounded.DataObject" Style="font-size:15px;color:var(--text-muted);" />
+                                        <h3 class="card__title">Query parameters</h3>
+                                    </div>
+                                    <div class="card__body">
+                                        <pre class="mono" style="margin:0;font-size:12px;color:var(--text);white-space:pre-wrap;">@Model.Parameters.ToJson()</pre>
+                                    </div>
                                 </div>
-                                <MudPaper Elevation="0" Class="pa-4" Style="background: rgba(0,0,0,0.02); border-radius: 8px; font-family: monospace;">
-                                    <pre style="margin: 0;">@Model.Parameters.ToJson()</pre>
-                                </MudPaper>
-                            </MudItem>
-                        }
-                    </MudGrid>
+                            }
+                        </div>
+
+                        <div class="q-section">
+                            <!-- Notification settings -->
+                            <div class="card">
+                                <div class="card__head">
+                                    <MudIcon Icon="@Icons.Material.Rounded.Settings" Style="font-size:15px;color:var(--text-muted);" />
+                                    <h3 class="card__title">Notification settings</h3>
+                                </div>
+                                <div class="card__body">
+                                    <div class="kv">
+                                        <div class="kv__row">
+                                            <span class="kv__label">Send notification</span>
+                                            <span class="kv__value">
+                                                <span class="pill pill--info mono" style="font-size:10px;">@GetNotificationTriggerLabel()</span>
+                                                <span style="margin-left:8px;color:var(--text-muted);">@GetNotificationTriggerDescription()</span>
+                                            </span>
+                                        </div>
+                                        <div class="kv__row">
+                                            <span class="kv__label">Include attachment</span>
+                                            <span class="kv__value">
+                                                @if (Model.IncludeAttachment)
+                                                {
+                                                    <span class="pill pill--ok mono" style="font-size:10px;">enabled</span>
+                                                    <span class="mono" style="margin-left:6px;color:var(--text-muted);">@Model.ResultAttachmentType</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="pill pill--neutral mono" style="font-size:10px;">disabled</span>
+                                                }
+                                            </span>
+                                        </div>
+                                        <div class="kv__row">
+                                            <span class="kv__label">Show query</span>
+                                            <span class="kv__value">
+                                                <span class="pill @(Model.ShowQuery ? "pill--ok" : "pill--neutral") mono" style="font-size:10px;">
+                                                    @(Model.ShowQuery ? "enabled" : "disabled")
+                                                </span>
+                                                <span style="margin-left:8px;color:var(--text-muted);">SQL in notifications</span>
+                                            </span>
+                                        </div>
+                                        <div class="kv__row">
+                                            <span class="kv__label">Store results</span>
+                                            <span class="kv__value">
+                                                <span class="pill @(Model.StoreResults ? "pill--ok" : "pill--neutral") mono" style="font-size:10px;">
+                                                    @(Model.StoreResults ? "enabled" : "disabled")
+                                                </span>
+                                                <span style="margin-left:8px;color:var(--text-muted);">persist query results</span>
+                                            </span>
+                                        </div>
+                                        <div class="kv__row">
+                                            <span class="kv__label">Create tasks</span>
+                                            <span class="kv__value">
+                                                <span class="pill @(Model.CreateTasks ? "pill--ok" : "pill--neutral") mono" style="font-size:10px;">
+                                                    @(Model.CreateTasks ? "enabled" : "disabled")
+                                                </span>
+                                                <span style="margin-left:8px;color:var(--text-muted);">auto-create tracking tasks</span>
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </MudTabPanel>
 
                 <!-- Recipients Tab -->
@@ -616,7 +516,7 @@
             </MudTabs>
         </MudPaper>
     }
-</MudContainer>
+</div>
 
 @inject ISubscriptionService Service
 @inject IQueryService QueryService
