@@ -30,6 +30,7 @@ internal static class BeaconApiEndpoints
         group.MapHealthEndpoints();
         group.MapAuthEndpoints();
         group.MapAntiforgeryEndpoints();
+        group.MapProjectsEndpoints();
 
         return endpoints;
     }
