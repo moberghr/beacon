@@ -3,7 +3,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using ModelContextProtocol.Server;
 using Beacon.Core.Services;
-using Beacon.MCP.Resources;
 using Beacon.MCP.Services;
 using Beacon.MCP.Tools;
 

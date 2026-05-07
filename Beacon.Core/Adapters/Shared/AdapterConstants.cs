@@ -55,35 +55,4 @@ internal static class AdapterConstants
         public const int MinColumnWidth = 3;
     }
 
-    /// <summary>
-    /// Display limits for email notifications.
-    /// </summary>
-    public static class Email
-    {
-        /// <summary>
-        /// No column limit for email - HTML tables handle many columns well.
-        /// </summary>
-        public const int MaxColumns = int.MaxValue;
-
-        /// <summary>
-        /// Maximum rows shown in email body (full dataset sent as CSV attachment).
-        /// </summary>
-        public const int MaxRows = 100;
-    }
-
-    /// <summary>
-    /// Display limits for Jira notifications.
-    /// </summary>
-    public static class Jira
-    {
-        /// <summary>
-        /// No column limit for Jira - tables in issues can be scrolled.
-        /// </summary>
-        public const int MaxColumns = int.MaxValue;
-
-        /// <summary>
-        /// Maximum rows to display in Jira issue description/comments.
-        /// </summary>
-        public const int MaxRows = 50;
-    }
 }

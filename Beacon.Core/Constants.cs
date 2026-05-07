@@ -23,24 +23,6 @@ public static class Constants
     }
 
     /// <summary>
-    /// Metadata loading constants for controlling memory usage.
-    /// </summary>
-    public static class Metadata
-    {
-        /// <summary>
-        /// Recommended maximum number of tables to load for large databases.
-        /// Prevents memory issues with databases containing 1000+ tables.
-        /// </summary>
-        public const int RecommendedMaxTables = 500;
-
-        /// <summary>
-        /// Recommended maximum number of columns per table for large schemas.
-        /// Prevents memory issues with wide tables (100+ columns).
-        /// </summary>
-        public const int RecommendedMaxColumnsPerTable = 200;
-    }
-
-    /// <summary>
     /// Data migration constants.
     /// </summary>
     public static class Migration

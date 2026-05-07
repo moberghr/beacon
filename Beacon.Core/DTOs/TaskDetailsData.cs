@@ -31,7 +31,6 @@ public record TaskDetailsData
 }
 
 public record SubscriptionSummary(int Id, string Name, string? Description);
-public record RecipientSummary(int Id, string Name, NotificationType Type);
 public record QueryExecutionSummary(int Id, DateTime ExecutedAt, double ExecutionTimeMs, NotificationStatus Status, int ResultCount);
 public record NotificationSummary(int Id, DateTime SentAt, int ResultCount, string? StoredResults);
 public record CommentData(int Id, string Content, string? UserName, DateTime CreatedAt);
