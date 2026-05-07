@@ -363,3 +363,11 @@ tasks/todo.md
 .claude/.mtk-cache/
 .claude/references.index
 .mtk/
+
+# React (Phase 0 — beacon UI migration)
+Beacon.SampleProject/web/dist/
+Beacon.SampleProject/web/src/api/generated/
+Beacon.SampleProject/wwwroot/app/
+Beacon.SampleProject/web/*.tsbuildinfo
+Beacon.SampleProject/web/vite.config.js
+Beacon.SampleProject/web/vite.config.d.ts

@@ -60,8 +60,10 @@ internal sealed class LoginFormAuthMiddleware(
             return true;
         }
 
-        // Allow auth API endpoints
-        if (path.Contains("/api/auth/", StringComparison.OrdinalIgnoreCase))
+        // Allow all /api/ endpoints. Endpoints opt into auth via .RequireAuthorization();
+        // those that need a redirect-style flow handle it themselves rather than relying
+        // on this middleware's HTML redirect (which is wrong for JSON callers).
+        if (path.Contains("/api/", StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
