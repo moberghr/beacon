@@ -50,7 +50,7 @@ export default function QueriesListPage() {
   const [search, setSearch] = useState('');
   const navigate = useNavigate();
   const { data, isLoading } = useQueriesListQuery({ searchTerm: search.trim() || undefined });
-  const entries = data?.entries ?? [];
+  const entries = data?.items ?? [];
 
   return (
     <div className="page">

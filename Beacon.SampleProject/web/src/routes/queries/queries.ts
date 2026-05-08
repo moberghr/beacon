@@ -366,11 +366,10 @@ export interface QueryListItem {
   steps: { stepId: number; stepOrder: number; name: string; dataSourceName: string }[];
 }
 
+// Backend wire shape — Beacon.Core.Helpers.PagedList<T>: { items, totalCount }.
 export interface PagedQueriesResponse {
-  entries: QueryListItem[];
+  items: QueryListItem[];
   totalCount: number;
-  page: number;
-  pageSize: number;
 }
 
 export interface QueriesListParams {
