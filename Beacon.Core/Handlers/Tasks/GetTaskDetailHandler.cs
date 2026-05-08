@@ -31,7 +31,9 @@ internal sealed class GetTaskDetailHandler(ITaskService taskService)
             details.ResolvedByUserName,
             details.ResolutionNotes,
             details.AiActorId,
-            details.AiActorName);
+            details.AiActorName,
+            details.LastExecutionAt,
+            details.CronExpression);
     }
 }
 
@@ -53,4 +55,6 @@ public record TaskDetailResult(
     string? ResolvedByUserName,
     string? ResolutionNotes,
     int? AiActorId,
-    string? AiActorName);
+    string? AiActorName,
+    DateTime? LastExecutionAt,
+    string? CronExpression);

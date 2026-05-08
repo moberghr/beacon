@@ -55,8 +55,38 @@ internal static class TasksEndpoints
             .WithName("ResolveTask")
             .Produces(StatusCodes.Status204NoContent);
 
+        tasks.MapGet("/{id:int}/executions", async (int id, IMediator mediator, CancellationToken ct) =>
+                Results.Ok(await mediator.Send(new GetTaskExecutionsQuery(id), ct)))
+            .WithName("GetTaskExecutions")
+            .Produces<TaskExecutionsResult>(StatusCodes.Status200OK);
+
+        tasks.MapGet("/{id:int}/related", async (int id, IMediator mediator, CancellationToken ct) =>
+                Results.Ok(await mediator.Send(new GetTaskRelatedQuery(id), ct)))
+            .WithName("GetTaskRelated")
+            .Produces<TaskRelatedResult>(StatusCodes.Status200OK);
+
+        tasks.MapGet("/{id:int}/result-history", async (int id, IMediator mediator, CancellationToken ct) =>
+                Results.Ok(await mediator.Send(new GetTaskResultHistoryQuery(id), ct)))
+            .WithName("GetTaskResultHistory")
+            .Produces<TaskResultHistoryResult>(StatusCodes.Status200OK);
+
+        tasks.MapGet("/{id:int}/comments", async (int id, IMediator mediator, CancellationToken ct) =>
+                Results.Ok(await mediator.Send(new GetTaskCommentsQuery(id), ct)))
+            .WithName("GetTaskComments")
+            .Produces<TaskCommentsResult>(StatusCodes.Status200OK);
+
+        tasks.MapPost("/{id:int}/comments", async (
+                int id,
+                [FromBody] AddTaskCommentBody body,
+                IMediator mediator,
+                CancellationToken ct) =>
+                Results.Ok(await mediator.Send(new AddTaskCommentCommand(id, body.Content), ct)))
+            .WithName("AddTaskComment")
+            .Produces<AddTaskCommentResult>(StatusCodes.Status200OK);
+
         return group;
     }
 }
 
 internal sealed record ResolveTaskBody(string? ResolutionNotes);
+internal sealed record AddTaskCommentBody(string Content);

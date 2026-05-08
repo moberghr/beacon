@@ -20,6 +20,16 @@ public record TaskDetailsData
     public required string QueryName { get; init; }
 
     /// <summary>
+    /// Cron expression of the parent subscription, e.g. "0 */15 * * *".
+    /// </summary>
+    public string? CronExpression { get; init; }
+
+    /// <summary>
+    /// Timestamp of the most recent execution for the parent subscription, null if none.
+    /// </summary>
+    public DateTime? LastExecutionAt { get; init; }
+
+    /// <summary>
     /// AI Actor ID if the subscription is managed by an AI Actor, null if user-created
     /// </summary>
     public int? AiActorId { get; init; }
