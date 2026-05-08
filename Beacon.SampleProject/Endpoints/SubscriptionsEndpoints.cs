@@ -23,6 +23,11 @@ internal static class SubscriptionsEndpoints
             .WithName("CreateSubscription")
             .Produces<CreateSubscriptionResult>(StatusCodes.Status200OK);
 
+        subs.MapGet("/{id:int}", async (int id, IMediator mediator, CancellationToken ct) =>
+                Results.Ok(await mediator.Send(new GetSubscriptionDetailQuery(id), ct)))
+            .WithName("GetSubscriptionDetail")
+            .Produces<GetSubscriptionDetailResult>(StatusCodes.Status200OK);
+
         subs.MapDelete("/{id:int}", async (int id, IMediator mediator, CancellationToken ct) =>
             {
                 await mediator.Send(new DeleteSubscriptionCommand(id), ct);
@@ -43,8 +48,51 @@ internal static class SubscriptionsEndpoints
             .WithName("SetSubscriptionSla")
             .Produces(StatusCodes.Status204NoContent);
 
+        subs.MapPost("/{id:int}/execute", async (int id, IMediator mediator, CancellationToken ct) =>
+            {
+                await mediator.Send(new TestSubscriptionCommand(id), ct);
+                return Results.NoContent();
+            })
+            .WithName("TestSubscription")
+            .Produces(StatusCodes.Status204NoContent);
+
+        subs.MapPost("/{id:int}/recipients", async (
+                int id,
+                [FromBody] AddSubscriptionRecipientsBody body,
+                IMediator mediator,
+                CancellationToken ct) =>
+            {
+                await mediator.Send(new AddSubscriptionRecipientsCommand(id, body.RecipientIds), ct);
+                return Results.NoContent();
+            })
+            .WithName("AddSubscriptionRecipients")
+            .Produces(StatusCodes.Status204NoContent);
+
+        subs.MapDelete("/{id:int}/recipients/{recipientId:int}", async (
+                int id,
+                int recipientId,
+                IMediator mediator,
+                CancellationToken ct) =>
+            {
+                await mediator.Send(new RemoveSubscriptionRecipientCommand(id, recipientId), ct);
+                return Results.NoContent();
+            })
+            .WithName("RemoveSubscriptionRecipient")
+            .Produces(StatusCodes.Status204NoContent);
+
+        subs.MapGet("/{id:int}/anomaly-chart", async (
+                int id,
+                [FromQuery] int? days,
+                IMediator mediator,
+                CancellationToken ct) =>
+                Results.Ok(await mediator.Send(new GetSubscriptionAnomalyChartQuery(id, days ?? 30), ct)))
+            .WithName("GetSubscriptionAnomalyChart")
+            .Produces<GetSubscriptionAnomalyChartResult>(StatusCodes.Status200OK);
+
         return group;
     }
 }
 
 internal sealed record SetSubscriptionSlaBody(int? SlaHours);
+
+internal sealed record AddSubscriptionRecipientsBody(List<int> RecipientIds);
