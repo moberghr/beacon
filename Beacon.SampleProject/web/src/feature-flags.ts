@@ -32,6 +32,7 @@ export const MIGRATED_PAGES = [
   'dashboards',
   'ai-actors',
   'migration-jobs',
+  'queries',
 ] as const;
 
 export type MigratedPage = (typeof MIGRATED_PAGES)[number];
