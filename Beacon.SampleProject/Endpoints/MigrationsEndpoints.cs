@@ -11,6 +11,17 @@ internal static class MigrationsEndpoints
     {
         var migrations = group.MapGroup("/migrations").WithTags("Migrations");
 
+        migrations.MapPost("/jobs", async (
+                [FromBody] CreateMigrationJobCommand command,
+                IMediator mediator,
+                CancellationToken cancellationToken) =>
+            {
+                var result = await mediator.Send(command, cancellationToken);
+                return Results.Ok(result);
+            })
+            .WithName("CreateMigrationJob")
+            .Produces<CreateMigrationJobResult>(StatusCodes.Status200OK);
+
         migrations.MapGet("/executions", async (
                 [FromQuery] int? migrationJobId,
                 [FromQuery] MigrationStatus? status,
