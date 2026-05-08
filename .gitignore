@@ -368,6 +368,11 @@ tasks/todo.md
 Beacon.SampleProject/web/dist/
 # Beacon.SampleProject/web/src/api/generated/  — committed since Phase 1 batch 12
 Beacon.SampleProject/wwwroot/app/
+# React build output (post-cutover) — built by BuildReactApp+StageReactBuild
+# from web/dist/. Hashes change every build; don't track them.
+Beacon.SampleProject/wwwroot/assets/
+Beacon.SampleProject/wwwroot/index.html
+Beacon.SampleProject/wwwroot/vite.svg
 Beacon.SampleProject/web/*.tsbuildinfo
 Beacon.SampleProject/web/vite.config.js
 Beacon.SampleProject/web/vite.config.d.ts
