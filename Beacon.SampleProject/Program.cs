@@ -223,9 +223,12 @@ app.UseHangfireDashboard("/hangfire", new DashboardOptions
 });
 
 // React SPA shell at root /. Falls back to wwwroot/index.html for client-side routes.
-// Constraint: only paths that look like client routes (no file extension); paths
-// with extensions (assets/foo.js, foo.css) fall through to UseStaticFiles.
-app.MapFallbackToFile("/{**path:regex(^([^.]*|.*/[^./]*)$)}", "index.html");
+// Constraint: only paths that look like client routes (no file extension) AND do
+// NOT start with /beacon/ or /hangfire (those belong to API/MCP/auth/hangfire).
+// Paths with extensions (assets/foo.js, foo.css) fall through to UseStaticFiles.
+app.MapFallbackToFile(
+    "/{**path:regex(^(?!beacon(/|$))(?!hangfire(/|$))([^.]*|.*/[^./]*)$)}",
+    "index.html");
 
 // MCP Learning: aggregate patterns every 6 hours, cleanup old signals daily
 RecurringJob.AddOrUpdate<IJobService>("mcp-learning-aggregate", x => x.AggregateLearnedPatterns(), "0 */6 * * *");

@@ -15,10 +15,28 @@ internal static class QueriesEndpoints
         var queries = group.MapGroup("/queries").WithTags("Queries");
 
         queries.MapGet("/", async (
-                [AsParameters] Beacon.Core.Services.GetQueriesRequest request,
+                [FromQuery] int? queryId,
+                [FromQuery] int? dataSourceId,
+                [FromQuery] string? queryName,
+                [FromQuery] int? folderId,
+                [FromQuery] string? searchTerm,
+                [FromQuery] int? page,
+                [FromQuery] int? pageSize,
                 IMediator mediator,
                 CancellationToken ct) =>
-                Results.Ok(await mediator.Send(new GetQueriesQuery { Request = request }, ct)))
+            {
+                var request = new Beacon.Core.Services.GetQueriesRequest
+                {
+                    QueryId = queryId,
+                    DataSourceId = dataSourceId,
+                    QueryName = queryName,
+                    FolderId = folderId,
+                    SearchTerm = searchTerm,
+                    Page = page ?? 1,
+                    PageSize = pageSize ?? 50,
+                };
+                return Results.Ok(await mediator.Send(new GetQueriesQuery { Request = request }, ct));
+            })
             .WithName("GetQueries")
             .Produces<Beacon.Core.Helpers.PagedList<Beacon.Core.Models.Queries.QueryData>>(StatusCodes.Status200OK);
 
