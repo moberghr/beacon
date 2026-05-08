@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { MigrationExecutionDto } from '@/api/generated/beacon-api';
 import { Icon } from '@/components/Icon';
 import { PageHeader } from '@/components/layout/PageHeader';
@@ -5,6 +6,7 @@ import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { formatDateTime, formatNumber } from '@/lib/format';
 import { useMigrationExecutionsQuery } from './queries';
+import { CreateMigrationJobDialog } from './CreateMigrationJobDialog';
 
 const STATUS_PILL: Record<number, { label: string; cls: string }> = {
   1: { label: 'Queued', cls: 'pill' },
@@ -67,6 +69,7 @@ const GRID_TEMPLATE = '1.4fr 2fr 0.9fr 1.1fr 0.7fr 0.7fr';
 
 export default function MigrationHistoryPage() {
   const { data, isLoading, isError, error, refetch } = useMigrationExecutionsQuery();
+  const [createOpen, setCreateOpen] = useState(false);
   const rows = data?.executions ?? [];
 
   return (
@@ -79,12 +82,23 @@ export default function MigrationHistoryPage() {
             : <span className="muted">{formatNumber(rows.length)} of {formatNumber(data?.totalCount ?? 0)}</span>
         }
         actions={
-          <button className="btn" type="button" onClick={() => refetch()} disabled={isLoading}>
-            <Icon.Refresh size={14} className="btn__icon" />
-            Refresh
-          </button>
+          <>
+            <button className="btn" type="button" onClick={() => refetch()} disabled={isLoading}>
+              <Icon.Refresh size={14} className="btn__icon" />
+              Refresh
+            </button>
+            <button
+              className="btn btn--primary"
+              type="button"
+              onClick={() => setCreateOpen(true)}
+            >
+              + New job
+            </button>
+          </>
         }
       />
+
+      <CreateMigrationJobDialog open={createOpen} onClose={() => setCreateOpen(false)} />
 
       {isError && (
         <EmptyState
