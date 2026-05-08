@@ -7,7 +7,7 @@ import { useAddTaskComment, useTaskCommentsQuery } from '../queries';
 
 const MAX_LEN = 2000;
 
-export function InvestigationLogCard({ taskId }: { taskId: number }) {
+export function InvestigationLogCard({ taskId, textareaId }: { taskId: number; textareaId?: string }) {
   const [content, setContent] = useState('');
   const { data, isLoading } = useTaskCommentsQuery(taskId);
   const add = useAddTaskComment(taskId);
@@ -42,6 +42,7 @@ export function InvestigationLogCard({ taskId }: { taskId: number }) {
           <div className="avatar">{initials(comments[0]?.userName)}</div>
           <div className="composer__main">
             <textarea
+              id={textareaId}
               className="composer__input"
               placeholder="Leave a note for whoever picks this up next…"
               value={content}

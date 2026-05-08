@@ -31,6 +31,20 @@ internal static class SubscriptionsEndpoints
             .WithName("DeleteSubscription")
             .Produces(StatusCodes.Status204NoContent);
 
+        subs.MapPost("/{id:int}/sla", async (
+                int id,
+                [FromBody] SetSubscriptionSlaBody body,
+                IMediator mediator,
+                CancellationToken ct) =>
+            {
+                await mediator.Send(new SetSubscriptionSlaCommand(id, body.SlaHours), ct);
+                return Results.NoContent();
+            })
+            .WithName("SetSubscriptionSla")
+            .Produces(StatusCodes.Status204NoContent);
+
         return group;
     }
 }
+
+internal sealed record SetSubscriptionSlaBody(int? SlaHours);

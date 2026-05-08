@@ -1,10 +1,35 @@
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { Icon } from '@/components/Icon';
+import { useAuth } from '@/auth/useAuth';
 import { formatDateTime } from '@/lib/format';
-import type { TaskDetail } from '../queries';
+import {
+  useAssignTask,
+  useSetTaskPriority,
+  type TaskDetail,
+  type TaskPriority,
+} from '../queries';
+
+const PRIORITY_OPTIONS: { value: TaskPriority; label: string }[] = [
+  { value: 1, label: 'P1 — Critical' },
+  { value: 2, label: 'P2 — High' },
+  { value: 3, label: 'P3 — Normal' },
+  { value: 4, label: 'P4 — Low' },
+];
 
 export function TaskInfoCard({ task }: { task: TaskDetail }) {
+  const { data: currentUser } = useAuth();
+  const assign = useAssignTask(task.id);
+  const setPriority = useSetTaskPriority(task.id);
+
+  const onClaim = () => {
+    if (!currentUser?.userId) return;
+    assign.mutate({ assigneeUserId: currentUser.userId });
+  };
+
+  const assigneeText =
+    task.assigneeUserName ?? task.assigneeUserId ?? null;
+
   return (
     <div className="card">
       <div className="card__head">
@@ -19,6 +44,46 @@ export function TaskInfoCard({ task }: { task: TaskDetail }) {
             value={task.resolved
               ? <span className="pill pill--ok"><span className="pill__dot" />resolved</span>
               : <span className="pill pill--warn"><span className="pill__dot" />open</span>}
+          />
+          <KV
+            label="Priority"
+            value={
+              <select
+                className="q-input"
+                style={{ fontSize: 12.5, padding: '2px 6px' }}
+                value={task.priority}
+                disabled={setPriority.isPending || task.resolved}
+                onChange={e => {
+                  const next = Number(e.target.value) as TaskPriority;
+                  if (next !== task.priority) setPriority.mutate({ priority: next });
+                }}
+              >
+                {PRIORITY_OPTIONS.map(opt => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+            }
+          />
+          <KV
+            label="Assignee"
+            value={assigneeText
+              ? <span className="mono">{assigneeText}</span>
+              : (
+                <span>
+                  <span className="subtle">unassigned</span>
+                  {!task.resolved && currentUser?.userId && (
+                    <button
+                      type="button"
+                      className="btn btn--ghost"
+                      onClick={onClaim}
+                      disabled={assign.isPending}
+                      style={{ marginLeft: 8, padding: '2px 6px', fontSize: 11.5 }}
+                    >
+                      claim
+                    </button>
+                  )}
+                </span>
+              )}
           />
           <KV
             label="Subscription"
@@ -49,10 +114,10 @@ export function TaskInfoCard({ task }: { task: TaskDetail }) {
               : <span className="subtle">manual</span>}
           />
           <KV
-            label="Owner"
-            value={task.aiActorName
-              ? <span className="mono">{task.aiActorName} · ai actor</span>
-              : <span className="subtle">user</span>}
+            label="Snoozed until"
+            value={task.snoozedUntil
+              ? <span className="mono">{formatDateTime(task.snoozedUntil)}</span>
+              : <span className="subtle">—</span>}
           />
           <KV
             label="Resolved by"

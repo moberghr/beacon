@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { fetchJson } from '@/lib/api';
+import { toast } from 'sonner';
+import { ApiError, fetchJson } from '@/lib/api';
 
 export interface TaskEntry {
   id: number;
@@ -22,6 +23,12 @@ export interface GetTasksResult {
   totalCount: number;
 }
 
+/**
+ * Wire-aligned with `Beacon.Core.Data.Enums.TaskPriority` (numeric).
+ *  1 = Critical, 2 = High, 3 = Normal, 4 = Low.
+ */
+export type TaskPriority = 1 | 2 | 3 | 4;
+
 export interface TaskDetail {
   id: number;
   queryId: number;
@@ -41,6 +48,15 @@ export interface TaskDetail {
   aiActorName: string | null;
   lastExecutionAt: string | null;
   cronExpression: string | null;
+  priority: TaskPriority;
+  assigneeUserId: string | null;
+  assigneeUserName: string | null;
+  snoozedUntil: string | null;
+  slaHours: number | null;
+  watcherCount: number;
+  isWatching: boolean;
+  ownerUserId: string | null;
+  ownerUserName: string | null;
 }
 
 export interface TaskExecutionItem {
@@ -115,7 +131,7 @@ export function useTasksQuery(args: UseTasksArgs) {
 
 export function useTaskDetailQuery(id: number | undefined) {
   return useQuery({
-    queryKey: ['tasks', 'detail', id],
+    queryKey: ['task', id],
     queryFn: () => fetchJson<TaskDetail>(`/beacon/api/tasks/${id}`),
     enabled: typeof id === 'number' && Number.isFinite(id),
   });
@@ -175,8 +191,147 @@ export function useResolveTask() {
         method: 'POST',
         body: JSON.stringify({ resolutionNotes }),
       }),
-    onSuccess: () => {
+    onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ['tasks'] });
+      qc.invalidateQueries({ queryKey: ['task', vars.id] });
+    },
+  });
+}
+
+// ---------- New mutations (assign / snooze / priority / watch / sla) ---------
+
+function describeError(err: unknown, fallback: string): string {
+  if (err instanceof ApiError) {
+    return err.body || `${fallback} (${err.status})`;
+  }
+  if (err instanceof Error) {
+    return err.message;
+  }
+  return fallback;
+}
+
+function makeTaskMutation<TVars>(
+  qc: ReturnType<typeof useQueryClient>,
+  id: number,
+  doFetch: (vars: TVars) => Promise<unknown>,
+  successMessage: string,
+  errorFallback: string,
+) {
+  return {
+    mutationFn: doFetch,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['task', id] });
+      qc.invalidateQueries({ queryKey: ['tasks'] });
+      toast.success(successMessage);
+    },
+    onError: (err: unknown) => {
+      toast.error(describeError(err, errorFallback));
+    },
+  };
+}
+
+export function useAssignTask(id: number) {
+  const qc = useQueryClient();
+  return useMutation(
+    makeTaskMutation<{ assigneeUserId: string | null }>(
+      qc,
+      id,
+      vars =>
+        fetchJson<void>(`/beacon/api/tasks/${id}/assign`, {
+          method: 'POST',
+          body: JSON.stringify(vars),
+        }),
+      'Assignment updated',
+      'Assign failed',
+    ),
+  );
+}
+
+export function useSnoozeTask(id: number) {
+  const qc = useQueryClient();
+  return useMutation(
+    makeTaskMutation<{ snoozeUntil: string | null }>(
+      qc,
+      id,
+      vars =>
+        fetchJson<void>(`/beacon/api/tasks/${id}/snooze`, {
+          method: 'POST',
+          body: JSON.stringify(vars),
+        }),
+      'Snooze updated',
+      'Snooze failed',
+    ),
+  );
+}
+
+export function useSetTaskPriority(id: number) {
+  const qc = useQueryClient();
+  return useMutation(
+    makeTaskMutation<{ priority: TaskPriority }>(
+      qc,
+      id,
+      vars =>
+        fetchJson<void>(`/beacon/api/tasks/${id}/priority`, {
+          method: 'POST',
+          body: JSON.stringify(vars),
+        }),
+      'Priority updated',
+      'Priority change failed',
+    ),
+  );
+}
+
+export function useWatchTask(id: number) {
+  const qc = useQueryClient();
+  return useMutation(
+    makeTaskMutation<void>(
+      qc,
+      id,
+      () =>
+        fetchJson<void>(`/beacon/api/tasks/${id}/watch`, {
+          method: 'POST',
+          body: '{}',
+        }),
+      'Watching task',
+      'Failed to watch task',
+    ),
+  );
+}
+
+export function useUnwatchTask(id: number) {
+  const qc = useQueryClient();
+  return useMutation(
+    makeTaskMutation<void>(
+      qc,
+      id,
+      () =>
+        fetchJson<void>(`/beacon/api/tasks/${id}/unwatch`, {
+          method: 'POST',
+          body: '{}',
+        }),
+      'Stopped watching',
+      'Failed to unwatch task',
+    ),
+  );
+}
+
+export function useSetSubscriptionSla(subscriptionId: number, taskId?: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { slaHours: number | null }) =>
+      fetchJson<void>(`/beacon/api/subscriptions/${subscriptionId}/sla`, {
+        method: 'POST',
+        body: JSON.stringify(vars),
+      }),
+    onSuccess: () => {
+      if (typeof taskId === 'number') {
+        qc.invalidateQueries({ queryKey: ['task', taskId] });
+      }
+      qc.invalidateQueries({ queryKey: ['tasks'] });
+      toast.success('SLA updated');
+    },
+    onError: (err: unknown) => {
+      toast.error(describeError(err, 'SLA update failed'));
     },
   });
 }
