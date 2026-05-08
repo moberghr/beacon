@@ -5,6 +5,7 @@ using Beacon.Core.Handlers.DataQuality.EvaluateDataContract;
 using Beacon.Core.Handlers.DataQuality.GetDataContractDetail;
 using Beacon.Core.Handlers.DataQuality.GetDataContracts;
 using Beacon.Core.Handlers.DataQuality.GetDataQualityOverview;
+using Beacon.Core.Handlers.DataQuality.GetEvaluationHistory;
 using Beacon.Core.Handlers.DataQuality.UpdateDataContract;
 using Beacon.Core.Models.DataQuality;
 using MediatR;
@@ -59,6 +60,11 @@ internal static class DataQualityEndpoints
             })
             .WithName("DeleteDataContract")
             .Produces(StatusCodes.Status204NoContent);
+
+        quality.MapGet("/contracts/{id:int}/evaluations", async (int id, [FromQuery] int? take, IMediator mediator, CancellationToken ct) =>
+                Results.Ok(await mediator.Send(new GetEvaluationHistoryQuery(id, take), ct)))
+            .WithName("GetEvaluationHistory")
+            .Produces<GetEvaluationHistoryResult>(StatusCodes.Status200OK);
 
         quality.MapPost("/contracts/{id:int}/evaluate", async (int id, IMediator mediator, CancellationToken ct) =>
                 Results.Ok(await mediator.Send(new EvaluateDataContractCommand(id), ct)))

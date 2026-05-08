@@ -24,6 +24,11 @@ export const MIGRATED_PAGES = [
   'data-sources',
   'admin-settings',
   'settings',
+  'data-catalog',
+  'data-quality',
+  'mcp-playground',
+  'mcp-learning',
+  'mcp-settings',
 ] as const;
 
 export type MigratedPage = (typeof MIGRATED_PAGES)[number];

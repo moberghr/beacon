@@ -1,4 +1,5 @@
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Handlers.Mcp.RunMcpTool;
 using Beacon.Core.Handlers.McpLearning;
 using Beacon.Core.Handlers.McpSettings;
 using Beacon.Core.Models;
@@ -24,6 +25,7 @@ internal static class McpEndpoints
                 return Results.NoContent();
             })
             .WithName("UpdateMcpSettings")
+            .RequireAuthorization(BeaconApiEndpoints.AdminPolicyName)
             .Produces(StatusCodes.Status204NoContent);
 
         mcp.MapGet("/learned-patterns", async (
@@ -106,6 +108,16 @@ internal static class McpEndpoints
             })
             .WithName("RejectDocumentationPatch")
             .Produces(StatusCodes.Status204NoContent);
+
+        mcp.MapGet("/tools", async (IMediator mediator, CancellationToken ct) =>
+                Results.Ok(await mediator.Send(new GetMcpToolsQuery(), ct)))
+            .WithName("GetMcpTools")
+            .Produces<GetMcpToolsResult>(StatusCodes.Status200OK);
+
+        mcp.MapPost("/tools/run", async (RunMcpToolCommand body, IMediator mediator, CancellationToken ct) =>
+                Results.Ok(await mediator.Send(body, ct)))
+            .WithName("RunMcpTool")
+            .Produces<RunMcpToolResult>(StatusCodes.Status200OK);
 
         mcp.MapGet("/learning-stats", async (
                 [FromQuery] int? projectId,
