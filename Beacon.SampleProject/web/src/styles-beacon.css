@@ -2976,3 +2976,122 @@ button { font-family: inherit; }
 }
 .data-tbl tbody tr:last-child td { border-bottom: none; }
 .data-tbl tbody tr:hover { background: var(--surface-2); }
+
+/* ===== Stepper (multi-step dialog header) ===== */
+.stepper {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  padding: 4px 0 14px;
+  margin-bottom: 14px;
+  border-bottom: 1px dashed var(--border);
+}
+.stepper__group {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+}
+.stepper__step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: var(--r-sm);
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  font: inherit;
+  text-align: left;
+  cursor: default;
+  flex: 1;
+  min-width: 0;
+}
+button.stepper__step { cursor: pointer; }
+button.stepper__step:hover {
+  background: var(--surface-2);
+  border-color: var(--border);
+}
+.stepper__step--active {
+  color: var(--text);
+}
+.stepper__step--active .stepper__step-bullet {
+  background: var(--brand-600);
+  color: #fff;
+  border-color: var(--brand-700);
+  box-shadow: var(--ring);
+}
+.stepper__step--done {
+  color: var(--text-muted);
+}
+.stepper__step--done .stepper__step-bullet {
+  background: var(--ok-bg, var(--surface-2));
+  color: var(--brand-700);
+  border-color: var(--brand-500);
+}
+.stepper__step-bullet {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 12px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  letter-spacing: -0.02em;
+  color: var(--text-muted);
+}
+.stepper__step-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.stepper__step-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.stepper__step-desc {
+  font-size: 11px;
+  color: var(--text-subtle);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.stepper__divider {
+  flex: 0 0 24px;
+  height: 1px;
+  background: var(--border);
+  margin: 0 4px;
+}
+.stepper__divider--done {
+  background: var(--brand-500);
+}
+.stepper__panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.stepper__review {
+  display: grid;
+  grid-template-columns: minmax(140px, 0.4fr) 1fr;
+  gap: 8px 16px;
+  font-size: 13px;
+  align-items: baseline;
+}
+.stepper__review dt {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+.stepper__review dd {
+  margin: 0;
+  color: var(--text);
+  word-break: break-word;
+}
