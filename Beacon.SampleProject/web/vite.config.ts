@@ -5,7 +5,7 @@ import path from 'node:path';
 const backend = process.env.BEACON_BACKEND_URL ?? 'https://localhost:7187';
 
 export default defineConfig({
-  base: '/app/',
+  base: '/',
   plugins: [react()],
   resolve: {
     alias: {

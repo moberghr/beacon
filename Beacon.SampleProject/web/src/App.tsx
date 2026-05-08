@@ -63,7 +63,7 @@ function lazyRoute(Element: ComponentType) {
 
 export default function App() {
   return (
-    <BrowserRouter basename="/app">
+    <BrowserRouter basename="/">
       <Routes>
         {/* Anonymous (auth landing) routes — must NOT be wrapped in RequireAuth */}
         <Route path="/login" element={lazyRoute(LoginPage)} />

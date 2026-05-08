@@ -18,7 +18,8 @@
 	</PropertyGroup>
 
 	<ItemGroup>
-		<InternalsVisibleTo Include="Beacon.UI" />
+		<InternalsVisibleTo Include="Beacon.SampleProject" />
+		<InternalsVisibleTo Include="Beacon.Tests" />
 	</ItemGroup>
 
 	<ItemGroup>
