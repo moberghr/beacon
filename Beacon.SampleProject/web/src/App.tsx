@@ -21,6 +21,7 @@ const ApprovalsListPage = lazy(() => import('./routes/approvals/ApprovalsListPag
 const ApiKeysListPage = lazy(() => import('./routes/api-keys/ApiKeysListPage'));
 const UsersListPage = lazy(() => import('./routes/users/UsersListPage'));
 const SubscriptionsListPage = lazy(() => import('./routes/subscriptions/SubscriptionsListPage'));
+const SubscriptionDetailPage = lazy(() => import('./routes/subscriptions/SubscriptionDetailPage'));
 const DataSourcesListPage = lazy(() => import('./routes/data-sources/DataSourcesListPage'));
 const AdminSettingsPage = lazy(() => import('./routes/admin-settings/AdminSettingsPage'));
 const SettingsPage = lazy(() => import('./routes/settings/SettingsPage'));
@@ -67,6 +68,7 @@ export default function App() {
             <Route path="/api-keys" element={lazyRoute(ApiKeysListPage)} />
             <Route path="/users" element={lazyRoute(UsersListPage)} />
             <Route path="/subscriptions" element={lazyRoute(SubscriptionsListPage)} />
+            <Route path="/subscriptions/:id" element={lazyRoute(SubscriptionDetailPage)} />
             <Route path="/data-sources" element={lazyRoute(DataSourcesListPage)} />
             <Route path="/admin-settings" element={lazyRoute(AdminSettingsPage)} />
             <Route path="/settings" element={lazyRoute(SettingsPage)} />
