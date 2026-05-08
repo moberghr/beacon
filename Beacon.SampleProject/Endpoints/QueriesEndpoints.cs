@@ -13,6 +13,14 @@ internal static class QueriesEndpoints
     {
         var queries = group.MapGroup("/queries").WithTags("Queries");
 
+        queries.MapGet("/", async (
+                [AsParameters] Beacon.Core.Services.GetQueriesRequest request,
+                IMediator mediator,
+                CancellationToken ct) =>
+                Results.Ok(await mediator.Send(new GetQueriesQuery { Request = request }, ct)))
+            .WithName("GetQueries")
+            .Produces<Beacon.Core.Helpers.PagedList<Beacon.Core.Models.Queries.QueryData>>(StatusCodes.Status200OK);
+
         queries.MapGet("/{id:int}", async (
                 int id,
                 IMediator mediator,

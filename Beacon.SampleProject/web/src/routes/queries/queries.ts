@@ -350,3 +350,47 @@ export function usePreviewQueryMutation(id: number | undefined) {
     },
   });
 }
+
+// ---------- Queries list ----------
+
+export interface QueryListItem {
+  queryId: number;
+  name: string;
+  description: string | null;
+  createdTime: string;
+  subscriptionsCount: number;
+  folderId: number | null;
+  folderPath: string | null;
+  aiActorId: number | null;
+  aiActorName: string | null;
+  steps: { stepId: number; stepOrder: number; name: string; dataSourceName: string }[];
+}
+
+export interface PagedQueriesResponse {
+  entries: QueryListItem[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface QueriesListParams {
+  searchTerm?: string;
+  dataSourceId?: number;
+  folderId?: number;
+  page?: number;
+  pageSize?: number;
+}
+
+export function useQueriesListQuery(params: QueriesListParams = {}) {
+  const qs = new URLSearchParams();
+  if (params.searchTerm) qs.set('SearchTerm', params.searchTerm);
+  if (params.dataSourceId != null) qs.set('DataSourceId', String(params.dataSourceId));
+  if (params.folderId != null) qs.set('FolderId', String(params.folderId));
+  qs.set('Page', String(params.page ?? 1));
+  qs.set('PageSize', String(params.pageSize ?? 50));
+  const url = `/beacon/api/queries/?${qs.toString()}`;
+  return useQuery({
+    queryKey: ['queries', 'list', params],
+    queryFn: () => fetchJson<PagedQueriesResponse>(url),
+  });
+}

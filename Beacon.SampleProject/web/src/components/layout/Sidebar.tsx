@@ -35,7 +35,7 @@ const SECTIONS: NavSection[] = [
       { name: 'Data Sources', icon: 'Database', slug: 'data-sources', blazorPath: 'datasources' },
       { name: 'Projects', icon: 'Folder', slug: 'projects', blazorPath: 'projects' },
       { name: 'Data Quality', icon: 'Shield', slug: 'data-quality', blazorPath: 'dataquality' },
-      { name: 'Data Migration', icon: 'ArrowsLR', slug: 'data-migration', blazorPath: 'migrationjobs' },
+      { name: 'Data Migration', icon: 'ArrowsLR', slug: 'migration-jobs', blazorPath: 'migrationjobs' },
       { name: 'AI Actors', icon: 'Bot', slug: 'ai-actors', blazorPath: 'ai-actors' },
     ],
   },
@@ -123,10 +123,10 @@ export function Sidebar() {
           </div>
         ))}
         <div className="sidebar__section" style={{ marginTop: 18 }}>
-          <a href="/beacon/about" className="nav-item">
+          <Link to="/about" className="nav-item">
             <Icon.Info className="nav-item__icon" />
             <span>About</span>
-          </a>
+          </Link>
         </div>
       </nav>
 
