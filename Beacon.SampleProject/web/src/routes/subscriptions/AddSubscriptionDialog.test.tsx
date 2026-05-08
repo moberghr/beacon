@@ -5,8 +5,8 @@ import { mswServer } from '../../../vitest.setup';
 import { renderWithProviders } from '@/test/render';
 import { AddSubscriptionDialog } from './AddSubscriptionDialog';
 
-describe('AddSubscriptionDialog', () => {
-  it('POSTs the new subscription with selected recipients and closes on success', async () => {
+describe('AddSubscriptionDialog (multi-step)', () => {
+  it('walks through steps and POSTs the new subscription', async () => {
     mswServer.use(
       http.get('*/beacon/api/recipients', () =>
         HttpResponse.json({
@@ -37,12 +37,17 @@ describe('AddSubscriptionDialog', () => {
     const onClose = vi.fn();
     renderWithProviders(<AddSubscriptionDialog open onClose={onClose} />);
 
-    // Wait for the recipients query to resolve and render the row.
-    await screen.findByText(/Ops/);
-
+    // Step 1 — Query: fill query id, advance.
     fireEvent.input(screen.getByLabelText(/^Query id/), { target: { value: '12' } });
-    fireEvent.click(screen.getByRole('checkbox', { name: /Ops/i }));
+    fireEvent.click(screen.getByTestId('stepper-next'));
 
+    // Step 2 — Recipients: pick Ops.
+    await screen.findByText(/Ops/);
+    fireEvent.click(screen.getByRole('checkbox', { name: /Ops/i }));
+    fireEvent.click(screen.getByTestId('stepper-next'));
+
+    // Step 3 — Review: submit.
+    await screen.findByRole('button', { name: /create subscription/i });
     fireEvent.click(screen.getByRole('button', { name: /create subscription/i }));
 
     await waitFor(() => {
@@ -56,7 +61,7 @@ describe('AddSubscriptionDialog', () => {
     });
   });
 
-  it('blocks submission with a validation error when no recipients are picked', async () => {
+  it('blocks advancing past Recipients step when none picked', async () => {
     mswServer.use(
       http.get('*/beacon/api/recipients', () =>
         HttpResponse.json({ entries: [] }),
@@ -67,7 +72,11 @@ describe('AddSubscriptionDialog', () => {
     renderWithProviders(<AddSubscriptionDialog open onClose={onClose} />);
 
     fireEvent.input(screen.getByLabelText(/^Query id/), { target: { value: '5' } });
-    fireEvent.click(screen.getByRole('button', { name: /create subscription/i }));
+    fireEvent.click(screen.getByTestId('stepper-next'));
+
+    // On Recipients step now — try to advance without selecting any.
+    await screen.findByText(/No recipients yet/i);
+    fireEvent.click(screen.getByTestId('stepper-next'));
 
     await waitFor(() => {
       expect(screen.getByText(/Pick at least one recipient/i)).toBeInTheDocument();

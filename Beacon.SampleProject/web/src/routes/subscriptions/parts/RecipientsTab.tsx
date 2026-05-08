@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Icon } from '@/components/Icon';
 import { EmptyState } from '@/components/data/EmptyState';
 import { Dialog } from '@/components/ui/Dialog';
+import { Stepper } from '@/components/ui/Stepper';
 import {
   NOTIFICATION_TYPE_LABEL,
   useRecipientsQuery,
@@ -126,9 +127,25 @@ function RecipientPicker({ existingIds, onClose, subscriptionId }: RecipientPick
   const recipientsQuery = useRecipientsQuery();
   const add = useAddSubscriptionRecipients(subscriptionId);
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [step, setStep] = useState<0 | 1>(0);
+  const [search, setSearch] = useState('');
 
   const entries = recipientsQuery.data?.entries ?? [];
-  const candidates = entries.filter(e => !existingIds.includes(e.id));
+  const candidates = useMemo(
+    () => entries.filter(e => !existingIds.includes(e.id)),
+    [entries, existingIds]
+  );
+  const visible = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return candidates;
+    return candidates.filter(c =>
+      c.name.toLowerCase().includes(q) || c.destination.toLowerCase().includes(q)
+    );
+  }, [candidates, search]);
+  const selectedRecipients = useMemo(
+    () => candidates.filter(c => selected.has(c.id)),
+    [candidates, selected]
+  );
 
   const toggle = (id: number) => {
     setSelected(prev => {
@@ -146,6 +163,11 @@ function RecipientPicker({ existingIds, onClose, subscriptionId }: RecipientPick
     });
   };
 
+  const goNext = () => {
+    if (step === 0 && selected.size > 0) setStep(1);
+    else if (step === 1) onSubmit();
+  };
+
   return (
     <Dialog
       open
@@ -157,30 +179,107 @@ function RecipientPicker({ existingIds, onClose, subscriptionId }: RecipientPick
           <button type="button" className="btn" onClick={onClose} disabled={add.isPending}>
             Cancel
           </button>
+          {step === 1 && (
+            <button type="button" className="btn" onClick={() => setStep(0)} disabled={add.isPending}>
+              Back
+            </button>
+          )}
           <button
             type="button"
             className="btn btn--primary"
-            onClick={onSubmit}
+            onClick={goNext}
             disabled={selected.size === 0 || add.isPending}
           >
-            {add.isPending ? 'Adding…' : `Add${selected.size > 0 ? ` (${selected.size})` : ''}`}
+            {step === 0
+              ? `Next${selected.size > 0 ? ` (${selected.size})` : ''}`
+              : add.isPending
+                ? 'Adding…'
+                : `Add ${selected.size}`}
           </button>
         </>
       }
     >
-      {recipientsQuery.isLoading ? (
-        <div className="muted">Loading recipients…</div>
-      ) : candidates.length === 0 ? (
-        <EmptyState
-          icon={<Icon.Users size={20} />}
-          title="No more recipients"
-          description="All existing recipients are already attached to this subscription."
-        />
-      ) : (
-        <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {candidates.map(r => (
-            <li key={r.id}>
-              <label
+      <Stepper
+        steps={[
+          { id: 'select', title: 'Select', description: 'Pick recipients to attach' },
+          { id: 'review', title: 'Review', description: 'Confirm assignment' },
+        ]}
+        current={step}
+        onStepClick={i => i === 0 && setStep(0)}
+      />
+
+      {step === 0 && (
+        <div style={{ marginTop: 12 }}>
+          {recipientsQuery.isLoading ? (
+            <div className="muted">Loading recipients…</div>
+          ) : candidates.length === 0 ? (
+            <EmptyState
+              icon={<Icon.Users size={20} />}
+              title="No more recipients"
+              description="All existing recipients are already attached to this subscription."
+            />
+          ) : (
+            <>
+              <input
+                type="search"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Search by name or destination…"
+                className="q-input"
+                style={{ width: '100%', marginBottom: 8 }}
+              />
+              <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 320, overflowY: 'auto' }}>
+                {visible.map(r => (
+                  <li key={r.id}>
+                    <label
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        padding: '6px 8px',
+                        border: '1px solid var(--border)',
+                        borderRadius: 8,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selected.has(r.id)}
+                        onChange={() => toggle(r.id)}
+                      />
+                      <span style={{ fontWeight: 500 }}>{r.name}</span>
+                      <span className="muted mono" style={{ fontSize: 12 }}>
+                        {r.destination}
+                      </span>
+                      <span
+                        className="pill pill--neutral mono"
+                        style={{ fontSize: 10, marginLeft: 'auto' }}
+                      >
+                        {NOTIFICATION_TYPE_LABEL[r.notificationType] ?? r.notificationType}
+                      </span>
+                    </label>
+                  </li>
+                ))}
+                {visible.length === 0 && (
+                  <li className="muted" style={{ padding: 12, textAlign: 'center' }}>
+                    No matches for "{search}".
+                  </li>
+                )}
+              </ul>
+            </>
+          )}
+        </div>
+      )}
+
+      {step === 1 && (
+        <div style={{ marginTop: 12 }}>
+          <div className="muted" style={{ marginBottom: 8 }}>
+            About to attach <strong>{selectedRecipients.length}</strong> recipient{selectedRecipients.length === 1 ? '' : 's'} to this subscription.
+          </div>
+          <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {selectedRecipients.map(r => (
+              <li
+                key={r.id}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -188,28 +287,20 @@ function RecipientPicker({ existingIds, onClose, subscriptionId }: RecipientPick
                   padding: '6px 8px',
                   border: '1px solid var(--border)',
                   borderRadius: 8,
-                  cursor: 'pointer',
                 }}
               >
-                <input
-                  type="checkbox"
-                  checked={selected.has(r.id)}
-                  onChange={() => toggle(r.id)}
-                />
+                <Icon.Check size={12} className="muted" />
                 <span style={{ fontWeight: 500 }}>{r.name}</span>
                 <span className="muted mono" style={{ fontSize: 12 }}>
                   {r.destination}
                 </span>
-                <span
-                  className="pill pill--neutral mono"
-                  style={{ fontSize: 10, marginLeft: 'auto' }}
-                >
+                <span className="pill pill--neutral mono" style={{ fontSize: 10, marginLeft: 'auto' }}>
                   {NOTIFICATION_TYPE_LABEL[r.notificationType] ?? r.notificationType}
                 </span>
-              </label>
-            </li>
-          ))}
-        </ul>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </Dialog>
   );
