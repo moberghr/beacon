@@ -25,6 +25,10 @@ internal static class QueriesEndpoints
                 IMediator mediator,
                 CancellationToken ct) =>
             {
+                // BaseListRequest.Page is 0-indexed (Skip = Page * PageSize).
+                // The HTTP query string uses 1-indexed pages for human readability;
+                // convert here.
+                var oneBasedPage = Math.Max(1, page ?? 1);
                 var request = new Beacon.Core.Services.GetQueriesRequest
                 {
                     QueryId = queryId,
@@ -32,7 +36,7 @@ internal static class QueriesEndpoints
                     QueryName = queryName,
                     FolderId = folderId,
                     SearchTerm = searchTerm,
-                    Page = page ?? 1,
+                    Page = oneBasedPage - 1,
                     PageSize = pageSize ?? 50,
                 };
                 return Results.Ok(await mediator.Send(new GetQueriesQuery { Request = request }, ct));
@@ -47,6 +51,18 @@ internal static class QueriesEndpoints
                 Results.Ok(await mediator.Send(new GetQueryDetailQuery { QueryId = id }, ct)))
             .WithName("GetQueryDetail")
             .Produces<QueryDetailsData>(StatusCodes.Status200OK);
+
+        queries.MapPost("/", async (
+                CreateQueryBody body,
+                IMediator mediator,
+                CancellationToken ct) =>
+                Results.Ok(await mediator.Send(new CreateQueryCommand
+                {
+                    Name = body.Name,
+                    Description = body.Description,
+                }, ct)))
+            .WithName("CreateQuery")
+            .Produces<CreateQueryResult>(StatusCodes.Status200OK);
 
         queries.MapPost("/{id:int}/lock", async (
                 int id,
@@ -136,3 +152,5 @@ internal static class QueriesEndpoints
 internal sealed record ToggleQueryLockRequest(bool Lock);
 
 internal sealed record ExecuteStepPreviewRequest(List<ParameterValue>? Parameters);
+
+internal sealed record CreateQueryBody(string Name, string? Description);

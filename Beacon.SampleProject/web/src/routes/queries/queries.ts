@@ -393,3 +393,23 @@ export function useQueriesListQuery(params: QueriesListParams = {}) {
     queryFn: () => fetchJson<PagedQueriesResponse>(url),
   });
 }
+
+export interface CreateQueryArgs {
+  name: string;
+  description?: string | null;
+}
+
+export function useCreateQuery() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: CreateQueryArgs) =>
+      fetchJson<{ queryId: number }>('/beacon/api/queries/', {
+        method: 'POST',
+        body: JSON.stringify({ name: args.name, description: args.description ?? null }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['queries'] }),
+    onError: (err: unknown) => {
+      toast.error(describeError(err, 'Failed to create query'));
+    },
+  });
+}
