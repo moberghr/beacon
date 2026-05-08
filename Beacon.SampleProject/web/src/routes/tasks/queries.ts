@@ -39,6 +39,52 @@ export interface TaskDetail {
   resolutionNotes: string | null;
   aiActorId: number | null;
   aiActorName: string | null;
+  lastExecutionAt: string | null;
+  cronExpression: string | null;
+}
+
+export interface TaskExecutionItem {
+  id: number;
+  executedAt: string;
+  durationMs: number;
+  rowCount: number;
+  status: string;
+}
+export interface TaskExecutionsResult {
+  taskId: number;
+  executions: TaskExecutionItem[];
+}
+
+export interface TaskRelatedItem {
+  id: number;
+  createdAt: string;
+  latestResultCount: number;
+  resolved: boolean;
+  resolvedAt: string | null;
+}
+export interface TaskRelatedResult {
+  taskId: number;
+  related: TaskRelatedItem[];
+}
+
+export interface TaskResultHistoryItem {
+  sampledAt: string;
+  resultCount: number;
+}
+export interface TaskResultHistoryResult {
+  taskId: number;
+  points: TaskResultHistoryItem[];
+}
+
+export interface TaskCommentItem {
+  id: number;
+  content: string;
+  userName: string | null;
+  createdAt: string;
+}
+export interface TaskCommentsResult {
+  taskId: number;
+  comments: TaskCommentItem[];
 }
 
 export type TaskStatusFilter = 'all' | 'unresolved' | 'resolved';
@@ -72,6 +118,52 @@ export function useTaskDetailQuery(id: number | undefined) {
     queryKey: ['tasks', 'detail', id],
     queryFn: () => fetchJson<TaskDetail>(`/beacon/api/tasks/${id}`),
     enabled: typeof id === 'number' && Number.isFinite(id),
+  });
+}
+
+export function useTaskExecutionsQuery(id: number | undefined) {
+  return useQuery({
+    queryKey: ['tasks', 'executions', id],
+    queryFn: () => fetchJson<TaskExecutionsResult>(`/beacon/api/tasks/${id}/executions`),
+    enabled: typeof id === 'number' && Number.isFinite(id),
+  });
+}
+
+export function useTaskRelatedQuery(id: number | undefined) {
+  return useQuery({
+    queryKey: ['tasks', 'related', id],
+    queryFn: () => fetchJson<TaskRelatedResult>(`/beacon/api/tasks/${id}/related`),
+    enabled: typeof id === 'number' && Number.isFinite(id),
+  });
+}
+
+export function useTaskResultHistoryQuery(id: number | undefined) {
+  return useQuery({
+    queryKey: ['tasks', 'result-history', id],
+    queryFn: () => fetchJson<TaskResultHistoryResult>(`/beacon/api/tasks/${id}/result-history`),
+    enabled: typeof id === 'number' && Number.isFinite(id),
+  });
+}
+
+export function useTaskCommentsQuery(id: number | undefined) {
+  return useQuery({
+    queryKey: ['tasks', 'comments', id],
+    queryFn: () => fetchJson<TaskCommentsResult>(`/beacon/api/tasks/${id}/comments`),
+    enabled: typeof id === 'number' && Number.isFinite(id),
+  });
+}
+
+export function useAddTaskComment(id: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (content: string) =>
+      fetchJson<{ id: number }>(`/beacon/api/tasks/${id}/comments`, {
+        method: 'POST',
+        body: JSON.stringify({ content }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['tasks', 'comments', id] });
+    },
   });
 }
 

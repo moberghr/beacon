@@ -1,19 +1,41 @@
 import { useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { Icon } from '@/components/Icon';
-import { PageHeader } from '@/components/layout/PageHeader';
 import { EmptyState } from '@/components/data/EmptyState';
-import { formatDateTime, formatNumber, formatRelativeTime } from '@/lib/format';
-import { useTaskDetailQuery } from './queries';
+import { formatRelativeTime } from '@/lib/format';
+import {
+  useTaskDetailQuery,
+  useTaskExecutionsQuery,
+  useTaskRelatedQuery,
+  useTaskResultHistoryQuery,
+  useTaskCommentsQuery,
+} from './queries';
 import { ResolveTaskDialog } from './ResolveTaskDialog';
+import { TaskHero } from './parts/TaskHero';
+import { SlaBanner } from './parts/SlaBanner';
+import { TaskKpiGrid } from './parts/TaskKpiGrid';
+import { TaskInfoCard } from './parts/TaskInfoCard';
+import { TaskResultChart } from './parts/TaskResultChart';
+import { TaskTabsCard, type TabKey } from './parts/TaskTabsCard';
+import { InvestigationLogCard } from './parts/InvestigationLogCard';
+import { RightRail } from './parts/RightRail';
+import { TaskSaveBar } from './parts/TaskSaveBar';
+
+const SLA_HOURS_DEFAULT = 24;
 
 export default function TaskDetailPage() {
   const params = useParams<{ id: string }>();
   const id = Number(params.id);
   const navigate = useNavigate();
   const [resolveOpen, setResolveOpen] = useState(false);
+  const [tab, setTab] = useState<TabKey>('activity');
 
-  const { data, isLoading, isError, error } = useTaskDetailQuery(Number.isFinite(id) ? id : undefined);
+  const validId = Number.isFinite(id) ? id : undefined;
+  const detail = useTaskDetailQuery(validId);
+  const executions = useTaskExecutionsQuery(validId);
+  const related = useTaskRelatedQuery(validId);
+  const history = useTaskResultHistoryQuery(validId);
+  const comments = useTaskCommentsQuery(validId);
 
   if (!Number.isFinite(id)) {
     return (
@@ -23,125 +45,117 @@ export default function TaskDetailPage() {
     );
   }
 
-  if (isError) {
+  if (detail.isError) {
     return (
       <div className="page">
         <EmptyState
           icon={<Icon.Alert size={20} />}
           title="Failed to load task"
-          description={error instanceof Error ? error.message : 'Unknown error'}
+          description={detail.error instanceof Error ? detail.error.message : 'Unknown error'}
         />
       </div>
     );
   }
 
+  if (detail.isLoading || !detail.data) {
+    return (
+      <div className="page">
+        <div className="muted">Loading task…</div>
+      </div>
+    );
+  }
+
+  const task = detail.data;
+  const ageMs = Date.now() - new Date(task.createdAt).getTime();
+  const ageHours = Math.max(0, ageMs / 3_600_000);
+  const ageLabel = formatAge(ageMs);
+  const ageDetail = `since ${formatRelativeTime(task.createdAt)}`;
+  const slaRemainingMs = SLA_HOURS_DEFAULT * 3_600_000 - ageMs;
+  const slaRemainingLabel = !task.resolved && slaRemainingMs > 0 ? formatAge(slaRemainingMs) : null;
+
+  const onResolve = () => setResolveOpen(true);
+
+  const relatedResolvedCount = related.data?.related.filter(x => x.resolved).length ?? 0;
+
   return (
-    <div className="page">
-      <PageHeader
-        title={data ? `Task #${data.id}` : isLoading ? 'Loading…' : 'Task'}
-        sub={
-          data
-            ? <span className="muted">Created {formatRelativeTime(data.createdAt)} · {data.resolved ? 'Resolved' : 'Open'}</span>
-            : null
-        }
-        actions={
-          data && !data.resolved ? (
-            <button type="button" className="btn btn--primary" onClick={() => setResolveOpen(true)}>
-              <Icon.Check size={14} className="btn__icon" />
-              Resolve
-            </button>
-          ) : (
-            <Link to="/tasks" className="btn">
-              <span style={{ display: 'inline-block', transform: 'rotate(180deg)', marginRight: 6 }}>
-                <Icon.Chevron size={14} />
-              </span>
-              Back to tasks
-            </Link>
-          )
-        }
+    <div className="page" data-screen-label="04 Task Detail">
+      <TaskHero
+        taskId={task.id}
+        resolved={task.resolved}
+        subscriptionName={task.subscriptionName}
+        ageLabel={ageLabel}
+        slaRemainingLabel={slaRemainingLabel}
+        onResolve={onResolve}
       />
 
-      {isLoading && <div className="muted">Loading…</div>}
+      <SlaBanner
+        resolved={task.resolved}
+        ageHours={ageHours}
+        slaHours={SLA_HOURS_DEFAULT}
+        resolvedByName={task.resolvedByUserName}
+        resolvedRelative={task.resolvedAt ? formatRelativeTime(task.resolvedAt) : null}
+        notificationCount={task.notificationCount}
+      />
 
-      {data && (
-        <div style={{ display: 'grid', gap: 16 }}>
-          <div className="card">
-            <div className="card__head">
-              <div className="card__title">Overview</div>
-            </div>
-            <div className="card__body">
-              <div className="kv">
-                <div className="kv__row">
-                  <div className="kv__label">Subscription</div>
-                  <div className="kv__value">{data.subscriptionName}</div>
-                </div>
-                <div className="kv__row">
-                  <div className="kv__label">Query</div>
-                  <div className="kv__value">
-                    <Link to={`/queries/${data.queryId}/versions`}>{data.queryName}</Link>
-                  </div>
-                </div>
-                <div className="kv__row">
-                  <div className="kv__label">Latest result count</div>
-                  <div className="kv__value">{formatNumber(data.latestResultCount)}</div>
-                </div>
-                <div className="kv__row">
-                  <div className="kv__label">Notifications</div>
-                  <div className="kv__value">{formatNumber(data.notificationCount)}</div>
-                </div>
-                <div className="kv__row">
-                  <div className="kv__label">Last notification</div>
-                  <div className="kv__value">
-                    {data.lastNotificationAt ? formatDateTime(data.lastNotificationAt) : <span className="muted">Never</span>}
-                  </div>
-                </div>
-                <div className="kv__row">
-                  <div className="kv__label">Source</div>
-                  <div className="kv__value">
-                    {data.aiActorName ?? <span className="muted">User</span>}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+      <TaskKpiGrid
+        latestResultCount={task.latestResultCount}
+        executionCount={executions.data?.executions.length ?? 0}
+        notificationCount={task.notificationCount}
+        ageLabel={ageLabel}
+        ageDetail={ageDetail}
+      />
 
-          {data.resolved && (
-            <div className="card">
-              <div className="card__head">
-                <div className="card__title">Resolution</div>
-              </div>
-              <div className="card__body">
-                <div className="kv">
-                  <div className="kv__row">
-                    <div className="kv__label">Resolved at</div>
-                    <div className="kv__value">{data.resolvedAt ? formatDateTime(data.resolvedAt) : '—'}</div>
-                  </div>
-                  <div className="kv__row">
-                    <div className="kv__label">Resolved by</div>
-                    <div className="kv__value">{data.resolvedByUserName ?? <span className="muted">System</span>}</div>
-                  </div>
-                </div>
-                {data.resolutionNotes && (
-                  <div style={{ marginTop: 12 }}>
-                    <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>Notes</div>
-                    <div style={{ whiteSpace: 'pre-wrap', fontSize: 13 }}>{data.resolutionNotes}</div>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
+      <div className="q-layout">
+        <div className="q-section">
+          <TaskInfoCard task={task} />
+          <TaskResultChart points={history.data?.points ?? []} />
+          <TaskTabsCard
+            tab={tab}
+            onTabChange={setTab}
+            task={task}
+            executions={executions.data?.executions ?? []}
+            comments={comments.data?.comments ?? []}
+            related={related.data?.related ?? []}
+            onRefresh={() => {
+              detail.refetch();
+              executions.refetch();
+              related.refetch();
+              history.refetch();
+            }}
+          />
+          <InvestigationLogCard taskId={task.id} />
         </div>
-      )}
+
+        <RightRail task={task} relatedResolvedCount={relatedResolvedCount} />
+      </div>
+
+      <TaskSaveBar
+        resolved={task.resolved}
+        ageLabel={ageLabel}
+        slaRemainingLabel={slaRemainingLabel}
+        onResolve={onResolve}
+      />
 
       <ResolveTaskDialog
         open={resolveOpen}
-        taskId={data?.id ?? null}
+        taskId={task.id}
         onClose={() => {
           setResolveOpen(false);
-          // Stay on the page; query invalidation triggers refetch.
-          if (data) navigate(`/tasks/${data.id}`, { replace: true });
+          navigate(`/tasks/${task.id}`, { replace: true });
         }}
       />
     </div>
   );
+}
+
+function formatAge(ms: number): string {
+  if (ms <= 0) return '0m';
+  const totalMin = Math.floor(ms / 60000);
+  if (totalMin < 60) return `${totalMin}m`;
+  const hr = Math.floor(totalMin / 60);
+  const min = totalMin % 60;
+  if (hr < 24) return min === 0 ? `${hr}h` : `${hr}h ${min}m`;
+  const days = Math.floor(hr / 24);
+  const remHr = hr % 24;
+  return remHr === 0 ? `${days}d` : `${days}d ${remHr}h`;
 }

@@ -270,7 +270,13 @@ public class TaskService(IDbContextFactory<BeaconContext> contextFactory, ILogge
                 QueryId = t.Subscription.QueryId,
                 QueryName = t.Subscription.Query.Name,
                 AiActorId = t.Subscription.AiActorId,
-                AiActorName = t.Subscription.AiActor != null ? t.Subscription.AiActor.Name : null
+                AiActorName = t.Subscription.AiActor != null ? t.Subscription.AiActor.Name : null,
+                CronExpression = t.Subscription.CronExpression,
+                LastExecutionAt = context.QueryExecutionHistory
+                    .Where(qeh => qeh.SubscriptionId == t.SubscriptionId)
+                    .OrderByDescending(qeh => qeh.CreatedTime)
+                    .Select(qeh => (DateTime?)qeh.CreatedTime)
+                    .FirstOrDefault()
             })
             .FirstOrDefaultAsync(cancellationToken);
 
