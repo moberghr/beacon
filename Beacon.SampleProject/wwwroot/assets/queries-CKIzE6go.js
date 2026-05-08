@@ -1,2 +1,0 @@
-import{b as t}from"./index-DJkGJ8aZ.js";import{b as s}from"./client-BNM2vCHl.js";const A={0:"Draft",1:"Active",2:"Paused",3:"Disabled",4:"Archived"};function u(e,r){return t({queryKey:["ai-actors",e??null,r],queryFn:()=>s().getAiActorList(e,r),enabled:e!==void 0&&e>0})}function a(e){return t({queryKey:["ai-actor",e??0],queryFn:()=>s().getAiActorDetails(e,10),enabled:e!==void 0&&e>0})}export{A,a,u};
-//# sourceMappingURL=queries-CKIzE6go.js.map

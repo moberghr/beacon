@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.Queries;
 using Beacon.Core.Models.Queries;
@@ -33,13 +34,14 @@ internal static class QueriesEndpoints
                 int id,
                 ToggleQueryLockRequest body,
                 IMediator mediator,
+                HttpContext httpContext,
                 CancellationToken ct) =>
             {
                 var result = await mediator.Send(new ToggleQueryLockCommand
                 {
                     QueryId = id,
                     Lock = body.Lock,
-                    UserId = body.UserId,
+                    UserId = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value,
                 }, ct);
                 return Results.Ok(result);
             })
@@ -113,6 +115,6 @@ internal static class QueriesEndpoints
     }
 }
 
-internal sealed record ToggleQueryLockRequest(bool Lock, string? UserId);
+internal sealed record ToggleQueryLockRequest(bool Lock);
 
 internal sealed record ExecuteStepPreviewRequest(List<ParameterValue>? Parameters);

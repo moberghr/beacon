@@ -92,7 +92,7 @@ export function TaskInfoCard({ task }: { task: TaskDetail }) {
           <KV
             label="Query"
             value={
-              <Link to={`/queries/${task.queryId}/versions`} className="mono" style={{ color: 'var(--brand-600)' }}>
+              <Link to={`/queries/${task.queryId}`} className="mono" style={{ color: 'var(--brand-600)' }}>
                 {task.queryName}
               </Link>
             }

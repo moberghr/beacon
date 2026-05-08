@@ -39,11 +39,12 @@ internal static class ApprovalsEndpoints
                 HttpContext httpContext,
                 CancellationToken ct) =>
             {
+                var (userId, userName) = ResolveActor(httpContext);
                 await mediator.Send(new ApproveQueryChangeCommand
                 {
                     RequestId = id,
-                    ReviewerUserId = body.ReviewerUserId,
-                    ReviewerName = body.ReviewerName,
+                    ReviewerUserId = userId,
+                    ReviewerName = userName,
                     Comment = body.Comment,
                 }, ct);
 
@@ -61,11 +62,12 @@ internal static class ApprovalsEndpoints
                 HttpContext httpContext,
                 CancellationToken ct) =>
             {
+                var (userId, userName) = ResolveActor(httpContext);
                 await mediator.Send(new RejectQueryChangeCommand
                 {
                     RequestId = id,
-                    ReviewerUserId = body.ReviewerUserId,
-                    ReviewerName = body.ReviewerName,
+                    ReviewerUserId = userId,
+                    ReviewerName = userName,
                     Comment = body.Comment,
                 }, ct);
 
@@ -78,6 +80,15 @@ internal static class ApprovalsEndpoints
         return group;
     }
 
+    private static (string? UserId, string? UserName) ResolveActor(HttpContext context)
+    {
+        var userId = context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        var userName = context.User.FindFirst(ClaimTypes.Name)?.Value
+            ?? context.User.FindFirst("preferred_username")?.Value
+            ?? context.User.Identity?.Name;
+        return (userId, userName);
+    }
+
     private static async Task PublishApprovalUpdated(
         IHubContext<BeaconHub> hub,
         HttpContext context,
@@ -85,15 +96,14 @@ internal static class ApprovalsEndpoints
         string status,
         CancellationToken ct)
     {
-        var userId = context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        if (string.IsNullOrEmpty(userId))
-        {
-            return;
-        }
-
+        // Broadcast to all connections — the audience is "other reviewers
+        // who are staring at the pending list", per the React listener
+        // contract. The actor's own mutation onSuccess already invalidates
+        // their cache; the redundant tick is harmless.
         var payload = new ApprovalUpdatedEvent(approvalId, status);
-        await hub.Clients.User(userId).SendAsync(BeaconHubEventNames.ApprovalUpdated, payload, ct);
+        _ = context;
+        await hub.Clients.All.SendAsync(BeaconHubEventNames.ApprovalUpdated, payload, ct);
     }
 }
 
-internal sealed record ApproveRejectRequest(string? ReviewerUserId, string? ReviewerName, string? Comment);
+internal sealed record ApproveRejectRequest(string? Comment);

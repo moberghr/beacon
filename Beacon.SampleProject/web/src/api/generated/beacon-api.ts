@@ -3607,8 +3607,6 @@ export interface ApproveAiActorPlanResult {
 }
 
 export interface ApproveRejectRequest {
-    reviewerUserId: string | null;
-    reviewerName: string | null;
     comment: string | null;
 
     [key: string]: any;

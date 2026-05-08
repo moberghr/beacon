@@ -53,11 +53,15 @@ internal static class McpEndpoints
                 IMediator mediator,
                 CancellationToken ct) =>
             {
+                // Reviewer id is not yet derivable from claims (BeaconUser.Id is int,
+                // ClaimTypes.NameIdentifier is a string ExternalId). Ignore body value
+                // to prevent impersonation; surface as unknown until claim→userId
+                // resolution lands.
                 await mediator.Send(new UpdatePatternStatusCommand
                 {
                     PatternId = id,
                     NewStatus = body.NewStatus,
-                    ReviewedByUserId = body.ReviewedByUserId,
+                    ReviewedByUserId = null,
                 }, ct);
                 return Results.NoContent();
             })
@@ -79,14 +83,14 @@ internal static class McpEndpoints
 
         mcp.MapPost("/documentation-patches/{id:int}/apply", async (
                 int id,
-                ApplyRejectPatchBody body,
                 IMediator mediator,
                 CancellationToken ct) =>
             {
+                // Actor id ignored — see UpdatePatternStatus for rationale.
                 await mediator.Send(new ApplyDocumentationPatchCommand
                 {
                     PatchId = id,
-                    AppliedByUserId = body.UserId,
+                    AppliedByUserId = null,
                 }, ct);
                 return Results.NoContent();
             })
@@ -95,14 +99,13 @@ internal static class McpEndpoints
 
         mcp.MapPost("/documentation-patches/{id:int}/reject", async (
                 int id,
-                ApplyRejectPatchBody body,
                 IMediator mediator,
                 CancellationToken ct) =>
             {
                 await mediator.Send(new RejectDocumentationPatchCommand
                 {
                     PatchId = id,
-                    RejectedByUserId = body.UserId,
+                    RejectedByUserId = null,
                 }, ct);
                 return Results.NoContent();
             })
@@ -132,5 +135,4 @@ internal static class McpEndpoints
 }
 
 internal sealed record UpdateMcpSettingsBody(McpSettingsData Data);
-internal sealed record UpdatePatternStatusBody(McpPatternStatus NewStatus, int? ReviewedByUserId);
-internal sealed record ApplyRejectPatchBody(int? UserId);
+internal sealed record UpdatePatternStatusBody(McpPatternStatus NewStatus);

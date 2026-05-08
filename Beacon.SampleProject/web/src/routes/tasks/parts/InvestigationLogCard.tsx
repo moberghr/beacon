@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { Icon } from '@/components/Icon';
+import { useAuth } from '@/auth/useAuth';
 import { ApiError } from '@/lib/api';
 import { formatRelativeTime } from '@/lib/format';
 import { useAddTaskComment, useTaskCommentsQuery } from '../queries';
@@ -11,6 +12,7 @@ export function InvestigationLogCard({ taskId, textareaId }: { taskId: number; t
   const [content, setContent] = useState('');
   const { data, isLoading } = useTaskCommentsQuery(taskId);
   const add = useAddTaskComment(taskId);
+  const { data: currentUser } = useAuth();
 
   const comments = data?.comments ?? [];
   const trimmed = content.trim();
@@ -39,7 +41,7 @@ export function InvestigationLogCard({ taskId, textareaId }: { taskId: number; t
       </div>
       <div className="card__body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <div className="composer">
-          <div className="avatar">{initials(comments[0]?.userName)}</div>
+          <div className="avatar">{initials(currentUser?.displayName ?? undefined)}</div>
           <div className="composer__main">
             <textarea
               id={textareaId}
