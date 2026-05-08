@@ -1,5 +1,6 @@
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.Queries;
+using Beacon.Core.Services;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
 
@@ -10,6 +11,14 @@ internal static class QueriesEndpoints
     public static RouteGroupBuilder MapQueriesEndpoints(this RouteGroupBuilder group)
     {
         var queries = group.MapGroup("/queries").WithTags("Queries");
+
+        queries.MapGet("/{id:int}", async (
+                int id,
+                IMediator mediator,
+                CancellationToken ct) =>
+                Results.Ok(await mediator.Send(new GetQueryDetailQuery { QueryId = id }, ct)))
+            .WithName("GetQueryDetail")
+            .Produces<QueryDetailsData>(StatusCodes.Status200OK);
 
         queries.MapPost("/{id:int}/lock", async (
                 int id,
