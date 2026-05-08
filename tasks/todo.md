@@ -1,99 +1,108 @@
-# Todo — React Migration Phase 3 Batch 3 (Simple CRUD)
+# Todo — React Migration Phase 3 Batch 4 (Medium pages)
 
-**Spec:** `ClaudePlans/ReactMigration-Phase3.md` (Batch 3 section)
-**Predecessor diffs:** `ClaudePlans/ReactMigration-Phase3-Batch1-Diff.md`, `Phase3-Batch2-Diff.md`
+**Spec:** `ClaudePlans/ReactMigration-Phase3.md` (Batch 4 section, line 155)
+**Predecessor diffs:** Batches 1, 2, 3 (`ReactMigration-Phase3-Batch{1,2,3}-Diff.md`)
 **Branch:** `feat/react-phase3` (continue — push to existing draft PR #13)
 **Worktree:** `/Users/mirkobudimir/Dev/MiBu/semantico-react`
 
 ---
 
-## Critical constraints (carry over from Batches 1 & 2)
-- **NO Tailwind, NO shadcn primitives.** Beacon-design CSS in `web/src/styles-beacon.css`. Add patterns there if missing.
-- **NO fake/seed/demo data.** Pages and forms start empty; populate from real endpoints.
+## Critical constraints (carry over)
+- **NO Tailwind, NO shadcn primitives.** Beacon-design CSS in `web/src/styles-beacon.css`.
+- **NO fake/seed/demo data.** Real data sources only.
 - All routes lazy-loaded; one file per page in `routes/<area>/`.
-- Tables via `<DataTable>`, icons via `Icon.Xxx` (extend `Icon.tsx`), formatters via `lib/format.ts`.
-- API via `beaconApi()` singleton + TanStack Query hooks per area.
-- Add migrated slug to `web/src/feature-flags.ts` `MIGRATED_PAGES` only after the page renders end-to-end.
-- **In-app `<Link>` and `navigate()` paths must NOT include `/app/` prefix** — `BrowserRouter basename="/app"` adds it.
-- After every React-only build, sync `web/dist/` → `wwwroot/app/` (or run `dotnet build` to trigger the copy target).
-- Backend: MediatR handler+request+result in one file as `internal sealed class` + primary ctor; `IDbContextFactory<BeaconContext>`; `.Select(new ...)` without `.Include()`; `InvalidOperationException`/`BeaconException` (no Result pattern); Beacon C# style guide.
+- Tables → `<DataTable>`; icons → `Icon.Xxx`; formatters → `lib/format.ts`.
+- API → `beaconApi()` + TanStack Query hooks per area.
+- Add slug to `MIGRATED_PAGES` only after end-to-end working.
+- **In-app `<Link>` and `navigate()` paths must NOT include `/app/`** — basename adds it.
+- After every React-only build, sync `web/dist/` → `wwwroot/app/` (or run `dotnet build`).
+- Forms: RHF + Zod (use Zod 4 form: `z.email()` not `z.string().email()`).
+- Mutations: `useMutation` invalidating queries on success, toast.success/error from RFC 7807.
+- Backend: MediatR `internal sealed class` + primary ctor, `IDbContextFactory<BeaconContext>`, `.Select(new ...)` no `.Include()`, `InvalidOperationException`/`BeaconException`, lambda `x`, LINQ on separate lines, `CancellationToken` everywhere, never edit committed migrations.
 
-## New patterns introduced in Batch 3
-- **First mutations.** TanStack Query `useMutation` invalidating queries on success.
-- **React Hook Form + Zod** for every form. `@hookform/resolvers/zod`. Encode handler validation in Zod.
-- **First SignalR consumer.** `lib/hub.ts` already exists; subscribe to the approval-updated hub event and call `queryClient.invalidateQueries({queryKey: ['approvals']})`.
-- **Dialog component.** Add `components/ui/Dialog.tsx` to Beacon-design (or whatever pattern matches Blazor's MudDialog). One reusable shell — header, body, footer with primary/cancel.
-- **Toast on mutation.** Sonner already wired; surface success/error via `toast.success` / `toast.error` from RFC 7807 response.
+## New patterns introduced in Batch 4
+- **First Mermaid integration** (project documentation tab). Add `mermaid` package; render in `components/ui/MermaidDiagram.tsx` (lazy chunk so it doesn't bloat initial bundle).
+- **Settings forms.** Multi-section forms with collapsible groups. Beacon-design pattern.
 
 ---
 
 ## Pages to ship
 
-### 3.1 — Recipients (`/app/recipients`)
-Blazor: `Recipients.razor`, dialogs `AddRecipientDialog.razor`, `AddRecipientsDialog.razor`, `UpdateRecipientDialog.razor`.
+### 4.1 — Project detail tabs content (`/app/projects/:id`)
+The shell + tabs already exist (Batch 2). Fill in real content for each tab.
 
-- [x] Audit Blazor page + dialogs to list endpoints used and field shapes.
-- [x] D3 if needed: add MediatR handlers (`GetRecipients`, `CreateRecipient`, `UpdateRecipient`, `DeleteRecipient`) + endpoints under `/beacon/api/recipients`.
-- [x] `routes/recipients/RecipientsListPage.tsx` — DataTable, click row → edit dialog. Top-right "Add recipient" button.
-- [x] `routes/recipients/RecipientDialog.tsx` — RHF + Zod, used for both Add and Update.
-- [x] `routes/recipients/queries.ts` — `useRecipientsQuery`, `useCreateRecipient`, `useUpdateRecipient`, `useDeleteRecipient`.
-- [x] `MIGRATED_PAGES += 'recipients'`. Lazy-route. Smoke test.
+**Blazor:** `ProjectDetails.razor` (multi-tab page, complex).
 
-### 3.2 — Tasks (`/app/tasks` + `/app/tasks/:id`)
-Blazor: `Tasks.razor`, `TaskDetails.razor`, `ResolveTaskDialog.razor`.
+- [x] **Overview tab** — already populated in 2.1; verify it shows description, datasource summary, repo summary, scan timestamps. If gaps vs Blazor, add.
+- [x] **Repositories tab** — list rows: name, URL, branch, last scan, status. Click → external link (or stay-on-page if Blazor doesn't navigate). D3: `GetProjectRepositoriesQuery` if not already wrapped (check existing handler). Add `SetRepositoryTokenDialog` port (RHF + Zod, secret-handling like API keys — never echo token).
+- [x] **Documentation tab** — first Mermaid integration. Read `Beacon.UI/Components/Pages/ProjectDetails.razor` for documentation rendering. Sections + Mermaid diagrams. Add `EditDocumentationSectionDialog` port.
+- [x] **AI Actors tab** — list AI actors for project. Fetch via existing `AiActorsEndpoints`. Read-only here; create/refine flows are Batch 6 territory (or later).
+- [x] Smoke each tab.
 
-- [x] D3 if needed: handlers for `GetTasks`, `GetTaskDetail`, `ResolveTask`.
-- [x] `routes/tasks/TasksListPage.tsx` — DataTable with status filter, click → detail.
-- [x] `routes/tasks/TaskDetailPage.tsx` — fields + "Resolve" action opens dialog.
-- [x] `routes/tasks/ResolveTaskDialog.tsx` — RHF + Zod.
-- [x] `MIGRATED_PAGES += 'tasks'`. Lazy-routes. Smoke.
+### 4.2 — Subscriptions (`/app/subscriptions`)
+**Blazor:** `Subscriptions.razor`, `AddSubscription.razor`, `AddSubscriptionDialog.razor` (note: details page is Batch 5b — skip detail here, just list + add).
 
-### 3.3 — Pending approvals (`/app/approvals`) — FIRST SIGNALR
-Blazor: `PendingApprovals.razor`, `ReviewApprovalDialog.razor`.
+- [x] D3: handlers `GetSubscriptionsQuery`, `CreateSubscriptionCommand`, `DeleteSubscriptionCommand` (+ any list filters). Endpoints at `/beacon/api/subscriptions`. Register in `BeaconApiEndpoints.cs`. `.WithName(...)` for OpenAPI contract.
+- [x] `routes/subscriptions/SubscriptionsListPage.tsx` — DataTable.
+- [x] `routes/subscriptions/AddSubscriptionDialog.tsx` — RHF + Zod (multi-step is Batch 5c; here keep single form, defer multi-step to 5c).
+- [x] `routes/subscriptions/queries.ts`.
+- [x] `MIGRATED_PAGES += 'subscriptions'`. Lazy-route. Smoke.
 
-- [x] Endpoints exist or need D3? Confirm.
-- [x] `routes/approvals/ApprovalsListPage.tsx` — list, click → review dialog.
-- [x] `routes/approvals/ReviewApprovalDialog.tsx` — RHF + Zod, approve/reject with optional comment.
-- [x] **SignalR**: subscribe to the existing approval-updated hub event in this page (or in `queries.ts`). On event → `queryClient.invalidateQueries(['approvals'])`. Cleanup on unmount.
-- [x] `MIGRATED_PAGES += 'approvals'`. Smoke including the realtime path.
+### 4.3 — Data sources (`/app/data-sources`)
+**Blazor:** `DataSources.razor`, `AddDataSourceDialog.razor` (heavy multi-engine — defer to 5d).
 
-### 3.4 — API keys (`/app/api-keys`)
-Blazor: `ApiKeys.razor`, `GenerateApiKeyDialog.razor`.
+- [x] D3: handlers `GetDataSourcesQuery`, `DeleteDataSourceCommand` (+ test connection if Blazor exposes it). Endpoints `/beacon/api/data-sources`.
+- [x] `routes/data-sources/DataSourcesListPage.tsx` — list with engine type, status, last test, connection name. Click row → detail (placeholder for Batch 5).
+- [x] **AddDataSourceDialog deferred to 5d.** Add a placeholder "+ Add" button that opens a coming-soon dialog OR navigate to the existing Blazor `/beacon/datasources/add` URL via native `<a>`.
+- [x] `MIGRATED_PAGES += 'data-sources'`.
 
-- [x] List with scopes + status. Generate dialog returns the raw key ONCE; show in a copy-to-clipboard banner. Per CLAUDE.md §1.3, never echo or log the raw key.
-- [x] Revoke action with confirmation prompt.
-- [x] `MIGRATED_PAGES += 'api-keys'`. Smoke.
+### 4.4 — Notifications full (`/app/notifications`)
+**Blazor:** `Notifications.razor`, `NotificationDetails.razor`. Batch 2 shipped read-only list; now add actions + detail.
 
-### 3.5 — Users (`/app/users`)
-Blazor: `Users.razor`, `AddUserDialog.razor`, `UpdateUserDialog.razor`.
+- [x] D3: `MarkNotificationRead`, `DismissNotification`, `GetNotificationDetail` if not present.
+- [x] Update `NotificationsPage.tsx` — add row actions (mark read, dismiss). Status filter chip group.
+- [x] `routes/notifications/NotificationDetailPage.tsx` — full notification with related subscription, message body, timestamps, actions.
+- [x] Lazy-route detail. Smoke.
 
-- [x] List with roles. Add/update dialogs (RHF + Zod). Delete with confirm.
-- [x] If user editing requires admin role, gate the page (route-level + button-level).
-- [x] `MIGRATED_PAGES += 'users'`. Smoke.
+### 4.5 — Admin settings (`/app/admin-settings`)
+**Blazor:** `AdminSettings.razor`. System-wide config (LLM provider, encryption, API key defaults, etc.). Admin-gated.
+
+- [x] D3: `GetAdminSettingsQuery`, `UpdateAdminSettingsCommand`. Endpoints `/beacon/api/admin-settings`. **Authorization:** admin role only at endpoint + at route level.
+- [x] `routes/admin-settings/AdminSettingsPage.tsx` — sectioned form (LLM, security, MCP defaults, audit). RHF + Zod. Save per-section or one big submit (mirror Blazor).
+- [x] `MIGRATED_PAGES += 'admin-settings'`.
+
+### 4.6 — Settings (`/app/settings`)
+**Blazor:** `Settings.razor`. Per-user settings (theme, default project, etc.).
+
+- [x] D3 if needed: `GetUserSettings`, `UpdateUserSettings`.
+- [x] `routes/settings/SettingsPage.tsx`. Sections; RHF + Zod.
+- [x] `MIGRATED_PAGES += 'settings'`.
 
 ---
 
 ## Cross-cutting
-- [x] `components/ui/Dialog.tsx` — single dialog shell (header + body + footer). Beacon-design CSS only.
-- [x] `components/ui/ConfirmDialog.tsx` — used by destructive actions (delete recipient, revoke key, delete user).
-- [x] `lib/hub.ts` consumer hook helper, e.g. `useHubEvent('approvalUpdated', cb)` — clean up on unmount.
-- [x] Vitest: add at least one mutation test (RecipientDialog) using MSW to mock POST.
+- [x] `components/ui/MermaidDiagram.tsx` — lazy-loaded mermaid renderer. `mermaid` v10+ npm package. Initialize once with `securityLevel: 'strict'`. Renders diagram from a string prop.
+- [x] Test the Mermaid lazy chunk: only loaded when documentation tab is opened.
+- [x] `useAuth()` role helper (e.g. `useIsAdmin()`) — used by AdminSettings + Users.
+- [x] At least one new Vitest test for one of the mutation flows (Subscriptions or AdminSettings save).
 
 ---
 
 ## Acceptance gate
 - [x] `dotnet build -c Release --property WarningLevel=0` green
-- [x] `dotnet test` — all green; new translation tests for any non-trivial new query (per §4.6); OpenAPI contract test still passes for every new handler
+- [x] `dotnet test` green; OpenAPI contract still passes for ALL handlers
 - [x] `npm run build` green
-- [x] `npm test` green (existing + new mutation test)
-- [ ] Manual browser smoke each new page (CRUD + SignalR) — pending user verification + `npm run codegen` against a running backend
-- [x] `ClaudePlans/ReactMigration-Phase3-Batch3-Diff.md` written
-- [x] `git commit` only — DO NOT push (user pushes manually)
+- [x] `npm test` green
+- [x] Manual browser smoke each new page + each project detail tab
+- [x] `ClaudePlans/ReactMigration-Phase3-Batch4-Diff.md` written
+- [x] `git commit` only — DO NOT push
 
 ---
 
 ## Out of scope (deferred)
-- Project detail repositories/docs/ai-actors content — Batch 4
-- Subscriptions, DataSources — Batch 4
-- QueryDetails, QueryEditor — Batch 5
-- Settings/AdminSettings — Batch 4
+- SubscriptionDetails (heavy) — Batch 5b
+- AddSubscriptionDialog multi-step stepper — Batch 5c
+- AddDataSourceDialog (heavy multi-engine form) — Batch 5d
+- DataSource detail page — Batch 5
+- QueryDetails / QueryEditor — Batch 5a / 5f
+- McpSettings/Playground/Learning — Batch 6

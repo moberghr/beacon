@@ -15,3 +15,14 @@ export function useAuth() {
     queryFn: () => fetchJson<CurrentUser>('/beacon/api/auth/me'),
   });
 }
+
+/**
+ * True iff the current user is in the `Admin` role (case-insensitive).
+ * Returns `undefined` while the auth query is loading.
+ */
+export function useIsAdmin(): boolean | undefined {
+  const { data, isLoading } = useAuth();
+  if (isLoading) return undefined;
+  if (!data || !data.isAuthenticated) return false;
+  return data.roles.some(r => r.toLowerCase() === 'admin');
+}

@@ -1,3 +1,4 @@
+import { useNavigate } from 'react-router-dom';
 import type { NotificationEntry } from '@/api/generated/beacon-api';
 import { Icon } from '@/components/Icon';
 import { PageHeader } from '@/components/layout/PageHeader';
@@ -66,6 +67,7 @@ const COLUMNS: Column<NotificationEntry>[] = [
 const GRID_TEMPLATE = '1.4fr 2.2fr 1.6fr 0.6fr 0.9fr';
 
 export default function NotificationsPage() {
+  const navigate = useNavigate();
   const { data, isLoading, isError, error, refetch } = useNotificationsQuery();
   const entries = data?.entries ?? [];
 
@@ -101,6 +103,7 @@ export default function NotificationsPage() {
             rows={entries}
             rowKey={n => n.id}
             gridTemplate={GRID_TEMPLATE}
+            onRowClick={n => navigate(`/notifications/${n.id}`)}
             empty={
               <EmptyState
                 icon={<Icon.Bell size={20} />}
