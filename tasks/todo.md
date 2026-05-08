@@ -1,108 +1,119 @@
-# Todo — React Migration Phase 3 Batch 4 (Medium pages)
+# Todo — React Migration Phase 3 Batch 5a (QueryDetails)
 
-**Spec:** `ClaudePlans/ReactMigration-Phase3.md` (Batch 4 section, line 155)
-**Predecessor diffs:** Batches 1, 2, 3 (`ReactMigration-Phase3-Batch{1,2,3}-Diff.md`)
-**Branch:** `feat/react-phase3` (continue — push to existing draft PR #13)
+**Spec:** `ClaudePlans/ReactMigration-Phase3.md` (Batch 5a, line 166)
+**Predecessor diffs:** Batches 1–4
+**Branch:** `feat/react-phase3` (continue — push to draft PR #13)
 **Worktree:** `/Users/mirkobudimir/Dev/MiBu/semantico-react`
+**Slot rule (spec line 164):** Heavy pages get their own slot — only QueryDetails this round.
+
+---
+
+## Source page
+`Beacon.UI/Components/Pages/Queries/QueryDetails.razor` — **865 LOC** (spec quoted ~275; reality is heavier). Tabs: Overview, Recipients, Subscriptions, Anomaly. Plus version history pane + change history pane (the existing `Beacon.UI/Components/Pages/Queries/QueryVersionHistory.razor` and `QueryChangeHistoryPanel.razor` likely embed here).
+
+## Existing back-end (do NOT re-implement)
+- `Beacon.Core/Handlers/Queries/`: `ToggleQueryLockHandler`, `GetQueryChangeHistoryHandler`
+- `Beacon.Core/Handlers/QueryVersions/`: `GetQueryVersions`, `GetQueryVersionDetail`, `DiffQueryVersions`, `RestoreQueryVersion`
+- React Phase 1 already wraps versions list (Batch 2 ships `/app/queries/:id/versions`)
 
 ---
 
 ## Critical constraints (carry over)
-- **NO Tailwind, NO shadcn primitives.** Beacon-design CSS in `web/src/styles-beacon.css`.
-- **NO fake/seed/demo data.** Real data sources only.
-- All routes lazy-loaded; one file per page in `routes/<area>/`.
+- NO Tailwind, NO shadcn primitives. Beacon-design CSS in `web/src/styles-beacon.css`.
+- NO fake/seed/demo data.
+- All routes lazy-loaded.
 - Tables → `<DataTable>`; icons → `Icon.Xxx`; formatters → `lib/format.ts`.
-- API → `beaconApi()` + TanStack Query hooks per area.
-- Add slug to `MIGRATED_PAGES` only after end-to-end working.
-- **In-app `<Link>` and `navigate()` paths must NOT include `/app/`** — basename adds it.
-- After every React-only build, sync `web/dist/` → `wwwroot/app/` (or run `dotnet build`).
-- Forms: RHF + Zod (use Zod 4 form: `z.email()` not `z.string().email()`).
-- Mutations: `useMutation` invalidating queries on success, toast.success/error from RFC 7807.
-- Backend: MediatR `internal sealed class` + primary ctor, `IDbContextFactory<BeaconContext>`, `.Select(new ...)` no `.Include()`, `InvalidOperationException`/`BeaconException`, lambda `x`, LINQ on separate lines, `CancellationToken` everywhere, never edit committed migrations.
-
-## New patterns introduced in Batch 4
-- **First Mermaid integration** (project documentation tab). Add `mermaid` package; render in `components/ui/MermaidDiagram.tsx` (lazy chunk so it doesn't bloat initial bundle).
-- **Settings forms.** Multi-section forms with collapsible groups. Beacon-design pattern.
+- API → `beaconApi()` + TanStack Query hooks.
+- In-app `<Link>`/`navigate()` paths must NOT include `/app/`.
+- After React-only build, sync `web/dist/` → `wwwroot/app/` (or `dotnet build` triggers it).
+- Forms: RHF + Zod 4 (`z.email()`, NOT `z.string().email()`).
+- Mutations: `useMutation` invalidate on success, toast.success/error from RFC 7807.
+- Backend: MediatR `internal sealed class` + primary ctor, `IDbContextFactory<BeaconContext>`, `.Select(new ...)` no `.Include()`, throw `InvalidOperationException` (no Result pattern), lambda `x`, LINQ on separate lines, `CancellationToken` everywhere.
+- New endpoints must have `.WithName(...)` matching the request type so the OpenAPI contract test passes (lesson from Batch 3 — `GetTasksRequestQuery` failed; `GetTasksQuery` passed).
+- Version detail dialog uses existing `Beacon.UI/Components/Pages/Queries/QueryVersionDetailDialog.razor` as reference.
 
 ---
 
 ## Pages to ship
 
-### 4.1 — Project detail tabs content (`/app/projects/:id`)
-The shell + tabs already exist (Batch 2). Fill in real content for each tab.
+### 5a — `/app/queries/:id` Query detail
 
-**Blazor:** `ProjectDetails.razor` (multi-tab page, complex).
+Replace placeholder `QueryVersionDetailPage` chain with full QueryDetails port.
 
-- [x] **Overview tab** — already populated in 2.1; verify it shows description, datasource summary, repo summary, scan timestamps. If gaps vs Blazor, add.
-- [x] **Repositories tab** — list rows: name, URL, branch, last scan, status. Click → external link (or stay-on-page if Blazor doesn't navigate). D3: `GetProjectRepositoriesQuery` if not already wrapped (check existing handler). Add `SetRepositoryTokenDialog` port (RHF + Zod, secret-handling like API keys — never echo token).
-- [x] **Documentation tab** — first Mermaid integration. Read `Beacon.UI/Components/Pages/ProjectDetails.razor` for documentation rendering. Sections + Mermaid diagrams. Add `EditDocumentationSectionDialog` port.
-- [x] **AI Actors tab** — list AI actors for project. Fetch via existing `AiActorsEndpoints`. Read-only here; create/refine flows are Batch 6 territory (or later).
-- [x] Smoke each tab.
+**Route map for this slot:**
+- `/app/queries/:id` — main detail (NEW page replacing the 2.7 placeholder)
+- `/app/queries/:id/versions` — already shipped Batch 2 (keep)
+- `/app/queries/:id/versions/:versionId` — already shipped Batch 2 (keep, but make sure version diff dialog works)
 
-### 4.2 — Subscriptions (`/app/subscriptions`)
-**Blazor:** `Subscriptions.razor`, `AddSubscription.razor`, `AddSubscriptionDialog.razor` (note: details page is Batch 5b — skip detail here, just list + add).
+**Tabs:**
+- [ ] **Overview** — query name, description, target data source, schedule (cron), parameters, last execution status, anomaly count summary, lock status with toggle (uses existing `ToggleQueryLock`).
+- [ ] **Recipients** — list recipients attached to the query. CRUD via existing `Beacon.Core/Handlers/Recipients/` (Batch 3) — but query-scoped; may need new `GetQueryRecipients`, `AttachRecipientToQuery`, `DetachRecipientFromQuery` handlers. Audit Blazor first.
+- [ ] **Subscriptions** — list subscriptions for the query. Existing `GetSubscriptionsQuery` (Batch 4) may filter by query — verify. If not, add filter parameter or new handler.
+- [ ] **Anomaly** — anomaly stream / detection settings. Likely D3 work: handlers for `GetQueryAnomalies`, `UpdateQueryAnomalySettings`. Audit Blazor for the actual shape.
 
-- [x] D3: handlers `GetSubscriptionsQuery`, `CreateSubscriptionCommand`, `DeleteSubscriptionCommand` (+ any list filters). Endpoints at `/beacon/api/subscriptions`. Register in `BeaconApiEndpoints.cs`. `.WithName(...)` for OpenAPI contract.
-- [x] `routes/subscriptions/SubscriptionsListPage.tsx` — DataTable.
-- [x] `routes/subscriptions/AddSubscriptionDialog.tsx` — RHF + Zod (multi-step is Batch 5c; here keep single form, defer multi-step to 5c).
-- [x] `routes/subscriptions/queries.ts`.
-- [x] `MIGRATED_PAGES += 'subscriptions'`. Lazy-route. Smoke.
+**Side panels:**
+- [ ] **Version history** — embedded pane (NOT a separate page). Reuse `useQueryVersionsQuery` from Batch 2. Click a version → `QueryVersionDetailDialog.tsx` (NEW — RHF NOT needed; read-only diff).
+- [ ] **Change history** — pane using `GetQueryChangeHistory` (existing handler).
 
-### 4.3 — Data sources (`/app/data-sources`)
-**Blazor:** `DataSources.razor`, `AddDataSourceDialog.razor` (heavy multi-engine — defer to 5d).
+**Actions:**
+- [ ] **Lock/unlock** — toggle button using existing `ToggleQueryLock`.
+- [ ] **Restore version** — button on a version row, calls existing `RestoreQueryVersion`. Confirm via `ConfirmDialog`.
+- [ ] **Run query** (if Blazor exposes it) — likely calls existing run service. May be deferred to QueryEditor (5f).
 
-- [x] D3: handlers `GetDataSourcesQuery`, `DeleteDataSourceCommand` (+ test connection if Blazor exposes it). Endpoints `/beacon/api/data-sources`.
-- [x] `routes/data-sources/DataSourcesListPage.tsx` — list with engine type, status, last test, connection name. Click row → detail (placeholder for Batch 5).
-- [x] **AddDataSourceDialog deferred to 5d.** Add a placeholder "+ Add" button that opens a coming-soon dialog OR navigate to the existing Blazor `/beacon/datasources/add` URL via native `<a>`.
-- [x] `MIGRATED_PAGES += 'data-sources'`.
-
-### 4.4 — Notifications full (`/app/notifications`)
-**Blazor:** `Notifications.razor`, `NotificationDetails.razor`. Batch 2 shipped read-only list; now add actions + detail.
-
-- [x] D3: `MarkNotificationRead`, `DismissNotification`, `GetNotificationDetail` if not present.
-- [x] Update `NotificationsPage.tsx` — add row actions (mark read, dismiss). Status filter chip group.
-- [x] `routes/notifications/NotificationDetailPage.tsx` — full notification with related subscription, message body, timestamps, actions.
-- [x] Lazy-route detail. Smoke.
-
-### 4.5 — Admin settings (`/app/admin-settings`)
-**Blazor:** `AdminSettings.razor`. System-wide config (LLM provider, encryption, API key defaults, etc.). Admin-gated.
-
-- [x] D3: `GetAdminSettingsQuery`, `UpdateAdminSettingsCommand`. Endpoints `/beacon/api/admin-settings`. **Authorization:** admin role only at endpoint + at route level.
-- [x] `routes/admin-settings/AdminSettingsPage.tsx` — sectioned form (LLM, security, MCP defaults, audit). RHF + Zod. Save per-section or one big submit (mirror Blazor).
-- [x] `MIGRATED_PAGES += 'admin-settings'`.
-
-### 4.6 — Settings (`/app/settings`)
-**Blazor:** `Settings.razor`. Per-user settings (theme, default project, etc.).
-
-- [x] D3 if needed: `GetUserSettings`, `UpdateUserSettings`.
-- [x] `routes/settings/SettingsPage.tsx`. Sections; RHF + Zod.
-- [x] `MIGRATED_PAGES += 'settings'`.
+**Out-of-scope here** (deferred to later 5x slots):
+- Inline query editing (Monaco) — that's 5f QueryEditor
+- Multi-step query stepper — 5f
+- Add subscription multi-step dialog — 5c
+- Add recipients (multi-select) dialog — 5c
 
 ---
 
+## Audit pass (do FIRST)
+1. Read `Beacon.UI/Components/Pages/Queries/QueryDetails.razor` end-to-end. List every `@inject`, every dialog opened, every method called.
+2. Compare against existing handlers. Tabulate: (a) handlers we have, (b) handlers we need to add, (c) functionality we defer.
+3. Record the audit at the top of the diff doc.
+
+## D3 backend work (estimated)
+Likely new handlers (audit confirms):
+- `Beacon.Core/Handlers/Queries/GetQueryDetailHandler.cs` — full query metadata for the page
+- `Beacon.Core/Handlers/Queries/GetQueryRecipientsHandler.cs`
+- `Beacon.Core/Handlers/Queries/AttachQueryRecipientHandler.cs`
+- `Beacon.Core/Handlers/Queries/DetachQueryRecipientHandler.cs`
+- `Beacon.Core/Handlers/Queries/GetQueryAnomaliesHandler.cs`
+- `Beacon.Core/Handlers/Queries/UpdateQueryAnomalySettingsHandler.cs` (if Blazor edits them)
+- (Plus any execution-history pane handlers if not 5f scope)
+
+Endpoint additions go in existing `Beacon.SampleProject/Endpoints/QueriesEndpoints.cs`. No new file unless area genuinely diverges.
+
+## Frontend work
+- `routes/queries/QueryDetailPage.tsx` (NEW — replaces the 2.7 placeholder routing)
+- `routes/queries/tabs/{OverviewTab,RecipientsTab,SubscriptionsTab,AnomalyTab}.tsx` (sub-files OK because the page is large; keep file-per-component small)
+- `routes/queries/QueryVersionDetailDialog.tsx`
+- `routes/queries/AttachRecipientDialog.tsx` (if needed)
+- `routes/queries/queries.ts` — extend with new hooks
+- Update `App.tsx` lazy-route registration: `/queries/:id` → new page
+
 ## Cross-cutting
-- [x] `components/ui/MermaidDiagram.tsx` — lazy-loaded mermaid renderer. `mermaid` v10+ npm package. Initialize once with `securityLevel: 'strict'`. Renders diagram from a string prop.
-- [x] Test the Mermaid lazy chunk: only loaded when documentation tab is opened.
-- [x] `useAuth()` role helper (e.g. `useIsAdmin()`) — used by AdminSettings + Users.
-- [x] At least one new Vitest test for one of the mutation flows (Subscriptions or AdminSettings save).
+- [ ] Translation tests for any non-trivial new EF query (per §4.6) — guard against Npgsql translation failures.
+- [ ] At least one new Vitest test (e.g. RecipientsTab attach flow).
 
 ---
 
 ## Acceptance gate
-- [x] `dotnet build -c Release --property WarningLevel=0` green
-- [x] `dotnet test` green; OpenAPI contract still passes for ALL handlers
-- [x] `npm run build` green
-- [x] `npm test` green
-- [x] Manual browser smoke each new page + each project detail tab
-- [x] `ClaudePlans/ReactMigration-Phase3-Batch4-Diff.md` written
-- [x] `git commit` only — DO NOT push
+- [ ] Audit table at top of Batch5a diff.
+- [ ] `dotnet build -c Release --property WarningLevel=0` green.
+- [ ] `dotnet test` green; OpenAPI contract still passes for ALL handlers.
+- [ ] `npm run build` green.
+- [ ] `npm test` green.
+- [ ] Manual browser smoke: `/app/queries/:id` loads, all 4 tabs render, version pane works, lock toggle works.
+- [ ] `ClaudePlans/ReactMigration-Phase3-Batch5a-Diff.md` written.
+- [ ] `git commit` — orchestrator commits if subagent's git is sandboxed.
 
 ---
 
-## Out of scope (deferred)
-- SubscriptionDetails (heavy) — Batch 5b
-- AddSubscriptionDialog multi-step stepper — Batch 5c
-- AddDataSourceDialog (heavy multi-engine form) — Batch 5d
-- DataSource detail page — Batch 5
-- QueryDetails / QueryEditor — Batch 5a / 5f
-- McpSettings/Playground/Learning — Batch 6
+## Out of scope (later 5x slots)
+- 5b SubscriptionDetails
+- 5c AddSubscription / AddRecipients multi-step dialogs
+- 5d AddDataSourceDialog (heavy multi-engine form)
+- 5e CreateMigrationJob wizard
+- 5f QueryEditor + Monaco
