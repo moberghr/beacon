@@ -11,6 +11,16 @@ internal static class MigrationsEndpoints
     {
         var migrations = group.MapGroup("/migrations").WithTags("Migrations");
 
+        migrations.MapGet("/jobs", async (
+                IMediator mediator,
+                CancellationToken cancellationToken) =>
+            {
+                var result = await mediator.Send(new GetMigrationJobsQuery(), cancellationToken);
+                return Results.Ok(result);
+            })
+            .WithName("GetMigrationJobs")
+            .Produces<GetMigrationJobsResult>(StatusCodes.Status200OK);
+
         migrations.MapPost("/jobs", async (
                 [FromBody] CreateMigrationJobCommand command,
                 IMediator mediator,
@@ -21,6 +31,20 @@ internal static class MigrationsEndpoints
             })
             .WithName("CreateMigrationJob")
             .Produces<CreateMigrationJobResult>(StatusCodes.Status200OK);
+
+        migrations.MapDelete("/jobs/{id:int}", async (
+                int id,
+                [FromQuery] bool? forceDelete,
+                IMediator mediator,
+                CancellationToken cancellationToken) =>
+            {
+                var result = await mediator.Send(
+                    new DeleteMigrationJobCommand(id, forceDelete ?? false),
+                    cancellationToken);
+                return Results.Ok(result);
+            })
+            .WithName("DeleteMigrationJob")
+            .Produces<DeleteMigrationJobResult>(StatusCodes.Status200OK);
 
         migrations.MapGet("/executions", async (
                 [FromQuery] int? migrationJobId,

@@ -29,6 +29,9 @@ export const MIGRATED_PAGES = [
   'mcp-playground',
   'mcp-learning',
   'mcp-settings',
+  'dashboards',
+  'ai-actors',
+  'migration-jobs',
 ] as const;
 
 export type MigratedPage = (typeof MIGRATED_PAGES)[number];

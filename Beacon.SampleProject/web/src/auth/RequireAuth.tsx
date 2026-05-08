@@ -30,7 +30,7 @@ export function RequireAuth({ children }: RequireAuthProps) {
 
   if (!data?.isAuthenticated) {
     if (typeof window !== 'undefined') {
-      window.location.href = '/beacon';
+      window.location.href = '/app/login';
     }
     return null;
   }
