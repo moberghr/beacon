@@ -1,12 +1,10 @@
 /**
- * Pages migrated to React. Sidebar nav uses this list to decide whether a
- * link points at /app/<path> (React) or /beacon/<path> (Blazor).
+ * Phase 3 cutover complete: every nav item is a React route. The Blazor host
+ * has been removed; this module remains only as a thin compatibility shim so
+ * Sidebar.tsx continues to compile without sweeping changes.
  *
- * Each entry is the React route path (without /app prefix). To migrate a
- * page: add it here once the React route renders end-to-end. Do not list
- * a page here until it's actually working in /app/*.
- *
- * After Phase 3 cutover, this file goes away.
+ * `isMigrated` always returns true. `resolveNavHref` always returns `/<slug>`
+ * (BrowserRouter basename="/" no longer auto-prefixes anything).
  */
 export const MIGRATED_PAGES = [
   'projects',
@@ -37,16 +35,13 @@ export const MIGRATED_PAGES = [
 
 export type MigratedPage = (typeof MIGRATED_PAGES)[number];
 
-export function isMigrated(slug: string): boolean {
-  return (MIGRATED_PAGES as readonly string[]).includes(slug);
+export function isMigrated(_slug: string): boolean {
+  return true;
 }
 
 /**
- * Resolve a nav item's slug to a routing path.
- *
- * Migrated → `/<slug>` (React Router basename="/app" auto-prefixes /app).
- * Not migrated → `/beacon/<blazorPath>` (absolute, used with native <a>).
+ * Resolve a nav item's slug to a routing path. Always `/<slug>` after cutover.
  */
-export function resolveNavHref(slug: string, blazorPath: string): string {
-  return isMigrated(slug) ? `/${slug}` : `/beacon/${blazorPath}`;
+export function resolveNavHref(slug: string, _blazorPath: string): string {
+  return `/${slug}`;
 }

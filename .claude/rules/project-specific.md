@@ -6,9 +6,9 @@
 
 §9.1 **NEVER generate fake / seed / demo data in UI pages.** Pages start empty and populate from real data sources. This applies to dashboards, tables, charts, gauge widgets — everything.
 
-§9.2 **MudBlazor `MudSelectItem Value="@null"` breaks dropdowns** — especially with `Clearable="true"`. Use `Placeholder` + `Clearable` instead of an explicit null item.
+§9.2 **React + Vite is the only UI stack.** Blazor / MudBlazor were removed in the Phase 3 cutover. The React app lives at `Beacon.SampleProject/web/`, builds into `Beacon.SampleProject/wwwroot/`, and is served at the root URL by Kestrel.
 
-§9.3 **MudBlazor `MudForm @bind-IsValid` is unreliable.** Always call `await _form.Validate()` in submit handlers before checking `_isValid`. Add `Immediate="true"` on required fields.
+§9.3 **In-app `<Link>` and `navigate()` paths must NOT include `/app/`** — `BrowserRouter` is mounted at `basename="/"` post-cutover. Write `/projects`, not `/app/projects`.
 
 ## LLM provider swapping
 
@@ -20,7 +20,7 @@
 
 ## Stale/legacy
 
-§9.6 ⚠️ **`Beacon.Web/` directory exists in the repo but is empty** — it is referenced from `Beacon.sln` but contains no project file. Treat as removed; do not add references to it. Surface as a cleanup task if asked.
+§9.6 _(removed — `Beacon.Web/` and `Beacon.UI/` were both deleted in the Phase 3 cutover.)_
 
 §9.7 ⚠️ **`Result<>` legacy in auth + `TemplateValidator`.** `Beacon.Core/Adapters/Shared/TemplateValidator.cs`, `Beacon.Core/Authorization/Providers/*.cs`, and `Beacon.Core/Authentication/Providers/{Hybrid,Jwt}*.cs` still use a `Result<>` shape. New code throws (`InvalidOperationException` / `BeaconException`) per §2.9. Do not propagate `Result<>` to new handlers.
 

@@ -37,16 +37,15 @@ Framework details in `.claude/skills/tech-stack-dotnet/SKILL.md`.
 ## Project Profile
 
 - **Framework:** .NET 9 (`net9.0` across all projects)
-- **Solution:** `Beacon.sln` — 17 projects, all references converge on `Beacon.Core`
-- **Composition root:** `Beacon.SampleProject` (historical name; do not rename)
+- **Solution:** `Beacon.sln` — 16 projects after Phase 3 cutover (`Beacon.UI` and `Beacon.Web` deleted), all references converge on `Beacon.Core`
+- **Composition root:** `Beacon.SampleProject` (host + UI shell). Auth middleware lives in `Beacon.SampleProject/Authentication/`.
 - **Data layer:** EF Core 9 (PostgreSQL + SQL Server, dual migrations) + Dapper for hot paths
 - **Patterns:** MediatR/CQRS (handler+request+result in one file, `internal sealed class` + primary ctor), `IDbContextFactory<BeaconContext>`, builder-pattern DI, soft delete via `ArchivableBaseEntity`
-- **Hosting:** Kestrel self-hosted, Blazor Server (MudBlazor), Hangfire on PostgreSQL (`/hangfire`)
+- **Hosting:** Kestrel self-hosted; React SPA at root `/`; Hangfire on PostgreSQL (`/hangfire`). No more Blazor / MudBlazor.
 - **MCP:** Streamable HTTP at `/beacon/mcp` (auth required); 5 tools + 4 resources
-- **REST API:** Minimal-API endpoints under `/beacon/api/*` for the React shell. Composition root: `Beacon.SampleProject/Endpoints/BeaconApiEndpoints.MapBeaconApi()`. OpenAPI document at `/openapi/v1.json`. Convention: one endpoint = one MediatR handler (§2.1.1, enforced by `OpenApiContractTests`). Group-level auth via the `BeaconApi` policy (cookie scheme); endpoints opt out via `.AllowAnonymous()`. Anonymous calls to authenticated endpoints get RFC 7807 JSON 401 (not HTML redirect). Phase 1 wraps all 81 existing handlers; Phase 3 page migration adds new handlers + endpoints together. SignalR hub at `/beacon/api/hub` for real-time events (`JobStatusChanged`, `NotificationCreated`, `ApprovalUpdated`, scoped to `Clients.User`).
-- **React shell:** `Beacon.SampleProject/web/` (Vite + React + TS + Tailwind + shadcn). Builds into `wwwroot/app/`, served at `/app/*` via SPA fallback. Mounted at root `/app` (not `/beacon/app`) because Blazor's `/beacon` middleware swallows nested fallbacks. `npm run codegen` regenerates the typed fetch client from `/openapi/v1.json` via NSwag local tool.
-- **Test stack:** NUnit 4 + Moq + FluentAssertions + bUnit; query-translation tests via `NpgsqlTestContext`
-- **`Beacon.Web/`:** empty directory — treat as removed
+- **REST API:** Minimal-API endpoints under `/beacon/api/*` for the React shell. Composition root: `Beacon.SampleProject/Endpoints/BeaconApiEndpoints.MapBeaconApi()`. OpenAPI document at `/openapi/v1.json`. Convention: one endpoint = one MediatR handler (§2.1.1, enforced by `OpenApiContractTests`). Group-level auth via the `BeaconApi` policy (cookie scheme); endpoints opt out via `.AllowAnonymous()`. Anonymous calls to authenticated endpoints get RFC 7807 JSON 401. SignalR hub at `/beacon/api/hub` for real-time events (`JobStatusChanged`, `NotificationCreated`, `ApprovalUpdated`, scoped to `Clients.User`).
+- **React shell:** `Beacon.SampleProject/web/` (Vite + React + TS + custom Beacon-design CSS, NO Tailwind/shadcn). Builds into `wwwroot/`, served at root `/`. `BrowserRouter basename="/"`. `npm run codegen` regenerates the typed fetch client from `/openapi/v1.json` via NSwag local tool.
+- **Test stack:** NUnit 4 + Moq + FluentAssertions; query-translation tests via `NpgsqlTestContext`. Frontend Vitest + RTL + MSW under `web/src`.
 
 ---
 
@@ -80,7 +79,7 @@ Detailed rules in `.claude/rules/` (auto-loaded):
 | `performance.md` | LLM queue, cache, Kestrel timeouts | §6.x |
 | `infrastructure.md` | Kestrel, GitHub Actions, MCP route | §7.x |
 | `git-workflow.md` | Branches, commits, hooks | §8.x |
-| `project-specific.md` | MudBlazor pitfalls, LLM swap, legacy `Result<>` | §9.x |
+| `project-specific.md` | React conventions, LLM swap, legacy `Result<>` | §9.x |
 
 Full reference docs (read on-demand by skills and review agents):
 - `.claude/references/dotnet/coding-guidelines.md` — Moberg C# style guide (binding)

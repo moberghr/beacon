@@ -1,0 +1,2 @@
+import{j as s}from"./index-DJkGJ8aZ.js";function p({tabs:n,active:t,onChange:c,trailing:a}){return s.jsxs("div",{className:"tabs",children:[n.map(e=>s.jsxs("button",{type:"button",className:"tab"+(e.key===t?" active":""),onClick:()=>c(e.key),children:[e.label,typeof e.count=="number"&&s.jsx("span",{className:"tab__count",children:e.count})]},e.key)),a&&s.jsx("div",{style:{marginLeft:"auto",padding:"6px 16px 6px 0",display:"flex",gap:6},children:a})]})}export{p as T};
+//# sourceMappingURL=Tabs-D1i6mzq4.js.map

@@ -29,7 +29,6 @@
 
     <ItemGroup>
         <ProjectReference Include="..\Beacon.Core\Beacon.Core.csproj" />
-        <ProjectReference Include="..\Beacon.UI\Beacon.UI.csproj" />
         <ProjectReference Include="..\Beacon.SampleProject\Beacon.SampleProject.csproj" />
     </ItemGroup>
 

@@ -29,15 +29,14 @@ public record CreateQueryFolderResult(...);
 §2.4 **All references point toward `Beacon.Core`.** Sibling projects never reference each other horizontally.
 
 ```
-SampleProject (Host) → UI, AI, MCP, Core, Core.PostgreSql/SqlServer, Connector.*
-UI                   → Core
+SampleProject (Host) → AI, MCP, Core, Core.PostgreSql/SqlServer, Connector.*
 AI                   → Core
 MCP                  → Core, AI
 Connector.*          → Core
 Core.PostgreSql/Sql  → Core
 ```
 
-§2.5 **`Beacon.Web/` is currently empty** — the directory exists but contains no project. Treat it as removed; do not add references to it.
+§2.5 _(removed — `Beacon.UI` and `Beacon.Web` were both deleted in the Phase 3 cutover. The host is `Beacon.SampleProject`; the UI is the React app at `Beacon.SampleProject/web/`.)_
 
 ## What this codebase deliberately does NOT use
 
