@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { Icon } from '@/components/Icon';
-import type { TaskDetail } from '../queries';
+import { useUnwatchTask, useWatchTask, type TaskDetail } from '../queries';
 
 interface RightRailProps {
   task: TaskDetail;
@@ -9,6 +9,15 @@ interface RightRailProps {
 
 export function RightRail({ task, relatedResolvedCount }: RightRailProps) {
   const noRecipients = task.notificationCount === 0;
+  const watch = useWatchTask(task.id);
+  const unwatch = useUnwatchTask(task.id);
+
+  const watchBusy = watch.isPending || unwatch.isPending;
+  const onToggleWatch = () => {
+    if (watchBusy) return;
+    if (task.isWatching) unwatch.mutate();
+    else watch.mutate();
+  };
 
   return (
     <aside className="q-aside">
@@ -27,7 +36,7 @@ export function RightRail({ task, relatedResolvedCount }: RightRailProps) {
               sub={`Notifications have not been delivered — no recipients on subscription ${task.subscriptionName}.`}
             />
           )}
-          {!task.resolved && (
+          {!task.resolved && !task.assigneeUserId && (
             <NextStep
               tone="info"
               icon={<Icon.Users size={13} />}
@@ -61,17 +70,41 @@ export function RightRail({ task, relatedResolvedCount }: RightRailProps) {
         </div>
         <div className="card__body" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <PersonRow
+            role="Assignee"
+            name={task.assigneeUserName ?? task.assigneeUserId ?? 'Unassigned'}
+            sub={task.assigneeUserId ? 'investigating' : 'no one assigned'}
+            muted={!task.assigneeUserId}
+          />
+          <PersonRow
+            role="Owner"
+            name={task.ownerUserName ?? task.ownerUserId ?? '—'}
+            sub={task.ownerUserId ? 'created the source' : 'unknown'}
+            muted={!task.ownerUserId}
+          />
+          <PersonRow
             role="Resolved by"
             name={task.resolvedByUserName ?? 'Not resolved'}
             sub={task.resolvedByUserName ? 'closed this task' : 'still open'}
             muted={!task.resolvedByUserName}
           />
-          <PersonRow
-            role="Source"
-            name={task.aiActorName ?? 'User-defined'}
-            sub={task.aiActorName ? 'managed by AI actor' : 'created by a user'}
-            muted={!task.aiActorName}
-          />
+          <div className="person-row" style={{ alignItems: 'center' }}>
+            <div className="avatar avatar--sm avatar--muted">
+              <Icon.Bell size={12} />
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div className="person-row__role">Watchers</div>
+              <div className="person-row__name">{task.watcherCount} watching</div>
+            </div>
+            <button
+              type="button"
+              className={`btn ${task.isWatching ? '' : 'btn--primary'}`}
+              onClick={onToggleWatch}
+              disabled={watchBusy}
+              style={{ padding: '4px 8px', fontSize: 12 }}
+            >
+              {task.isWatching ? 'Watching' : 'Watch'}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -104,8 +137,8 @@ export function RightRail({ task, relatedResolvedCount }: RightRailProps) {
         <div>
           <div className="callout__title">Tip · keyboard shortcuts</div>
           <div className="callout__sub">
-            <span className="kbd">R</span> resolve · <span className="kbd">A</span> assign ·{' '}
-            <span className="kbd">C</span> comment
+            <span className="kbd">R</span> resolve · <span className="kbd">A</span> assign-to-me ·{' '}
+            <span className="kbd">S</span> snooze 1h · <span className="kbd">C</span> comment
           </div>
         </div>
       </div>

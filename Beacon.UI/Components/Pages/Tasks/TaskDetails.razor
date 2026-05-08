@@ -423,7 +423,7 @@
     {
         _loading = true;
 
-        Model = await TaskService.GetTaskDetails(Id, CancellationToken.None);
+        Model = await TaskService.GetTaskDetails(Id, null, CancellationToken.None);
 
         if (Model != null)
         {

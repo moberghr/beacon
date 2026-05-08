@@ -1,14 +1,20 @@
+using Beacon.Core.Authorization;
+using Beacon.Core.Data.Enums;
 using Beacon.Core.Services;
 using MediatR;
 
 namespace Beacon.Core.Handlers.Tasks;
 
-internal sealed class GetTaskDetailHandler(ITaskService taskService)
+internal sealed class GetTaskDetailHandler(
+    ITaskService taskService,
+    IBeaconUserContext userContext)
     : IRequestHandler<GetTaskDetailQuery, TaskDetailResult?>
 {
     public async Task<TaskDetailResult?> Handle(GetTaskDetailQuery request, CancellationToken cancellationToken)
     {
-        var details = await taskService.GetTaskDetails(request.Id, cancellationToken);
+        var currentUserId = userContext.IsAuthenticated ? userContext.UserId : null;
+
+        var details = await taskService.GetTaskDetails(request.Id, currentUserId, cancellationToken);
 
         if (details == null)
         {
@@ -33,7 +39,16 @@ internal sealed class GetTaskDetailHandler(ITaskService taskService)
             details.AiActorId,
             details.AiActorName,
             details.LastExecutionAt,
-            details.CronExpression);
+            details.CronExpression,
+            details.Priority,
+            details.AssigneeUserId,
+            details.AssigneeUserName,
+            details.SnoozedUntil,
+            details.SlaHours,
+            details.WatcherCount,
+            details.IsWatching,
+            details.OwnerUserId,
+            details.OwnerUserName);
     }
 }
 
@@ -57,4 +72,13 @@ public record TaskDetailResult(
     int? AiActorId,
     string? AiActorName,
     DateTime? LastExecutionAt,
-    string? CronExpression);
+    string? CronExpression,
+    TaskPriority Priority,
+    string? AssigneeUserId,
+    string? AssigneeUserName,
+    DateTime? SnoozedUntil,
+    int? SlaHours,
+    int WatcherCount,
+    bool IsWatching,
+    string? OwnerUserId,
+    string? OwnerUserName);

@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.Tasks;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
@@ -84,9 +85,64 @@ internal static class TasksEndpoints
             .WithName("AddTaskComment")
             .Produces<AddTaskCommentResult>(StatusCodes.Status200OK);
 
+        tasks.MapPost("/{id:int}/assign", async (
+                int id,
+                [FromBody] AssignTaskBody body,
+                IMediator mediator,
+                CancellationToken ct) =>
+            {
+                await mediator.Send(new AssignTaskCommand(id, body.AssigneeUserId), ct);
+                return Results.NoContent();
+            })
+            .WithName("AssignTask")
+            .Produces(StatusCodes.Status204NoContent);
+
+        tasks.MapPost("/{id:int}/snooze", async (
+                int id,
+                [FromBody] SnoozeTaskBody body,
+                IMediator mediator,
+                CancellationToken ct) =>
+            {
+                await mediator.Send(new SnoozeTaskCommand(id, body.SnoozeUntil), ct);
+                return Results.NoContent();
+            })
+            .WithName("SnoozeTask")
+            .Produces(StatusCodes.Status204NoContent);
+
+        tasks.MapPost("/{id:int}/priority", async (
+                int id,
+                [FromBody] SetTaskPriorityBody body,
+                IMediator mediator,
+                CancellationToken ct) =>
+            {
+                await mediator.Send(new SetTaskPriorityCommand(id, body.Priority), ct);
+                return Results.NoContent();
+            })
+            .WithName("SetTaskPriority")
+            .Produces(StatusCodes.Status204NoContent);
+
+        tasks.MapPost("/{id:int}/watch", async (int id, IMediator mediator, CancellationToken ct) =>
+            {
+                await mediator.Send(new WatchTaskCommand(id), ct);
+                return Results.NoContent();
+            })
+            .WithName("WatchTask")
+            .Produces(StatusCodes.Status204NoContent);
+
+        tasks.MapPost("/{id:int}/unwatch", async (int id, IMediator mediator, CancellationToken ct) =>
+            {
+                await mediator.Send(new UnwatchTaskCommand(id), ct);
+                return Results.NoContent();
+            })
+            .WithName("UnwatchTask")
+            .Produces(StatusCodes.Status204NoContent);
+
         return group;
     }
 }
 
 internal sealed record ResolveTaskBody(string? ResolutionNotes);
 internal sealed record AddTaskCommentBody(string Content);
+internal sealed record AssignTaskBody(string? AssigneeUserId);
+internal sealed record SnoozeTaskBody(DateTime? SnoozeUntil);
+internal sealed record SetTaskPriorityBody(TaskPriority Priority);

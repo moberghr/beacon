@@ -159,3 +159,141 @@ No additions — every icon the design uses (`Users`, `Bell`, `Check`, `Clock`, 
 - `npm run build` — green.
 - `npm test` — green, **5 / 5**.
 - `web/dist/` rsynced into `Beacon.SampleProject/wwwroot/app/`.
+
+---
+
+## Wire-up follow-up
+
+All deferred mocks from the section above have been replaced with real backend.
+
+### Schema (Fluent API only — §5.4)
+
+- `QueryTask` gained `AssigneeUserId: string?` (max 100), `SnoozedUntil: DateTime?`,
+  `Priority: TaskPriority` (int-converted, default `Normal`). Indexes on each.
+- `Subscription` gained `SlaHours: int?` — null means "use system default (24h)".
+- New enum `Beacon.Core/Data/Enums/TaskPriority.cs` (`Critical=1`, `High=2`, `Normal=3`, `Low=4`).
+- New entity `Beacon.Core/Data/Entities/TaskWatcher.cs` — composite key
+  `(QueryTaskId, UserId)`, no soft delete (watchers are direct-removable).
+  Cascade delete from parent task. `BeaconContext` exposes `DbSet<TaskWatcher> TaskWatchers`.
+  Configured via new `ConfigureTaskWatcherEntities()` partial in `BeaconContext`.
+
+### Migrations (one per provider — §0.1, §5.9)
+
+- `Beacon.Core.PostgreSql/Data/Migrations/20260508125035_TaskAssignSnoozePriorityWatchersSubscriptionSla.cs`
+- `Beacon.Core.SqlServer/Data/Migrations/20260508125116_TaskAssignSnoozePriorityWatchersSubscriptionSla.cs`
+
+Both add columns + the `task_watchers`/`TaskWatchers` table with composite PK and the
+expected indexes. Generated via the documented `Program.cs`-swap workflow; provider
+flag reverted to PostgreSQL after.
+
+### New MediatR slices
+
+| File | Command | Endpoint |
+|---|---|---|
+| `Handlers/Tasks/AssignTaskHandler.cs` | `AssignTaskCommand(int, string?)` | `POST /tasks/{id}/assign` |
+| `Handlers/Tasks/SnoozeTaskHandler.cs` | `SnoozeTaskCommand(int, DateTime?)` | `POST /tasks/{id}/snooze` |
+| `Handlers/Tasks/SetTaskPriorityHandler.cs` | `SetTaskPriorityCommand(int, TaskPriority)` | `POST /tasks/{id}/priority` |
+| `Handlers/Tasks/WatchTaskHandler.cs` | `WatchTaskCommand(int)` (idempotent, uses `IBeaconUserContext`) | `POST /tasks/{id}/watch` |
+| `Handlers/Tasks/UnwatchTaskHandler.cs` | `UnwatchTaskCommand(int)` (idempotent) | `POST /tasks/{id}/unwatch` |
+| `Handlers/Subscriptions/SetSubscriptionSlaHandler.cs` | `SetSubscriptionSlaCommand(int, int?)` (validates 1–720) | `POST /subscriptions/{id}/sla` |
+
+All `internal sealed` + primary-ctor + `IDbContextFactory<BeaconContext>`. Throw
+`InvalidOperationException` on missing entity / invalid input. Idempotent watch/unwatch
+(no-op if already in target state). `SnoozeTaskHandler` rejects past timestamps.
+`SetSubscriptionSlaHandler` enforces 1 ≤ slaHours ≤ 720 (30 days). All endpoints
+inherit `.RequireAuthorization()` from the parent `MapBeaconApi` group.
+
+### `GetTaskDetailHandler` enrichment
+
+`TaskDetailResult` and `TaskDetailsData` extended with `Priority`, `AssigneeUserId`,
+`AssigneeUserName`, `SnoozedUntil`, `SlaHours`, `WatcherCount`, `IsWatching`,
+`OwnerUserId`, `OwnerUserName`. The handler now reads `IBeaconUserContext.UserId`
+and forwards it to the service so `IsWatching` is evaluated server-side.
+
+`ITaskService.GetTaskDetails` signature changed to
+`GetTaskDetails(int taskId, string? currentUserId, CancellationToken)`. The single
+existing caller in `Beacon.UI/Components/Pages/Tasks/TaskDetails.razor` was updated
+to pass `null` (the legacy Blazor task-detail page has no per-user watcher concept).
+
+The projection stays a single `.Select(new ...)` round-trip. Username lookups for
+`AssigneeUserName`, `ResolvedByUserName`, `OwnerUserName` are correlated subqueries
+against `BeaconUser` keyed on `ExternalId` (which matches the `ClaimTypes.NameIdentifier`
+form already used by `ResolvedByUserId`). Owner is null for user-created subscriptions
+because `Subscription` has no `CreatedByUserId` audit field — only AI-actor-managed
+subscriptions surface an owner today (via `AiActor.CreatedByUserId`). Documented as a
+future-cleanup item if product wants user attribution on user-created subscriptions.
+
+### Frontend (`Beacon.SampleProject/web/src/routes/tasks/`)
+
+`queries.ts` extensions:
+
+- `TaskDetail` interface gained `priority`, `assigneeUserId`, `assigneeUserName`,
+  `snoozedUntil`, `slaHours`, `watcherCount`, `isWatching`, `ownerUserId`, `ownerUserName`.
+- New `TaskPriority` numeric union type aligned with the C# enum.
+- New hooks: `useAssignTask`, `useSnoozeTask`, `useSetTaskPriority`, `useWatchTask`,
+  `useUnwatchTask`, `useSetSubscriptionSla`. All invalidate `['task', id]` and
+  `['tasks']` on success and surface errors (incl. RFC 7807 body) via `sonner`.
+- Detail-query key normalized to `['task', id]` (was `['tasks', 'detail', id]`).
+- `useResolveTask` now also invalidates the per-task detail query.
+
+UI wiring:
+
+- **`TaskHero`**: real status pill (OPEN / SNOOZED / RESOLVED), real priority pill
+  (P1–P4 with severity color), real source pill (`aiActorName ?? "USER-DEFINED"`).
+  Assign button opens a popover with "Assign to me" / "Unassign" entries. Snooze
+  button opens a popover with 1h / 4h / 24h presets, a "Wake now" entry when
+  currently snoozed, and a custom datetime-local picker.
+- **`SlaBanner`**: SLA window now `task.slaHours ?? 24`. Banner suffix marks default
+  vs custom. Admin gear (gated on `useIsAdmin()`) opens an inline editor that calls
+  `useSetSubscriptionSla`; "Use default" sends `slaHours: null`.
+- **`TaskInfoCard`**: Priority is now a `<select>` wired to `useSetTaskPriority`
+  (disabled when resolved). Assignee row shows the real assignee with a "claim"
+  link calling `useAssignTask({ assigneeUserId: currentUser.userId })`. New
+  "Snoozed until" row.
+- **`RightRail`**: "Claim ownership" next-step now gates on `!task.assigneeUserId`
+  (real condition). People card shows real Assignee + Owner + Resolved-by, and a
+  Watchers row with live count and a Watch / Watching toggle button wired to
+  `useWatchTask` / `useUnwatchTask`. Keyboard-shortcut callout updated to include `S`.
+- **`TaskSaveBar`**: Snooze and Assign buttons fire real mutations directly (no
+  passed-in handlers). "Assign to me" flips to "Unassign me" when already assigned to
+  the current user. Hint text now lists R / A / S / C.
+- **`TaskDetailPage`**: binds R / A / S / C keyboard shortcuts on `document` via a
+  `useEffect`, ignoring events from input/textarea/select/contenteditable so typing
+  in the composer doesn't trigger them. C focuses the composer textarea by id.
+- **`InvestigationLogCard`**: accepts an optional `textareaId` prop so the page can
+  target it from the C shortcut. The composer is already toolbar-free
+  (attach/code/mention buttons were never built — design carry-over only).
+
+### Activity timeline — deliberate non-coverage
+
+Assign / Unassign / Snooze / Unsnooze / Priority change / Watch / Unwatch
+intentionally do NOT show up in the Activity tab. There is no task-event audit log
+table today, and `Comment`/execution-history won't capture these. Adding fake
+client-synthesized entries would violate §9.1 (no fake data). The Activity tab
+remains the merge of: task creation + executions + comments + resolution.
+Surfacing these mutations in the timeline requires a follow-up: add a
+`QueryTaskEvent` entity (or extend the `Comment` table with a `Kind` discriminator)
+and emit rows from the new handlers.
+
+### Verification (after wire-up)
+
+- `dotnet build Beacon.SampleProject -c Release --property WarningLevel=0` — green.
+- `dotnet test Beacon.Tests -c Release` — green, **35 / 35**. The OpenAPI contract
+  test picks up the six new operationIds (AssignTask, SnoozeTask, SetTaskPriority,
+  WatchTask, UnwatchTask, SetSubscriptionSla).
+- `npm run build` — green.
+- `npm test` — green, **5 / 5**.
+- After clearing `*.dswa.cache.json` in `Beacon.SampleProject/obj/` (stale-asset
+  cache item from `migrations-workflow.md`), build is clean.
+
+### Caveats / future cleanup
+
+- `Subscription` lacks a `CreatedByUserId`. Owner attribution only works for
+  AI-managed subscriptions today.
+- The numeric warning at migration generation about `Priority`'s sentinel is benign:
+  the column has a DB default of `3` (Normal) and inserts go through tracked
+  entities, so the default kicks in only on raw inserts that omit the column.
+- Custom snooze input uses `datetime-local`; the value is converted to ISO UTC
+  before being sent to the server.
+- Watch/Unwatch idempotency lives in the handlers; the UI happily re-fires either,
+  guarded by the local mutation `isPending`.

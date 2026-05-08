@@ -38,6 +38,24 @@ public record TaskDetailsData
     /// Name of the AI Actor managing the subscription
     /// </summary>
     public string? AiActorName { get; init; }
+
+    public TaskPriority Priority { get; init; }
+
+    public string? AssigneeUserId { get; init; }
+
+    public string? AssigneeUserName { get; init; }
+
+    public DateTime? SnoozedUntil { get; init; }
+
+    public int? SlaHours { get; init; }
+
+    public int WatcherCount { get; init; }
+
+    public bool IsWatching { get; init; }
+
+    public string? OwnerUserId { get; init; }
+
+    public string? OwnerUserName { get; init; }
 }
 
 public record SubscriptionSummary(int Id, string Name, string? Description);

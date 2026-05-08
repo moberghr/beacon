@@ -6,6 +6,7 @@ using Beacon.Core.Data.Entities.DataMigration;
 using Beacon.Core.Data.Entities.DataQuality;
 using Beacon.Core.Data.Entities.Metadata;
 using Beacon.Core.Data.Entities.Projects;
+using Beacon.Core.Data.Enums;
 using System.Linq.Expressions;
 
 namespace Beacon.Core.Data;
@@ -43,6 +44,8 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
     public DbSet<Notification> Notifications => Set<Notification>();
 
     public DbSet<QueryTask> QueryTasks => Set<QueryTask>();
+
+    public DbSet<TaskWatcher> TaskWatchers => Set<TaskWatcher>();
 
     public DbSet<MigrationJob> MigrationJobs => Set<MigrationJob>();
 
@@ -157,6 +160,7 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
         ConfigureMigrationEntities(modelBuilder);
         ConfigureMetadataEntities(modelBuilder);
         ConfigureTaskEntity(modelBuilder);
+        ConfigureTaskWatcherEntities(modelBuilder);
         ConfigureCommentEntity(modelBuilder);
         ConfigureAnomalyEntities(modelBuilder);
         ConfigureAiEntities(modelBuilder);
@@ -345,6 +349,17 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
                   .HasMaxLength(2000)
                   .IsUnicode(true);
 
+            entity.Property(t => t.AssigneeUserId)
+                  .HasMaxLength(100);
+
+            entity.Property(t => t.Priority)
+                  .HasConversion<int>()
+                  .HasDefaultValue(TaskPriority.Normal);
+
+            entity.HasIndex(t => t.AssigneeUserId);
+            entity.HasIndex(t => t.SnoozedUntil);
+            entity.HasIndex(t => t.Priority);
+
             // One-to-many: Task has many Notifications
             entity.HasMany(t => t.Notifications)
                   .WithOne(n => n.Task)
@@ -355,6 +370,26 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
                   .WithMany()
                   .HasForeignKey(t => t.SubscriptionId)
                   .OnDelete(DeleteBehavior.Restrict);
+        });
+    }
+
+    protected static void ConfigureTaskWatcherEntities(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<TaskWatcher>(entity =>
+        {
+            // Composite key
+            entity.HasKey(w => new { w.QueryTaskId, w.UserId });
+
+            entity.Property(w => w.UserId)
+                  .HasMaxLength(100)
+                  .IsRequired();
+
+            entity.HasOne(w => w.QueryTask)
+                  .WithMany(t => t.Watchers)
+                  .HasForeignKey(w => w.QueryTaskId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(w => w.UserId);
         });
     }
 

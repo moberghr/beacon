@@ -1,14 +1,17 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Icon } from '@/components/Icon';
 import { EmptyState } from '@/components/data/EmptyState';
+import { useAuth } from '@/auth/useAuth';
 import { formatRelativeTime } from '@/lib/format';
 import {
+  useAssignTask,
+  useSnoozeTask,
+  useTaskCommentsQuery,
   useTaskDetailQuery,
   useTaskExecutionsQuery,
   useTaskRelatedQuery,
   useTaskResultHistoryQuery,
-  useTaskCommentsQuery,
 } from './queries';
 import { ResolveTaskDialog } from './ResolveTaskDialog';
 import { TaskHero } from './parts/TaskHero';
@@ -22,6 +25,7 @@ import { RightRail } from './parts/RightRail';
 import { TaskSaveBar } from './parts/TaskSaveBar';
 
 const SLA_HOURS_DEFAULT = 24;
+const COMMENT_TEXTAREA_ID = 'investigation-log-textarea';
 
 export default function TaskDetailPage() {
   const params = useParams<{ id: string }>();
@@ -36,6 +40,50 @@ export default function TaskDetailPage() {
   const related = useTaskRelatedQuery(validId);
   const history = useTaskResultHistoryQuery(validId);
   const comments = useTaskCommentsQuery(validId);
+
+  const { data: currentUser } = useAuth();
+  // Hooks must be called unconditionally — initialize even when validId is unavailable.
+  const assign = useAssignTask(validId ?? 0);
+  const snooze = useSnoozeTask(validId ?? 0);
+
+  const onResolve = useCallback(() => setResolveOpen(true), []);
+
+  const task = detail.data;
+
+  // Keyboard shortcuts: R resolve, A assign-to-me, S snooze 1h, C focus comment.
+  // Ignored when typing in inputs/textareas/contenteditable.
+  useEffect(() => {
+    if (!task) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName?.toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+      if (target?.isContentEditable) return;
+
+      const k = e.key.toLowerCase();
+      if (k === 'r' && !task.resolved) {
+        e.preventDefault();
+        setResolveOpen(true);
+      } else if (k === 'a' && !task.resolved && currentUser?.userId) {
+        e.preventDefault();
+        if (task.assigneeUserId !== currentUser.userId) {
+          assign.mutate({ assigneeUserId: currentUser.userId });
+        }
+      } else if (k === 's' && !task.resolved) {
+        e.preventDefault();
+        snooze.mutate({
+          snoozeUntil: new Date(Date.now() + 3_600_000).toISOString(),
+        });
+      } else if (k === 'c') {
+        e.preventDefault();
+        const ta = document.getElementById(COMMENT_TEXTAREA_ID) as HTMLTextAreaElement | null;
+        ta?.focus();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [task, currentUser?.userId, assign, snooze]);
 
   if (!Number.isFinite(id)) {
     return (
@@ -57,7 +105,7 @@ export default function TaskDetailPage() {
     );
   }
 
-  if (detail.isLoading || !detail.data) {
+  if (detail.isLoading || !task) {
     return (
       <div className="page">
         <div className="muted">Loading task…</div>
@@ -65,24 +113,20 @@ export default function TaskDetailPage() {
     );
   }
 
-  const task = detail.data;
   const ageMs = Date.now() - new Date(task.createdAt).getTime();
   const ageHours = Math.max(0, ageMs / 3_600_000);
   const ageLabel = formatAge(ageMs);
   const ageDetail = `since ${formatRelativeTime(task.createdAt)}`;
-  const slaRemainingMs = SLA_HOURS_DEFAULT * 3_600_000 - ageMs;
+  const slaHours = task.slaHours ?? SLA_HOURS_DEFAULT;
+  const slaRemainingMs = slaHours * 3_600_000 - ageMs;
   const slaRemainingLabel = !task.resolved && slaRemainingMs > 0 ? formatAge(slaRemainingMs) : null;
-
-  const onResolve = () => setResolveOpen(true);
 
   const relatedResolvedCount = related.data?.related.filter(x => x.resolved).length ?? 0;
 
   return (
     <div className="page" data-screen-label="04 Task Detail">
       <TaskHero
-        taskId={task.id}
-        resolved={task.resolved}
-        subscriptionName={task.subscriptionName}
+        task={task}
         ageLabel={ageLabel}
         slaRemainingLabel={slaRemainingLabel}
         onResolve={onResolve}
@@ -91,10 +135,13 @@ export default function TaskDetailPage() {
       <SlaBanner
         resolved={task.resolved}
         ageHours={ageHours}
-        slaHours={SLA_HOURS_DEFAULT}
+        slaHours={slaHours}
         resolvedByName={task.resolvedByUserName}
         resolvedRelative={task.resolvedAt ? formatRelativeTime(task.resolvedAt) : null}
         notificationCount={task.notificationCount}
+        taskId={task.id}
+        subscriptionId={task.subscriptionId}
+        customSla={task.slaHours != null}
       />
 
       <TaskKpiGrid
@@ -123,14 +170,14 @@ export default function TaskDetailPage() {
               history.refetch();
             }}
           />
-          <InvestigationLogCard taskId={task.id} />
+          <InvestigationLogCard taskId={task.id} textareaId={COMMENT_TEXTAREA_ID} />
         </div>
 
         <RightRail task={task} relatedResolvedCount={relatedResolvedCount} />
       </div>
 
       <TaskSaveBar
-        resolved={task.resolved}
+        task={task}
         ageLabel={ageLabel}
         slaRemainingLabel={slaRemainingLabel}
         onResolve={onResolve}
