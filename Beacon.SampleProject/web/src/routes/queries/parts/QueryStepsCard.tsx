@@ -1,13 +1,18 @@
+import { Link } from 'react-router-dom';
 import { Icon } from '@/components/Icon';
 import type { QueryDetail, QueryStep } from '../queries';
 
 interface QueryStepsCardProps {
   query: QueryDetail;
-  /** Path to the legacy Blazor edit screen; used until Phase 5f ships the React editor. */
-  legacyEditHref: string;
+  /**
+   * Phase 5f: edit goes to the in-app React editor (`/queries/:id/edit`).
+   * `react-router` prefixes the basename, so callers pass a path-only string
+   * and we render via `<Link>` (never `/app/...`).
+   */
+  editHref: string;
 }
 
-export function QueryStepsCard({ query, legacyEditHref }: QueryStepsCardProps) {
+export function QueryStepsCard({ query, editHref }: QueryStepsCardProps) {
   const steps = [...query.steps].sort((a, b) => a.stepOrder - b.stepOrder);
   const totalParams = steps.reduce((sum, s) => sum + s.parameters.length, 0);
   const stepsLabel = `${steps.length} step${steps.length === 1 ? '' : 's'} · ${totalParams} param${totalParams === 1 ? '' : 's'}`;
@@ -19,9 +24,9 @@ export function QueryStepsCard({ query, legacyEditHref }: QueryStepsCardProps) {
         <h3 className="card__title">Query steps</h3>
         <span className="card__sub">{stepsLabel}</span>
         <div className="card__actions">
-          <a className="btn btn--primary" href={legacyEditHref}>
-            <Icon.Sliders size={13} className="btn__icon" /> Edit in legacy editor
-          </a>
+          <Link className="btn btn--primary" to={editHref}>
+            <Icon.Sliders size={13} className="btn__icon" /> Edit
+          </Link>
         </div>
       </div>
       <div className="card__body">
