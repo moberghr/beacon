@@ -27,6 +27,12 @@ const DataSourcesListPage = lazy(() => import('./routes/data-sources/DataSources
 const AdminSettingsPage = lazy(() => import('./routes/admin-settings/AdminSettingsPage'));
 const SettingsPage = lazy(() => import('./routes/settings/SettingsPage'));
 const NotificationDetailPage = lazy(() => import('./routes/notifications/NotificationDetailPage'));
+const DataCatalogPage = lazy(() => import('./routes/data-catalog/DataCatalogPage'));
+const DataQualityPage = lazy(() => import('./routes/data-quality/DataQualityPage'));
+const DataContractDetailPage = lazy(() => import('./routes/data-quality/DataContractDetailPage'));
+const McpPlaygroundPage = lazy(() => import('./routes/mcp/McpPlaygroundPage'));
+const McpLearningPage = lazy(() => import('./routes/mcp/McpLearningPage'));
+const McpSettingsPage = lazy(() => import('./routes/mcp/McpSettingsPage'));
 
 function PageFallback() {
   return (
@@ -74,6 +80,12 @@ export default function App() {
             <Route path="/data-sources" element={lazyRoute(DataSourcesListPage)} />
             <Route path="/admin-settings" element={lazyRoute(AdminSettingsPage)} />
             <Route path="/settings" element={lazyRoute(SettingsPage)} />
+            <Route path="/data-catalog" element={lazyRoute(DataCatalogPage)} />
+            <Route path="/data-quality" element={lazyRoute(DataQualityPage)} />
+            <Route path="/data-quality/:id" element={lazyRoute(DataContractDetailPage)} />
+            <Route path="/mcp-playground" element={lazyRoute(McpPlaygroundPage)} />
+            <Route path="/mcp-learning" element={lazyRoute(McpLearningPage)} />
+            <Route path="/mcp-settings" element={lazyRoute(McpSettingsPage)} />
             <Route path="*" element={<Navigate to="/home" replace />} />
           </Route>
         </Routes>
