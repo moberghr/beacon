@@ -1,5 +1,6 @@
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.Queries;
+using Beacon.Core.Models.Queries;
 using Beacon.Core.Services;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
@@ -58,8 +59,52 @@ internal static class QueriesEndpoints
             .WithName("GetQueryChangeHistory")
             .Produces<GetQueryChangeHistoryResult>(StatusCodes.Status200OK);
 
+        queries.MapPut("/{id:int}", async (
+                int id,
+                QueryData body,
+                IMediator mediator,
+                CancellationToken ct) =>
+            {
+                var result = await mediator.Send(new UpdateQueryCommand
+                {
+                    QueryId = id,
+                    Query = body,
+                }, ct);
+                return Results.Ok(result);
+            })
+            .WithName("UpdateQuery")
+            .Produces<UpdateQueryResult>(StatusCodes.Status200OK);
+
+        queries.MapPost("/{id:int}/preview", async (
+                int id,
+                IMediator mediator,
+                CancellationToken ct) =>
+                Results.Ok(await mediator.Send(new ExecuteQueryPreviewCommand
+                {
+                    QueryId = id,
+                }, ct)))
+            .WithName("ExecuteQueryPreview")
+            .Produces<QueryExecutionResult>(StatusCodes.Status200OK);
+
+        queries.MapPost("/{id:int}/steps/{stepOrder:int}/preview", async (
+                int id,
+                int stepOrder,
+                ExecuteStepPreviewRequest? body,
+                IMediator mediator,
+                CancellationToken ct) =>
+                Results.Ok(await mediator.Send(new ExecuteStepPreviewCommand
+                {
+                    QueryId = id,
+                    StepOrder = stepOrder,
+                    Parameters = body?.Parameters,
+                }, ct)))
+            .WithName("ExecuteStepPreview")
+            .Produces<QueryStepResult>(StatusCodes.Status200OK);
+
         return group;
     }
 }
 
 internal sealed record ToggleQueryLockRequest(bool Lock, string? UserId);
+
+internal sealed record ExecuteStepPreviewRequest(List<ParameterValue>? Parameters);

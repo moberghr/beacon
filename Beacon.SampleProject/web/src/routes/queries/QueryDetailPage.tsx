@@ -27,7 +27,9 @@ export default function QueryDetailPage() {
   const detail = useQueryDetailQuery(validId);
   const query = detail.data;
 
-  const legacyEditHref = `/beacon/queries/${id}`;
+  // Phase 5f: edit moved to the React `/queries/:id/edit` page.
+  const editHref = `/queries/${id}/edit`;
+  const legacyEditHref = editHref;
   const legacyExecuteHref = `/beacon/queries/${id}`;
   const legacyAddSubscriptionHref = `/beacon/subscriptions/add/${id}`;
 
@@ -97,7 +99,7 @@ export default function QueryDetailPage() {
       <div className="q-layout">
         <div className="q-section">
           <QueryInfoCard query={query} />
-          <QueryStepsCard query={query} legacyEditHref={legacyEditHref} />
+          <QueryStepsCard query={query} editHref={editHref} />
           <FinalQueryCard query={query} />
           <QueryTabsCard query={query} tab={tab} onTabChange={setTab} />
         </div>

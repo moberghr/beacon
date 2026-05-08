@@ -12,6 +12,7 @@ const AboutPage = lazy(() => import('./routes/about/AboutPage'));
 const ControlTowerPage = lazy(() => import('./routes/control-tower/ControlTowerPage'));
 const MigrationHistoryPage = lazy(() => import('./routes/migration-history/MigrationHistoryPage'));
 const QueryDetailPage = lazy(() => import('./routes/queries/QueryDetailPage'));
+const QueryEditorPage = lazy(() => import('./routes/queries/QueryEditorPage'));
 const QueryVersionsPage = lazy(() => import('./routes/queries/QueryVersionsPage'));
 const QueryVersionDetailPage = lazy(() => import('./routes/queries/QueryVersionDetailPage'));
 const RecipientsListPage = lazy(() => import('./routes/recipients/RecipientsListPage'));
@@ -59,6 +60,7 @@ export default function App() {
             <Route path="/control-tower" element={lazyRoute(ControlTowerPage)} />
             <Route path="/migration-history" element={lazyRoute(MigrationHistoryPage)} />
             <Route path="/queries/:id" element={lazyRoute(QueryDetailPage)} />
+            <Route path="/queries/:id/edit" element={lazyRoute(QueryEditorPage)} />
             <Route path="/queries/:id/versions" element={lazyRoute(QueryVersionsPage)} />
             <Route path="/queries/:id/versions/:versionId" element={lazyRoute(QueryVersionDetailPage)} />
             <Route path="/recipients" element={lazyRoute(RecipientsListPage)} />

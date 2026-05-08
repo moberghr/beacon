@@ -198,3 +198,155 @@ export const CHANGE_SOURCE_LABEL: Record<number, string> = {
   2: 'AI actor',
   3: 'import',
 };
+
+// ---------- Editor: parameter type, save, preview ----------
+//
+// Wire-aligned with `Beacon.Core.Data.Enums.ParameterType` and the new
+// `UpdateQuery` / `ExecuteQueryPreview` / `ExecuteStepPreview` handlers
+// added in Phase 3 Batch 5f.
+
+export const PARAMETER_TYPE = {
+  Number: 1,
+  DateTime: 2,
+  String: 3,
+} as const;
+export type ParameterTypeId = typeof PARAMETER_TYPE[keyof typeof PARAMETER_TYPE];
+
+export const PARAMETER_TYPE_LABEL: Record<ParameterTypeId, string> = {
+  [PARAMETER_TYPE.Number]: 'Number',
+  [PARAMETER_TYPE.DateTime]: 'DateTime',
+  [PARAMETER_TYPE.String]: 'String',
+};
+
+/**
+ * Wire shape sent to PUT /beacon/api/queries/{id}. Mirrors `QueryData` on
+ * the backend; only the fields the React editor edits are required, the
+ * remainder ride along untouched from the loaded detail.
+ */
+export interface UpdateQueryStepParameterPayload {
+  name: string;
+  type: ParameterTypeId;
+  description: string | null;
+  placeholder: string | null;
+}
+
+export interface UpdateQueryStepPayload {
+  stepId: number;
+  stepOrder: number;
+  name: string;
+  description: string | null;
+  sqlValue: string;
+  dataSourceId: number;
+  dataSourceName: string;
+  dataSourceType: number;
+  databaseEngineType: number | null;
+  parameters: UpdateQueryStepParameterPayload[];
+}
+
+export interface UpdateQueryPayload {
+  queryId: number;
+  name: string;
+  description: string | null;
+  steps: UpdateQueryStepPayload[];
+  finalQuery: string | null;
+  finalQueryDataSourceId: number | null;
+}
+
+export interface UpdateQueryResult {
+  queryId: number;
+  success: boolean;
+}
+
+export function useUpdateQueryMutation(id: number | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: UpdateQueryPayload) =>
+      fetchJson<UpdateQueryResult>(`/beacon/api/queries/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['query', id] });
+      qc.invalidateQueries({ queryKey: ['queries', id, 'versions'] });
+      toast.success('Query saved');
+    },
+    onError: (err: unknown) => {
+      toast.error(describeError(err, 'Save failed'));
+    },
+  });
+}
+
+// ---------- Preview ----------
+//
+// Wire-aligned with `Beacon.Core.Models.Queries.QueryStepResult` and
+// `QueryExecutionResult`. Rows arrive as `Dictionary<string, object?>` —
+// keys are column names, values are JSON primitives or null.
+
+export type PreviewRow = Record<string, unknown>;
+
+export interface QueryStepPreviewResult {
+  stepOrder: number;
+  stepName: string;
+  sqlQuery: string;
+  dataSourceName: string;
+  databaseEngine: string;
+  databaseEngineType: number;
+  previewResults: PreviewRow[];
+  allResults: PreviewRow[];
+  totalRows: number;
+  executionTimeMs: number;
+  success: boolean;
+  errorMessage: string | null;
+}
+
+export interface QueryExecutionPreviewResult {
+  stepResults: QueryStepPreviewResult[];
+  finalResult: {
+    success: boolean;
+    error: string | null;
+    rowCount: number;
+    rows: PreviewRow[];
+    columns: string[];
+    executionTime: string;
+  } | null;
+  success: boolean;
+  errorMessage: string | null;
+  totalExecutionTimeMs: number;
+  isMultiStep: boolean;
+  isCrossDataSource: boolean;
+  isCrossDatabase: boolean;
+  dataSourcesInvolved: string[];
+}
+
+export interface ParameterValueInput {
+  name: string;
+  value: string;
+}
+
+export function usePreviewStepMutation(id: number | undefined) {
+  return useMutation({
+    mutationFn: (vars: { stepOrder: number; parameters?: ParameterValueInput[] }) =>
+      fetchJson<QueryStepPreviewResult>(
+        `/beacon/api/queries/${id}/steps/${vars.stepOrder}/preview`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ parameters: vars.parameters ?? null }),
+        },
+      ),
+    onError: (err: unknown) => {
+      toast.error(describeError(err, 'Step preview failed'));
+    },
+  });
+}
+
+export function usePreviewQueryMutation(id: number | undefined) {
+  return useMutation({
+    mutationFn: () =>
+      fetchJson<QueryExecutionPreviewResult>(`/beacon/api/queries/${id}/preview`, {
+        method: 'POST',
+      }),
+    onError: (err: unknown) => {
+      toast.error(describeError(err, 'Query preview failed'));
+    },
+  });
+}
