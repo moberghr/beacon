@@ -79,7 +79,7 @@ function StepRow({ step }: { step: QueryStep }) {
             <div className="params__chips">
               {step.parameters.map(p => (
                 <span key={p.name} className="chip mono">
-                  @{p.name}
+                  {p.placeholder ?? `{${p.name}}`}
                 </span>
               ))}
             </div>

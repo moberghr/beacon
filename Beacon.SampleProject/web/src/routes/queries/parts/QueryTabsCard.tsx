@@ -22,7 +22,7 @@ export function QueryTabsCard({ query, tab, onTabChange }: QueryTabsCardProps) {
           <Icon.Inbox size={13} /> Subscriptions <span className="tab__count">{query.subscriptions.length}</span>
         </Tab>
         <Tab active={tab === 'executions'} onClick={() => onTabChange('executions')}>
-          <Icon.Bolt size={13} /> Executions <span className="tab__count">{query.notificationHistory.length}</span>
+          <Icon.Bolt size={13} /> Executions <span className="tab__count">{query.totalExecutions}</span>
         </Tab>
         <Tab active={tab === 'versions'} onClick={() => onTabChange('versions')}>
           <Icon.Clock size={13} /> Versions

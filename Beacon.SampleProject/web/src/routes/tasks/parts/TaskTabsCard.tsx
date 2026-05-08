@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import type { ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import { Icon } from '@/components/Icon';
 import { formatDateTime, formatRelativeTime } from '@/lib/format';
 import type {
@@ -154,7 +155,7 @@ export function TaskTabsCard({
                 <tbody>
                   {related.map(r => (
                     <tr key={r.id}>
-                      <td><a href={`/tasks/${r.id}`} className="mono" style={{ color: 'var(--brand-600)' }}>#{r.id}</a></td>
+                      <td><Link to={`/tasks/${r.id}`} className="mono" style={{ color: 'var(--brand-600)' }}>#{r.id}</Link></td>
                       <td className="mono subtle">{formatDateTime(r.createdAt)}</td>
                       <td className="mono" style={{ textAlign: 'right' }}>{r.latestResultCount}</td>
                       <td>

@@ -61,7 +61,11 @@ function Chart({ points }: { points: Point[] }) {
 
   const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${xFor(i)} ${yFor(p.resultCount)}`).join(' ');
   const areaPath = `M ${xFor(0)} ${bottom} ${points.map((p, i) => `L ${xFor(i)} ${yFor(p.resultCount)}`).join(' ')} L ${xFor(points.length - 1)} ${bottom} Z`;
-  const ticks = Array.from({ length: Math.min(6, maxValue + 1) }, (_, v) => v);
+  // Distribute 6 ticks across [0, maxValue], rounded so labels read cleanly
+  // for any range. Previously the ticks were hardcoded 0..5 which compressed
+  // the entire y-axis into a 5-pixel band when maxValue >> 5.
+  const ticks = Array.from({ length: 6 }, (_, i) => Math.round((i * maxValue) / 5));
+  const thresholdY = yFor(0);
 
   const formatTime = (iso: string) => {
     const d = new Date(iso);
@@ -76,12 +80,12 @@ function Chart({ points }: { points: Point[] }) {
           <stop offset="100%" stopColor="var(--brand-500)" stopOpacity="0" />
         </linearGradient>
       </defs>
-      <line x1={left} x2={right} y1={120} y2={120} stroke="var(--warn)" strokeOpacity="0.4" strokeWidth={1} strokeDasharray="3 4" />
-      <text x={right - 4} y={115} fontFamily="var(--font-mono)" fontSize={9} fill="var(--warn)" textAnchor="end">threshold = 0</text>
-      {ticks.map(v => (
-        <g key={v}>
-          <line x1={left} x2={right} y1={bottom - (v / maxValue) * (bottom - top)} y2={bottom - (v / maxValue) * (bottom - top)} stroke="var(--border)" strokeOpacity="0.6" />
-          <text x={left - 8} y={bottom - (v / maxValue) * (bottom - top) + 4} fontFamily="var(--font-mono)" fontSize={10} fill="var(--text-subtle)" textAnchor="end">{v}</text>
+      <line x1={left} x2={right} y1={thresholdY} y2={thresholdY} stroke="var(--warn)" strokeOpacity="0.4" strokeWidth={1} strokeDasharray="3 4" />
+      <text x={right - 4} y={thresholdY - 5} fontFamily="var(--font-mono)" fontSize={9} fill="var(--warn)" textAnchor="end">threshold = 0</text>
+      {ticks.map((v, i) => (
+        <g key={i}>
+          <line x1={left} x2={right} y1={yFor(v)} y2={yFor(v)} stroke="var(--border)" strokeOpacity="0.6" />
+          <text x={left - 8} y={yFor(v) + 4} fontFamily="var(--font-mono)" fontSize={10} fill="var(--text-subtle)" textAnchor="end">{v}</text>
         </g>
       ))}
       <path d={areaPath} fill="url(#task-area)" />

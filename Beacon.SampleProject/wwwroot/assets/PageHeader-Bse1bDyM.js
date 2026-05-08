@@ -1,2 +1,0 @@
-import{j as e}from"./index-DJkGJ8aZ.js";function i({title:r,sub:a,actions:s}){return e.jsxs("div",{className:"page-header",children:[e.jsxs("div",{children:[e.jsx("h1",{className:"page-header__title",children:r}),a&&e.jsx("p",{className:"page-header__sub",children:a})]}),s&&e.jsx("div",{className:"page-header__actions",children:s})]})}export{i as P};
-//# sourceMappingURL=PageHeader-Bse1bDyM.js.map

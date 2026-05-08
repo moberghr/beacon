@@ -31,11 +31,7 @@ export function useApproveQueryChange() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, comment }: ApprovalActionArgs) =>
-      beaconApi().approveQueryChange(id, {
-        reviewerUserId: null,
-        reviewerName: null,
-        comment: comment ?? null,
-      }),
+      beaconApi().approveQueryChange(id, { comment: comment ?? null }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['approvals'] }),
   });
 }
@@ -44,11 +40,7 @@ export function useRejectQueryChange() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, comment }: ApprovalActionArgs) =>
-      beaconApi().rejectQueryChange(id, {
-        reviewerUserId: null,
-        reviewerName: null,
-        comment: comment ?? null,
-      }),
+      beaconApi().rejectQueryChange(id, { comment: comment ?? null }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['approvals'] }),
   });
 }

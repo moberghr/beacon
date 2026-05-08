@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Beacon.Core.Handlers.Ai.AiActor;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
@@ -88,31 +89,31 @@ internal static class AiActorsEndpoints
             .Produces<GetAiActorPlanResult>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status404NotFound);
 
-        actors.MapPost("/plans/{id:int}/approve", async (int id, AiActorPlanDecisionBody body, IMediator mediator, CancellationToken ct) =>
+        actors.MapPost("/plans/{id:int}/approve", async (int id, AiActorPlanDecisionBody body, IMediator mediator, HttpContext httpContext, CancellationToken ct) =>
                 Results.Ok(await mediator.Send(new ApproveAiActorPlanCommand
                 {
                     PlanId = id,
-                    UserId = body.UserId,
+                    UserId = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value,
                     Comment = body.Comment,
                 }, ct)))
             .WithName("ApproveAiActorPlan")
             .Produces<ApproveAiActorPlanResult>(StatusCodes.Status200OK);
 
-        actors.MapPost("/plans/{id:int}/reject", async (int id, AiActorPlanRejectBody body, IMediator mediator, CancellationToken ct) =>
+        actors.MapPost("/plans/{id:int}/reject", async (int id, AiActorPlanRejectBody body, IMediator mediator, HttpContext httpContext, CancellationToken ct) =>
                 Results.Ok(await mediator.Send(new RejectAiActorPlanCommand
                 {
                     PlanId = id,
-                    UserId = body.UserId,
+                    UserId = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value,
                     Reason = body.Reason,
                 }, ct)))
             .WithName("RejectAiActorPlan")
             .Produces<RejectAiActorPlanResult>(StatusCodes.Status200OK);
 
-        actors.MapPost("/plans/{id:int}/request-revision", async (int id, AiActorPlanRevisionBody body, IMediator mediator, CancellationToken ct) =>
+        actors.MapPost("/plans/{id:int}/request-revision", async (int id, AiActorPlanRevisionBody body, IMediator mediator, HttpContext httpContext, CancellationToken ct) =>
                 Results.Ok(await mediator.Send(new RequestPlanRevisionCommand
                 {
                     PlanId = id,
-                    UserId = body.UserId,
+                    UserId = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value,
                     Feedback = body.Feedback,
                 }, ct)))
             .WithName("RequestPlanRevision")
@@ -123,6 +124,6 @@ internal static class AiActorsEndpoints
 }
 
 internal sealed record RefineAiActorBody(string Feedback);
-internal sealed record AiActorPlanDecisionBody(string? UserId, string? Comment);
-internal sealed record AiActorPlanRejectBody(string? UserId, string Reason);
-internal sealed record AiActorPlanRevisionBody(string? UserId, string Feedback);
+internal sealed record AiActorPlanDecisionBody(string? Comment);
+internal sealed record AiActorPlanRejectBody(string Reason);
+internal sealed record AiActorPlanRevisionBody(string Feedback);
