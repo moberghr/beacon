@@ -6,6 +6,7 @@ namespace Beacon.SampleProject.Endpoints;
 internal static class BeaconApiEndpoints
 {
     public const string AuthPolicyName = "BeaconApi";
+    public const string AdminPolicyName = "BeaconApiAdmin";
 
     public static IServiceCollection AddBeaconApiAuthorization(this IServiceCollection services)
     {
@@ -13,6 +14,11 @@ internal static class BeaconApiEndpoints
         {
             options.AddPolicy(AuthPolicyName, new AuthorizationPolicyBuilder(CookieAuthenticationDefaults.AuthenticationScheme)
                 .RequireAuthenticatedUser()
+                .Build());
+
+            options.AddPolicy(AdminPolicyName, new AuthorizationPolicyBuilder(CookieAuthenticationDefaults.AuthenticationScheme)
+                .RequireAuthenticatedUser()
+                .RequireRole("Admin")
                 .Build());
         });
 
@@ -44,6 +50,11 @@ internal static class BeaconApiEndpoints
         group.MapControlTowerEndpoints();
         group.MapMigrationsEndpoints();
         group.MapRecipientsEndpoints();
+        group.MapSubscriptionsEndpoints();
+        group.MapDataSourcesEndpoints();
+        group.MapNotificationActionEndpoints();
+        group.MapAdminSettingsEndpoints();
+        group.MapUserSettingsEndpoints();
         group.MapTasksEndpoints();
         group.MapUsersEndpoints();
 

@@ -19,6 +19,11 @@ const TaskDetailPage = lazy(() => import('./routes/tasks/TaskDetailPage'));
 const ApprovalsListPage = lazy(() => import('./routes/approvals/ApprovalsListPage'));
 const ApiKeysListPage = lazy(() => import('./routes/api-keys/ApiKeysListPage'));
 const UsersListPage = lazy(() => import('./routes/users/UsersListPage'));
+const SubscriptionsListPage = lazy(() => import('./routes/subscriptions/SubscriptionsListPage'));
+const DataSourcesListPage = lazy(() => import('./routes/data-sources/DataSourcesListPage'));
+const AdminSettingsPage = lazy(() => import('./routes/admin-settings/AdminSettingsPage'));
+const SettingsPage = lazy(() => import('./routes/settings/SettingsPage'));
+const NotificationDetailPage = lazy(() => import('./routes/notifications/NotificationDetailPage'));
 
 function PageFallback() {
   return (
@@ -48,6 +53,7 @@ export default function App() {
             <Route path="/projects" element={lazyRoute(ProjectsListPage)} />
             <Route path="/projects/:id" element={lazyRoute(ProjectDetailPage)} />
             <Route path="/notifications" element={lazyRoute(NotificationsPage)} />
+            <Route path="/notifications/:id" element={lazyRoute(NotificationDetailPage)} />
             <Route path="/control-tower" element={lazyRoute(ControlTowerPage)} />
             <Route path="/migration-history" element={lazyRoute(MigrationHistoryPage)} />
             <Route path="/queries/:id/versions" element={lazyRoute(QueryVersionsPage)} />
@@ -58,6 +64,10 @@ export default function App() {
             <Route path="/approvals" element={lazyRoute(ApprovalsListPage)} />
             <Route path="/api-keys" element={lazyRoute(ApiKeysListPage)} />
             <Route path="/users" element={lazyRoute(UsersListPage)} />
+            <Route path="/subscriptions" element={lazyRoute(SubscriptionsListPage)} />
+            <Route path="/data-sources" element={lazyRoute(DataSourcesListPage)} />
+            <Route path="/admin-settings" element={lazyRoute(AdminSettingsPage)} />
+            <Route path="/settings" element={lazyRoute(SettingsPage)} />
             <Route path="*" element={<Navigate to="/home" replace />} />
           </Route>
         </Routes>

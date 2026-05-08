@@ -20,6 +20,10 @@ export const MIGRATED_PAGES = [
   'approvals',
   'api-keys',
   'users',
+  'subscriptions',
+  'data-sources',
+  'admin-settings',
+  'settings',
 ] as const;
 
 export type MigratedPage = (typeof MIGRATED_PAGES)[number];

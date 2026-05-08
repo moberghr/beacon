@@ -27,6 +27,25 @@ internal static class NotificationsEndpoints
             .WithName("GetNotifications")
             .Produces<GetNotificationsResult>(StatusCodes.Status200OK);
 
+        notifications.MapGet("/{id:int}", async (int id, IMediator mediator, CancellationToken ct) =>
+            {
+                var result = await mediator.Send(new GetNotificationDetailQuery(id), ct);
+                return result.Entry is null ? Results.NotFound() : Results.Ok(result);
+            })
+            .WithName("GetNotificationDetail")
+            .Produces<GetNotificationDetailResult>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status404NotFound);
+
+        return group;
+    }
+
+    /// <summary>
+    /// Stub for future mark-read / dismiss endpoints. Today the Blazor side has
+    /// no such actions either. Kept as a separate Map* extension so the
+    /// composition root can wire it once the actions ship.
+    /// </summary>
+    public static RouteGroupBuilder MapNotificationActionEndpoints(this RouteGroupBuilder group)
+    {
         return group;
     }
 }
