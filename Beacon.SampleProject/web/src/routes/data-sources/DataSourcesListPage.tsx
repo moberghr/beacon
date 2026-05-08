@@ -12,6 +12,7 @@ import {
   useDeleteDataSource,
   type DataSourceEntry,
 } from './queries';
+import { AddDataSourceDialog } from './AddDataSourceDialog';
 
 const GRID_TEMPLATE = '0.6fr 1.6fr 1fr 1fr 0.7fr 0.7fr 100px 60px';
 
@@ -20,6 +21,7 @@ export default function DataSourcesListPage() {
   const deleteMutation = useDeleteDataSource();
 
   const [deleting, setDeleting] = useState<DataSourceEntry | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
 
   const entries = data?.entries ?? [];
 
@@ -112,11 +114,10 @@ export default function DataSourcesListPage() {
               <Icon.Refresh size={14} className="btn__icon" />
               Refresh
             </button>
-            {/* Add dialog defers to Batch 5d — link out to existing Blazor flow. */}
-            <a className="btn btn--primary" href="/beacon/data-sources/add">
+            <button className="btn btn--primary" type="button" onClick={() => setAddOpen(true)}>
               <Icon.Plus size={14} className="btn__icon" />
               New data source
-            </a>
+            </button>
           </>
         }
       />
@@ -151,6 +152,8 @@ export default function DataSourcesListPage() {
           />
         </div>
       )}
+
+      <AddDataSourceDialog open={addOpen} onClose={() => setAddOpen(false)} />
 
       <ConfirmDialog
         open={deleting != null}
