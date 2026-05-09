@@ -204,7 +204,7 @@ export function CreateDataContractDialog({ editContractId, onClose }: Props) {
       <form id="data-contract-form" onSubmit={handleSubmit}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <label className="field">
-            <span className="field__label">Contract name</span>
+            <span className="field__label">Contract name <span style={{ color: 'var(--err)' }}>*</span></span>
             <input
               className="input"
               value={name}
@@ -226,7 +226,7 @@ export function CreateDataContractDialog({ editContractId, onClose }: Props) {
           </label>
 
           <label className="field">
-            <span className="field__label">Data source</span>
+            <span className="field__label">Data source <span style={{ color: 'var(--err)' }}>*</span></span>
             <select
               className="select"
               value={dataSourceId ?? ''}
@@ -242,7 +242,7 @@ export function CreateDataContractDialog({ editContractId, onClose }: Props) {
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <label className="field">
-              <span className="field__label">Schema name</span>
+              <span className="field__label">Schema name <span style={{ color: 'var(--err)' }}>*</span></span>
               <input
                 className="input"
                 value={schemaName}
@@ -252,7 +252,7 @@ export function CreateDataContractDialog({ editContractId, onClose }: Props) {
               />
             </label>
             <label className="field">
-              <span className="field__label">Table name</span>
+              <span className="field__label">Table name <span style={{ color: 'var(--err)' }}>*</span></span>
               <input
                 className="input"
                 value={tableName}
@@ -265,7 +265,7 @@ export function CreateDataContractDialog({ editContractId, onClose }: Props) {
 
           <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 12 }}>
             <label className="field">
-              <span className="field__label">Cron expression</span>
+              <span className="field__label">Cron expression <span style={{ color: 'var(--err)' }}>*</span></span>
               <input
                 className="input"
                 value={cronExpression}
@@ -354,7 +354,7 @@ export function CreateDataContractDialog({ editContractId, onClose }: Props) {
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                 <label className="field">
-                  <span className="field__label">Name</span>
+                  <span className="field__label">Name <span style={{ color: 'var(--err)' }}>*</span></span>
                   <input
                     className="input"
                     value={rule.name}
