@@ -35,6 +35,15 @@ export function Dialog({
   const dialogRef = useRef<HTMLDivElement>(null);
   const previouslyFocused = useRef<Element | null>(null);
 
+  // Latest onClose without invalidating the effect. If `onClose` were a real
+  // dep, callers passing a fresh arrow each render (e.g. `() => onClose(false)`)
+  // would re-trigger this effect on every keystroke and steal focus from
+  // whichever input the user is typing into.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
+
   useEffect(() => {
     if (!open) {
       return;
@@ -47,7 +56,7 @@ export function Dialog({
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.stopPropagation();
-        onClose();
+        onCloseRef.current();
       }
     };
     document.addEventListener('keydown', onKey);
@@ -65,7 +74,7 @@ export function Dialog({
         prev.focus();
       }
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) {
     return null;
