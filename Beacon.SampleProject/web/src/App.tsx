@@ -14,6 +14,7 @@ const MigrationHistoryPage = lazy(() => import('./routes/migration-history/Migra
 const QueriesListPage = lazy(() => import('./routes/queries/QueriesListPage'));
 const QueryDetailPage = lazy(() => import('./routes/queries/QueryDetailPage'));
 const QueryEditorPage = lazy(() => import('./routes/queries/QueryEditorPage'));
+const NewQueryPage = lazy(() => import('./routes/queries/NewQueryPage'));
 const QueryVersionsPage = lazy(() => import('./routes/queries/QueryVersionsPage'));
 const QueryVersionDetailPage = lazy(() => import('./routes/queries/QueryVersionDetailPage'));
 const RecipientsListPage = lazy(() => import('./routes/recipients/RecipientsListPage'));
@@ -89,6 +90,7 @@ export default function App() {
                   <Route path="/migration-history" element={lazyRoute(MigrationHistoryPage)} />
                   <Route path="/migration-jobs" element={lazyRoute(MigrationJobsListPage)} />
                   <Route path="/queries" element={lazyRoute(QueriesListPage)} />
+                  <Route path="/queries/new" element={lazyRoute(NewQueryPage)} />
                   <Route path="/queries/:id" element={lazyRoute(QueryDetailPage)} />
                   <Route path="/queries/:id/edit" element={lazyRoute(QueryEditorPage)} />
                   <Route path="/queries/:id/versions" element={lazyRoute(QueryVersionsPage)} />
