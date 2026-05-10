@@ -1412,6 +1412,38 @@ button { font-family: inherit; }
 }
 .sql__table-row:hover { background: var(--n-100); color: var(--text); }
 [data-theme="dark"] .sql__table-row:hover { background: oklch(22% 0.010 240); }
+.sql__column-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 7px 3px 44px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 4px;
+}
+.sql__column-row:hover { background: var(--n-100); color: var(--text); }
+[data-theme="dark"] .sql__column-row:hover { background: oklch(22% 0.010 240); }
+
+/* Editor + explorer split layout used by the query editor pages. */
+.sql-explorer-shell {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  background: var(--surface);
+}
+.sql-explorer-shell .sql__sidebar { border-right: 1px solid var(--border); }
+.sql-explorer-shell__editor { min-width: 0; display: flex; flex-direction: column; }
+@media (max-width: 900px) {
+  .sql-explorer-shell {
+    grid-template-columns: 1fr;
+  }
+  .sql-explorer-shell .sql__sidebar { border-right: 0; border-bottom: 1px solid var(--border); }
+}
 
 .sql__editor {
   display: flex;

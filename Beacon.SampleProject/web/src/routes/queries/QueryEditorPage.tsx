@@ -1,9 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Icon } from '@/components/Icon';
 import { EmptyState } from '@/components/data/EmptyState';
-import { SqlEditor } from '@/components/ui/SqlEditor';
-import { useDataSourcesQuery } from '@/routes/data-sources/queries';
+import { SqlEditor, type MonacoEditorLike } from '@/components/ui/SqlEditor';
+import { DatabaseExplorer } from '@/components/ui/DatabaseExplorer';
+import {
+  useDataSourceMetadataQuery,
+  useDataSourcesQuery,
+} from '@/routes/data-sources/queries';
 import {
   PARAMETER_TYPE,
   PARAMETER_TYPE_LABEL,
@@ -476,11 +480,13 @@ export default function QueryEditorPage() {
                             </span>
                           )}
                         </div>
-                        <SqlEditor
-                          id={`step-${step.stepOrder}-sql`}
-                          height={320}
-                          value={step.sqlValue}
-                          onChange={sql => onSqlChange(step.stepOrder, sql)}
+                        <StepEditorWithExplorer
+                          stepOrder={step.stepOrder}
+                          dataSourceId={step.dataSourceId}
+                          sqlValue={step.sqlValue}
+                          onSqlChange={sql => onSqlChange(step.stepOrder, sql)}
+                          parameterNames={step.parameters.map(p => p.name)}
+                          crossStepResultCount={Math.max(0, step.stepOrder - 1)}
                         />
                       </div>
                       <div className="params" style={{ marginTop: 12 }}>
@@ -624,6 +630,67 @@ export default function QueryEditorPage() {
         onClose={() => setParamDialog(null)}
         onSubmit={onParamSubmit}
       />
+    </div>
+  );
+}
+
+interface StepEditorWithExplorerProps {
+  stepOrder: number;
+  dataSourceId: number;
+  sqlValue: string;
+  onSqlChange: (sql: string) => void;
+  parameterNames: string[];
+  crossStepResultCount: number;
+}
+
+function StepEditorWithExplorer({
+  stepOrder,
+  dataSourceId,
+  sqlValue,
+  onSqlChange,
+  parameterNames,
+  crossStepResultCount,
+}: StepEditorWithExplorerProps) {
+  const editorRef = useRef<MonacoEditorLike | null>(null);
+  const metadataQuery = useDataSourceMetadataQuery(dataSourceId);
+
+  const insertAtCursor = (text: string) => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    const position = editor.getPosition();
+    if (!position) return;
+    editor.executeEdits('database-explorer', [
+      {
+        range: {
+          startLineNumber: position.lineNumber,
+          startColumn: position.column,
+          endLineNumber: position.lineNumber,
+          endColumn: position.column,
+        },
+        text,
+        forceMoveMarkers: true,
+      },
+    ]);
+    editor.focus();
+  };
+
+  return (
+    <div className="sql-explorer-shell">
+      <DatabaseExplorer dataSourceId={dataSourceId} onInsert={insertAtCursor} />
+      <div className="sql-explorer-shell__editor">
+        <SqlEditor
+          id={`step-${stepOrder}-sql`}
+          height={320}
+          value={sqlValue}
+          onChange={onSqlChange}
+          metadata={metadataQuery.data ?? null}
+          parameterNames={parameterNames}
+          crossStepResultCount={crossStepResultCount}
+          onEditorReady={editor => {
+            editorRef.current = editor;
+          }}
+        />
+      </div>
     </div>
   );
 }
