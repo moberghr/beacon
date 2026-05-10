@@ -104,6 +104,55 @@ export function useTestDataSourceConnection() {
   });
 }
 
+// ---------- Metadata (schema explorer + Monaco autocomplete) -----------------
+
+export interface ColumnMetadataDto {
+  columnName: string;
+  dataType: string;
+  isNullable: boolean;
+  isPrimaryKey: boolean;
+  isForeignKey: boolean;
+  ordinalPosition: number;
+  foreignKeyTable: string | null;
+  foreignKeyColumn: string | null;
+  defaultValue: string | null;
+  maxLength: number | null;
+  description: string | null;
+}
+
+export interface IndexMetadataDto {
+  indexName: string;
+  isUnique: boolean;
+  isPrimaryKey: boolean;
+  columns: string[];
+}
+
+export interface TableMetadataDto {
+  schemaName: string;
+  tableName: string;
+  columns: ColumnMetadataDto[];
+  indexes: IndexMetadataDto[];
+  description: string | null;
+}
+
+export interface DatabaseMetadataSnapshot {
+  dataSourceId: number;
+  databaseEngineType: string | null;
+  tables: TableMetadataDto[];
+  refreshedAt: string;
+}
+
+export function useDataSourceMetadataQuery(dataSourceId: number | null | undefined) {
+  return useQuery({
+    queryKey: ['data-sources', dataSourceId, 'metadata'] as const,
+    queryFn: () =>
+      fetchJson<DatabaseMetadataSnapshot>(`/beacon/api/data-sources/${dataSourceId}/metadata`),
+    enabled: dataSourceId != null && dataSourceId > 0,
+    staleTime: 60_000,
+    retry: false,
+  });
+}
+
 export function useDeleteDataSource() {
   const qc = useQueryClient();
   return useMutation({

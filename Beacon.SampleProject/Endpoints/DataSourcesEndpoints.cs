@@ -1,4 +1,5 @@
 using Beacon.Core.Handlers.DataSources;
+using Beacon.Core.Models.Metadata;
 using MediatR;
 
 namespace Beacon.SampleProject.Endpoints;
@@ -23,6 +24,11 @@ internal static class DataSourcesEndpoints
                 Results.Ok(await mediator.Send(command, ct)))
             .WithName("TestDataSourceConnection")
             .Produces<TestDataSourceConnectionResult>(StatusCodes.Status200OK);
+
+        ds.MapGet("/{id:int}/metadata", async (int id, IMediator mediator, CancellationToken ct) =>
+                Results.Ok(await mediator.Send(new GetDataSourceMetadataQuery(id), ct)))
+            .WithName("GetDataSourceMetadata")
+            .Produces<DatabaseMetadataSnapshot>(StatusCodes.Status200OK);
 
         ds.MapDelete("/{id:int}", async (int id, IMediator mediator, CancellationToken ct) =>
             {

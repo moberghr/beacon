@@ -1,9 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Icon } from '@/components/Icon';
-import { SqlEditor } from '@/components/ui/SqlEditor';
-import { useDataSourcesQuery } from '@/routes/data-sources/queries';
+import { SqlEditor, type MonacoEditorLike } from '@/components/ui/SqlEditor';
+import { DatabaseExplorer } from '@/components/ui/DatabaseExplorer';
+import {
+  useDataSourceMetadataQuery,
+  useDataSourcesQuery,
+} from '@/routes/data-sources/queries';
 import {
   PARAMETER_TYPE,
   PARAMETER_TYPE_LABEL,
@@ -495,11 +499,13 @@ export default function NewQueryPage() {
                               </>
                             )}
                           </div>
-                          <SqlEditor
-                            id={`new-step-${step.draftId}-sql`}
-                            height={280}
-                            value={step.sqlValue}
-                            onChange={sql => onSqlChange(step.draftId, sql)}
+                          <NewStepEditorWithExplorer
+                            draftId={step.draftId}
+                            dataSourceId={step.dataSourceId}
+                            sqlValue={step.sqlValue}
+                            onSqlChange={sql => onSqlChange(step.draftId, sql)}
+                            parameterNames={step.parameters.map(p => p.name)}
+                            crossStepResultCount={idx}
                           />
                         </div>
 
@@ -674,7 +680,7 @@ export default function NewQueryPage() {
       <div className="save-bar">
         <span className="save-bar__hint">
           <span className="pill pill--neutral mono" style={{ fontSize: 10 }}>DRAFT</span>
-          <span>Database explorer ships in a follow-up.</span>
+          <span>Click a table in the explorer to insert it at the cursor.</span>
         </span>
         <div className="spacer"></div>
         <span className="save-bar__hint">
@@ -709,6 +715,69 @@ function InfoRow({ label, value, detail }: { label: string; value: string; detai
       {detail && (
         <span className="mono subtle" style={{ fontSize: 11.5, marginLeft: 'auto' }}>{detail}</span>
       )}
+    </div>
+  );
+}
+
+interface NewStepEditorWithExplorerProps {
+  draftId: number;
+  dataSourceId: number;
+  sqlValue: string;
+  onSqlChange: (sql: string) => void;
+  parameterNames: string[];
+  crossStepResultCount: number;
+}
+
+function NewStepEditorWithExplorer({
+  draftId,
+  dataSourceId,
+  sqlValue,
+  onSqlChange,
+  parameterNames,
+  crossStepResultCount,
+}: NewStepEditorWithExplorerProps) {
+  const editorRef = useRef<MonacoEditorLike | null>(null);
+  const metadataQuery = useDataSourceMetadataQuery(
+    dataSourceId > 0 ? dataSourceId : null,
+  );
+
+  const insertAtCursor = (text: string) => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    const position = editor.getPosition();
+    if (!position) return;
+    editor.executeEdits('database-explorer', [
+      {
+        range: {
+          startLineNumber: position.lineNumber,
+          startColumn: position.column,
+          endLineNumber: position.lineNumber,
+          endColumn: position.column,
+        },
+        text,
+        forceMoveMarkers: true,
+      },
+    ]);
+    editor.focus();
+  };
+
+  return (
+    <div className="sql-explorer-shell">
+      <DatabaseExplorer dataSourceId={dataSourceId} onInsert={insertAtCursor} />
+      <div className="sql-explorer-shell__editor">
+        <SqlEditor
+          id={`new-step-${draftId}-sql`}
+          height={280}
+          value={sqlValue}
+          onChange={onSqlChange}
+          metadata={metadataQuery.data ?? null}
+          parameterNames={parameterNames}
+          crossStepResultCount={crossStepResultCount}
+          onEditorReady={editor => {
+            editorRef.current = editor;
+          }}
+        />
+      </div>
     </div>
   );
 }
