@@ -9,6 +9,7 @@ internal static class AuthEndpoints
     {
         group.MapGet("/auth/me", GetCurrentUser)
             .AllowAnonymous()
+            .DisableAntiforgery()
             .WithName("GetCurrentUser")
             .WithTags("Auth");
 
