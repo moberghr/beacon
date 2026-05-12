@@ -1,0 +1,2 @@
+import{b as r,c as a,f as e}from"./index-B07zqzZP.js";import{u as i}from"./useMutation-DKYnIKYd.js";const m={1:"Insert",2:"Append",3:"Replace"},o=["migration-jobs"];function b(){return r({queryKey:o,queryFn:()=>e("/beacon/api/migrations/jobs")})}function p(){const t=a();return i({mutationFn:({id:n,force:s})=>e(`/beacon/api/migrations/jobs/${n}${s?"?forceDelete=true":""}`,{method:"DELETE"}),onSuccess:()=>t.invalidateQueries({queryKey:o})})}export{m as M,p as a,b as u};
+//# sourceMappingURL=queries-DWoipKIF.js.map

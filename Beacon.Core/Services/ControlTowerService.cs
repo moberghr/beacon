@@ -11,10 +11,21 @@ internal class ControlTowerService(
     IDbContextFactory<BeaconContext> contextFactory,
     IMemoryCache memoryCache) : IControlTowerService
 {
-    private const string StatisticsCacheKey = "ControlTower_Statistics";
+    private const string StatisticsCacheKeyPrefix = "ControlTower_Statistics";
     private static readonly TimeSpan CacheDuration = TimeSpan.FromSeconds(30);
     private const double GreenThreshold = 90;
     private const double AmberThreshold = 70;
+
+    // Subscriptions created at least this many days ago with zero executions in the window are Stalled.
+    // Newly-created subscriptions inside this grace window stay Green ("waiting for first run").
+    private const int StalledGraceDays = 1;
+
+    private static readonly NotificationStatus[] SuccessStatuses =
+    {
+        NotificationStatus.NotificationSent,
+        NotificationStatus.NoResults,
+        NotificationStatus.NotificationSilenced
+    };
 
     public async Task<ControlTowerHealthListData> GetSubscriptionHealthOverview(
         GetControlTowerDataRequest request,
@@ -22,171 +33,72 @@ internal class ControlTowerService(
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        var thirtyDaysAgo = DateTime.UtcNow.AddDays(-30);
-        var successStatuses = new[]
-        {
-            NotificationStatus.NotificationSent,
-            NotificationStatus.NoResults,
-            NotificationStatus.NotificationSilenced
-        };
+        var windowStart = DateTime.UtcNow.AddDays(-request.TimeRangeDays);
+        var stalledCutoff = DateTime.UtcNow.AddDays(-StalledGraceDays);
 
-        // Step 1: Build base subscription query with DB-side filters
-        var query = context.Subscriptions.AsQueryable();
+        var statsQuery = BuildSubscriptionStatsQuery(context, request, windowStart);
+        statsQuery = ApplyFilters(statsQuery, request, stalledCutoff);
+        statsQuery = ApplySort(statsQuery, request.SortBy);
 
-        if (request.FolderId.HasValue)
-        {
-            query = query.Where(s => s.Query.FolderId == request.FolderId.Value);
-        }
-
-        if (!string.IsNullOrWhiteSpace(request.SearchKeyword))
-        {
-            query = query.Where(s => s.Query.Name.Contains(request.SearchKeyword));
-        }
-
-        // Step 2: Project subscription data with execution stats aggregated in DB
-        var subscriptionStatsQuery = query.Select(s => new
-        {
-            s.Id,
-            QueryName = s.Query.Name,
-            FolderPath = s.Query.Folder != null ? s.Query.Folder.Path : null,
-            s.CreateTasks,
-            s.StoreResults,
-            s.AiActorId,
-            AiActorName = s.AiActor != null ? s.AiActor.Name : null,
-            // Execution stats aggregated in DB (last 30 days)
-            TotalExecutions = s.QueryExecutionHistory!.Count(h => h.CreatedTime >= thirtyDaysAgo),
-            SuccessfulExecutions = s.QueryExecutionHistory!.Count(h =>
-                h.CreatedTime >= thirtyDaysAgo && successStatuses.Contains(h.NotificationStatus)),
-            // Task metrics via correlated subquery (no navigation property on Subscription)
-            UnresolvedTaskCount = context.QueryTasks.Count(t => t.SubscriptionId == s.Id && !t.Resolved),
-            TotalTaskCount = context.QueryTasks.Count(t => t.SubscriptionId == s.Id)
-        });
-
-        // Step 3: Apply HealthStatus and HasUnresolvedTasks filters in DB where possible
-        if (request.HasUnresolvedTasks is true)
-        {
-            subscriptionStatsQuery = subscriptionStatsQuery.Where(s => s.UnresolvedTaskCount > 0);
-        }
-
-        // HealthStatus filter requires success rate calculation — we push it to DB with conditional logic
-        if (request.HealthStatus.HasValue)
-        {
-            subscriptionStatsQuery = request.HealthStatus.Value switch
-            {
-                HealthStatus.Green => subscriptionStatsQuery.Where(s =>
-                    s.TotalExecutions == 0 ||
-                    (double)s.SuccessfulExecutions / s.TotalExecutions * 100 >= GreenThreshold),
-                HealthStatus.Amber => subscriptionStatsQuery.Where(s =>
-                    s.TotalExecutions > 0 &&
-                    (double)s.SuccessfulExecutions / s.TotalExecutions * 100 >= AmberThreshold &&
-                    (double)s.SuccessfulExecutions / s.TotalExecutions * 100 < GreenThreshold),
-                HealthStatus.Red => subscriptionStatsQuery.Where(s =>
-                    s.TotalExecutions > 0 &&
-                    (double)s.SuccessfulExecutions / s.TotalExecutions * 100 < AmberThreshold),
-                _ => subscriptionStatsQuery
-            };
-        }
-
-        // Step 4: Get total count and paginate in DB
-        var totalCount = await subscriptionStatsQuery.CountAsync(cancellationToken);
-
-        var pagedSubscriptions = await subscriptionStatsQuery
-            .OrderBy(s => s.QueryName)
-            .Skip((request.Page - 1) * request.PageSize)
-            .Take(request.PageSize)
-            .ToListAsync(cancellationToken);
+        var paged = await statsQuery.ToPagedListAsync(request, cancellationToken);
+        var totalCount = paged.TotalCount ?? 0;
+        var pagedSubscriptions = paged.Items;
 
         if (pagedSubscriptions.Count == 0)
         {
             return new ControlTowerHealthListData { Data = [], TotalCount = totalCount };
         }
 
-        // Step 5: Load detail data only for the current page of subscription IDs
-        var pageIds = pagedSubscriptions.Select(s => s.Id).ToList();
+        var pageIds = pagedSubscriptions.Select(x => x.Id).ToList();
 
-        // Last execution per subscription (one row per subscription via GroupBy + Max in DB)
-        var lastExecutionBySubscription = new Dictionary<int, (NotificationStatus NotificationStatus, DateTime CreatedTime, int ResultCount)>();
+        var lastExecutionBySubscription = await LoadLastExecutions(context, pageIds, cancellationToken);
+        var sparklineBySubscription = await LoadAnomalySparklines(context, pageIds, windowStart, cancellationToken);
+        var anomalyEnabledSet = await LoadAnomalyEnabledSet(context, pageIds, cancellationToken);
 
-        if (pageIds.Count > 0)
-        {
-            var lastExecs = await context.QueryExecutionHistory
-                .Where(h => pageIds.Contains(h.SubscriptionId))
-                .GroupBy(h => h.SubscriptionId)
-                .Select(g => new
-                {
-                    SubscriptionId = g.Key,
-                    NotificationStatus = g.OrderByDescending(h => h.CreatedTime).Select(h => h.NotificationStatus).First(),
-                    CreatedTime = g.OrderByDescending(h => h.CreatedTime).Select(h => h.CreatedTime).First(),
-                    ResultCount = g.OrderByDescending(h => h.CreatedTime).Select(h => h.ResultCount).First()
-                })
-                .ToListAsync(cancellationToken);
-
-            foreach (var exec in lastExecs)
-            {
-                lastExecutionBySubscription[exec.SubscriptionId] = (exec.NotificationStatus, exec.CreatedTime, exec.ResultCount);
-            }
-        }
-
-        // Anomaly sparkline data — only for current page (counts derived from this, no separate query needed)
-        var anomalySparklineData = await context.AnomalyEvents
-            .Where(a => pageIds.Contains(a.SubscriptionId) && a.DetectedTime >= thirtyDaysAgo)
-            .GroupBy(a => new { a.SubscriptionId, Date = a.DetectedTime.Date })
-            .Select(g => new { g.Key.SubscriptionId, g.Key.Date, Count = g.Count() })
-            .ToListAsync(cancellationToken);
-
-        var sparklineBySubscription = anomalySparklineData
-            .GroupBy(x => x.SubscriptionId)
-            .ToDictionary(
-                g => g.Key,
-                g => g.OrderBy(x => x.Date)
-                    .Select(x => new AnomalySparklinePoint { Date = x.Date, AnomalyCount = x.Count })
-                    .ToList());
-
-        // Derive anomaly counts from sparkline data (avoids a separate DB round-trip)
         var anomalyCountsBySubscription = sparklineBySubscription
-            .ToDictionary(kvp => kvp.Key, kvp => kvp.Value.Sum(p => p.AnomalyCount));
+            .ToDictionary(x => x.Key, x => x.Value.Sum(p => p.AnomalyCount));
 
-        // Anomaly detection configs — only for current page
-        var anomalyEnabledSet = (await context.AnomalyConfigs
-            .Where(c => pageIds.Contains(c.SubscriptionId) && c.Enabled)
-            .Select(c => c.SubscriptionId)
-            .ToListAsync(cancellationToken))
-            .ToHashSet();
-
-        // Step 6: Build health data from pre-aggregated stats
-        var healthData = pagedSubscriptions.Select(item =>
-        {
-            var failedExecutions = item.TotalExecutions - item.SuccessfulExecutions;
-            var successRate = item.TotalExecutions > 0 ? (double)item.SuccessfulExecutions / item.TotalExecutions * 100 : 100;
-            var healthStatus = CalculateHealthStatus(item.SuccessfulExecutions, item.TotalExecutions);
-            var hasLastExecution = lastExecutionBySubscription.TryGetValue(item.Id, out var lastExecution);
-
-            return new ControlTowerSubscriptionHealthData
+        var healthData = pagedSubscriptions
+            .Select(item =>
             {
-                SubscriptionId = item.Id,
-                QueryName = item.QueryName,
-                DataSourceName = null, // Multi-step queries can have multiple data sources
-                FolderPath = item.FolderPath,
-                HealthStatus = healthStatus,
-                TotalExecutions = item.TotalExecutions,
-                SuccessfulExecutions = item.SuccessfulExecutions,
-                FailedExecutions = failedExecutions,
-                SuccessRate = successRate,
-                LastExecutionTime = hasLastExecution ? lastExecution.CreatedTime : null,
-                LastExecutionStatus = hasLastExecution ? lastExecution.NotificationStatus : null,
-                LastResultCount = hasLastExecution ? lastExecution.ResultCount : null,
-                UnresolvedTaskCount = item.UnresolvedTaskCount,
-                TotalTaskCount = item.TotalTaskCount,
-                AnomalyCount30Days = anomalyCountsBySubscription.GetValueOrDefault(item.Id, 0),
-                AnomalySparkline = sparklineBySubscription.GetValueOrDefault(item.Id, []),
-                IsActive = true,
-                CreateTasks = item.CreateTasks,
-                StoreResults = item.StoreResults,
-                HasAnomalyDetection = anomalyEnabledSet.Contains(item.Id),
-                AiActorId = item.AiActorId,
-                AiActorName = item.AiActorName
-            };
-        }).ToList();
+                var failedExecutions = item.TotalExecutions - item.SuccessfulExecutions;
+                var successRate = item.TotalExecutions > 0
+                    ? (double)item.SuccessfulExecutions / item.TotalExecutions * 100
+                    : 0;
+                var healthStatus = CalculateHealthStatus(
+                    item.SuccessfulExecutions,
+                    item.TotalExecutions,
+                    item.SubscriptionCreatedTime,
+                    stalledCutoff);
+                var hasLastExecution = lastExecutionBySubscription.TryGetValue(item.Id, out var lastExecution);
+
+                return new ControlTowerSubscriptionHealthData
+                {
+                    SubscriptionId = item.Id,
+                    QueryName = item.QueryName,
+                    DataSourceName = null,
+                    FolderPath = item.FolderPath,
+                    HealthStatus = healthStatus,
+                    TotalExecutions = item.TotalExecutions,
+                    SuccessfulExecutions = item.SuccessfulExecutions,
+                    FailedExecutions = failedExecutions,
+                    SuccessRate = successRate,
+                    LastExecutionTime = hasLastExecution ? lastExecution.CreatedTime : null,
+                    LastExecutionStatus = hasLastExecution ? lastExecution.NotificationStatus : null,
+                    LastResultCount = hasLastExecution ? lastExecution.ResultCount : null,
+                    UnresolvedTaskCount = item.UnresolvedTaskCount,
+                    TotalTaskCount = item.TotalTaskCount,
+                    AnomalyCount30Days = anomalyCountsBySubscription.GetValueOrDefault(item.Id, 0),
+                    AnomalySparkline = sparklineBySubscription.GetValueOrDefault(item.Id, []),
+                    IsActive = true,
+                    CreateTasks = item.CreateTasks,
+                    StoreResults = item.StoreResults,
+                    HasAnomalyDetection = anomalyEnabledSet.Contains(item.Id),
+                    AiActorId = item.AiActorId,
+                    AiActorName = item.AiActorName
+                };
+            })
+            .ToList();
 
         return new ControlTowerHealthListData
         {
@@ -195,54 +107,56 @@ internal class ControlTowerService(
         };
     }
 
-    public async Task<ControlTowerStatistics> GetControlTowerStatistics(CancellationToken cancellationToken)
+    public async Task<ControlTowerStatistics> GetControlTowerStatistics(
+        GetControlTowerDataRequest request,
+        CancellationToken cancellationToken)
     {
-        // Try to get from cache
-        if (memoryCache.TryGetValue(StatisticsCacheKey, out ControlTowerStatistics? cachedStatistics))
+        var cacheKey = $"{StatisticsCacheKeyPrefix}:{request.TimeRangeDays}:{request.FolderId}:{request.DataSourceId}:{request.SearchKeyword}:{request.HasUnresolvedTasks}:{request.HealthStatus}";
+        if (memoryCache.TryGetValue(cacheKey, out ControlTowerStatistics? cached))
         {
-            return cachedStatistics!;
+            return cached!;
         }
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        var thirtyDaysAgo = DateTime.UtcNow.AddDays(-30);
+        var windowStart = DateTime.UtcNow.AddDays(-request.TimeRangeDays);
+        var stalledCutoff = DateTime.UtcNow.AddDays(-StalledGraceDays);
 
-        // Get all active subscription IDs
-        var subscriptionIds = await context.Subscriptions
-            .Select(s => s.Id)
-            .ToListAsync(cancellationToken);
+        var statsQuery = BuildSubscriptionStatsQuery(context, request, windowStart);
+        statsQuery = ApplyFilters(statsQuery, request, stalledCutoff);
 
-        // Get execution history for the last 30 days, grouped by subscription
-        var executionsBySubscription = await context.QueryExecutionHistory
-            .Where(h => h.CreatedTime >= thirtyDaysAgo && subscriptionIds.Contains(h.SubscriptionId))
-            .GroupBy(h => h.SubscriptionId)
-            .Select(g => new
+        var rows = await statsQuery
+            .Select(x => new
             {
-                SubscriptionId = g.Key,
-                Statuses = g.Select(h => h.NotificationStatus).ToList()
+                x.Id,
+                x.TotalExecutions,
+                x.SuccessfulExecutions,
+                x.SubscriptionCreatedTime,
+                x.UnresolvedTaskCount
             })
             .ToListAsync(cancellationToken);
-
-        var executionLookup = executionsBySubscription.ToDictionary(x => x.SubscriptionId, x => x.Statuses);
 
         var healthyCount = 0;
         var warningCount = 0;
         var criticalCount = 0;
+        var stalledCount = 0;
         var totalSuccessful = 0;
         var totalExecutions = 0;
+        var totalUnresolved = 0;
 
-        foreach (var subscriptionId in subscriptionIds)
+        foreach (var row in rows)
         {
-            var statuses = executionLookup.GetValueOrDefault(subscriptionId, []);
-            var executions = statuses.Count;
-            var successful = CountSuccessfulExecutions(statuses);
+            totalExecutions += row.TotalExecutions;
+            totalSuccessful += row.SuccessfulExecutions;
+            totalUnresolved += row.UnresolvedTaskCount;
 
-            totalExecutions += executions;
-            totalSuccessful += successful;
+            var status = CalculateHealthStatus(
+                row.SuccessfulExecutions,
+                row.TotalExecutions,
+                row.SubscriptionCreatedTime,
+                stalledCutoff);
 
-            var healthStatus = CalculateHealthStatus(successful, executions);
-
-            switch (healthStatus)
+            switch (status)
             {
                 case HealthStatus.Green:
                     healthyCount++;
@@ -253,37 +167,315 @@ internal class ControlTowerService(
                 case HealthStatus.Red:
                     criticalCount++;
                     break;
+                case HealthStatus.Stalled:
+                    stalledCount++;
+                    break;
             }
         }
 
-        var overallSuccessRate = totalExecutions > 0 ? (double)totalSuccessful / totalExecutions * 100 : 100;
+        // Anomalies counted against the (already-filtered) page set.
+        var pageIds = rows.Select(x => x.Id).ToList();
+        var anomaliesInWindow = pageIds.Count == 0
+            ? 0
+            : await context.AnomalyEvents
+                .Where(x => pageIds.Contains(x.SubscriptionId))
+                .Where(x => x.DetectedTime >= windowStart)
+                .CountAsync(cancellationToken);
 
-        var unresolvedTasks = await context.QueryTasks.CountAsync(t => !t.Resolved, cancellationToken);
-        var anomalies30Days = await context.AnomalyEvents
-            .CountAsync(a => a.DetectedTime >= thirtyDaysAgo, cancellationToken);
+        var overallSuccessRate = totalExecutions > 0
+            ? (double)totalSuccessful / totalExecutions * 100
+            : 100;
 
         var statistics = new ControlTowerStatistics
         {
-            TotalSubscriptions = subscriptionIds.Count,
+            TotalSubscriptions = rows.Count,
             HealthySubscriptions = healthyCount,
             WarningSubscriptions = warningCount,
             CriticalSubscriptions = criticalCount,
-            TotalUnresolvedTasks = unresolvedTasks,
-            TotalAnomalies30Days = anomalies30Days,
-            OverallSuccessRate = overallSuccessRate
+            StalledSubscriptions = stalledCount,
+            TotalUnresolvedTasks = totalUnresolved,
+            TotalAnomalies30Days = anomaliesInWindow,
+            OverallSuccessRate = overallSuccessRate,
+            TimeRangeDays = request.TimeRangeDays
         };
 
-        // Cache for 30 seconds
-        memoryCache.Set(StatisticsCacheKey, statistics, CacheDuration);
-
+        memoryCache.Set(cacheKey, statistics, CacheDuration);
         return statistics;
     }
 
-    private static HealthStatus CalculateHealthStatus(int successCount, int totalExecutions)
+    public async Task<ControlTowerSubscriptionDetail?> GetSubscriptionDetail(
+        int subscriptionId,
+        int timeRangeDays,
+        CancellationToken cancellationToken)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        var subscription = await context.Subscriptions
+            .Where(x => x.Id == subscriptionId)
+            .Select(x =>
+                new
+                {
+                    x.Id,
+                    QueryId = x.Query.Id,
+                    QueryName = x.Query.Name,
+                    FolderPath = x.Query.Folder != null ? x.Query.Folder.Path : null,
+                    x.CronExpression
+                })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (subscription == null)
+        {
+            return null;
+        }
+
+        var windowStart = DateTime.UtcNow.AddDays(-timeRangeDays);
+
+        var recentExecutions = await context.QueryExecutionHistory
+            .Where(x => x.SubscriptionId == subscriptionId)
+            .OrderByDescending(x => x.CreatedTime)
+            .Take(20)
+            .Select(x =>
+                new ControlTowerExecutionItem
+                {
+                    ExecutionId = x.Id,
+                    CreatedTime = x.CreatedTime,
+                    NotificationStatus = x.NotificationStatus,
+                    ResultCount = x.ResultCount,
+                    ExecutionTimeMs = x.ExecutionTimeMs,
+                    ErrorMessage = x.Comment
+                })
+            .ToListAsync(cancellationToken);
+
+        var openTasks = await context.QueryTasks
+            .Where(x => x.SubscriptionId == subscriptionId)
+            .Where(x => !x.Resolved)
+            .OrderByDescending(x => x.CreatedTime)
+            .Take(20)
+            .Select(x =>
+                new ControlTowerOpenTask
+                {
+                    TaskId = x.Id,
+                    CreatedTime = x.CreatedTime,
+                    SnoozedUntil = x.SnoozedUntil,
+                    LatestResultCount = x.LatestResultCount,
+                    Priority = x.Priority,
+                    AssigneeUserId = x.AssigneeUserId
+                })
+            .ToListAsync(cancellationToken);
+
+        var recentAnomalies = await context.AnomalyEvents
+            .Where(x => x.SubscriptionId == subscriptionId)
+            .Where(x => x.DetectedTime >= windowStart)
+            .OrderByDescending(x => x.DetectedTime)
+            .Take(20)
+            .Select(x =>
+                new ControlTowerAnomaly
+                {
+                    AnomalyId = x.Id,
+                    DetectedTime = x.DetectedTime,
+                    Severity = x.Severity,
+                    CurrentValue = x.CurrentValue,
+                    Explanation = x.Explanation,
+                    Acknowledged = x.Acknowledged
+                })
+            .ToListAsync(cancellationToken);
+
+        return new ControlTowerSubscriptionDetail
+        {
+            SubscriptionId = subscription.Id,
+            QueryId = subscription.QueryId,
+            QueryName = subscription.QueryName,
+            FolderPath = subscription.FolderPath,
+            CronExpression = subscription.CronExpression,
+            TimeRangeDays = timeRangeDays,
+            RecentExecutions = recentExecutions,
+            OpenTasks = openTasks,
+            RecentAnomalies = recentAnomalies
+        };
+    }
+
+    private static IQueryable<SubscriptionStatsRow> BuildSubscriptionStatsQuery(
+        BeaconContext context,
+        GetControlTowerDataRequest request,
+        DateTime windowStart)
+    {
+        var query = context.Subscriptions.AsQueryable();
+
+        if (request.FolderId.HasValue)
+        {
+            query = query.Where(x => x.Query.FolderId == request.FolderId.Value);
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.SearchKeyword))
+        {
+            query = query.Where(x => x.Query.Name.Contains(request.SearchKeyword));
+        }
+
+        return query.Select(x =>
+            new SubscriptionStatsRow
+            {
+                Id = x.Id,
+                SubscriptionCreatedTime = x.CreatedTime,
+                QueryName = x.Query.Name,
+                FolderPath = x.Query.Folder != null ? x.Query.Folder.Path : null,
+                CreateTasks = x.CreateTasks,
+                StoreResults = x.StoreResults,
+                AiActorId = x.AiActorId,
+                AiActorName = x.AiActor != null ? x.AiActor.Name : null,
+                TotalExecutions = x.QueryExecutionHistory!.Count(y => y.CreatedTime >= windowStart),
+                SuccessfulExecutions = x.QueryExecutionHistory!.Count(y =>
+                    y.CreatedTime >= windowStart && SuccessStatuses.Contains(y.NotificationStatus)),
+                UnresolvedTaskCount = context.QueryTasks.Count(y => y.SubscriptionId == x.Id && !y.Resolved),
+                TotalTaskCount = context.QueryTasks.Count(y => y.SubscriptionId == x.Id)
+            });
+    }
+
+    private static IQueryable<SubscriptionStatsRow> ApplyFilters(
+        IQueryable<SubscriptionStatsRow> source,
+        GetControlTowerDataRequest request,
+        DateTime stalledCutoff)
+    {
+        if (request.HasUnresolvedTasks is true)
+        {
+            source = source.Where(x => x.UnresolvedTaskCount > 0);
+        }
+
+        if (!request.HealthStatus.HasValue)
+        {
+            return source;
+        }
+
+        return request.HealthStatus.Value switch
+        {
+            HealthStatus.Green => source.Where(x =>
+                x.TotalExecutions > 0 &&
+                (double)x.SuccessfulExecutions / x.TotalExecutions * 100 >= GreenThreshold),
+            HealthStatus.Amber => source.Where(x =>
+                x.TotalExecutions > 0 &&
+                (double)x.SuccessfulExecutions / x.TotalExecutions * 100 >= AmberThreshold &&
+                (double)x.SuccessfulExecutions / x.TotalExecutions * 100 < GreenThreshold),
+            HealthStatus.Red => source.Where(x =>
+                x.TotalExecutions > 0 &&
+                (double)x.SuccessfulExecutions / x.TotalExecutions * 100 < AmberThreshold),
+            HealthStatus.Stalled => source.Where(x =>
+                x.TotalExecutions == 0 && x.SubscriptionCreatedTime <= stalledCutoff),
+            _ => source
+        };
+    }
+
+    private static IQueryable<SubscriptionStatsRow> ApplySort(
+        IQueryable<SubscriptionStatsRow> source,
+        ControlTowerSortBy sortBy)
+    {
+        return sortBy switch
+        {
+            ControlTowerSortBy.Name => source.OrderBy(x => x.QueryName),
+            ControlTowerSortBy.SuccessRate => source
+                .OrderBy(x => x.TotalExecutions == 0
+                    ? 100.0
+                    : (double)x.SuccessfulExecutions / x.TotalExecutions * 100)
+                .ThenBy(x => x.QueryName),
+            ControlTowerSortBy.Executions => source
+                .OrderByDescending(x => x.TotalExecutions)
+                .ThenBy(x => x.QueryName),
+            ControlTowerSortBy.OpenTasks => source
+                .OrderByDescending(x => x.UnresolvedTaskCount)
+                .ThenBy(x => x.QueryName),
+            // Anomalies and LastExecution can't be sorted in the projection (joins live outside the row),
+            // so we sort by query name and let the API layer re-sort the page if needed.
+            ControlTowerSortBy.Anomalies => source.OrderBy(x => x.QueryName),
+            ControlTowerSortBy.LastExecution => source.OrderBy(x => x.QueryName),
+            ControlTowerSortBy.WorstFirst => source
+                .OrderByDescending(x => x.UnresolvedTaskCount)
+                .ThenBy(x => x.TotalExecutions == 0
+                    ? 100.0
+                    : (double)x.SuccessfulExecutions / x.TotalExecutions * 100)
+                .ThenBy(x => x.QueryName),
+            _ => source.OrderBy(x => x.QueryName)
+        };
+    }
+
+    private static async Task<Dictionary<int, (NotificationStatus NotificationStatus, DateTime CreatedTime, int ResultCount)>>
+        LoadLastExecutions(BeaconContext context, List<int> pageIds, CancellationToken cancellationToken)
+    {
+        if (pageIds.Count == 0)
+        {
+            return [];
+        }
+
+        var rows = await context.QueryExecutionHistory
+            .Where(x => pageIds.Contains(x.SubscriptionId))
+            .GroupBy(x => x.SubscriptionId)
+            .Select(g =>
+                new
+                {
+                    SubscriptionId = g.Key,
+                    NotificationStatus = g.OrderByDescending(y => y.CreatedTime).Select(y => y.NotificationStatus).First(),
+                    CreatedTime = g.OrderByDescending(y => y.CreatedTime).Select(y => y.CreatedTime).First(),
+                    ResultCount = g.OrderByDescending(y => y.CreatedTime).Select(y => y.ResultCount).First()
+                })
+            .ToListAsync(cancellationToken);
+
+        return rows.ToDictionary(
+            x => x.SubscriptionId,
+            x => (x.NotificationStatus, x.CreatedTime, x.ResultCount));
+    }
+
+    private static async Task<Dictionary<int, List<AnomalySparklinePoint>>> LoadAnomalySparklines(
+        BeaconContext context,
+        List<int> pageIds,
+        DateTime windowStart,
+        CancellationToken cancellationToken)
+    {
+        if (pageIds.Count == 0)
+        {
+            return [];
+        }
+
+        var rows = await context.AnomalyEvents
+            .Where(x => pageIds.Contains(x.SubscriptionId))
+            .Where(x => x.DetectedTime >= windowStart)
+            .GroupBy(x => new { x.SubscriptionId, Date = x.DetectedTime.Date })
+            .Select(g => new { g.Key.SubscriptionId, g.Key.Date, Count = g.Count() })
+            .ToListAsync(cancellationToken);
+
+        return rows
+            .GroupBy(x => x.SubscriptionId)
+            .ToDictionary(
+                g => g.Key,
+                g => g.OrderBy(x => x.Date)
+                    .Select(x => new AnomalySparklinePoint { Date = x.Date, AnomalyCount = x.Count })
+                    .ToList());
+    }
+
+    private static async Task<HashSet<int>> LoadAnomalyEnabledSet(
+        BeaconContext context,
+        List<int> pageIds,
+        CancellationToken cancellationToken)
+    {
+        if (pageIds.Count == 0)
+        {
+            return [];
+        }
+
+        var rows = await context.AnomalyConfigs
+            .Where(x => pageIds.Contains(x.SubscriptionId))
+            .Where(x => x.Enabled)
+            .Select(x => x.SubscriptionId)
+            .ToListAsync(cancellationToken);
+
+        return rows.ToHashSet();
+    }
+
+    private static HealthStatus CalculateHealthStatus(
+        int successCount,
+        int totalExecutions,
+        DateTime subscriptionCreatedTime,
+        DateTime stalledCutoff)
     {
         if (totalExecutions == 0)
         {
-            return HealthStatus.Green; // No data yet, assume healthy
+            return subscriptionCreatedTime <= stalledCutoff ? HealthStatus.Stalled : HealthStatus.Green;
         }
 
         var successRate = (double)successCount / totalExecutions * 100;
@@ -296,14 +488,21 @@ internal class ControlTowerService(
         };
     }
 
-    private static int CountSuccessfulExecutions(IEnumerable<NotificationStatus> statuses)
+    private sealed class SubscriptionStatsRow
     {
-        return statuses.Count(status =>
-            status == NotificationStatus.NotificationSent ||
-            status == NotificationStatus.NoResults ||
-            status == NotificationStatus.NotificationSilenced);
+        public int Id { get; init; }
+        public DateTime SubscriptionCreatedTime { get; init; }
+        public string QueryName { get; init; } = null!;
+        public string? FolderPath { get; init; }
+        public bool CreateTasks { get; init; }
+        public bool StoreResults { get; init; }
+        public int? AiActorId { get; init; }
+        public string? AiActorName { get; init; }
+        public int TotalExecutions { get; init; }
+        public int SuccessfulExecutions { get; init; }
+        public int UnresolvedTaskCount { get; init; }
+        public int TotalTaskCount { get; init; }
     }
-
 }
 
 public interface IControlTowerService
@@ -312,5 +511,12 @@ public interface IControlTowerService
         GetControlTowerDataRequest request,
         CancellationToken cancellationToken);
 
-    Task<ControlTowerStatistics> GetControlTowerStatistics(CancellationToken cancellationToken);
+    Task<ControlTowerStatistics> GetControlTowerStatistics(
+        GetControlTowerDataRequest request,
+        CancellationToken cancellationToken);
+
+    Task<ControlTowerSubscriptionDetail?> GetSubscriptionDetail(
+        int subscriptionId,
+        int timeRangeDays,
+        CancellationToken cancellationToken);
 }

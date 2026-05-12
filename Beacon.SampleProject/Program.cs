@@ -16,13 +16,16 @@ using Beacon.Connector.Databricks;
 using Beacon.Connector.Api;
 using Beacon.Connector.BigQuery;
 using Beacon.MCP;
+using Beacon.Api.Endpoints;
+using Beacon.Api.Hubs;
+using Beacon.Api.SignalR;
 using Beacon.SampleProject.Authentication;
-using Beacon.SampleProject.Endpoints;
-using Beacon.SampleProject.Hubs;
 using Beacon.SampleProject.Middleware;
 using Beacon.SampleProject.Services;
-using Beacon.SampleProject.SignalR;
+using Beacon.UI;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.SignalR;
+using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -144,6 +147,26 @@ builder.Services.AddAntiforgery(options =>
     options.Cookie.Name = ".Beacon.Antiforgery";
 });
 builder.Services.AddBeaconApiAuthorization();
+
+// Rate limiting for sensitive anonymous endpoints (login). 10 requests / 60 seconds
+// per remote-IP partition; clients beyond the window get 429 Too Many Requests.
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("login", httpContext =>
+    {
+        var remoteIp = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        return RateLimitPartition.GetFixedWindowLimiter(remoteIp, _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 10,
+            Window = TimeSpan.FromSeconds(60),
+            QueueLimit = 0,
+            QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+            AutoReplenishment = true,
+        });
+    });
+});
+
 builder.Services.AddSignalR();
 builder.Services.AddSingleton<IUserIdProvider, HubUserIdProvider>();
 
@@ -189,6 +212,9 @@ if (beaconConfiguration.UserManagement.Enabled)
 // Antiforgery middleware must run after auth so it can issue tokens for the current user.
 app.UseAntiforgery();
 
+// Rate limiter — sits after auth/antiforgery so endpoint-level policies (e.g. "login") apply.
+app.UseRateLimiter();
+
 // OpenAPI document at /openapi/v1.json - consumed by NSwag for React TS codegen.
 app.MapOpenApi();
 
@@ -222,13 +248,10 @@ app.UseHangfireDashboard("/hangfire", new DashboardOptions
     IgnoreAntiforgeryToken = true,
 });
 
-// React SPA shell at root /. Falls back to wwwroot/index.html for client-side routes.
-// Constraint: only paths that look like client routes (no file extension) AND do
-// NOT start with /beacon/ or /hangfire (those belong to API/MCP/auth/hangfire).
-// Paths with extensions (assets/foo.js, foo.css) fall through to UseStaticFiles.
-app.MapFallbackToFile(
-    "/{**path:regex(^(?!beacon(/|$))(?!hangfire(/|$))([^.]*|.*/[^./]*)$)}",
-    "index.html");
+// React SPA shell at root /. Beacon.UI ships the built React app as Razor Class
+// Library static web assets; MapBeaconUi() wires the SPA fallback so client-side
+// routes resolve to its index.html. Real asset requests fall through to UseStaticFiles.
+app.MapBeaconUi();
 
 // MCP Learning: aggregate patterns every 6 hours, cleanup old signals daily
 RecurringJob.AddOrUpdate<IJobService>("mcp-learning-aggregate", x => x.AggregateLearnedPatterns(), "0 */6 * * *");
