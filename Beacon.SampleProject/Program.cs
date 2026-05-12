@@ -225,9 +225,12 @@ app.UseApiExceptionHandler("/beacon/api");
 app.MapBeaconApi();
 
 // Login/logout/sso endpoints (cookie sign-in/out + SSO challenge) at /beacon/api/auth/*.
+// Mapped outside the BeaconApi group because the group's RequireAuthorization(AuthPolicyName)
+// and antiforgery filter would block login itself; these endpoints configure their own auth.
 app.MapLoginEndpoints("/beacon", beaconConfiguration);
 
 // First-run setup endpoints at /beacon/api/setup/*.
+// Outside the group: setup must run before any user (and any antiforgery cookie) exists.
 if (beaconConfiguration.UserManagement.Enabled)
 {
     app.MapSetupEndpoints("/beacon");

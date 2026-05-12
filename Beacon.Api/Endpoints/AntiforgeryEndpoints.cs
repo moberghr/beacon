@@ -8,6 +8,7 @@ internal static class AntiforgeryEndpoints
     {
         group.MapGet("/csrf", IssueCsrfToken)
             .AllowAnonymous()
+            .DisableAntiforgery()
             .WithName("IssueCsrfToken")
             .WithTags("Auth");
 

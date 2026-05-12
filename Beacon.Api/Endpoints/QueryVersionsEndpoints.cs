@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Beacon.Core.Handlers.QueryVersions;
 using MediatR;
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -27,9 +28,12 @@ internal static class QueryVersionsEndpoints
                 m.Send(new DiffQueryVersionsQuery { VersionIdA = versionIdA, VersionIdB = versionIdB }, ct))
             .WithName("DiffQueryVersions");
 
-        versions.MapPost("/{id:int}/restore", async (int id, RestoreQueryVersionRequest body, IMediator m, CancellationToken ct) =>
+        versions.MapPost("/{id:int}/restore", async (int id, HttpContext http, IMediator m, CancellationToken ct) =>
         {
-            var queryId = await m.Send(new RestoreQueryVersionCommand { VersionId = id, UserId = body.UserId }, ct);
+            // UserId comes from the authenticated principal, never the request body —
+            // otherwise a client can stamp any user id into the audit trail.
+            var userId = http.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            var queryId = await m.Send(new RestoreQueryVersionCommand { VersionId = id, UserId = userId }, ct);
             return new RestoreQueryVersionResponse(queryId);
         }).WithName("RestoreQueryVersion");
 
@@ -37,5 +41,4 @@ internal static class QueryVersionsEndpoints
     }
 }
 
-internal sealed record RestoreQueryVersionRequest(string? UserId);
 internal sealed record RestoreQueryVersionResponse(int QueryId);

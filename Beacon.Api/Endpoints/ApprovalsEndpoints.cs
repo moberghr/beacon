@@ -41,7 +41,8 @@ internal static class ApprovalsEndpoints
                 ReviewerName = userName,
                 Comment = body.Comment,
             }, ct);
-            await PublishApprovalUpdated(hub, id, "approved", ct);
+            var detail = await m.Send(new GetApprovalDetailQuery { RequestId = id }, ct);
+            await PublishApprovalUpdated(hub, userId, detail?.RequestedByUserId, id, "approved", ct);
             return TypedResults.NoContent();
         }).WithName("ApproveQueryChange");
 
@@ -61,7 +62,8 @@ internal static class ApprovalsEndpoints
                 ReviewerName = userName,
                 Comment = body.Comment,
             }, ct);
-            await PublishApprovalUpdated(hub, id, "rejected", ct);
+            var detail = await m.Send(new GetApprovalDetailQuery { RequestId = id }, ct);
+            await PublishApprovalUpdated(hub, userId, detail?.RequestedByUserId, id, "rejected", ct);
             return TypedResults.NoContent();
         }).WithName("RejectQueryChange");
 
@@ -77,12 +79,36 @@ internal static class ApprovalsEndpoints
         return (userId, userName);
     }
 
-    private static Task PublishApprovalUpdated(
+    private static async Task PublishApprovalUpdated(
         IHubContext<BeaconHub> hub,
+        string? reviewerUserId,
+        string? requesterUserId,
         int approvalId,
         string status,
-        CancellationToken ct) =>
-        hub.Clients.All.SendAsync(BeaconHubEventNames.ApprovalUpdated, new ApprovalUpdatedEvent(approvalId, status), ct);
+        CancellationToken ct)
+    {
+        // Targeted push: notify the reviewer (so other tabs they have open update)
+        // and the requester (so they see the approval/rejection live). All other
+        // connected clients are intentionally NOT notified — broadcast was overkill.
+        var payload = new ApprovalUpdatedEvent(approvalId, status);
+        var recipients = new List<string>(2);
+        if (!string.IsNullOrEmpty(reviewerUserId))
+        {
+            recipients.Add(reviewerUserId);
+        }
+
+        if (!string.IsNullOrEmpty(requesterUserId) && requesterUserId != reviewerUserId)
+        {
+            recipients.Add(requesterUserId);
+        }
+
+        if (recipients.Count == 0)
+        {
+            return;
+        }
+
+        await hub.Clients.Users(recipients).SendAsync(BeaconHubEventNames.ApprovalUpdated, payload, ct);
+    }
 }
 
 internal sealed record ApproveRejectRequest(string? Comment);

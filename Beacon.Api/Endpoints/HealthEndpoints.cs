@@ -6,6 +6,7 @@ internal static class HealthEndpoints
     {
         group.MapGet("/health", () => new HealthResponse("ok"))
             .AllowAnonymous()
+            .DisableAntiforgery()
             .WithName("Health")
             .WithTags("Health");
 

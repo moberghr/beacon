@@ -35,7 +35,7 @@ public static class BeaconApiEndpoints
         // Endpoints opt out via .AllowAnonymous() (health, auth/me, csrf).
         var group = endpoints.MapGroup("/beacon/api")
             .RequireAuthorization(AuthPolicyName)
-            .AddEndpointFilter(ValidateAntiforgeryForAuthenticatedWrites)
+            .AddEndpointFilter<AntiforgeryEndpointFilter>()
             .WithOpenApi();
 
         group.MapHealthEndpoints();

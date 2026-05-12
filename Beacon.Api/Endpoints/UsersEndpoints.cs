@@ -21,25 +21,25 @@ internal static class UsersEndpoints
         {
             await m.Send(cmd, ct);
             return TypedResults.NoContent();
-        }).WithName("CreateInternalUser");
+        }).WithName("CreateInternalUser").RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
 
         users.MapPost("/external", async (CreateExternalUserCommand cmd, IMediator m, CancellationToken ct) =>
         {
             await m.Send(cmd, ct);
             return TypedResults.NoContent();
-        }).WithName("CreateExternalUser");
+        }).WithName("CreateExternalUser").RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
 
         users.MapPut("/{id:int}", async (int id, UpdateUserBody body, IMediator m, CancellationToken ct) =>
         {
             await m.Send(new UpdateUserCommand(id, body.UserName, body.Email, body.DisplayName, body.IsEnabled), ct);
             return TypedResults.NoContent();
-        }).WithName("UpdateUser");
+        }).WithName("UpdateUser").RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
 
         users.MapPost("/{id:int}/toggle-enabled", async (int id, IMediator m, CancellationToken ct) =>
         {
             await m.Send(new ToggleUserEnabledCommand(id), ct);
             return TypedResults.NoContent();
-        }).WithName("ToggleUserEnabled");
+        }).WithName("ToggleUserEnabled").RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
 
         return group;
     }
