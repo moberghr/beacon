@@ -29,31 +29,45 @@ public static class ServiceConfiguration
         var llmConfig = configuration.GetSection("Beacon:LLM").Get<LlmConfiguration>()
                         ?? new LlmConfiguration();
 
+        // Bootstrap configuration — manager owns the live snapshot after construction.
         services.AddSingleton(llmConfig);
 
         // MediatR for AI handlers
         services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(typeof(ServiceConfiguration).Assembly));
 
-        // LLM Provider Factory
-        services.AddSingleton<LlmProviderFactory>();
+        // Request queue for rate limiting — registered BEFORE the delegating provider so
+        // DelegatingLlmProvider can resolve it. Uses bootstrap config; concurrency limit is
+        // fixed for the singleton's lifetime (matches prior behaviour).
+        services.AddSingleton(sp =>
+        {
+            var config = sp.GetRequiredService<LlmConfiguration>();
+            return new LlmRequestQueue(config.Limits.MaxConcurrentRequests);
+        });
 
-        // LLM Provider Manager (holds swappable provider, implements ILlmConfigurationUpdater)
+        // LLM Provider Manager (holds swappable provider, implements ILlmConfigurationUpdater).
+        // Registered before the factory's accessor closure resolves it lazily.
         services.AddSingleton<LlmProviderManager>();
         services.AddSingleton<ILlmConfigurationUpdater>(sp => sp.GetRequiredService<LlmProviderManager>());
 
         // Connection tester for the admin settings "Test connection" button
         services.AddSingleton<ILlmConnectionTester, Handlers.AdminSettings.LlmConnectionTester>();
 
-        // LLM Provider — delegating proxy that always uses the latest provider
-        services.AddSingleton<ILlmProvider, DelegatingLlmProvider>();
-
-        // Request queue for rate limiting
+        // LLM Provider Factory — reads the CURRENT configuration from the manager on every
+        // CreateProvider() call so hot-swapped settings are picked up. Falls back to the
+        // bootstrap LlmConfiguration before the manager is constructed (first resolution).
         services.AddSingleton(sp =>
         {
-            var config = sp.GetRequiredService<LlmConfiguration>();
-            return new LlmRequestQueue(
-                config.Limits.MaxConcurrentRequests);
+            var bootstrap = sp.GetRequiredService<LlmConfiguration>();
+            return new LlmProviderFactory(() =>
+            {
+                var manager = sp.GetService<LlmProviderManager>();
+                return manager is null ? bootstrap : manager.CurrentConfiguration;
+            });
         });
+
+        // LLM Provider — delegating proxy that always uses the latest provider and funnels
+        // every completion through LlmRequestQueue.
+        services.AddSingleton<ILlmProvider, DelegatingLlmProvider>();
 
         // AI services
         services.TryAddScoped<IAiAlertGenerationService, AiAlertGenerationService>();

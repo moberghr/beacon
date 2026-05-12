@@ -1,24 +1,31 @@
+using Beacon.Core.Data.Enums;
+
 namespace Beacon.AI.Models.Configuration;
 
-public class LlmConfiguration
+/// <summary>
+/// Immutable snapshot of LLM provider configuration. Use <c>with</c> expressions to derive
+/// updated copies; never mutate fields after construction. <see cref="LlmProviderManager"/>
+/// atomically swaps the active instance.
+/// </summary>
+public sealed record LlmConfiguration
 {
-    public AiProvider Provider { get; set; }
-    public string ApiKey { get; set; } = null!;
-    public string? Endpoint { get; set; }
-    public string? Region { get; set; }
-    public string? SessionToken { get; set; }
-    public string? AwsAccessKeyId { get; set; }
-    public string? AwsSecretAccessKey { get; set; }
-    public BedrockAuthMode BedrockAuthMode { get; set; } = BedrockAuthMode.IamRole;
-    public string Model { get; set; } = null!;
-    public string? FastModel { get; set; }
-    public ProviderLimits Limits { get; set; } = new();
+    public AiProvider Provider { get; init; }
+    public string ApiKey { get; init; } = string.Empty;
+    public string? Endpoint { get; init; }
+    public string? Region { get; init; }
+    public string? SessionToken { get; init; }
+    public string? AwsAccessKeyId { get; init; }
+    public string? AwsSecretAccessKey { get; init; }
+    public BedrockAuthMode BedrockAuthMode { get; init; } = BedrockAuthMode.IamRole;
+    public string Model { get; init; } = string.Empty;
+    public string? FastModel { get; init; }
+    public ProviderLimits Limits { get; init; } = new();
 }
 
-public class ProviderLimits
+public sealed record ProviderLimits
 {
-    public int MaxConcurrentRequests { get; set; } = 50;
-    public int TokensPerMinute { get; set; } = 80000;
-    public int RequestsPerMinute { get; set; } = 1000;
-    public decimal MonthlyBudget { get; set; } = 100.00m;
+    public int MaxConcurrentRequests { get; init; } = 50;
+    public int TokensPerMinute { get; init; } = 80000;
+    public int RequestsPerMinute { get; init; } = 1000;
+    public decimal MonthlyBudget { get; init; } = 100.00m;
 }

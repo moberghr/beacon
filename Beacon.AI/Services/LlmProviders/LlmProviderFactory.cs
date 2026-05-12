@@ -1,90 +1,92 @@
 using Beacon.AI.Models.Configuration;
+using Beacon.Core.Data.Enums;
 
 namespace Beacon.AI.Services.LlmProviders;
 
+/// <summary>
+/// Builds concrete <see cref="ILlmProvider"/> instances from the current
+/// <see cref="LlmConfiguration"/> snapshot returned by the supplied accessor.
+/// Each call reads the latest configuration so hot-swaps pick up new values.
+/// </summary>
 public class LlmProviderFactory
 {
-    private readonly LlmConfiguration _config;
+    private readonly Func<LlmConfiguration> _configAccessor;
 
-    public LlmProviderFactory(LlmConfiguration config)
+    public LlmProviderFactory(Func<LlmConfiguration> configAccessor)
     {
-        _config = config ?? throw new ArgumentNullException(nameof(config));
+        _configAccessor = configAccessor ?? throw new ArgumentNullException(nameof(configAccessor));
     }
 
     public ILlmProvider CreateProvider()
     {
-        return _config.Provider switch
+        var config = _configAccessor();
+        return config.Provider switch
         {
-            AiProvider.OpenAI => new OpenAiProvider(_config.ApiKey, _config.Model),
-            AiProvider.Claude => new ClaudeProvider(_config.ApiKey, _config.Model),
-            AiProvider.AzureOpenAI => CreateAzureProvider(),
-            AiProvider.Bedrock => CreateBedrockProvider(useFastModel: false),
-            _ => throw new NotSupportedException($"Provider {_config.Provider} is not supported")
+            AiProvider.OpenAI => new OpenAiProvider(config.ApiKey, config.Model),
+            AiProvider.Claude => new ClaudeProvider(config.ApiKey, config.Model),
+            AiProvider.AzureOpenAI => CreateAzureProvider(config, config.Model),
+            AiProvider.Bedrock => CreateBedrockProvider(config, useFastModel: false),
+            _ => throw new NotSupportedException($"Provider {config.Provider} is not supported")
         };
     }
 
     public ILlmProvider CreateFastProvider()
     {
-        var fastModel = _config.FastModel ?? "gpt-4o-mini";
+        var config = _configAccessor();
+        var configuredFast = config.FastModel;
+        var hasConfiguredFast = !string.IsNullOrWhiteSpace(configuredFast);
 
-        return _config.Provider switch
+        return config.Provider switch
         {
-            AiProvider.OpenAI => new OpenAiProvider(_config.ApiKey, fastModel),
-            AiProvider.Claude => new ClaudeProvider(_config.ApiKey, "claude-haiku-4-20250514"),
-            AiProvider.AzureOpenAI => CreateAzureProvider(),
-            AiProvider.Bedrock => CreateBedrockProvider(useFastModel: true),
-            _ => throw new NotSupportedException($"Provider {_config.Provider} is not supported")
+            AiProvider.OpenAI => new OpenAiProvider(
+                config.ApiKey,
+                hasConfiguredFast ? configuredFast! : "gpt-4o-mini"),
+            AiProvider.Claude => new ClaudeProvider(
+                config.ApiKey,
+                hasConfiguredFast ? configuredFast! : "claude-haiku-4-20250514"),
+            AiProvider.AzureOpenAI => CreateAzureProvider(
+                config,
+                hasConfiguredFast ? configuredFast! : config.Model),
+            AiProvider.Bedrock => CreateBedrockProvider(config, useFastModel: true),
+            _ => throw new NotSupportedException($"Provider {config.Provider} is not supported")
         };
     }
 
-    private AzureOpenAiProvider CreateAzureProvider()
+    private static AzureOpenAiProvider CreateAzureProvider(LlmConfiguration config, string model)
     {
-        if (string.IsNullOrEmpty(_config.Endpoint))
+        if (string.IsNullOrEmpty(config.Endpoint))
         {
             throw new InvalidOperationException("Azure OpenAI endpoint is required");
         }
 
-        return new AzureOpenAiProvider(_config.Endpoint, _config.ApiKey, _config.Model);
+        return new AzureOpenAiProvider(config.Endpoint, config.ApiKey, model);
     }
 
-    private BedrockProvider CreateBedrockProvider(bool useFastModel)
+    private static BedrockProvider CreateBedrockProvider(LlmConfiguration config, bool useFastModel)
     {
-        if (string.IsNullOrEmpty(_config.Region))
+        if (string.IsNullOrEmpty(config.Region))
         {
             throw new InvalidOperationException("AWS Region is required for Bedrock provider");
         }
 
-        var modelId = (useFastModel && !string.IsNullOrEmpty(_config.FastModel) ? _config.FastModel : _config.Model)
+        var modelId = (useFastModel && !string.IsNullOrEmpty(config.FastModel) ? config.FastModel : config.Model)
             ?? throw new InvalidOperationException("Model ID is required for Bedrock provider");
 
-        return _config.BedrockAuthMode switch
+        // If ApiKey contains both access and secret keys (format: "accessKey:secretKey")
+        if (!string.IsNullOrEmpty(config.ApiKey) && config.ApiKey.Contains(':'))
         {
-            BedrockAuthMode.IamRole => new BedrockProvider(_config.Region, modelId),
-            BedrockAuthMode.AccessKey => CreateBedrockWithAccessKey(modelId),
-            BedrockAuthMode.TemporaryCredentials => CreateBedrockWithTempCreds(modelId),
-            _ => throw new NotSupportedException($"Unsupported Bedrock auth mode: {_config.BedrockAuthMode}")
-        };
-    }
+            var parts = config.ApiKey.Split(':', 2);
+            if (parts.Length != 2)
+            {
+                throw new InvalidOperationException("ApiKey format should be 'accessKey:secretKey'");
+            }
 
-    private BedrockProvider CreateBedrockWithAccessKey(string modelId)
-    {
-        if (string.IsNullOrEmpty(_config.AwsAccessKeyId) || string.IsNullOrEmpty(_config.AwsSecretAccessKey))
-        {
-            throw new InvalidOperationException("AWS access key ID and secret access key are required for AccessKey auth mode");
+            return !string.IsNullOrEmpty(config.SessionToken)
+                ? new BedrockProvider(parts[0], parts[1], config.SessionToken, config.Region, modelId)
+                : new BedrockProvider(parts[0], parts[1], config.Region, modelId);
         }
 
-        return new BedrockProvider(_config.AwsAccessKeyId, _config.AwsSecretAccessKey, _config.Region!, modelId);
-    }
-
-    private BedrockProvider CreateBedrockWithTempCreds(string modelId)
-    {
-        if (string.IsNullOrEmpty(_config.AwsAccessKeyId)
-            || string.IsNullOrEmpty(_config.AwsSecretAccessKey)
-            || string.IsNullOrEmpty(_config.SessionToken))
-        {
-            throw new InvalidOperationException("AWS access key ID, secret access key, and session token are required for TemporaryCredentials auth mode");
-        }
-
-        return new BedrockProvider(_config.AwsAccessKeyId, _config.AwsSecretAccessKey, _config.SessionToken, _config.Region!, modelId);
+        // Use default AWS credentials (IAM role, environment variables, etc.)
+        return new BedrockProvider(config.Region, modelId);
     }
 }
