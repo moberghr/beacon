@@ -376,3 +376,4 @@ Beacon.SampleProject/wwwroot/vite.svg
 Beacon.SampleProject/web/*.tsbuildinfo
 Beacon.SampleProject/web/vite.config.js
 Beacon.SampleProject/web/vite.config.d.ts
+/.claude/worktrees/
