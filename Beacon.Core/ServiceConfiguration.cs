@@ -15,7 +15,9 @@ using Beacon.Core.Authorization.Providers;
 using Beacon.Core.Data;
 using Beacon.Core.Models;
 using Beacon.Core.Services;
+using Beacon.Core.Services.Embed;
 using Beacon.Core.Services.Shared;
+using Microsoft.Extensions.Options;
 using Beacon.Core.Worker;
 using Beacon.Core.Worker.Repositories;
 using Beacon.Core.Worker.Services;
@@ -168,6 +170,12 @@ public static class ServiceConfiguration
             // Register database-backed authorization provider
             services.TryAddScoped<IBeaconAuthorizationProvider, Authorization.Providers.DatabaseAuthorizationProvider>();
         }
+
+        // Embed token service (HS256 mint/validate for embeddable Beacon integrations)
+        services.Configure<EmbedTokenOptions>(configuration.GetSection("Beacon:EmbedToken"));
+        services.AddSingleton<IValidateOptions<EmbedTokenOptions>, EmbedTokenOptionsValidator>();
+        services.TryAddSingleton<TimeProvider>(TimeProvider.System);
+        services.TryAddSingleton<IEmbedTokenService, EmbedTokenService>();
 
         return new BeaconBuilder(services, configuration);
     }
