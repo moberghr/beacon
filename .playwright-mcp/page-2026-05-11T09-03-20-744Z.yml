@@ -1,0 +1,278 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - complementary [ref=e4]:
+      - generic [ref=e5]:
+        - generic [ref=e8]: Beacon
+        - generic [ref=e9]: v0.93
+      - navigation [ref=e10]:
+        - generic [ref=e11]:
+          - generic [ref=e12]: Overview
+          - link "Home" [ref=e13] [cursor=pointer]:
+            - /url: /home
+            - img [ref=e14]
+            - generic [ref=e16]: Home
+          - link "Control Tower" [ref=e17] [cursor=pointer]:
+            - /url: /control-tower
+            - img [ref=e18]
+            - generic [ref=e21]: Control Tower
+          - link "Dashboards" [ref=e22] [cursor=pointer]:
+            - /url: /dashboards
+            - img [ref=e23]
+            - generic [ref=e28]: Dashboards
+        - generic [ref=e29]:
+          - generic [ref=e30]: Data
+          - link "Data Sources" [ref=e31] [cursor=pointer]:
+            - /url: /data-sources
+            - img [ref=e32]
+            - generic [ref=e36]: Data Sources
+          - link "Projects" [ref=e37] [cursor=pointer]:
+            - /url: /projects
+            - img [ref=e38]
+            - generic [ref=e40]: Projects
+          - link "Data Quality" [ref=e41] [cursor=pointer]:
+            - /url: /data-quality
+            - img [ref=e42]
+            - generic [ref=e45]: Data Quality
+          - link "Data Migration" [ref=e46] [cursor=pointer]:
+            - /url: /migration-jobs
+            - img [ref=e47]
+            - generic [ref=e49]: Data Migration
+          - link "AI Actors" [ref=e50] [cursor=pointer]:
+            - /url: /ai-actors
+            - img [ref=e51]
+            - generic [ref=e56]: AI Actors
+        - generic [ref=e57]:
+          - generic [ref=e58]: Alerts
+          - link "Queries" [ref=e59] [cursor=pointer]:
+            - /url: /queries
+            - img [ref=e60]
+            - generic [ref=e64]: Queries
+          - link "Subscriptions" [ref=e65] [cursor=pointer]:
+            - /url: /subscriptions
+            - img [ref=e66]
+            - generic [ref=e69]: Subscriptions
+          - link "Notifications" [ref=e70] [cursor=pointer]:
+            - /url: /notifications
+            - img [ref=e71]
+            - generic [ref=e74]: Notifications
+          - link "Recipients" [ref=e75] [cursor=pointer]:
+            - /url: /recipients
+            - img [ref=e76]
+            - generic [ref=e80]: Recipients
+          - link "Tasks" [ref=e81] [cursor=pointer]:
+            - /url: /tasks
+            - img [ref=e82]
+            - generic [ref=e85]: Tasks
+        - generic [ref=e86]:
+          - generic [ref=e87]: MCP
+          - link "Data Catalog" [ref=e88] [cursor=pointer]:
+            - /url: /data-catalog
+            - img [ref=e89]
+            - generic [ref=e92]: Data Catalog
+          - link "API Keys" [ref=e93] [cursor=pointer]:
+            - /url: /api-keys
+            - img [ref=e94]
+            - generic [ref=e97]: API Keys
+          - link "MCP Settings" [ref=e98] [cursor=pointer]:
+            - /url: /mcp-settings
+            - img [ref=e99]
+            - generic [ref=e104]: MCP Settings
+          - link "MCP Playground" [ref=e105] [cursor=pointer]:
+            - /url: /mcp-playground
+            - img [ref=e106]
+            - generic [ref=e108]: MCP Playground
+          - link "MCP Learning" [ref=e109] [cursor=pointer]:
+            - /url: /mcp-learning
+            - img [ref=e110]
+            - generic [ref=e112]: MCP Learning
+        - generic [ref=e113]:
+          - generic [ref=e114]: Admin
+          - link "User Management" [ref=e115] [cursor=pointer]:
+            - /url: /users
+            - img [ref=e116]
+            - generic [ref=e120]: User Management
+          - link "Admin Settings" [ref=e121] [cursor=pointer]:
+            - /url: /admin-settings
+            - img [ref=e122]
+            - generic [ref=e125]: Admin Settings
+        - link "About" [ref=e127] [cursor=pointer]:
+          - /url: /about
+          - img [ref=e128]
+          - generic [ref=e131]: About
+      - generic [ref=e133] [cursor=pointer]:
+        - generic [ref=e134]: MI
+        - generic [ref=e135]:
+          - generic [ref=e136]: mirko
+          - generic [ref=e137]: Admin
+        - img [ref=e138]
+    - main [ref=e140]:
+      - generic [ref=e141]:
+        - generic [ref=e143]:
+          - generic [ref=e144]:
+            - generic [ref=e145]:
+              - link "Subscriptions" [ref=e146] [cursor=pointer]:
+                - /url: /subscriptions
+              - generic [ref=e147]: /
+              - generic [ref=e148]: "#1"
+              - generic [ref=e149]: ·
+              - generic [ref=e150]: ACTIVE
+            - heading "Watching qeh select" [level=1] [ref=e152]:
+              - text: Watching
+              - generic [ref=e153]: qeh select
+            - paragraph [ref=e154]: At 01:01, on day 1 of the month, only on Sunday, only in January · next 1 Jan 2029, 02:01 · 1 recipient
+          - generic [ref=e155]:
+            - button "Archive" [ref=e156] [cursor=pointer]:
+              - img [ref=e157]
+              - text: Archive
+            - button "Test now" [ref=e162] [cursor=pointer]:
+              - img [ref=e163]
+              - text: Test now
+        - generic [ref=e165]:
+          - generic [ref=e166] [cursor=pointer]:
+            - generic [ref=e169]: Total executions
+            - generic [ref=e170]: "4"
+            - generic [ref=e172]: to date
+          - generic [ref=e173] [cursor=pointer]:
+            - generic [ref=e176]: Notifications sent
+            - generic [ref=e177]: "0"
+            - generic [ref=e179]: none yet
+          - generic [ref=e180] [cursor=pointer]:
+            - generic [ref=e183]: Recipients
+            - generic [ref=e184]: "1"
+            - generic [ref=e186]: configured
+          - generic [ref=e187] [cursor=pointer]:
+            - generic [ref=e190]: Latest results
+            - generic [ref=e191]: "3"
+            - generic [ref=e193]: last run
+        - generic [ref=e194]:
+          - generic [ref=e195]:
+            - generic [ref=e196]:
+              - generic [ref=e197]:
+                - img [ref=e198]
+                - heading "Query configuration" [level=3] [ref=e201]
+              - generic [ref=e203]:
+                - generic [ref=e204]:
+                  - generic [ref=e205]: Query
+                  - link "qeh select" [ref=e207] [cursor=pointer]:
+                    - /url: /queries/2
+                - generic [ref=e208]:
+                  - generic [ref=e209]: Schedule
+                  - generic [ref=e211]:
+                    - text: At 01:01, on day 1 of the month, only on Sunday, only in January
+                    - generic [ref=e212]: 1 1 1 1 1
+                - generic [ref=e213]:
+                  - generic [ref=e214]: Result limit
+                  - generic [ref=e215]: no limit
+                - generic [ref=e216]:
+                  - generic [ref=e217]: Min row threshold
+                  - generic [ref=e218]: none
+                - generic [ref=e219]:
+                  - generic [ref=e220]: Query timeout
+                  - generic [ref=e221]: no timeout
+                - generic [ref=e222]:
+                  - generic [ref=e223]: Owner
+                  - generic [ref=e224]: user-defined
+            - generic [ref=e225]:
+              - generic [ref=e226]:
+                - img [ref=e227]
+                - heading "Notification settings" [level=3] [ref=e230]
+              - generic [ref=e232]:
+                - generic [ref=e233]:
+                  - generic [ref=e234]: Send notification
+                  - generic [ref=e235]:
+                    - generic [ref=e236]: On change
+                    - text: When result count changes
+                - generic [ref=e237]:
+                  - generic [ref=e238]: Include attachment
+                  - generic [ref=e240]: enabled
+                - generic [ref=e241]:
+                  - generic [ref=e242]: Show query
+                  - generic [ref=e243]:
+                    - generic [ref=e244]: enabled
+                    - text: SQL in notifications
+                - generic [ref=e245]:
+                  - generic [ref=e246]: Store results
+                  - generic [ref=e247]:
+                    - generic [ref=e248]: enabled
+                    - text: persist query results
+                - generic [ref=e249]:
+                  - generic [ref=e250]: Create tasks
+                  - generic [ref=e251]:
+                    - generic [ref=e252]: enabled
+                    - text: auto-create tracking tasks
+            - generic [ref=e253]:
+              - generic [ref=e254]:
+                - button "Recipients 1" [ref=e255] [cursor=pointer]:
+                  - img [ref=e256]
+                  - text: Recipients
+                  - generic [ref=e260]: "1"
+                - button "Execution history 4" [ref=e261] [cursor=pointer]:
+                  - img [ref=e262]
+                  - text: Execution history
+                  - generic [ref=e265]: "4"
+              - generic [ref=e266]:
+                - generic [ref=e267]:
+                  - generic [ref=e268]:
+                    - text: Notification recipients
+                    - generic [ref=e269]: (1)
+                  - button "Add recipient" [ref=e270] [cursor=pointer]:
+                    - img [ref=e271]
+                    - text: Add recipient
+                - generic [ref=e274]:
+                  - generic [ref=e275]:
+                    - generic [ref=e276]: Email
+                    - button "Remove mirko@moberg.hr" [disabled] [ref=e277] [cursor=pointer]:
+                      - img [ref=e278]
+                  - generic [ref=e280]: mirko@moberg.hr
+                  - generic [ref=e281]: mirko@moberg.hr
+                  - generic [ref=e282]: test
+          - complementary [ref=e283]:
+            - generic [ref=e285]:
+              - img [ref=e286]
+              - heading "Suggested next steps" [level=3] [ref=e288]
+              - generic [ref=e289]: heuristic
+            - generic [ref=e291]:
+              - generic [ref=e292]:
+                - img [ref=e293]
+                - heading "Owner & query" [level=3] [ref=e297]
+              - generic [ref=e298]:
+                - generic [ref=e299]:
+                  - img [ref=e301]
+                  - generic [ref=e305]:
+                    - generic [ref=e306]: Owner
+                    - generic [ref=e307]: User-defined
+                    - generic [ref=e308]: manual
+                - generic [ref=e309]:
+                  - generic [ref=e310]: QS
+                  - generic [ref=e311]:
+                    - generic [ref=e312]: Query
+                    - generic [ref=e313]: qeh select
+                    - generic [ref=e314]: "#2"
+            - generic [ref=e315]:
+              - generic [ref=e316]:
+                - img [ref=e317]
+                - heading "Latest run" [level=3] [ref=e320]
+              - generic [ref=e321]:
+                - generic [ref=e322]:
+                  - img [ref=e324]
+                  - generic [ref=e327]:
+                    - generic [ref=e328]: Sent
+                    - generic [ref=e329]: 3 results · 4 ms
+                - generic [ref=e330]:
+                  - img [ref=e332]
+                  - generic [ref=e335]:
+                    - generic [ref=e336]: 0 recipients notified
+                    - generic [ref=e337]: —
+        - generic [ref=e338]:
+          - generic [ref=e339]:
+            - generic [ref=e340]: ACTIVE
+            - generic [ref=e342]:
+              - generic [ref=e343]: "#1"
+              - text: · 4 runs · 1 recipient
+          - button "Archive" [ref=e344] [cursor=pointer]:
+            - img [ref=e345]
+            - text: Archive
+          - button "Test now" [ref=e350] [cursor=pointer]:
+            - img [ref=e351]
+            - text: Test now
+  - region "Notifications alt+T"

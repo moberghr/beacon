@@ -51,6 +51,9 @@ public class AppSettingsService : IAppSettingsService
             LlmEndpoint = GetValue("LLM.Endpoint"),
             LlmRegion = GetValue("LLM.Region"),
             LlmSessionToken = GetValue("LLM.SessionToken"),
+            LlmAwsAccessKeyId = GetValue("LLM.AwsAccessKeyId"),
+            LlmAwsSecretAccessKey = GetValue("LLM.AwsSecretAccessKey"),
+            LlmBedrockAuthMode = GetEnum<BedrockAuthMode>("LLM.BedrockAuthMode") ?? BedrockAuthMode.IamRole,
             LlmModel = GetValue("LLM.Model"),
             LlmFastModel = GetValue("LLM.FastModel"),
             LlmMaxConcurrentRequests = GetInt("LLM.MaxConcurrentRequests", 50),
@@ -97,18 +100,49 @@ public class AppSettingsService : IAppSettingsService
         var historyEntries = new List<AppSettingHistory>();
         var now = DateTime.UtcNow;
 
-        void SetValue(string key, string? newValue, bool isSensitive)
+        void SetValue(string key, string? newValue, bool isSensitive, string category)
         {
-            if (!dict.TryGetValue(key, out var row)) return;
+            if (!dict.TryGetValue(key, out var row))
+            {
+                // Row doesn't exist yet — insert it. Without this the entire
+                // admin settings UI silently no-ops on a fresh database.
+                if (newValue == null)
+                {
+                    return;
+                }
+
+                var stored = isSensitive ? _encryption.Encrypt(newValue) : newValue;
+                var inserted = new AppSetting
+                {
+                    Key = key,
+                    Value = stored,
+                    IsSensitive = isSensitive,
+                    Category = category,
+                };
+                context.AppSettings.Add(inserted);
+                dict[key] = inserted;
+
+                historyEntries.Add(new AppSettingHistory
+                {
+                    SettingKey = key,
+                    OldValue = null,
+                    NewValue = isSensitive ? "***" : newValue,
+                    ChangedAt = now,
+                    ChangedByUserId = userId,
+                });
+                return;
+            }
 
             // Decrypt current value for comparison
             var currentPlain = row.IsSensitive && row.Value != null
                 ? _encryption.Decrypt(row.Value)
                 : row.Value;
 
-            if (currentPlain == newValue) return;
+            if (currentPlain == newValue)
+            {
+                return;
+            }
 
-            // Record history (store plain text for non-sensitive, masked for sensitive)
             historyEntries.Add(new AppSettingHistory
             {
                 SettingKey = key,
@@ -118,23 +152,25 @@ public class AppSettingsService : IAppSettingsService
                 ChangedByUserId = userId,
             });
 
-            // Store encrypted if sensitive
             row.Value = isSensitive && newValue != null ? _encryption.Encrypt(newValue) : newValue;
         }
 
-        SetValue("General.BaseUrl", settings.BaseUrl, false);
+        SetValue("General.BaseUrl", settings.BaseUrl, false, "General");
 
-        SetValue("LLM.Provider", settings.LlmProvider?.ToString(), false);
-        SetValue("LLM.ApiKey", settings.LlmApiKey, true);
-        SetValue("LLM.Endpoint", settings.LlmEndpoint, true);
-        SetValue("LLM.Region", settings.LlmRegion, false);
-        SetValue("LLM.SessionToken", settings.LlmSessionToken, true);
-        SetValue("LLM.Model", settings.LlmModel, false);
-        SetValue("LLM.FastModel", settings.LlmFastModel, false);
-        SetValue("LLM.MaxConcurrentRequests", settings.LlmMaxConcurrentRequests.ToString(), false);
-        SetValue("LLM.TokensPerMinute", settings.LlmTokensPerMinute.ToString(), false);
-        SetValue("LLM.RequestsPerMinute", settings.LlmRequestsPerMinute.ToString(), false);
-        SetValue("LLM.MonthlyBudget", settings.LlmMonthlyBudget.ToString(CultureInfo.InvariantCulture), false);
+        SetValue("LLM.Provider", settings.LlmProvider?.ToString(), false, "LLM");
+        SetValue("LLM.ApiKey", settings.LlmApiKey, true, "LLM");
+        SetValue("LLM.Endpoint", settings.LlmEndpoint, true, "LLM");
+        SetValue("LLM.Region", settings.LlmRegion, false, "LLM");
+        SetValue("LLM.SessionToken", settings.LlmSessionToken, true, "LLM");
+        SetValue("LLM.AwsAccessKeyId", settings.LlmAwsAccessKeyId, true, "LLM");
+        SetValue("LLM.AwsSecretAccessKey", settings.LlmAwsSecretAccessKey, true, "LLM");
+        SetValue("LLM.BedrockAuthMode", settings.LlmBedrockAuthMode.ToString(), false, "LLM");
+        SetValue("LLM.Model", settings.LlmModel, false, "LLM");
+        SetValue("LLM.FastModel", settings.LlmFastModel, false, "LLM");
+        SetValue("LLM.MaxConcurrentRequests", settings.LlmMaxConcurrentRequests.ToString(), false, "LLM");
+        SetValue("LLM.TokensPerMinute", settings.LlmTokensPerMinute.ToString(), false, "LLM");
+        SetValue("LLM.RequestsPerMinute", settings.LlmRequestsPerMinute.ToString(), false, "LLM");
+        SetValue("LLM.MonthlyBudget", settings.LlmMonthlyBudget.ToString(CultureInfo.InvariantCulture), false, "LLM");
 
         if (historyEntries.Count > 0)
         {

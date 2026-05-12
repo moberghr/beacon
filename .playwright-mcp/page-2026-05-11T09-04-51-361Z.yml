@@ -1,0 +1,331 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - complementary [ref=e4]:
+      - generic [ref=e5]:
+        - generic [ref=e8]: Beacon
+        - generic [ref=e9]: v0.93
+      - navigation [ref=e10]:
+        - generic [ref=e11]:
+          - generic [ref=e12]: Overview
+          - link "Home" [ref=e13] [cursor=pointer]:
+            - /url: /home
+            - img [ref=e14]
+            - generic [ref=e16]: Home
+          - link "Control Tower" [ref=e17] [cursor=pointer]:
+            - /url: /control-tower
+            - img [ref=e18]
+            - generic [ref=e21]: Control Tower
+          - link "Dashboards" [ref=e22] [cursor=pointer]:
+            - /url: /dashboards
+            - img [ref=e23]
+            - generic [ref=e28]: Dashboards
+        - generic [ref=e29]:
+          - generic [ref=e30]: Data
+          - link "Data Sources" [ref=e31] [cursor=pointer]:
+            - /url: /data-sources
+            - img [ref=e32]
+            - generic [ref=e36]: Data Sources
+          - link "Projects" [ref=e37] [cursor=pointer]:
+            - /url: /projects
+            - img [ref=e38]
+            - generic [ref=e40]: Projects
+          - link "Data Quality" [ref=e41] [cursor=pointer]:
+            - /url: /data-quality
+            - img [ref=e42]
+            - generic [ref=e45]: Data Quality
+          - link "Data Migration" [ref=e46] [cursor=pointer]:
+            - /url: /migration-jobs
+            - img [ref=e47]
+            - generic [ref=e49]: Data Migration
+          - link "AI Actors" [ref=e50] [cursor=pointer]:
+            - /url: /ai-actors
+            - img [ref=e51]
+            - generic [ref=e56]: AI Actors
+        - generic [ref=e57]:
+          - generic [ref=e58]: Alerts
+          - link "Queries" [ref=e59] [cursor=pointer]:
+            - /url: /queries
+            - img [ref=e60]
+            - generic [ref=e64]: Queries
+          - link "Subscriptions" [ref=e65] [cursor=pointer]:
+            - /url: /subscriptions
+            - img [ref=e66]
+            - generic [ref=e69]: Subscriptions
+          - link "Notifications" [ref=e70] [cursor=pointer]:
+            - /url: /notifications
+            - img [ref=e71]
+            - generic [ref=e74]: Notifications
+          - link "Recipients" [ref=e75] [cursor=pointer]:
+            - /url: /recipients
+            - img [ref=e76]
+            - generic [ref=e80]: Recipients
+          - link "Tasks" [ref=e81] [cursor=pointer]:
+            - /url: /tasks
+            - img [ref=e82]
+            - generic [ref=e85]: Tasks
+        - generic [ref=e86]:
+          - generic [ref=e87]: MCP
+          - link "Data Catalog" [ref=e88] [cursor=pointer]:
+            - /url: /data-catalog
+            - img [ref=e89]
+            - generic [ref=e92]: Data Catalog
+          - link "API Keys" [ref=e93] [cursor=pointer]:
+            - /url: /api-keys
+            - img [ref=e94]
+            - generic [ref=e97]: API Keys
+          - link "MCP Settings" [ref=e98] [cursor=pointer]:
+            - /url: /mcp-settings
+            - img [ref=e99]
+            - generic [ref=e104]: MCP Settings
+          - link "MCP Playground" [ref=e105] [cursor=pointer]:
+            - /url: /mcp-playground
+            - img [ref=e106]
+            - generic [ref=e108]: MCP Playground
+          - link "MCP Learning" [ref=e109] [cursor=pointer]:
+            - /url: /mcp-learning
+            - img [ref=e110]
+            - generic [ref=e112]: MCP Learning
+        - generic [ref=e113]:
+          - generic [ref=e114]: Admin
+          - link "User Management" [ref=e115] [cursor=pointer]:
+            - /url: /users
+            - img [ref=e116]
+            - generic [ref=e120]: User Management
+          - link "Admin Settings" [ref=e121] [cursor=pointer]:
+            - /url: /admin-settings
+            - img [ref=e122]
+            - generic [ref=e125]: Admin Settings
+        - link "About" [ref=e127] [cursor=pointer]:
+          - /url: /about
+          - img [ref=e128]
+          - generic [ref=e131]: About
+      - generic [ref=e133] [cursor=pointer]:
+        - generic [ref=e134]: MI
+        - generic [ref=e135]:
+          - generic [ref=e136]: mirko
+          - generic [ref=e137]: Admin
+        - img [ref=e138]
+    - main [ref=e140]:
+      - generic [ref=e141]:
+        - generic [ref=e142]:
+          - generic:
+            - img
+          - generic [ref=e143]:
+            - generic [ref=e144]:
+              - generic [ref=e145]:
+                - generic [ref=e146]: MON 11 MAY
+                - generic [ref=e147]: ·
+                - generic [ref=e148]: 11:04:51 UTC
+                - generic [ref=e149]: ·
+                - generic [ref=e150]: BEACON ACTIVE
+              - heading "Good morning, mirko. Everything is nominal" [level=1] [ref=e152]:
+                - generic [ref=e153]: Good morning, mirko.
+                - generic [ref=e154]:
+                  - generic [ref=e155]: Everything is
+                  - generic [ref=e156]:
+                    - text: nominal
+                    - img [ref=e157]
+              - paragraph [ref=e159]:
+                - generic [ref=e160]: 0 queries executed ·
+                - generic [ref=e161]: 0 anomalies
+                - text: detected — all clear.
+            - generic [ref=e162]:
+              - generic "Last 24 hours of system status" [ref=e163]:
+                - generic [ref=e164]:
+                  - generic [ref=e165]: SYSTEM · LAST 24H
+                  - generic [ref=e166]: 01s
+                - generic [ref=e192]:
+                  - generic [ref=e193]: −24h
+                  - generic [ref=e194]: now
+              - generic [ref=e195]:
+                - button "Export" [ref=e196] [cursor=pointer]:
+                  - img [ref=e197]
+                  - text: Export
+                - button "Refresh" [ref=e199] [cursor=pointer]:
+                  - img [ref=e200]
+                  - text: Refresh
+                - link "New query" [ref=e205] [cursor=pointer]:
+                  - /url: /queries/new
+                  - img [ref=e206]
+                  - text: New query
+        - generic [ref=e208]:
+          - tablist [ref=e209]:
+            - tab "1H" [ref=e210] [cursor=pointer]
+            - tab "24H" [ref=e211] [cursor=pointer]
+            - tab "7D" [ref=e212] [cursor=pointer]
+            - tab "30D" [selected] [ref=e213] [cursor=pointer]
+            - tab "90D" [ref=e214] [cursor=pointer]
+          - button "All projects" [ref=e216] [cursor=pointer]:
+            - img [ref=e217]
+            - text: All projects
+          - button "All sources" [ref=e219] [cursor=pointer]:
+            - img [ref=e220]
+            - text: All sources
+          - button "All users" [ref=e224] [cursor=pointer]:
+            - img [ref=e225]
+            - text: All users
+          - button "Calendar" [ref=e229] [cursor=pointer]:
+            - img [ref=e230]
+        - generic [ref=e233]:
+          - generic [ref=e234] [cursor=pointer]:
+            - generic [ref=e237]: Active subscriptions
+            - generic [ref=e238]: —
+            - generic [ref=e240]: — sources online
+          - generic [ref=e241] [cursor=pointer]:
+            - generic [ref=e244]: Query executions
+            - generic [ref=e245]: —
+            - generic [ref=e247]: last 30 days
+          - generic [ref=e248] [cursor=pointer]:
+            - generic [ref=e251]: Notifications sent
+            - generic [ref=e252]: —
+            - generic [ref=e254]: — recipients
+          - generic [ref=e255] [cursor=pointer]:
+            - generic [ref=e258]: Anomalies detected
+            - generic [ref=e259]: —
+            - generic [ref=e261]:
+              - generic [ref=e262]: 0 open
+              - text: 0 acknowledged
+        - generic [ref=e263]:
+          - generic [ref=e264] [cursor=pointer]:
+            - generic [ref=e267]: Avg execution
+            - generic [ref=e268]:
+              - text: —
+              - generic [ref=e269]: ms
+            - generic [ref=e271]: across all queries
+          - generic [ref=e272] [cursor=pointer]:
+            - generic [ref=e275]: Fastest query
+            - generic [ref=e276]:
+              - text: —
+              - generic [ref=e277]: ms
+            - generic [ref=e279]: no data
+          - generic [ref=e280] [cursor=pointer]:
+            - generic [ref=e283]: Slowest query
+            - generic [ref=e284]:
+              - text: —
+              - generic [ref=e285]: ms
+            - generic [ref=e287]: no data
+        - generic [ref=e288]:
+          - generic [ref=e289]:
+            - generic [ref=e290]:
+              - img [ref=e291]
+              - heading "Activity trends" [level=3] [ref=e294]
+              - generic [ref=e295]: last 30 days
+              - generic [ref=e297]:
+                - generic [ref=e298]: Queries executed
+                - generic [ref=e300]: Notifications sent
+            - img [ref=e303]:
+              - generic [ref=e305]: "0"
+              - generic [ref=e307]: "0"
+              - generic [ref=e309]: "1"
+              - generic [ref=e311]: "1"
+              - generic [ref=e313]: "1"
+              - generic [ref=e314]: d-29
+              - generic [ref=e315]: d-22
+              - generic [ref=e316]: d-14
+              - generic [ref=e317]: d-7
+              - generic [ref=e318]: d-0
+          - generic [ref=e319]:
+            - generic [ref=e320]:
+              - img [ref=e321]
+              - heading "System overview" [level=3] [ref=e324]
+              - generic [ref=e326]: Healthy
+            - generic [ref=e328]:
+              - generic [ref=e329] [cursor=pointer]:
+                - img [ref=e331]
+                - generic [ref=e335]:
+                  - generic [ref=e336]: Data sources
+                  - generic [ref=e337]: —
+                - generic [ref=e338]: — online
+                - img [ref=e339]
+              - generic [ref=e341] [cursor=pointer]:
+                - img [ref=e343]
+                - generic [ref=e347]:
+                  - generic [ref=e348]: Recipients
+                  - generic [ref=e349]: —
+                - img [ref=e350]
+              - generic [ref=e352] [cursor=pointer]:
+                - img [ref=e354]
+                - generic [ref=e357]:
+                  - generic [ref=e358]: Active subscriptions
+                  - generic [ref=e359]: —
+                - img [ref=e360]
+              - generic [ref=e362] [cursor=pointer]:
+                - img [ref=e364]
+                - generic [ref=e366]:
+                  - generic [ref=e367]: Active anomalies
+                  - generic [ref=e368]: —
+                - img [ref=e369]
+              - generic [ref=e371] [cursor=pointer]:
+                - img [ref=e373]
+                - generic [ref=e375]:
+                  - generic [ref=e376]: Integrations
+                  - generic [ref=e377]: —
+                - generic [ref=e378]: channel types
+                - img [ref=e379]
+        - generic [ref=e381]:
+          - generic [ref=e382]:
+            - img [ref=e383]
+            - heading "Query execution performance" [level=3] [ref=e385]
+            - generic [ref=e386]: last 30 days · all sources
+            - generic [ref=e388]:
+              - button "avg" [ref=e389] [cursor=pointer]
+              - button "p50" [ref=e390] [cursor=pointer]
+              - button "p95" [ref=e391] [cursor=pointer]
+              - button "p99" [ref=e392] [cursor=pointer]
+          - generic [ref=e395]: No execution data yet
+          - generic [ref=e396]:
+            - generic [ref=e397]: typical
+            - generic [ref=e399]: p95 spike
+            - generic [ref=e401]: p99 spike
+        - generic [ref=e403]:
+          - generic [ref=e404]:
+            - generic [ref=e405]:
+              - generic [ref=e406]:
+                - img [ref=e407]
+                - heading "Data migration" [level=3] [ref=e409]
+                - generic [ref=e410]: overview
+                - link "Open jobs →" [ref=e412] [cursor=pointer]:
+                  - /url: /migration-history
+              - generic [ref=e414]:
+                - generic [ref=e415] [cursor=pointer]:
+                  - generic [ref=e416]: Total jobs
+                  - generic [ref=e418]: —
+                - generic [ref=e421] [cursor=pointer]:
+                  - generic [ref=e422]: Successful
+                  - generic [ref=e424]: —
+                - generic [ref=e426] [cursor=pointer]:
+                  - generic [ref=e427]: Executions
+                  - generic [ref=e429]: —
+                - generic [ref=e431] [cursor=pointer]:
+                  - generic [ref=e432]: Errored
+                  - generic [ref=e434]: —
+            - generic [ref=e436]:
+              - generic [ref=e437]:
+                - img [ref=e438]
+                - heading "Task management" [level=3] [ref=e441]
+                - generic [ref=e442]: —
+              - generic [ref=e444]:
+                - generic [ref=e445] [cursor=pointer]:
+                  - generic [ref=e446]: Total
+                  - generic [ref=e448]: —
+                - generic [ref=e451] [cursor=pointer]:
+                  - generic [ref=e452]: Open
+                  - generic [ref=e454]: —
+                - generic [ref=e456] [cursor=pointer]:
+                  - generic [ref=e457]: Resolved
+                  - generic [ref=e459]: —
+          - generic [ref=e461]:
+            - generic [ref=e462]:
+              - img [ref=e463]
+              - heading "Recent activity" [level=3] [ref=e465]
+              - link "View all →" [ref=e467] [cursor=pointer]:
+                - /url: /control-tower
+            - generic [ref=e469]: Loading…
+        - generic [ref=e470]:
+          - generic [ref=e471]: Beacon · region eu-west
+          - generic [ref=e472]:
+            - text: Press
+            - generic [ref=e473]: ⌘
+            - generic [ref=e474]: K
+            - text: to search
+  - region "Notifications alt+T"

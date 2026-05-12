@@ -1,4 +1,3 @@
-using Beacon.Core.Data.Enums;
 using Beacon.AI.Models.Configuration;
 
 namespace Beacon.AI.Services.LlmProviders;
@@ -19,7 +18,7 @@ public class LlmProviderFactory
             AiProvider.OpenAI => new OpenAiProvider(_config.ApiKey, _config.Model),
             AiProvider.Claude => new ClaudeProvider(_config.ApiKey, _config.Model),
             AiProvider.AzureOpenAI => CreateAzureProvider(),
-            AiProvider.Bedrock => CreateBedrockProvider(),
+            AiProvider.Bedrock => CreateBedrockProvider(useFastModel: false),
             _ => throw new NotSupportedException($"Provider {_config.Provider} is not supported")
         };
     }
@@ -48,27 +47,44 @@ public class LlmProviderFactory
         return new AzureOpenAiProvider(_config.Endpoint, _config.ApiKey, _config.Model);
     }
 
-    private BedrockProvider CreateBedrockProvider(bool useFastModel = false)
+    private BedrockProvider CreateBedrockProvider(bool useFastModel)
     {
         if (string.IsNullOrEmpty(_config.Region))
+        {
             throw new InvalidOperationException("AWS Region is required for Bedrock provider");
+        }
 
         var modelId = (useFastModel && !string.IsNullOrEmpty(_config.FastModel) ? _config.FastModel : _config.Model)
             ?? throw new InvalidOperationException("Model ID is required for Bedrock provider");
 
-        // If ApiKey contains both access and secret keys (format: "accessKey:secretKey")
-        if (!string.IsNullOrEmpty(_config.ApiKey) && _config.ApiKey.Contains(':'))
+        return _config.BedrockAuthMode switch
         {
-            var parts = _config.ApiKey.Split(':', 2);
-            if (parts.Length != 2)
-                throw new InvalidOperationException("ApiKey format should be 'accessKey:secretKey'");
+            BedrockAuthMode.IamRole => new BedrockProvider(_config.Region, modelId),
+            BedrockAuthMode.AccessKey => CreateBedrockWithAccessKey(modelId),
+            BedrockAuthMode.TemporaryCredentials => CreateBedrockWithTempCreds(modelId),
+            _ => throw new NotSupportedException($"Unsupported Bedrock auth mode: {_config.BedrockAuthMode}")
+        };
+    }
 
-            return !string.IsNullOrEmpty(_config.SessionToken)
-                ? new BedrockProvider(parts[0], parts[1], _config.SessionToken, _config.Region, modelId)
-                : new BedrockProvider(parts[0], parts[1], _config.Region, modelId);
+    private BedrockProvider CreateBedrockWithAccessKey(string modelId)
+    {
+        if (string.IsNullOrEmpty(_config.AwsAccessKeyId) || string.IsNullOrEmpty(_config.AwsSecretAccessKey))
+        {
+            throw new InvalidOperationException("AWS access key ID and secret access key are required for AccessKey auth mode");
         }
 
-        // Use default AWS credentials (IAM role, environment variables, etc.)
-        return new BedrockProvider(_config.Region, modelId);
+        return new BedrockProvider(_config.AwsAccessKeyId, _config.AwsSecretAccessKey, _config.Region!, modelId);
+    }
+
+    private BedrockProvider CreateBedrockWithTempCreds(string modelId)
+    {
+        if (string.IsNullOrEmpty(_config.AwsAccessKeyId)
+            || string.IsNullOrEmpty(_config.AwsSecretAccessKey)
+            || string.IsNullOrEmpty(_config.SessionToken))
+        {
+            throw new InvalidOperationException("AWS access key ID, secret access key, and session token are required for TemporaryCredentials auth mode");
+        }
+
+        return new BedrockProvider(_config.AwsAccessKeyId, _config.AwsSecretAccessKey, _config.SessionToken, _config.Region!, modelId);
     }
 }

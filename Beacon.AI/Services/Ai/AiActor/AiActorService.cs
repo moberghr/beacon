@@ -509,7 +509,7 @@ public class AiActorService : IAiActorServiceExtended
     }
 
     public async Task<List<Beacon.Core.Data.Entities.AiActor>> GetActorsForDataSourceAsync(
-        int dataSourceId,
+        int? dataSourceId,
         bool includeArchived = false,
         CancellationToken cancellationToken = default)
     {
@@ -517,7 +517,12 @@ public class AiActorService : IAiActorServiceExtended
 
         var query = context.AiActors
             .Include(a => a.DataSource)
-            .Where(a => a.DataSourceId == dataSourceId);
+            .AsQueryable();
+
+        if (dataSourceId.HasValue)
+        {
+            query = query.Where(a => a.DataSourceId == dataSourceId.Value);
+        }
 
         if (!includeArchived)
         {

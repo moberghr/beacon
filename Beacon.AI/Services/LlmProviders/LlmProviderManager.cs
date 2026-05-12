@@ -47,6 +47,9 @@ public class LlmProviderManager : ILlmConfigurationUpdater
             _llmConfig.Endpoint = settings.LlmEndpoint;
             _llmConfig.Region = settings.LlmRegion;
             _llmConfig.SessionToken = settings.LlmSessionToken;
+            _llmConfig.AwsAccessKeyId = settings.LlmAwsAccessKeyId;
+            _llmConfig.AwsSecretAccessKey = settings.LlmAwsSecretAccessKey;
+            _llmConfig.BedrockAuthMode = settings.LlmBedrockAuthMode;
             _llmConfig.Model = settings.LlmModel ?? string.Empty;
             _llmConfig.FastModel = settings.LlmFastModel;
             _llmConfig.Limits.MaxConcurrentRequests = settings.LlmMaxConcurrentRequests;

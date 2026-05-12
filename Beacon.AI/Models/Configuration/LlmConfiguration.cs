@@ -1,5 +1,3 @@
-using Beacon.Core.Data.Enums;
-
 namespace Beacon.AI.Models.Configuration;
 
 public class LlmConfiguration
@@ -7,8 +5,11 @@ public class LlmConfiguration
     public AiProvider Provider { get; set; }
     public string ApiKey { get; set; } = null!;
     public string? Endpoint { get; set; }
-    public string? Region { get; set; } // AWS Region for Bedrock (e.g., "us-east-1")
-    public string? SessionToken { get; set; } // AWS Session Token for temporary credentials
+    public string? Region { get; set; }
+    public string? SessionToken { get; set; }
+    public string? AwsAccessKeyId { get; set; }
+    public string? AwsSecretAccessKey { get; set; }
+    public BedrockAuthMode BedrockAuthMode { get; set; } = BedrockAuthMode.IamRole;
     public string Model { get; set; } = null!;
     public string? FastModel { get; set; }
     public ProviderLimits Limits { get; set; } = new();

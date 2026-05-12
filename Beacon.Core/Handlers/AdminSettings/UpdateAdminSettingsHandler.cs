@@ -13,9 +13,8 @@ internal sealed class UpdateAdminSettingsHandler(
 {
     public async Task Handle(UpdateAdminSettingsCommand request, CancellationToken cancellationToken)
     {
-        // Pull current settings so we can preserve existing secrets the caller
-        // didn't change. The UI sends `null` for "leave as is" and a string
-        // for "replace".
+        // The UI sends `null` for "leave secret as is" and a string for "replace".
+        // Pull current settings so we can preserve any secret the caller didn't touch.
         var current = await settingsService.GetSettingsAsync(cancellationToken);
 
         var next = new AppSettingsData
@@ -25,9 +24,12 @@ internal sealed class UpdateAdminSettingsHandler(
             LlmModel = request.LlmModel,
             LlmFastModel = request.LlmFastModel,
             LlmRegion = request.LlmRegion,
+            LlmBedrockAuthMode = request.LlmBedrockAuthMode,
             LlmApiKey = request.LlmApiKey ?? current.LlmApiKey,
             LlmEndpoint = request.LlmEndpoint ?? current.LlmEndpoint,
             LlmSessionToken = request.LlmSessionToken ?? current.LlmSessionToken,
+            LlmAwsAccessKeyId = request.LlmAwsAccessKeyId ?? current.LlmAwsAccessKeyId,
+            LlmAwsSecretAccessKey = request.LlmAwsSecretAccessKey ?? current.LlmAwsSecretAccessKey,
             LlmMaxConcurrentRequests = request.LlmMaxConcurrentRequests,
             LlmTokensPerMinute = request.LlmTokensPerMinute,
             LlmRequestsPerMinute = request.LlmRequestsPerMinute,
@@ -44,9 +46,12 @@ public record UpdateAdminSettingsCommand(
     string? LlmModel,
     string? LlmFastModel,
     string? LlmRegion,
+    BedrockAuthMode LlmBedrockAuthMode,
     string? LlmApiKey,
     string? LlmEndpoint,
     string? LlmSessionToken,
+    string? LlmAwsAccessKeyId,
+    string? LlmAwsSecretAccessKey,
     int LlmMaxConcurrentRequests,
     int LlmTokensPerMinute,
     int LlmRequestsPerMinute,

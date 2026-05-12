@@ -41,6 +41,9 @@ public static class ServiceConfiguration
         services.AddSingleton<LlmProviderManager>();
         services.AddSingleton<ILlmConfigurationUpdater>(sp => sp.GetRequiredService<LlmProviderManager>());
 
+        // Connection tester for the admin settings "Test connection" button
+        services.AddSingleton<ILlmConnectionTester, Handlers.AdminSettings.LlmConnectionTester>();
+
         // LLM Provider — delegating proxy that always uses the latest provider
         services.AddSingleton<ILlmProvider, DelegatingLlmProvider>();
 
