@@ -28,7 +28,7 @@ public sealed class LlmConnectionTester : ILlmConnectionTester
             Model = parameters.Model,
         };
 
-        var factory = new LlmProviderFactory(config);
+        var factory = new LlmProviderFactory(() => config);
         ILlmProvider provider;
         try
         {

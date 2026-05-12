@@ -2,71 +2,99 @@ using Beacon.AI.Models.Configuration;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Models.Settings;
 using Beacon.Core.Services;
+using Microsoft.Extensions.Logging;
 
 namespace Beacon.AI.Services.LlmProviders;
 
 /// <summary>
 /// Manages the current LLM provider and supports hot-swapping when configuration changes.
+/// The active <see cref="LlmConfiguration"/> is held in a single reference field that is
+/// replaced atomically via <see cref="Interlocked.Exchange{T}"/>; readers always observe a
+/// consistent snapshot.
 /// </summary>
 public class LlmProviderManager : ILlmConfigurationUpdater
 {
-    private readonly LlmConfiguration _llmConfig;
     private readonly LlmProviderFactory _factory;
+    private readonly ILogger<LlmProviderManager> _logger;
     private readonly object _lock = new();
+    private LlmConfiguration _config;
+    private ILlmProvider? _currentProvider;
 
-    public LlmProviderManager(LlmConfiguration llmConfig, LlmProviderFactory factory)
+    public LlmProviderManager(
+        LlmConfiguration llmConfig,
+        LlmProviderFactory factory,
+        ILogger<LlmProviderManager> logger)
     {
-        _llmConfig = llmConfig;
-        _factory = factory;
+        _config = llmConfig ?? throw new ArgumentNullException(nameof(llmConfig));
+        _factory = factory ?? throw new ArgumentNullException(nameof(factory));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
         // Create initial provider if configuration is valid
-        if (!string.IsNullOrEmpty(llmConfig.ApiKey) || llmConfig.Provider == AiProvider.Bedrock)
+        if (!string.IsNullOrEmpty(_config.ApiKey) || _config.Provider == AiProvider.Bedrock)
         {
             try
             {
-                CurrentProvider = factory.CreateProvider();
+                _currentProvider = factory.CreateProvider();
             }
-            catch
+            catch (Exception ex)
             {
-                // Provider creation may fail if config is incomplete at startup — that's OK
+                _logger.LogWarning(
+                    ex,
+                    "Initial LLM provider construction failed for provider {Provider}. Starting with no active provider; configure via Admin Settings.",
+                    _config.Provider);
             }
         }
     }
 
-    public ILlmProvider? CurrentProvider { get; private set; }
+    public ILlmProvider? CurrentProvider => Volatile.Read(ref _currentProvider);
+
+    /// <summary>
+    /// Snapshot of the currently active configuration. Always returns the most recently
+    /// installed instance; never mutated in place.
+    /// </summary>
+    public LlmConfiguration CurrentConfiguration => Volatile.Read(ref _config);
 
     public void UpdateConfiguration(AppSettingsData settings)
     {
         lock (_lock)
         {
-            // Mutate the existing LlmConfiguration singleton
-            if (settings.LlmProvider.HasValue)
-                _llmConfig.Provider = settings.LlmProvider.Value;
+            var previous = _config;
+            var next = previous with
+            {
+                Provider = settings.LlmProvider ?? previous.Provider,
+                ApiKey = settings.LlmApiKey ?? string.Empty,
+                Endpoint = settings.LlmEndpoint,
+                Region = settings.LlmRegion,
+                SessionToken = settings.LlmSessionToken,
+                Model = settings.LlmModel ?? string.Empty,
+                FastModel = settings.LlmFastModel,
+                Limits = new ProviderLimits
+                {
+                    MaxConcurrentRequests = settings.LlmMaxConcurrentRequests,
+                    TokensPerMinute = settings.LlmTokensPerMinute,
+                    RequestsPerMinute = settings.LlmRequestsPerMinute,
+                    MonthlyBudget = settings.LlmMonthlyBudget,
+                },
+            };
 
-            _llmConfig.ApiKey = settings.LlmApiKey ?? string.Empty;
-            _llmConfig.Endpoint = settings.LlmEndpoint;
-            _llmConfig.Region = settings.LlmRegion;
-            _llmConfig.SessionToken = settings.LlmSessionToken;
-            _llmConfig.AwsAccessKeyId = settings.LlmAwsAccessKeyId;
-            _llmConfig.AwsSecretAccessKey = settings.LlmAwsSecretAccessKey;
-            _llmConfig.BedrockAuthMode = settings.LlmBedrockAuthMode;
-            _llmConfig.Model = settings.LlmModel ?? string.Empty;
-            _llmConfig.FastModel = settings.LlmFastModel;
-            _llmConfig.Limits.MaxConcurrentRequests = settings.LlmMaxConcurrentRequests;
-            _llmConfig.Limits.TokensPerMinute = settings.LlmTokensPerMinute;
-            _llmConfig.Limits.RequestsPerMinute = settings.LlmRequestsPerMinute;
-            _llmConfig.Limits.MonthlyBudget = settings.LlmMonthlyBudget;
+            // Atomic publish of the new snapshot — readers via CurrentConfiguration / the
+            // factory accessor will see either the old or the new instance, never a torn one.
+            Interlocked.Exchange(ref _config, next);
 
             // Recreate provider with updated config
-            if (!string.IsNullOrEmpty(_llmConfig.ApiKey) || _llmConfig.Provider == AiProvider.Bedrock)
+            if (!string.IsNullOrEmpty(next.ApiKey) || next.Provider == AiProvider.Bedrock)
             {
                 try
                 {
-                    CurrentProvider = _factory.CreateProvider();
+                    var rebuilt = _factory.CreateProvider();
+                    Interlocked.Exchange(ref _currentProvider, rebuilt);
                 }
-                catch
+                catch (Exception ex)
                 {
-                    // If provider creation fails, keep the old one
+                    _logger.LogWarning(
+                        ex,
+                        "LLM provider rebuild after configuration update failed for provider {Provider}. Keeping previous provider.",
+                        next.Provider);
                 }
             }
         }
