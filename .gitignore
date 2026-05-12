@@ -377,3 +377,6 @@ Beacon.SampleProject/web/*.tsbuildinfo
 Beacon.SampleProject/web/vite.config.js
 Beacon.SampleProject/web/vite.config.d.ts
 /.claude/worktrees/
+
+# Playwright MCP page snapshots (agent-generated browser traces, not source)
+.playwright-mcp/
