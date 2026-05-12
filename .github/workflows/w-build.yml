@@ -68,17 +68,21 @@ jobs:
         for PROJECT in $PACKABLE_PROJECTS; do
           PROJECT_DIR=$(dirname "$PROJECT")
           PROJECT_NAME=$(basename "$PROJECT_DIR")
+          OUTPUT_DIR="$PROJECT_DIR/bin/Release/package"
 
           echo "Processing: $PROJECT_NAME"
+
+          mkdir -p "$OUTPUT_DIR"
 
           # Create NuGet package
           dotnet pack "$PROJECT" \
             -p:PackageVersion="$VERSION" \
             --configuration Release \
-            --no-build
+            --no-build \
+            --output "$OUTPUT_DIR"
 
           # Find and push the package
-          PACKAGE_PATH=$(find "$PROJECT_DIR/bin/Release" -name "$PROJECT_NAME.$VERSION.nupkg" | head -n 1)
+          PACKAGE_PATH="$OUTPUT_DIR/$PROJECT_NAME.$VERSION.nupkg"
 
           if [ -f "$PACKAGE_PATH" ]; then
             echo "Pushing package: $PACKAGE_PATH"
@@ -88,6 +92,7 @@ jobs:
               --skip-duplicate
           else
             echo "Error: Package not found for $PROJECT_NAME"
+            ls -R "$OUTPUT_DIR" || true
             exit 1
           fi
         done
