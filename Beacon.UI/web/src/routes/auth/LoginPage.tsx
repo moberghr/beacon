@@ -3,9 +3,10 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { User, Lock, Check, ShieldCheck } from 'lucide-react';
 import { ApiError, describeError, fetchJson } from '@/lib/api';
 import { useAuth } from '@/auth/useAuth';
-import { Button, Field, Input } from '@/components/beacon';
+import { AuthLayout, AuthAlert, EmphasisWord } from './AuthLayout';
 
 const SCHEMA = z.object({
   username: z.string().trim().min(1, 'Username is required'),
@@ -28,10 +29,11 @@ export default function LoginPage() {
   const [serverError, setServerError] = useState<string | null>(
     ssoError ? 'Single sign-on failed. Please try again or sign in with username and password.' : null,
   );
+  const [showPassword, setShowPassword] = useState(false);
 
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<FormValues>({
     resolver: zodResolver(SCHEMA),
-    defaultValues: { username: '', password: '', rememberMe: false },
+    defaultValues: { username: '', password: '', rememberMe: true },
   });
 
   useEffect(() => {
@@ -80,85 +82,115 @@ export default function LoginPage() {
   }
 
   return (
-    <AuthShell>
-      <h1 className="text-xl font-semibold text-text text-center m-0 mb-2">Sign in</h1>
-      <p className="text-text-muted text-center mb-6 m-0">Sign in to your Beacon workspace</p>
-
+    <AuthLayout
+      eyebrow="SIGN IN"
+      topbarRight={
+        <>
+          <span style={{ color: 'var(--text-subtle)' }}>Don't have an account?</span>
+          <a
+            href="mailto:?subject=Beacon%20access%20request"
+            className="login__sso-btn"
+            style={{ padding: '4px 10px', fontSize: 12 }}
+          >
+            Request access
+          </a>
+        </>
+      }
+      title={
+        <>
+          Welcome <EmphasisWord>back</EmphasisWord>.
+        </>
+      }
+      subtitle="Sign in to your Beacon workspace."
+    >
       {serverError && <AuthAlert tone="error">{serverError}</AuthAlert>}
 
-      <a className="block" href="/beacon/api/auth/sso/challenge">
-        <Button variant="primary" className="w-full justify-center">
+      <div className="login__sso">
+        <a href="/beacon/api/auth/sso/challenge" className="login__sso-btn">
+          <ShieldCheck size={16} />
           Continue with single sign-on
-        </Button>
-      </a>
+        </a>
+      </div>
 
-      <AuthDivider />
+      <div className="login__divider">
+        <span>or sign in with username</span>
+      </div>
 
-      <form onSubmit={handleSubmit(onSubmit)} noValidate className="flex flex-col gap-3">
-        <Field label="Username">
-          <Input type="text" autoComplete="username" disabled={isSubmitting} {...register('username')} />
-          {errors.username && <span className="text-xs text-crit">{errors.username.message}</span>}
-        </Field>
-
-        <Field label="Password">
-          <Input type="password" autoComplete="current-password" disabled={isSubmitting} {...register('password')} />
-          {errors.password && <span className="text-xs text-crit">{errors.password.message}</span>}
-        </Field>
-
-        <label className="flex items-center gap-2 text-sm text-text-muted">
-          <input type="checkbox" {...register('rememberMe')} disabled={isSubmitting} />
-          <span>Remember me</span>
+      <form className="login__form" onSubmit={handleSubmit(onSubmit)} noValidate autoComplete="on">
+        <label className="login__field">
+          <span className="login__label">Username</span>
+          <div className="login__input">
+            <User size={14} className="login__input-icon" />
+            <input
+              type="text"
+              autoComplete="username"
+              placeholder="you@moberg.hr"
+              disabled={isSubmitting}
+              {...register('username')}
+            />
+          </div>
+          {errors.username && <span className="login__field-error">{errors.username.message}</span>}
         </label>
 
-        <Button
-          type="submit"
-          variant="primary"
-          className="w-full justify-center mt-2"
-          disabled={isSubmitting}
-        >
-          {isSubmitting ? 'Signing in…' : 'Sign in'}
-        </Button>
+        <label className="login__field">
+          <span className="login__label-row">
+            <span className="login__label">Password</span>
+            <a href="#" className="login__forgot">
+              Forgot?
+            </a>
+          </span>
+          <div className="login__input">
+            <Lock size={14} className="login__input-icon" />
+            <input
+              type={showPassword ? 'text' : 'password'}
+              autoComplete="current-password"
+              placeholder="••••••••"
+              disabled={isSubmitting}
+              {...register('password')}
+            />
+            <button
+              type="button"
+              className="login__reveal"
+              onClick={() => setShowPassword((s) => !s)}
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
+            >
+              {showPassword ? 'Hide' : 'Show'}
+            </button>
+          </div>
+          {errors.password && <span className="login__field-error">{errors.password.message}</span>}
+        </label>
+
+        <div className="login__row">
+          <label className="login__check">
+            <input type="checkbox" {...register('rememberMe')} disabled={isSubmitting} />
+            <span className="login__check-box" aria-hidden>
+              <Check size={11} strokeWidth={3} />
+            </span>
+            <span>Keep me signed in for 30 days</span>
+          </label>
+        </div>
+
+        <button type="submit" className="login__submit" disabled={isSubmitting}>
+          {isSubmitting ? (
+            <>
+              <span className="login__spinner" /> Verifying…
+            </>
+          ) : (
+            <>
+              Sign in
+              <span className="login__submit-kbd">
+                <span className="kbd">↵</span>
+              </span>
+            </>
+          )}
+        </button>
       </form>
-    </AuthShell>
+    </AuthLayout>
   );
 }
 
-export function AuthShell({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="min-h-screen grid place-items-center p-6 bg-bg">
-      <div className="w-full max-w-md bg-surface border border-border rounded-lg shadow-pop p-8">
-        {children}
-      </div>
-    </div>
-  );
-}
-
-export function AuthAlert({
-  tone,
-  children,
-}: {
-  tone: 'error' | 'info' | 'ok';
-  children: React.ReactNode;
-}) {
-  const toneCls =
-    tone === 'error'
-      ? 'bg-crit-bg text-crit border-crit/40'
-      : tone === 'ok'
-        ? 'bg-ok-bg text-ok border-ok/40'
-        : 'bg-info-bg text-info border-info/40';
-  return (
-    <div className={`px-3 py-2.5 rounded-md mb-4 text-sm border ${toneCls}`} role="alert">
-      {children}
-    </div>
-  );
-}
-
-export function AuthDivider() {
-  return (
-    <div className="flex items-center my-5 text-xs text-text-muted gap-3">
-      <div className="flex-1 border-t border-border" />
-      <span>or</span>
-      <div className="flex-1 border-t border-border" />
-    </div>
-  );
-}
+// Backwards-compat re-exports: LogoutPage / SetupPage used to import AuthShell /
+// AuthAlert from LoginPage. They've moved to AuthLayout; keep re-exports so any
+// straggling import path still resolves.
+export { AuthAlert } from './AuthLayout';
+export { AuthLayout as AuthShell } from './AuthLayout';

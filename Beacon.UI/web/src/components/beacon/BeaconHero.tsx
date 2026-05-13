@@ -13,8 +13,8 @@ import { cn } from '@/lib/cn';
  */
 export interface BeaconHeroProps {
   user?: string;
-  /** "ok" | "warn" | "crit" for each of the last 24 hours (left → right) */
-  ticks?: Array<'ok' | 'warn' | 'crit'>;
+  /** "ok" | "warn" | "crit" | "muted" for each of the last N hours (left → right). "muted" = no executions in that bucket. */
+  ticks?: Array<'ok' | 'warn' | 'crit' | 'muted'>;
   meta?: {
     executions30d?: number;
     anomalies?: number;
@@ -24,10 +24,7 @@ export interface BeaconHeroProps {
   className?: string;
 }
 
-const defaultTicks: NonNullable<BeaconHeroProps['ticks']> = [
-  'ok', 'ok', 'ok', 'ok', 'warn', 'ok', 'ok', 'ok', 'ok', 'ok', 'ok', 'ok',
-  'ok', 'crit', 'ok', 'ok', 'ok', 'ok', 'ok', 'ok', 'warn', 'ok', 'ok', 'ok',
-];
+const defaultTicks: NonNullable<BeaconHeroProps['ticks']> = Array.from({ length: 24 }, () => 'muted');
 
 export function BeaconHero({
   user = 'there',
@@ -179,8 +176,10 @@ export function BeaconHero({
                     t === 'ok' && 'bg-ok h-[60%]',
                     t === 'warn' && 'bg-warn h-[80%]',
                     t === 'crit' && 'bg-crit h-[100%]',
+                    t === 'muted' && 'bg-border h-[40%] opacity-60',
                   )}
                   style={{ animationDelay: `${i * 30}ms` }}
+                  title={tickTitle(t, i, ticks.length)}
                 />
               ))}
             </div>
@@ -194,4 +193,13 @@ export function BeaconHero({
       </div>
     </section>
   );
+}
+
+function tickTitle(t: 'ok' | 'warn' | 'crit' | 'muted', index: number, length: number): string {
+  const hoursAgo = length - 1 - index;
+  const when = hoursAgo === 0 ? 'this hour' : `${hoursAgo}h ago`;
+  if (t === 'muted') return `${when}: no executions`;
+  if (t === 'crit') return `${when}: failures`;
+  if (t === 'warn') return `${when}: warnings`;
+  return `${when}: ok`;
 }

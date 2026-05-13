@@ -26,6 +26,10 @@ internal static class HomeEndpoints
                 m.Send(new GetHomeTaskSummaryQuery(), ct))
             .WithName("GetHomeTaskSummary");
 
+        home.MapGet("/uptime", ([FromQuery] int? hours, IMediator m, CancellationToken ct) =>
+                m.Send(new GetExecutionUptimeQuery(hours ?? 24), ct))
+            .WithName("GetExecutionUptime");
+
         return group;
     }
 }

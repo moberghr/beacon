@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { beaconApi } from '@/api/client';
+import { fetchJson } from '@/lib/api';
 
 export interface HomePerfBucket {
   label: string;
@@ -94,6 +95,21 @@ export function useHomeTaskSummaryQuery() {
     queryKey: ['home', 'task-summary'],
     queryFn: async () =>
       (await beaconApi().getHomeTaskSummary()) as unknown as GetHomeTaskSummaryResult,
+    retry: false,
+  });
+}
+
+export type ExecutionUptimeTick = 'ok' | 'warn' | 'crit' | 'muted';
+
+export interface GetExecutionUptimeResult {
+  ticks: ExecutionUptimeTick[];
+}
+
+export function useExecutionUptimeQuery(hours: number = 24) {
+  return useQuery({
+    queryKey: ['home', 'uptime', hours],
+    queryFn: () => fetchJson<GetExecutionUptimeResult>(`/beacon/api/home/uptime?hours=${hours}`),
+    refetchInterval: 60_000, // current hour is partial — refresh once a minute
     retry: false,
   });
 }
