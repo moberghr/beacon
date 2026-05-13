@@ -39,6 +39,7 @@ import { Sparkline, LineChart, PerfHistogram, type PerfMetric } from '@/componen
 import {
   useHomeTrendsQuery,
   useHomeActivityQuery,
+  useExecutionUptimeQuery,
   type HomeActivityItem,
 } from './queries';
 import { HomeKpi, StatRow, FeedItem } from './atoms';
@@ -89,10 +90,12 @@ export default function HomePage() {
   const { data: auth } = useAuth();
   const { data: trends, isLoading: trendsLoading, refetch: refetchTrends } = useHomeTrendsQuery(days);
   const { data: activity, isLoading: activityLoading, refetch: refetchActivity } = useHomeActivityQuery();
+  const { data: uptime, refetch: refetchUptime } = useExecutionUptimeQuery(24);
 
   const handleRefresh = () => {
     void refetchTrends();
     void refetchActivity();
+    void refetchUptime();
   };
 
   const dash = (v: string | number | undefined | null, fallback = '—') =>
@@ -110,6 +113,7 @@ export default function HomePage() {
     <div className="flex flex-col gap-5 p-7">
       <BeaconHero
         user={firstName}
+        ticks={uptime?.ticks}
         meta={{
           executions30d: trends?.queryExecutions30d ?? 0,
           anomalies: anomaliesOpen,
