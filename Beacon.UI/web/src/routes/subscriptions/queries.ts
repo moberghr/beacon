@@ -1,11 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { fetchJson } from '@/lib/api';
+import { beaconApi } from '@/api/client';
 import { createSimpleMutation } from '@/lib/mutations';
-
-// NOTE: Phase 3 Batch 4 — endpoints are not yet in the generated NSwag client
-// (codegen requires a running backend). Hand-typed wrappers mirror the C# DTOs
-// in `Beacon.Core.Handlers.Subscriptions.*Handler`. Swap to `beaconApi()` once
-// `npm run codegen` runs against /openapi/v1.json.
 
 export interface SubscriptionEntry {
   id: number;
@@ -41,16 +36,8 @@ const SUBSCRIPTIONS_KEY = ['subscriptions'] as const;
 export function useSubscriptionsQuery(search?: string) {
   return useQuery({
     queryKey: [...SUBSCRIPTIONS_KEY, search ?? null],
-    queryFn: () => {
-      const params = new URLSearchParams();
-      if (search && search.trim()) {
-        params.set('search', search.trim());
-      }
-      const qs = params.toString();
-      return fetchJson<GetSubscriptionsResult>(
-        `/beacon/api/subscriptions${qs ? `?${qs}` : ''}`,
-      );
-    },
+    queryFn: async () =>
+      (await beaconApi().getSubscriptions(search?.trim() || undefined)) as unknown as GetSubscriptionsResult,
   });
 }
 
@@ -59,11 +46,13 @@ export function useCreateSubscription() {
   return useMutation(
     createSimpleMutation<CreateSubscriptionPayload, { success: boolean; message: string | null }>({
       qc,
-      mutationFn: (values) =>
-        fetchJson<{ success: boolean; message: string | null }>(
-          '/beacon/api/subscriptions',
-          { method: 'POST', body: JSON.stringify(values) },
-        ),
+      mutationFn: async (values) => {
+        const r = await beaconApi().createSubscription(values as never);
+        return {
+          success: r.success ?? false,
+          message: r.message ?? null,
+        };
+      },
       invalidate: [SUBSCRIPTIONS_KEY],
       errorFallback: 'Create subscription failed',
     }),
@@ -75,8 +64,7 @@ export function useDeleteSubscription() {
   return useMutation(
     createSimpleMutation<number, void>({
       qc,
-      mutationFn: (id) =>
-        fetchJson<void>(`/beacon/api/subscriptions/${id}`, { method: 'DELETE' }),
+      mutationFn: (id) => beaconApi().deleteSubscription(id),
       invalidate: [SUBSCRIPTIONS_KEY],
       errorFallback: 'Delete subscription failed',
     }),
@@ -147,8 +135,8 @@ const subscriptionDetailKey = (id: number) => ['subscriptions', id, 'detail'] as
 export function useSubscriptionDetailQuery(id: number | undefined) {
   return useQuery({
     queryKey: ['subscriptions', id, 'detail'] as const,
-    queryFn: () =>
-      fetchJson<GetSubscriptionDetailResult>(`/beacon/api/subscriptions/${id}`),
+    queryFn: async () =>
+      (await beaconApi().getSubscriptionDetail(id as number)) as unknown as GetSubscriptionDetailResult,
     enabled: typeof id === 'number' && Number.isFinite(id),
   });
 }
@@ -177,10 +165,8 @@ interface GetSubscriptionExecutionsResult {
 export function useSubscriptionExecutionsQuery(id: number | undefined, pageSize = 200) {
   return useQuery({
     queryKey: ['subscriptions', id, 'executions', pageSize] as const,
-    queryFn: () =>
-      fetchJson<GetSubscriptionExecutionsResult>(
-        `/beacon/api/notifications?subscriptionId=${id}&pageSize=${pageSize}`,
-      ),
+    queryFn: async () =>
+      (await beaconApi().getNotifications(0, pageSize, undefined, id)) as unknown as GetSubscriptionExecutionsResult,
     enabled: typeof id === 'number' && Number.isFinite(id),
   });
 }
@@ -207,10 +193,8 @@ export interface AnomalyChartResult {
 export function useSubscriptionAnomalyChart(id: number | undefined, days = 30) {
   return useQuery({
     queryKey: ['subscriptions', id, 'anomaly-chart', days] as const,
-    queryFn: () =>
-      fetchJson<AnomalyChartResult>(
-        `/beacon/api/subscriptions/${id}/anomaly-chart?days=${days}`,
-      ),
+    queryFn: async () =>
+      (await beaconApi().getSubscriptionAnomalyChart(id as number, days)) as unknown as AnomalyChartResult,
     enabled: typeof id === 'number' && Number.isFinite(id),
   });
 }
@@ -227,8 +211,7 @@ export function useTestSubscription(id: number | undefined) {
   return useMutation(
     createSimpleMutation<void, void>({
       qc,
-      mutationFn: () =>
-        fetchJson<void>(`/beacon/api/subscriptions/${id}/execute`, { method: 'POST' }),
+      mutationFn: () => beaconApi().testSubscription(id as number),
       invalidate:
         typeof id === 'number'
           ? [
@@ -248,8 +231,7 @@ export function useArchiveSubscription(id: number | undefined) {
   return useMutation(
     createSimpleMutation<void, void>({
       qc,
-      mutationFn: () =>
-        fetchJson<void>(`/beacon/api/subscriptions/${id}`, { method: 'DELETE' }),
+      mutationFn: () => beaconApi().deleteSubscription(id as number),
       invalidate: subscriptionMutationKeys(id),
       successMsg: 'Subscription archived',
       errorFallback: 'Archive failed',
@@ -263,10 +245,7 @@ export function useAddSubscriptionRecipients(id: number | undefined) {
     createSimpleMutation<number[], void>({
       qc,
       mutationFn: (recipientIds) =>
-        fetchJson<void>(`/beacon/api/subscriptions/${id}/recipients`, {
-          method: 'POST',
-          body: JSON.stringify({ recipientIds }),
-        }),
+        beaconApi().addSubscriptionRecipients(id as number, { recipientIds }),
       invalidate: subscriptionMutationKeys(id),
       successMsg: 'Recipients added',
       errorFallback: 'Add recipient failed',
@@ -280,9 +259,7 @@ export function useRemoveSubscriptionRecipient(id: number | undefined) {
     createSimpleMutation<number, void>({
       qc,
       mutationFn: (recipientId) =>
-        fetchJson<void>(`/beacon/api/subscriptions/${id}/recipients/${recipientId}`, {
-          method: 'DELETE',
-        }),
+        beaconApi().removeSubscriptionRecipient(id as number, recipientId),
       invalidate: subscriptionMutationKeys(id),
       successMsg: 'Recipient removed',
       errorFallback: 'Remove recipient failed',

@@ -1,6 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
 import { beaconApi } from '@/api/client';
-import { fetchJson } from '@/lib/api';
 
 export function useNotificationsQuery() {
   return useQuery({
@@ -32,7 +31,8 @@ interface GetNotificationDetailResult {
 export function useNotificationDetailQuery(id: number | undefined) {
   return useQuery({
     queryKey: ['notifications', id],
-    queryFn: () => fetchJson<GetNotificationDetailResult>(`/beacon/api/notifications/${id}`),
+    queryFn: async () =>
+      (await beaconApi().getNotificationDetail(id as number)) as unknown as GetNotificationDetailResult,
     enabled: typeof id === 'number' && Number.isFinite(id),
   });
 }

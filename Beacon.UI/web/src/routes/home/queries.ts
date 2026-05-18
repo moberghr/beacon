@@ -1,8 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { fetchJson } from '@/lib/api';
-
-// NOTE: Using fetchJson directly as codegen requires a running app with the new endpoints.
-// Once codegen runs, these can be migrated to beaconApi() calls.
+import { beaconApi } from '@/api/client';
 
 export interface HomePerfBucket {
   label: string;
@@ -57,14 +54,16 @@ export interface GetHomeActivityResult {
 export function useHomeTrendsQuery(days: number) {
   return useQuery({
     queryKey: ['home', 'trends', days],
-    queryFn: () => fetchJson<GetHomeTrendsResult>(`/beacon/api/home/trends?days=${days}`),
+    queryFn: async () =>
+      (await beaconApi().getHomeTrends(days)) as unknown as GetHomeTrendsResult,
   });
 }
 
 export function useHomeActivityQuery() {
   return useQuery({
     queryKey: ['home', 'activity'],
-    queryFn: () => fetchJson<GetHomeActivityResult>('/beacon/api/home/activity?limit=8'),
+    queryFn: async () =>
+      (await beaconApi().getHomeActivity(8)) as unknown as GetHomeActivityResult,
   });
 }
 
@@ -78,7 +77,8 @@ export interface GetHomeMigrationSummaryResult {
 export function useHomeMigrationSummaryQuery() {
   return useQuery({
     queryKey: ['home', 'migration-summary'],
-    queryFn: () => fetchJson<GetHomeMigrationSummaryResult>('/beacon/api/home/migration-summary'),
+    queryFn: async () =>
+      (await beaconApi().getHomeMigrationSummary()) as unknown as GetHomeMigrationSummaryResult,
     retry: false,
   });
 }
@@ -92,7 +92,8 @@ export interface GetHomeTaskSummaryResult {
 export function useHomeTaskSummaryQuery() {
   return useQuery({
     queryKey: ['home', 'task-summary'],
-    queryFn: () => fetchJson<GetHomeTaskSummaryResult>('/beacon/api/home/task-summary'),
+    queryFn: async () =>
+      (await beaconApi().getHomeTaskSummary()) as unknown as GetHomeTaskSummaryResult,
     retry: false,
   });
 }

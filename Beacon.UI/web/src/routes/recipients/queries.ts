@@ -1,12 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { fetchJson } from '@/lib/api';
+import { beaconApi } from '@/api/client';
 import { createSimpleMutation } from '@/lib/mutations';
-
-// NOTE: Phase 3 Batch 3 — endpoints are not yet in the generated NSwag client
-// (codegen requires a running backend). These thin wrappers match the shape
-// of `Beacon.Core.Handlers.Recipients.*Handler` exactly. Once `npm run
-// codegen` is run against /openapi/v1.json, swap to `beaconApi().getRecipients()`
-// etc. and delete this file's HTTP code.
 
 export const NotificationTypeId = {
   Teams: 1,
@@ -54,7 +48,8 @@ const RECIPIENTS_KEY = ['recipients'] as const;
 export function useRecipientsQuery() {
   return useQuery({
     queryKey: RECIPIENTS_KEY,
-    queryFn: () => fetchJson<GetRecipientsResult>('/beacon/api/recipients'),
+    queryFn: async () =>
+      (await beaconApi().getRecipients()) as unknown as GetRecipientsResult,
   });
 }
 
@@ -63,11 +58,10 @@ export function useCreateRecipient() {
   return useMutation(
     createSimpleMutation<RecipientFormValues, { id: number }>({
       qc,
-      mutationFn: (values) =>
-        fetchJson<{ id: number }>('/beacon/api/recipients', {
-          method: 'POST',
-          body: JSON.stringify(values),
-        }),
+      mutationFn: async (values) => {
+        const r = await beaconApi().createRecipient(values as never);
+        return { id: r.id ?? 0 };
+      },
       invalidate: [RECIPIENTS_KEY],
       errorFallback: 'Create recipient failed',
     }),
@@ -79,11 +73,7 @@ export function useUpdateRecipient() {
   return useMutation(
     createSimpleMutation<{ id: number; values: RecipientFormValues }, void>({
       qc,
-      mutationFn: ({ id, values }) =>
-        fetchJson<void>(`/beacon/api/recipients/${id}`, {
-          method: 'PUT',
-          body: JSON.stringify(values),
-        }),
+      mutationFn: ({ id, values }) => beaconApi().updateRecipient(id, values as never),
       invalidate: [RECIPIENTS_KEY],
       errorFallback: 'Update recipient failed',
     }),
@@ -95,8 +85,7 @@ export function useDeleteRecipient() {
   return useMutation(
     createSimpleMutation<number, void>({
       qc,
-      mutationFn: (id) =>
-        fetchJson<void>(`/beacon/api/recipients/${id}`, { method: 'DELETE' }),
+      mutationFn: (id) => beaconApi().deleteRecipient(id),
       invalidate: [RECIPIENTS_KEY],
       errorFallback: 'Delete recipient failed',
     }),

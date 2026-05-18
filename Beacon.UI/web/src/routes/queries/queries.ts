@@ -1,5 +1,4 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { fetchJson } from '@/lib/api';
 import { beaconApi } from '@/api/client';
 import { createSimpleMutation } from '@/lib/mutations';
 
@@ -41,8 +40,7 @@ export function useRestoreQueryVersion(queryId: number | undefined) {
   return useMutation(
     createSimpleMutation<number, unknown>({
       qc,
-      mutationFn: (versionId) =>
-        beaconApi().restoreQueryVersion(versionId, { userId: null }),
+      mutationFn: (versionId) => beaconApi().restoreQueryVersion(versionId),
       invalidate: [
         ['query', queryId],
         ['queries', queryId, 'versions'],
@@ -132,7 +130,8 @@ export interface QueryDetail {
 export function useQueryDetailQuery(id: number | undefined) {
   return useQuery({
     queryKey: ['query', id],
-    queryFn: () => fetchJson<QueryDetail>(`/beacon/api/queries/${id}`),
+    queryFn: async () =>
+      (await beaconApi().getQueryDetail(id as number)) as unknown as QueryDetail,
     enabled: typeof id === 'number' && Number.isFinite(id),
   });
 }
@@ -151,11 +150,11 @@ export function useToggleQueryLock(id: number | undefined) {
   return useMutation(
     createSimpleMutation<{ lock: boolean; userId?: string | null }, ToggleQueryLockResult>({
       qc,
-      mutationFn: (vars) =>
-        fetchJson<ToggleQueryLockResult>(`/beacon/api/queries/${id}/lock`, {
-          method: 'POST',
-          body: JSON.stringify({ lock: vars.lock, userId: vars.userId ?? null }),
-        }),
+      mutationFn: async (vars) =>
+        (await beaconApi().toggleQueryLock(id as number, {
+          lock: vars.lock,
+          userId: vars.userId ?? null,
+        })) as unknown as ToggleQueryLockResult,
       invalidate: [['query', id], ['queries']],
       successMsg: (_vars, result) => (result.isLocked ? 'Query locked' : 'Query unlocked'),
       errorFallback: 'Lock toggle failed',
@@ -287,11 +286,8 @@ export function useUpdateQueryMutation(id: number | undefined) {
   return useMutation(
     createSimpleMutation<UpdateQueryPayload, UpdateQueryResult>({
       qc,
-      mutationFn: (payload) =>
-        fetchJson<UpdateQueryResult>(`/beacon/api/queries/${id}`, {
-          method: 'PUT',
-          body: JSON.stringify(payload),
-        }),
+      mutationFn: async (payload) =>
+        (await beaconApi().updateQuery(id as number, payload as never)) as unknown as UpdateQueryResult,
       invalidate: [['query', id], ['queries', id, 'versions']],
       successMsg: 'Query saved',
       errorFallback: 'Save failed',
@@ -351,14 +347,10 @@ export function usePreviewStepMutation(id: number | undefined) {
   return useMutation(
     createSimpleMutation<{ stepOrder: number; parameters?: ParameterValueInput[] }, QueryStepPreviewResult>({
       qc,
-      mutationFn: (vars) =>
-        fetchJson<QueryStepPreviewResult>(
-          `/beacon/api/queries/${id}/steps/${vars.stepOrder}/preview`,
-          {
-            method: 'POST',
-            body: JSON.stringify({ parameters: vars.parameters ?? null }),
-          },
-        ),
+      mutationFn: async (vars) =>
+        (await beaconApi().executeStepPreview(id as number, vars.stepOrder, {
+          parameters: (vars.parameters ?? null) as never,
+        })) as unknown as QueryStepPreviewResult,
       errorFallback: 'Step preview failed',
     }),
   );
@@ -369,10 +361,8 @@ export function usePreviewQueryMutation(id: number | undefined) {
   return useMutation(
     createSimpleMutation<void, QueryExecutionPreviewResult>({
       qc,
-      mutationFn: () =>
-        fetchJson<QueryExecutionPreviewResult>(`/beacon/api/queries/${id}/preview`, {
-          method: 'POST',
-        }),
+      mutationFn: async () =>
+        (await beaconApi().executeQueryPreview(id as number)) as unknown as QueryExecutionPreviewResult,
       errorFallback: 'Query preview failed',
     }),
   );
@@ -408,16 +398,18 @@ export interface QueriesListParams {
 }
 
 export function useQueriesListQuery(params: QueriesListParams = {}) {
-  const qs = new URLSearchParams();
-  if (params.searchTerm) qs.set('SearchTerm', params.searchTerm);
-  if (params.dataSourceId != null) qs.set('DataSourceId', String(params.dataSourceId));
-  if (params.folderId != null) qs.set('FolderId', String(params.folderId));
-  qs.set('Page', String(params.page ?? 1));
-  qs.set('PageSize', String(params.pageSize ?? 50));
-  const url = `/beacon/api/queries/?${qs.toString()}`;
   return useQuery({
     queryKey: ['queries', 'list', params],
-    queryFn: () => fetchJson<PagedQueriesResponse>(url),
+    queryFn: async () =>
+      (await beaconApi().getQueries(
+        undefined,
+        params.dataSourceId,
+        undefined,
+        params.folderId,
+        params.searchTerm,
+        params.page ?? 1,
+        params.pageSize ?? 50,
+      )) as unknown as PagedQueriesResponse,
   });
 }
 
@@ -431,11 +423,13 @@ export function useCreateQuery() {
   return useMutation(
     createSimpleMutation<CreateQueryArgs, { queryId: number }>({
       qc,
-      mutationFn: (args) =>
-        fetchJson<{ queryId: number }>('/beacon/api/queries/', {
-          method: 'POST',
-          body: JSON.stringify({ name: args.name, description: args.description ?? null }),
-        }),
+      mutationFn: async (args) => {
+        const r = await beaconApi().createQuery({
+          name: args.name,
+          description: args.description ?? null,
+        });
+        return { queryId: r.queryId ?? 0 };
+      },
       invalidate: [['queries']],
       errorFallback: 'Failed to create query',
     }),

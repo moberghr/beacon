@@ -16,7 +16,7 @@ import {
 } from '@/components/beacon';
 import { Tabs } from '@/components/Tabs';
 import { useIsAdmin } from '@/auth/useAuth';
-import { fetchJson } from '@/lib/api';
+import { beaconApi } from '@/api/client';
 import { useProjectsQuery } from '@/routes/projects/queries';
 import {
   describeMcpError,
@@ -267,7 +267,7 @@ function ProjectContextPreview() {
   const contextQuery = useQuery({
     queryKey: ['project-mcp-context', selectedProjectId],
     queryFn: () =>
-      fetchJson<{ context: string }>(`/beacon/api/projects/${selectedProjectId}/mcp-context`),
+      beaconApi().getProjectMcpContext(selectedProjectId as number) as unknown as Promise<{ context: string }>,
     enabled: selectedProjectId !== undefined,
   });
 

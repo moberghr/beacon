@@ -15,7 +15,7 @@ export class BeaconApiClient {
 
     constructor(baseUrl?: string, http?: { fetch(url: RequestInfo, init?: RequestInit): Promise<Response> }) {
         this.http = http ? http : window as any;
-        this.baseUrl = baseUrl ?? "http://localhost:5296/";
+        this.baseUrl = baseUrl ?? "https://localhost:7187/";
     }
 
     /**
@@ -259,10 +259,6 @@ export class BeaconApiClient {
             result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as CurrentPermissionsResponse;
             return result200;
             });
-        } else if (status === 401) {
-            return response.text().then((_responseText) => {
-            return throwException("Unauthorized", status, _responseText, _headers);
-            });
         } else if (status !== 200 && status !== 204) {
             return response.text().then((_responseText) => {
             return throwException("An unexpected server error occurred.", status, _responseText, _headers);
@@ -274,14 +270,13 @@ export class BeaconApiClient {
     /**
      * @return OK
      */
-    issueCsrfToken(): Promise<CsrfTokenResponse> {
+    issueCsrfToken(): Promise<void> {
         let url_ = this.baseUrl + "/beacon/api/csrf";
         url_ = url_.replace(/[?&]$/, "");
 
         let options_: RequestInit = {
             method: "GET",
             headers: {
-                "Accept": "application/json"
             }
         };
 
@@ -290,21 +285,19 @@ export class BeaconApiClient {
         });
     }
 
-    protected processIssueCsrfToken(response: Response): Promise<CsrfTokenResponse> {
+    protected processIssueCsrfToken(response: Response): Promise<void> {
         const status = response.status;
         let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
         if (status === 200) {
             return response.text().then((_responseText) => {
-            let result200: any = null;
-            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as CsrfTokenResponse;
-            return result200;
+            return;
             });
         } else if (status !== 200 && status !== 204) {
             return response.text().then((_responseText) => {
             return throwException("An unexpected server error occurred.", status, _responseText, _headers);
             });
         }
-        return Promise.resolve<CsrfTokenResponse>(null as any);
+        return Promise.resolve<void>(null as any);
     }
 
     /**
@@ -347,10 +340,15 @@ export class BeaconApiClient {
     }
 
     /**
+     * @param days (optional) 
      * @return OK
      */
-    getDataCatalog(): Promise<GetDataCatalogResult> {
-        let url_ = this.baseUrl + "/beacon/api/data-catalog";
+    getHomeTrends(days: number | undefined): Promise<GetHomeTrendsResult> {
+        let url_ = this.baseUrl + "/beacon/api/home/trends?";
+        if (days === null)
+            throw new Error("The parameter 'days' cannot be null.");
+        else if (days !== undefined)
+            url_ += "days=" + encodeURIComponent("" + days) + "&";
         url_ = url_.replace(/[?&]$/, "");
 
         let options_: RequestInit = {
@@ -361,17 +359,17 @@ export class BeaconApiClient {
         };
 
         return this.http.fetch(url_, options_).then((_response: Response) => {
-            return this.processGetDataCatalog(_response);
+            return this.processGetHomeTrends(_response);
         });
     }
 
-    protected processGetDataCatalog(response: Response): Promise<GetDataCatalogResult> {
+    protected processGetHomeTrends(response: Response): Promise<GetHomeTrendsResult> {
         const status = response.status;
         let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
         if (status === 200) {
             return response.text().then((_responseText) => {
             let result200: any = null;
-            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as GetDataCatalogResult;
+            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as GetHomeTrendsResult;
             return result200;
             });
         } else if (status !== 200 && status !== 204) {
@@ -379,7 +377,120 @@ export class BeaconApiClient {
             return throwException("An unexpected server error occurred.", status, _responseText, _headers);
             });
         }
-        return Promise.resolve<GetDataCatalogResult>(null as any);
+        return Promise.resolve<GetHomeTrendsResult>(null as any);
+    }
+
+    /**
+     * @param limit (optional) 
+     * @return OK
+     */
+    getHomeActivity(limit: number | undefined): Promise<GetHomeActivityResult> {
+        let url_ = this.baseUrl + "/beacon/api/home/activity?";
+        if (limit === null)
+            throw new Error("The parameter 'limit' cannot be null.");
+        else if (limit !== undefined)
+            url_ += "limit=" + encodeURIComponent("" + limit) + "&";
+        url_ = url_.replace(/[?&]$/, "");
+
+        let options_: RequestInit = {
+            method: "GET",
+            headers: {
+                "Accept": "application/json"
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processGetHomeActivity(_response);
+        });
+    }
+
+    protected processGetHomeActivity(response: Response): Promise<GetHomeActivityResult> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 200) {
+            return response.text().then((_responseText) => {
+            let result200: any = null;
+            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as GetHomeActivityResult;
+            return result200;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<GetHomeActivityResult>(null as any);
+    }
+
+    /**
+     * @return OK
+     */
+    getHomeMigrationSummary(): Promise<GetHomeMigrationSummaryResult> {
+        let url_ = this.baseUrl + "/beacon/api/home/migration-summary";
+        url_ = url_.replace(/[?&]$/, "");
+
+        let options_: RequestInit = {
+            method: "GET",
+            headers: {
+                "Accept": "application/json"
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processGetHomeMigrationSummary(_response);
+        });
+    }
+
+    protected processGetHomeMigrationSummary(response: Response): Promise<GetHomeMigrationSummaryResult> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 200) {
+            return response.text().then((_responseText) => {
+            let result200: any = null;
+            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as GetHomeMigrationSummaryResult;
+            return result200;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<GetHomeMigrationSummaryResult>(null as any);
+    }
+
+    /**
+     * @return OK
+     */
+    getHomeTaskSummary(): Promise<GetHomeTaskSummaryResult> {
+        let url_ = this.baseUrl + "/beacon/api/home/task-summary";
+        url_ = url_.replace(/[?&]$/, "");
+
+        let options_: RequestInit = {
+            method: "GET",
+            headers: {
+                "Accept": "application/json"
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processGetHomeTaskSummary(_response);
+        });
+    }
+
+    protected processGetHomeTaskSummary(response: Response): Promise<GetHomeTaskSummaryResult> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 200) {
+            return response.text().then((_responseText) => {
+            let result200: any = null;
+            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as GetHomeTaskSummaryResult;
+            return result200;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<GetHomeTaskSummaryResult>(null as any);
     }
 
     /**
@@ -784,6 +895,45 @@ export class BeaconApiClient {
     /**
      * @return OK
      */
+    getProjectMcpContext(id: number): Promise<GetProjectMcpContextResult> {
+        let url_ = this.baseUrl + "/beacon/api/projects/{id}/mcp-context";
+        if (id === undefined || id === null)
+            throw new Error("The parameter 'id' must be defined.");
+        url_ = url_.replace("{id}", encodeURIComponent("" + id));
+        url_ = url_.replace(/[?&]$/, "");
+
+        let options_: RequestInit = {
+            method: "GET",
+            headers: {
+                "Accept": "application/json"
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processGetProjectMcpContext(_response);
+        });
+    }
+
+    protected processGetProjectMcpContext(response: Response): Promise<GetProjectMcpContextResult> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 200) {
+            return response.text().then((_responseText) => {
+            let result200: any = null;
+            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as GetProjectMcpContextResult;
+            return result200;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<GetProjectMcpContextResult>(null as any);
+    }
+
+    /**
+     * @return OK
+     */
     getQueryFolders(): Promise<GetQueryFoldersResult> {
         let url_ = this.baseUrl + "/beacon/api/query-folders";
         url_ = url_.replace(/[?&]$/, "");
@@ -979,6 +1129,199 @@ export class BeaconApiClient {
     }
 
     /**
+     * @param queryId (optional) 
+     * @param dataSourceId (optional) 
+     * @param queryName (optional) 
+     * @param folderId (optional) 
+     * @param searchTerm (optional) 
+     * @param page (optional) 
+     * @param pageSize (optional) 
+     * @return OK
+     */
+    getQueries(queryId: number | undefined, dataSourceId: number | undefined, queryName: string | undefined, folderId: number | undefined, searchTerm: string | undefined, page: number | undefined, pageSize: number | undefined): Promise<PagedListOfQueryData> {
+        let url_ = this.baseUrl + "/beacon/api/queries?";
+        if (queryId === null)
+            throw new Error("The parameter 'queryId' cannot be null.");
+        else if (queryId !== undefined)
+            url_ += "queryId=" + encodeURIComponent("" + queryId) + "&";
+        if (dataSourceId === null)
+            throw new Error("The parameter 'dataSourceId' cannot be null.");
+        else if (dataSourceId !== undefined)
+            url_ += "dataSourceId=" + encodeURIComponent("" + dataSourceId) + "&";
+        if (queryName === null)
+            throw new Error("The parameter 'queryName' cannot be null.");
+        else if (queryName !== undefined)
+            url_ += "queryName=" + encodeURIComponent("" + queryName) + "&";
+        if (folderId === null)
+            throw new Error("The parameter 'folderId' cannot be null.");
+        else if (folderId !== undefined)
+            url_ += "folderId=" + encodeURIComponent("" + folderId) + "&";
+        if (searchTerm === null)
+            throw new Error("The parameter 'searchTerm' cannot be null.");
+        else if (searchTerm !== undefined)
+            url_ += "searchTerm=" + encodeURIComponent("" + searchTerm) + "&";
+        if (page === null)
+            throw new Error("The parameter 'page' cannot be null.");
+        else if (page !== undefined)
+            url_ += "page=" + encodeURIComponent("" + page) + "&";
+        if (pageSize === null)
+            throw new Error("The parameter 'pageSize' cannot be null.");
+        else if (pageSize !== undefined)
+            url_ += "pageSize=" + encodeURIComponent("" + pageSize) + "&";
+        url_ = url_.replace(/[?&]$/, "");
+
+        let options_: RequestInit = {
+            method: "GET",
+            headers: {
+                "Accept": "application/json"
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processGetQueries(_response);
+        });
+    }
+
+    protected processGetQueries(response: Response): Promise<PagedListOfQueryData> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 200) {
+            return response.text().then((_responseText) => {
+            let result200: any = null;
+            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as PagedListOfQueryData;
+            return result200;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<PagedListOfQueryData>(null as any);
+    }
+
+    /**
+     * @return OK
+     */
+    createQuery(body: CreateQueryBody): Promise<CreateQueryResult> {
+        let url_ = this.baseUrl + "/beacon/api/queries";
+        url_ = url_.replace(/[?&]$/, "");
+
+        const content_ = JSON.stringify(body);
+
+        let options_: RequestInit = {
+            body: content_,
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Accept": "application/json"
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processCreateQuery(_response);
+        });
+    }
+
+    protected processCreateQuery(response: Response): Promise<CreateQueryResult> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 200) {
+            return response.text().then((_responseText) => {
+            let result200: any = null;
+            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as CreateQueryResult;
+            return result200;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<CreateQueryResult>(null as any);
+    }
+
+    /**
+     * @return OK
+     */
+    getQueryDetail(id: number): Promise<QueryDetailsData> {
+        let url_ = this.baseUrl + "/beacon/api/queries/{id}";
+        if (id === undefined || id === null)
+            throw new Error("The parameter 'id' must be defined.");
+        url_ = url_.replace("{id}", encodeURIComponent("" + id));
+        url_ = url_.replace(/[?&]$/, "");
+
+        let options_: RequestInit = {
+            method: "GET",
+            headers: {
+                "Accept": "application/json"
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processGetQueryDetail(_response);
+        });
+    }
+
+    protected processGetQueryDetail(response: Response): Promise<QueryDetailsData> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 200) {
+            return response.text().then((_responseText) => {
+            let result200: any = null;
+            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as QueryDetailsData;
+            return result200;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<QueryDetailsData>(null as any);
+    }
+
+    /**
+     * @return OK
+     */
+    updateQuery(id: number, body: QueryData): Promise<UpdateQueryResult> {
+        let url_ = this.baseUrl + "/beacon/api/queries/{id}";
+        if (id === undefined || id === null)
+            throw new Error("The parameter 'id' must be defined.");
+        url_ = url_.replace("{id}", encodeURIComponent("" + id));
+        url_ = url_.replace(/[?&]$/, "");
+
+        const content_ = JSON.stringify(body);
+
+        let options_: RequestInit = {
+            body: content_,
+            method: "PUT",
+            headers: {
+                "Content-Type": "application/json",
+                "Accept": "application/json"
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processUpdateQuery(_response);
+        });
+    }
+
+    protected processUpdateQuery(response: Response): Promise<UpdateQueryResult> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 200) {
+            return response.text().then((_responseText) => {
+            let result200: any = null;
+            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as UpdateQueryResult;
+            return result200;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<UpdateQueryResult>(null as any);
+    }
+
+    /**
      * @return OK
      */
     toggleQueryLock(id: number, body: ToggleQueryLockRequest): Promise<ToggleQueryLockResult> {
@@ -1088,6 +1431,92 @@ export class BeaconApiClient {
     /**
      * @return OK
      */
+    executeQueryPreview(id: number): Promise<QueryExecutionResult> {
+        let url_ = this.baseUrl + "/beacon/api/queries/{id}/preview";
+        if (id === undefined || id === null)
+            throw new Error("The parameter 'id' must be defined.");
+        url_ = url_.replace("{id}", encodeURIComponent("" + id));
+        url_ = url_.replace(/[?&]$/, "");
+
+        let options_: RequestInit = {
+            method: "POST",
+            headers: {
+                "Accept": "application/json"
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processExecuteQueryPreview(_response);
+        });
+    }
+
+    protected processExecuteQueryPreview(response: Response): Promise<QueryExecutionResult> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 200) {
+            return response.text().then((_responseText) => {
+            let result200: any = null;
+            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as QueryExecutionResult;
+            return result200;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<QueryExecutionResult>(null as any);
+    }
+
+    /**
+     * @param body (optional) 
+     * @return OK
+     */
+    executeStepPreview(id: number, stepOrder: number, body: ExecuteStepPreviewRequest | null | undefined): Promise<QueryStepResult> {
+        let url_ = this.baseUrl + "/beacon/api/queries/{id}/steps/{stepOrder}/preview";
+        if (id === undefined || id === null)
+            throw new Error("The parameter 'id' must be defined.");
+        url_ = url_.replace("{id}", encodeURIComponent("" + id));
+        if (stepOrder === undefined || stepOrder === null)
+            throw new Error("The parameter 'stepOrder' must be defined.");
+        url_ = url_.replace("{stepOrder}", encodeURIComponent("" + stepOrder));
+        url_ = url_.replace(/[?&]$/, "");
+
+        const content_ = JSON.stringify(body);
+
+        let options_: RequestInit = {
+            body: content_,
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Accept": "application/json"
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processExecuteStepPreview(_response);
+        });
+    }
+
+    protected processExecuteStepPreview(response: Response): Promise<QueryStepResult> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 200) {
+            return response.text().then((_responseText) => {
+            let result200: any = null;
+            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as QueryStepResult;
+            return result200;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<QueryStepResult>(null as any);
+    }
+
+    /**
+     * @return OK
+     */
     getQueryVersionDetail(id: number): Promise<QueryVersionDetail> {
         let url_ = this.baseUrl + "/beacon/api/query-versions/{id}";
         if (id === undefined || id === null)
@@ -1175,20 +1604,16 @@ export class BeaconApiClient {
     /**
      * @return OK
      */
-    restoreQueryVersion(id: number, body: RestoreQueryVersionRequest): Promise<RestoreQueryVersionResponse> {
+    restoreQueryVersion(id: number): Promise<RestoreQueryVersionResponse> {
         let url_ = this.baseUrl + "/beacon/api/query-versions/{id}/restore";
         if (id === undefined || id === null)
             throw new Error("The parameter 'id' must be defined.");
         url_ = url_.replace("{id}", encodeURIComponent("" + id));
         url_ = url_.replace(/[?&]$/, "");
 
-        const content_ = JSON.stringify(body);
-
         let options_: RequestInit = {
-            body: content_,
             method: "POST",
             headers: {
-                "Content-Type": "application/json",
                 "Accept": "application/json"
             }
         };
@@ -1495,9 +1920,11 @@ export class BeaconApiClient {
      * @param isShared (optional) 
      * @param isDefault (optional) 
      * @param searchKeyword (optional) 
+     * @param page (optional) 
+     * @param pageSize (optional) 
      * @return OK
      */
-    getDashboards(isShared: boolean | undefined, isDefault: boolean | undefined, searchKeyword: string | undefined, page: number, pageSize: number): Promise<DashboardsListData> {
+    getDashboards(isShared: boolean | undefined, isDefault: boolean | undefined, searchKeyword: string | undefined, page: number | undefined, pageSize: number | undefined): Promise<DashboardsListData> {
         let url_ = this.baseUrl + "/beacon/api/dashboards?";
         if (isShared === null)
             throw new Error("The parameter 'isShared' cannot be null.");
@@ -1511,13 +1938,13 @@ export class BeaconApiClient {
             throw new Error("The parameter 'searchKeyword' cannot be null.");
         else if (searchKeyword !== undefined)
             url_ += "SearchKeyword=" + encodeURIComponent("" + searchKeyword) + "&";
-        if (page === undefined || page === null)
-            throw new Error("The parameter 'page' must be defined and cannot be null.");
-        else
+        if (page === null)
+            throw new Error("The parameter 'page' cannot be null.");
+        else if (page !== undefined)
             url_ += "Page=" + encodeURIComponent("" + page) + "&";
-        if (pageSize === undefined || pageSize === null)
-            throw new Error("The parameter 'pageSize' must be defined and cannot be null.");
-        else
+        if (pageSize === null)
+            throw new Error("The parameter 'pageSize' cannot be null.");
+        else if (pageSize !== undefined)
             url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
         url_ = url_.replace(/[?&]$/, "");
 
@@ -2184,6 +2611,50 @@ export class BeaconApiClient {
     }
 
     /**
+     * @param take (optional) 
+     * @return OK
+     */
+    getEvaluationHistory(id: number, take: number | undefined): Promise<GetEvaluationHistoryResult> {
+        let url_ = this.baseUrl + "/beacon/api/data-quality/contracts/{id}/evaluations?";
+        if (id === undefined || id === null)
+            throw new Error("The parameter 'id' must be defined.");
+        url_ = url_.replace("{id}", encodeURIComponent("" + id));
+        if (take === null)
+            throw new Error("The parameter 'take' cannot be null.");
+        else if (take !== undefined)
+            url_ += "take=" + encodeURIComponent("" + take) + "&";
+        url_ = url_.replace(/[?&]$/, "");
+
+        let options_: RequestInit = {
+            method: "GET",
+            headers: {
+                "Accept": "application/json"
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processGetEvaluationHistory(_response);
+        });
+    }
+
+    protected processGetEvaluationHistory(response: Response): Promise<GetEvaluationHistoryResult> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 200) {
+            return response.text().then((_responseText) => {
+            let result200: any = null;
+            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as GetEvaluationHistoryResult;
+            return result200;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<GetEvaluationHistoryResult>(null as any);
+    }
+
+    /**
      * @return OK
      */
     evaluateDataContract(id: number): Promise<DataQualityEvaluationData> {
@@ -2445,20 +2916,16 @@ export class BeaconApiClient {
     /**
      * @return No Content
      */
-    applyDocumentationPatch(id: number, body: ApplyRejectPatchBody): Promise<void> {
+    applyDocumentationPatch(id: number): Promise<void> {
         let url_ = this.baseUrl + "/beacon/api/mcp/documentation-patches/{id}/apply";
         if (id === undefined || id === null)
             throw new Error("The parameter 'id' must be defined.");
         url_ = url_.replace("{id}", encodeURIComponent("" + id));
         url_ = url_.replace(/[?&]$/, "");
 
-        const content_ = JSON.stringify(body);
-
         let options_: RequestInit = {
-            body: content_,
             method: "POST",
             headers: {
-                "Content-Type": "application/json",
             }
         };
 
@@ -2485,20 +2952,16 @@ export class BeaconApiClient {
     /**
      * @return No Content
      */
-    rejectDocumentationPatch(id: number, body: ApplyRejectPatchBody): Promise<void> {
+    rejectDocumentationPatch(id: number): Promise<void> {
         let url_ = this.baseUrl + "/beacon/api/mcp/documentation-patches/{id}/reject";
         if (id === undefined || id === null)
             throw new Error("The parameter 'id' must be defined.");
         url_ = url_.replace("{id}", encodeURIComponent("" + id));
         url_ = url_.replace(/[?&]$/, "");
 
-        const content_ = JSON.stringify(body);
-
         let options_: RequestInit = {
-            body: content_,
             method: "POST",
             headers: {
-                "Content-Type": "application/json",
             }
         };
 
@@ -2520,6 +2983,82 @@ export class BeaconApiClient {
             });
         }
         return Promise.resolve<void>(null as any);
+    }
+
+    /**
+     * @return OK
+     */
+    getMcpTools(): Promise<GetMcpToolsResult> {
+        let url_ = this.baseUrl + "/beacon/api/mcp/tools";
+        url_ = url_.replace(/[?&]$/, "");
+
+        let options_: RequestInit = {
+            method: "GET",
+            headers: {
+                "Accept": "application/json"
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processGetMcpTools(_response);
+        });
+    }
+
+    protected processGetMcpTools(response: Response): Promise<GetMcpToolsResult> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 200) {
+            return response.text().then((_responseText) => {
+            let result200: any = null;
+            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as GetMcpToolsResult;
+            return result200;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<GetMcpToolsResult>(null as any);
+    }
+
+    /**
+     * @return OK
+     */
+    runMcpTool(body: RunMcpToolCommand): Promise<RunMcpToolResult> {
+        let url_ = this.baseUrl + "/beacon/api/mcp/tools/run";
+        url_ = url_.replace(/[?&]$/, "");
+
+        const content_ = JSON.stringify(body);
+
+        let options_: RequestInit = {
+            body: content_,
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Accept": "application/json"
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processRunMcpTool(_response);
+        });
+    }
+
+    protected processRunMcpTool(response: Response): Promise<RunMcpToolResult> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 200) {
+            return response.text().then((_responseText) => {
+            let result200: any = null;
+            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as RunMcpToolResult;
+            return result200;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<RunMcpToolResult>(null as any);
     }
 
     /**
@@ -2564,14 +3103,15 @@ export class BeaconApiClient {
     }
 
     /**
+     * @param dataSourceId (optional) 
      * @param includeArchived (optional) 
      * @return OK
      */
-    getAiActorList(dataSourceId: number, includeArchived: boolean | undefined): Promise<GetAiActorListResult> {
+    getAiActorList(dataSourceId: number | undefined, includeArchived: boolean | undefined): Promise<GetAiActorListResult> {
         let url_ = this.baseUrl + "/beacon/api/ai-actors?";
-        if (dataSourceId === undefined || dataSourceId === null)
-            throw new Error("The parameter 'dataSourceId' must be defined and cannot be null.");
-        else
+        if (dataSourceId === null)
+            throw new Error("The parameter 'dataSourceId' cannot be null.");
+        else if (dataSourceId !== undefined)
             url_ += "dataSourceId=" + encodeURIComponent("" + dataSourceId) + "&";
         if (includeArchived === null)
             throw new Error("The parameter 'includeArchived' cannot be null.");
@@ -3165,8 +3705,81 @@ export class BeaconApiClient {
     /**
      * @return OK
      */
-    getControlTowerStatistics(): Promise<GetControlTowerStatisticsResult> {
-        let url_ = this.baseUrl + "/beacon/api/control-tower/statistics";
+    getNotificationDetail(id: number): Promise<GetNotificationDetailResult> {
+        let url_ = this.baseUrl + "/beacon/api/notifications/{id}";
+        if (id === undefined || id === null)
+            throw new Error("The parameter 'id' must be defined.");
+        url_ = url_.replace("{id}", encodeURIComponent("" + id));
+        url_ = url_.replace(/[?&]$/, "");
+
+        let options_: RequestInit = {
+            method: "GET",
+            headers: {
+                "Accept": "application/json"
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processGetNotificationDetail(_response);
+        });
+    }
+
+    protected processGetNotificationDetail(response: Response): Promise<GetNotificationDetailResult> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 200) {
+            return response.text().then((_responseText) => {
+            let result200: any = null;
+            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as GetNotificationDetailResult;
+            return result200;
+            });
+        } else if (status === 404) {
+            return response.text().then((_responseText) => {
+            return throwException("Not Found", status, _responseText, _headers);
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<GetNotificationDetailResult>(null as any);
+    }
+
+    /**
+     * @param dataSourceId (optional) 
+     * @param folderId (optional) 
+     * @param healthStatus (optional) 
+     * @param hasUnresolvedTasks (optional) 
+     * @param searchKeyword (optional) 
+     * @param timeRangeDays (optional) 
+     * @return OK
+     */
+    getControlTowerStatistics(dataSourceId: number | undefined, folderId: number | undefined, healthStatus: number | undefined, hasUnresolvedTasks: boolean | undefined, searchKeyword: string | undefined, timeRangeDays: number | undefined): Promise<GetControlTowerStatisticsResult> {
+        let url_ = this.baseUrl + "/beacon/api/control-tower/statistics?";
+        if (dataSourceId === null)
+            throw new Error("The parameter 'dataSourceId' cannot be null.");
+        else if (dataSourceId !== undefined)
+            url_ += "dataSourceId=" + encodeURIComponent("" + dataSourceId) + "&";
+        if (folderId === null)
+            throw new Error("The parameter 'folderId' cannot be null.");
+        else if (folderId !== undefined)
+            url_ += "folderId=" + encodeURIComponent("" + folderId) + "&";
+        if (healthStatus === null)
+            throw new Error("The parameter 'healthStatus' cannot be null.");
+        else if (healthStatus !== undefined)
+            url_ += "healthStatus=" + encodeURIComponent("" + healthStatus) + "&";
+        if (hasUnresolvedTasks === null)
+            throw new Error("The parameter 'hasUnresolvedTasks' cannot be null.");
+        else if (hasUnresolvedTasks !== undefined)
+            url_ += "hasUnresolvedTasks=" + encodeURIComponent("" + hasUnresolvedTasks) + "&";
+        if (searchKeyword === null)
+            throw new Error("The parameter 'searchKeyword' cannot be null.");
+        else if (searchKeyword !== undefined)
+            url_ += "searchKeyword=" + encodeURIComponent("" + searchKeyword) + "&";
+        if (timeRangeDays === null)
+            throw new Error("The parameter 'timeRangeDays' cannot be null.");
+        else if (timeRangeDays !== undefined)
+            url_ += "timeRangeDays=" + encodeURIComponent("" + timeRangeDays) + "&";
         url_ = url_.replace(/[?&]$/, "");
 
         let options_: RequestInit = {
@@ -3206,9 +3819,11 @@ export class BeaconApiClient {
      * @param healthStatus (optional) 
      * @param hasUnresolvedTasks (optional) 
      * @param searchKeyword (optional) 
+     * @param timeRangeDays (optional) 
+     * @param sortBy (optional) 
      * @return OK
      */
-    getControlTowerHealth(page: number | undefined, pageSize: number | undefined, dataSourceId: number | undefined, folderId: number | undefined, healthStatus: number | undefined, hasUnresolvedTasks: boolean | undefined, searchKeyword: string | undefined): Promise<GetControlTowerHealthResult> {
+    getControlTowerHealth(page: number | undefined, pageSize: number | undefined, dataSourceId: number | undefined, folderId: number | undefined, healthStatus: number | undefined, hasUnresolvedTasks: boolean | undefined, searchKeyword: string | undefined, timeRangeDays: number | undefined, sortBy: number | undefined): Promise<GetControlTowerHealthResult> {
         let url_ = this.baseUrl + "/beacon/api/control-tower/health?";
         if (page === null)
             throw new Error("The parameter 'page' cannot be null.");
@@ -3238,6 +3853,14 @@ export class BeaconApiClient {
             throw new Error("The parameter 'searchKeyword' cannot be null.");
         else if (searchKeyword !== undefined)
             url_ += "searchKeyword=" + encodeURIComponent("" + searchKeyword) + "&";
+        if (timeRangeDays === null)
+            throw new Error("The parameter 'timeRangeDays' cannot be null.");
+        else if (timeRangeDays !== undefined)
+            url_ += "timeRangeDays=" + encodeURIComponent("" + timeRangeDays) + "&";
+        if (sortBy === null)
+            throw new Error("The parameter 'sortBy' cannot be null.");
+        else if (sortBy !== undefined)
+            url_ += "sortBy=" + encodeURIComponent("" + sortBy) + "&";
         url_ = url_.replace(/[?&]$/, "");
 
         let options_: RequestInit = {
@@ -3267,6 +3890,209 @@ export class BeaconApiClient {
             });
         }
         return Promise.resolve<GetControlTowerHealthResult>(null as any);
+    }
+
+    /**
+     * @param timeRangeDays (optional) 
+     * @return OK
+     */
+    getControlTowerSubscriptionDetail(id: number, timeRangeDays: number | undefined): Promise<GetControlTowerSubscriptionDetailResult> {
+        let url_ = this.baseUrl + "/beacon/api/control-tower/subscriptions/{id}/detail?";
+        if (id === undefined || id === null)
+            throw new Error("The parameter 'id' must be defined.");
+        url_ = url_.replace("{id}", encodeURIComponent("" + id));
+        if (timeRangeDays === null)
+            throw new Error("The parameter 'timeRangeDays' cannot be null.");
+        else if (timeRangeDays !== undefined)
+            url_ += "timeRangeDays=" + encodeURIComponent("" + timeRangeDays) + "&";
+        url_ = url_.replace(/[?&]$/, "");
+
+        let options_: RequestInit = {
+            method: "GET",
+            headers: {
+                "Accept": "application/json"
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processGetControlTowerSubscriptionDetail(_response);
+        });
+    }
+
+    protected processGetControlTowerSubscriptionDetail(response: Response): Promise<GetControlTowerSubscriptionDetailResult> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 200) {
+            return response.text().then((_responseText) => {
+            let result200: any = null;
+            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as GetControlTowerSubscriptionDetailResult;
+            return result200;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<GetControlTowerSubscriptionDetailResult>(null as any);
+    }
+
+    /**
+     * @return OK
+     */
+    getMigrationJobs(): Promise<GetMigrationJobsResult> {
+        let url_ = this.baseUrl + "/beacon/api/migrations/jobs";
+        url_ = url_.replace(/[?&]$/, "");
+
+        let options_: RequestInit = {
+            method: "GET",
+            headers: {
+                "Accept": "application/json"
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processGetMigrationJobs(_response);
+        });
+    }
+
+    protected processGetMigrationJobs(response: Response): Promise<GetMigrationJobsResult> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 200) {
+            return response.text().then((_responseText) => {
+            let result200: any = null;
+            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as GetMigrationJobsResult;
+            return result200;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<GetMigrationJobsResult>(null as any);
+    }
+
+    /**
+     * @return OK
+     */
+    createMigrationJob(body: CreateMigrationJobCommand): Promise<CreateMigrationJobResult> {
+        let url_ = this.baseUrl + "/beacon/api/migrations/jobs";
+        url_ = url_.replace(/[?&]$/, "");
+
+        const content_ = JSON.stringify(body);
+
+        let options_: RequestInit = {
+            body: content_,
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Accept": "application/json"
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processCreateMigrationJob(_response);
+        });
+    }
+
+    protected processCreateMigrationJob(response: Response): Promise<CreateMigrationJobResult> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 200) {
+            return response.text().then((_responseText) => {
+            let result200: any = null;
+            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as CreateMigrationJobResult;
+            return result200;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<CreateMigrationJobResult>(null as any);
+    }
+
+    /**
+     * @return OK
+     */
+    runMigrationJob(id: number): Promise<RunMigrationJobResult> {
+        let url_ = this.baseUrl + "/beacon/api/migrations/jobs/{id}/run";
+        if (id === undefined || id === null)
+            throw new Error("The parameter 'id' must be defined.");
+        url_ = url_.replace("{id}", encodeURIComponent("" + id));
+        url_ = url_.replace(/[?&]$/, "");
+
+        let options_: RequestInit = {
+            method: "POST",
+            headers: {
+                "Accept": "application/json"
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processRunMigrationJob(_response);
+        });
+    }
+
+    protected processRunMigrationJob(response: Response): Promise<RunMigrationJobResult> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 200) {
+            return response.text().then((_responseText) => {
+            let result200: any = null;
+            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as RunMigrationJobResult;
+            return result200;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<RunMigrationJobResult>(null as any);
+    }
+
+    /**
+     * @param forceDelete (optional) 
+     * @return OK
+     */
+    deleteMigrationJob(id: number, forceDelete: boolean | undefined): Promise<DeleteMigrationJobResult> {
+        let url_ = this.baseUrl + "/beacon/api/migrations/jobs/{id}?";
+        if (id === undefined || id === null)
+            throw new Error("The parameter 'id' must be defined.");
+        url_ = url_.replace("{id}", encodeURIComponent("" + id));
+        if (forceDelete === null)
+            throw new Error("The parameter 'forceDelete' cannot be null.");
+        else if (forceDelete !== undefined)
+            url_ += "forceDelete=" + encodeURIComponent("" + forceDelete) + "&";
+        url_ = url_.replace(/[?&]$/, "");
+
+        let options_: RequestInit = {
+            method: "DELETE",
+            headers: {
+                "Accept": "application/json"
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processDeleteMigrationJob(_response);
+        });
+    }
+
+    protected processDeleteMigrationJob(response: Response): Promise<DeleteMigrationJobResult> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 200) {
+            return response.text().then((_responseText) => {
+            let result200: any = null;
+            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as DeleteMigrationJobResult;
+            return result200;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<DeleteMigrationJobResult>(null as any);
     }
 
     /**
@@ -3333,6 +4159,1696 @@ export class BeaconApiClient {
             });
         }
         return Promise.resolve<GetMigrationExecutionsResult>(null as any);
+    }
+
+    /**
+     * @return OK
+     */
+    getRecipients(): Promise<GetRecipientsResult> {
+        let url_ = this.baseUrl + "/beacon/api/recipients";
+        url_ = url_.replace(/[?&]$/, "");
+
+        let options_: RequestInit = {
+            method: "GET",
+            headers: {
+                "Accept": "application/json"
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processGetRecipients(_response);
+        });
+    }
+
+    protected processGetRecipients(response: Response): Promise<GetRecipientsResult> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 200) {
+            return response.text().then((_responseText) => {
+            let result200: any = null;
+            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as GetRecipientsResult;
+            return result200;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<GetRecipientsResult>(null as any);
+    }
+
+    /**
+     * @return OK
+     */
+    createRecipient(body: CreateRecipientCommand): Promise<CreateRecipientResult> {
+        let url_ = this.baseUrl + "/beacon/api/recipients";
+        url_ = url_.replace(/[?&]$/, "");
+
+        const content_ = JSON.stringify(body);
+
+        let options_: RequestInit = {
+            body: content_,
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Accept": "application/json"
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processCreateRecipient(_response);
+        });
+    }
+
+    protected processCreateRecipient(response: Response): Promise<CreateRecipientResult> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 200) {
+            return response.text().then((_responseText) => {
+            let result200: any = null;
+            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as CreateRecipientResult;
+            return result200;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<CreateRecipientResult>(null as any);
+    }
+
+    /**
+     * @return No Content
+     */
+    updateRecipient(id: number, body: UpdateRecipientBody): Promise<void> {
+        let url_ = this.baseUrl + "/beacon/api/recipients/{id}";
+        if (id === undefined || id === null)
+            throw new Error("The parameter 'id' must be defined.");
+        url_ = url_.replace("{id}", encodeURIComponent("" + id));
+        url_ = url_.replace(/[?&]$/, "");
+
+        const content_ = JSON.stringify(body);
+
+        let options_: RequestInit = {
+            body: content_,
+            method: "PUT",
+            headers: {
+                "Content-Type": "application/json",
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processUpdateRecipient(_response);
+        });
+    }
+
+    protected processUpdateRecipient(response: Response): Promise<void> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 204) {
+            return response.text().then((_responseText) => {
+            return;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<void>(null as any);
+    }
+
+    /**
+     * @return No Content
+     */
+    deleteRecipient(id: number): Promise<void> {
+        let url_ = this.baseUrl + "/beacon/api/recipients/{id}";
+        if (id === undefined || id === null)
+            throw new Error("The parameter 'id' must be defined.");
+        url_ = url_.replace("{id}", encodeURIComponent("" + id));
+        url_ = url_.replace(/[?&]$/, "");
+
+        let options_: RequestInit = {
+            method: "DELETE",
+            headers: {
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processDeleteRecipient(_response);
+        });
+    }
+
+    protected processDeleteRecipient(response: Response): Promise<void> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 204) {
+            return response.text().then((_responseText) => {
+            return;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<void>(null as any);
+    }
+
+    /**
+     * @param search (optional) 
+     * @return OK
+     */
+    getSubscriptions(search: string | undefined): Promise<GetSubscriptionsResult> {
+        let url_ = this.baseUrl + "/beacon/api/subscriptions?";
+        if (search === null)
+            throw new Error("The parameter 'search' cannot be null.");
+        else if (search !== undefined)
+            url_ += "search=" + encodeURIComponent("" + search) + "&";
+        url_ = url_.replace(/[?&]$/, "");
+
+        let options_: RequestInit = {
+            method: "GET",
+            headers: {
+                "Accept": "application/json"
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processGetSubscriptions(_response);
+        });
+    }
+
+    protected processGetSubscriptions(response: Response): Promise<GetSubscriptionsResult> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 200) {
+            return response.text().then((_responseText) => {
+            let result200: any = null;
+            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as GetSubscriptionsResult;
+            return result200;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<GetSubscriptionsResult>(null as any);
+    }
+
+    /**
+     * @return OK
+     */
+    createSubscription(body: CreateSubscriptionCommand): Promise<CreateSubscriptionResult> {
+        let url_ = this.baseUrl + "/beacon/api/subscriptions";
+        url_ = url_.replace(/[?&]$/, "");
+
+        const content_ = JSON.stringify(body);
+
+        let options_: RequestInit = {
+            body: content_,
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Accept": "application/json"
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processCreateSubscription(_response);
+        });
+    }
+
+    protected processCreateSubscription(response: Response): Promise<CreateSubscriptionResult> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 200) {
+            return response.text().then((_responseText) => {
+            let result200: any = null;
+            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as CreateSubscriptionResult;
+            return result200;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<CreateSubscriptionResult>(null as any);
+    }
+
+    /**
+     * @return OK
+     */
+    getSubscriptionDetail(id: number): Promise<GetSubscriptionDetailResult> {
+        let url_ = this.baseUrl + "/beacon/api/subscriptions/{id}";
+        if (id === undefined || id === null)
+            throw new Error("The parameter 'id' must be defined.");
+        url_ = url_.replace("{id}", encodeURIComponent("" + id));
+        url_ = url_.replace(/[?&]$/, "");
+
+        let options_: RequestInit = {
+            method: "GET",
+            headers: {
+                "Accept": "application/json"
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processGetSubscriptionDetail(_response);
+        });
+    }
+
+    protected processGetSubscriptionDetail(response: Response): Promise<GetSubscriptionDetailResult> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 200) {
+            return response.text().then((_responseText) => {
+            let result200: any = null;
+            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as GetSubscriptionDetailResult;
+            return result200;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<GetSubscriptionDetailResult>(null as any);
+    }
+
+    /**
+     * @return No Content
+     */
+    deleteSubscription(id: number): Promise<void> {
+        let url_ = this.baseUrl + "/beacon/api/subscriptions/{id}";
+        if (id === undefined || id === null)
+            throw new Error("The parameter 'id' must be defined.");
+        url_ = url_.replace("{id}", encodeURIComponent("" + id));
+        url_ = url_.replace(/[?&]$/, "");
+
+        let options_: RequestInit = {
+            method: "DELETE",
+            headers: {
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processDeleteSubscription(_response);
+        });
+    }
+
+    protected processDeleteSubscription(response: Response): Promise<void> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 204) {
+            return response.text().then((_responseText) => {
+            return;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<void>(null as any);
+    }
+
+    /**
+     * @return No Content
+     */
+    setSubscriptionSla(id: number, body: SetSubscriptionSlaBody): Promise<void> {
+        let url_ = this.baseUrl + "/beacon/api/subscriptions/{id}/sla";
+        if (id === undefined || id === null)
+            throw new Error("The parameter 'id' must be defined.");
+        url_ = url_.replace("{id}", encodeURIComponent("" + id));
+        url_ = url_.replace(/[?&]$/, "");
+
+        const content_ = JSON.stringify(body);
+
+        let options_: RequestInit = {
+            body: content_,
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processSetSubscriptionSla(_response);
+        });
+    }
+
+    protected processSetSubscriptionSla(response: Response): Promise<void> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 204) {
+            return response.text().then((_responseText) => {
+            return;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<void>(null as any);
+    }
+
+    /**
+     * @return No Content
+     */
+    testSubscription(id: number): Promise<void> {
+        let url_ = this.baseUrl + "/beacon/api/subscriptions/{id}/execute";
+        if (id === undefined || id === null)
+            throw new Error("The parameter 'id' must be defined.");
+        url_ = url_.replace("{id}", encodeURIComponent("" + id));
+        url_ = url_.replace(/[?&]$/, "");
+
+        let options_: RequestInit = {
+            method: "POST",
+            headers: {
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processTestSubscription(_response);
+        });
+    }
+
+    protected processTestSubscription(response: Response): Promise<void> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 204) {
+            return response.text().then((_responseText) => {
+            return;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<void>(null as any);
+    }
+
+    /**
+     * @return No Content
+     */
+    addSubscriptionRecipients(id: number, body: AddSubscriptionRecipientsBody): Promise<void> {
+        let url_ = this.baseUrl + "/beacon/api/subscriptions/{id}/recipients";
+        if (id === undefined || id === null)
+            throw new Error("The parameter 'id' must be defined.");
+        url_ = url_.replace("{id}", encodeURIComponent("" + id));
+        url_ = url_.replace(/[?&]$/, "");
+
+        const content_ = JSON.stringify(body);
+
+        let options_: RequestInit = {
+            body: content_,
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processAddSubscriptionRecipients(_response);
+        });
+    }
+
+    protected processAddSubscriptionRecipients(response: Response): Promise<void> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 204) {
+            return response.text().then((_responseText) => {
+            return;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<void>(null as any);
+    }
+
+    /**
+     * @return No Content
+     */
+    removeSubscriptionRecipient(id: number, recipientId: number): Promise<void> {
+        let url_ = this.baseUrl + "/beacon/api/subscriptions/{id}/recipients/{recipientId}";
+        if (id === undefined || id === null)
+            throw new Error("The parameter 'id' must be defined.");
+        url_ = url_.replace("{id}", encodeURIComponent("" + id));
+        if (recipientId === undefined || recipientId === null)
+            throw new Error("The parameter 'recipientId' must be defined.");
+        url_ = url_.replace("{recipientId}", encodeURIComponent("" + recipientId));
+        url_ = url_.replace(/[?&]$/, "");
+
+        let options_: RequestInit = {
+            method: "DELETE",
+            headers: {
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processRemoveSubscriptionRecipient(_response);
+        });
+    }
+
+    protected processRemoveSubscriptionRecipient(response: Response): Promise<void> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 204) {
+            return response.text().then((_responseText) => {
+            return;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<void>(null as any);
+    }
+
+    /**
+     * @param days (optional) 
+     * @return OK
+     */
+    getSubscriptionAnomalyChart(id: number, days: number | undefined): Promise<GetSubscriptionAnomalyChartResult> {
+        let url_ = this.baseUrl + "/beacon/api/subscriptions/{id}/anomaly-chart?";
+        if (id === undefined || id === null)
+            throw new Error("The parameter 'id' must be defined.");
+        url_ = url_.replace("{id}", encodeURIComponent("" + id));
+        if (days === null)
+            throw new Error("The parameter 'days' cannot be null.");
+        else if (days !== undefined)
+            url_ += "days=" + encodeURIComponent("" + days) + "&";
+        url_ = url_.replace(/[?&]$/, "");
+
+        let options_: RequestInit = {
+            method: "GET",
+            headers: {
+                "Accept": "application/json"
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processGetSubscriptionAnomalyChart(_response);
+        });
+    }
+
+    protected processGetSubscriptionAnomalyChart(response: Response): Promise<GetSubscriptionAnomalyChartResult> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 200) {
+            return response.text().then((_responseText) => {
+            let result200: any = null;
+            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as GetSubscriptionAnomalyChartResult;
+            return result200;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<GetSubscriptionAnomalyChartResult>(null as any);
+    }
+
+    /**
+     * @return OK
+     */
+    getDataSources(): Promise<GetDataSourcesResult> {
+        let url_ = this.baseUrl + "/beacon/api/data-sources";
+        url_ = url_.replace(/[?&]$/, "");
+
+        let options_: RequestInit = {
+            method: "GET",
+            headers: {
+                "Accept": "application/json"
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processGetDataSources(_response);
+        });
+    }
+
+    protected processGetDataSources(response: Response): Promise<GetDataSourcesResult> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 200) {
+            return response.text().then((_responseText) => {
+            let result200: any = null;
+            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as GetDataSourcesResult;
+            return result200;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<GetDataSourcesResult>(null as any);
+    }
+
+    /**
+     * @return OK
+     */
+    createDataSource(body: CreateDataSourceCommand): Promise<CreateDataSourceResult> {
+        let url_ = this.baseUrl + "/beacon/api/data-sources";
+        url_ = url_.replace(/[?&]$/, "");
+
+        const content_ = JSON.stringify(body);
+
+        let options_: RequestInit = {
+            body: content_,
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Accept": "application/json"
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processCreateDataSource(_response);
+        });
+    }
+
+    protected processCreateDataSource(response: Response): Promise<CreateDataSourceResult> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 200) {
+            return response.text().then((_responseText) => {
+            let result200: any = null;
+            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as CreateDataSourceResult;
+            return result200;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<CreateDataSourceResult>(null as any);
+    }
+
+    /**
+     * @return OK
+     */
+    testDataSourceConnection(body: TestDataSourceConnectionCommand): Promise<TestDataSourceConnectionResult> {
+        let url_ = this.baseUrl + "/beacon/api/data-sources/test-connection";
+        url_ = url_.replace(/[?&]$/, "");
+
+        const content_ = JSON.stringify(body);
+
+        let options_: RequestInit = {
+            body: content_,
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Accept": "application/json"
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processTestDataSourceConnection(_response);
+        });
+    }
+
+    protected processTestDataSourceConnection(response: Response): Promise<TestDataSourceConnectionResult> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 200) {
+            return response.text().then((_responseText) => {
+            let result200: any = null;
+            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as TestDataSourceConnectionResult;
+            return result200;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<TestDataSourceConnectionResult>(null as any);
+    }
+
+    /**
+     * @return OK
+     */
+    getDataSourceMetadata(id: number): Promise<DatabaseMetadataSnapshot> {
+        let url_ = this.baseUrl + "/beacon/api/data-sources/{id}/metadata";
+        if (id === undefined || id === null)
+            throw new Error("The parameter 'id' must be defined.");
+        url_ = url_.replace("{id}", encodeURIComponent("" + id));
+        url_ = url_.replace(/[?&]$/, "");
+
+        let options_: RequestInit = {
+            method: "GET",
+            headers: {
+                "Accept": "application/json"
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processGetDataSourceMetadata(_response);
+        });
+    }
+
+    protected processGetDataSourceMetadata(response: Response): Promise<DatabaseMetadataSnapshot> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 200) {
+            return response.text().then((_responseText) => {
+            let result200: any = null;
+            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as DatabaseMetadataSnapshot;
+            return result200;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<DatabaseMetadataSnapshot>(null as any);
+    }
+
+    /**
+     * @return OK
+     */
+    refreshDataSourceMetadata(id: number): Promise<DatabaseMetadataSnapshot> {
+        let url_ = this.baseUrl + "/beacon/api/data-sources/{id}/refresh-metadata";
+        if (id === undefined || id === null)
+            throw new Error("The parameter 'id' must be defined.");
+        url_ = url_.replace("{id}", encodeURIComponent("" + id));
+        url_ = url_.replace(/[?&]$/, "");
+
+        let options_: RequestInit = {
+            method: "POST",
+            headers: {
+                "Accept": "application/json"
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processRefreshDataSourceMetadata(_response);
+        });
+    }
+
+    protected processRefreshDataSourceMetadata(response: Response): Promise<DatabaseMetadataSnapshot> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 200) {
+            return response.text().then((_responseText) => {
+            let result200: any = null;
+            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as DatabaseMetadataSnapshot;
+            return result200;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<DatabaseMetadataSnapshot>(null as any);
+    }
+
+    /**
+     * @return No Content
+     */
+    deleteDataSource(id: number): Promise<void> {
+        let url_ = this.baseUrl + "/beacon/api/data-sources/{id}";
+        if (id === undefined || id === null)
+            throw new Error("The parameter 'id' must be defined.");
+        url_ = url_.replace("{id}", encodeURIComponent("" + id));
+        url_ = url_.replace(/[?&]$/, "");
+
+        let options_: RequestInit = {
+            method: "DELETE",
+            headers: {
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processDeleteDataSource(_response);
+        });
+    }
+
+    protected processDeleteDataSource(response: Response): Promise<void> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 204) {
+            return response.text().then((_responseText) => {
+            return;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<void>(null as any);
+    }
+
+    /**
+     * @return OK
+     */
+    getAdminSettings(): Promise<GetAdminSettingsResult> {
+        let url_ = this.baseUrl + "/beacon/api/admin-settings";
+        url_ = url_.replace(/[?&]$/, "");
+
+        let options_: RequestInit = {
+            method: "GET",
+            headers: {
+                "Accept": "application/json"
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processGetAdminSettings(_response);
+        });
+    }
+
+    protected processGetAdminSettings(response: Response): Promise<GetAdminSettingsResult> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 200) {
+            return response.text().then((_responseText) => {
+            let result200: any = null;
+            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as GetAdminSettingsResult;
+            return result200;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<GetAdminSettingsResult>(null as any);
+    }
+
+    /**
+     * @return No Content
+     */
+    updateAdminSettings(body: UpdateAdminSettingsCommand): Promise<void> {
+        let url_ = this.baseUrl + "/beacon/api/admin-settings";
+        url_ = url_.replace(/[?&]$/, "");
+
+        const content_ = JSON.stringify(body);
+
+        let options_: RequestInit = {
+            body: content_,
+            method: "PUT",
+            headers: {
+                "Content-Type": "application/json",
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processUpdateAdminSettings(_response);
+        });
+    }
+
+    protected processUpdateAdminSettings(response: Response): Promise<void> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 204) {
+            return response.text().then((_responseText) => {
+            return;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<void>(null as any);
+    }
+
+    /**
+     * @return OK
+     */
+    testLlmConnection(body: TestLlmConnectionCommand): Promise<TestLlmConnectionResult> {
+        let url_ = this.baseUrl + "/beacon/api/admin-settings/test-llm";
+        url_ = url_.replace(/[?&]$/, "");
+
+        const content_ = JSON.stringify(body);
+
+        let options_: RequestInit = {
+            body: content_,
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Accept": "application/json"
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processTestLlmConnection(_response);
+        });
+    }
+
+    protected processTestLlmConnection(response: Response): Promise<TestLlmConnectionResult> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 200) {
+            return response.text().then((_responseText) => {
+            let result200: any = null;
+            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as TestLlmConnectionResult;
+            return result200;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<TestLlmConnectionResult>(null as any);
+    }
+
+    /**
+     * @return OK
+     */
+    getUserSettings(): Promise<GetUserSettingsResult> {
+        let url_ = this.baseUrl + "/beacon/api/user-settings";
+        url_ = url_.replace(/[?&]$/, "");
+
+        let options_: RequestInit = {
+            method: "GET",
+            headers: {
+                "Accept": "application/json"
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processGetUserSettings(_response);
+        });
+    }
+
+    protected processGetUserSettings(response: Response): Promise<GetUserSettingsResult> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 200) {
+            return response.text().then((_responseText) => {
+            let result200: any = null;
+            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as GetUserSettingsResult;
+            return result200;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<GetUserSettingsResult>(null as any);
+    }
+
+    /**
+     * @return No Content
+     */
+    changeOwnPassword(body: ChangeOwnPasswordCommand): Promise<void> {
+        let url_ = this.baseUrl + "/beacon/api/user-settings/change-password";
+        url_ = url_.replace(/[?&]$/, "");
+
+        const content_ = JSON.stringify(body);
+
+        let options_: RequestInit = {
+            body: content_,
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processChangeOwnPassword(_response);
+        });
+    }
+
+    protected processChangeOwnPassword(response: Response): Promise<void> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 204) {
+            return response.text().then((_responseText) => {
+            return;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<void>(null as any);
+    }
+
+    /**
+     * @param subscriptionId (optional) 
+     * @param resolved (optional) 
+     * @param sortColumn (optional) 
+     * @param sortDescending (optional) 
+     * @param page (optional) 
+     * @param pageSize (optional) 
+     * @return OK
+     */
+    getTasks(subscriptionId: number | undefined, resolved: boolean | undefined, sortColumn: string | undefined, sortDescending: boolean | undefined, page: number | undefined, pageSize: number | undefined): Promise<GetTasksResult> {
+        let url_ = this.baseUrl + "/beacon/api/tasks?";
+        if (subscriptionId === null)
+            throw new Error("The parameter 'subscriptionId' cannot be null.");
+        else if (subscriptionId !== undefined)
+            url_ += "subscriptionId=" + encodeURIComponent("" + subscriptionId) + "&";
+        if (resolved === null)
+            throw new Error("The parameter 'resolved' cannot be null.");
+        else if (resolved !== undefined)
+            url_ += "resolved=" + encodeURIComponent("" + resolved) + "&";
+        if (sortColumn === null)
+            throw new Error("The parameter 'sortColumn' cannot be null.");
+        else if (sortColumn !== undefined)
+            url_ += "sortColumn=" + encodeURIComponent("" + sortColumn) + "&";
+        if (sortDescending === null)
+            throw new Error("The parameter 'sortDescending' cannot be null.");
+        else if (sortDescending !== undefined)
+            url_ += "sortDescending=" + encodeURIComponent("" + sortDescending) + "&";
+        if (page === null)
+            throw new Error("The parameter 'page' cannot be null.");
+        else if (page !== undefined)
+            url_ += "page=" + encodeURIComponent("" + page) + "&";
+        if (pageSize === null)
+            throw new Error("The parameter 'pageSize' cannot be null.");
+        else if (pageSize !== undefined)
+            url_ += "pageSize=" + encodeURIComponent("" + pageSize) + "&";
+        url_ = url_.replace(/[?&]$/, "");
+
+        let options_: RequestInit = {
+            method: "GET",
+            headers: {
+                "Accept": "application/json"
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processGetTasks(_response);
+        });
+    }
+
+    protected processGetTasks(response: Response): Promise<GetTasksResult> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 200) {
+            return response.text().then((_responseText) => {
+            let result200: any = null;
+            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as GetTasksResult;
+            return result200;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<GetTasksResult>(null as any);
+    }
+
+    /**
+     * @return OK
+     */
+    getTaskDetail(id: number): Promise<TaskDetailResult> {
+        let url_ = this.baseUrl + "/beacon/api/tasks/{id}";
+        if (id === undefined || id === null)
+            throw new Error("The parameter 'id' must be defined.");
+        url_ = url_.replace("{id}", encodeURIComponent("" + id));
+        url_ = url_.replace(/[?&]$/, "");
+
+        let options_: RequestInit = {
+            method: "GET",
+            headers: {
+                "Accept": "application/json"
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processGetTaskDetail(_response);
+        });
+    }
+
+    protected processGetTaskDetail(response: Response): Promise<TaskDetailResult> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 200) {
+            return response.text().then((_responseText) => {
+            let result200: any = null;
+            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as TaskDetailResult;
+            return result200;
+            });
+        } else if (status === 404) {
+            return response.text().then((_responseText) => {
+            return throwException("Not Found", status, _responseText, _headers);
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<TaskDetailResult>(null as any);
+    }
+
+    /**
+     * @return No Content
+     */
+    resolveTask(id: number, body: ResolveTaskBody): Promise<void> {
+        let url_ = this.baseUrl + "/beacon/api/tasks/{id}/resolve";
+        if (id === undefined || id === null)
+            throw new Error("The parameter 'id' must be defined.");
+        url_ = url_.replace("{id}", encodeURIComponent("" + id));
+        url_ = url_.replace(/[?&]$/, "");
+
+        const content_ = JSON.stringify(body);
+
+        let options_: RequestInit = {
+            body: content_,
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processResolveTask(_response);
+        });
+    }
+
+    protected processResolveTask(response: Response): Promise<void> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 204) {
+            return response.text().then((_responseText) => {
+            return;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<void>(null as any);
+    }
+
+    /**
+     * @return OK
+     */
+    getTaskExecutions(id: number): Promise<TaskExecutionsResult> {
+        let url_ = this.baseUrl + "/beacon/api/tasks/{id}/executions";
+        if (id === undefined || id === null)
+            throw new Error("The parameter 'id' must be defined.");
+        url_ = url_.replace("{id}", encodeURIComponent("" + id));
+        url_ = url_.replace(/[?&]$/, "");
+
+        let options_: RequestInit = {
+            method: "GET",
+            headers: {
+                "Accept": "application/json"
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processGetTaskExecutions(_response);
+        });
+    }
+
+    protected processGetTaskExecutions(response: Response): Promise<TaskExecutionsResult> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 200) {
+            return response.text().then((_responseText) => {
+            let result200: any = null;
+            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as TaskExecutionsResult;
+            return result200;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<TaskExecutionsResult>(null as any);
+    }
+
+    /**
+     * @return OK
+     */
+    getTaskRelated(id: number): Promise<TaskRelatedResult> {
+        let url_ = this.baseUrl + "/beacon/api/tasks/{id}/related";
+        if (id === undefined || id === null)
+            throw new Error("The parameter 'id' must be defined.");
+        url_ = url_.replace("{id}", encodeURIComponent("" + id));
+        url_ = url_.replace(/[?&]$/, "");
+
+        let options_: RequestInit = {
+            method: "GET",
+            headers: {
+                "Accept": "application/json"
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processGetTaskRelated(_response);
+        });
+    }
+
+    protected processGetTaskRelated(response: Response): Promise<TaskRelatedResult> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 200) {
+            return response.text().then((_responseText) => {
+            let result200: any = null;
+            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as TaskRelatedResult;
+            return result200;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<TaskRelatedResult>(null as any);
+    }
+
+    /**
+     * @return OK
+     */
+    getTaskResultHistory(id: number): Promise<TaskResultHistoryResult> {
+        let url_ = this.baseUrl + "/beacon/api/tasks/{id}/result-history";
+        if (id === undefined || id === null)
+            throw new Error("The parameter 'id' must be defined.");
+        url_ = url_.replace("{id}", encodeURIComponent("" + id));
+        url_ = url_.replace(/[?&]$/, "");
+
+        let options_: RequestInit = {
+            method: "GET",
+            headers: {
+                "Accept": "application/json"
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processGetTaskResultHistory(_response);
+        });
+    }
+
+    protected processGetTaskResultHistory(response: Response): Promise<TaskResultHistoryResult> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 200) {
+            return response.text().then((_responseText) => {
+            let result200: any = null;
+            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as TaskResultHistoryResult;
+            return result200;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<TaskResultHistoryResult>(null as any);
+    }
+
+    /**
+     * @return OK
+     */
+    getTaskComments(id: number): Promise<TaskCommentsResult> {
+        let url_ = this.baseUrl + "/beacon/api/tasks/{id}/comments";
+        if (id === undefined || id === null)
+            throw new Error("The parameter 'id' must be defined.");
+        url_ = url_.replace("{id}", encodeURIComponent("" + id));
+        url_ = url_.replace(/[?&]$/, "");
+
+        let options_: RequestInit = {
+            method: "GET",
+            headers: {
+                "Accept": "application/json"
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processGetTaskComments(_response);
+        });
+    }
+
+    protected processGetTaskComments(response: Response): Promise<TaskCommentsResult> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 200) {
+            return response.text().then((_responseText) => {
+            let result200: any = null;
+            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as TaskCommentsResult;
+            return result200;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<TaskCommentsResult>(null as any);
+    }
+
+    /**
+     * @return OK
+     */
+    addTaskComment(id: number, body: AddTaskCommentBody): Promise<AddTaskCommentResult> {
+        let url_ = this.baseUrl + "/beacon/api/tasks/{id}/comments";
+        if (id === undefined || id === null)
+            throw new Error("The parameter 'id' must be defined.");
+        url_ = url_.replace("{id}", encodeURIComponent("" + id));
+        url_ = url_.replace(/[?&]$/, "");
+
+        const content_ = JSON.stringify(body);
+
+        let options_: RequestInit = {
+            body: content_,
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Accept": "application/json"
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processAddTaskComment(_response);
+        });
+    }
+
+    protected processAddTaskComment(response: Response): Promise<AddTaskCommentResult> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 200) {
+            return response.text().then((_responseText) => {
+            let result200: any = null;
+            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as AddTaskCommentResult;
+            return result200;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<AddTaskCommentResult>(null as any);
+    }
+
+    /**
+     * @return No Content
+     */
+    assignTask(id: number, body: AssignTaskBody): Promise<void> {
+        let url_ = this.baseUrl + "/beacon/api/tasks/{id}/assign";
+        if (id === undefined || id === null)
+            throw new Error("The parameter 'id' must be defined.");
+        url_ = url_.replace("{id}", encodeURIComponent("" + id));
+        url_ = url_.replace(/[?&]$/, "");
+
+        const content_ = JSON.stringify(body);
+
+        let options_: RequestInit = {
+            body: content_,
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processAssignTask(_response);
+        });
+    }
+
+    protected processAssignTask(response: Response): Promise<void> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 204) {
+            return response.text().then((_responseText) => {
+            return;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<void>(null as any);
+    }
+
+    /**
+     * @return No Content
+     */
+    snoozeTask(id: number, body: SnoozeTaskBody): Promise<void> {
+        let url_ = this.baseUrl + "/beacon/api/tasks/{id}/snooze";
+        if (id === undefined || id === null)
+            throw new Error("The parameter 'id' must be defined.");
+        url_ = url_.replace("{id}", encodeURIComponent("" + id));
+        url_ = url_.replace(/[?&]$/, "");
+
+        const content_ = JSON.stringify(body);
+
+        let options_: RequestInit = {
+            body: content_,
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processSnoozeTask(_response);
+        });
+    }
+
+    protected processSnoozeTask(response: Response): Promise<void> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 204) {
+            return response.text().then((_responseText) => {
+            return;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<void>(null as any);
+    }
+
+    /**
+     * @return No Content
+     */
+    setTaskPriority(id: number, body: SetTaskPriorityBody): Promise<void> {
+        let url_ = this.baseUrl + "/beacon/api/tasks/{id}/priority";
+        if (id === undefined || id === null)
+            throw new Error("The parameter 'id' must be defined.");
+        url_ = url_.replace("{id}", encodeURIComponent("" + id));
+        url_ = url_.replace(/[?&]$/, "");
+
+        const content_ = JSON.stringify(body);
+
+        let options_: RequestInit = {
+            body: content_,
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processSetTaskPriority(_response);
+        });
+    }
+
+    protected processSetTaskPriority(response: Response): Promise<void> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 204) {
+            return response.text().then((_responseText) => {
+            return;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<void>(null as any);
+    }
+
+    /**
+     * @return No Content
+     */
+    watchTask(id: number): Promise<void> {
+        let url_ = this.baseUrl + "/beacon/api/tasks/{id}/watch";
+        if (id === undefined || id === null)
+            throw new Error("The parameter 'id' must be defined.");
+        url_ = url_.replace("{id}", encodeURIComponent("" + id));
+        url_ = url_.replace(/[?&]$/, "");
+
+        let options_: RequestInit = {
+            method: "POST",
+            headers: {
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processWatchTask(_response);
+        });
+    }
+
+    protected processWatchTask(response: Response): Promise<void> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 204) {
+            return response.text().then((_responseText) => {
+            return;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<void>(null as any);
+    }
+
+    /**
+     * @return No Content
+     */
+    unwatchTask(id: number): Promise<void> {
+        let url_ = this.baseUrl + "/beacon/api/tasks/{id}/unwatch";
+        if (id === undefined || id === null)
+            throw new Error("The parameter 'id' must be defined.");
+        url_ = url_.replace("{id}", encodeURIComponent("" + id));
+        url_ = url_.replace(/[?&]$/, "");
+
+        let options_: RequestInit = {
+            method: "POST",
+            headers: {
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processUnwatchTask(_response);
+        });
+    }
+
+    protected processUnwatchTask(response: Response): Promise<void> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 204) {
+            return response.text().then((_responseText) => {
+            return;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<void>(null as any);
+    }
+
+    /**
+     * @param search (optional) 
+     * @return OK
+     */
+    getUsers(search: string | undefined): Promise<GetUsersResult> {
+        let url_ = this.baseUrl + "/beacon/api/users?";
+        if (search === null)
+            throw new Error("The parameter 'search' cannot be null.");
+        else if (search !== undefined)
+            url_ += "search=" + encodeURIComponent("" + search) + "&";
+        url_ = url_.replace(/[?&]$/, "");
+
+        let options_: RequestInit = {
+            method: "GET",
+            headers: {
+                "Accept": "application/json"
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processGetUsers(_response);
+        });
+    }
+
+    protected processGetUsers(response: Response): Promise<GetUsersResult> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 200) {
+            return response.text().then((_responseText) => {
+            let result200: any = null;
+            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as GetUsersResult;
+            return result200;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<GetUsersResult>(null as any);
+    }
+
+    /**
+     * @return OK
+     */
+    getRoles(): Promise<GetRolesResult> {
+        let url_ = this.baseUrl + "/beacon/api/users/roles";
+        url_ = url_.replace(/[?&]$/, "");
+
+        let options_: RequestInit = {
+            method: "GET",
+            headers: {
+                "Accept": "application/json"
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processGetRoles(_response);
+        });
+    }
+
+    protected processGetRoles(response: Response): Promise<GetRolesResult> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 200) {
+            return response.text().then((_responseText) => {
+            let result200: any = null;
+            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as GetRolesResult;
+            return result200;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<GetRolesResult>(null as any);
+    }
+
+    /**
+     * @return No Content
+     */
+    createInternalUser(body: CreateInternalUserCommand): Promise<void> {
+        let url_ = this.baseUrl + "/beacon/api/users/internal";
+        url_ = url_.replace(/[?&]$/, "");
+
+        const content_ = JSON.stringify(body);
+
+        let options_: RequestInit = {
+            body: content_,
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processCreateInternalUser(_response);
+        });
+    }
+
+    protected processCreateInternalUser(response: Response): Promise<void> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 204) {
+            return response.text().then((_responseText) => {
+            return;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<void>(null as any);
+    }
+
+    /**
+     * @return No Content
+     */
+    createExternalUser(body: CreateExternalUserCommand): Promise<void> {
+        let url_ = this.baseUrl + "/beacon/api/users/external";
+        url_ = url_.replace(/[?&]$/, "");
+
+        const content_ = JSON.stringify(body);
+
+        let options_: RequestInit = {
+            body: content_,
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processCreateExternalUser(_response);
+        });
+    }
+
+    protected processCreateExternalUser(response: Response): Promise<void> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 204) {
+            return response.text().then((_responseText) => {
+            return;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<void>(null as any);
+    }
+
+    /**
+     * @return No Content
+     */
+    updateUser(id: number, body: UpdateUserBody): Promise<void> {
+        let url_ = this.baseUrl + "/beacon/api/users/{id}";
+        if (id === undefined || id === null)
+            throw new Error("The parameter 'id' must be defined.");
+        url_ = url_.replace("{id}", encodeURIComponent("" + id));
+        url_ = url_.replace(/[?&]$/, "");
+
+        const content_ = JSON.stringify(body);
+
+        let options_: RequestInit = {
+            body: content_,
+            method: "PUT",
+            headers: {
+                "Content-Type": "application/json",
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processUpdateUser(_response);
+        });
+    }
+
+    protected processUpdateUser(response: Response): Promise<void> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 204) {
+            return response.text().then((_responseText) => {
+            return;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<void>(null as any);
+    }
+
+    /**
+     * @return No Content
+     */
+    toggleUserEnabled(id: number): Promise<void> {
+        let url_ = this.baseUrl + "/beacon/api/users/{id}/toggle-enabled";
+        if (id === undefined || id === null)
+            throw new Error("The parameter 'id' must be defined.");
+        url_ = url_.replace("{id}", encodeURIComponent("" + id));
+        url_ = url_.replace(/[?&]$/, "");
+
+        let options_: RequestInit = {
+            method: "POST",
+            headers: {
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processToggleUserEnabled(_response);
+        });
+    }
+
+    protected processToggleUserEnabled(response: Response): Promise<void> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 204) {
+            return response.text().then((_responseText) => {
+            return;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<void>(null as any);
     }
 
     /**
@@ -3439,6 +5955,24 @@ export class BeaconApiClient {
     }
 }
 
+export interface AddSubscriptionRecipientsBody {
+    recipientIds: number[];
+
+    [key: string]: any;
+}
+
+export interface AddTaskCommentBody {
+    content: string;
+
+    [key: string]: any;
+}
+
+export interface AddTaskCommentResult {
+    id: number;
+
+    [key: string]: any;
+}
+
 export interface AddWidgetBody {
     title: string;
     widgetType: number;
@@ -3454,6 +5988,36 @@ export interface AddWidgetBody {
 
 export interface AddWidgetResult {
     widgetId?: number;
+
+    [key: string]: any;
+}
+
+export interface AdminSettingHistoryEntry {
+    settingKey: string;
+    oldValue: string | null;
+    newValue: string | null;
+    changedAt: Date;
+    changedByUserId: string | null;
+
+    [key: string]: any;
+}
+
+export interface AdminSettingsView {
+    baseUrl: string | null;
+    llmProvider: number | null;
+    llmApiKeySet: boolean;
+    llmEndpointSet: boolean;
+    llmRegion: string | null;
+    llmSessionTokenSet: boolean;
+    llmAwsAccessKeyIdSet: boolean;
+    llmAwsSecretAccessKeySet: boolean;
+    llmBedrockAuthMode: number;
+    llmModel: string | null;
+    llmFastModel: string | null;
+    llmMaxConcurrentRequests: number;
+    llmTokensPerMinute: number;
+    llmRequestsPerMinute: number;
+    llmMonthlyBudget: number;
 
     [key: string]: any;
 }
@@ -3489,21 +6053,18 @@ export interface AiActorListItem {
 }
 
 export interface AiActorPlanDecisionBody {
-    userId: string | null;
     comment: string | null;
 
     [key: string]: any;
 }
 
 export interface AiActorPlanRejectBody {
-    userId: string | null;
     reason: string;
 
     [key: string]: any;
 }
 
 export interface AiActorPlanRevisionBody {
-    userId: string | null;
     feedback: string;
 
     [key: string]: any;
@@ -3532,6 +6093,17 @@ export interface AiActorSubscriptionInfo {
     [key: string]: any;
 }
 
+export interface AnomalyChartPointDto {
+    dateTime: Date;
+    resultCount: number;
+    isAnomaly: boolean;
+    notificationSent: boolean;
+    anomalySeverity: string | null;
+    queryExecutionHistoryId: number | null;
+
+    [key: string]: any;
+}
+
 export interface AnomalySparklinePoint {
     date?: Date;
     anomalyCount?: number;
@@ -3548,12 +6120,6 @@ export interface ApiKeyEntry {
     lastUsedAt: Date | null;
     expiresAt: Date | null;
     isActive: boolean;
-
-    [key: string]: any;
-}
-
-export interface ApplyRejectPatchBody {
-    userId: number | null;
 
     [key: string]: any;
 }
@@ -3619,8 +6185,70 @@ export interface ArchiveAiActorResult {
     [key: string]: any;
 }
 
+export interface AssignTaskBody {
+    assigneeUserId: string | null;
+
+    [key: string]: any;
+}
+
+export interface ChangeOwnPasswordCommand {
+    currentPassword: string;
+    newPassword: string;
+
+    [key: string]: any;
+}
+
 export interface CloneDashboardBody {
     newName: string;
+
+    [key: string]: any;
+}
+
+export interface ColumnMetadataDto {
+    columnName: string;
+    dataType: string;
+    isNullable: boolean;
+    isPrimaryKey: boolean;
+    isForeignKey: boolean;
+    ordinalPosition: number;
+    foreignKeyTable: string | null;
+    foreignKeyColumn: string | null;
+    defaultValue: string | null;
+    maxLength: number | null;
+    description: string | null;
+
+    [key: string]: any;
+}
+
+export interface ControlTowerAnomaly {
+    anomalyId?: number;
+    detectedTime?: Date;
+    severity?: string;
+    currentValue?: number;
+    explanation?: string | null;
+    acknowledged?: boolean;
+
+    [key: string]: any;
+}
+
+export interface ControlTowerExecutionItem {
+    executionId?: number;
+    createdTime?: Date;
+    notificationStatus?: number;
+    resultCount?: number;
+    executionTimeMs?: number;
+    errorMessage?: string | null;
+
+    [key: string]: any;
+}
+
+export interface ControlTowerOpenTask {
+    taskId?: number;
+    createdTime?: Date;
+    snoozedUntil?: Date | null;
+    latestResultCount?: number;
+    priority?: number;
+    assigneeUserId?: string | null;
 
     [key: string]: any;
 }
@@ -3630,9 +6258,25 @@ export interface ControlTowerStatistics {
     healthySubscriptions?: number;
     warningSubscriptions?: number;
     criticalSubscriptions?: number;
+    stalledSubscriptions?: number;
     totalUnresolvedTasks?: number;
     totalAnomalies30Days?: number;
     overallSuccessRate?: number;
+    timeRangeDays?: number;
+
+    [key: string]: any;
+}
+
+export interface ControlTowerSubscriptionDetail {
+    subscriptionId?: number;
+    queryName?: string;
+    queryId?: number;
+    folderPath?: string | null;
+    cronExpression?: string;
+    timeRangeDays?: number;
+    recentExecutions?: ControlTowerExecutionItem[];
+    openTasks?: ControlTowerOpenTask[];
+    recentAnomalies?: ControlTowerAnomaly[];
 
     [key: string]: any;
 }
@@ -3741,6 +6385,74 @@ export interface CreateDataContractResult {
     [key: string]: any;
 }
 
+export interface CreateDataSourceCommand {
+    name: string;
+    dataSourceType: number;
+    databaseEngineType: number | null;
+    connectionString: string;
+    metadataLoadingEnabled: boolean;
+    metadataMaxTables: number;
+    metadataMaxColumnsPerTable: number;
+    metadataLoadTableNamesOnly: boolean;
+    metadataExcludeSchemas: string[] | null;
+    metadataIncludeSchemas: string[] | null;
+
+    [key: string]: any;
+}
+
+export interface CreateDataSourceResult {
+    success: boolean;
+    message: string;
+
+    [key: string]: any;
+}
+
+export interface CreateExternalUserCommand {
+    externalId: string;
+    userName: string;
+    email: string | null;
+    displayName: string | null;
+    roleIds: number[];
+
+    [key: string]: any;
+}
+
+export interface CreateInternalUserCommand {
+    userName: string;
+    email: string | null;
+    displayName: string | null;
+    password: string;
+    roleIds: number[];
+
+    [key: string]: any;
+}
+
+export interface CreateMigrationJobCommand {
+    name: string;
+    description: string;
+    dataSourceId: number;
+    queryText: string;
+    destinationDataSourceId: number;
+    destinationTable: string;
+    mode?: number;
+    isEnabled?: boolean;
+    schedule?: string | null;
+    maxRetries?: number;
+    timeoutMinutes?: number;
+    validateBeforeExecution?: boolean;
+    transformationScript?: string | null;
+
+    [key: string]: any;
+}
+
+export interface CreateMigrationJobResult {
+    migrationJobId: number;
+    success: boolean;
+    errorMessage: string | null;
+
+    [key: string]: any;
+}
+
 export interface CreateProjectCommand {
     name: string;
     description: string | null;
@@ -3753,6 +6465,13 @@ export interface CreateProjectCommand {
 
 export interface CreateProjectResult {
     projectId: number;
+
+    [key: string]: any;
+}
+
+export interface CreateQueryBody {
+    name: string;
+    description: string | null;
 
     [key: string]: any;
 }
@@ -3772,18 +6491,56 @@ export interface CreateQueryFolderResult {
     [key: string]: any;
 }
 
+export interface CreateQueryResult {
+    queryId: number;
+
+    [key: string]: any;
+}
+
+export interface CreateRecipientCommand {
+    name: string;
+    description: string | null;
+    destination: string;
+    notificationType: number;
+    headersJson: string | null;
+    bodyTemplate: string | null;
+
+    [key: string]: any;
+}
+
+export interface CreateRecipientResult {
+    id: number;
+
+    [key: string]: any;
+}
+
+export interface CreateSubscriptionCommand {
+    queryId: number;
+    cronExpression: string;
+    recipientIds: number[];
+    maxRows: number | null;
+    timeoutSeconds: number | null;
+    includeAttachment: boolean;
+    showQuery: boolean;
+    storeResults: boolean;
+    createTasks: boolean;
+
+    [key: string]: any;
+}
+
+export interface CreateSubscriptionResult {
+    success: boolean;
+    message: string | null;
+
+    [key: string]: any;
+}
+
 export interface CreateSuperAdminRequest {
     userName: string;
     email?: string | null;
     displayName?: string | null;
     password: string;
     confirmPassword: string;
-
-    [key: string]: any;
-}
-
-export interface CsrfTokenResponse {
-    token: string;
 
     [key: string]: any;
 }
@@ -3869,15 +6626,11 @@ export interface DashboardWidgetData {
     [key: string]: any;
 }
 
-export interface DataCatalogEntry {
-    dataSourceName: string;
-    schemaName: string;
-    tableName: string;
-    description: string | null;
-    columnCount: number;
-    qualityScore: number | null;
-    codeReferenceCount: number;
-    dataSourceType?: number;
+export interface DatabaseMetadataSnapshot {
+    dataSourceId: number;
+    databaseEngineType: number | null;
+    tables: TableMetadataDto[];
+    refreshedAt: Date;
 
     [key: string]: any;
 }
@@ -3980,6 +6733,25 @@ export interface DataQualityScoreData {
     [key: string]: any;
 }
 
+export interface DataSourceEntry {
+    id: number;
+    name: string;
+    dataSourceType: string;
+    databaseEngineType: string | null;
+    queryCount: number;
+    migrationJobsCount: number;
+    metadataLoadingEnabled: boolean;
+
+    [key: string]: any;
+}
+
+export interface DeleteMigrationJobResult {
+    success: boolean;
+    errorMessage: string | null;
+
+    [key: string]: any;
+}
+
 export interface DocumentationPatchEntry {
     id?: number;
     projectId?: number;
@@ -4027,8 +6799,30 @@ export interface ExecutedActionInfo {
     [key: string]: any;
 }
 
+export interface ExecuteStepPreviewRequest {
+    parameters: ParameterValue[] | null;
+
+    [key: string]: any;
+}
+
+export interface ExecutionTimeDataPoint {
+    date?: Date;
+    avgExecutionTimeMs?: number;
+    minExecutionTimeMs?: number;
+    maxExecutionTimeMs?: number;
+
+    [key: string]: any;
+}
+
 export interface GenerateProjectDocumentationResult {
     jobId: string;
+
+    [key: string]: any;
+}
+
+export interface GetAdminSettingsResult {
+    settings: AdminSettingsView;
+    history: AdminSettingHistoryEntry[];
 
     [key: string]: any;
 }
@@ -4109,8 +6903,14 @@ export interface GetControlTowerStatisticsResult {
     [key: string]: any;
 }
 
-export interface GetDataCatalogResult {
-    entries: DataCatalogEntry[];
+export interface GetControlTowerSubscriptionDetailResult {
+    detail: ControlTowerSubscriptionDetail;
+
+    [key: string]: any;
+}
+
+export interface GetDataSourcesResult {
+    entries: DataSourceEntry[];
 
     [key: string]: any;
 }
@@ -4121,8 +6921,75 @@ export interface GetDocumentationPatchesResult {
     [key: string]: any;
 }
 
+export interface GetEvaluationHistoryResult {
+    evaluations: DataQualityEvaluationData[];
+
+    [key: string]: any;
+}
+
+export interface GetHomeActivityResult {
+    items: HomeActivityItem[];
+
+    [key: string]: any;
+}
+
+export interface GetHomeMigrationSummaryResult {
+    total: number;
+    successful: number;
+    executions: number;
+    errored: number;
+
+    [key: string]: any;
+}
+
+export interface GetHomeTaskSummaryResult {
+    total: number;
+    open: number;
+    resolved: number;
+
+    [key: string]: any;
+}
+
+export interface GetHomeTrendsResult {
+    totalSubscriptions: number;
+    subscriptionDelta: number;
+    queryExecutions30d: number;
+    queryExecutionsDelta: number;
+    notificationsSent30d: number;
+    notificationsDelta: number;
+    anomaliesOpen: number;
+    anomaliesAcknowledged: number;
+    anomaliesDelta: number;
+    avgExecutionMs: number;
+    avgExecutionDeltaPct: number;
+    fastestQueryName: string | null;
+    fastestQueryMs: number;
+    fastestQueryDeltaMs: number;
+    slowestQueryName: string | null;
+    slowestQueryMs: number;
+    slowestQueryDeltaMs: number;
+    dataSourcesOnline: number;
+    recipientsCount: number;
+    integrationsCount: number;
+    subscriptionsSpark: number[];
+    queriesSpark: number[];
+    notificationsSpark: number[];
+    anomaliesSpark: number[];
+    queryTrend30d: number[];
+    notificationsTrend30d: number[];
+    perfBuckets: HomePerfBucket[];
+
+    [key: string]: any;
+}
+
 export interface GetLearnedPatternsResult {
     patterns: LearnedPatternEntry[];
+
+    [key: string]: any;
+}
+
+export interface GetMcpToolsResult {
+    toolNames: string[];
 
     [key: string]: any;
 }
@@ -4131,6 +6998,18 @@ export interface GetMigrationExecutionsResult {
     executions: MigrationExecutionDto[];
     totalCount: number;
     hasMore: boolean;
+
+    [key: string]: any;
+}
+
+export interface GetMigrationJobsResult {
+    jobs: MigrationJobListItem[];
+
+    [key: string]: any;
+}
+
+export interface GetNotificationDetailResult {
+    entry: NotificationDetailEntry | null;
 
     [key: string]: any;
 }
@@ -4161,6 +7040,12 @@ export interface GetProjectDocumentationResult {
     [key: string]: any;
 }
 
+export interface GetProjectMcpContextResult {
+    context: string;
+
+    [key: string]: any;
+}
+
 export interface GetProjectsResult {
     entries: ProjectSummaryEntry[];
 
@@ -4182,8 +7067,90 @@ export interface GetQueryFoldersResult {
     [key: string]: any;
 }
 
+export interface GetRecipientsResult {
+    entries: RecipientEntry[];
+
+    [key: string]: any;
+}
+
+export interface GetRolesResult {
+    entries: RoleEntry[];
+
+    [key: string]: any;
+}
+
+export interface GetSubscriptionAnomalyChartResult {
+    hasAnomalyDetection: boolean;
+    points: AnomalyChartPointDto[];
+    baselineMean: number | null;
+    upperThreshold: number | null;
+    lowerThreshold: number | null;
+
+    [key: string]: any;
+}
+
+export interface GetSubscriptionDetailResult {
+    detail: SubscriptionDetail;
+
+    [key: string]: any;
+}
+
+export interface GetSubscriptionsResult {
+    entries: SubscriptionEntry[];
+
+    [key: string]: any;
+}
+
+export interface GetTasksResult {
+    entries: TaskEntry[];
+    totalCount: number;
+
+    [key: string]: any;
+}
+
+export interface GetUserSettingsResult {
+    user: UserSettingsView;
+
+    [key: string]: any;
+}
+
+export interface GetUsersResult {
+    entries: UserEntry[];
+
+    [key: string]: any;
+}
+
 export interface HealthResponse {
     status: string;
+
+    [key: string]: any;
+}
+
+export interface HomeActivityItem {
+    tone: string;
+    icon: string;
+    title: string;
+    meta: string | null;
+    timestamp: Date;
+
+    [key: string]: any;
+}
+
+export interface HomePerfBucket {
+    label: string;
+    avgMs: number;
+    p50Ms: number;
+    p95Ms: number;
+    p99Ms: number;
+
+    [key: string]: any;
+}
+
+export interface IndexMetadataDto {
+    indexName: string;
+    isUnique: boolean;
+    isPrimaryKey: boolean;
+    columns: string[];
 
     [key: string]: any;
 }
@@ -4283,8 +7250,42 @@ export interface MigrationExecutionDto {
     [key: string]: any;
 }
 
+export interface MigrationJobListItem {
+    id: number;
+    name: string;
+    description: string;
+    dataSourceId: number;
+    dataSourceName: string;
+    destinationDataSourceId: number;
+    destinationDataSourceName: string;
+    destinationTable: string;
+    mode: number;
+    isEnabled: boolean;
+    schedule: string | null;
+    createdTime: Date;
+
+    [key: string]: any;
+}
+
 export interface MoveQueryToFolderRequest {
     folderId: number | null;
+
+    [key: string]: any;
+}
+
+export interface NotificationDetailEntry {
+    id: number;
+    queryId: number;
+    queryName: string;
+    subscriptionId: number;
+    recipientName: string;
+    type: number;
+    status: number;
+    createdTime: Date;
+    sentAt: Date;
+    executionTimeMs: number;
+    resultCount: number | null;
+    results: string | null;
 
     [key: string]: any;
 }
@@ -4301,6 +7302,30 @@ export interface NotificationEntry {
     aiActorName: string | null;
     comment: string | null;
     recipientNames: string[];
+
+    [key: string]: any;
+}
+
+export interface NotificationStatisticsEntry {
+    date?: Date;
+    totalExecutions?: number;
+    successfulNotifications?: number;
+    failedExecutions?: number;
+    successRate?: number;
+
+    [key: string]: any;
+}
+
+export interface PagedListOfQueryData {
+    totalCount?: number | null;
+    items?: QueryData[];
+
+    [key: string]: any;
+}
+
+export interface ParameterValue {
+    name?: string;
+    value?: string;
 
     [key: string]: any;
 }
@@ -4456,6 +7481,79 @@ export interface QueryChangeHistoryItem {
     [key: string]: any;
 }
 
+export interface QueryData {
+    queryId?: number | null;
+    name?: string;
+    description?: string | null;
+    folderId?: number | null;
+    folderPath?: string | null;
+    createdTime?: Date;
+    subscriptionsCount?: number;
+    steps?: QueryStepData[];
+    finalQuery?: string | null;
+    finalQueryDataSourceId?: number | null;
+    isMultiStep?: boolean;
+    isCrossDataSource?: boolean;
+    isCrossDatabase?: boolean;
+    dataSourceNames?: string[] | null;
+    databaseEngines?: number[] | null;
+    aiActorId?: number | null;
+    aiActorName?: string | null;
+    sqlValue?: string;
+    dataSourceId?: number;
+    dataSourceName?: string;
+    parameters?: QueryParameterData[];
+
+    [key: string]: any;
+}
+
+export interface QueryDetailsData {
+    id?: number;
+    name?: string;
+    description?: string | null;
+    createdTime?: Date;
+    totalExecutions?: number;
+    sentNotifications?: number;
+    steps?: QueryStepData[];
+    finalQuery?: string | null;
+    finalQueryDataSourceId?: number | null;
+    aiActorId?: number | null;
+    aiActorName?: string | null;
+    isLocked?: boolean;
+    subscriptions?: SubscriptionListData[];
+    notificationHistory?: NotificationStatisticsEntry[];
+    avgExecutionTimeMs?: number;
+    minExecutionTimeMs?: number;
+    maxExecutionTimeMs?: number;
+    executionTimeHistory?: ExecutionTimeDataPoint[];
+    isMultiStep?: boolean;
+    isCrossDataSource?: boolean;
+    isCrossDatabase?: boolean;
+    dataSourceNames?: string[] | null;
+    databaseEngines?: number[] | null;
+    sqlValue?: string | null;
+    dataSourceName?: string | null;
+    parameters?: QueryParameterData[] | null;
+
+    [key: string]: any;
+}
+
+export interface QueryExecutionResult {
+    stepResults?: QueryStepResult[];
+    finalResult?: QueryResult | null;
+    success?: boolean;
+    errorMessage?: string | null;
+    totalExecutionTimeMs?: number;
+    isMultiStep?: boolean;
+    isCrossDataSource?: boolean;
+    isCrossDatabase?: boolean;
+    dataSourcesInvolved?: string[];
+    databaseEnginesUsed?: number[];
+    executionTimeByDataSource?: { [key: string]: number; };
+
+    [key: string]: any;
+}
+
 export interface QueryFolderData {
     id?: number;
     name?: string;
@@ -4469,11 +7567,81 @@ export interface QueryFolderData {
     [key: string]: any;
 }
 
+export interface QueryParameterData {
+    name: string;
+    type: number;
+    description: string;
+    placeholder: string;
+
+    [key: string]: any;
+}
+
+export interface QueryResult {
+    queryResults: string;
+    totalRecords: number;
+    dataSourceName: string;
+    sqlQuery: string;
+    showQuery?: boolean;
+    maxRows?: number | null;
+    recipients?: RecipientData[];
+    topRecords?: any[];
+    allRecords?: any[];
+    subscriptionName: string;
+    subscriptionId: number | null;
+    executionTimeMs?: number;
+    saveResults?: boolean;
+    timedOut?: boolean;
+
+    [key: string]: any;
+}
+
+export interface QueryStepData {
+    stepId?: number;
+    stepOrder?: number;
+    name?: string;
+    description?: string | null;
+    sqlValue?: string;
+    dataSourceId?: number;
+    dataSourceName?: string;
+    dataSourceType?: number;
+    databaseEngineType?: number | null;
+    databaseEngineDescription?: string | null;
+    parameters?: QueryStepParameterData[];
+
+    [key: string]: any;
+}
+
+export interface QueryStepParameterData {
+    name?: string;
+    type?: number;
+    description?: string | null;
+    placeholder?: string | null;
+
+    [key: string]: any;
+}
+
 export interface QueryStepParameterSnapshot {
     name?: string;
     type?: number;
     description?: string | null;
     placeholder?: string | null;
+
+    [key: string]: any;
+}
+
+export interface QueryStepResult {
+    stepOrder?: number;
+    stepName?: string;
+    sqlQuery?: string;
+    dataSourceName?: string;
+    databaseEngine?: string;
+    databaseEngineType?: number;
+    previewResults?: any[];
+    allResults?: any[];
+    totalRows?: number;
+    executionTimeMs?: number;
+    success?: boolean;
+    errorMessage?: string | null;
 
     [key: string]: any;
 }
@@ -4573,6 +7741,31 @@ export interface QueryVersionSummary {
     [key: string]: any;
 }
 
+export interface RecipientData {
+    recipientId?: number | null;
+    name?: string;
+    description?: string | null;
+    destination?: string;
+    notificationType?: number;
+    headersJson?: string | null;
+    bodyTemplate?: string | null;
+
+    [key: string]: any;
+}
+
+export interface RecipientEntry {
+    id: number;
+    name: string;
+    description: string | null;
+    destination: string;
+    notificationType: number;
+    headersJson: string | null;
+    bodyTemplate: string | null;
+    subscriptionCount: number;
+
+    [key: string]: any;
+}
+
 export interface RefineAiActorBody {
     feedback: string;
 
@@ -4615,8 +7808,8 @@ export interface RequestPlanRevisionResult {
     [key: string]: any;
 }
 
-export interface RestoreQueryVersionRequest {
-    userId: string | null;
+export interface ResolveTaskBody {
+    resolutionNotes: string | null;
 
     [key: string]: any;
 }
@@ -4634,6 +7827,42 @@ export interface ResumeAiActorResult {
     [key: string]: any;
 }
 
+export interface RoleEntry {
+    id: number;
+    name: string;
+    description: string | null;
+    level: number;
+    isSystemRole: boolean;
+
+    [key: string]: any;
+}
+
+export interface RunMcpToolCommand {
+    toolName: string;
+    projectId: number;
+    arguments: any | null;
+
+    [key: string]: any;
+}
+
+export interface RunMcpToolResult {
+    text: string;
+    isError: boolean;
+
+    [key: string]: any;
+}
+
+export interface RunMigrationJobResult {
+    executionId: number;
+    status: number;
+    sourceRowsRead: number;
+    destinationRowsWritten: number;
+    rowsFailed: number;
+    errorMessage: string | null;
+
+    [key: string]: any;
+}
+
 export interface ScanAllRepositoriesResult {
     scannedCount: number;
     errors: string[];
@@ -4641,9 +7870,27 @@ export interface ScanAllRepositoriesResult {
     [key: string]: any;
 }
 
+export interface SetSubscriptionSlaBody {
+    slaHours: number | null;
+
+    [key: string]: any;
+}
+
+export interface SetTaskPriorityBody {
+    priority: number;
+
+    [key: string]: any;
+}
+
 export interface ShareDashboardBody {
     userId: string;
     permissionLevel: number;
+
+    [key: string]: any;
+}
+
+export interface SnoozeTaskBody {
+    snoozeUntil: Date | null;
 
     [key: string]: any;
 }
@@ -4657,9 +7904,252 @@ export interface StepDiff {
     [key: string]: any;
 }
 
+export interface SubscriptionDetail {
+    id: number;
+    queryId: number;
+    queryName: string;
+    status: string;
+    cronExpression: string;
+    cronDescription: string;
+    cronNextAt: Date | null;
+    aiActorId: number | null;
+    aiActorName: string | null;
+    maxRows: number | null;
+    minimumRowCount: number | null;
+    includeAttachment: boolean;
+    resultAttachmentType: number | null;
+    showQuery: boolean;
+    timeoutSeconds: number | null;
+    storeResults: boolean;
+    createTasks: boolean;
+    notificationTrigger: number;
+    parameters: SubscriptionDetailParameter[];
+    recipients: SubscriptionDetailRecipient[];
+    anomalyConfig: SubscriptionDetailAnomalyConfig | null;
+
+    [key: string]: any;
+}
+
+export interface SubscriptionDetailAnomalyConfig {
+    enabled: boolean;
+    detectionMethod: number;
+    sensitivity: number;
+    lookbackDays: number;
+    alertOnIncrease: boolean;
+    alertOnDecrease: boolean;
+    minimumDataPoints: number;
+
+    [key: string]: any;
+}
+
+export interface SubscriptionDetailParameter {
+    queryPlaceholder: string | null;
+    value: string | null;
+
+    [key: string]: any;
+}
+
+export interface SubscriptionDetailRecipient {
+    id: number;
+    name: string;
+    description: string | null;
+    destination: string;
+    notificationType: number;
+
+    [key: string]: any;
+}
+
+export interface SubscriptionEntry {
+    id: number;
+    queryId: number;
+    queryName: string;
+    cronExpression: string;
+    recipientCount: number;
+    recipientNames: string[];
+    aiActorId: number | null;
+    aiActorName: string | null;
+    createTasks: boolean;
+    storeResults: boolean;
+
+    [key: string]: any;
+}
+
+export interface SubscriptionListData {
+    subscriptionId?: number;
+    createdTime?: Date;
+    name?: string;
+    subscribers?: string;
+    cronExpression?: string;
+
+    [key: string]: any;
+}
+
+export interface TableMetadataDto {
+    schemaName: string;
+    tableName: string;
+    columns: ColumnMetadataDto[];
+    indexes: IndexMetadataDto[];
+    description: string | null;
+
+    [key: string]: any;
+}
+
+export interface TaskCommentItem {
+    id: number;
+    content: string;
+    userName: string | null;
+    createdAt: Date;
+
+    [key: string]: any;
+}
+
+export interface TaskCommentsResult {
+    taskId: number;
+    comments: TaskCommentItem[];
+
+    [key: string]: any;
+}
+
+export interface TaskDetailResult {
+    id: number;
+    queryId: number;
+    queryName: string;
+    subscriptionId: number;
+    subscriptionName: string;
+    subscriptionDescription: string | null;
+    latestResultCount: number;
+    notificationCount: number;
+    lastNotificationAt: Date | null;
+    createdAt: Date;
+    resolved: boolean;
+    resolvedAt: Date | null;
+    resolvedByUserName: string | null;
+    resolutionNotes: string | null;
+    aiActorId: number | null;
+    aiActorName: string | null;
+    lastExecutionAt: Date | null;
+    cronExpression: string | null;
+    priority: number;
+    assigneeUserId: string | null;
+    assigneeUserName: string | null;
+    snoozedUntil: Date | null;
+    slaHours: number | null;
+    watcherCount: number;
+    isWatching: boolean;
+    ownerUserId: string | null;
+    ownerUserName: string | null;
+
+    [key: string]: any;
+}
+
+export interface TaskEntry {
+    id: number;
+    subscriptionName: string;
+    queryName: string;
+    latestResultCount: number;
+    notificationCount: number;
+    executionCount: number;
+    uniqueResultCounts: number;
+    createdAt: Date;
+    resolved: boolean;
+    resolvedAt: Date | null;
+    resolvedByUserName: string | null;
+    aiActorId: number | null;
+    aiActorName: string | null;
+
+    [key: string]: any;
+}
+
+export interface TaskExecutionItem {
+    id: number;
+    executedAt: Date;
+    durationMs: number;
+    rowCount: number;
+    status: string;
+
+    [key: string]: any;
+}
+
+export interface TaskExecutionsResult {
+    taskId: number;
+    executions: TaskExecutionItem[];
+
+    [key: string]: any;
+}
+
+export interface TaskRelatedItem {
+    id: number;
+    createdAt: Date;
+    latestResultCount: number;
+    resolved: boolean;
+    resolvedAt: Date | null;
+
+    [key: string]: any;
+}
+
+export interface TaskRelatedResult {
+    taskId: number;
+    related: TaskRelatedItem[];
+
+    [key: string]: any;
+}
+
+export interface TaskResultHistoryItem {
+    sampledAt: Date;
+    resultCount: number;
+
+    [key: string]: any;
+}
+
+export interface TaskResultHistoryResult {
+    taskId: number;
+    points: TaskResultHistoryItem[];
+
+    [key: string]: any;
+}
+
+export interface TestDataSourceConnectionCommand {
+    name: string | null;
+    dataSourceType: number;
+    databaseEngineType: number | null;
+    connectionString: string;
+
+    [key: string]: any;
+}
+
+export interface TestDataSourceConnectionResult {
+    success: boolean;
+    message: string;
+
+    [key: string]: any;
+}
+
+export interface TestLlmConnectionCommand {
+    llmProvider: number | null;
+    llmModel: string | null;
+    llmRegion: string | null;
+    llmBedrockAuthMode: number;
+    llmApiKey: string | null;
+    llmEndpoint: string | null;
+    llmSessionToken: string | null;
+    llmAwsAccessKeyId: string | null;
+    llmAwsSecretAccessKey: string | null;
+
+    [key: string]: any;
+}
+
+export interface TestLlmConnectionResult {
+    ok: boolean;
+    latencyMs: number | null;
+    model: string | null;
+    error: string | null;
+    sample?: string | null;
+
+    [key: string]: any;
+}
+
 export interface ToggleQueryLockRequest {
     lock: boolean;
-    userId: string | null;
 
     [key: string]: any;
 }
@@ -4670,6 +8160,26 @@ export interface ToggleQueryLockResult {
     isLocked?: boolean;
     message?: string | null;
     errorMessage?: string | null;
+
+    [key: string]: any;
+}
+
+export interface UpdateAdminSettingsCommand {
+    baseUrl: string | null;
+    llmProvider: number | null;
+    llmModel: string | null;
+    llmFastModel: string | null;
+    llmRegion: string | null;
+    llmBedrockAuthMode: number;
+    llmApiKey: string | null;
+    llmEndpoint: string | null;
+    llmSessionToken: string | null;
+    llmAwsAccessKeyId: string | null;
+    llmAwsSecretAccessKey: string | null;
+    llmMaxConcurrentRequests: number;
+    llmTokensPerMinute: number;
+    llmRequestsPerMinute: number;
+    llmMonthlyBudget: number;
 
     [key: string]: any;
 }
@@ -4716,7 +8226,6 @@ export interface UpdateMcpSettingsBody {
 
 export interface UpdatePatternStatusBody {
     newStatus: number;
-    reviewedByUserId: number | null;
 
     [key: string]: any;
 }
@@ -4728,8 +8237,67 @@ export interface UpdateQueryFolderRequest {
     [key: string]: any;
 }
 
+export interface UpdateQueryResult {
+    queryId: number;
+    success: boolean;
+
+    [key: string]: any;
+}
+
+export interface UpdateRecipientBody {
+    name: string;
+    description: string | null;
+    destination: string;
+    notificationType: number;
+    headersJson: string | null;
+    bodyTemplate: string | null;
+
+    [key: string]: any;
+}
+
 export interface UpdateRepositoryTokenRequest {
     accessToken: string | null;
+
+    [key: string]: any;
+}
+
+export interface UpdateUserBody {
+    userName: string;
+    email: string | null;
+    displayName: string | null;
+    isEnabled: boolean;
+
+    [key: string]: any;
+}
+
+export interface UserEntry {
+    id: number;
+    userName: string;
+    email: string | null;
+    displayName: string | null;
+    isInternalUser: boolean;
+    isSuperAdmin: boolean;
+    isEnabled: boolean;
+    lastLoginAt: Date | null;
+    roles: UserRoleEntry[];
+
+    [key: string]: any;
+}
+
+export interface UserRoleEntry {
+    id: number;
+    name: string;
+    level: number;
+
+    [key: string]: any;
+}
+
+export interface UserSettingsView {
+    userName: string;
+    email: string | null;
+    displayName: string | null;
+    isInternalUser: boolean;
+    roles: string[];
 
     [key: string]: any;
 }

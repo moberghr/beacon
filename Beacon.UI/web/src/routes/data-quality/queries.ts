@@ -145,17 +145,12 @@ export function useDataContract(id: number | null) {
 }
 
 export function useEvaluationHistory(id: number | null) {
-  // No corresponding method on the generated client yet — endpoint lives
-  // outside the OpenAPI doc; keep TODO for codegen refresh.
   return useQuery({
     queryKey: id === null ? ['data-quality', 'contract', 'null', 'history'] : evaluationHistoryKey(id),
-    queryFn: async () => {
-      const response = await fetch(`/beacon/api/data-quality/contracts/${id}/evaluations`, {
-        credentials: 'include',
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      return (await response.json()) as { evaluations: DataQualityEvaluationData[] };
-    },
+    queryFn: async () =>
+      (await beaconApi().getEvaluationHistory(id as number, undefined)) as unknown as {
+        evaluations: DataQualityEvaluationData[];
+      },
     enabled: id !== null,
   });
 }

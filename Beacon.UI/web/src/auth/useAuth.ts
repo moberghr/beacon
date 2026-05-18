@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { fetchJson } from '@/lib/api';
+import { beaconApi } from '@/api/client';
 
 export interface CurrentUser {
   userId: string | null;
@@ -12,7 +12,7 @@ export interface CurrentUser {
 export function useAuth() {
   return useQuery<CurrentUser>({
     queryKey: ['auth', 'me'],
-    queryFn: () => fetchJson<CurrentUser>('/beacon/api/auth/me'),
+    queryFn: async () => (await beaconApi().getCurrentUser()) as unknown as CurrentUser,
   });
 }
 
@@ -24,5 +24,5 @@ export function useIsAdmin(): boolean | undefined {
   const { data, isLoading } = useAuth();
   if (isLoading) return undefined;
   if (!data || !data.isAuthenticated) return false;
-  return data.roles.some(r => r.toLowerCase() === 'admin');
+  return data.roles.some((r) => r.toLowerCase() === 'admin');
 }

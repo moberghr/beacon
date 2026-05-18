@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { fetchJson } from '@/lib/api';
+import { beaconApi } from '@/api/client';
 import { createSimpleMutation } from '@/lib/mutations';
 
 export interface TaskEntry {
@@ -115,24 +115,24 @@ const TASKS_KEY = (args: UseTasksArgs) => ['tasks', args] as const;
 
 export function useTasksQuery(args: UseTasksArgs) {
   const resolved = args.status === 'all' ? undefined : args.status === 'resolved';
-  const params = new URLSearchParams({
-    page: String(args.page),
-    pageSize: String(args.pageSize),
-    sortColumn: 'CreatedAt',
-    sortDescending: 'true',
-  });
-  if (resolved !== undefined) params.set('resolved', String(resolved));
-
   return useQuery({
     queryKey: TASKS_KEY(args),
-    queryFn: () => fetchJson<GetTasksResult>(`/beacon/api/tasks?${params.toString()}`),
+    queryFn: async () =>
+      (await beaconApi().getTasks(
+        undefined,
+        resolved,
+        'CreatedAt',
+        true,
+        args.page,
+        args.pageSize,
+      )) as unknown as GetTasksResult,
   });
 }
 
 export function useTaskDetailQuery(id: number | undefined) {
   return useQuery({
     queryKey: ['task', id],
-    queryFn: () => fetchJson<TaskDetail>(`/beacon/api/tasks/${id}`),
+    queryFn: async () => (await beaconApi().getTaskDetail(id as number)) as unknown as TaskDetail,
     enabled: typeof id === 'number' && Number.isFinite(id),
   });
 }
@@ -140,7 +140,8 @@ export function useTaskDetailQuery(id: number | undefined) {
 export function useTaskExecutionsQuery(id: number | undefined) {
   return useQuery({
     queryKey: ['tasks', 'executions', id],
-    queryFn: () => fetchJson<TaskExecutionsResult>(`/beacon/api/tasks/${id}/executions`),
+    queryFn: async () =>
+      (await beaconApi().getTaskExecutions(id as number)) as unknown as TaskExecutionsResult,
     enabled: typeof id === 'number' && Number.isFinite(id),
   });
 }
@@ -148,7 +149,8 @@ export function useTaskExecutionsQuery(id: number | undefined) {
 export function useTaskRelatedQuery(id: number | undefined) {
   return useQuery({
     queryKey: ['tasks', 'related', id],
-    queryFn: () => fetchJson<TaskRelatedResult>(`/beacon/api/tasks/${id}/related`),
+    queryFn: async () =>
+      (await beaconApi().getTaskRelated(id as number)) as unknown as TaskRelatedResult,
     enabled: typeof id === 'number' && Number.isFinite(id),
   });
 }
@@ -156,7 +158,8 @@ export function useTaskRelatedQuery(id: number | undefined) {
 export function useTaskResultHistoryQuery(id: number | undefined) {
   return useQuery({
     queryKey: ['tasks', 'result-history', id],
-    queryFn: () => fetchJson<TaskResultHistoryResult>(`/beacon/api/tasks/${id}/result-history`),
+    queryFn: async () =>
+      (await beaconApi().getTaskResultHistory(id as number)) as unknown as TaskResultHistoryResult,
     enabled: typeof id === 'number' && Number.isFinite(id),
   });
 }
@@ -164,7 +167,8 @@ export function useTaskResultHistoryQuery(id: number | undefined) {
 export function useTaskCommentsQuery(id: number | undefined) {
   return useQuery({
     queryKey: ['tasks', 'comments', id],
-    queryFn: () => fetchJson<TaskCommentsResult>(`/beacon/api/tasks/${id}/comments`),
+    queryFn: async () =>
+      (await beaconApi().getTaskComments(id as number)) as unknown as TaskCommentsResult,
     enabled: typeof id === 'number' && Number.isFinite(id),
   });
 }
@@ -174,11 +178,10 @@ export function useAddTaskComment(id: number) {
   return useMutation(
     createSimpleMutation<string, { id: number }>({
       qc,
-      mutationFn: (content) =>
-        fetchJson<{ id: number }>(`/beacon/api/tasks/${id}/comments`, {
-          method: 'POST',
-          body: JSON.stringify({ content }),
-        }),
+      mutationFn: async (content) => {
+        const r = await beaconApi().addTaskComment(id, { content });
+        return { id: r.id ?? 0 };
+      },
       invalidate: [['tasks', 'comments', id]],
       errorFallback: 'Add comment failed',
     }),
@@ -191,10 +194,7 @@ export function useResolveTask() {
     createSimpleMutation<{ id: number; resolutionNotes: string | null }, void>({
       qc,
       mutationFn: ({ id, resolutionNotes }) =>
-        fetchJson<void>(`/beacon/api/tasks/${id}/resolve`, {
-          method: 'POST',
-          body: JSON.stringify({ resolutionNotes }),
-        }),
+        beaconApi().resolveTask(id, { resolutionNotes }),
       invalidate: (vars) => [['tasks'], ['task', vars.id]],
       errorFallback: 'Resolve task failed',
     }),
@@ -210,11 +210,7 @@ export function useAssignTask(id: number) {
   return useMutation(
     createSimpleMutation<{ assigneeUserId: string | null }, void>({
       qc,
-      mutationFn: (vars) =>
-        fetchJson<void>(`/beacon/api/tasks/${id}/assign`, {
-          method: 'POST',
-          body: JSON.stringify(vars),
-        }),
+      mutationFn: (vars) => beaconApi().assignTask(id, vars),
       invalidate: [...taskInvalidations(id)],
       successMsg: 'Assignment updated',
       errorFallback: 'Assign failed',
@@ -227,11 +223,7 @@ export function useSnoozeTask(id: number) {
   return useMutation(
     createSimpleMutation<{ snoozeUntil: string | null }, void>({
       qc,
-      mutationFn: (vars) =>
-        fetchJson<void>(`/beacon/api/tasks/${id}/snooze`, {
-          method: 'POST',
-          body: JSON.stringify(vars),
-        }),
+      mutationFn: (vars) => beaconApi().snoozeTask(id, vars as never),
       invalidate: [...taskInvalidations(id)],
       successMsg: 'Snooze updated',
       errorFallback: 'Snooze failed',
@@ -244,11 +236,7 @@ export function useSetTaskPriority(id: number) {
   return useMutation(
     createSimpleMutation<{ priority: TaskPriority }, void>({
       qc,
-      mutationFn: (vars) =>
-        fetchJson<void>(`/beacon/api/tasks/${id}/priority`, {
-          method: 'POST',
-          body: JSON.stringify(vars),
-        }),
+      mutationFn: (vars) => beaconApi().setTaskPriority(id, vars),
       invalidate: [...taskInvalidations(id)],
       successMsg: 'Priority updated',
       errorFallback: 'Priority change failed',
@@ -261,11 +249,7 @@ export function useWatchTask(id: number) {
   return useMutation(
     createSimpleMutation<void, void>({
       qc,
-      mutationFn: () =>
-        fetchJson<void>(`/beacon/api/tasks/${id}/watch`, {
-          method: 'POST',
-          body: '{}',
-        }),
+      mutationFn: () => beaconApi().watchTask(id),
       invalidate: [...taskInvalidations(id)],
       successMsg: 'Watching task',
       errorFallback: 'Failed to watch task',
@@ -278,11 +262,7 @@ export function useUnwatchTask(id: number) {
   return useMutation(
     createSimpleMutation<void, void>({
       qc,
-      mutationFn: () =>
-        fetchJson<void>(`/beacon/api/tasks/${id}/unwatch`, {
-          method: 'POST',
-          body: '{}',
-        }),
+      mutationFn: () => beaconApi().unwatchTask(id),
       invalidate: [...taskInvalidations(id)],
       successMsg: 'Stopped watching',
       errorFallback: 'Failed to unwatch task',
@@ -295,11 +275,7 @@ export function useSetSubscriptionSla(subscriptionId: number, taskId?: number) {
   return useMutation(
     createSimpleMutation<{ slaHours: number | null }, void>({
       qc,
-      mutationFn: (vars) =>
-        fetchJson<void>(`/beacon/api/subscriptions/${subscriptionId}/sla`, {
-          method: 'POST',
-          body: JSON.stringify(vars),
-        }),
+      mutationFn: (vars) => beaconApi().setSubscriptionSla(subscriptionId, vars),
       invalidate:
         typeof taskId === 'number'
           ? [['task', taskId], ['tasks']]
