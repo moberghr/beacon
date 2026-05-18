@@ -1,0 +1,2 @@
+import{n as e,o}from"./index-Bxh4RSfB.js";import{b as n}from"./client-BNM2vCHl.js";function a(){return e({queryKey:["notifications"],queryFn:()=>n().getNotifications(0,100,void 0,void 0)})}function u(i){return e({queryKey:["notifications",i],queryFn:()=>o(`/beacon/api/notifications/${i}`),enabled:typeof i=="number"&&Number.isFinite(i)})}export{u as a,a as u};
+//# sourceMappingURL=queries-DU98tD3Q.js.map

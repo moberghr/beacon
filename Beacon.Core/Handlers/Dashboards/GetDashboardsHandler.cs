@@ -44,16 +44,10 @@ internal sealed class GetDashboardsHandler(
                                      (d.Description != null && d.Description.Contains(request.SearchKeyword)));
         }
 
-        // Get total count
-        var totalCount = await dashboardQuery.CountAsync(cancellationToken);
-
-        // Apply pagination
-        var dashboards = await dashboardQuery
+        var projected = dashboardQuery
             .OrderByDescending(d => d.IsDefault)
             .ThenBy(d => d.SortOrder)
             .ThenByDescending(d => d.CreatedTime)
-            .Skip((request.Page - 1) * request.PageSize)
-            .Take(request.PageSize)
             .Select(d => new DashboardListData
             {
                 Id = d.Id,
@@ -65,13 +59,14 @@ internal sealed class GetDashboardsHandler(
                 CreatedTime = d.CreatedTime,
                 IsOwner = d.CreatedByUserId == userId,
                 CreatedByUserName = d.CreatedByUserName
-            })
-            .ToListAsync(cancellationToken);
+            });
+
+        var paged = await projected.ToPagedListAsync(request, cancellationToken);
 
         return new DashboardsListData
         {
-            Data = dashboards,
-            TotalCount = totalCount
+            Data = paged.Items,
+            TotalCount = paged.TotalCount
         };
     }
 }

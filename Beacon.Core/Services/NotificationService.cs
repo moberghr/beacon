@@ -108,28 +108,65 @@ internal class NotificationService(IDbContextFactory<BeaconContext> contextFacto
         };
     }
 
-    public async Task<NotificationDetailsData?> GetNotificationDetails(int notificationId, CancellationToken cancellationToken)
+    public async Task<NotificationDetailsData?> GetNotificationDetails(int queryExecutionHistoryId, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        return await context.Notifications
-            .Where(x => x.Id == notificationId)
-            .Select(x => new NotificationDetailsData
-            {
-                Id = x.Id,
-                CreatedTime = x.CreatedTime,
-                SentAt = x.SentAt,
-                Type = x.Type,
-                Results = x.Results,
-                RecipientName = x.Recipient.Name,
-                QueryName = x.QueryExecutionHistory.Subscription.Query.Name,
-                QueryId = x.QueryExecutionHistory.Subscription.QueryId,
-                SubscriptionId = x.QueryExecutionHistory.SubscriptionId,
-                ExecutionTimeMs = x.QueryExecutionHistory.ExecutionTimeMs,
-                ResultCount = x.QueryExecutionHistory.ResultCount,
-                NotificationStatus = x.QueryExecutionHistory.NotificationStatus
-            })
+        // The notifications list exposes one row per QueryExecutionHistory (aggregating
+        // its notifications by recipient). Clicking through passes that history id, so
+        // resolve the detail by history id and surface its first notification's recipient
+        // / type — matches the single-recipient detail UI on the React side.
+        //
+        // Two-step load: scalar subqueries over an empty Notifications collection caused
+        // EF/Npgsql to materialize the entire projected row as null, surfacing as a 404
+        // for histories that have no notifications yet.
+        var details = await context.QueryExecutionHistory
+            .Where(x => x.Id == queryExecutionHistoryId)
+            .Select(x =>
+                new NotificationDetailsData
+                {
+                    Id = x.Id,
+                    CreatedTime = x.CreatedTime,
+                    SentAt = x.CreatedTime,
+                    Type = default,
+                    Results = x.Results,
+                    RecipientName = string.Empty,
+                    QueryName = x.Subscription.Query.Name,
+                    QueryId = x.Subscription.QueryId,
+                    SubscriptionId = x.SubscriptionId,
+                    ExecutionTimeMs = x.ExecutionTimeMs,
+                    ResultCount = x.ResultCount,
+                    NotificationStatus = x.NotificationStatus
+                })
             .FirstOrDefaultAsync(cancellationToken);
+
+        if (details == null)
+        {
+            return null;
+        }
+
+        var firstNotification = await context.Notifications
+            .Where(x => x.QueryExecutionHistoryId == queryExecutionHistoryId)
+            .OrderBy(x => x.Id)
+            .Select(x =>
+                new
+                {
+                    x.SentAt,
+                    x.Type,
+                    x.Results,
+                    RecipientName = x.Recipient.Name
+                })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (firstNotification != null)
+        {
+            details.SentAt = firstNotification.SentAt;
+            details.Type = firstNotification.Type;
+            details.Results = details.Results ?? firstNotification.Results;
+            details.RecipientName = firstNotification.RecipientName ?? string.Empty;
+        }
+
+        return details;
     }
 
     public async Task<QueryExecutionHistoryDetailsData?> GetQueryExecutionHistoryDetails(int queryExecutionHistoryId, CancellationToken cancellationToken)

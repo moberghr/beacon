@@ -9,7 +9,7 @@ namespace Beacon.Core.Handlers.Ai.AiActor;
 
 public record GetAiActorListQuery : IRequest<GetAiActorListResult>
 {
-    public required int DataSourceId { get; init; }
+    public int? DataSourceId { get; init; }
     public bool? IncludeArchived { get; init; }
 }
 

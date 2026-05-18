@@ -13,7 +13,7 @@ public interface INotificationService
 
     Task<NotificationStatisticsData> GetNotificationStatistics(CancellationToken cancellationToken);
 
-    Task<NotificationDetailsData?> GetNotificationDetails(int notificationId, CancellationToken cancellationToken);
+    Task<NotificationDetailsData?> GetNotificationDetails(int queryExecutionHistoryId, CancellationToken cancellationToken);
 
     Task<QueryExecutionHistoryDetailsData?> GetQueryExecutionHistoryDetails(int queryExecutionHistoryId, CancellationToken cancellationToken);
 }

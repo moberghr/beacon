@@ -1,0 +1,194 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]:
+      - complementary [ref=e4]:
+        - generic [ref=e5]:
+          - generic [ref=e8]: Beacon
+          - generic [ref=e9]: v0.93
+        - navigation [ref=e10]:
+          - generic [ref=e11]:
+            - generic [ref=e12]: Overview
+            - link "Home" [ref=e13] [cursor=pointer]:
+              - /url: /home
+              - img [ref=e14]
+              - generic [ref=e16]: Home
+            - link "Control Tower" [ref=e17] [cursor=pointer]:
+              - /url: /control-tower
+              - img [ref=e18]
+              - generic [ref=e21]: Control Tower
+            - link "Dashboards" [ref=e22] [cursor=pointer]:
+              - /url: /dashboards
+              - img [ref=e23]
+              - generic [ref=e28]: Dashboards
+          - generic [ref=e29]:
+            - generic [ref=e30]: Data
+            - link "Data Sources" [ref=e31] [cursor=pointer]:
+              - /url: /data-sources
+              - img [ref=e32]
+              - generic [ref=e36]: Data Sources
+            - link "Projects" [ref=e37] [cursor=pointer]:
+              - /url: /projects
+              - img [ref=e38]
+              - generic [ref=e40]: Projects
+            - link "Data Quality" [ref=e41] [cursor=pointer]:
+              - /url: /data-quality
+              - img [ref=e42]
+              - generic [ref=e45]: Data Quality
+            - link "Data Migration" [ref=e46] [cursor=pointer]:
+              - /url: /migration-jobs
+              - img [ref=e47]
+              - generic [ref=e49]: Data Migration
+            - link "AI Actors" [ref=e50] [cursor=pointer]:
+              - /url: /ai-actors
+              - img [ref=e51]
+              - generic [ref=e56]: AI Actors
+          - generic [ref=e57]:
+            - generic [ref=e58]: Alerts
+            - link "Queries" [ref=e59] [cursor=pointer]:
+              - /url: /queries
+              - img [ref=e60]
+              - generic [ref=e64]: Queries
+            - link "Subscriptions" [ref=e65] [cursor=pointer]:
+              - /url: /subscriptions
+              - img [ref=e66]
+              - generic [ref=e69]: Subscriptions
+            - link "Notifications" [ref=e70] [cursor=pointer]:
+              - /url: /notifications
+              - img [ref=e71]
+              - generic [ref=e74]: Notifications
+            - link "Recipients" [ref=e75] [cursor=pointer]:
+              - /url: /recipients
+              - img [ref=e76]
+              - generic [ref=e80]: Recipients
+            - link "Tasks" [ref=e81] [cursor=pointer]:
+              - /url: /tasks
+              - img [ref=e82]
+              - generic [ref=e85]: Tasks
+          - generic [ref=e86]:
+            - generic [ref=e87]: MCP
+            - link "Data Catalog" [ref=e88] [cursor=pointer]:
+              - /url: /data-catalog
+              - img [ref=e89]
+              - generic [ref=e92]: Data Catalog
+            - link "API Keys" [ref=e93] [cursor=pointer]:
+              - /url: /api-keys
+              - img [ref=e94]
+              - generic [ref=e97]: API Keys
+            - link "MCP Settings" [ref=e98] [cursor=pointer]:
+              - /url: /mcp-settings
+              - img [ref=e99]
+              - generic [ref=e104]: MCP Settings
+            - link "MCP Playground" [ref=e105] [cursor=pointer]:
+              - /url: /mcp-playground
+              - img [ref=e106]
+              - generic [ref=e108]: MCP Playground
+            - link "MCP Learning" [ref=e109] [cursor=pointer]:
+              - /url: /mcp-learning
+              - img [ref=e110]
+              - generic [ref=e112]: MCP Learning
+          - generic [ref=e113]:
+            - generic [ref=e114]: Admin
+            - link "User Management" [ref=e115] [cursor=pointer]:
+              - /url: /users
+              - img [ref=e116]
+              - generic [ref=e120]: User Management
+            - link "Admin Settings" [ref=e121] [cursor=pointer]:
+              - /url: /admin-settings
+              - img [ref=e122]
+              - generic [ref=e125]: Admin Settings
+          - link "About" [ref=e127] [cursor=pointer]:
+            - /url: /about
+            - img [ref=e128]
+            - generic [ref=e131]: About
+        - generic [ref=e133] [cursor=pointer]:
+          - generic [ref=e134]: MI
+          - generic [ref=e135]:
+            - generic [ref=e136]: mirko
+            - generic [ref=e137]: Admin
+          - img [ref=e138]
+      - main [ref=e140]:
+        - generic [ref=e141]:
+          - generic [ref=e142]:
+            - generic [ref=e143]:
+              - heading "Data quality" [level=1] [ref=e144]
+              - paragraph [ref=e145]: Monitor data quality across data sources with automated contracts and checks.
+            - button "New contract" [ref=e147] [cursor=pointer]
+          - heading "Contracts" [level=2] [ref=e148]
+          - table [ref=e150]:
+            - rowgroup [ref=e151]:
+              - row "Name Table Data source Score Status Schedule Actions" [ref=e152]:
+                - columnheader "Name" [ref=e153]
+                - columnheader "Table" [ref=e154]
+                - columnheader "Data source" [ref=e155]
+                - columnheader "Score" [ref=e156]
+                - columnheader "Status" [ref=e157]
+                - columnheader "Schedule" [ref=e158]
+                - columnheader "Actions" [ref=e159]
+            - rowgroup [ref=e160]:
+              - row "t w.s local Not evaluated Active 0 */6 * * * View Edit Delete" [ref=e161]:
+                - cell "t" [ref=e162]:
+                  - link "t" [ref=e163] [cursor=pointer]:
+                    - /url: /data-quality/1
+                - cell "w.s" [ref=e164]
+                - cell "local" [ref=e165]
+                - cell "Not evaluated" [ref=e166]
+                - cell "Active" [ref=e167]:
+                  - generic [ref=e168]: Active
+                - cell "0 */6 * * *" [ref=e169]:
+                  - code [ref=e170]: 0 */6 * * *
+                - cell "View Edit Delete" [ref=e171]:
+                  - generic [ref=e172]:
+                    - link "View" [ref=e173] [cursor=pointer]:
+                      - /url: /data-quality/1
+                    - button "Edit" [ref=e174] [cursor=pointer]
+                    - button "Delete" [ref=e175] [cursor=pointer]
+    - region "Notifications alt+T"
+  - dialog "New data contract" [active] [ref=e177]:
+    - generic [ref=e179]:
+      - heading "New data contract" [level=2] [ref=e181]
+      - button "Close dialog" [ref=e182] [cursor=pointer]:
+        - img [ref=e183]
+    - generic [ref=e187]:
+      - generic [ref=e188]:
+        - generic [ref=e189]: Contract name
+        - textbox "Contract name" [ref=e190]
+      - generic [ref=e191]:
+        - generic [ref=e192]: Description
+        - textbox "Description" [ref=e193]
+      - generic [ref=e194]:
+        - generic [ref=e195]: Data source
+        - combobox "Data source" [ref=e196]:
+          - option "Select…" [selected]
+          - option "local"
+      - generic [ref=e197]:
+        - generic [ref=e198]:
+          - generic [ref=e199]: Schema name
+          - textbox "Schema name" [ref=e200]
+        - generic [ref=e201]:
+          - generic [ref=e202]: Table name
+          - textbox "Table name" [ref=e203]
+      - generic [ref=e204]:
+        - generic [ref=e205]:
+          - generic [ref=e206]: Cron expression
+          - textbox "Cron expression e.g. 0 */6 * * * (every 6 hours)" [ref=e207]: 0 */6 * * *
+          - generic [ref=e208]: e.g. 0 */6 * * * (every 6 hours)
+        - generic [ref=e209]:
+          - generic [ref=e210]: Failure threshold (%)
+          - spinbutton "Failure threshold (%)" [ref=e211]: "80"
+      - generic [ref=e212]:
+        - generic [ref=e213]:
+          - checkbox "Enabled" [checked] [ref=e214]
+          - text: Enabled
+        - generic [ref=e215]:
+          - checkbox "Alert on failure" [checked] [ref=e216]
+          - text: Alert on failure
+      - generic [ref=e217]:
+        - generic [ref=e218]: Notification recipients
+        - listbox "Notification recipients" [ref=e219]
+      - separator
+      - generic [ref=e220]:
+        - strong [ref=e221]: Rules (0)
+        - button "Add rule" [ref=e222] [cursor=pointer]
+    - generic [ref=e223]:
+      - button "Cancel" [ref=e224] [cursor=pointer]
+      - button "Create" [disabled] [ref=e225]

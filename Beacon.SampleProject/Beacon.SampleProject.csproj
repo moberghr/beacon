@@ -5,45 +5,7 @@
         <Nullable>enable</Nullable>
         <ImplicitUsings>enable</ImplicitUsings>
         <UserSecretsId>83bd5adc-17be-4915-a4f0-b44dac7e11e5</UserSecretsId>
-        <ReactAppDir>$(MSBuildProjectDirectory)/web</ReactAppDir>
-        <ReactBuildOutputDir>$(ReactAppDir)/dist</ReactBuildOutputDir>
-        <ReactStagingDir>$(MSBuildProjectDirectory)/wwwroot</ReactStagingDir>
-        <BuildReactInDebug Condition="'$(BuildReactInDebug)' == ''">false</BuildReactInDebug>
-        <ShouldBuildReact Condition="'$(Configuration)' == 'Release' Or '$(BuildReactInDebug)' == 'true'">true</ShouldBuildReact>
-        <ShouldBuildReact Condition="'$(ShouldBuildReact)' == ''">false</ShouldBuildReact>
     </PropertyGroup>
-
-    <Target Name="EnsureReactDependencies"
-            Condition="'$(ShouldBuildReact)' == 'true' And !Exists('$(ReactAppDir)/node_modules')">
-        <Message Importance="high" Text="Installing React dependencies in $(ReactAppDir)..." />
-        <Exec Command="npm ci" WorkingDirectory="$(ReactAppDir)" />
-    </Target>
-
-    <Target Name="BuildReactApp"
-            BeforeTargets="BeforeBuild"
-            Condition="'$(ShouldBuildReact)' == 'true'"
-            DependsOnTargets="EnsureReactDependencies">
-        <Message Importance="high" Text="Building React app (configuration $(Configuration))..." />
-        <Exec Command="npm run build" WorkingDirectory="$(ReactAppDir)" />
-    </Target>
-
-    <Target Name="StageReactBuild"
-            AfterTargets="BuildReactApp"
-            Condition="'$(ShouldBuildReact)' == 'true' And Exists('$(ReactBuildOutputDir)')">
-        <ItemGroup>
-            <ReactBuildArtifacts Include="$(ReactBuildOutputDir)/**/*" />
-        </ItemGroup>
-        <RemoveDir Directories="$(ReactStagingDir)" Condition="Exists('$(ReactStagingDir)')" />
-        <Copy SourceFiles="@(ReactBuildArtifacts)"
-              DestinationFiles="@(ReactBuildArtifacts->'$(ReactStagingDir)/%(RecursiveDir)%(Filename)%(Extension)')"
-              SkipUnchangedFiles="true" />
-        <Message Importance="high" Text="React build staged at $(ReactStagingDir)" />
-    </Target>
-
-    <Target Name="CleanReactBuild" AfterTargets="Clean">
-        <RemoveDir Directories="$(ReactStagingDir)" Condition="Exists('$(ReactStagingDir)')" />
-        <RemoveDir Directories="$(ReactBuildOutputDir)" Condition="Exists('$(ReactBuildOutputDir)')" />
-    </Target>
 
     <ItemGroup>
         <PackageReference Include="Hangfire" Version="1.8.22" />
@@ -61,6 +23,8 @@
     </ItemGroup>
 
     <ItemGroup>
+      <ProjectReference Include="..\Beacon.UI\Beacon.UI.csproj" />
+      <ProjectReference Include="..\Beacon.Api\Beacon.Api.csproj" />
       <ProjectReference Include="..\Beacon.Core.SqlServer\Beacon.Core.SqlServer.csproj" />
       <ProjectReference Include="..\Beacon.Core\Beacon.Core.csproj" />
       <ProjectReference Include="..\Beacon.Core.PostgreSql\Beacon.Core.PostgreSql.csproj" />
