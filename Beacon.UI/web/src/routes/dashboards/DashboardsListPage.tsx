@@ -6,7 +6,7 @@ import { PageHeader, Button, Card, Input, Pill } from '@/components/beacon';
 import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { ApiError } from '@/lib/api';
+import { describeError } from '@/lib/api';
 import { formatDateTime, formatNumber } from '@/lib/format';
 import type { DashboardListData } from '@/api/generated/beacon-api';
 import { useDashboardsQuery, useDeleteDashboard, useCreateDashboard } from './queries';
@@ -85,7 +85,7 @@ export default function DashboardsListPage() {
         navigate(`/dashboards/${result.id}/edit`);
       }
     } catch (e) {
-      toast.error(e instanceof ApiError ? e.body || e.message : 'Failed to create dashboard');
+      toast.error(describeError(e, 'Failed to create dashboard'));
     }
   }
 
@@ -96,7 +96,7 @@ export default function DashboardsListPage() {
       toast.success('Dashboard deleted');
       setDeleting(null);
     } catch (e) {
-      toast.error(e instanceof ApiError ? e.body || e.message : 'Failed to delete dashboard');
+      toast.error(describeError(e, 'Failed to delete dashboard'));
     }
   }
 

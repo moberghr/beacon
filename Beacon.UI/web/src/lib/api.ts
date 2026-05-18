@@ -1,12 +1,6 @@
-function readCookie(name: string): string | null {
-  const prefix = `${name}=`;
-  for (const cookie of document.cookie.split('; ')) {
-    if (cookie.startsWith(prefix)) {
-      return decodeURIComponent(cookie.slice(prefix.length));
-    }
-  }
-  return null;
-}
+import { ensureAntiforgeryPrimed, readCookie } from './csrf';
+
+export { ensureAntiforgeryPrimed } from './csrf';
 
 export async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   const method = (init?.method ?? 'GET').toUpperCase();
@@ -16,6 +10,9 @@ export async function fetchJson<T>(path: string, init?: RequestInit): Promise<T>
   headers.set('Accept', 'application/json');
   if (isMutation) {
     headers.set('Content-Type', headers.get('Content-Type') ?? 'application/json');
+    if (readCookie('XSRF-TOKEN') === null) {
+      await ensureAntiforgeryPrimed();
+    }
     const csrf = readCookie('XSRF-TOKEN');
     if (csrf !== null) {
       headers.set('X-XSRF-TOKEN', csrf);
@@ -53,4 +50,21 @@ export class ApiError extends Error {
     super(`HTTP ${status}: ${body}`);
     this.name = 'ApiError';
   }
+}
+
+/**
+ * Normalizes any thrown value into a user-facing error message. Prefers
+ * the server-supplied `ApiError.body` (RFC 7807 detail), falls back to
+ * the standard `Error.message`, and finally to the caller's fallback
+ * string. Use at every mutation `onError` boundary so error UX stays
+ * consistent.
+ */
+export function describeError(err: unknown, fallback: string): string {
+  if (err instanceof ApiError) {
+    return err.body || `${fallback} (${err.status})`;
+  }
+  if (err instanceof Error) {
+    return err.message;
+  }
+  return fallback;
 }

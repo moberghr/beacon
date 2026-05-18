@@ -1,25 +1,19 @@
 import { BeaconApiClient } from './generated/beacon-api';
-
-function readCookie(name: string): string | null {
-  const prefix = `${name}=`;
-  for (const cookie of document.cookie.split('; ')) {
-    if (cookie.startsWith(prefix)) {
-      return decodeURIComponent(cookie.slice(prefix.length));
-    }
-  }
-  return null;
-}
+import { ensureAntiforgeryPrimed, readCookie } from '@/lib/csrf';
 
 /**
- * Authenticated fetch wrapper used by the generated NSwag client. Sends
- * cookies, attaches the antiforgery header on mutations, and lets 401s
- * bubble up so callers can redirect to the Blazor login page.
+ * Authenticated fetch wrapper used by the generated NSwag client. Primes
+ * the antiforgery cookie if absent, attaches the header on mutations, and
+ * lets 401s bubble up so callers can redirect to the login page.
  */
-function beaconFetch(input: RequestInfo, init?: RequestInit): Promise<Response> {
+async function beaconFetch(input: RequestInfo, init?: RequestInit): Promise<Response> {
   const method = (init?.method ?? 'GET').toUpperCase();
   const headers = new Headers(init?.headers ?? {});
 
   if (method !== 'GET' && method !== 'HEAD') {
+    if (readCookie('XSRF-TOKEN') === null) {
+      await ensureAntiforgeryPrimed();
+    }
     const csrf = readCookie('XSRF-TOKEN');
     if (csrf !== null && !headers.has('X-XSRF-TOKEN')) {
       headers.set('X-XSRF-TOKEN', csrf);

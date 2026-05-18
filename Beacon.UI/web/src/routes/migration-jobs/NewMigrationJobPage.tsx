@@ -15,7 +15,7 @@ import {
   Select,
   Textarea,
 } from '@/components/beacon';
-import { ApiError } from '@/lib/api';
+import { describeError } from '@/lib/api';
 import { useDataSourcesQuery, type DataSourceEntry } from '@/routes/data-sources/queries';
 import {
   MIGRATION_MODE,
@@ -112,10 +112,7 @@ export default function NewMigrationJobPage() {
       toast.success('Migration job created.');
       navigate(`/migration-jobs/${result.migrationJobId}`);
     } catch (err) {
-      const message = err instanceof ApiError
-        ? err.body || `Request failed (${err.status})`
-        : err instanceof Error ? err.message : 'Unknown error';
-      toast.error(message);
+            toast.error(describeError(err, 'Request failed'));
     }
   });
 

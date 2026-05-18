@@ -9,7 +9,7 @@ import { Database, Folder, GitBranch } from 'lucide-react';
 import { beaconApi } from '@/api/client';
 import type { CreateProjectCommand, CreateProjectResult } from '@/api/generated/beacon-api';
 import { Button, Card, CardBody, Field, Input, PageHeader, Textarea } from '@/components/beacon';
-import { ApiError } from '@/lib/api';
+import { describeError } from '@/lib/api';
 import { useDataSourcesQuery } from '@/routes/data-sources/queries';
 
 const SCHEMA = z.object({
@@ -71,10 +71,7 @@ export default function NewProjectPage() {
       toast.success('Project created');
       navigate(`/projects/${result.projectId}`);
     } catch (err) {
-      const message = err instanceof ApiError
-        ? err.body || `Create failed (${err.status})`
-        : err instanceof Error ? err.message : 'Unknown error';
-      toast.error(message);
+            toast.error(describeError(err, 'Create failed'));
     }
   });
 

@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { toast } from 'sonner';
 import { Dialog } from '@/components/ui/Dialog';
 import { Button, Field, Textarea } from '@/components/beacon';
-import { ApiError } from '@/lib/api';
+import { describeError } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 import {
   useApprovalDetailQuery,
@@ -57,10 +57,7 @@ export function ReviewApprovalDialog({ open, approvalId, onClose }: ReviewApprov
       }
       onClose();
     } catch (err) {
-      const message = err instanceof ApiError
-        ? err.body || `Action failed (${err.status})`
-        : err instanceof Error ? err.message : 'Unknown error';
-      toast.error(message);
+            toast.error(describeError(err, 'Action failed'));
     }
   };
 

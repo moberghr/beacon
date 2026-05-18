@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import { AlertTriangle } from 'lucide-react';
 import { Dialog } from '@/components/ui/Dialog';
 import { Button, Banner, Field, Input } from '@/components/beacon';
-import { ApiError } from '@/lib/api';
+import { describeError } from '@/lib/api';
 import { useCreateApiKey } from './queries';
 
 const SCOPES = ['Read', 'Execute', 'Admin'] as const;
@@ -84,10 +84,7 @@ export function GenerateApiKeyDialog({ open, onClose }: GenerateApiKeyDialogProp
       setPlainKey(result.plainTextKey);
       toast.success('API key generated');
     } catch (err) {
-      const message = err instanceof ApiError
-        ? err.body || `Generate failed (${err.status})`
-        : err instanceof Error ? err.message : 'Unknown error';
-      toast.error(message);
+            toast.error(describeError(err, 'Generate failed'));
     }
   });
 

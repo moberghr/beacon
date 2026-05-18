@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { toast } from 'sonner';
 import { StepperDialog, type StepperDialogStep } from '@/components/ui/StepperDialog';
 import { Field, Input, Select, Textarea } from '@/components/beacon';
-import { ApiError } from '@/lib/api';
+import { describeError } from '@/lib/api';
 import { useDataSourcesQuery, type DataSourceEntry } from '@/routes/data-sources/queries';
 import {
   MIGRATION_MODE,
@@ -127,12 +127,7 @@ export function CreateMigrationJobDialog({ open, onClose }: CreateMigrationJobDi
       toast.success('Migration job created.');
       onClose();
     } catch (err) {
-      const message = err instanceof ApiError
-        ? err.body || `Request failed (${err.status})`
-        : err instanceof Error
-          ? err.message
-          : 'Unknown error';
-      toast.error(message);
+            toast.error(describeError(err, 'Request failed'));
     }
   };
 

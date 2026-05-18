@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { fetchJson, ApiError } from '@/lib/api';
+import { describeError, fetchJson } from '@/lib/api';
 import { Button, Field, Input } from '@/components/beacon';
 import { AuthShell, AuthAlert } from './LoginPage';
 
@@ -57,7 +57,7 @@ export default function SetupPage() {
       });
       setStatus('done');
     } catch (e) {
-      setServerError(e instanceof ApiError ? e.body || e.message : 'Setup failed. Try again.');
+      setServerError(describeError(e, 'Setup failed. Try again.'));
     }
   }
 

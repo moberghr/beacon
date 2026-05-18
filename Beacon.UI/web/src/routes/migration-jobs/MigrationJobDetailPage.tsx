@@ -10,7 +10,7 @@ import { Tabs, type TabDef } from '@/components/Tabs';
 import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { ApiError } from '@/lib/api';
+import { describeError } from '@/lib/api';
 import { formatDateTime, formatNumber, formatRelativeTime } from '@/lib/format';
 import {
   useMigrationJobsQuery,
@@ -99,8 +99,7 @@ export default function MigrationJobDetailPage() {
       }
       toast.success(`Migration finished with status ${EXECUTION_STATUS_LABEL[result.status] ?? result.status}`);
     } catch (err) {
-      const message = err instanceof ApiError ? err.body || err.message : err instanceof Error ? err.message : 'Unknown error';
-      toast.error(message);
+            toast.error(describeError(err, 'Unknown error'));
     }
   };
 
@@ -114,8 +113,7 @@ export default function MigrationJobDetailPage() {
       toast.success('Migration job deleted');
       navigate('/migration-jobs');
     } catch (err) {
-      const message = err instanceof ApiError ? err.body || err.message : err instanceof Error ? err.message : 'Unknown error';
-      toast.error(message);
+            toast.error(describeError(err, 'Unknown error'));
     }
   };
 

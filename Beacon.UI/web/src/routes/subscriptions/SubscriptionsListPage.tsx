@@ -6,7 +6,7 @@ import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Button, Card, Input, PageHeader, Pill } from '@/components/beacon';
-import { ApiError } from '@/lib/api';
+import { describeError } from '@/lib/api';
 import { formatNumber } from '@/lib/format';
 import {
   useDeleteSubscription,
@@ -89,10 +89,7 @@ export default function SubscriptionsListPage() {
       toast.success(`Deleted subscription #${deleting.id}`);
       setDeleting(null);
     } catch (err) {
-      const message = err instanceof ApiError
-        ? err.body || `Delete failed (${err.status})`
-        : err instanceof Error ? err.message : 'Unknown error';
-      toast.error(message);
+            toast.error(describeError(err, 'Delete failed'));
     }
   };
 

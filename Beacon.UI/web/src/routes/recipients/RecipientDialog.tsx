@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { toast } from 'sonner';
 import { Dialog } from '@/components/ui/Dialog';
 import { Button, Field, Input, Select, Textarea } from '@/components/beacon';
-import { ApiError } from '@/lib/api';
+import { describeError } from '@/lib/api';
 import {
   NotificationTypeId,
   NOTIFICATION_TYPE_LABEL,
@@ -126,10 +126,7 @@ export function RecipientDialog({ open, onClose, recipient }: RecipientDialogPro
       }
       onClose();
     } catch (err) {
-      const message = err instanceof ApiError
-        ? err.body || `Request failed (${err.status})`
-        : err instanceof Error ? err.message : 'Unknown error';
-      toast.error(message);
+            toast.error(describeError(err, 'Request failed'));
     }
   });
 

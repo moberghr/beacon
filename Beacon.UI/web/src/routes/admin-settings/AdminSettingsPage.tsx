@@ -27,7 +27,7 @@ import {
   Select,
   Seg,
 } from '@/components/beacon';
-import { ApiError } from '@/lib/api';
+import { describeError } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 import { cn } from '@/lib/cn';
 import { useIsAdmin } from '@/auth/useAuth';
@@ -155,10 +155,7 @@ function AdminSettingsForm() {
       });
       toast.success('Admin settings saved');
     } catch (err) {
-      const message = err instanceof ApiError
-        ? err.body || `Save failed (${err.status})`
-        : err instanceof Error ? err.message : 'Unknown error';
-      toast.error(message);
+            toast.error(describeError(err, 'Save failed'));
     }
   });
 
@@ -178,10 +175,7 @@ function AdminSettingsForm() {
         llmAwsSecretAccessKey: secretToNull(values.llmAwsSecretAccessKey),
       });
     } catch (err) {
-      const message = err instanceof ApiError
-        ? err.body || `Test failed (${err.status})`
-        : err instanceof Error ? err.message : 'Unknown error';
-      toast.error(message);
+            toast.error(describeError(err, 'Test failed'));
     }
   }
 

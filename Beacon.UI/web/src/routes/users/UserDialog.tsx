@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { toast } from 'sonner';
 import { Dialog } from '@/components/ui/Dialog';
 import { Button, Field, Input } from '@/components/beacon';
-import { ApiError } from '@/lib/api';
+import { ApiError, describeError } from '@/lib/api';
 import {
   useCreateExternalUser,
   useCreateInternalUser,
@@ -161,10 +161,7 @@ function CreateInternalForm({ onClose }: { onClose: () => void }) {
           return;
         }
       }
-      const message = err instanceof ApiError
-        ? err.body || `Create failed (${err.status})`
-        : err instanceof Error ? err.message : 'Unknown error';
-      toast.error(message);
+            toast.error(describeError(err, 'Create failed'));
     }
   });
 
@@ -232,10 +229,7 @@ function CreateExternalForm({ onClose }: { onClose: () => void }) {
       toast.success(`Created user '${values.userName}'`);
       onClose();
     } catch (err) {
-      const message = err instanceof ApiError
-        ? err.body || `Create failed (${err.status})`
-        : err instanceof Error ? err.message : 'Unknown error';
-      toast.error(message);
+            toast.error(describeError(err, 'Create failed'));
     }
   });
 
@@ -310,10 +304,7 @@ function EditUserForm({ open, user, onClose }: { open: boolean; user: UserEntry;
       toast.success(`Updated user '${values.userName}'`);
       onClose();
     } catch (err) {
-      const message = err instanceof ApiError
-        ? err.body || `Update failed (${err.status})`
-        : err instanceof Error ? err.message : 'Unknown error';
-      toast.error(message);
+            toast.error(describeError(err, 'Update failed'));
     }
   });
 

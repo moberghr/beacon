@@ -11,7 +11,7 @@ import {
   Textarea,
 } from '@/components/beacon';
 import { useAuth } from '@/auth/useAuth';
-import { ApiError } from '@/lib/api';
+import { describeError } from '@/lib/api';
 import { formatRelativeTime } from '@/lib/format';
 import { useAddTaskComment, useTaskCommentsQuery } from '../queries';
 
@@ -34,10 +34,7 @@ export function InvestigationLogCard({ taskId, textareaId }: { taskId: number; t
       setContent('');
       toast.success('Note posted');
     } catch (err) {
-      const msg = err instanceof ApiError
-        ? err.body || `Post failed (${err.status})`
-        : err instanceof Error ? err.message : 'Unknown error';
-      toast.error(msg);
+            toast.error(describeError(err, 'Post failed'));
     }
   };
 

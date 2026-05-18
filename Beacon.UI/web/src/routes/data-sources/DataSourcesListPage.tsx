@@ -7,7 +7,7 @@ import { Button, Pill } from '@/components/beacon';
 import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { ApiError } from '@/lib/api';
+import { describeError } from '@/lib/api';
 import { formatNumber } from '@/lib/format';
 import {
   useDataSourcesQuery,
@@ -80,10 +80,7 @@ export default function DataSourcesListPage() {
       toast.success(`Deleted data source '${deleting.name}'`);
       setDeleting(null);
     } catch (err) {
-      const message = err instanceof ApiError
-        ? err.body || `Delete failed (${err.status})`
-        : err instanceof Error ? err.message : 'Unknown error';
-      toast.error(message);
+            toast.error(describeError(err, 'Delete failed'));
     }
   };
 

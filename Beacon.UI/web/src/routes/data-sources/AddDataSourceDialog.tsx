@@ -4,7 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
 import { StepperDialog, type StepperDialogStep } from '@/components/ui/StepperDialog';
-import { ApiError } from '@/lib/api';
+import { describeError } from '@/lib/api';
 import {
   Button,
   Field as BField,
@@ -373,10 +373,7 @@ export function AddDataSourceDialog({ open, onClose }: AddDataSourceDialogProps)
         setTestState({ status: 'error', message: result.message ?? 'Connection failed.' });
       }
     } catch (err) {
-      const message = err instanceof ApiError
-        ? err.body || `Request failed (${err.status})`
-        : err instanceof Error ? err.message : 'Unknown error';
-      setTestState({ status: 'error', message });
+      setTestState({ status: 'error', message: describeError(err, 'Request failed') });
     }
   };
 
@@ -404,10 +401,7 @@ export function AddDataSourceDialog({ open, onClose }: AddDataSourceDialogProps)
       toast.success(result.message ?? 'Data source created.');
       onClose();
     } catch (err) {
-      const message = err instanceof ApiError
-        ? err.body || `Request failed (${err.status})`
-        : err instanceof Error ? err.message : 'Unknown error';
-      toast.error(message);
+            toast.error(describeError(err, 'Request failed'));
     }
   };
 
