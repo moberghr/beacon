@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
@@ -32,12 +32,8 @@ import {
   Kbd,
 } from '@/components/beacon';
 import { cn } from '@/lib/cn';
-import { SqlEditor, type MonacoEditorLike } from '@/components/ui/SqlEditor';
-import { DatabaseExplorer } from '@/components/ui/DatabaseExplorer';
-import {
-  useDataSourceMetadataQuery,
-  useDataSourcesQuery,
-} from '@/routes/data-sources/queries';
+import { NewStepEditorWithExplorer } from './new/NewStepEditorWithExplorer';
+import { useDataSourcesQuery } from '@/routes/data-sources/queries';
 import {
   PARAMETER_TYPE,
   PARAMETER_TYPE_LABEL,
@@ -686,69 +682,6 @@ function InfoRow({ label, value, detail }: { label: string; value: string; detai
       {detail && (
         <span className="mono text-text-subtle text-xs ml-auto truncate">{detail}</span>
       )}
-    </div>
-  );
-}
-
-interface NewStepEditorWithExplorerProps {
-  draftId: number;
-  dataSourceId: number;
-  sqlValue: string;
-  onSqlChange: (sql: string) => void;
-  parameterNames: string[];
-  crossStepResultCount: number;
-}
-
-function NewStepEditorWithExplorer({
-  draftId,
-  dataSourceId,
-  sqlValue,
-  onSqlChange,
-  parameterNames,
-  crossStepResultCount,
-}: NewStepEditorWithExplorerProps) {
-  const editorRef = useRef<MonacoEditorLike | null>(null);
-  const metadataQuery = useDataSourceMetadataQuery(
-    dataSourceId > 0 ? dataSourceId : null,
-  );
-
-  const insertAtCursor = (text: string) => {
-    const editor = editorRef.current;
-    if (!editor) return;
-    const position = editor.getPosition();
-    if (!position) return;
-    editor.executeEdits('database-explorer', [
-      {
-        range: {
-          startLineNumber: position.lineNumber,
-          startColumn: position.column,
-          endLineNumber: position.lineNumber,
-          endColumn: position.column,
-        },
-        text,
-        forceMoveMarkers: true,
-      },
-    ]);
-    editor.focus();
-  };
-
-  return (
-    <div className="grid gap-0 grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)]">
-      <DatabaseExplorer dataSourceId={dataSourceId} onInsert={insertAtCursor} />
-      <div className="min-w-0 flex flex-col">
-        <SqlEditor
-          id={`new-step-${draftId}-sql`}
-          height={280}
-          value={sqlValue}
-          onChange={onSqlChange}
-          metadata={metadataQuery.data ?? null}
-          parameterNames={parameterNames}
-          crossStepResultCount={crossStepResultCount}
-          onEditorReady={editor => {
-            editorRef.current = editor;
-          }}
-        />
-      </div>
     </div>
   );
 }
