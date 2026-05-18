@@ -6,7 +6,7 @@ import { PageHeader, Button, Pill } from '@/components/beacon';
 import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { ApiError } from '@/lib/api';
+import { describeError } from '@/lib/api';
 import { formatDateTime, formatNumber } from '@/lib/format';
 import {
   useMigrationJobsQuery,
@@ -90,7 +90,7 @@ export default function MigrationJobsListPage() {
       toast.success('Migration job deleted');
       setDeleting(null);
     } catch (e) {
-      toast.error(e instanceof ApiError ? e.body || e.message : 'Failed to delete migration job');
+      toast.error(describeError(e, 'Failed to delete migration job'));
     }
   }
 

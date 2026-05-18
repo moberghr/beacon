@@ -5,7 +5,7 @@ import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Button, Pill, Card, Banner, PageHeader } from '@/components/beacon';
-import { ApiError } from '@/lib/api';
+import { describeError } from '@/lib/api';
 import { formatDateTime, formatNumber } from '@/lib/format';
 import { useApiKeysQuery, useRevokeApiKey, type ApiKeyEntry } from './queries';
 import { GenerateApiKeyDialog } from './GenerateApiKeyDialog';
@@ -105,10 +105,7 @@ export default function ApiKeysListPage() {
       toast.success(`Revoked '${revoking.name}'`);
       setRevoking(null);
     } catch (err) {
-      const message = err instanceof ApiError
-        ? err.body || `Revoke failed (${err.status})`
-        : err instanceof Error ? err.message : 'Unknown error';
-      toast.error(message);
+            toast.error(describeError(err, 'Revoke failed'));
     }
   };
 

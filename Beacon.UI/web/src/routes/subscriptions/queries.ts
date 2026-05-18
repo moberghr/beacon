@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ApiError, fetchJson } from '@/lib/api';
+import { describeError, fetchJson } from '@/lib/api';
 
 // NOTE: Phase 3 Batch 4 — endpoints are not yet in the generated NSwag client
 // (codegen requires a running backend). Hand-typed wrappers mirror the C# DTOs
@@ -211,16 +211,6 @@ export function useSubscriptionAnomalyChart(id: number | undefined, days = 30) {
 }
 
 // ---------- Mutations ----------
-
-function describeError(err: unknown, fallback: string): string {
-  if (err instanceof ApiError) {
-    return err.body || `${fallback} (${err.status})`;
-  }
-  if (err instanceof Error) {
-    return err.message;
-  }
-  return fallback;
-}
 
 export function useTestSubscription(id: number | undefined) {
   const qc = useQueryClient();

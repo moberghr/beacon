@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { AlertTriangle, Settings as SettingsIcon } from 'lucide-react';
 import { EmptyState } from '@/components/data/EmptyState';
 import { Button, Card, CardBody, Field, Input, PageHeader } from '@/components/beacon';
-import { ApiError } from '@/lib/api';
+import { describeError } from '@/lib/api';
 import {
   useChangeOwnPassword,
   useUserSettingsQuery,
@@ -124,10 +124,7 @@ function ChangePasswordCard() {
       toast.success('Password changed');
       reset();
     } catch (err) {
-      const message = err instanceof ApiError
-        ? err.body || `Request failed (${err.status})`
-        : err instanceof Error ? err.message : 'Unknown error';
-      toast.error(message);
+            toast.error(describeError(err, 'Request failed'));
     }
   });
 

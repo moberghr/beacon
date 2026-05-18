@@ -4,7 +4,7 @@ import { RefreshCw, Plus, Users, AlertTriangle } from 'lucide-react';
 import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { Button, Pill, Card, CardBody, Input, PageHeader } from '@/components/beacon';
-import { ApiError } from '@/lib/api';
+import { describeError } from '@/lib/api';
 import { formatDateTime, formatNumber } from '@/lib/format';
 import { useToggleUserEnabled, useUsersQuery, type UserEntry } from './queries';
 import { UserDialog } from './UserDialog';
@@ -31,10 +31,7 @@ export default function UsersListPage() {
       await toggle.mutateAsync(user.id);
       toast.success(`${user.userName} is now ${user.isEnabled ? 'disabled' : 'enabled'}`);
     } catch (err) {
-      const message = err instanceof ApiError
-        ? err.body || `Toggle failed (${err.status})`
-        : err instanceof Error ? err.message : 'Unknown error';
-      toast.error(message);
+            toast.error(describeError(err, 'Toggle failed'));
     }
   };
 

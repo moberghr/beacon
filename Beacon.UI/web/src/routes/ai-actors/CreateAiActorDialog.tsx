@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { toast } from 'sonner';
 import { StepperDialog, type StepperDialogStep } from '@/components/ui/StepperDialog';
 import { Field, Input, Select, Textarea } from '@/components/beacon';
-import { ApiError } from '@/lib/api';
+import { describeError } from '@/lib/api';
 import { useDataSourcesQuery } from '@/routes/data-sources/queries';
 import { useCreateAiActor } from './queries';
 
@@ -71,10 +71,7 @@ export function CreateAiActorDialog({ open, onClose, initialDataSourceId }: Crea
       });
       onClose();
     } catch (err) {
-      const message = err instanceof ApiError
-        ? err.body || `Request failed (${err.status})`
-        : err instanceof Error ? err.message : 'Unknown error';
-      toast.error(message);
+            toast.error(describeError(err, 'Request failed'));
     }
   };
 

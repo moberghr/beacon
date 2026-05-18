@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { toast } from 'sonner';
-import { ApiError, fetchJson } from '@/lib/api';
+import { fetchJson } from '@/lib/api';
+import { createSimpleMutation } from '@/lib/mutations';
 
 export interface TaskEntry {
   id: number;
@@ -200,138 +200,109 @@ export function useResolveTask() {
 
 // ---------- New mutations (assign / snooze / priority / watch / sla) ---------
 
-function describeError(err: unknown, fallback: string): string {
-  if (err instanceof ApiError) {
-    return err.body || `${fallback} (${err.status})`;
-  }
-  if (err instanceof Error) {
-    return err.message;
-  }
-  return fallback;
-}
-
-function makeTaskMutation<TVars>(
-  qc: ReturnType<typeof useQueryClient>,
-  id: number,
-  doFetch: (vars: TVars) => Promise<unknown>,
-  successMessage: string,
-  errorFallback: string,
-) {
-  return {
-    mutationFn: doFetch,
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['task', id] });
-      qc.invalidateQueries({ queryKey: ['tasks'] });
-      toast.success(successMessage);
-    },
-    onError: (err: unknown) => {
-      toast.error(describeError(err, errorFallback));
-    },
-  };
-}
+const taskInvalidations = (id: number) => [['task', id], ['tasks']] as const;
 
 export function useAssignTask(id: number) {
   const qc = useQueryClient();
   return useMutation(
-    makeTaskMutation<{ assigneeUserId: string | null }>(
+    createSimpleMutation<{ assigneeUserId: string | null }, void>({
       qc,
-      id,
-      vars =>
+      mutationFn: (vars) =>
         fetchJson<void>(`/beacon/api/tasks/${id}/assign`, {
           method: 'POST',
           body: JSON.stringify(vars),
         }),
-      'Assignment updated',
-      'Assign failed',
-    ),
+      invalidate: [...taskInvalidations(id)],
+      successMsg: 'Assignment updated',
+      errorFallback: 'Assign failed',
+    }),
   );
 }
 
 export function useSnoozeTask(id: number) {
   const qc = useQueryClient();
   return useMutation(
-    makeTaskMutation<{ snoozeUntil: string | null }>(
+    createSimpleMutation<{ snoozeUntil: string | null }, void>({
       qc,
-      id,
-      vars =>
+      mutationFn: (vars) =>
         fetchJson<void>(`/beacon/api/tasks/${id}/snooze`, {
           method: 'POST',
           body: JSON.stringify(vars),
         }),
-      'Snooze updated',
-      'Snooze failed',
-    ),
+      invalidate: [...taskInvalidations(id)],
+      successMsg: 'Snooze updated',
+      errorFallback: 'Snooze failed',
+    }),
   );
 }
 
 export function useSetTaskPriority(id: number) {
   const qc = useQueryClient();
   return useMutation(
-    makeTaskMutation<{ priority: TaskPriority }>(
+    createSimpleMutation<{ priority: TaskPriority }, void>({
       qc,
-      id,
-      vars =>
+      mutationFn: (vars) =>
         fetchJson<void>(`/beacon/api/tasks/${id}/priority`, {
           method: 'POST',
           body: JSON.stringify(vars),
         }),
-      'Priority updated',
-      'Priority change failed',
-    ),
+      invalidate: [...taskInvalidations(id)],
+      successMsg: 'Priority updated',
+      errorFallback: 'Priority change failed',
+    }),
   );
 }
 
 export function useWatchTask(id: number) {
   const qc = useQueryClient();
   return useMutation(
-    makeTaskMutation<void>(
+    createSimpleMutation<void, void>({
       qc,
-      id,
-      () =>
+      mutationFn: () =>
         fetchJson<void>(`/beacon/api/tasks/${id}/watch`, {
           method: 'POST',
           body: '{}',
         }),
-      'Watching task',
-      'Failed to watch task',
-    ),
+      invalidate: [...taskInvalidations(id)],
+      successMsg: 'Watching task',
+      errorFallback: 'Failed to watch task',
+    }),
   );
 }
 
 export function useUnwatchTask(id: number) {
   const qc = useQueryClient();
   return useMutation(
-    makeTaskMutation<void>(
+    createSimpleMutation<void, void>({
       qc,
-      id,
-      () =>
+      mutationFn: () =>
         fetchJson<void>(`/beacon/api/tasks/${id}/unwatch`, {
           method: 'POST',
           body: '{}',
         }),
-      'Stopped watching',
-      'Failed to unwatch task',
-    ),
+      invalidate: [...taskInvalidations(id)],
+      successMsg: 'Stopped watching',
+      errorFallback: 'Failed to unwatch task',
+    }),
   );
 }
 
 export function useSetSubscriptionSla(subscriptionId: number, taskId?: number) {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (vars: { slaHours: number | null }) =>
-      fetchJson<void>(`/beacon/api/subscriptions/${subscriptionId}/sla`, {
-        method: 'POST',
-        body: JSON.stringify(vars),
-      }),
-    onSuccess: () => {
-      if (typeof taskId === 'number') {
-        qc.invalidateQueries({ queryKey: ['task', taskId] });
-      }
-      qc.invalidateQueries({ queryKey: ['tasks'] });
-      toast.success('SLA updated');
-    },
-    onError: (err: unknown) => {
-      toast.error(describeError(err, 'SLA update failed'));
-    },
-  });
+  return useMutation(
+    createSimpleMutation<{ slaHours: number | null }, void>({
+      qc,
+      mutationFn: (vars) =>
+        fetchJson<void>(`/beacon/api/subscriptions/${subscriptionId}/sla`, {
+          method: 'POST',
+          body: JSON.stringify(vars),
+        }),
+      invalidate:
+        typeof taskId === 'number'
+          ? [['task', taskId], ['tasks']]
+          : [['tasks']],
+      successMsg: 'SLA updated',
+      errorFallback: 'SLA update failed',
+    }),
+  );
 }

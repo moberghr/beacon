@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ApiError, fetchJson } from '@/lib/api';
+import { describeError, fetchJson } from '@/lib/api';
 
 export type ScoreTone = 'ok' | 'warn' | 'crit' | 'neutral';
 
@@ -221,9 +221,5 @@ export function useUpdateContract(id: number) {
 }
 
 export function describeContractError(err: unknown, fallback: string): string {
-  if (err instanceof ApiError) {
-    return err.body || `${fallback} (${err.status})`;
-  }
-  if (err instanceof Error) return err.message;
-  return fallback;
+  return describeError(err, fallback);
 }

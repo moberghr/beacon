@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { fetchJson, ApiError } from '@/lib/api';
+import { describeError, fetchJson } from '@/lib/api';
 import { useAuth } from '@/auth/useAuth';
 import { Button, Field, Input } from '@/components/beacon';
 
@@ -57,7 +57,7 @@ export default function LoginPage() {
       }
       window.location.href = result.redirectUrl || '/home';
     } catch (e) {
-      setServerError(e instanceof ApiError ? e.body || e.message : 'Login failed. Try again.');
+      setServerError(describeError(e, 'Login failed. Try again.'));
     }
   }
 

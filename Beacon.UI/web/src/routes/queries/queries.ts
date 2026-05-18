@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ApiError, fetchJson } from '@/lib/api';
+import { describeError, fetchJson } from '@/lib/api';
 import { beaconApi } from '@/api/client';
 
 // ---------- Versions ----------
@@ -143,16 +143,6 @@ export interface ToggleQueryLockResult {
   isLocked: boolean;
   changedAt: string;
   changedBy: string | null;
-}
-
-function describeError(err: unknown, fallback: string): string {
-  if (err instanceof ApiError) {
-    return err.body || `${fallback} (${err.status})`;
-  }
-  if (err instanceof Error) {
-    return err.message;
-  }
-  return fallback;
 }
 
 export function useToggleQueryLock(id: number | undefined) {

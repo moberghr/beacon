@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ApiError, fetchJson } from '@/lib/api';
+import { describeError, fetchJson } from '@/lib/api';
 
 // Mirror enums from Beacon.Core.Data.Enums
 export const McpPatternStatus = {
@@ -232,7 +232,5 @@ export function useRejectPatch() {
 }
 
 export function describeMcpError(err: unknown, fallback: string): string {
-  if (err instanceof ApiError) return err.body || `${fallback} (${err.status})`;
-  if (err instanceof Error) return err.message;
-  return fallback;
+  return describeError(err, fallback);
 }

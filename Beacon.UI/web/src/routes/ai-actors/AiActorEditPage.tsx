@@ -7,7 +7,7 @@ import { beaconApi } from '@/api/client';
 import type { RefineAiActorResult, PauseAiActorResult, ResumeAiActorResult } from '@/api/generated/beacon-api';
 import { Button, Card, CardBody, Field, PageHeader, Textarea } from '@/components/beacon';
 import { EmptyState } from '@/components/data/EmptyState';
-import { ApiError } from '@/lib/api';
+import { describeError } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 import { useAiActorDetailsQuery, ACTOR_STATUS_LABEL } from './queries';
 
@@ -86,10 +86,7 @@ export default function AiActorEditPage() {
         toast.error(result.errorMessage ?? 'Refinement failed');
       }
     } catch (err) {
-      const message = err instanceof ApiError
-        ? err.body || `Request failed (${err.status})`
-        : err instanceof Error ? err.message : 'Unknown error';
-      toast.error(message);
+            toast.error(describeError(err, 'Request failed'));
     }
   };
 
@@ -103,10 +100,7 @@ export default function AiActorEditPage() {
         toast.success('Actor paused');
       }
     } catch (err) {
-      const message = err instanceof ApiError
-        ? err.body || `Request failed (${err.status})`
-        : err instanceof Error ? err.message : 'Unknown error';
-      toast.error(message);
+            toast.error(describeError(err, 'Request failed'));
     }
   };
 

@@ -15,7 +15,7 @@ import { Tabs, type TabDef } from '@/components/Tabs';
 import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { ApiError } from '@/lib/api';
+import { describeError } from '@/lib/api';
 import { formatNumber } from '@/lib/format';
 import {
   useDataSourcesQuery,
@@ -85,10 +85,7 @@ export default function DataSourceDetailPage() {
       toast.success(`Deleted data source '${entry.name}'`);
       navigate('/data-sources');
     } catch (err) {
-      const message = err instanceof ApiError
-        ? err.body || `Delete failed (${err.status})`
-        : err instanceof Error ? err.message : 'Unknown error';
-      toast.error(message);
+            toast.error(describeError(err, 'Delete failed'));
     }
   };
 
@@ -124,10 +121,7 @@ export default function DataSourceDetailPage() {
                   await refreshMetadata.mutateAsync(entry.id);
                   toast.success('Metadata refreshed from source');
                 } catch (err) {
-                  const message = err instanceof ApiError
-                    ? err.body || `Refresh failed (${err.status})`
-                    : err instanceof Error ? err.message : 'Unknown error';
-                  toast.error(message);
+                                    toast.error(describeError(err, 'Refresh failed'));
                 }
               }}
               disabled={refreshMetadata.isPending || metadataQuery.isFetching}
