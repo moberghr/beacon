@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { fetchJson } from '@/lib/api';
+import { beaconApi } from '@/api/client';
 import { createSimpleMutation } from '@/lib/mutations';
 
 // Mirrors Beacon.Core.Data.Enums.AiProvider
@@ -107,7 +107,8 @@ const ADMIN_SETTINGS_KEY = ['admin-settings'] as const;
 export function useAdminSettingsQuery() {
   return useQuery({
     queryKey: ADMIN_SETTINGS_KEY,
-    queryFn: () => fetchJson<GetAdminSettingsResult>('/beacon/api/admin-settings'),
+    queryFn: async () =>
+      (await beaconApi().getAdminSettings()) as unknown as GetAdminSettingsResult,
   });
 }
 
@@ -116,11 +117,7 @@ export function useUpdateAdminSettings() {
   return useMutation(
     createSimpleMutation<UpdateAdminSettingsPayload, void>({
       qc,
-      mutationFn: (values) =>
-        fetchJson<void>('/beacon/api/admin-settings', {
-          method: 'PUT',
-          body: JSON.stringify(values),
-        }),
+      mutationFn: (values) => beaconApi().updateAdminSettings(values as never),
       invalidate: [ADMIN_SETTINGS_KEY],
       errorFallback: 'Update admin settings failed',
     }),
@@ -132,11 +129,8 @@ export function useTestLlmConnection() {
   return useMutation(
     createSimpleMutation<TestLlmConnectionPayload, TestLlmConnectionResult>({
       qc,
-      mutationFn: (values) =>
-        fetchJson<TestLlmConnectionResult>('/beacon/api/admin-settings/test-llm', {
-          method: 'POST',
-          body: JSON.stringify(values),
-        }),
+      mutationFn: async (values) =>
+        (await beaconApi().testLlmConnection(values as never)) as unknown as TestLlmConnectionResult,
       errorFallback: 'Test LLM connection failed',
     }),
   );

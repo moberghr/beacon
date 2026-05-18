@@ -1,9 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { fetchJson } from '@/lib/api';
+import { beaconApi } from '@/api/client';
 import { createSimpleMutation } from '@/lib/mutations';
-
-// NOTE: Phase 3 Batch 7a — handlers added in this slot. Once `npm run codegen`
-// is run against /openapi/v1.json, swap to beaconApi() calls.
 
 export const MIGRATION_MODE_LABEL: Record<number, string> = {
   1: 'Insert',
@@ -35,7 +32,8 @@ const MIGRATION_JOBS_KEY = ['migration-jobs'] as const;
 export function useMigrationJobsQuery() {
   return useQuery({
     queryKey: MIGRATION_JOBS_KEY,
-    queryFn: () => fetchJson<GetMigrationJobsResult>('/beacon/api/migrations/jobs'),
+    queryFn: async () =>
+      (await beaconApi().getMigrationJobs()) as unknown as GetMigrationJobsResult,
   });
 }
 
@@ -53,11 +51,8 @@ export function useRunMigrationJob() {
   return useMutation(
     createSimpleMutation<{ id: number }, RunMigrationJobResult>({
       qc,
-      mutationFn: ({ id }) =>
-        fetchJson<RunMigrationJobResult>(
-          `/beacon/api/migrations/jobs/${id}/run`,
-          { method: 'POST' },
-        ),
+      mutationFn: async ({ id }) =>
+        (await beaconApi().runMigrationJob(id)) as unknown as RunMigrationJobResult,
       invalidate: (vars) => [MIGRATION_JOBS_KEY, ['migration-executions', vars.id]],
       errorFallback: 'Run migration job failed',
     }),
@@ -69,11 +64,10 @@ export function useDeleteMigrationJob() {
   return useMutation(
     createSimpleMutation<{ id: number; force?: boolean }, { success: boolean; errorMessage: string | null }>({
       qc,
-      mutationFn: ({ id, force }) =>
-        fetchJson<{ success: boolean; errorMessage: string | null }>(
-          `/beacon/api/migrations/jobs/${id}${force ? '?forceDelete=true' : ''}`,
-          { method: 'DELETE' },
-        ),
+      mutationFn: async ({ id, force }) => {
+        const r = await beaconApi().deleteMigrationJob(id, force);
+        return { success: r.success ?? false, errorMessage: r.errorMessage ?? null };
+      },
       invalidate: [MIGRATION_JOBS_KEY],
       errorFallback: 'Delete migration job failed',
     }),

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { fetchJson } from '@/lib/api';
+import { beaconApi } from '@/api/client';
 import { Button } from '@/components/beacon';
 import { AuthShell, AuthAlert } from './LoginPage';
 
@@ -11,7 +11,7 @@ export default function LogoutPage() {
     let cancelled = false;
     (async () => {
       try {
-        await fetchJson<unknown>('/beacon/api/auth/logout', { method: 'POST' });
+        await beaconApi().logout();
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : 'Sign-out failed');
       } finally {

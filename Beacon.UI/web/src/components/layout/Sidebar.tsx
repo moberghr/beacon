@@ -30,7 +30,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { cn } from '@/lib/cn';
 import { resolveNavHref, isMigrated } from '@/feature-flags';
 import { useAuth } from '@/auth/useAuth';
-import { fetchJson } from '@/lib/api';
+import { beaconApi } from '@/api/client';
 
 interface NavItem {
   name: string;
@@ -138,7 +138,7 @@ export function Sidebar() {
     if (signingOut) return;
     setSigningOut(true);
     try {
-      await fetchJson<unknown>('/beacon/api/auth/logout', { method: 'POST' });
+      await beaconApi().logout();
     } catch {
       // fall through — still navigate to login
     }

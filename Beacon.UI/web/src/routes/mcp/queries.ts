@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { describeError, fetchJson } from '@/lib/api';
+import { describeError } from '@/lib/api';
 import { beaconApi } from '@/api/client';
 import { createSimpleMutation } from '@/lib/mutations';
 
@@ -145,21 +145,22 @@ export function useUpdateMcpSettings() {
 export function useMcpTools() {
   return useQuery({
     queryKey: MCP_TOOLS_KEY,
-    queryFn: () => fetchJson<{ toolNames: string[] }>('/beacon/api/mcp/tools'),
+    queryFn: async () =>
+      (await beaconApi().getMcpTools()) as unknown as { toolNames: string[] },
   });
 }
 
 export function useRunMcpTool() {
   return useMutation({
-    mutationFn: (vars: {
+    mutationFn: async (vars: {
       toolName: string;
       projectId: number;
       arguments: Record<string, unknown>;
     }) =>
-      fetchJson<{ text: string; isError: boolean }>('/beacon/api/mcp/tools/run', {
-        method: 'POST',
-        body: JSON.stringify(vars),
-      }),
+      (await beaconApi().runMcpTool(vars as never)) as unknown as {
+        text: string;
+        isError: boolean;
+      },
   });
 }
 
@@ -216,7 +217,7 @@ export function useApplyPatch() {
   return useMutation(
     createSimpleMutation<number, void>({
       qc,
-      mutationFn: (id) => beaconApi().applyDocumentationPatch(id, { userId: null }),
+      mutationFn: (id) => beaconApi().applyDocumentationPatch(id),
       invalidate: [MCP_PATCHES_KEY, MCP_LEARNING_STATS_KEY],
       errorFallback: 'Apply patch failed',
     }),
@@ -228,7 +229,7 @@ export function useRejectPatch() {
   return useMutation(
     createSimpleMutation<number, void>({
       qc,
-      mutationFn: (id) => beaconApi().rejectDocumentationPatch(id, { userId: null }),
+      mutationFn: (id) => beaconApi().rejectDocumentationPatch(id),
       invalidate: [MCP_PATCHES_KEY, MCP_LEARNING_STATS_KEY],
       errorFallback: 'Reject patch failed',
     }),
