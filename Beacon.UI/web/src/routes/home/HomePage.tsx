@@ -1,6 +1,5 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
 import {
   Download,
   RefreshCw,
@@ -17,9 +16,6 @@ import {
   Layers,
   Zap,
   ArrowLeftRight,
-  ArrowDown,
-  ArrowUp,
-  ChevronRight,
   Info,
   type LucideIcon,
 } from 'lucide-react';
@@ -38,17 +34,15 @@ import {
   Kbd,
 } from '@/components/beacon';
 import { formatNumber } from '@/lib/format';
-import { fetchJson } from '@/lib/api';
 import { useAuth } from '@/auth/useAuth';
-import { cn } from '@/lib/cn';
 import { Sparkline, LineChart, PerfHistogram, type PerfMetric } from '@/components/ui/charts';
 import {
   useHomeTrendsQuery,
   useHomeActivityQuery,
   type HomeActivityItem,
-  type GetHomeMigrationSummaryResult,
-  type GetHomeTaskSummaryResult,
 } from './queries';
+import { HomeKpi, StatRow, FeedItem } from './atoms';
+import { MigrationOverviewCard, TaskMgmtCard } from './sections';
 
 // ── Time range helpers ────────────────────────────────────────────────────────
 
@@ -72,160 +66,6 @@ function relativeTime(ts: string): string {
   return `${Math.floor(hrs / 24)}d`;
 }
 
-
-// ── KPI tile with sparkline + delta ──────────────────────────────────────────
-
-type DotTone = 'brand' | 'ok' | 'warn' | 'crit' | 'info';
-
-const dotClass: Record<DotTone, string> = {
-  brand: 'bg-brand-500',
-  ok: 'bg-ok',
-  warn: 'bg-warn',
-  crit: 'bg-crit',
-  info: 'bg-info',
-};
-
-function HomeKpi({
-  dot = 'brand',
-  label,
-  value,
-  unit,
-  sub,
-  delta,
-  deltaDir,
-  spark,
-}: {
-  dot?: DotTone;
-  label: string;
-  value: ReactNode;
-  unit?: string;
-  sub?: ReactNode;
-  delta?: string;
-  deltaDir?: 'up' | 'down';
-  spark?: ReactNode;
-}) {
-  const deltaIsImprovement = deltaDir === 'down';
-  return (
-    <div className="bg-surface border border-border rounded-md p-4 flex flex-col gap-1.5 min-w-0">
-      <div className="flex items-center gap-2">
-        <span className={cn('inline-block w-1.5 h-1.5 rounded-full', dotClass[dot])} />
-        <span className="text-2xs font-semibold uppercase tracking-eyebrow text-text-muted">{label}</span>
-      </div>
-      <div className="flex items-baseline gap-1 mt-0.5">
-        <span className="text-[26px] font-semibold leading-none tracking-tighter">{value}</span>
-        {unit && <span className="text-sm text-text-muted">{unit}</span>}
-      </div>
-      <div className="flex items-center gap-2 text-xs text-text-muted mt-0.5">
-        {delta && (
-          <span
-            className={cn(
-              'inline-flex items-center gap-0.5 mono',
-              deltaIsImprovement ? 'text-ok' : 'text-text-muted',
-            )}
-          >
-            {deltaDir === 'up' ? <ArrowUp size={11} /> : <ArrowDown size={11} />}
-            {delta}
-          </span>
-        )}
-        {sub && <span>{sub}</span>}
-      </div>
-      {spark && <div className="-mb-1 -mx-1 mt-1">{spark}</div>}
-    </div>
-  );
-}
-
-// ── Stat row used inside System Overview card ────────────────────────────────
-
-function StatRow({
-  Icon,
-  label,
-  value,
-  trail,
-}: {
-  Icon: LucideIcon;
-  label: string;
-  value: string;
-  trail?: ReactNode;
-}) {
-  return (
-    <div className="flex items-center gap-3 px-4 py-2.5 border-b border-border last:border-b-0 hover:bg-surface-2 transition">
-      <div className="size-7 rounded-sm bg-surface-2 grid place-items-center text-text-muted">
-        <Icon size={15} />
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="text-xs text-text-muted">{label}</div>
-        <div className="text-sm font-medium mono">{value}</div>
-      </div>
-      {trail}
-      <ChevronRight size={14} className="text-text-subtle" />
-    </div>
-  );
-}
-
-// ── Mini bar used inside Migration / Task cards ──────────────────────────────
-
-function Mini({
-  color,
-  label,
-  value,
-  bar,
-}: {
-  color: string;
-  label: string;
-  value: string;
-  bar: string;
-}) {
-  return (
-    <div className="flex flex-col gap-1.5 p-4 border-r border-border last:border-r-0">
-      <div className="flex items-center gap-1.5 text-2xs font-semibold uppercase tracking-eyebrow text-text-muted">
-        <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: color }} />
-        {label}
-      </div>
-      <div className="text-xl font-semibold mono tracking-tighter">{value}</div>
-      <div className="h-1 rounded-full bg-surface-2 overflow-hidden">
-        <span className="block h-full rounded-full" style={{ width: bar, background: color }} />
-      </div>
-    </div>
-  );
-}
-
-// ── Feed item for recent activity ────────────────────────────────────────────
-
-const feedTone: Record<string, { bg: string; fg: string }> = {
-  ok: { bg: 'bg-ok-bg', fg: 'text-ok' },
-  warn: { bg: 'bg-warn-bg', fg: 'text-warn' },
-  crit: { bg: 'bg-crit-bg', fg: 'text-crit' },
-  info: { bg: 'bg-info-bg', fg: 'text-info' },
-  brand: { bg: 'bg-brand-50', fg: 'text-brand-600' },
-};
-
-function FeedItem({
-  tone = 'info',
-  Icon = Info,
-  title,
-  meta,
-  time,
-}: {
-  tone?: string;
-  Icon?: LucideIcon;
-  title: string;
-  meta?: string | null;
-  time: string;
-}) {
-  const c = feedTone[tone] ?? feedTone.info;
-  return (
-    <div className="flex items-start gap-2.5 px-4 py-2.5 border-b border-border last:border-b-0">
-      <div className={cn('shrink-0 size-6 grid place-items-center rounded-sm', c.bg, c.fg)}>
-        <Icon size={12} />
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="text-sm text-text">{title}</div>
-        {meta && <div className="text-xs text-text-muted mt-0.5">{meta}</div>}
-      </div>
-      <div className="text-2xs text-text-subtle mono whitespace-nowrap pt-0.5">{time}</div>
-    </div>
-  );
-}
 
 const feedIconMap: Record<string, LucideIcon> = {
   Info,
@@ -571,94 +411,4 @@ export default function HomePage() {
       </div>
     </div>
   );
-}
-
-// ── Migration overview card ───────────────────────────────────────────────────
-
-function MigrationOverviewCard() {
-  const { data, isLoading } = useHomeMigrationSummaryQuery();
-
-  const total = data?.total ?? 0;
-  const successful = data?.successful ?? 0;
-  const executions = data?.executions ?? 0;
-  const errored = data?.errored ?? 0;
-  const successPct = total > 0 ? Math.round((successful / total) * 100) + '%' : '0%';
-  const execPct = total > 0 ? Math.min(100, Math.round((executions / Math.max(total * 10, 1)) * 100)) + '%' : '0%';
-  const errorPct = total > 0 ? Math.round((errored / total) * 100) + '%' : '0%';
-
-  return (
-    <Card>
-      <CardHead>
-        <ArrowLeftRight className="size-3.5 text-text-muted" />
-        <CardTitle>Data migration</CardTitle>
-        <CardSub>overview</CardSub>
-        <CardActions>
-          <Link
-            to="/migration-history"
-            className="text-xs font-medium text-brand-600 hover:underline"
-          >
-            Open jobs →
-          </Link>
-        </CardActions>
-      </CardHead>
-      <CardBody flush>
-        <div className="grid grid-cols-2 sm:grid-cols-4">
-          <Mini color="var(--info)" label="Total jobs" value={isLoading ? '—' : formatNumber(total)} bar="100%" />
-          <Mini color="var(--ok)" label="Successful" value={isLoading ? '—' : formatNumber(successful)} bar={successPct} />
-          <Mini
-            color="var(--brand-500)"
-            label="Executions"
-            value={isLoading ? '—' : formatNumber(executions)}
-            bar={execPct}
-          />
-          <Mini color="var(--crit)" label="Errored" value={isLoading ? '—' : formatNumber(errored)} bar={errorPct} />
-        </div>
-      </CardBody>
-    </Card>
-  );
-}
-
-function TaskMgmtCard() {
-  const { data, isLoading } = useHomeTaskSummaryQuery();
-
-  const total = data?.total ?? 0;
-  const open = data?.open ?? 0;
-  const resolved = data?.resolved ?? 0;
-  const openPct = total > 0 ? Math.round((open / total) * 100) + '%' : '0%';
-  const resolvedPct = total > 0 ? Math.round((resolved / total) * 100) + '%' : '0%';
-
-  return (
-    <Card>
-      <CardHead>
-        <Check className="size-3.5 text-text-muted" />
-        <CardTitle>Task management</CardTitle>
-        <CardSub>{isLoading ? '—' : `${open} unresolved`}</CardSub>
-      </CardHead>
-      <CardBody flush>
-        <div className="grid grid-cols-3">
-          <Mini color="var(--text-muted)" label="Total" value={isLoading ? '—' : formatNumber(total)} bar="100%" />
-          <Mini color="var(--warn)" label="Open" value={isLoading ? '—' : formatNumber(open)} bar={openPct} />
-          <Mini color="var(--ok)" label="Resolved" value={isLoading ? '—' : formatNumber(resolved)} bar={resolvedPct} />
-        </div>
-      </CardBody>
-    </Card>
-  );
-}
-
-// ── Local query hooks (kept here to match the existing data layer) ───────────
-
-function useHomeMigrationSummaryQuery() {
-  return useQuery({
-    queryKey: ['home', 'migration-summary'],
-    queryFn: () => fetchJson<GetHomeMigrationSummaryResult>('/beacon/api/home/migration-summary'),
-    retry: false,
-  });
-}
-
-function useHomeTaskSummaryQuery() {
-  return useQuery({
-    queryKey: ['home', 'task-summary'],
-    queryFn: () => fetchJson<GetHomeTaskSummaryResult>('/beacon/api/home/task-summary'),
-    retry: false,
-  });
 }
