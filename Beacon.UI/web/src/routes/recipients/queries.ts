@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchJson } from '@/lib/api';
+import { createSimpleMutation } from '@/lib/mutations';
 
 // NOTE: Phase 3 Batch 3 — endpoints are not yet in the generated NSwag client
 // (codegen requires a running backend). These thin wrappers match the shape
@@ -59,33 +60,45 @@ export function useRecipientsQuery() {
 
 export function useCreateRecipient() {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (values: RecipientFormValues) =>
-      fetchJson<{ id: number }>('/beacon/api/recipients', {
-        method: 'POST',
-        body: JSON.stringify(values),
-      }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: RECIPIENTS_KEY }),
-  });
+  return useMutation(
+    createSimpleMutation<RecipientFormValues, { id: number }>({
+      qc,
+      mutationFn: (values) =>
+        fetchJson<{ id: number }>('/beacon/api/recipients', {
+          method: 'POST',
+          body: JSON.stringify(values),
+        }),
+      invalidate: [RECIPIENTS_KEY],
+      errorFallback: 'Create recipient failed',
+    }),
+  );
 }
 
 export function useUpdateRecipient() {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, values }: { id: number; values: RecipientFormValues }) =>
-      fetchJson<void>(`/beacon/api/recipients/${id}`, {
-        method: 'PUT',
-        body: JSON.stringify(values),
-      }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: RECIPIENTS_KEY }),
-  });
+  return useMutation(
+    createSimpleMutation<{ id: number; values: RecipientFormValues }, void>({
+      qc,
+      mutationFn: ({ id, values }) =>
+        fetchJson<void>(`/beacon/api/recipients/${id}`, {
+          method: 'PUT',
+          body: JSON.stringify(values),
+        }),
+      invalidate: [RECIPIENTS_KEY],
+      errorFallback: 'Update recipient failed',
+    }),
+  );
 }
 
 export function useDeleteRecipient() {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (id: number) =>
-      fetchJson<void>(`/beacon/api/recipients/${id}`, { method: 'DELETE' }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: RECIPIENTS_KEY }),
-  });
+  return useMutation(
+    createSimpleMutation<number, void>({
+      qc,
+      mutationFn: (id) =>
+        fetchJson<void>(`/beacon/api/recipients/${id}`, { method: 'DELETE' }),
+      invalidate: [RECIPIENTS_KEY],
+      errorFallback: 'Delete recipient failed',
+    }),
+  );
 }

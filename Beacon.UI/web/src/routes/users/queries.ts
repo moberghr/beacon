@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchJson } from '@/lib/api';
+import { createSimpleMutation } from '@/lib/mutations';
 
 export interface UserRoleEntry {
   id: number;
@@ -59,6 +60,7 @@ export interface UpdateUserPayload {
 }
 
 const USERS_KEY = (search: string) => ['users', search] as const;
+const USERS_ALL_KEY = ['users'] as const;
 const ROLES_KEY = ['users', 'roles'] as const;
 
 export function useUsersQuery(search: string) {
@@ -78,51 +80,63 @@ export function useRolesQuery() {
   });
 }
 
-function invalidateUsers(qc: ReturnType<typeof useQueryClient>) {
-  qc.invalidateQueries({ queryKey: ['users'] });
-}
-
 export function useCreateInternalUser() {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (payload: CreateInternalUserPayload) =>
-      fetchJson<void>('/beacon/api/users/internal', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      }),
-    onSuccess: () => invalidateUsers(qc),
-  });
+  return useMutation(
+    createSimpleMutation<CreateInternalUserPayload, void>({
+      qc,
+      mutationFn: (payload) =>
+        fetchJson<void>('/beacon/api/users/internal', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        }),
+      invalidate: [USERS_ALL_KEY],
+      errorFallback: 'Create user failed',
+    }),
+  );
 }
 
 export function useCreateExternalUser() {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (payload: CreateExternalUserPayload) =>
-      fetchJson<void>('/beacon/api/users/external', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      }),
-    onSuccess: () => invalidateUsers(qc),
-  });
+  return useMutation(
+    createSimpleMutation<CreateExternalUserPayload, void>({
+      qc,
+      mutationFn: (payload) =>
+        fetchJson<void>('/beacon/api/users/external', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        }),
+      invalidate: [USERS_ALL_KEY],
+      errorFallback: 'Create user failed',
+    }),
+  );
 }
 
 export function useUpdateUser() {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, payload }: { id: number; payload: UpdateUserPayload }) =>
-      fetchJson<void>(`/beacon/api/users/${id}`, {
-        method: 'PUT',
-        body: JSON.stringify(payload),
-      }),
-    onSuccess: () => invalidateUsers(qc),
-  });
+  return useMutation(
+    createSimpleMutation<{ id: number; payload: UpdateUserPayload }, void>({
+      qc,
+      mutationFn: ({ id, payload }) =>
+        fetchJson<void>(`/beacon/api/users/${id}`, {
+          method: 'PUT',
+          body: JSON.stringify(payload),
+        }),
+      invalidate: [USERS_ALL_KEY],
+      errorFallback: 'Update user failed',
+    }),
+  );
 }
 
 export function useToggleUserEnabled() {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (id: number) =>
-      fetchJson<void>(`/beacon/api/users/${id}/toggle-enabled`, { method: 'POST' }),
-    onSuccess: () => invalidateUsers(qc),
-  });
+  return useMutation(
+    createSimpleMutation<number, void>({
+      qc,
+      mutationFn: (id) =>
+        fetchJson<void>(`/beacon/api/users/${id}/toggle-enabled`, { method: 'POST' }),
+      invalidate: [USERS_ALL_KEY],
+      errorFallback: 'Toggle user enabled failed',
+    }),
+  );
 }

@@ -171,31 +171,34 @@ export function useTaskCommentsQuery(id: number | undefined) {
 
 export function useAddTaskComment(id: number) {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (content: string) =>
-      fetchJson<{ id: number }>(`/beacon/api/tasks/${id}/comments`, {
-        method: 'POST',
-        body: JSON.stringify({ content }),
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['tasks', 'comments', id] });
-    },
-  });
+  return useMutation(
+    createSimpleMutation<string, { id: number }>({
+      qc,
+      mutationFn: (content) =>
+        fetchJson<{ id: number }>(`/beacon/api/tasks/${id}/comments`, {
+          method: 'POST',
+          body: JSON.stringify({ content }),
+        }),
+      invalidate: [['tasks', 'comments', id]],
+      errorFallback: 'Add comment failed',
+    }),
+  );
 }
 
 export function useResolveTask() {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, resolutionNotes }: { id: number; resolutionNotes: string | null }) =>
-      fetchJson<void>(`/beacon/api/tasks/${id}/resolve`, {
-        method: 'POST',
-        body: JSON.stringify({ resolutionNotes }),
-      }),
-    onSuccess: (_data, vars) => {
-      qc.invalidateQueries({ queryKey: ['tasks'] });
-      qc.invalidateQueries({ queryKey: ['task', vars.id] });
-    },
-  });
+  return useMutation(
+    createSimpleMutation<{ id: number; resolutionNotes: string | null }, void>({
+      qc,
+      mutationFn: ({ id, resolutionNotes }) =>
+        fetchJson<void>(`/beacon/api/tasks/${id}/resolve`, {
+          method: 'POST',
+          body: JSON.stringify({ resolutionNotes }),
+        }),
+      invalidate: (vars) => [['tasks'], ['task', vars.id]],
+      errorFallback: 'Resolve task failed',
+    }),
+  );
 }
 
 // ---------- New mutations (assign / snooze / priority / watch / sla) ---------

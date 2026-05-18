@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { toast } from 'sonner';
 import { beaconApi } from '@/api/client';
+import { createSimpleMutation } from '@/lib/mutations';
 import type { CreateAiActorCommand } from '@/api/generated/beacon-api';
 
 export const ACTOR_STATUS_LABEL: Record<number, string> = {
@@ -29,14 +29,13 @@ export function useAiActorDetailsQuery(id: number | undefined) {
 
 export function useCreateAiActor(dataSourceId: number | undefined) {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (cmd: CreateAiActorCommand) => beaconApi().createAiActor(cmd),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['ai-actors', dataSourceId ?? null] });
-      toast.success('AI actor created');
-    },
-    onError: () => {
-      toast.error('Failed to create AI actor');
-    },
-  });
+  return useMutation(
+    createSimpleMutation<CreateAiActorCommand, unknown>({
+      qc,
+      mutationFn: (cmd) => beaconApi().createAiActor(cmd),
+      invalidate: [['ai-actors', dataSourceId ?? null]],
+      successMsg: 'AI actor created',
+      errorFallback: 'Failed to create AI actor',
+    }),
+  );
 }

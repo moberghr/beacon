@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { describeError, fetchJson } from '@/lib/api';
+import { createSimpleMutation } from '@/lib/mutations';
 
 // Mirror enums from Beacon.Core.Data.Enums
 export const McpPatternStatus = {
@@ -130,14 +131,18 @@ export function useMcpSettings() {
 
 export function useUpdateMcpSettings() {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (data: McpSettingsData) =>
-      fetchJson<void>('/beacon/api/mcp/settings', {
-        method: 'PUT',
-        body: JSON.stringify({ data }),
-      }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: MCP_SETTINGS_KEY }),
-  });
+  return useMutation(
+    createSimpleMutation<McpSettingsData, void>({
+      qc,
+      mutationFn: (data) =>
+        fetchJson<void>('/beacon/api/mcp/settings', {
+          method: 'PUT',
+          body: JSON.stringify({ data }),
+        }),
+      invalidate: [MCP_SETTINGS_KEY],
+      errorFallback: 'Update MCP settings failed',
+    }),
+  );
 }
 
 export function useMcpTools() {
@@ -188,47 +193,50 @@ export function useDocumentationPatches() {
 
 export function useUpdatePatternStatus() {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (vars: { patternId: number; newStatus: number }) =>
-      fetchJson<void>(`/beacon/api/mcp/learned-patterns/${vars.patternId}/status`, {
-        method: 'PUT',
-        body: JSON.stringify({ newStatus: vars.newStatus, reviewedByUserId: null }),
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: MCP_PATTERNS_KEY });
-      qc.invalidateQueries({ queryKey: MCP_LEARNING_STATS_KEY });
-    },
-  });
+  return useMutation(
+    createSimpleMutation<{ patternId: number; newStatus: number }, void>({
+      qc,
+      mutationFn: (vars) =>
+        fetchJson<void>(`/beacon/api/mcp/learned-patterns/${vars.patternId}/status`, {
+          method: 'PUT',
+          body: JSON.stringify({ newStatus: vars.newStatus, reviewedByUserId: null }),
+        }),
+      invalidate: [MCP_PATTERNS_KEY, MCP_LEARNING_STATS_KEY],
+      errorFallback: 'Update pattern status failed',
+    }),
+  );
 }
 
 export function useApplyPatch() {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (id: number) =>
-      fetchJson<void>(`/beacon/api/mcp/documentation-patches/${id}/apply`, {
-        method: 'POST',
-        body: JSON.stringify({ userId: null }),
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: MCP_PATCHES_KEY });
-      qc.invalidateQueries({ queryKey: MCP_LEARNING_STATS_KEY });
-    },
-  });
+  return useMutation(
+    createSimpleMutation<number, void>({
+      qc,
+      mutationFn: (id) =>
+        fetchJson<void>(`/beacon/api/mcp/documentation-patches/${id}/apply`, {
+          method: 'POST',
+          body: JSON.stringify({ userId: null }),
+        }),
+      invalidate: [MCP_PATCHES_KEY, MCP_LEARNING_STATS_KEY],
+      errorFallback: 'Apply patch failed',
+    }),
+  );
 }
 
 export function useRejectPatch() {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (id: number) =>
-      fetchJson<void>(`/beacon/api/mcp/documentation-patches/${id}/reject`, {
-        method: 'POST',
-        body: JSON.stringify({ userId: null }),
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: MCP_PATCHES_KEY });
-      qc.invalidateQueries({ queryKey: MCP_LEARNING_STATS_KEY });
-    },
-  });
+  return useMutation(
+    createSimpleMutation<number, void>({
+      qc,
+      mutationFn: (id) =>
+        fetchJson<void>(`/beacon/api/mcp/documentation-patches/${id}/reject`, {
+          method: 'POST',
+          body: JSON.stringify({ userId: null }),
+        }),
+      invalidate: [MCP_PATCHES_KEY, MCP_LEARNING_STATS_KEY],
+      errorFallback: 'Reject patch failed',
+    }),
+  );
 }
 
 export function describeMcpError(err: unknown, fallback: string): string {
