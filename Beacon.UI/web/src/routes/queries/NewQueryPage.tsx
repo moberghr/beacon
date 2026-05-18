@@ -66,30 +66,7 @@ interface DraftParameter {
   placeholder: string | null;
 }
 
-const PARAM_REGEX = /\{(\w+)\}/g;
-
-function detectParameters(sql: string, existing: DraftParameter[]): DraftParameter[] {
-  const seen = new Set<string>();
-  const detected: string[] = [];
-  let match: RegExpExecArray | null;
-  PARAM_REGEX.lastIndex = 0;
-  while ((match = PARAM_REGEX.exec(sql)) != null) {
-    const name = match[1];
-    if (!seen.has(name)) {
-      seen.add(name);
-      detected.push(name);
-    }
-  }
-  const byName = new Map(existing.map(p => [p.name, p]));
-  return detected.map(name =>
-    byName.get(name) ?? {
-      name,
-      type: PARAMETER_TYPE.String,
-      description: null,
-      placeholder: `{${name}}`,
-    },
-  );
-}
+import { detectParameters } from './helpers/parameters';
 
 let nextDraftId = 1;
 function newDraftId(): number {

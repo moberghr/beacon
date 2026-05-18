@@ -50,6 +50,7 @@ import {
 } from './queries';
 import { StepParameterDialog } from './parts/StepParameterDialog';
 import { PreviewResultsCard } from './parts/PreviewResultsCard';
+import { detectParameters as detectParametersShared } from './helpers/parameters';
 
 interface EditorState {
   name: string;
@@ -79,30 +80,8 @@ interface EditorParameter {
   placeholder: string | null;
 }
 
-const PARAM_REGEX = /\{(\w+)\}/g;
-
 function detectParameters(sql: string, existing: EditorParameter[]): EditorParameter[] {
-  const seen = new Set<string>();
-  const detected: string[] = [];
-  let match: RegExpExecArray | null;
-  PARAM_REGEX.lastIndex = 0;
-  while ((match = PARAM_REGEX.exec(sql)) != null) {
-    const name = match[1];
-    if (!seen.has(name)) {
-      seen.add(name);
-      detected.push(name);
-    }
-  }
-
-  const byName = new Map(existing.map(p => [p.name, p]));
-  return detected.map(name =>
-    byName.get(name) ?? {
-      name,
-      type: PARAMETER_TYPE.String,
-      description: null,
-      placeholder: `{${name}}`,
-    },
-  );
+  return detectParametersShared<EditorParameter>(sql, existing);
 }
 
 function fromDetail(detail: QueryDetail): EditorState {

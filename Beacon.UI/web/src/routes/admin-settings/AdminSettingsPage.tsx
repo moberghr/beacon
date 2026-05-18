@@ -46,6 +46,11 @@ import {
   type BedrockAuthModeId,
   type ModelOption,
 } from './queries';
+import {
+  settingsToForm,
+  formToUpdatePayload,
+  formToTestPayload,
+} from './lib/admin-settings-form';
 
 const SCHEMA = z.object({
   baseUrl: z.string().trim().max(500).optional(),
@@ -66,17 +71,6 @@ const SCHEMA = z.object({
 });
 
 type FormValues = z.infer<typeof SCHEMA>;
-
-function emptyToNull(value: string | undefined | null): string | null {
-  if (value === undefined || value === null) return null;
-  const trimmed = value.trim();
-  return trimmed.length === 0 ? null : trimmed;
-}
-
-function secretToNull(value: string | undefined | null): string | null {
-  if (value === undefined || value === null) return null;
-  return value.length === 0 ? null : value;
-}
 
 export default function AdminSettingsPage() {
   const isAdmin = useIsAdmin();
@@ -136,46 +130,19 @@ function AdminSettingsForm() {
 
   const onSubmit = handleSubmit(async values => {
     try {
-      await updateMutation.mutateAsync({
-        baseUrl: emptyToNull(values.baseUrl),
-        llmProvider: values.llmProvider as AiProviderId,
-        llmModel: emptyToNull(values.llmModel),
-        llmFastModel: emptyToNull(values.llmFastModel),
-        llmRegion: emptyToNull(values.llmRegion),
-        llmBedrockAuthMode: values.llmBedrockAuthMode as BedrockAuthModeId,
-        llmApiKey: secretToNull(values.llmApiKey),
-        llmEndpoint: emptyToNull(values.llmEndpoint),
-        llmSessionToken: secretToNull(values.llmSessionToken),
-        llmAwsAccessKeyId: secretToNull(values.llmAwsAccessKeyId),
-        llmAwsSecretAccessKey: secretToNull(values.llmAwsSecretAccessKey),
-        llmMaxConcurrentRequests: values.llmMaxConcurrentRequests,
-        llmTokensPerMinute: values.llmTokensPerMinute,
-        llmRequestsPerMinute: values.llmRequestsPerMinute,
-        llmMonthlyBudget: values.llmMonthlyBudget,
-      });
+      await updateMutation.mutateAsync(formToUpdatePayload(values));
       toast.success('Admin settings saved');
     } catch (err) {
-            toast.error(describeError(err, 'Save failed'));
+      toast.error(describeError(err, 'Save failed'));
     }
   });
 
   async function handleTest() {
-    const values = getValues();
     testMutation.reset();
     try {
-      await testMutation.mutateAsync({
-        llmProvider: values.llmProvider as AiProviderId,
-        llmModel: emptyToNull(values.llmModel),
-        llmRegion: emptyToNull(values.llmRegion),
-        llmBedrockAuthMode: values.llmBedrockAuthMode as BedrockAuthModeId,
-        llmApiKey: secretToNull(values.llmApiKey),
-        llmEndpoint: emptyToNull(values.llmEndpoint),
-        llmSessionToken: secretToNull(values.llmSessionToken),
-        llmAwsAccessKeyId: secretToNull(values.llmAwsAccessKeyId),
-        llmAwsSecretAccessKey: secretToNull(values.llmAwsSecretAccessKey),
-      });
+      await testMutation.mutateAsync(formToTestPayload(getValues()));
     } catch (err) {
-            toast.error(describeError(err, 'Test failed'));
+      toast.error(describeError(err, 'Test failed'));
     }
   }
 
@@ -346,45 +313,6 @@ function AdminSettingsForm() {
       )}
     </div>
   );
-}
-
-function settingsToForm(s: AdminSettingsView | undefined): FormValues {
-  if (s === undefined) {
-    return {
-      baseUrl: '',
-      llmProvider: AiProvider.OpenAI,
-      llmModel: '',
-      llmFastModel: '',
-      llmRegion: '',
-      llmBedrockAuthMode: BedrockAuthMode.IamRole,
-      llmApiKey: '',
-      llmEndpoint: '',
-      llmSessionToken: '',
-      llmAwsAccessKeyId: '',
-      llmAwsSecretAccessKey: '',
-      llmMaxConcurrentRequests: 5,
-      llmTokensPerMinute: 0,
-      llmRequestsPerMinute: 0,
-      llmMonthlyBudget: 0,
-    };
-  }
-  return {
-    baseUrl: s.baseUrl ?? '',
-    llmProvider: (s.llmProvider ?? AiProvider.OpenAI) as AiProviderId,
-    llmModel: s.llmModel ?? '',
-    llmFastModel: s.llmFastModel ?? '',
-    llmRegion: s.llmRegion ?? '',
-    llmBedrockAuthMode: s.llmBedrockAuthMode,
-    llmApiKey: '',
-    llmEndpoint: '',
-    llmSessionToken: '',
-    llmAwsAccessKeyId: '',
-    llmAwsSecretAccessKey: '',
-    llmMaxConcurrentRequests: s.llmMaxConcurrentRequests,
-    llmTokensPerMinute: s.llmTokensPerMinute,
-    llmRequestsPerMinute: s.llmRequestsPerMinute,
-    llmMonthlyBudget: s.llmMonthlyBudget,
-  };
 }
 
 function applyProviderDefaults(
