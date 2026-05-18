@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { describeError, fetchJson } from '@/lib/api';
+import { createSimpleMutation } from '@/lib/mutations';
 
 export type ScoreTone = 'ok' | 'warn' | 'crit' | 'neutral';
 
@@ -149,30 +150,31 @@ export function useEvaluationHistory(id: number | null) {
 
 export function useEvaluateContract(id: number) {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: () =>
-      fetchJson<DataQualityEvaluationData>(
-        `/beacon/api/data-quality/contracts/${id}/evaluate`,
-        { method: 'POST', body: '{}' },
-      ),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: dataContractKey(id) });
-      qc.invalidateQueries({ queryKey: evaluationHistoryKey(id) });
-      qc.invalidateQueries({ queryKey: DATA_QUALITY_OVERVIEW_KEY });
-    },
-  });
+  return useMutation(
+    createSimpleMutation<void, DataQualityEvaluationData>({
+      qc,
+      mutationFn: () =>
+        fetchJson<DataQualityEvaluationData>(
+          `/beacon/api/data-quality/contracts/${id}/evaluate`,
+          { method: 'POST', body: '{}' },
+        ),
+      invalidate: [dataContractKey(id), evaluationHistoryKey(id), DATA_QUALITY_OVERVIEW_KEY],
+      errorFallback: 'Evaluate contract failed',
+    }),
+  );
 }
 
 export function useDeleteContract() {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (id: number) =>
-      fetchJson<void>(`/beacon/api/data-quality/contracts/${id}`, { method: 'DELETE' }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: DATA_CONTRACTS_KEY });
-      qc.invalidateQueries({ queryKey: DATA_QUALITY_OVERVIEW_KEY });
-    },
-  });
+  return useMutation(
+    createSimpleMutation<number, void>({
+      qc,
+      mutationFn: (id) =>
+        fetchJson<void>(`/beacon/api/data-quality/contracts/${id}`, { method: 'DELETE' }),
+      invalidate: [DATA_CONTRACTS_KEY, DATA_QUALITY_OVERVIEW_KEY],
+      errorFallback: 'Delete contract failed',
+    }),
+  );
 }
 
 export interface CreateContractPayload {
@@ -192,32 +194,34 @@ export interface CreateContractPayload {
 
 export function useCreateContract() {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (payload: CreateContractPayload) =>
-      fetchJson<{ dataContractId: number }>('/beacon/api/data-quality/contracts', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: DATA_CONTRACTS_KEY });
-      qc.invalidateQueries({ queryKey: DATA_QUALITY_OVERVIEW_KEY });
-    },
-  });
+  return useMutation(
+    createSimpleMutation<CreateContractPayload, { dataContractId: number }>({
+      qc,
+      mutationFn: (payload) =>
+        fetchJson<{ dataContractId: number }>('/beacon/api/data-quality/contracts', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        }),
+      invalidate: [DATA_CONTRACTS_KEY, DATA_QUALITY_OVERVIEW_KEY],
+      errorFallback: 'Create contract failed',
+    }),
+  );
 }
 
 export function useUpdateContract(id: number) {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (payload: Omit<CreateContractPayload, 'dataSourceId'> & { dataSourceId: number }) =>
-      fetchJson<void>(`/beacon/api/data-quality/contracts/${id}`, {
-        method: 'PUT',
-        body: JSON.stringify(payload),
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: DATA_CONTRACTS_KEY });
-      qc.invalidateQueries({ queryKey: dataContractKey(id) });
-    },
-  });
+  return useMutation(
+    createSimpleMutation<Omit<CreateContractPayload, 'dataSourceId'> & { dataSourceId: number }, void>({
+      qc,
+      mutationFn: (payload) =>
+        fetchJson<void>(`/beacon/api/data-quality/contracts/${id}`, {
+          method: 'PUT',
+          body: JSON.stringify(payload),
+        }),
+      invalidate: [DATA_CONTRACTS_KEY, dataContractKey(id)],
+      errorFallback: 'Update contract failed',
+    }),
+  );
 }
 
 export function describeContractError(err: unknown, fallback: string): string {

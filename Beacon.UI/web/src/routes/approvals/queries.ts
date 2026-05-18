@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { beaconApi } from '@/api/client';
+import { createSimpleMutation } from '@/lib/mutations';
 import type { ApprovalRequestSummary, ApprovalRequestDetail } from '@/api/generated/beacon-api';
 
 export type { ApprovalRequestSummary, ApprovalRequestDetail };
@@ -29,18 +30,26 @@ interface ApprovalActionArgs {
 
 export function useApproveQueryChange() {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, comment }: ApprovalActionArgs) =>
-      beaconApi().approveQueryChange(id, { comment: comment ?? null }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['approvals'] }),
-  });
+  return useMutation(
+    createSimpleMutation<ApprovalActionArgs, unknown>({
+      qc,
+      mutationFn: ({ id, comment }) =>
+        beaconApi().approveQueryChange(id, { comment: comment ?? null }),
+      invalidate: [['approvals']],
+      errorFallback: 'Approve query change failed',
+    }),
+  );
 }
 
 export function useRejectQueryChange() {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, comment }: ApprovalActionArgs) =>
-      beaconApi().rejectQueryChange(id, { comment: comment ?? null }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['approvals'] }),
-  });
+  return useMutation(
+    createSimpleMutation<ApprovalActionArgs, unknown>({
+      qc,
+      mutationFn: ({ id, comment }) =>
+        beaconApi().rejectQueryChange(id, { comment: comment ?? null }),
+      invalidate: [['approvals']],
+      errorFallback: 'Reject query change failed',
+    }),
+  );
 }

@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { toast } from 'sonner';
-import { describeError, fetchJson } from '@/lib/api';
+import { fetchJson } from '@/lib/api';
 import { beaconApi } from '@/api/client';
+import { createSimpleMutation } from '@/lib/mutations';
 
 // ---------- Versions ----------
 
@@ -38,18 +38,19 @@ export function useQueryVersionDiffQuery(
 
 export function useRestoreQueryVersion(queryId: number | undefined) {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (versionId: number) =>
-      beaconApi().restoreQueryVersion(versionId, { userId: null }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['query', queryId] });
-      qc.invalidateQueries({ queryKey: ['queries', queryId, 'versions'] });
-      toast.success('Version restored');
-    },
-    onError: (err: unknown) => {
-      toast.error(describeError(err, 'Restore failed'));
-    },
-  });
+  return useMutation(
+    createSimpleMutation<number, unknown>({
+      qc,
+      mutationFn: (versionId) =>
+        beaconApi().restoreQueryVersion(versionId, { userId: null }),
+      invalidate: [
+        ['query', queryId],
+        ['queries', queryId, 'versions'],
+      ],
+      successMsg: 'Version restored',
+      errorFallback: 'Restore failed',
+    }),
+  );
 }
 
 // ---------- Query detail ----------
@@ -147,21 +148,19 @@ export interface ToggleQueryLockResult {
 
 export function useToggleQueryLock(id: number | undefined) {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (vars: { lock: boolean; userId?: string | null }) =>
-      fetchJson<ToggleQueryLockResult>(`/beacon/api/queries/${id}/lock`, {
-        method: 'POST',
-        body: JSON.stringify({ lock: vars.lock, userId: vars.userId ?? null }),
-      }),
-    onSuccess: result => {
-      qc.invalidateQueries({ queryKey: ['query', id] });
-      qc.invalidateQueries({ queryKey: ['queries'] });
-      toast.success(result.isLocked ? 'Query locked' : 'Query unlocked');
-    },
-    onError: (err: unknown) => {
-      toast.error(describeError(err, 'Lock toggle failed'));
-    },
-  });
+  return useMutation(
+    createSimpleMutation<{ lock: boolean; userId?: string | null }, ToggleQueryLockResult>({
+      qc,
+      mutationFn: (vars) =>
+        fetchJson<ToggleQueryLockResult>(`/beacon/api/queries/${id}/lock`, {
+          method: 'POST',
+          body: JSON.stringify({ lock: vars.lock, userId: vars.userId ?? null }),
+        }),
+      invalidate: [['query', id], ['queries']],
+      successMsg: (_vars, result) => (result.isLocked ? 'Query locked' : 'Query unlocked'),
+      errorFallback: 'Lock toggle failed',
+    }),
+  );
 }
 
 // ---------- Change history ----------
@@ -288,21 +287,19 @@ export interface UpdateQueryResult {
 
 export function useUpdateQueryMutation(id: number | undefined) {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (payload: UpdateQueryPayload) =>
-      fetchJson<UpdateQueryResult>(`/beacon/api/queries/${id}`, {
-        method: 'PUT',
-        body: JSON.stringify(payload),
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['query', id] });
-      qc.invalidateQueries({ queryKey: ['queries', id, 'versions'] });
-      toast.success('Query saved');
-    },
-    onError: (err: unknown) => {
-      toast.error(describeError(err, 'Save failed'));
-    },
-  });
+  return useMutation(
+    createSimpleMutation<UpdateQueryPayload, UpdateQueryResult>({
+      qc,
+      mutationFn: (payload) =>
+        fetchJson<UpdateQueryResult>(`/beacon/api/queries/${id}`, {
+          method: 'PUT',
+          body: JSON.stringify(payload),
+        }),
+      invalidate: [['query', id], ['queries', id, 'versions']],
+      successMsg: 'Query saved',
+      errorFallback: 'Save failed',
+    }),
+  );
 }
 
 // ---------- Preview ----------
@@ -353,31 +350,35 @@ export interface ParameterValueInput {
 }
 
 export function usePreviewStepMutation(id: number | undefined) {
-  return useMutation({
-    mutationFn: (vars: { stepOrder: number; parameters?: ParameterValueInput[] }) =>
-      fetchJson<QueryStepPreviewResult>(
-        `/beacon/api/queries/${id}/steps/${vars.stepOrder}/preview`,
-        {
-          method: 'POST',
-          body: JSON.stringify({ parameters: vars.parameters ?? null }),
-        },
-      ),
-    onError: (err: unknown) => {
-      toast.error(describeError(err, 'Step preview failed'));
-    },
-  });
+  const qc = useQueryClient();
+  return useMutation(
+    createSimpleMutation<{ stepOrder: number; parameters?: ParameterValueInput[] }, QueryStepPreviewResult>({
+      qc,
+      mutationFn: (vars) =>
+        fetchJson<QueryStepPreviewResult>(
+          `/beacon/api/queries/${id}/steps/${vars.stepOrder}/preview`,
+          {
+            method: 'POST',
+            body: JSON.stringify({ parameters: vars.parameters ?? null }),
+          },
+        ),
+      errorFallback: 'Step preview failed',
+    }),
+  );
 }
 
 export function usePreviewQueryMutation(id: number | undefined) {
-  return useMutation({
-    mutationFn: () =>
-      fetchJson<QueryExecutionPreviewResult>(`/beacon/api/queries/${id}/preview`, {
-        method: 'POST',
-      }),
-    onError: (err: unknown) => {
-      toast.error(describeError(err, 'Query preview failed'));
-    },
-  });
+  const qc = useQueryClient();
+  return useMutation(
+    createSimpleMutation<void, QueryExecutionPreviewResult>({
+      qc,
+      mutationFn: () =>
+        fetchJson<QueryExecutionPreviewResult>(`/beacon/api/queries/${id}/preview`, {
+          method: 'POST',
+        }),
+      errorFallback: 'Query preview failed',
+    }),
+  );
 }
 
 // ---------- Queries list ----------
@@ -430,15 +431,16 @@ export interface CreateQueryArgs {
 
 export function useCreateQuery() {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (args: CreateQueryArgs) =>
-      fetchJson<{ queryId: number }>('/beacon/api/queries/', {
-        method: 'POST',
-        body: JSON.stringify({ name: args.name, description: args.description ?? null }),
-      }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['queries'] }),
-    onError: (err: unknown) => {
-      toast.error(describeError(err, 'Failed to create query'));
-    },
-  });
+  return useMutation(
+    createSimpleMutation<CreateQueryArgs, { queryId: number }>({
+      qc,
+      mutationFn: (args) =>
+        fetchJson<{ queryId: number }>('/beacon/api/queries/', {
+          method: 'POST',
+          body: JSON.stringify({ name: args.name, description: args.description ?? null }),
+        }),
+      invalidate: [['queries']],
+      errorFallback: 'Failed to create query',
+    }),
+  );
 }

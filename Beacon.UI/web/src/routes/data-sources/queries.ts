@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchJson } from '@/lib/api';
+import { createSimpleMutation } from '@/lib/mutations';
 
 // DataSourceType / DatabaseEngineType values mirror Beacon.Core.Data.Enums.
 // Backend serialises enums as ints by default — keep these constants aligned.
@@ -84,24 +85,33 @@ export interface OperationResult {
 
 export function useCreateDataSource() {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (values: CreateDataSourcePayload) =>
-      fetchJson<OperationResult>('/beacon/api/data-sources', {
-        method: 'POST',
-        body: JSON.stringify(values),
-      }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: DATA_SOURCES_KEY }),
-  });
+  return useMutation(
+    createSimpleMutation<CreateDataSourcePayload, OperationResult>({
+      qc,
+      mutationFn: (values) =>
+        fetchJson<OperationResult>('/beacon/api/data-sources', {
+          method: 'POST',
+          body: JSON.stringify(values),
+        }),
+      invalidate: [DATA_SOURCES_KEY],
+      errorFallback: 'Create data source failed',
+    }),
+  );
 }
 
 export function useTestDataSourceConnection() {
-  return useMutation({
-    mutationFn: (values: TestDataSourceConnectionPayload) =>
-      fetchJson<OperationResult>('/beacon/api/data-sources/test-connection', {
-        method: 'POST',
-        body: JSON.stringify(values),
-      }),
-  });
+  const qc = useQueryClient();
+  return useMutation(
+    createSimpleMutation<TestDataSourceConnectionPayload, OperationResult>({
+      qc,
+      mutationFn: (values) =>
+        fetchJson<OperationResult>('/beacon/api/data-sources/test-connection', {
+          method: 'POST',
+          body: JSON.stringify(values),
+        }),
+      errorFallback: 'Connection test failed',
+    }),
+  );
 }
 
 // ---------- Metadata (schema explorer + Monaco autocomplete) -----------------
@@ -155,6 +165,8 @@ export function useDataSourceMetadataQuery(dataSourceId: number | null | undefin
 
 export function useRefreshDataSourceMetadata() {
   const qc = useQueryClient();
+  // Keeps `qc.setQueryData` semantics (cache write, not invalidate) — outside
+  // the createSimpleMutation factory which only invalidates.
   return useMutation({
     mutationFn: (dataSourceId: number) =>
       fetchJson<DatabaseMetadataSnapshot>(
@@ -169,9 +181,13 @@ export function useRefreshDataSourceMetadata() {
 
 export function useDeleteDataSource() {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (id: number) =>
-      fetchJson<void>(`/beacon/api/data-sources/${id}`, { method: 'DELETE' }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: DATA_SOURCES_KEY }),
-  });
+  return useMutation(
+    createSimpleMutation<number, void>({
+      qc,
+      mutationFn: (id) =>
+        fetchJson<void>(`/beacon/api/data-sources/${id}`, { method: 'DELETE' }),
+      invalidate: [DATA_SOURCES_KEY],
+      errorFallback: 'Delete data source failed',
+    }),
+  );
 }

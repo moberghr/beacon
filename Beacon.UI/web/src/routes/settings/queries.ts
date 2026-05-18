@@ -1,5 +1,6 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchJson } from '@/lib/api';
+import { createSimpleMutation } from '@/lib/mutations';
 
 // NOTE: Phase 3 Batch 4 — hand-typed wrappers; replace with `beaconApi()` after
 // `npm run codegen`.
@@ -31,11 +32,16 @@ export function useUserSettingsQuery() {
 }
 
 export function useChangeOwnPassword() {
-  return useMutation({
-    mutationFn: (values: ChangeOwnPasswordPayload) =>
-      fetchJson<void>('/beacon/api/user-settings/change-password', {
-        method: 'POST',
-        body: JSON.stringify(values),
-      }),
-  });
+  const qc = useQueryClient();
+  return useMutation(
+    createSimpleMutation<ChangeOwnPasswordPayload, void>({
+      qc,
+      mutationFn: (values) =>
+        fetchJson<void>('/beacon/api/user-settings/change-password', {
+          method: 'POST',
+          body: JSON.stringify(values),
+        }),
+      errorFallback: 'Change password failed',
+    }),
+  );
 }

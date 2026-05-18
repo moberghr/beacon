@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { beaconApi } from '@/api/client';
 import { fetchJson } from '@/lib/api';
+import { createSimpleMutation } from '@/lib/mutations';
 
 const MIGRATION_EXECUTIONS_KEY = ['migration-executions'] as const;
 
@@ -50,12 +51,16 @@ export interface CreateMigrationJobResponse {
 
 export function useCreateMigrationJob() {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (values: CreateMigrationJobPayload) =>
-      fetchJson<CreateMigrationJobResponse>('/beacon/api/migrations/jobs', {
-        method: 'POST',
-        body: JSON.stringify(values),
-      }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: MIGRATION_EXECUTIONS_KEY }),
-  });
+  return useMutation(
+    createSimpleMutation<CreateMigrationJobPayload, CreateMigrationJobResponse>({
+      qc,
+      mutationFn: (values) =>
+        fetchJson<CreateMigrationJobResponse>('/beacon/api/migrations/jobs', {
+          method: 'POST',
+          body: JSON.stringify(values),
+        }),
+      invalidate: [MIGRATION_EXECUTIONS_KEY],
+      errorFallback: 'Create migration job failed',
+    }),
+  );
 }

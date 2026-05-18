@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { beaconApi } from '@/api/client';
+import { createSimpleMutation } from '@/lib/mutations';
 
 export function useProjectsQuery() {
   return useQuery({
@@ -26,23 +27,26 @@ export function useProjectDocumentationQuery(id: number | undefined) {
 
 export function useUpdateRepositoryToken() {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ repoId, accessToken }: { repoId: number; accessToken: string | null }) =>
-      beaconApi().updateRepositoryToken(repoId, { accessToken }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['projects'] }),
-  });
+  return useMutation(
+    createSimpleMutation<{ repoId: number; accessToken: string | null }, unknown>({
+      qc,
+      mutationFn: ({ repoId, accessToken }) =>
+        beaconApi().updateRepositoryToken(repoId, { accessToken }),
+      invalidate: [['projects']],
+      errorFallback: 'Update repository token failed',
+    }),
+  );
 }
 
 export function useUpdateDocumentationSection() {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ sectionId, content }: {
-      sectionId: number;
-      content: string;
-      projectId: number;
-    }) => beaconApi().updateDocumentationSection(sectionId, { content }),
-    onSuccess: (_void, vars) => {
-      qc.invalidateQueries({ queryKey: ['projects', vars.projectId, 'documentation'] });
-    },
-  });
+  return useMutation(
+    createSimpleMutation<{ sectionId: number; content: string; projectId: number }, unknown>({
+      qc,
+      mutationFn: ({ sectionId, content }) =>
+        beaconApi().updateDocumentationSection(sectionId, { content }),
+      invalidate: (vars) => [['projects', vars.projectId, 'documentation']],
+      errorFallback: 'Update documentation section failed',
+    }),
+  );
 }

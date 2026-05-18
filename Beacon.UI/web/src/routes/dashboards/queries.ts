@@ -1,11 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { toast } from 'sonner';
 import { beaconApi } from '@/api/client';
+import { createSimpleMutation } from '@/lib/mutations';
 import type {
   DashboardListData,
   DashboardDetailsData,
   DashboardWidgetData,
   AddWidgetBody,
+  CreateDashboardResult,
 } from '@/api/generated/beacon-api';
 
 const DASHBOARDS_KEY = ['dashboards'] as const;
@@ -29,24 +30,32 @@ export function useDashboardQuery(id: number | undefined) {
 
 export function useDeleteDashboard() {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (id: number) => beaconApi().deleteDashboard(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: DASHBOARDS_KEY }),
-  });
+  return useMutation(
+    createSimpleMutation<number, unknown>({
+      qc,
+      mutationFn: (id) => beaconApi().deleteDashboard(id),
+      invalidate: [DASHBOARDS_KEY],
+      errorFallback: 'Failed to delete dashboard',
+    }),
+  );
 }
 
 export function useCreateDashboard() {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (values: { name: string; description?: string | null; isShared: boolean }) =>
-      beaconApi().createDashboard({
-        name: values.name,
-        description: values.description ?? null,
-        isShared: values.isShared,
-        refreshIntervalSeconds: null,
-      } as never),
-    onSuccess: () => qc.invalidateQueries({ queryKey: DASHBOARDS_KEY }),
-  });
+  return useMutation(
+    createSimpleMutation<{ name: string; description?: string | null; isShared: boolean }, CreateDashboardResult>({
+      qc,
+      mutationFn: (values) =>
+        beaconApi().createDashboard({
+          name: values.name,
+          description: values.description ?? null,
+          isShared: values.isShared,
+          refreshIntervalSeconds: null,
+        } as never),
+      invalidate: [DASHBOARDS_KEY],
+      errorFallback: 'Failed to create dashboard',
+    }),
+  );
 }
 
 export const WIDGET_TYPE = {
@@ -67,30 +76,28 @@ export const WIDGET_TYPE_LABEL: Record<number, string> = {
 
 export function useAddWidget(dashboardId: number) {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (body: AddWidgetBody) => beaconApi().addWidget(dashboardId, body),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: dashboardKey(dashboardId) });
-      toast.success('Widget added');
-    },
-    onError: () => {
-      toast.error('Failed to add widget');
-    },
-  });
+  return useMutation(
+    createSimpleMutation<AddWidgetBody, unknown>({
+      qc,
+      mutationFn: (body) => beaconApi().addWidget(dashboardId, body),
+      invalidate: [dashboardKey(dashboardId)],
+      successMsg: 'Widget added',
+      errorFallback: 'Failed to add widget',
+    }),
+  );
 }
 
 export function useDeleteWidget(dashboardId: number) {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (widgetId: number) => beaconApi().deleteWidget(widgetId),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: dashboardKey(dashboardId) });
-      toast.success('Widget removed');
-    },
-    onError: () => {
-      toast.error('Failed to remove widget');
-    },
-  });
+  return useMutation(
+    createSimpleMutation<number, unknown>({
+      qc,
+      mutationFn: (widgetId) => beaconApi().deleteWidget(widgetId),
+      invalidate: [dashboardKey(dashboardId)],
+      successMsg: 'Widget removed',
+      errorFallback: 'Failed to remove widget',
+    }),
+  );
 }
 
 export type { DashboardListData, DashboardDetailsData, DashboardWidgetData, AddWidgetBody };
