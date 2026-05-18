@@ -1,6 +1,5 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { beaconApi } from '@/api/client';
-import { useHubEvent } from '@/lib/useHubEvent';
 import {
   fetchControlTowerHealth,
   fetchControlTowerStatistics,
@@ -49,18 +48,12 @@ export function useQueryFolders() {
 }
 
 /**
- * Invalidate the Control Tower cache whenever a job runs or a notification fires.
- * The hub events are tenant-broadcast — every page becomes self-refreshing without
- * the 30s polling delay.
+ * Live updates for Control Tower now flow through the shared
+ * `useHubInvalidations` hook mounted in AppShell — it invalidates the
+ * `['control-tower']` key on both `JobStatusChanged` and
+ * `NotificationCreated`. This stub stays as a no-op so existing call
+ * sites don't break; remove once the page imports are cleaned up.
  */
-export function useControlTowerLiveUpdates() {
-  const queryClient = useQueryClient();
-
-  useHubEvent('JobStatusChanged', () => {
-    queryClient.invalidateQueries({ queryKey: ['control-tower'] });
-  });
-
-  useHubEvent('NotificationCreated', () => {
-    queryClient.invalidateQueries({ queryKey: ['control-tower'] });
-  });
+export function useControlTowerLiveUpdates(): void {
+  // intentionally empty — see useHubInvalidations.ts
 }

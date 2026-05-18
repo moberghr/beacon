@@ -1,11 +1,9 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, Check, RefreshCw } from 'lucide-react';
 import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { Button, PageHeader } from '@/components/beacon';
-import { useHubEvent } from '@/lib/useHubEvent';
 import { formatDateTime, formatNumber, formatRelativeTime } from '@/lib/format';
 import { usePendingApprovalsQuery, type ApprovalRequestSummary } from './queries';
 import { ReviewApprovalDialog } from './ReviewApprovalDialog';
@@ -16,13 +14,10 @@ export default function ApprovalsListPage() {
   const navigate = useNavigate();
   const { data, isLoading, isError, error, refetch } = usePendingApprovalsQuery();
   const [reviewing, setReviewing] = useState<number | null>(null);
-  const qc = useQueryClient();
 
-  // Realtime: invalidate the list whenever the server announces an approval
-  // change (handled by another reviewer, or this one in another tab).
-  useHubEvent('ApprovalUpdated', () => {
-    qc.invalidateQueries({ queryKey: ['approvals'] });
-  });
+  // Hub-driven invalidation lives in `useHubInvalidations` mounted in
+  // AppShell — approvals refresh automatically when SignalR broadcasts
+  // ApprovalUpdated.
 
   const entries = data ?? [];
 
