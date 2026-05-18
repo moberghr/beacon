@@ -1,0 +1,295 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e5]:
+      - complementary [ref=e6]:
+        - generic [ref=e7]:
+          - generic [ref=e10]: Beacon
+          - generic [ref=e11]: v0.93
+        - navigation [ref=e12]:
+          - generic [ref=e13]:
+            - generic [ref=e14]: Overview
+            - link "Home" [ref=e15] [cursor=pointer]:
+              - /url: /home
+              - img [ref=e16]
+              - generic [ref=e18]: Home
+            - link "Control Tower" [ref=e19] [cursor=pointer]:
+              - /url: /control-tower
+              - img [ref=e20]
+              - generic [ref=e23]: Control Tower
+            - link "Dashboards" [ref=e24] [cursor=pointer]:
+              - /url: /dashboards
+              - img [ref=e25]
+              - generic [ref=e30]: Dashboards
+          - generic [ref=e31]:
+            - generic [ref=e32]: Data
+            - link "Data Sources" [ref=e33] [cursor=pointer]:
+              - /url: /data-sources
+              - img [ref=e34]
+              - generic [ref=e38]: Data Sources
+            - link "Projects" [ref=e39] [cursor=pointer]:
+              - /url: /projects
+              - img [ref=e40]
+              - generic [ref=e42]: Projects
+            - link "Data Quality" [ref=e43] [cursor=pointer]:
+              - /url: /data-quality
+              - img [ref=e44]
+              - generic [ref=e47]: Data Quality
+            - link "Data Migration" [ref=e48] [cursor=pointer]:
+              - /url: /migration-jobs
+              - img [ref=e49]
+              - generic [ref=e51]: Data Migration
+            - link "AI Actors" [ref=e52] [cursor=pointer]:
+              - /url: /ai-actors
+              - img [ref=e53]
+              - generic [ref=e58]: AI Actors
+          - generic [ref=e59]:
+            - generic [ref=e60]: Alerts
+            - link "Queries" [ref=e61] [cursor=pointer]:
+              - /url: /queries
+              - img [ref=e62]
+              - generic [ref=e66]: Queries
+            - link "Subscriptions" [ref=e67] [cursor=pointer]:
+              - /url: /subscriptions
+              - img [ref=e68]
+              - generic [ref=e71]: Subscriptions
+            - link "Notifications" [ref=e72] [cursor=pointer]:
+              - /url: /notifications
+              - img [ref=e73]
+              - generic [ref=e76]: Notifications
+            - link "Recipients" [ref=e77] [cursor=pointer]:
+              - /url: /recipients
+              - img [ref=e78]
+              - generic [ref=e82]: Recipients
+            - link "Tasks" [ref=e83] [cursor=pointer]:
+              - /url: /tasks
+              - img [ref=e84]
+              - generic [ref=e87]: Tasks
+          - generic [ref=e88]:
+            - generic [ref=e89]: MCP
+            - link "Data Catalog" [ref=e90] [cursor=pointer]:
+              - /url: /data-catalog
+              - img [ref=e91]
+              - generic [ref=e94]: Data Catalog
+            - link "API Keys" [ref=e95] [cursor=pointer]:
+              - /url: /api-keys
+              - img [ref=e96]
+              - generic [ref=e99]: API Keys
+            - link "MCP Settings" [ref=e100] [cursor=pointer]:
+              - /url: /mcp-settings
+              - img [ref=e101]
+              - generic [ref=e106]: MCP Settings
+            - link "MCP Playground" [ref=e107] [cursor=pointer]:
+              - /url: /mcp-playground
+              - img [ref=e108]
+              - generic [ref=e110]: MCP Playground
+            - link "MCP Learning" [ref=e111] [cursor=pointer]:
+              - /url: /mcp-learning
+              - img [ref=e112]
+              - generic [ref=e114]: MCP Learning
+          - generic [ref=e115]:
+            - generic [ref=e116]: Admin
+            - link "User Management" [ref=e117] [cursor=pointer]:
+              - /url: /users
+              - img [ref=e118]
+              - generic [ref=e122]: User Management
+            - link "Admin Settings" [ref=e123] [cursor=pointer]:
+              - /url: /admin-settings
+              - img [ref=e124]
+              - generic [ref=e127]: Admin Settings
+          - link "About" [ref=e129] [cursor=pointer]:
+            - /url: /about
+            - img [ref=e130]
+            - generic [ref=e133]: About
+        - generic [ref=e135] [cursor=pointer]:
+          - generic [ref=e136]: MI
+          - generic [ref=e137]:
+            - generic [ref=e138]: mirko
+            - generic [ref=e139]: Admin
+          - img [ref=e140]
+      - main [ref=e142]:
+        - generic [ref=e143]:
+          - generic [ref=e145]:
+            - generic [ref=e146]:
+              - generic [ref=e147]:
+                - link "Queries" [ref=e148] [cursor=pointer]:
+                  - /url: /queries
+                - generic [ref=e149]: /
+                - generic [ref=e150]: NEW
+                - generic [ref=e151]: ·
+                - generic [ref=e152]: DRAFT
+              - heading "Compose a cross-source query." [level=1] [ref=e153]:
+                - text: Compose a
+                - generic [ref=e154]: cross-source
+                - text: query.
+              - paragraph [ref=e155]: "Chain SQL steps across data sources, pipe results between steps using @result1, and parameterize with {name}."
+            - generic [ref=e156]:
+              - button "Back" [ref=e157] [cursor=pointer]:
+                - img [ref=e159]
+                - text: Back
+              - button "Run" [disabled] [ref=e161]:
+                - img [ref=e162]
+                - text: Run
+              - button "Save query" [disabled] [ref=e164]:
+                - img [ref=e165]
+                - text: Save query
+          - generic [ref=e168]:
+            - generic [ref=e169]:
+              - generic [ref=e170]:
+                - generic [ref=e171]:
+                  - img [ref=e172]
+                  - heading "Query details" [level=3] [ref=e175]
+                  - generic [ref=e177]: UNSAVED
+                - generic [ref=e179]:
+                  - generic [ref=e180]:
+                    - generic [ref=e181]:
+                      - text: Query name
+                      - generic [ref=e182]: "*"
+                    - textbox "Query name *" [ref=e183]:
+                      - /placeholder: e.g. EU signups vs revenue — daily
+                    - generic [ref=e184]: A short, descriptive name. Shown in lists and notifications.
+                  - generic [ref=e185]:
+                    - generic [ref=e186]:
+                      - text: Description
+                      - generic [ref=e187]: "*"
+                    - textbox "Description *" [ref=e188]:
+                      - /placeholder: What does this query measure, and why? Include thresholds and audience.
+                    - generic [ref=e189]: 0/280 · plain text.
+              - generic [ref=e190]:
+                - generic [ref=e191]:
+                  - img [ref=e192]
+                  - heading "Cross-data-source query builder" [level=3] [ref=e197]
+                  - generic [ref=e198]: 1 step · 0 params
+                  - button "Add step" [ref=e200] [cursor=pointer]:
+                    - img [ref=e201]
+                    - text: Add step
+                - generic [ref=e205]:
+                  - generic [ref=e206]:
+                    - generic [ref=e207]: "01"
+                    - generic [ref=e208]: Step 1
+                    - generic [ref=e209]: not run
+                    - button "Remove step" [disabled] [ref=e211] [cursor=pointer]:
+                      - img [ref=e212]
+                  - generic [ref=e214]:
+                    - generic [ref=e215]:
+                      - generic [ref=e216]:
+                        - generic [ref=e217]: Step name
+                        - textbox [ref=e218]: Step 1
+                      - generic [ref=e219]:
+                        - generic [ref=e220]: Target database
+                        - combobox [ref=e221]:
+                          - option "Select data source…"
+                          - option "local (PostgreSQL)" [selected]
+                        - generic [ref=e222]: PostgreSQL
+                    - generic [ref=e223]:
+                      - generic [ref=e224]: SQL query
+                      - generic [ref=e225]: "First step has no upstream results. Use {param_name} for parameters."
+                      - code [ref=e229]:
+                        - generic [ref=e230]:
+                          - textbox "Editor content" [ref=e231]
+                          - textbox [ref=e232]
+                          - generic [ref=e237]: "1"
+                    - generic [ref=e244]:
+                      - generic [ref=e245]:
+                        - generic [ref=e246]:
+                          - text: Parameters
+                          - generic [ref=e247]: none
+                        - button "Re-scan" [ref=e248] [cursor=pointer]:
+                          - img [ref=e249]
+                          - text: Re-scan
+                      - button "add parameter" [ref=e255] [cursor=pointer]:
+                        - img [ref=e256]
+                        - text: add parameter
+              - generic [ref=e258]:
+                - generic [ref=e259]:
+                  - img [ref=e260]
+                  - heading "Query flow" [level=3] [ref=e265]
+                  - generic [ref=e266]: step graph
+                - generic [ref=e267]:
+                  - generic [ref=e269]:
+                    - generic [ref=e270]: STEP 1 · STEP 1
+                    - generic [ref=e271]: local · PostgreSQL
+                  - button "Pipe to next step" [ref=e273] [cursor=pointer]:
+                    - img [ref=e274]
+                    - text: Pipe to next step
+            - complementary [ref=e276]:
+              - generic [ref=e277]:
+                - generic [ref=e278]:
+                  - img [ref=e279]
+                  - heading "Query info" [level=3] [ref=e282]
+                - generic [ref=e283]:
+                  - generic [ref=e284]:
+                    - generic [ref=e285]: Steps
+                    - generic [ref=e286]: "1"
+                  - generic [ref=e287]:
+                    - generic [ref=e288]: Sources used
+                    - generic [ref=e289]: "1"
+                    - generic [ref=e290]: local
+                  - generic [ref=e291]:
+                    - generic [ref=e292]: Parameters
+                    - generic [ref=e293]: "0"
+                    - generic [ref=e294]: —
+                  - generic [ref=e295]:
+                    - generic [ref=e296]: Estimated cost
+                    - generic [ref=e297]: —
+                    - generic [ref=e298]: run to estimate
+                  - generic [ref=e299]:
+                    - generic [ref=e300]: Last edited
+                    - generic [ref=e301]: just now
+              - generic [ref=e302]:
+                - generic [ref=e303]:
+                  - img [ref=e304]
+                  - heading "Pre-flight checks" [level=3] [ref=e307]
+                  - generic [ref=e309]: 3 to fix
+                - generic [ref=e310]:
+                  - generic [ref=e311]:
+                    - img [ref=e313]
+                    - generic [ref=e315]:
+                      - generic [ref=e316]: Query name is required
+                      - generic [ref=e317]: add a descriptive name
+                  - generic [ref=e318]:
+                    - img [ref=e320]
+                    - generic [ref=e322]:
+                      - generic [ref=e323]: Description is required
+                      - generic [ref=e324]: explain what this measures
+                  - generic [ref=e325]:
+                    - img [ref=e327]
+                    - generic [ref=e329]:
+                      - generic [ref=e330]: All steps have SQL
+                      - generic [ref=e331]: 1 step
+                  - generic [ref=e332]:
+                    - img [ref=e334]
+                    - generic [ref=e337]:
+                      - generic [ref=e338]: Each step has a target source
+                      - generic [ref=e339]: local
+                  - generic [ref=e340]:
+                    - img [ref=e342]
+                    - generic [ref=e345]:
+                      - generic [ref=e346]: Run to validate output
+                      - generic [ref=e347]: available after save
+              - generic [ref=e348]:
+                - img [ref=e349]
+                - generic [ref=e351]:
+                  - generic [ref=e352]: Tip · pipe results
+                  - generic [ref=e353]: Reference a previous step using @result1 in your FROM clause to chain across sources.
+          - generic [ref=e354]:
+            - generic [ref=e355]:
+              - generic [ref=e356]: DRAFT
+              - generic [ref=e357]: Database explorer ships in a follow-up.
+            - generic [ref=e358]:
+              - generic [ref=e359]: Press
+              - generic [ref=e360]: ⌘
+              - generic [ref=e361]: ↵
+              - generic [ref=e362]: to run ·
+              - generic [ref=e363]: ⌘
+              - generic [ref=e364]: S
+              - generic [ref=e365]: to save
+            - button "Run" [disabled] [ref=e366]:
+              - img [ref=e367]
+              - text: Run
+            - button "Save query" [disabled] [ref=e369]:
+              - img [ref=e370]
+              - text: Save query
+    - region "Notifications alt+T"
+  - generic [ref=e373]:
+    - alert
+    - alert

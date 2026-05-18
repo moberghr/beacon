@@ -21,6 +21,8 @@ internal sealed class GetControlTowerHealthHandler(IControlTowerService controlT
             HealthStatus = request.HealthStatus,
             HasUnresolvedTasks = request.HasUnresolvedTasks,
             SearchKeyword = request.SearchKeyword,
+            TimeRangeDays = request.TimeRangeDays,
+            SortBy = request.SortBy
         };
 
         var data = await controlTowerService.GetSubscriptionHealthOverview(serviceRequest, cancellationToken);
@@ -36,6 +38,8 @@ public record GetControlTowerHealthQuery(
     int? FolderId = null,
     HealthStatus? HealthStatus = null,
     bool? HasUnresolvedTasks = null,
-    string? SearchKeyword = null) : IRequest<GetControlTowerHealthResult>;
+    string? SearchKeyword = null,
+    int TimeRangeDays = 30,
+    ControlTowerSortBy SortBy = ControlTowerSortBy.WorstFirst) : IRequest<GetControlTowerHealthResult>;
 
 public record GetControlTowerHealthResult(List<ControlTowerSubscriptionHealthData> Entries, int TotalCount);

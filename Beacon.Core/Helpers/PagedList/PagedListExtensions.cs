@@ -12,8 +12,8 @@ public static class PagedListExtensions
     {
         var data = await query
             .ApplySorters(request as SortedListRequest)
-            .Skip(request.Page * request.PageSize)
-            .Take(request.PageSize)
+            .Skip(request.PageOrDefault * request.PageSizeOrDefault)
+            .Take(request.PageSizeOrDefault)
             .ToListAsync(cancellationToken);
 
         return new PagedList<T>(data);
@@ -26,8 +26,8 @@ public static class PagedListExtensions
 
         var data = await query
             .ApplySorters(request as SortedListRequest)
-            .Skip(request.Page * request.PageSize)
-            .Take(request.PageSize)
+            .Skip(request.PageOrDefault * request.PageSizeOrDefault)
+            .Take(request.PageSizeOrDefault)
             .ToListAsync(cancellationToken);
 
         return new PagedList<T>(data, totalCount);
@@ -40,8 +40,8 @@ public static class PagedListExtensions
 
         var data = query
             .ApplySorters(request as SortedListRequest)
-            .Skip(request.Page * request.PageSize)
-            .Take(request.PageSize)
+            .Skip(request.PageOrDefault * request.PageSizeOrDefault)
+            .Take(request.PageSizeOrDefault)
             .ToList();
 
         return new PagedList<T>(data, totalCount);

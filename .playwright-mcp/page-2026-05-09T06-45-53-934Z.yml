@@ -1,0 +1,19 @@
+- generic [ref=e2]:
+  - generic [ref=e4]:
+    - heading "Sign in" [level=1] [ref=e5]
+    - paragraph [ref=e6]: Sign in to your Beacon workspace
+    - link "Continue with single sign-on" [ref=e7] [cursor=pointer]:
+      - /url: /beacon/api/auth/sso/challenge
+    - generic [ref=e9]: or
+    - generic [ref=e10]:
+      - generic [ref=e11]:
+        - generic [ref=e12]: Username
+        - textbox "Username" [ref=e13]
+      - generic [ref=e14]:
+        - generic [ref=e15]: Password
+        - textbox "Password" [ref=e16]
+      - generic [ref=e17]:
+        - checkbox "Remember me" [ref=e18]
+        - generic [ref=e19]: Remember me
+      - button "Sign in" [ref=e20] [cursor=pointer]
+  - region "Notifications alt+T"
