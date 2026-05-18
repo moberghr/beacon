@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { describeError, fetchJson } from '@/lib/api';
+import { ApiError, describeError, fetchJson } from '@/lib/api';
 import { useAuth } from '@/auth/useAuth';
 import { Button, Field, Input } from '@/components/beacon';
 
@@ -57,8 +57,26 @@ export default function LoginPage() {
       }
       window.location.href = result.redirectUrl || '/home';
     } catch (e) {
-      setServerError(describeError(e, 'Login failed. Try again.'));
+      setServerError(extractLoginError(e));
     }
+  }
+
+  // The login endpoint returns `LoginResponse` JSON with status 401 on
+  // bad creds; fetchJson throws ApiError(401, bodyJson) for non-2xx, so
+  // err.body is the raw JSON. Parse it to surface the human-readable
+  // `error` field instead of the wire payload.
+  function extractLoginError(e: unknown): string {
+    if (e instanceof ApiError) {
+      try {
+        const parsed = JSON.parse(e.body) as Partial<LoginResponse>;
+        if (typeof parsed.error === 'string' && parsed.error.length > 0) {
+          return parsed.error;
+        }
+      } catch {
+        // body wasn't JSON — fall through to describeError
+      }
+    }
+    return describeError(e, 'Login failed. Try again.');
   }
 
   return (
