@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import {
   AiProvider,
   BedrockAuthMode,
@@ -9,33 +10,40 @@ import {
 } from '../queries';
 
 /**
+ * Schema source of truth for the admin-settings form. Lives next to the
+ * form helpers so both the page and any extracted sub-components share
+ * the same `FormValues` type.
+ */
+export const ADMIN_SETTINGS_SCHEMA = z.object({
+  baseUrl: z.string().trim().max(500).optional(),
+  llmProvider: z.number().int().min(0).max(3),
+  llmModel: z.string().trim().max(200).optional(),
+  llmFastModel: z.string().trim().max(200).optional(),
+  llmRegion: z.string().trim().max(100).optional(),
+  llmBedrockAuthMode: z.number().int().min(0).max(2),
+  llmApiKey: z.string().max(500).optional(),
+  llmEndpoint: z.string().trim().max(500).optional(),
+  llmSessionToken: z.string().max(2000).optional(),
+  llmAwsAccessKeyId: z.string().max(200).optional(),
+  llmAwsSecretAccessKey: z.string().max(500).optional(),
+  llmMaxConcurrentRequests: z.number().int().min(1).max(1000),
+  llmTokensPerMinute: z.number().int().min(0),
+  llmRequestsPerMinute: z.number().int().min(0),
+  llmMonthlyBudget: z.number().min(0),
+});
+
+export type FormValues = z.infer<typeof ADMIN_SETTINGS_SCHEMA>;
+
+/**
  * Form shape used by `AdminSettingsForm`. Mirrors `AdminSettingsView` but
  * with strings for every field (RHF + zod prefer plain strings; `null`
  * round-trips through the conversion helpers below).
  */
 /**
- * Mirrors the zod schema in `AdminSettingsPage` — `llmProvider` and
- * `llmBedrockAuthMode` are validated as `z.number()`, so they come out
- * of zod as plain `number` (we cast back to the branded enum types in
- * the payload converters below).
+ * Alias kept for callers that import this name. The canonical type is
+ * `FormValues` (above), inferred from `ADMIN_SETTINGS_SCHEMA`.
  */
-export interface AdminSettingsFormValues {
-  baseUrl?: string;
-  llmProvider: number;
-  llmModel?: string;
-  llmFastModel?: string;
-  llmRegion?: string;
-  llmBedrockAuthMode: number;
-  llmApiKey?: string;
-  llmEndpoint?: string;
-  llmSessionToken?: string;
-  llmAwsAccessKeyId?: string;
-  llmAwsSecretAccessKey?: string;
-  llmMaxConcurrentRequests: number;
-  llmTokensPerMinute: number;
-  llmRequestsPerMinute: number;
-  llmMonthlyBudget: number;
-}
+export type AdminSettingsFormValues = FormValues;
 
 /**
  * Trim and treat empty strings as `null`. Used for non-secret string

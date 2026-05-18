@@ -2,11 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
-  AlertTriangle,
   ArrowLeft,
   Check,
   ChevronRight,
-  Clock,
   GitBranch,
   Info,
   Lightbulb,
@@ -31,8 +29,8 @@ import {
   Select,
   Kbd,
 } from '@/components/beacon';
-import { cn } from '@/lib/cn';
 import { NewStepEditorWithExplorer } from './new/NewStepEditorWithExplorer';
+import { InfoRow, CheckRow, type CheckTone } from './new/atoms';
 import { useDataSourcesQuery } from '@/routes/data-sources/queries';
 import {
   PARAMETER_TYPE,
@@ -102,8 +100,6 @@ function toStepPayload(step: DraftStep, idx: number): UpdateQueryStepPayload {
     parameters,
   };
 }
-
-type CheckTone = 'ok' | 'warn' | 'pending';
 
 export default function NewQueryPage() {
   const navigate = useNavigate();
@@ -674,46 +670,3 @@ export default function NewQueryPage() {
   );
 }
 
-function InfoRow({ label, value, detail }: { label: string; value: string; detail?: string }) {
-  return (
-    <div className="flex items-baseline gap-2">
-      <span className="text-xs text-text-muted min-w-[92px]">{label}</span>
-      <span className="mono text-sm text-text font-medium">{value}</span>
-      {detail && (
-        <span className="mono text-text-subtle text-xs ml-auto truncate">{detail}</span>
-      )}
-    </div>
-  );
-}
-
-const checkToneClasses: Record<CheckTone, string> = {
-  ok: 'bg-ok-bg text-ok',
-  warn: 'bg-warn-bg text-warn',
-  pending: 'bg-surface-2 text-text-muted',
-};
-
-function CheckRow({
-  tone,
-  title,
-  detail,
-}: {
-  tone: CheckTone;
-  title: string;
-  detail?: string;
-}) {
-  const ic =
-    tone === 'ok' ? <Check size={11} /> :
-    tone === 'warn' ? <AlertTriangle size={11} /> :
-    <Clock size={11} />;
-  return (
-    <div className="flex items-start gap-2.5">
-      <span className={cn('inline-flex items-center justify-center size-5 rounded-full shrink-0 mt-0.5', checkToneClasses[tone])}>
-        {ic}
-      </span>
-      <div className="flex-1 min-w-0">
-        <div className="text-sm">{title}</div>
-        {detail && <div className="text-xs text-text-muted">{detail}</div>}
-      </div>
-    </div>
-  );
-}
