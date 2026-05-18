@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { describeError, fetchJson } from '@/lib/api';
+import { describeError } from '@/lib/api';
+import { beaconApi } from '@/api/client';
 import { createSimpleMutation } from '@/lib/mutations';
 
 export type ScoreTone = 'ok' | 'warn' | 'crit' | 'neutral';
@@ -114,36 +115,47 @@ export const DATA_CONTRACTS_KEY = ['data-quality', 'contracts'] as const;
 export const dataContractKey = (id: number) => ['data-quality', 'contract', id] as const;
 export const evaluationHistoryKey = (id: number) => ['data-quality', 'contract', id, 'history'] as const;
 
+// Generated DTOs use `?:` everywhere; the hand-typed interfaces in this
+// file are stricter (most fields required). We cast at the boundary —
+// runtime shape is identical, only the TS types differ.
+
 export function useDataQualityOverview() {
   return useQuery({
     queryKey: DATA_QUALITY_OVERVIEW_KEY,
-    queryFn: () => fetchJson<DataQualityOverviewData[]>('/beacon/api/data-quality/overview'),
+    queryFn: async () =>
+      (await beaconApi().getDataQualityOverview(undefined)) as DataQualityOverviewData[],
   });
 }
 
 export function useDataContracts() {
   return useQuery({
     queryKey: DATA_CONTRACTS_KEY,
-    queryFn: () => fetchJson<DataContractData[]>('/beacon/api/data-quality/contracts'),
+    queryFn: async () =>
+      (await beaconApi().getDataContracts(undefined)) as unknown as DataContractData[],
   });
 }
 
 export function useDataContract(id: number | null) {
   return useQuery({
     queryKey: id === null ? ['data-quality', 'contract', 'null'] : dataContractKey(id),
-    queryFn: () =>
-      fetchJson<DataContractData>(`/beacon/api/data-quality/contracts/${id}`),
+    queryFn: async () =>
+      (await beaconApi().getDataContractDetail(id as number)) as unknown as DataContractData,
     enabled: id !== null,
   });
 }
 
 export function useEvaluationHistory(id: number | null) {
+  // No corresponding method on the generated client yet — endpoint lives
+  // outside the OpenAPI doc; keep TODO for codegen refresh.
   return useQuery({
     queryKey: id === null ? ['data-quality', 'contract', 'null', 'history'] : evaluationHistoryKey(id),
-    queryFn: () =>
-      fetchJson<{ evaluations: DataQualityEvaluationData[] }>(
-        `/beacon/api/data-quality/contracts/${id}/evaluations`,
-      ),
+    queryFn: async () => {
+      const response = await fetch(`/beacon/api/data-quality/contracts/${id}/evaluations`, {
+        credentials: 'include',
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return (await response.json()) as { evaluations: DataQualityEvaluationData[] };
+    },
     enabled: id !== null,
   });
 }
@@ -153,11 +165,8 @@ export function useEvaluateContract(id: number) {
   return useMutation(
     createSimpleMutation<void, DataQualityEvaluationData>({
       qc,
-      mutationFn: () =>
-        fetchJson<DataQualityEvaluationData>(
-          `/beacon/api/data-quality/contracts/${id}/evaluate`,
-          { method: 'POST', body: '{}' },
-        ),
+      mutationFn: async () =>
+        (await beaconApi().evaluateDataContract(id)) as unknown as DataQualityEvaluationData,
       invalidate: [dataContractKey(id), evaluationHistoryKey(id), DATA_QUALITY_OVERVIEW_KEY],
       errorFallback: 'Evaluate contract failed',
     }),
@@ -169,8 +178,7 @@ export function useDeleteContract() {
   return useMutation(
     createSimpleMutation<number, void>({
       qc,
-      mutationFn: (id) =>
-        fetchJson<void>(`/beacon/api/data-quality/contracts/${id}`, { method: 'DELETE' }),
+      mutationFn: (id) => beaconApi().deleteDataContract(id),
       invalidate: [DATA_CONTRACTS_KEY, DATA_QUALITY_OVERVIEW_KEY],
       errorFallback: 'Delete contract failed',
     }),
@@ -197,11 +205,10 @@ export function useCreateContract() {
   return useMutation(
     createSimpleMutation<CreateContractPayload, { dataContractId: number }>({
       qc,
-      mutationFn: (payload) =>
-        fetchJson<{ dataContractId: number }>('/beacon/api/data-quality/contracts', {
-          method: 'POST',
-          body: JSON.stringify(payload),
-        }),
+      mutationFn: async (payload) => {
+        const result = await beaconApi().createDataContract(payload as never);
+        return { dataContractId: result.dataContractId ?? 0 };
+      },
       invalidate: [DATA_CONTRACTS_KEY, DATA_QUALITY_OVERVIEW_KEY],
       errorFallback: 'Create contract failed',
     }),
@@ -213,11 +220,7 @@ export function useUpdateContract(id: number) {
   return useMutation(
     createSimpleMutation<Omit<CreateContractPayload, 'dataSourceId'> & { dataSourceId: number }, void>({
       qc,
-      mutationFn: (payload) =>
-        fetchJson<void>(`/beacon/api/data-quality/contracts/${id}`, {
-          method: 'PUT',
-          body: JSON.stringify(payload),
-        }),
+      mutationFn: (payload) => beaconApi().updateDataContract(id, payload as never),
       invalidate: [DATA_CONTRACTS_KEY, dataContractKey(id)],
       errorFallback: 'Update contract failed',
     }),

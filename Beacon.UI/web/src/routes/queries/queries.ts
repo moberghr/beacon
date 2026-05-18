@@ -201,18 +201,15 @@ export function useQueryChangeHistoryQuery(
 ) {
   return useQuery({
     queryKey: ['query', id, 'change-history', filters],
-    queryFn: () => {
-      const params = new URLSearchParams();
-      if (filters.stepId != null) params.set('stepId', String(filters.stepId));
-      if (filters.changeSource != null) params.set('changeSource', String(filters.changeSource));
-      if (filters.fromDate) params.set('fromDate', filters.fromDate);
-      if (filters.toDate) params.set('toDate', filters.toDate);
-      if (filters.maxResults != null) params.set('maxResults', String(filters.maxResults));
-      const qs = params.toString();
-      return fetchJson<QueryChangeHistoryResult>(
-        `/beacon/api/queries/${id}/change-history${qs ? `?${qs}` : ''}`,
-      );
-    },
+    queryFn: async () =>
+      (await beaconApi().getQueryChangeHistory(
+        id as number,
+        filters.stepId,
+        filters.changeSource,
+        filters.fromDate ? new Date(filters.fromDate) : undefined,
+        filters.toDate ? new Date(filters.toDate) : undefined,
+        filters.maxResults,
+      )) as unknown as QueryChangeHistoryResult,
     enabled: typeof id === 'number' && Number.isFinite(id),
   });
 }
