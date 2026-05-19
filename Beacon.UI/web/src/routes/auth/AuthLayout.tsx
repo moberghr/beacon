@@ -129,12 +129,6 @@ export function AuthLayout({
 
           <div className="login__foot">
             <span>© {now.getFullYear()} Beacon</span>
-            <span className="login__dot-sep">·</span>
-            <a href="#">Privacy</a>
-            <span className="login__dot-sep">·</span>
-            <a href="#">Status</a>
-            <span className="login__dot-sep">·</span>
-            <a href="#">Docs</a>
           </div>
         </div>
       </aside>
@@ -155,10 +149,6 @@ export function AuthLayout({
           </header>
 
           {children}
-        </div>
-
-        <div className="login__legal">
-          By signing in you agree to the <a href="#">Terms</a> and <a href="#">Privacy Policy</a>.
         </div>
       </main>
     </div>

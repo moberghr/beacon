@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { User, Lock, Check, ShieldCheck } from 'lucide-react';
+import { User, Lock, ShieldCheck } from 'lucide-react';
 import { ApiError, describeError, fetchJson } from '@/lib/api';
 import { useAuth } from '@/auth/useAuth';
 import { AuthLayout, AuthAlert, EmphasisWord } from './AuthLayout';
@@ -11,7 +11,6 @@ import { AuthLayout, AuthAlert, EmphasisWord } from './AuthLayout';
 const SCHEMA = z.object({
   username: z.string().trim().min(1, 'Username is required'),
   password: z.string().min(1, 'Password is required'),
-  rememberMe: z.boolean(),
 });
 type FormValues = z.infer<typeof SCHEMA>;
 
@@ -33,7 +32,7 @@ export default function LoginPage() {
 
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<FormValues>({
     resolver: zodResolver(SCHEMA),
-    defaultValues: { username: '', password: '', rememberMe: true },
+    defaultValues: { username: '', password: '' },
   });
 
   useEffect(() => {
@@ -50,7 +49,7 @@ export default function LoginPage() {
         body: JSON.stringify({
           username: values.username,
           password: values.password,
-          rememberMe: values.rememberMe,
+          rememberMe: false,
         }),
       });
       if (!result.success) {
@@ -84,18 +83,6 @@ export default function LoginPage() {
   return (
     <AuthLayout
       eyebrow="SIGN IN"
-      topbarRight={
-        <>
-          <span style={{ color: 'var(--text-subtle)' }}>Don't have an account?</span>
-          <a
-            href="mailto:?subject=Beacon%20access%20request"
-            className="login__sso-btn"
-            style={{ padding: '4px 10px', fontSize: 12 }}
-          >
-            Request access
-          </a>
-        </>
-      }
       title={
         <>
           Welcome <EmphasisWord>back</EmphasisWord>.
@@ -133,12 +120,7 @@ export default function LoginPage() {
         </label>
 
         <label className="login__field">
-          <span className="login__label-row">
-            <span className="login__label">Password</span>
-            <a href="#" className="login__forgot">
-              Forgot?
-            </a>
-          </span>
+          <span className="login__label">Password</span>
           <div className="login__input">
             <Lock size={14} className="login__input-icon" />
             <input
@@ -159,16 +141,6 @@ export default function LoginPage() {
           </div>
           {errors.password && <span className="login__field-error">{errors.password.message}</span>}
         </label>
-
-        <div className="login__row">
-          <label className="login__check">
-            <input type="checkbox" {...register('rememberMe')} disabled={isSubmitting} />
-            <span className="login__check-box" aria-hidden>
-              <Check size={11} strokeWidth={3} />
-            </span>
-            <span>Keep me signed in for 30 days</span>
-          </label>
-        </div>
 
         <button type="submit" className="login__submit" disabled={isSubmitting}>
           {isSubmitting ? (
