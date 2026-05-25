@@ -21,12 +21,20 @@ import { MIGRATION_MODE_LABEL } from '@/routes/migration-history/queries';
 
 type TabKey = 'overview' | 'executions';
 
+export enum MigrationExecutionStatus {
+  Queued = 0,
+  Running = 1,
+  Succeeded = 2,
+  Failed = 3,
+  Cancelled = 4,
+}
+
 const EXECUTION_STATUS_LABEL: Record<number, string> = {
-  0: 'Queued',
-  1: 'Running',
-  2: 'Succeeded',
-  3: 'Failed',
-  4: 'Cancelled',
+  [MigrationExecutionStatus.Queued]: 'Queued',
+  [MigrationExecutionStatus.Running]: 'Running',
+  [MigrationExecutionStatus.Succeeded]: 'Succeeded',
+  [MigrationExecutionStatus.Failed]: 'Failed',
+  [MigrationExecutionStatus.Cancelled]: 'Cancelled',
 };
 
 function useJobExecutionsQuery(jobId: number | null) {
@@ -87,11 +95,11 @@ export default function MigrationJobDetailPage() {
   const handleRun = async () => {
     try {
       const result = await runMutation.mutateAsync({ id: job.id });
-      if (result.status === 3) {
+      if (result.status === MigrationExecutionStatus.Failed) {
         toast.error(result.errorMessage ?? 'Migration failed');
         return;
       }
-      if (result.status === 2) {
+      if (result.status === MigrationExecutionStatus.Succeeded) {
         toast.success(
           `Migration succeeded — ${formatNumber(result.sourceRowsRead)} read, ${formatNumber(result.destinationRowsWritten)} written`,
         );
@@ -119,8 +127,8 @@ export default function MigrationJobDetailPage() {
 
   const execs = executions.data?.executions ?? [];
   const lastExec = execs[0];
-  const successCount = execs.filter(e => e.status === 2).length;
-  const failedCount = execs.filter(e => e.status === 3).length;
+  const successCount = execs.filter(e => e.status === MigrationExecutionStatus.Succeeded).length;
+  const failedCount = execs.filter(e => e.status === MigrationExecutionStatus.Failed).length;
 
   const tabs: TabDef<TabKey>[] = [
     { key: 'overview', label: <><Layers className="size-3.5" /> Overview</> },
@@ -289,8 +297,8 @@ function ExecutionsTab({ executions, isLoading, isError, error }: {
       header: 'Status',
       render: r => {
         const label = EXECUTION_STATUS_LABEL[r.status] ?? `status ${r.status}`;
-        if (r.status === 2) return <Pill tone="ok">{label}</Pill>;
-        if (r.status === 3) return <Pill tone="crit">{label}</Pill>;
+        if (r.status === MigrationExecutionStatus.Succeeded) return <Pill tone="ok">{label}</Pill>;
+        if (r.status === MigrationExecutionStatus.Failed) return <Pill tone="crit">{label}</Pill>;
         return <Pill>{label}</Pill>;
       },
     },

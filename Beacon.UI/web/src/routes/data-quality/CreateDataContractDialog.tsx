@@ -1,4 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo } from 'react';
+import { useFieldArray, useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
 import { toast } from 'sonner';
 import { Dialog } from '@/components/ui/Dialog';
 import {
@@ -58,19 +61,49 @@ const CONFIG_HINT: Record<number, string> = {
 
 const REQ = <span className="text-crit">*</span>;
 
-interface RuleEditModel {
-  id?: number;
-  name: string;
-  description: string;
-  ruleType: number;
-  columnName: string;
-  configuration: string;
-  severity: number;
-  weight: number;
-  isEnabled: boolean;
-}
+const ruleSchema = z.object({
+  id: z.number().optional(),
+  name: z.string().trim().min(1, 'Required').max(200),
+  description: z.string().max(1000),
+  ruleType: z.number(),
+  columnName: z.string(),
+  configuration: z.string(),
+  severity: z.number(),
+  weight: z.number().min(0.1).max(10),
+  isEnabled: z.boolean(),
+});
 
-function blankRule(index: number): RuleEditModel {
+const schema = z.object({
+  name: z.string().trim().min(1, 'Required').max(200),
+  description: z.string().max(1000),
+  dataSourceId: z.number(),
+  schemaName: z.string().trim().min(1, 'Required').max(200),
+  tableName: z.string().trim().min(1, 'Required').max(200),
+  cronExpression: z.string().trim().min(1, 'Required').max(100),
+  isEnabled: z.boolean(),
+  alertOnFailure: z.boolean(),
+  failureThreshold: z.number().min(0).max(100),
+  rules: z.array(ruleSchema),
+  recipientIds: z.array(z.number()),
+});
+
+type FormValues = z.infer<typeof schema>;
+
+const DEFAULTS: FormValues = {
+  name: '',
+  description: '',
+  dataSourceId: undefined as unknown as number,
+  schemaName: '',
+  tableName: '',
+  cronExpression: '0 */6 * * *',
+  isEnabled: true,
+  alertOnFailure: true,
+  failureThreshold: 80,
+  rules: [],
+  recipientIds: [],
+};
+
+function blankRule(index: number): FormValues['rules'][number] {
   return {
     name: `Rule ${index + 1}`,
     description: '',
@@ -91,34 +124,33 @@ export function CreateDataContractDialog({ editContractId, onClose }: Props) {
   const createMutation = useCreateContract();
   const updateMutation = useUpdateContract(editContractId ?? 0);
 
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
-  const [dataSourceId, setDataSourceId] = useState<number | null>(null);
-  const [schemaName, setSchemaName] = useState('');
-  const [tableName, setTableName] = useState('');
-  const [cronExpression, setCronExpression] = useState('0 */6 * * *');
-  const [isEnabled, setIsEnabled] = useState(true);
-  const [alertOnFailure, setAlertOnFailure] = useState(true);
-  const [failureThreshold, setFailureThreshold] = useState(80);
-  const [rules, setRules] = useState<RuleEditModel[]>([]);
-  const [recipientIds, setRecipientIds] = useState<number[]>([]);
+  const form = useForm<FormValues>({
+    resolver: zodResolver(schema),
+    defaultValues: DEFAULTS,
+    mode: 'onChange',
+  });
 
-  // Pre-fill from existing contract when editing.
+  const { register, control, handleSubmit, reset, watch, setValue, formState } = form;
+  const { isValid } = formState;
+  const ruleArray = useFieldArray({ control, name: 'rules' });
+  const alertOnFailure = watch('alertOnFailure');
+  const rules = watch('rules');
+
   useEffect(() => {
     const c = existingQ.data;
     if (!c) return;
-    setName(c.name);
-    setDescription(c.description ?? '');
-    setDataSourceId(c.dataSourceId);
-    setSchemaName(c.schemaName);
-    setTableName(c.tableName);
-    setCronExpression(c.cronExpression);
-    setIsEnabled(c.isEnabled);
-    setAlertOnFailure(c.alertOnFailure);
-    setFailureThreshold(c.failureThresholdScore);
-    setRecipientIds(c.recipients.map(r => r.id));
-    setRules(
-      c.rules.map(r => ({
+    reset({
+      name: c.name,
+      description: c.description ?? '',
+      dataSourceId: c.dataSourceId,
+      schemaName: c.schemaName,
+      tableName: c.tableName,
+      cronExpression: c.cronExpression,
+      isEnabled: c.isEnabled,
+      alertOnFailure: c.alertOnFailure,
+      failureThreshold: c.failureThresholdScore,
+      recipientIds: c.recipients.map(r => r.id),
+      rules: c.rules.map(r => ({
         id: r.id,
         name: r.name,
         description: r.description ?? '',
@@ -129,27 +161,18 @@ export function CreateDataContractDialog({ editContractId, onClose }: Props) {
         weight: r.weight,
         isEnabled: r.isEnabled,
       })),
-    );
-  }, [existingQ.data]);
-
-  const isValid = useMemo(
-    () =>
-      name.trim().length > 0 &&
-      schemaName.trim().length > 0 &&
-      tableName.trim().length > 0 &&
-      cronExpression.trim().length > 0 &&
-      dataSourceId !== null &&
-      rules.every(r => r.name.trim().length > 0),
-    [name, schemaName, tableName, cronExpression, dataSourceId, rules],
-  );
+    });
+  }, [existingQ.data, reset]);
 
   const submitting = createMutation.isPending || updateMutation.isPending;
 
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!isValid || dataSourceId === null) return;
+  const recipientOptions = useMemo(
+    () => recipientsQ.data?.entries ?? [],
+    [recipientsQ.data],
+  );
 
-    const rulesData: DataContractRuleData[] = rules.map(r => ({
+  const onSubmit = (values: FormValues) => {
+    const rulesData: DataContractRuleData[] = values.rules.map(r => ({
       id: r.id,
       name: r.name,
       description: r.description || null,
@@ -162,18 +185,18 @@ export function CreateDataContractDialog({ editContractId, onClose }: Props) {
     }));
 
     const payload: CreateContractPayload = {
-      dataSourceId,
-      schemaName,
-      tableName,
-      name,
-      description: description || null,
-      cronExpression,
-      isEnabled,
+      dataSourceId: values.dataSourceId,
+      schemaName: values.schemaName,
+      tableName: values.tableName,
+      name: values.name,
+      description: values.description || null,
+      cronExpression: values.cronExpression,
+      isEnabled: values.isEnabled,
       ownerUserId: null,
-      alertOnFailure,
-      failureThresholdScore: failureThreshold,
+      alertOnFailure: values.alertOnFailure,
+      failureThresholdScore: values.failureThreshold,
       rules: rulesData,
-      recipientIds: alertOnFailure ? recipientIds : null,
+      recipientIds: values.alertOnFailure ? values.recipientIds : null,
     };
 
     if (isEdit) {
@@ -187,7 +210,7 @@ export function CreateDataContractDialog({ editContractId, onClose }: Props) {
         onError: err => toast.error(describeContractError(err, 'Create failed')),
       });
     }
-  }
+  };
 
   return (
     <Dialog
@@ -211,31 +234,21 @@ export function CreateDataContractDialog({ editContractId, onClose }: Props) {
         </>
       }
     >
-      <form id="data-contract-form" onSubmit={handleSubmit}>
+      <form id="data-contract-form" onSubmit={handleSubmit(onSubmit)}>
         <div className="flex flex-col gap-3">
           <Field label={<>Contract name {REQ}</>}>
-            <Input
-              value={name}
-              onChange={e => setName(e.target.value)}
-              required
-              maxLength={200}
-            />
+            <Input {...register('name')} maxLength={200} required />
           </Field>
 
           <Field label="Description">
-            <Textarea
-              rows={2}
-              value={description}
-              onChange={e => setDescription(e.target.value)}
-              maxLength={1000}
-            />
+            <Textarea rows={2} {...register('description')} maxLength={1000} />
           </Field>
 
           <Field label={<>Data source {REQ}</>}>
             <Select
-              value={dataSourceId ?? ''}
-              onChange={e => setDataSourceId(e.target.value ? Number(e.target.value) : null)}
+              {...register('dataSourceId', { valueAsNumber: true })}
               required
+              defaultValue=""
             >
               <option value="">Select…</option>
               {(dataSources.data?.entries ?? []).map(d => (
@@ -246,58 +259,34 @@ export function CreateDataContractDialog({ editContractId, onClose }: Props) {
 
           <div className="grid grid-cols-2 gap-3">
             <Field label={<>Schema name {REQ}</>}>
-              <Input
-                value={schemaName}
-                onChange={e => setSchemaName(e.target.value)}
-                required
-                maxLength={200}
-              />
+              <Input {...register('schemaName')} maxLength={200} required />
             </Field>
             <Field label={<>Table name {REQ}</>}>
-              <Input
-                value={tableName}
-                onChange={e => setTableName(e.target.value)}
-                required
-                maxLength={200}
-              />
+              <Input {...register('tableName')} maxLength={200} required />
             </Field>
           </div>
 
           <div className="grid grid-cols-[2fr_1fr] gap-3">
             <Field label={<>Cron expression {REQ}</>} hint="e.g. 0 */6 * * * (every 6 hours)">
-              <Input
-                value={cronExpression}
-                onChange={e => setCronExpression(e.target.value)}
-                required
-                maxLength={100}
-              />
+              <Input {...register('cronExpression')} maxLength={100} required />
             </Field>
             <Field label="Failure threshold (%)">
               <Input
                 type="number"
                 min={0}
                 max={100}
-                value={failureThreshold}
-                onChange={e => setFailureThreshold(Number(e.target.value))}
+                {...register('failureThreshold', { valueAsNumber: true })}
               />
             </Field>
           </div>
 
           <div className="flex gap-4 text-sm">
             <label className="flex items-center gap-1.5">
-              <input
-                type="checkbox"
-                checked={isEnabled}
-                onChange={e => setIsEnabled(e.target.checked)}
-              />
+              <input type="checkbox" {...register('isEnabled')} />
               Enabled
             </label>
             <label className="flex items-center gap-1.5">
-              <input
-                type="checkbox"
-                checked={alertOnFailure}
-                onChange={e => setAlertOnFailure(e.target.checked)}
-              />
+              <input type="checkbox" {...register('alertOnFailure')} />
               Alert on failure
             </label>
           </div>
@@ -307,13 +296,13 @@ export function CreateDataContractDialog({ editContractId, onClose }: Props) {
               <Select
                 multiple
                 size={4}
-                value={recipientIds.map(String)}
+                value={watch('recipientIds').map(String)}
                 onChange={e => {
                   const opts = Array.from(e.target.selectedOptions).map(o => Number(o.value));
-                  setRecipientIds(opts);
+                  setValue('recipientIds', opts, { shouldDirty: true });
                 }}
               >
-                {(recipientsQ.data?.entries ?? []).map(r => (
+                {recipientOptions.map(r => (
                   <option key={r.id} value={r.id}>{r.name}</option>
                 ))}
               </Select>
@@ -323,48 +312,35 @@ export function CreateDataContractDialog({ editContractId, onClose }: Props) {
           <hr className="border-0 border-t border-border" />
 
           <div className="flex justify-between items-center">
-            <strong>Rules ({rules.length})</strong>
+            <strong>Rules ({ruleArray.fields.length})</strong>
             <Button
               type="button"
               size="sm"
-              onClick={() => setRules(prev => [...prev, blankRule(prev.length)])}
+              onClick={() => ruleArray.append(blankRule(ruleArray.fields.length))}
             >
               Add rule
             </Button>
           </div>
 
-          {rules.map((rule, index) => (
-            <Card key={index} className="p-3">
+          {ruleArray.fields.map((field, index) => (
+            <Card key={field.id} className="p-3">
               <div className="flex justify-between mb-2">
                 <strong>Rule {index + 1}</strong>
                 <Button
                   type="button"
                   variant="ghost"
                   size="sm"
-                  onClick={() => setRules(prev => prev.filter((_, i) => i !== index))}
+                  onClick={() => ruleArray.remove(index)}
                 >
                   Remove
                 </Button>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <Field label={<>Name {REQ}</>}>
-                  <Input
-                    value={rule.name}
-                    onChange={e =>
-                      setRules(prev => prev.map((r, i) => (i === index ? { ...r, name: e.target.value } : r)))
-                    }
-                    required
-                  />
+                  <Input {...register(`rules.${index}.name`)} required />
                 </Field>
                 <Field label="Type">
-                  <Select
-                    value={rule.ruleType}
-                    onChange={e =>
-                      setRules(prev =>
-                        prev.map((r, i) => (i === index ? { ...r, ruleType: Number(e.target.value) } : r)),
-                      )
-                    }
-                  >
+                  <Select {...register(`rules.${index}.ruleType`, { valueAsNumber: true })}>
                     {Object.entries(RULE_TYPE_LABEL).map(([k, label]) => (
                       <option key={k} value={k}>{label}</option>
                     ))}
@@ -373,24 +349,10 @@ export function CreateDataContractDialog({ editContractId, onClose }: Props) {
               </div>
               <div className="grid grid-cols-3 gap-2 mt-2">
                 <Field label="Column (optional)">
-                  <Input
-                    value={rule.columnName}
-                    onChange={e =>
-                      setRules(prev =>
-                        prev.map((r, i) => (i === index ? { ...r, columnName: e.target.value } : r)),
-                      )
-                    }
-                  />
+                  <Input {...register(`rules.${index}.columnName`)} />
                 </Field>
                 <Field label="Severity">
-                  <Select
-                    value={rule.severity}
-                    onChange={e =>
-                      setRules(prev =>
-                        prev.map((r, i) => (i === index ? { ...r, severity: Number(e.target.value) } : r)),
-                      )
-                    }
-                  >
+                  <Select {...register(`rules.${index}.severity`, { valueAsNumber: true })}>
                     {Object.entries(SEVERITY_LABEL).map(([k, label]) => (
                       <option key={k} value={k}>{label}</option>
                     ))}
@@ -402,25 +364,16 @@ export function CreateDataContractDialog({ editContractId, onClose }: Props) {
                     min={0.1}
                     max={10}
                     step={0.1}
-                    value={rule.weight}
-                    onChange={e =>
-                      setRules(prev =>
-                        prev.map((r, i) => (i === index ? { ...r, weight: Number(e.target.value) } : r)),
-                      )
-                    }
+                    {...register(`rules.${index}.weight`, { valueAsNumber: true })}
                   />
                 </Field>
               </div>
-              <Field label="Configuration (JSON)" hint={CONFIG_HINT[rule.ruleType] ?? '{}'} className="mt-2">
-                <Textarea
-                  rows={2}
-                  value={rule.configuration}
-                  onChange={e =>
-                    setRules(prev =>
-                      prev.map((r, i) => (i === index ? { ...r, configuration: e.target.value } : r)),
-                    )
-                  }
-                />
+              <Field
+                label="Configuration (JSON)"
+                hint={CONFIG_HINT[rules[index]?.ruleType ?? DataContractRuleType.Volume] ?? '{}'}
+                className="mt-2"
+              >
+                <Textarea rows={2} {...register(`rules.${index}.configuration`)} />
               </Field>
             </Card>
           ))}

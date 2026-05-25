@@ -22,6 +22,7 @@ import type {
   SubscriptionExecutionEntry,
 } from '../queries';
 import { NOTIFICATION_STATUS_LABEL } from '../queries';
+import { NotificationStatus } from '@/routes/control-tower/api';
 import type { SubscriptionTabKey } from './SubscriptionTabsCard';
 
 interface RightRailProps {
@@ -33,7 +34,7 @@ interface RightRailProps {
 export function RightRail({ subscription, executions, onSelectTab }: RightRailProps) {
   const list = executions ?? [];
   const totalExecs = list.length;
-  const failed = list.filter(x => x.status === 5 || x.status === 7).length;
+  const failed = list.filter(x => x.status === NotificationStatus.Timeout || x.status === NotificationStatus.Failed).length;
   const noRecipients = subscription.recipients.length === 0;
   const neverRun = totalExecs === 0;
   const anomalyOff = subscription.anomalyConfig?.enabled !== true;

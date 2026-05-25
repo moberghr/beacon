@@ -15,10 +15,10 @@ export interface BeaconHeroProps {
   user?: string;
   /** "ok" | "warn" | "crit" | "muted" for each of the last N hours (left → right). "muted" = no executions in that bucket. */
   ticks?: Array<'ok' | 'warn' | 'crit' | 'muted'>;
-  meta?: {
-    executions30d?: number;
-    anomalies?: number;
-    p50ms?: number;
+  meta: {
+    executions30d: number;
+    anomalies: number;
+    p50ms: number;
   };
   actions?: React.ReactNode;
   className?: string;
@@ -29,7 +29,7 @@ const defaultTicks: NonNullable<BeaconHeroProps['ticks']> = Array.from({ length:
 export function BeaconHero({
   user = 'there',
   ticks = defaultTicks,
-  meta = { executions30d: 1284, anomalies: 2, p50ms: 11 },
+  meta,
   actions,
   className,
 }: BeaconHeroProps) {
@@ -149,7 +149,7 @@ export function BeaconHero({
           </h1>
 
           <p className="mt-3.5 mb-0 text-text-muted text-sm">
-            <span>{meta.executions30d?.toLocaleString()} queries executed in the last 30 days · </span>
+            <span>{meta.executions30d.toLocaleString()} queries executed in the last 30 days · </span>
             <span className="mono">{meta.anomalies} anomalies </span>
             <span>· p50 </span>
             <span className="mono">{meta.p50ms} ms</span>

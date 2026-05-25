@@ -12,8 +12,6 @@ interface ChatMessage {
   durationMs: number | null;
 }
 
-const DEFAULT_TOOLS = ['ask', 'search', 'query', 'get_documentation', 'get_context'];
-
 export default function McpPlaygroundPage() {
   const projectsQ = useProjectsQuery();
   const toolsQ = useMcpTools();
@@ -31,7 +29,7 @@ export default function McpPlaygroundPage() {
   const chatRef = useRef<HTMLDivElement>(null);
 
   const projects = projectsQ.data?.entries ?? [];
-  const toolNames = toolsQ.data?.toolNames ?? DEFAULT_TOOLS;
+  const toolNames = toolsQ.data?.toolNames ?? [];
 
   // Auto-select sole project.
   useEffect(() => {

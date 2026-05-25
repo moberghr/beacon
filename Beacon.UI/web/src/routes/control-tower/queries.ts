@@ -46,14 +46,3 @@ export function useQueryFolders() {
     staleTime: 60_000,
   });
 }
-
-/**
- * Live updates for Control Tower now flow through the shared
- * `useHubInvalidations` hook mounted in AppShell — it invalidates the
- * `['control-tower']` key on both `JobStatusChanged` and
- * `NotificationCreated`. This stub stays as a no-op so existing call
- * sites don't break; remove once the page imports are cleaned up.
- */
-export function useControlTowerLiveUpdates(): void {
-  // intentionally empty — see useHubInvalidations.ts
-}

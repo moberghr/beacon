@@ -5,6 +5,12 @@ import type { ApprovalRequestSummary, ApprovalRequestDetail } from '@/api/genera
 
 export type { ApprovalRequestSummary, ApprovalRequestDetail };
 
+export enum ApprovalStatus {
+  Pending = 0,
+  Approved = 1,
+  Rejected = 2,
+}
+
 const PENDING_KEY = ['approvals', 'pending'] as const;
 const DETAIL_KEY = (id: number | undefined) => ['approvals', 'detail', id] as const;
 

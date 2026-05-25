@@ -2,7 +2,6 @@ import { type ReactNode } from 'react';
 import {
   ArrowDown,
   ArrowUp,
-  ChevronRight,
   Info,
   type LucideIcon,
 } from 'lucide-react';
@@ -78,7 +77,7 @@ export interface StatRowProps {
 
 export function StatRow({ Icon, label, value, trail }: StatRowProps) {
   return (
-    <div className="flex items-center gap-3 px-4 py-2.5 border-b border-border last:border-b-0 hover:bg-surface-2 transition">
+    <div className="flex items-center gap-3 px-4 py-2.5 border-b border-border last:border-b-0">
       <div className="size-7 rounded-sm bg-surface-2 grid place-items-center text-text-muted">
         <Icon size={15} />
       </div>
@@ -87,7 +86,6 @@ export function StatRow({ Icon, label, value, trail }: StatRowProps) {
         <div className="text-sm font-medium mono">{value}</div>
       </div>
       {trail}
-      <ChevronRight size={14} className="text-text-subtle" />
     </div>
   );
 }
