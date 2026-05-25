@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
@@ -289,23 +289,27 @@ export default function NewQueryPage() {
     navigate(`/queries/${newId}?run=1`);
   };
 
+  const onSaveRef = useRef(onSave);
+  const onSaveAndRunRef = useRef(onSaveAndRun);
+  onSaveRef.current = onSave;
+  onSaveAndRunRef.current = onSaveAndRun;
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
         e.preventDefault();
-        void onSave();
+        void onSaveRef.current();
       } else if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
         const target = e.target as HTMLElement | null;
         const tag = target?.tagName?.toLowerCase();
         if (tag === 'input' || tag === 'textarea' || target?.isContentEditable) return;
         e.preventDefault();
-        void onSaveAndRun();
+        void onSaveAndRunRef.current();
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [name, description, steps, canSave]);
+  }, []);
 
   return (
     <div className="flex flex-col gap-5 p-7" data-screen-label="02 Add New Query">

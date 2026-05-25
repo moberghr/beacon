@@ -27,7 +27,7 @@ const DEFAULT_CONFIGS: Record<number, string> = {
   [WIDGET_TYPE.Chart]: JSON.stringify({ chartType: 'bar', data: [] }, null, 2),
   [WIDGET_TYPE.Table]: JSON.stringify({ columns: [], rows: [] }, null, 2),
   [WIDGET_TYPE.Gauge]: JSON.stringify({ value: 0, max: 100, label: '' }, null, 2),
-  [WIDGET_TYPE.Mermaid]: JSON.stringify({ code: 'graph LR\n  A --> B' }, null, 2),
+  [WIDGET_TYPE.Mermaid]: JSON.stringify({ code: '' }, null, 2),
 };
 
 interface AddWidgetFormState {

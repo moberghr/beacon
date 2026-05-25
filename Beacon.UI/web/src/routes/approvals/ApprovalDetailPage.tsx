@@ -24,6 +24,7 @@ import {
 import { describeError } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 import {
+  ApprovalStatus,
   useApprovalDetailQuery,
   useApproveQueryChange,
   useRejectQueryChange,
@@ -79,7 +80,7 @@ export default function ApprovalDetailPage() {
   };
 
   const data = detail.data;
-  const isPending = data?.status === 0;
+  const isPending = data?.status === ApprovalStatus.Pending;
   const busy = approve.isPending || reject.isPending;
 
   return (

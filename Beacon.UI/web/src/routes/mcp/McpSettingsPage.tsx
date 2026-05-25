@@ -81,8 +81,7 @@ function McpSettingsForm() {
 
   useEffect(() => {
     if (data) form.reset(settingsToForm(data));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data]);
+  }, [data, form]);
 
   function onSubmit(values: FormValues) {
     const payload: McpSettingsData = {

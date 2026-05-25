@@ -1,13 +1,10 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  Download,
   RefreshCw,
   Plus,
-  Filter,
   Database,
   Users,
-  Calendar,
   Check,
   AlertCircle,
   Plug,
@@ -121,9 +118,6 @@ export default function HomePage() {
         }}
         actions={
           <>
-            <Button variant="ghost" icon={<Download />}>
-              Export
-            </Button>
             <Button icon={<RefreshCw />} onClick={handleRefresh}>
               Refresh
             </Button>
@@ -136,25 +130,13 @@ export default function HomePage() {
         }
       />
 
-      {/* Filter / range bar */}
+      {/* Range bar */}
       <div className="flex flex-wrap items-center gap-2">
         <Seg
           value={activeRange}
           onChange={v => setActiveRange(v as RangeLabel)}
           options={RANGES.map(r => ({ value: r.label, label: r.label }))}
         />
-        <div className="w-px h-5 bg-border mx-1" />
-        <Button size="sm" variant="ghost" icon={<Filter />}>
-          All projects
-        </Button>
-        <Button size="sm" variant="ghost" icon={<Database />}>
-          All sources
-        </Button>
-        <Button size="sm" variant="ghost" icon={<Users />}>
-          All users
-        </Button>
-        <div className="flex-1" />
-        <Button size="sm" variant="ghost" icon={<Calendar />} aria-label="Calendar" />
       </div>
 
       {/* KPI grid with sparklines */}

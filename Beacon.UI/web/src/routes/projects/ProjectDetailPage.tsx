@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { AlertTriangle, BookOpen, Bot, ChevronRight, Database, Folder, GitBranch, Key, Layers } from 'lucide-react';
+import { AlertTriangle, BookOpen, Bot, Database, Folder, GitBranch, Key, Layers } from 'lucide-react';
 import type {
   ProjectRepositoryEntry,
   ProjectDataSourceEntry,
@@ -135,7 +135,7 @@ export default function ProjectDetailPage() {
 
         {tab === 'repositories' && <RepositoriesTab repositories={project.repositories} />}
         {tab === 'documentation' && <DocumentationTab projectId={project.id} />}
-        {tab === 'aiActors' && <AiActorsTab dataSources={project.dataSources} />}
+        {tab === 'aiActors' && <AiActorsTab projectId={project.id} dataSources={project.dataSources} />}
       </Card>
     </div>
   );
@@ -290,11 +290,7 @@ function DocumentationTab({ projectId }: { projectId: number }) {
 
 // --- AI Actors tab ----------------------------------------------------
 
-function AiActorsTab({ dataSources }: { dataSources: ProjectDataSourceEntry[] }) {
-  // AI Actors are scoped to a data source. Until the AI actor pages migrate
-  // (Batch 6), surface the project's data sources and link out to the Blazor
-  // listing. The project detail entry doesn't expose data source ids, so the
-  // Blazor link is the data sources index page.
+function AiActorsTab({ projectId, dataSources }: { projectId: number; dataSources: ProjectDataSourceEntry[] }) {
   if (dataSources.length === 0) {
     return (
       <CardBody>
@@ -309,22 +305,25 @@ function AiActorsTab({ dataSources }: { dataSources: ProjectDataSourceEntry[] })
 
   return (
     <CardBody>
-      <div className="text-text-muted text-xs mb-3">
-        AI actors are scoped per data source. Open a data source to manage its actors.
+      <div className="flex items-center justify-between mb-3">
+        <div className="text-text-muted text-xs">
+          AI actors are scoped per data source. View all actors for this project below.
+        </div>
+        <Link to={`/ai-actors?projectId=${projectId}`}>
+          <Button variant="primary" icon={<Bot />}>View AI actors</Button>
+        </Link>
       </div>
       <div className="flex flex-col gap-2">
         {dataSources.map(ds => (
-          <Link
+          <div
             key={ds.name}
-            to="/data-sources"
-            className="bg-surface border border-border rounded-md shadow-sm p-3 flex items-center justify-between no-underline text-text hover:bg-surface-2 transition"
+            className="bg-surface border border-border rounded-md shadow-sm p-3 flex items-center justify-between"
           >
             <div>
               <div className="font-semibold">{ds.name}</div>
               <div className="text-text-muted mono text-xs">{ds.type}</div>
             </div>
-            <ChevronRight size={16} />
-          </Link>
+          </div>
         ))}
       </div>
     </CardBody>

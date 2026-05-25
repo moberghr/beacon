@@ -33,7 +33,6 @@ import {
   type ControlTowerSubscriptionHealthData,
 } from './api';
 import {
-  useControlTowerLiveUpdates,
   useControlTowerQuery,
   useQueryFolders,
 } from './queries';
@@ -148,8 +147,6 @@ const DEFAULT_FILTERS: ControlTowerFilters = {
 };
 
 export default function ControlTowerPage() {
-  useControlTowerLiveUpdates();
-
   const [searchInput, setSearchInput] = useState('');
   const [searchKeyword, setSearchKeyword] = useState<string | undefined>();
   const [folderId, setFolderId] = useState<number | undefined>();

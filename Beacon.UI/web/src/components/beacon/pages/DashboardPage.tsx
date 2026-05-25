@@ -26,6 +26,7 @@ export function DashboardPage() {
     <div className="flex flex-col gap-5 p-7">
       <BeaconHero
         user="mirko"
+        meta={{ executions30d: 0, anomalies: 0, p50ms: 0 }}
         actions={
           <>
             <Button variant="ghost" icon={<Download />}>
