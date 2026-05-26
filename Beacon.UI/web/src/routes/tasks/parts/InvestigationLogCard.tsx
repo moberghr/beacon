@@ -99,9 +99,9 @@ export function InvestigationLogCard({ taskId, textareaId }: { taskId: number; t
         )}
 
         {comments.length > 0 && (
-          <div className="flex flex-col gap-3">
+          <ul className="flex flex-col gap-3 list-none p-0 m-0">
             {comments.map(c => (
-              <div key={c.id} className="flex gap-2.5">
+              <li key={c.id} className="flex gap-2.5">
                 <Avatar name={c.userName ?? undefined} />
                 <div className="flex-1 min-w-0">
                   <div className="text-sm text-text">
@@ -114,9 +114,9 @@ export function InvestigationLogCard({ taskId, textareaId }: { taskId: number; t
                     {c.content}
                   </div>
                 </div>
-              </div>
+              </li>
             ))}
-          </div>
+          </ul>
         )}
       </CardBody>
     </Card>

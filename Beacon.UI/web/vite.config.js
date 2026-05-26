@@ -26,6 +26,7 @@ export default defineConfig({
                 target: backend,
                 secure: false,
                 changeOrigin: true,
+                ws: true,
             },
             '/beacon/mcp': {
                 target: backend,
