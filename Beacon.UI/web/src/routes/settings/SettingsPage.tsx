@@ -91,10 +91,9 @@ export default function SettingsPage() {
 
 function ReadOnly({ label, value }: { label: string; value: string }) {
   return (
-    <div>
-      <div className="text-text-muted text-xs mb-1">{label}</div>
+    <Field label={label}>
       <Input type="text" value={value} readOnly />
-    </div>
+    </Field>
   );
 }
 

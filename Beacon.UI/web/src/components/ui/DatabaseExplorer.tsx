@@ -150,7 +150,19 @@ export function DatabaseExplorer({ dataSourceId, onInsert, className }: Database
               const collapsed = collapsedSchemas.has(group.schema);
               return (
                 <div key={group.schema} className="mt-1 first:mt-0">
-                  <div className={rowBase} onClick={() => toggleSchema(group.schema)}>
+                  <div
+                    className={rowBase}
+                    role="button"
+                    tabIndex={0}
+                    aria-expanded={!collapsed}
+                    onClick={() => toggleSchema(group.schema)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        toggleSchema(group.schema);
+                      }
+                    }}
+                  >
                     <ChevronDown
                       size={11}
                       className={cn('transition-transform', collapsed && '-rotate-90')}
@@ -175,13 +187,34 @@ export function DatabaseExplorer({ dataSourceId, onInsert, className }: Database
                           <div
                             className={cn(rowBase, 'pl-5')}
                             title={tooltip}
+                            role="button"
+                            tabIndex={0}
                             onClick={() => onInsert(fqn)}
                             onDoubleClick={() => toggleTable(fqn)}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                onInsert(fqn);
+                              } else if (e.key === ' ') {
+                                e.preventDefault();
+                                toggleTable(fqn);
+                              }
+                            }}
                           >
                             <span
+                              role="button"
+                              tabIndex={0}
+                              aria-label={expanded ? 'Collapse table columns' : 'Expand table columns'}
                               onClick={e => {
                                 e.stopPropagation();
                                 toggleTable(fqn);
+                              }}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                  e.stopPropagation();
+                                  e.preventDefault();
+                                  toggleTable(fqn);
+                                }
                               }}
                               className="inline-flex"
                             >
@@ -201,7 +234,15 @@ export function DatabaseExplorer({ dataSourceId, onInsert, className }: Database
                               <div
                                 key={col.columnName}
                                 className={cn(rowBase, 'pl-9')}
+                                role="button"
+                                tabIndex={0}
                                 onClick={() => onInsert(col.columnName)}
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault();
+                                    onInsert(col.columnName);
+                                  }
+                                }}
                                 title={`${col.dataType}${col.isPrimaryKey ? ' · PK' : ''}${col.isNullable ? '' : ' · NOT NULL'}`}
                               >
                                 <span className="mono">{col.columnName}</span>
