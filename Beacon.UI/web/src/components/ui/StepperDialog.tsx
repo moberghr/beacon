@@ -22,7 +22,6 @@ interface StepperDialogProps<TForm extends FieldValues> {
   busy?: boolean;
   finishLabel?: string;
   formId?: string;
-  resetOnOpen?: boolean;
 }
 
 /**
@@ -41,7 +40,6 @@ export function StepperDialog<TForm extends FieldValues>({
   busy = false,
   finishLabel = 'Submit',
   formId,
-  resetOnOpen: _resetOnOpen = true,
 }: StepperDialogProps<TForm>) {
   const [current, setCurrent] = useState(0);
 

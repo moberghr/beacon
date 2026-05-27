@@ -81,10 +81,6 @@ export default function AiActorDetailPage() {
               </dl>
             </CardBody>
           </Card>
-
-          <div className="text-text-muted text-xs">
-            Refine, plan review, and execution-history detail tabs are migrating in a follow-up batch.
-          </div>
         </>
       )}
     </div>

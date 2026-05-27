@@ -160,9 +160,3 @@ export default function LoginPage() {
     </AuthLayout>
   );
 }
-
-// Backwards-compat re-exports: LogoutPage / SetupPage used to import AuthShell /
-// AuthAlert from LoginPage. They've moved to AuthLayout; keep re-exports so any
-// straggling import path still resolves.
-export { AuthAlert } from './AuthLayout';
-export { AuthLayout as AuthShell } from './AuthLayout';
