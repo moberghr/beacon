@@ -528,7 +528,7 @@ export default function QueryEditorPage() {
           <CardHead>
             <Layers className="size-3.5 text-text-muted" />
             <CardTitle>Final query</CardTitle>
-            <CardSub>read-only · edit in legacy editor</CardSub>
+            <CardSub>read-only</CardSub>
           </CardHead>
           <CardBody flush>
             <pre className="m-0 p-3 bg-surface-2 mono text-xs overflow-auto whitespace-pre-wrap max-h-60">

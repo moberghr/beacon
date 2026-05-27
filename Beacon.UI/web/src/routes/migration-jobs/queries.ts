@@ -2,12 +2,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { beaconApi } from '@/api/client';
 import { createSimpleMutation } from '@/lib/mutations';
 
-export const MIGRATION_MODE_LABEL: Record<number, string> = {
-  1: 'Insert',
-  2: 'Append',
-  3: 'Replace',
-};
-
 export interface MigrationJobListItem {
   id: number;
   name: string;

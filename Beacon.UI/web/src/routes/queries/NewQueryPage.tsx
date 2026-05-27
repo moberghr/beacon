@@ -605,7 +605,6 @@ export default function NewQueryPage() {
                 }
               />
               <InfoRow label="Estimated cost" value="—" detail="run to estimate" />
-              <InfoRow label="Last edited" value="just now" />
             </CardBody>
           </Card>
 

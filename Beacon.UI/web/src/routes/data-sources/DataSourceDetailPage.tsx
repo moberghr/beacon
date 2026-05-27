@@ -358,10 +358,6 @@ function ConnectionTab({ entry }: { entry: { dataSourceType: string; databaseEng
         <dd>{entry.databaseEngineType ? <span className="mono">{entry.databaseEngineType}</span> : <span className="text-text-muted">—</span>}</dd>
         <dt className="text-text-muted">Metadata loading</dt>
         <dd>{entry.metadataLoadingEnabled ? 'Enabled' : 'Disabled'}</dd>
-        <dt className="text-text-muted">Last refreshed</dt>
-        <dd>
-          <span className="text-text-muted">see Schema tab</span>
-        </dd>
       </dl>
     </CardBody>
   );

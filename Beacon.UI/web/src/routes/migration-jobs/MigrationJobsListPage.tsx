@@ -11,9 +11,9 @@ import { formatDateTime, formatNumber } from '@/lib/format';
 import {
   useMigrationJobsQuery,
   useDeleteMigrationJob,
-  MIGRATION_MODE_LABEL,
   type MigrationJobListItem,
 } from './queries';
+import { MIGRATION_MODE_LABEL, type MigrationModeId } from '@/routes/migration-history/queries';
 
 const GRID_TEMPLATE = '0.5fr 1.4fr 1.4fr 1fr 0.7fr 0.6fr 1.1fr 60px';
 
@@ -44,7 +44,7 @@ export default function MigrationJobsListPage() {
     {
       key: 'mode',
       header: 'Mode',
-      render: r => <Pill>{MIGRATION_MODE_LABEL[r.mode] ?? r.mode}</Pill>,
+      render: r => <Pill>{MIGRATION_MODE_LABEL[r.mode as MigrationModeId] ?? r.mode}</Pill>,
     },
     {
       key: 'enabled',

@@ -1,6 +1,5 @@
 import type { ReactNode } from 'react';
 import {
-  Activity,
   AlertTriangle,
   Check,
   ChevronRight,
@@ -77,15 +76,6 @@ export function RightRail({ subscription, executions, onSelectTab }: RightRailPr
               title="Review recent failures"
               sub={`${failed} failed/timed-out execution${failed === 1 ? '' : 's'} in the recent window.`}
               onClick={onSelectTab ? () => onSelectTab('executions') : undefined}
-            />
-          )}
-          {anomalyOff && totalExecs >= 5 && (
-            <NextStep
-              tone="info"
-              icon={<Activity className="size-3.5" />}
-              title="Enable anomaly detection"
-              sub="Enough history exists to learn a baseline. Configure thresholds in the settings tab."
-              onClick={onSelectTab ? () => onSelectTab('anomaly') : undefined}
             />
           )}
           {!neverRun && !noRecipients && failed === 0 && !anomalyOff && (

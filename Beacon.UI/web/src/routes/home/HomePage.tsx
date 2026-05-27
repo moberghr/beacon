@@ -390,7 +390,7 @@ export default function HomePage() {
       </div>
 
       <div className="flex items-center justify-between text-xs mono text-text-subtle pt-1">
-        <span>Beacon · region eu-west</span>
+        <span>Beacon</span>
         <span>
           Press <Kbd>⌘</Kbd> <Kbd>K</Kbd> to search
         </span>

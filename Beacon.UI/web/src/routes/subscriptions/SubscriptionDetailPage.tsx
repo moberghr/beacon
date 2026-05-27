@@ -20,10 +20,6 @@ import {
 import { RightRail } from './parts/RightRail';
 import { SubscriptionSaveBar } from './parts/SubscriptionSaveBar';
 
-/**
- * Read-mostly subscription detail. Multi-step Add Recipient and Pause/Resume
- * remain Blazor-only until 5c. Test now and Archive are wired through MediatR.
- */
 export default function SubscriptionDetailPage() {
   const params = useParams<{ id: string }>();
   const id = Number(params.id);

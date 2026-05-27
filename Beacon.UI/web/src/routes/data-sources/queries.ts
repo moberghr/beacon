@@ -32,9 +32,6 @@ export const DATABASE_ENGINE_LABEL: Record<DatabaseEngineId, string> = {
   [DATABASE_ENGINE.Snowflake]: 'Snowflake',
 };
 
-// NOTE: Phase 3 Batch 4 — hand-typed wrappers; replace with `beaconApi()` after
-// `npm run codegen` runs against /openapi/v1.json.
-
 export interface DataSourceEntry {
   id: number;
   name: string;

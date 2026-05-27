@@ -1,6 +1,4 @@
 // Beacon sidebar — Tailwind + Beacon design system.
-// Each nav item carries a slug (React route) and a blazorPath (legacy
-// fallback). resolveNavHref picks based on the feature flag.
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
@@ -28,7 +26,6 @@ import {
 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { cn } from '@/lib/cn';
-import { resolveNavHref, isMigrated } from '@/feature-flags';
 import { useAuth } from '@/auth/useAuth';
 import { beaconApi } from '@/api/client';
 
@@ -36,7 +33,6 @@ interface NavItem {
   name: string;
   Icon: LucideIcon;
   slug: string;
-  blazorPath: string;
   count?: number;
   badge?: string;
 }
@@ -50,45 +46,45 @@ const SECTIONS: NavSection[] = [
   {
     label: 'Overview',
     items: [
-      { name: 'Home', Icon: IconHome, slug: 'home', blazorPath: '' },
-      { name: 'Control Tower', Icon: IconTower, slug: 'control-tower', blazorPath: 'control-tower' },
+      { name: 'Home', Icon: IconHome, slug: 'home' },
+      { name: 'Control Tower', Icon: IconTower, slug: 'control-tower' },
       // Dashboards hidden — feature unfinished, will be redesigned (see UNFINISHED.md).
     ],
   },
   {
     label: 'Data',
     items: [
-      { name: 'Data Sources', Icon: IconDatabase, slug: 'data-sources', blazorPath: 'datasources' },
-      { name: 'Projects', Icon: IconFolder, slug: 'projects', blazorPath: 'projects' },
-      { name: 'Data Quality', Icon: IconShield, slug: 'data-quality', blazorPath: 'dataquality' },
-      { name: 'Data Migration', Icon: IconArrowsLR, slug: 'migration-jobs', blazorPath: 'migrationjobs' },
-      { name: 'AI Actors', Icon: IconBot, slug: 'ai-actors', blazorPath: 'ai-actors' },
+      { name: 'Data Sources', Icon: IconDatabase, slug: 'data-sources' },
+      { name: 'Projects', Icon: IconFolder, slug: 'projects' },
+      { name: 'Data Quality', Icon: IconShield, slug: 'data-quality' },
+      { name: 'Data Migration', Icon: IconArrowsLR, slug: 'migration-jobs' },
+      { name: 'AI Actors', Icon: IconBot, slug: 'ai-actors' },
     ],
   },
   {
     label: 'Alerts',
     items: [
-      { name: 'Queries', Icon: IconQuery, slug: 'queries', blazorPath: 'queries' },
-      { name: 'Subscriptions', Icon: IconInbox, slug: 'subscriptions', blazorPath: 'subscriptions' },
-      { name: 'Notifications', Icon: IconBell, slug: 'notifications', blazorPath: 'notifications' },
-      { name: 'Recipients', Icon: IconUsers, slug: 'recipients', blazorPath: 'recipients' },
-      { name: 'Tasks', Icon: IconCheck, slug: 'tasks', blazorPath: 'tasks' },
+      { name: 'Queries', Icon: IconQuery, slug: 'queries' },
+      { name: 'Subscriptions', Icon: IconInbox, slug: 'subscriptions' },
+      { name: 'Notifications', Icon: IconBell, slug: 'notifications' },
+      { name: 'Recipients', Icon: IconUsers, slug: 'recipients' },
+      { name: 'Tasks', Icon: IconCheck, slug: 'tasks' },
     ],
   },
   {
     label: 'MCP',
     items: [
-      { name: 'API Keys', Icon: IconKey, slug: 'api-keys', blazorPath: 'apikeys' },
-      { name: 'MCP Settings', Icon: IconSliders, slug: 'mcp-settings', blazorPath: 'mcp-settings' },
-      { name: 'MCP Playground', Icon: IconWand, slug: 'mcp-playground', blazorPath: 'mcp-playground' },
-      { name: 'MCP Learning', Icon: IconLightbulb, slug: 'mcp-learning', blazorPath: 'mcp-learning' },
+      { name: 'API Keys', Icon: IconKey, slug: 'api-keys' },
+      { name: 'MCP Settings', Icon: IconSliders, slug: 'mcp-settings' },
+      { name: 'MCP Playground', Icon: IconWand, slug: 'mcp-playground' },
+      { name: 'MCP Learning', Icon: IconLightbulb, slug: 'mcp-learning' },
     ],
   },
   {
     label: 'Admin',
     items: [
-      { name: 'User Management', Icon: IconUsers, slug: 'users', blazorPath: 'users' },
-      { name: 'Admin Settings', Icon: IconCog, slug: 'admin-settings', blazorPath: 'adminsettings' },
+      { name: 'User Management', Icon: IconUsers, slug: 'users' },
+      { name: 'Admin Settings', Icon: IconCog, slug: 'admin-settings' },
     ],
   },
 ];
@@ -165,12 +161,12 @@ export function Sidebar() {
               {section.label}
             </div>
             {section.items.map(item => {
-              const href = resolveNavHref(item.slug, item.blazorPath);
-              const migrated = isMigrated(item.slug);
-              const isActive = migrated && location.pathname.startsWith(`/${item.slug}`);
+              const href = `/${item.slug}`;
+              const isActive = location.pathname.startsWith(href);
               const cls = cn(navItemBase, isActive && navItemActive);
-              const content = (
-                <>
+
+              return (
+                <Link key={item.name} to={href} className={cls}>
                   <item.Icon className="size-4 shrink-0" />
                   <span className="flex-1 truncate">{item.name}</span>
                   {item.badge && (
@@ -181,17 +177,7 @@ export function Sidebar() {
                   {item.count != null && !item.badge && (
                     <span className="text-2xs mono text-text-subtle">{item.count}</span>
                   )}
-                </>
-              );
-
-              return migrated ? (
-                <Link key={item.name} to={href} className={cls}>
-                  {content}
                 </Link>
-              ) : (
-                <a key={item.name} href={href} className={cls}>
-                  {content}
-                </a>
               );
             })}
           </div>
