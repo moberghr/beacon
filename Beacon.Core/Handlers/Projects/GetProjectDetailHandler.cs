@@ -4,13 +4,15 @@ using Beacon.Core.Data;
 
 namespace Beacon.Core.Handlers.Projects;
 
-internal sealed class GetProjectDetailHandler(BeaconContext context)
+internal sealed class GetProjectDetailHandler(IDbContextFactory<BeaconContext> contextFactory)
     : IRequestHandler<GetProjectDetailQuery, GetProjectDetailResult>
 {
     public async Task<GetProjectDetailResult> Handle(
         GetProjectDetailQuery request,
         CancellationToken cancellationToken)
     {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
         var project = await context.Projects
             .Where(p => p.Id == request.ProjectId && p.ArchivedTime == null)
             .Select(p => new

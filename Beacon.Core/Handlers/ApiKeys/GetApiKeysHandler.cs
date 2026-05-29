@@ -4,13 +4,15 @@ using Beacon.Core.Data;
 
 namespace Beacon.Core.Handlers.ApiKeys;
 
-internal sealed class GetApiKeysHandler(BeaconContext context)
+internal sealed class GetApiKeysHandler(IDbContextFactory<BeaconContext> contextFactory)
     : IRequestHandler<GetApiKeysQuery, GetApiKeysResult>
 {
     public async Task<GetApiKeysResult> Handle(
         GetApiKeysQuery request,
         CancellationToken cancellationToken)
     {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
         var rows = await context.ApiKeyCredentials
             .OrderByDescending(k => k.CreatedTime)
             .Select(k => new
