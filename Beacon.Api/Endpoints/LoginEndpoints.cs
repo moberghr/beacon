@@ -1,12 +1,10 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
-using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Routing;
-using Microsoft.Extensions.Options;
 using Beacon.Core;
 using Beacon.Core.Authentication;
 
@@ -14,11 +12,23 @@ namespace Beacon.Api.Endpoints;
 
 /// <summary>
 /// React SPA login endpoints — issue and clear the <c>Beacon.Auth</c> cookie.
+/// SSO/OIDC challenge endpoints live in <c>SsoEndpoints.cs</c>; both are
+/// wired by the single <see cref="MapLoginEndpoints"/> entry point.
 /// </summary>
-public static class LoginEndpoints
+public static partial class LoginEndpoints
 {
     public static IEndpointRouteBuilder MapLoginEndpoints(
         this IEndpointRouteBuilder endpoints,
+        string basePath,
+        BeaconConfiguration configuration)
+    {
+        MapCookieAuth(endpoints, basePath, configuration);
+        MapSsoChallenge(endpoints, basePath, configuration);
+        return endpoints;
+    }
+
+    private static void MapCookieAuth(
+        IEndpointRouteBuilder endpoints,
         string basePath,
         BeaconConfiguration configuration)
     {
@@ -41,7 +51,6 @@ public static class LoginEndpoints
                 return Results.Json(failurePayload, statusCode: StatusCodes.Status401Unauthorized);
             }
 
-            // Build claims
             var claims = result.User.ToClaims();
             var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
             var principal = new ClaimsPrincipal(identity);
@@ -87,64 +96,6 @@ public static class LoginEndpoints
 
             return Results.Redirect(loginPath);
         }).AllowAnonymous();
-
-        var loginRedirectFallback = configuration.Authentication.LoginRedirectPath;
-        endpoints.MapGet($"{basePath}/api/auth/sso/challenge", (
-            HttpContext context,
-            string? returnUrl,
-            IOptions<OidcAuthenticationOptions> oidcOptions) =>
-        {
-            if (!oidcOptions.Value.Enabled)
-            {
-                return Results.NotFound();
-            }
-
-            var safeReturnUrl = IsSafeReturnUrl(returnUrl, basePath)
-                ? returnUrl!
-                : loginRedirectFallback;
-
-            var properties = new AuthenticationProperties
-            {
-                RedirectUri = safeReturnUrl,
-                IsPersistent = true
-            };
-
-            return Results.Challenge(properties, new[] { OpenIdConnectDefaults.AuthenticationScheme });
-        }).AllowAnonymous();
-
-        return endpoints;
-    }
-
-    internal static bool IsSafeReturnUrl(string? returnUrl, string basePath)
-    {
-        if (string.IsNullOrWhiteSpace(returnUrl))
-        {
-            return false;
-        }
-
-        if (!returnUrl.StartsWith('/'))
-        {
-            return false;
-        }
-
-        if (returnUrl.StartsWith("//", StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        if (returnUrl.StartsWith("/\\", StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        var normalizedBase = basePath.TrimEnd('/');
-        if (string.IsNullOrEmpty(normalizedBase))
-        {
-            return true;
-        }
-
-        return returnUrl.Equals(normalizedBase, StringComparison.OrdinalIgnoreCase)
-            || returnUrl.StartsWith($"{normalizedBase}/", StringComparison.OrdinalIgnoreCase);
     }
 }
 

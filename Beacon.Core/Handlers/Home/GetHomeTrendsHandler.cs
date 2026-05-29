@@ -35,7 +35,7 @@ internal sealed class GetHomeTrendsHandler(IDbContextFactory<BeaconContext> cont
             .Select(x => x.CreatedTime.Date)
             .ToListAsync(cancellationToken);
 
-        var subscriptionsSpark = BuildDailyCounts(subDates, 14, now);
+        var subscriptionsSpark = HomeTrendsBuilders.BuildDailyCounts(subDates, 14, now);
 
         // ── Query executions ───────────────────────────────────────────
         var execsCurrent = await context.QueryExecutionHistory
@@ -59,14 +59,14 @@ internal sealed class GetHomeTrendsHandler(IDbContextFactory<BeaconContext> cont
             .Select(x => x.CreatedTime.Date)
             .ToListAsync(cancellationToken);
 
-        var queriesSpark = BuildDailyCounts(execDates14, 14, now);
+        var queriesSpark = HomeTrendsBuilders.BuildDailyCounts(execDates14, 14, now);
 
         // 30-day trend for line chart
         var execDates30 = execsCurrent
             .Select(x => x.CreatedTime.Date)
             .ToList();
 
-        var queryTrend30d = BuildDailyCounts(execDates30, days, now);
+        var queryTrend30d = HomeTrendsBuilders.BuildDailyCounts(execDates30, days, now);
 
         // ── Performance metrics ────────────────────────────────────────
         var avgExecutionMs = execsCurrent.Count > 0
@@ -132,7 +132,7 @@ internal sealed class GetHomeTrendsHandler(IDbContextFactory<BeaconContext> cont
             .Select(x => (Date: x.CreatedTime.Date, Ms: x.ExecutionTimeMs))
             .ToList();
 
-        var perfBuckets = BuildPerfBuckets(execsWithTime, days, now);
+        var perfBuckets = HomeTrendsBuilders.BuildPerfBuckets(execsWithTime, days, now);
 
         // ── Notifications ──────────────────────────────────────────────
         var notificationsCurrent = await context.Notifications
@@ -153,13 +153,13 @@ internal sealed class GetHomeTrendsHandler(IDbContextFactory<BeaconContext> cont
             .Select(x => x.SentAt.Date)
             .ToListAsync(cancellationToken);
 
-        var notificationsSpark = BuildDailyCounts(notifDates14, 14, now);
+        var notificationsSpark = HomeTrendsBuilders.BuildDailyCounts(notifDates14, 14, now);
 
         var notifDates30 = notificationsCurrent
             .Select(x => x.Date)
             .ToList();
 
-        var notificationsTrend30d = BuildDailyCounts(notifDates30, days, now);
+        var notificationsTrend30d = HomeTrendsBuilders.BuildDailyCounts(notifDates30, days, now);
 
         // ── Anomalies ──────────────────────────────────────────────────
         // Using AnomalyEvent: open = not Acknowledged, acknowledged = Acknowledged
@@ -189,7 +189,7 @@ internal sealed class GetHomeTrendsHandler(IDbContextFactory<BeaconContext> cont
             .Select(x => x.DetectedTime.Date)
             .ToListAsync(cancellationToken);
 
-        var anomaliesSpark = BuildDailyCounts(anomaliesDates14, 14, now);
+        var anomaliesSpark = HomeTrendsBuilders.BuildDailyCounts(anomaliesDates14, 14, now);
 
         // ── System overview counts ─────────────────────────────────────
         // Global query filter on ArchivableBaseEntity already excludes archived rows.
@@ -237,63 +237,6 @@ internal sealed class GetHomeTrendsHandler(IDbContextFactory<BeaconContext> cont
         );
     }
 
-    private static List<int> BuildDailyCounts(List<DateTime> dates, int numDays, DateTime now)
-    {
-        var result = new List<int>(numDays);
-        for (var i = numDays - 1; i >= 0; i--)
-        {
-            var day = now.AddDays(-i).Date;
-            result.Add(dates.Count(d => d == day));
-        }
-        return result;
-    }
-
-    private static List<HomePerfBucket> BuildPerfBuckets(
-        IReadOnlyList<(DateTime Date, double Ms)> execs, int numDays, DateTime now)
-    {
-        var result = new List<HomePerfBucket>(numDays);
-        for (var i = numDays - 1; i >= 0; i--)
-        {
-            var day = now.AddDays(-i).Date;
-            var label = $"d-{i}";
-            var dayExecs = execs
-                .Where(x => x.Date == day)
-                .Select(x => x.Ms)
-                .OrderBy(x => x)
-                .ToList();
-
-            if (dayExecs.Count == 0)
-            {
-                result.Add(new HomePerfBucket(label, 0m, 0m, 0m, 0m));
-                continue;
-            }
-
-            var avg = (decimal)dayExecs.Average();
-            var p50 = (decimal)Percentile(dayExecs, 0.50);
-            var p95 = (decimal)Percentile(dayExecs, 0.95);
-            var p99 = (decimal)Percentile(dayExecs, 0.99);
-            result.Add(new HomePerfBucket(label, Math.Round(avg, 1), Math.Round(p50, 1), Math.Round(p95, 1), Math.Round(p99, 1)));
-        }
-        return result;
-    }
-
-    private static double Percentile(List<double> sorted, double p)
-    {
-        if (sorted.Count == 0)
-        {
-            return 0;
-        }
-
-        var idx = p * (sorted.Count - 1);
-        var lo = (int)Math.Floor(idx);
-        var hi = (int)Math.Ceiling(idx);
-        if (lo == hi)
-        {
-            return sorted[lo];
-        }
-
-        return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
-    }
 }
 
 public record GetHomeTrendsQuery(int Days = 30) : IRequest<GetHomeTrendsResult>;
