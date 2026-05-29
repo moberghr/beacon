@@ -17,7 +17,8 @@ internal sealed class CloneDashboardHandler(
 
         var sourceDashboard = await context.Dashboards
             .Include(d => d.Widgets)
-            .FirstOrDefaultAsync(d => d.Id == request.SourceDashboardId, cancellationToken);
+            .Where(d => d.Id == request.SourceDashboardId)
+            .FirstOrDefaultAsync(cancellationToken);
 
         if (sourceDashboard == null)
         {

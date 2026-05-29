@@ -152,7 +152,8 @@ public class TaskService(IDbContextFactory<BeaconContext> contextFactory, ILogge
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         var task = await context.QueryTasks
-            .FirstOrDefaultAsync(t => t.Id == taskId, cancellationToken)
+            .Where(t => t.Id == taskId)
+            .FirstOrDefaultAsync(cancellationToken)
             ?? throw new BeaconException($"Task {taskId} not found");
 
         // Update task resolution fields
@@ -169,7 +170,8 @@ public class TaskService(IDbContextFactory<BeaconContext> contextFactory, ILogge
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         var task = await context.QueryTasks
-            .FirstOrDefaultAsync(t => t.Id == taskId, cancellationToken)
+            .Where(t => t.Id == taskId)
+            .FirstOrDefaultAsync(cancellationToken)
             ?? throw new BeaconException($"Task {taskId} not found");
 
         if (!task.Resolved)

@@ -21,7 +21,8 @@ internal class DashboardService(
         var dashboard = await context.Dashboards
             .Include(d => d.Widgets)
             .Include(d => d.Permissions)
-            .FirstOrDefaultAsync(d => d.Id == dashboardId, cancellationToken);
+            .Where(d => d.Id == dashboardId)
+            .FirstOrDefaultAsync(cancellationToken);
 
         if (dashboard == null)
         {
@@ -74,7 +75,8 @@ internal class DashboardService(
 
         var dashboard = await context.Dashboards
             .Include(d => d.Permissions)
-            .FirstOrDefaultAsync(d => d.Id == dashboardId, cancellationToken);
+            .Where(d => d.Id == dashboardId)
+            .FirstOrDefaultAsync(cancellationToken);
 
         if (dashboard == null)
         {

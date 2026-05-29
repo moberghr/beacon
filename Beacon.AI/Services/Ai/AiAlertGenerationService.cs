@@ -45,7 +45,8 @@ public class AiAlertGenerationService : IAiAlertGenerationService
 
         // Fetch data source
         var dataSource = await context.DataSources
-            .FirstOrDefaultAsync(ds => ds.Id == dataSourceId, cancellationToken)
+            .Where(ds => ds.Id == dataSourceId)
+            .FirstOrDefaultAsync(cancellationToken)
             ?? throw new BeaconException($"DataSource with ID {dataSourceId} not found");
 
         // Fetch schema metadata
@@ -128,7 +129,8 @@ public class AiAlertGenerationService : IAiAlertGenerationService
 
         var alertConfig = await context.AiAlertConfigurations
             .Include(a => a.ConversationHistory)
-            .FirstOrDefaultAsync(a => a.Id == alertConfigurationId, cancellationToken)
+            .Where(a => a.Id == alertConfigurationId)
+            .FirstOrDefaultAsync(cancellationToken)
             ?? throw new BeaconException($"Alert configuration with ID {alertConfigurationId} not found");
 
         // Build conversation history
@@ -194,7 +196,8 @@ public class AiAlertGenerationService : IAiAlertGenerationService
         using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
 
         var alertConfig = await context.AiAlertConfigurations
-            .FirstOrDefaultAsync(a => a.Id == alertConfigurationId, cancellationToken)
+            .Where(a => a.Id == alertConfigurationId)
+            .FirstOrDefaultAsync(cancellationToken)
             ?? throw new BeaconException($"Alert configuration with ID {alertConfigurationId} not found");
 
         // TODO: Create subscription from alert configuration

@@ -30,7 +30,8 @@ internal sealed class UpdateDashboardHandler(
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         var dashboard = await context.Dashboards
-            .FirstOrDefaultAsync(d => d.Id == request.DashboardId, cancellationToken);
+            .Where(d => d.Id == request.DashboardId)
+            .FirstOrDefaultAsync(cancellationToken);
 
         if (dashboard == null)
         {
