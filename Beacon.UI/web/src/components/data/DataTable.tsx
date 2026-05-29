@@ -11,7 +11,7 @@ export interface Column<T> {
 interface DataTableProps<T> {
   columns: Column<T>[];
   rows: T[];
-  rowKey: (row: T) => Key;
+  rowKey: (row: T, index: number) => Key;
   /** CSS grid-template-columns string for both header and rows. */
   gridTemplate: string;
   onRowClick?: (row: T) => void;
@@ -56,9 +56,9 @@ export function DataTable<T>({
               description="Items will appear once they're created."
             />
           )
-        : rows.map(row => (
+        : rows.map((row, index) => (
             <div
-              key={rowKey(row)}
+              key={rowKey(row, index)}
               className={cn(
                 'grid gap-2.5 px-4 py-3 border-b border-border last:border-b-0 items-center text-sm',
                 onRowClick && 'cursor-pointer hover:bg-surface-2',

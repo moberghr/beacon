@@ -113,7 +113,7 @@ export default function MigrationJobDetailPage() {
 
   const handleDelete = async () => {
     try {
-      const result = await deleteMutation.mutateAsync({ id: job.id }) as { success: boolean; errorMessage: string | null };
+      const result = await deleteMutation.mutateAsync({ id: job.id });
       if (!result.success) {
         toast.error(result.errorMessage ?? 'Failed to delete migration job');
         return;

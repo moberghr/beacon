@@ -178,6 +178,7 @@ export function CreateMigrationJobDialog({ open, onClose }: CreateMigrationJobDi
           >
             <Select
               aria-invalid={!!errors.dataSourceId}
+              disabled={dataSourcesQuery.isLoading}
               {...register('dataSourceId', { setValueAs: v => v === '' || v == null ? 0 : Number(v) })}
             >
               <option value={0}>— Select source —</option>
@@ -221,6 +222,7 @@ export function CreateMigrationJobDialog({ open, onClose }: CreateMigrationJobDi
           <Field label={<>Destination data source {REQ}</>}>
             <Select
               aria-invalid={!!errors.destinationDataSourceId}
+              disabled={dataSourcesQuery.isLoading}
               {...register('destinationDataSourceId', { setValueAs: v => v === '' || v == null ? 0 : Number(v) })}
             >
               <option value={0}>— Select destination —</option>

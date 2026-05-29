@@ -69,6 +69,11 @@ describe('DatabaseExplorer', () => {
       expect(screen.getByText('public')).toBeInTheDocument();
     });
     expect(screen.getByText('hangfire')).toBeInTheDocument();
+
+    // Schemas start collapsed — expand them to reveal table names.
+    fireEvent.click(screen.getByText('public'));
+    fireEvent.click(screen.getByText('hangfire'));
+
     expect(screen.getByText('users')).toBeInTheDocument();
     expect(screen.getByText('jobs')).toBeInTheDocument();
 

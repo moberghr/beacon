@@ -5,8 +5,36 @@ import { mswServer } from '../../../vitest.setup';
 import { renderWithProviders } from '@/test/render';
 import { AddSubscriptionDialog } from './AddSubscriptionDialog';
 
+function stubQueryEndpoints(queryId: number) {
+  mswServer.use(
+    http.get('*/beacon/api/queries', () =>
+      HttpResponse.json({
+        items: [
+          {
+            queryId,
+            name: `Query ${queryId}`,
+            description: null,
+            subscriptionsCount: 0,
+          },
+        ],
+        totalCount: 1,
+        page: 1,
+        pageSize: 20,
+      }),
+    ),
+    http.get(`*/beacon/api/queries/${queryId}`, () =>
+      HttpResponse.json({
+        queryId,
+        name: `Query ${queryId}`,
+        description: null,
+      }),
+    ),
+  );
+}
+
 describe('AddSubscriptionDialog (multi-step)', () => {
   it('walks through steps and POSTs the new subscription', async () => {
+    stubQueryEndpoints(12);
     mswServer.use(
       http.get('*/beacon/api/recipients', () =>
         HttpResponse.json({
@@ -35,10 +63,11 @@ describe('AddSubscriptionDialog (multi-step)', () => {
     );
 
     const onClose = vi.fn();
-    renderWithProviders(<AddSubscriptionDialog open onClose={onClose} />);
+    renderWithProviders(
+      <AddSubscriptionDialog open onClose={onClose} initialQueryId={12} />,
+    );
 
-    // Step 1 — Query: fill query id, advance.
-    fireEvent.input(screen.getByLabelText(/^Query id/), { target: { value: '12' } });
+    // Step 1 — Query is preselected via initialQueryId; advance.
     fireEvent.click(screen.getByTestId('stepper-next'));
 
     // Step 2 — Recipients: pick Ops.
@@ -62,6 +91,7 @@ describe('AddSubscriptionDialog (multi-step)', () => {
   });
 
   it('blocks advancing past Recipients step when none picked', async () => {
+    stubQueryEndpoints(5);
     mswServer.use(
       http.get('*/beacon/api/recipients', () =>
         HttpResponse.json({ entries: [] }),
@@ -69,9 +99,10 @@ describe('AddSubscriptionDialog (multi-step)', () => {
     );
 
     const onClose = vi.fn();
-    renderWithProviders(<AddSubscriptionDialog open onClose={onClose} />);
+    renderWithProviders(
+      <AddSubscriptionDialog open onClose={onClose} initialQueryId={5} />,
+    );
 
-    fireEvent.input(screen.getByLabelText(/^Query id/), { target: { value: '5' } });
     fireEvent.click(screen.getByTestId('stepper-next'));
 
     // On Recipients step now — try to advance without selecting any.

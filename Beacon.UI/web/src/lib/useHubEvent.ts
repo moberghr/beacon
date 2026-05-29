@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { toast } from 'sonner';
 import {
   connectBeaconHub,
   type BeaconHub,
@@ -14,6 +15,7 @@ import {
  * page unload tears it down).
  */
 let hubPromise: Promise<BeaconHub> | undefined;
+let hubFailureToastShown = false;
 
 function getHub(): Promise<BeaconHub> {
   if (hubPromise === undefined) {
@@ -80,6 +82,12 @@ export function useHubEvent<E extends keyof EventMap>(
         // Hub is non-essential — log but don't crash the page.
         // eslint-disable-next-line no-console
         console.warn('[beacon-hub] failed to subscribe', event, err);
+        if (!hubFailureToastShown) {
+          hubFailureToastShown = true;
+          toast.warning('Realtime updates unavailable', {
+            description: 'Lists won’t refresh automatically until the connection recovers. Use the refresh button to pull latest data.',
+          });
+        }
       });
 
     return () => {
