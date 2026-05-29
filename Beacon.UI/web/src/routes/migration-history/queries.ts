@@ -61,7 +61,7 @@ export function useCreateMigrationJob() {
           errorMessage: r.errorMessage ?? null,
         };
       },
-      invalidate: [MIGRATION_EXECUTIONS_KEY],
+      invalidate: [MIGRATION_EXECUTIONS_KEY, ['migration-jobs']],
       errorFallback: 'Create migration job failed',
     }),
   );

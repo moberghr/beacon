@@ -90,7 +90,7 @@ export default function QueryVersionsPage() {
         <DataTable
           columns={COLUMNS}
           rows={versions}
-          rowKey={v => v.id ?? Math.random()}
+          rowKey={(v, idx) => v.id ?? `idx-${idx}`}
           gridTemplate={GRID_TEMPLATE}
           onRowClick={v => v.id && navigate(`/queries/${queryId}/versions/${v.id}`)}
           empty={

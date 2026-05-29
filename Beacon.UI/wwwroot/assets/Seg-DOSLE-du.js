@@ -1,2 +1,0 @@
-import{j as t,m as r}from"./index-BhTstdHh.js";function u({options:s,value:n,onChange:a,className:x}){return t.jsx("div",{className:r("inline-flex items-center bg-surface-2 border border-border rounded-sm p-0.5 text-xs",x),children:s.map(e=>t.jsx("button",{type:"button",onClick:()=>a(e.value),className:r("px-2.5 py-1 rounded-xs font-medium transition",e.value===n?"bg-surface text-text shadow-sm":"text-text-muted hover:text-text"),children:e.label},e.value))})}export{u as S};
-//# sourceMappingURL=Seg-DOSLE-du.js.map

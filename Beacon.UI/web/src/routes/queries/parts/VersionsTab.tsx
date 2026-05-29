@@ -70,7 +70,7 @@ export function VersionsTab({ queryId }: VersionsTabProps) {
     <DataTable
       columns={columns}
       rows={versions}
-      rowKey={v => v.id ?? Math.random()}
+      rowKey={(v, idx) => v.id ?? `idx-${idx}`}
       gridTemplate={GRID_TEMPLATE}
       className="rounded-none border-0 shadow-none"
       empty={
