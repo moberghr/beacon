@@ -37,7 +37,7 @@ Framework details in `.claude/skills/tech-stack-dotnet/SKILL.md`.
 ## Project Profile
 
 - **Framework:** .NET 9 (`net9.0` across all projects)
-- **Solution:** `Beacon.sln` — 16 projects after Phase 3 cutover (`Beacon.UI` and `Beacon.Web` deleted), all references converge on `Beacon.Core`
+- **Solution:** `Beacon.sln` — 17 projects after Phase 3 cutover (`Beacon.Web` deleted; `Beacon.UI` remains as a Razor Class Library that serves the React static assets), all references converge on `Beacon.Core`
 - **Composition root:** `Beacon.SampleProject` (host + UI shell). Auth middleware lives in `Beacon.SampleProject/Authentication/`.
 - **Data layer:** EF Core 9 (PostgreSQL + SQL Server, dual migrations) + Dapper for hot paths
 - **Patterns:** MediatR/CQRS (handler+request+result in one file, `internal sealed class` + primary ctor), `IDbContextFactory<BeaconContext>`, builder-pattern DI, soft delete via `ArchivableBaseEntity`
