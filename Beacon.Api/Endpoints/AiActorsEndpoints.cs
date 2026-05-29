@@ -1,5 +1,5 @@
 using System.Security.Claims;
-using Beacon.Core.Handlers.Ai.AiActor;
+using Beacon.Core.Handlers.AiActors;
 using MediatR;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
