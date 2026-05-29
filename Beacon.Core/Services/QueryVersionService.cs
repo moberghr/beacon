@@ -78,11 +78,11 @@ internal class QueryVersionService(IDbContextFactory<BeaconContext> contextFacto
 
         context.QueryVersions.Add(version);
 
-        // If this is the active version, update the query reference
+        // If this is the active version, point the query at it via navigation
+        // so EF resolves the FK during the single SaveChanges below (§5.7).
         if (status == QueryVersionStatus.Active)
         {
-            await context.SaveChangesAsync(cancellationToken); // Save to get version ID
-            query.ActiveVersionId = version.Id;
+            query.ActiveVersion = version;
         }
 
         await context.SaveChangesAsync(cancellationToken);
@@ -173,7 +173,8 @@ internal class QueryVersionService(IDbContextFactory<BeaconContext> contextFacto
         query.Description = version.Description;
         query.FinalQuery = version.FinalQuery;
 
-        // Remove existing steps and parameters
+        // Remove existing steps and parameters (cascaded by EF when we remove
+        // the step; parameters were configured with cascade-on-delete).
         foreach (var step in query.Steps.ToList())
         {
             foreach (var param in step.Parameters.ToList())
@@ -183,38 +184,33 @@ internal class QueryVersionService(IDbContextFactory<BeaconContext> contextFacto
             context.QuerySteps.Remove(step);
         }
 
-        await context.SaveChangesAsync(cancellationToken);
-
-        // Recreate steps from snapshot
+        // Recreate steps from snapshot using navigation so EF assigns FKs
+        // for both QueryStep and its child QueryStepParameters in one save.
         foreach (var snapshot in snapshots)
         {
-            var newStep = new QueryStep
+            context.QuerySteps.Add(new QueryStep
             {
                 QueryId = query.Id,
                 StepOrder = snapshot.StepOrder,
                 SqlValue = snapshot.SqlValue,
                 DataSourceId = snapshot.DataSourceId,
                 Name = snapshot.Name,
-                Description = snapshot.Description
-            };
-
-            context.QuerySteps.Add(newStep);
-            await context.SaveChangesAsync(cancellationToken);
-
-            foreach (var paramSnapshot in snapshot.Parameters)
-            {
-                context.QueryStepParameters.Add(new QueryStepParameter
-                {
-                    QueryStepId = newStep.Id,
-                    Name = paramSnapshot.Name,
-                    Type = paramSnapshot.Type,
-                    Description = paramSnapshot.Description,
-                    Placeholder = paramSnapshot.Placeholder
-                });
-            }
+                Description = snapshot.Description,
+                Parameters = snapshot.Parameters
+                    .Select(x => new QueryStepParameter
+                    {
+                        // QueryStepId is satisfied by the parent navigation
+                        // collection; EF resolves it during SaveChanges.
+                        QueryStepId = 0,
+                        Name = x.Name,
+                        Type = x.Type,
+                        Description = x.Description,
+                        Placeholder = x.Placeholder
+                    })
+                    .ToList()
+            });
         }
 
-        // Create new Active version from restored state
         var maxVersionNumberNullable = await context.QueryVersions
             .Where(v => v.QueryId == query.Id)
             .Select(v => (int?)v.VersionNumber)
@@ -236,9 +232,8 @@ internal class QueryVersionService(IDbContextFactory<BeaconContext> contextFacto
         };
 
         context.QueryVersions.Add(newVersion);
-        await context.SaveChangesAsync(cancellationToken);
+        query.ActiveVersion = newVersion;
 
-        query.ActiveVersionId = newVersion.Id;
         await context.SaveChangesAsync(cancellationToken);
 
         return newVersion.VersionNumber;

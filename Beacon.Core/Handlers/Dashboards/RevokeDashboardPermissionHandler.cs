@@ -12,7 +12,8 @@ internal sealed class RevokeDashboardPermissionHandler(
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         var permission = await context.DashboardPermissions
-            .FirstOrDefaultAsync(p => p.Id == request.PermissionId, cancellationToken);
+            .Where(p => p.Id == request.PermissionId)
+            .FirstOrDefaultAsync(cancellationToken);
 
         if (permission != null)
         {

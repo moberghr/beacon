@@ -20,7 +20,8 @@ internal sealed class UpdateDataContractHandler(
         var contract = await context.DataContracts
             .Include(c => c.Rules)
             .Include(c => c.Recipients)
-            .FirstOrDefaultAsync(c => c.Id == request.DataContractId, cancellationToken)
+            .Where(c => c.Id == request.DataContractId)
+            .FirstOrDefaultAsync(cancellationToken)
             ?? throw new BeaconException($"Data contract {request.DataContractId} not found");
 
         contract.DataSourceId = request.DataSourceId;

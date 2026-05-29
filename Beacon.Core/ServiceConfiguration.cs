@@ -13,7 +13,6 @@ using Beacon.Core.Authentication.Providers;
 using Beacon.Core.Authorization;
 using Beacon.Core.Authorization.Providers;
 using Beacon.Core.Data;
-using Beacon.Core.Models;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Embed;
 using Beacon.Core.Services.Shared;
@@ -197,32 +196,10 @@ public static class ServiceConfiguration
 
         context.Database.Migrate();
 
-        // Hydrate configuration singletons from database settings
-        InitializeAppSettings(scope.ServiceProvider);
-    }
-
-    private static void InitializeAppSettings(IServiceProvider serviceProvider)
-    {
-        try
-        {
-            var settingsService = serviceProvider.GetRequiredService<IAppSettingsService>();
-            var settings = settingsService.GetSettingsAsync().GetAwaiter().GetResult();
-
-            // Hydrate BeaconConfiguration
-            var config = serviceProvider.GetRequiredService<BeaconConfiguration>();
-            if (settings.BaseUrl != null) config.BaseUrl = settings.BaseUrl;
-
-            // Hydrate LLM configuration if updater is available
-            var llmUpdater = serviceProvider.GetService<ILlmConfigurationUpdater>();
-            if (llmUpdater != null && settings.LlmProvider.HasValue)
-            {
-                llmUpdater.UpdateConfiguration(settings);
-            }
-        }
-        catch
-        {
-            // Settings table may not exist yet on first run before migration — continue with defaults
-        }
+        // Settings hydration is intentionally not performed here — handlers
+        // resolve IAppSettingsService on demand. Hydrating at startup would
+        // either require an async entrypoint or block-on-async, both of which
+        // we avoid.
     }
 
     private static string GetSchemaFromContext(BeaconContext context)

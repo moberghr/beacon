@@ -17,7 +17,10 @@ public class BeaconScheduler : IBeaconScheduler
 
     public void AddOrUpdate(int subscriptionId, string subscriptionName, string cron)
     {
-        _recurringJobManager.AddOrUpdate<IJobService>(CompileSubscriptionJobKey(subscriptionId, subscriptionName), x => x.ExecuteQuery(subscriptionId), cron);
+        _recurringJobManager.AddOrUpdate<IJobService>(
+            CompileSubscriptionJobKey(subscriptionId, subscriptionName),
+            x => x.ExecuteQuery(subscriptionId, JobCancellationToken.Null),
+            cron);
     }
 
     public void Remove(int subscriptionId, string subscriptionName)

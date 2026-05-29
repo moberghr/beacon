@@ -89,7 +89,8 @@ internal class MigrationService(
             var migrationJob = await context.MigrationJobs
                 .Include(m => m.DataSource)
                 .Include(m => m.DestinationDataSource)
-                .FirstOrDefaultAsync(m => m.Id == request.MigrationJobId, cancellationToken);
+                .Where(m => m.Id == request.MigrationJobId)
+                .FirstOrDefaultAsync(cancellationToken);
 
             if (migrationJob == null)
             {
@@ -465,7 +466,8 @@ internal class MigrationService(
             // Get destination data source for data insertion
             await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
             var destinationDataSource = await context.DataSources
-                .FirstOrDefaultAsync(ds => ds.Id == migrationJob.DestinationDataSourceId, cancellationToken);
+                .Where(ds => ds.Id == migrationJob.DestinationDataSourceId)
+                .FirstOrDefaultAsync(cancellationToken);
 
             if (destinationDataSource == null)
             {

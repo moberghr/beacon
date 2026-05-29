@@ -60,7 +60,8 @@ public class AiActorService : IAiActorServiceExtended
 
         // Verify data source exists
         var dataSource = await context.DataSources
-            .FirstOrDefaultAsync(ds => ds.Id == options.DataSourceId, cancellationToken)
+            .Where(ds => ds.Id == options.DataSourceId)
+            .FirstOrDefaultAsync(cancellationToken)
             ?? throw new BeaconException($"DataSource with ID {options.DataSourceId} not found");
 
         var actor = new Beacon.Core.Data.Entities.AiActor
@@ -156,7 +157,8 @@ public class AiActorService : IAiActorServiceExtended
 
         var actor = await context.AiActors
             .Include(a => a.DataSource)
-            .FirstOrDefaultAsync(a => a.Id == actorId, cancellationToken)
+            .Where(a => a.Id == actorId)
+            .FirstOrDefaultAsync(cancellationToken)
             ?? throw new BeaconException($"AI Actor with ID {actorId} not found");
 
         if (actor.Status != AiActorStatus.Active)
@@ -324,7 +326,8 @@ public class AiActorService : IAiActorServiceExtended
         await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
 
         var actor = await context.AiActors
-            .FirstOrDefaultAsync(a => a.Id == actorId, cancellationToken)
+            .Where(a => a.Id == actorId)
+            .FirstOrDefaultAsync(cancellationToken)
             ?? throw new BeaconException($"AI Actor with ID {actorId} not found");
 
         if (actor.Status != AiActorStatus.Active)
@@ -343,7 +346,8 @@ public class AiActorService : IAiActorServiceExtended
         await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
 
         var actor = await context.AiActors
-            .FirstOrDefaultAsync(a => a.Id == actorId, cancellationToken)
+            .Where(a => a.Id == actorId)
+            .FirstOrDefaultAsync(cancellationToken)
             ?? throw new BeaconException($"AI Actor with ID {actorId} not found");
 
         if (actor.Status != AiActorStatus.Paused && actor.Status != AiActorStatus.Failed)
@@ -363,7 +367,8 @@ public class AiActorService : IAiActorServiceExtended
         await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
 
         var actor = await context.AiActors
-            .FirstOrDefaultAsync(a => a.Id == actorId, cancellationToken)
+            .Where(a => a.Id == actorId)
+            .FirstOrDefaultAsync(cancellationToken)
             ?? throw new BeaconException($"AI Actor with ID {actorId} not found");
 
         actor.Status = AiActorStatus.Archived;
@@ -383,7 +388,8 @@ public class AiActorService : IAiActorServiceExtended
 
         var actor = await context.AiActors
             .Include(a => a.DataSource)
-            .FirstOrDefaultAsync(a => a.Id == actorId, cancellationToken)
+            .Where(a => a.Id == actorId)
+            .FirstOrDefaultAsync(cancellationToken)
             ?? throw new BeaconException($"AI Actor with ID {actorId} not found");
 
         // Create execution record
@@ -698,7 +704,8 @@ public class AiActorService : IAiActorServiceExtended
 
         var actor = await context.AiActors
             .Include(a => a.DataSource)
-            .FirstAsync(a => a.Id == actorId, cancellationToken);
+            .Where(a => a.Id == actorId)
+            .FirstAsync(cancellationToken);
 
         var execution = new AiActorExecution
         {
@@ -1152,7 +1159,8 @@ public class AiActorService : IAiActorServiceExtended
 
         var query = await context.Queries
             .Include(q => q.Steps)
-            .FirstOrDefaultAsync(q => q.Id == queryId && q.AiActorId == actor.Id, cancellationToken);
+            .Where(q => q.Id == queryId && q.AiActorId == actor.Id)
+            .FirstOrDefaultAsync(cancellationToken);
 
         if (query == null)
         {
@@ -1310,7 +1318,8 @@ public class AiActorService : IAiActorServiceExtended
 
         var actor = await context.AiActors
             .Include(a => a.DataSource)
-            .FirstOrDefaultAsync(a => a.Id == options.ActorId, cancellationToken)
+            .Where(a => a.Id == options.ActorId)
+            .FirstOrDefaultAsync(cancellationToken)
             ?? throw new BeaconException($"AI Actor with ID {options.ActorId} not found");
 
         try
@@ -1458,7 +1467,8 @@ public class AiActorService : IAiActorServiceExtended
         var plan = await context.AiActorPlans
             .Include(p => p.AiActor)
                 .ThenInclude(a => a.DataSource)
-            .FirstOrDefaultAsync(p => p.Id == options.PlanId, cancellationToken)
+            .Where(p => p.Id == options.PlanId)
+            .FirstOrDefaultAsync(cancellationToken)
             ?? throw new BeaconException($"Plan with ID {options.PlanId} not found");
 
         if (plan.Status != AiActorPlanStatus.PendingApproval)
@@ -1606,7 +1616,8 @@ public class AiActorService : IAiActorServiceExtended
         await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
 
         var plan = await context.AiActorPlans
-            .FirstOrDefaultAsync(p => p.Id == options.PlanId, cancellationToken)
+            .Where(p => p.Id == options.PlanId)
+            .FirstOrDefaultAsync(cancellationToken)
             ?? throw new BeaconException($"Plan with ID {options.PlanId} not found");
 
         if (plan.Status != AiActorPlanStatus.PendingApproval)
@@ -1631,7 +1642,8 @@ public class AiActorService : IAiActorServiceExtended
         await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
 
         var plan = await context.AiActorPlans
-            .FirstOrDefaultAsync(p => p.Id == options.PlanId, cancellationToken)
+            .Where(p => p.Id == options.PlanId)
+            .FirstOrDefaultAsync(cancellationToken)
             ?? throw new BeaconException($"Plan with ID {options.PlanId} not found");
 
         if (plan.Status != AiActorPlanStatus.PendingApproval)
@@ -1693,7 +1705,8 @@ public class AiActorService : IAiActorServiceExtended
             .Include(p => p.AiActor)
             .Include(p => p.ParentPlan)
             .Include(p => p.AiActorExecution)
-            .FirstOrDefaultAsync(p => p.Id == planId, cancellationToken);
+            .Where(p => p.Id == planId)
+            .FirstOrDefaultAsync(cancellationToken);
     }
 
     private async Task<int> GetNextPlanVersionAsync(int parentPlanId, CancellationToken cancellationToken)

@@ -17,7 +17,8 @@ internal sealed class ShareDashboardHandler(
 
         // Check if permission already exists
         var existingPermission = await context.DashboardPermissions
-            .FirstOrDefaultAsync(p => p.DashboardId == request.DashboardId && p.UserId == request.UserId, cancellationToken);
+            .Where(p => p.DashboardId == request.DashboardId && p.UserId == request.UserId)
+            .FirstOrDefaultAsync(cancellationToken);
 
         if (existingPermission != null)
         {

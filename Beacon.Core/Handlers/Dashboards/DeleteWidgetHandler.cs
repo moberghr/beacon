@@ -18,7 +18,8 @@ internal sealed class DeleteWidgetHandler(
 
         var widget = await context.DashboardWidgets
             .Include(w => w.Dashboard)
-            .FirstOrDefaultAsync(w => w.Id == request.WidgetId, cancellationToken);
+            .Where(w => w.Id == request.WidgetId)
+            .FirstOrDefaultAsync(cancellationToken);
 
         if (widget == null)
         {
