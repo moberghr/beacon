@@ -364,18 +364,15 @@ tasks/todo.md
 .claude/references.index
 .mtk/
 
-# React (Phase 0 — beacon UI migration)
-Beacon.SampleProject/web/dist/
-# Beacon.SampleProject/web/src/api/generated/  — committed since Phase 1 batch 12
-Beacon.SampleProject/wwwroot/app/
-# React build output (post-cutover) — built by BuildReactApp+StageReactBuild
-# from web/dist/. Hashes change every build; don't track them.
-Beacon.SampleProject/wwwroot/assets/
-Beacon.SampleProject/wwwroot/index.html
-Beacon.SampleProject/wwwroot/vite.svg
-Beacon.SampleProject/web/*.tsbuildinfo
-Beacon.SampleProject/web/vite.config.js
-Beacon.SampleProject/web/vite.config.d.ts
+# React (post-Phase-3-cutover — UI now lives in Beacon.UI/)
+Beacon.UI/web/dist/
+# React build output — produced by BuildReactApp into Beacon.UI/wwwroot/.
+# Hashes change every build; don't track them.
+Beacon.UI/wwwroot/assets/
+Beacon.UI/wwwroot/index.html
+Beacon.UI/web/*.tsbuildinfo
+Beacon.UI/web/vite.config.js
+Beacon.UI/web/vite.config.d.ts
 /.claude/worktrees/
 
 # Playwright MCP page snapshots (agent-generated browser traces, not source)

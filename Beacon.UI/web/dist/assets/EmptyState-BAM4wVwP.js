@@ -1,2 +1,0 @@
-import{j as t}from"./index-B07zqzZP.js";function r({icon:e,title:i,description:s,action:l,className:a}){return t.jsxs("div",{className:`empty-state${a?` ${a}`:""}`,children:[e&&t.jsx("div",{className:"empty-state__icon",children:e}),t.jsxs("div",{style:{flex:1},children:[t.jsx("div",{className:"empty-state__title",children:i}),s&&t.jsx("div",{className:"empty-state__sub",children:s})]}),l]})}export{r as E};
-//# sourceMappingURL=EmptyState-BAM4wVwP.js.map
