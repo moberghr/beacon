@@ -36,9 +36,12 @@ internal static class DataQualityEndpoints
 
         quality.MapPut("/contracts/{id:int}", async (int id, UpdateDataContractBody body, IMediator m, CancellationToken ct) =>
         {
+            // OwnerUserId intentionally not accepted from the request body — ownership
+            // transfer must go through a dedicated admin endpoint, not the generic update
+            // path. See spec 2026-06-01-pr11-merge-fixes (§9.8 / impersonation guard).
             await m.Send(new UpdateDataContractCommand(
                 id, body.DataSourceId, body.SchemaName, body.TableName, body.Name,
-                body.Description, body.CronExpression, body.IsEnabled, body.OwnerUserId,
+                body.Description, body.CronExpression, body.IsEnabled,
                 body.AlertOnFailure, body.FailureThresholdScore, body.Rules, body.RecipientIds), ct);
             return TypedResults.NoContent();
         }).WithName("UpdateDataContract");
@@ -69,7 +72,6 @@ internal sealed record UpdateDataContractBody(
     string? Description,
     string CronExpression,
     bool IsEnabled,
-    string? OwnerUserId,
     bool AlertOnFailure,
     int FailureThresholdScore,
     List<DataContractRuleData> Rules,

@@ -1,5 +1,4 @@
 using Microsoft.AspNetCore.Antiforgery;
-using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 
@@ -16,11 +15,15 @@ public static class BeaconApiEndpoints
     {
         services.AddAuthorization(options =>
         {
-            options.AddPolicy(AuthPolicyName, new AuthorizationPolicyBuilder(CookieAuthenticationDefaults.AuthenticationScheme)
+            // Scheme-agnostic on purpose: ApiKeyAuthMiddleware assigns context.User directly
+            // (no scheme registration), so pinning the policy to a single scheme would 403
+            // every API-key caller. RequireAuthenticatedUser() honours whatever identity the
+            // upstream middleware (cookie OR API key) has put on the context.
+            options.AddPolicy(AuthPolicyName, new AuthorizationPolicyBuilder()
                 .RequireAuthenticatedUser()
                 .Build());
 
-            options.AddPolicy(AdminPolicyName, new AuthorizationPolicyBuilder(CookieAuthenticationDefaults.AuthenticationScheme)
+            options.AddPolicy(AdminPolicyName, new AuthorizationPolicyBuilder()
                 .RequireAuthenticatedUser()
                 .RequireRole("Admin")
                 .Build());

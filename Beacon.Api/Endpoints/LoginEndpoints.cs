@@ -102,7 +102,11 @@ public static partial class LoginEndpoints
             antiforgery.SetCookieTokenAndHeader(context);
 
             return Results.Ok(new { success = true });
-        }).AllowAnonymous();
+        })
+        .AllowAnonymous()
+        // Logout must succeed even when the client holds a stale CSRF cookie (e.g. after
+        // identity rotation on a second tab); antiforgery on logout has no security benefit.
+        .DisableAntiforgery();
 
         // GET /beacon/api/auth/signout — browser-navigable signout that clears the cookie and redirects
         var loginPath = $"{basePath}{configuration.Authentication.LoginPath}";

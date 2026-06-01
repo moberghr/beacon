@@ -31,7 +31,9 @@ internal sealed class UpdateDataContractHandler(
         contract.TableName = request.TableName;
         contract.CronExpression = request.CronExpression;
         contract.IsEnabled = request.IsEnabled;
-        contract.OwnerUserId = request.OwnerUserId;
+        // OwnerUserId is intentionally NOT updated through the generic update command;
+        // ownership transfer must go through a dedicated admin endpoint to prevent
+        // body-supplied user-id impersonation.
         contract.AlertOnFailure = request.AlertOnFailure;
         contract.FailureThresholdScore = request.FailureThresholdScore;
 
@@ -91,7 +93,6 @@ public record UpdateDataContractCommand(
     string? Description,
     string CronExpression,
     bool IsEnabled,
-    string? OwnerUserId,
     bool AlertOnFailure,
     int FailureThresholdScore,
     List<DataContractRuleData> Rules,

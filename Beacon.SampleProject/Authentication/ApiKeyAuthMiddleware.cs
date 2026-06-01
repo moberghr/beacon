@@ -28,8 +28,11 @@ public sealed class ApiKeyAuthMiddleware(RequestDelegate next)
 
         if (credential == null)
         {
-            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-            await context.Response.WriteAsync("Invalid or expired API key");
+            await Results.Problem(
+                title: "Unauthorized",
+                detail: "Invalid or expired API key.",
+                statusCode: StatusCodes.Status401Unauthorized)
+                .ExecuteAsync(context);
             return;
         }
 

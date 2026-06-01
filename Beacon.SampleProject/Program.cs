@@ -24,7 +24,6 @@ using Beacon.SampleProject.Middleware;
 using Beacon.SampleProject.Services;
 using Beacon.UI;
 using Microsoft.AspNetCore.RateLimiting;
-using Microsoft.AspNetCore.SignalR;
 using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -61,8 +60,9 @@ builder.Services.AddHangfire(hangfireConfiguration => hangfireConfiguration
 
 builder.Services.AddHangfireServer();
 
-// Hangfire filter that publishes job-state changes via SignalR to the enqueueing user.
-builder.Services.AddSingleton<HangfireSignalRJobFilter>();
+// Host-level identity + SignalR plumbing (claims transformer, Hangfire → SignalR bridge,
+// SignalR user-id provider). Registered together via AuthServiceExtensions (§2.12).
+builder.Services.AddBeaconHostInfrastructure();
 
 // ============================================================================
 // BEACON SETUP
@@ -129,8 +129,7 @@ if (oidcEnabled && !string.IsNullOrWhiteSpace(mcpJwksEndpoint))
     });
 }
 
-// Register claims transformer to add role claims after authentication
-builder.Services.AddScoped<Microsoft.AspNetCore.Authentication.IClaimsTransformation, SampleClaimsTransformation>();
+// (Claims transformer registered via AddBeaconHostInfrastructure above.)
 
 // Step 3: Add Beacon AI services (required for AI features)
 builder.Services.AddBeaconAI(builder.Configuration);
@@ -168,7 +167,7 @@ builder.Services.AddRateLimiter(options =>
 });
 
 builder.Services.AddSignalR();
-builder.Services.AddSingleton<IUserIdProvider, HubUserIdProvider>();
+// (IUserIdProvider registered via AddBeaconHostInfrastructure above.)
 
 var app = builder.Build();
 
@@ -189,12 +188,14 @@ app.UseMiddleware<ApiKeyAuthMiddleware>();
 // JWT bearer authentication for MCP clients using OIDC tokens
 app.UseBeaconJwtBearerAuthentication();
 
-// Authentication must be before authorization
+// Middleware order is load-bearing per §1.9:
+//   ApiKey → Authentication → Cookie (per-request cookie scheme) → Authorization → LoginForm.
+// BeaconCookieAuthMiddleware must populate context.User from the Beacon.Auth cookie BEFORE
+// UseAuthorization evaluates policies, otherwise the first authorization check on a cookie
+// session sees an unauthenticated user.
 app.UseAuthentication();
-app.UseAuthorization();
-
-// Cookie authentication middleware (per-request cookie scheme authentication)
 app.UseMiddleware<BeaconCookieAuthMiddleware>();
+app.UseAuthorization();
 
 // Login form redirect middleware — redirects unauthenticated browser requests to /login (React route)
 var beaconConfiguration = app.Services.GetRequiredService<BeaconConfiguration>();
@@ -245,10 +246,11 @@ Hangfire.GlobalJobFilters.Filters.Add(app.Services.GetRequiredService<HangfireSi
 // Beacon MCP Server - available at /beacon/mcp (Streamable HTTP, SDK transport)
 app.MapMcp("/beacon/mcp").RequireAuthorization();
 
-// Hangfire Dashboard - available at /hangfire
+// Hangfire Dashboard - available at /hangfire — Admin-only (§7.4).
 app.UseHangfireDashboard("/hangfire", new DashboardOptions
 {
     IgnoreAntiforgeryToken = true,
+    Authorization = [new HangfireDashboardAuthFilter()],
 });
 
 // React SPA shell at root /. Beacon.UI ships the built React app as Razor Class
