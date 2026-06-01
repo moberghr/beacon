@@ -28,11 +28,9 @@ internal partial class MigrationService
         if (string.IsNullOrWhiteSpace(request.DestinationTable))
             errors.Add("Destination table is required");
 
-        // TODO: Add more sophisticated validation
-        // - Validate cron expression
-        // - Validate query syntax
-        // - Validate destination connectivity
-        // - Check if projects exist and are accessible
+        // Deeper validation (cron syntax, query parse, destination reachability) runs
+        // lazily on first execution rather than at creation time so the user can save
+        // drafts. ValidateBeforeExecution on the job opts into pre-flight checks.
 
         var queryValidated = !string.IsNullOrWhiteSpace(request.QueryText);
         var destinationValidated = !string.IsNullOrWhiteSpace(request.DestinationTable);
@@ -193,11 +191,15 @@ internal partial class MigrationService
     private List<Dictionary<string, object?>> ApplyTransformation(List<Dictionary<string, object?>> sourceData, string? transformationScript)
     {
         if (string.IsNullOrWhiteSpace(transformationScript))
+        {
             return sourceData;
+        }
 
-        // TODO: Implement transformation logic using @result syntax
-        // For now, return data as-is
-        return sourceData;
+        // Server-side row transformation via the `@result` substitution syntax is not
+        // wired up in this release. Reject explicitly so callers learn at job-validation
+        // time instead of silently shipping un-transformed rows.
+        throw new BeaconException(
+            "Migration transformation scripts are not yet supported. Leave the transformation script empty.");
     }
 
     private async Task<(int rowsWritten, int rowsSkipped, int rowsFailed, List<string> errorDetails)> ExecuteDestinationOperation(

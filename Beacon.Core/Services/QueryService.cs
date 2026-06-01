@@ -4,6 +4,7 @@ using Dapper;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Adapters;
+using Beacon.Core.Authorization;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
@@ -176,7 +177,7 @@ public class GetQueriesRequest : SortedListRequest
     public string? SearchTerm { get; set; }
 }
 
-internal partial class QueryService(IDbContextFactory<BeaconContext> contextFactory, IEncryptionService encryptionService, IManualQueryExecutionLogger queryExecutionLogger, ILogger<QueryService> logger, ILoggerFactory loggerFactory, IQueryVersionService queryVersionService, BeaconConfiguration beaconConfiguration) : IQueryService
+internal partial class QueryService(IDbContextFactory<BeaconContext> contextFactory, IEncryptionService encryptionService, IManualQueryExecutionLogger queryExecutionLogger, ILogger<QueryService> logger, ILoggerFactory loggerFactory, IQueryVersionService queryVersionService, BeaconConfiguration beaconConfiguration, IBeaconUserContext userContext) : IQueryService
 {
     public async Task<BaseResponse> CreateQuery(QueryData queryData, CancellationToken cancellationToken)
     {

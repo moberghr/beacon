@@ -9,12 +9,17 @@ namespace Beacon.Core.Services;
 
 internal class NotificationService(IDbContextFactory<BeaconContext> contextFactory, AdapterFactory adapterFactory) : INotificationService
 {
-    public async Task SendNotification(RecipientQueryResult recipientQueryResult, int? lastExecutedQueryResultCount)
+    public async Task SendNotification(
+        RecipientQueryResult recipientQueryResult,
+        int? lastExecutedQueryResultCount,
+        CancellationToken cancellationToken = default)
     {
-        // Handle external notifications via adapters
-        // Task creation is now handled directly in JobService.ExecuteQuery
+        // Task creation is handled in JobService.ExecuteQuery; here we fan out to the
+        // configured notification adapter (Email/Slack/Teams/Jira/Webhook). The token
+        // flows so a shutdown signal aborts an in-flight HTTP call rather than letting
+        // a slow third-party hang the worker.
         var adapter = adapterFactory.GetAdapterService(recipientQueryResult.RecipientNotificationType);
-        await adapter.SendNotificationAsync(recipientQueryResult, lastExecutedQueryResultCount);
+        await adapter.SendNotificationAsync(recipientQueryResult, lastExecutedQueryResultCount, cancellationToken);
     }
 
     public async Task<QueryExecutionHistoryListData> GetQueryExecutionHistory(GetQueryExecutionHistoryRequest request, CancellationToken cancellationToken)

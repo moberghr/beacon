@@ -172,8 +172,6 @@ internal class JobService(
             resultFile = await ExportProvider.GetReport(subscription.ResultAttachmentType.Value, queryResult.AllRecords);
         }
 
-        // TODO: refactor this to use sending Notifications table
-
         for (int i = 0; i < queryResult.Recipients.Count; i++)
         {
             var recipient = queryResult.Recipients[i];
@@ -194,7 +192,7 @@ internal class JobService(
         {
             foreach (var recipientQueryResult in recipientsQueryResults)
             {
-                await notificationService.SendNotification(recipientQueryResult, lastExecutedQuery?.ResultCount);
+                await notificationService.SendNotification(recipientQueryResult, lastExecutedQuery?.ResultCount, ct);
             }
         }
         catch (Exception ex)
@@ -210,13 +208,15 @@ internal class JobService(
         await TriggerAiActorIfApplicableAsync(subscriptionId, queryResult.TotalRecords, ct);
     }
 
-    public async Task EvaluateDataContract(int contractId)
+    public async Task EvaluateDataContract(int contractId, IJobCancellationToken cancellationToken)
     {
+        var ct = cancellationToken.ShutdownToken;
+
         try
         {
             var evaluationResult = await dataQualityEvaluationService.EvaluateContractAsync(contractId);
 
-            await SendDataQualityNotificationsIfNeeded(contractId, evaluationResult);
+            await SendDataQualityNotificationsIfNeeded(contractId, evaluationResult, ct);
         }
         catch (Exception ex)
         {
@@ -225,9 +225,12 @@ internal class JobService(
         }
     }
 
-    private async Task SendDataQualityNotificationsIfNeeded(int contractId, Models.DataQuality.DataQualityEvaluationData evaluationResult)
+    private async Task SendDataQualityNotificationsIfNeeded(
+        int contractId,
+        Models.DataQuality.DataQualityEvaluationData evaluationResult,
+        CancellationToken cancellationToken)
     {
-        await using var context = await contextFactory.CreateDbContextAsync();
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         var contract = await context.DataContracts
             .Where(c => c.Id == contractId)
@@ -249,7 +252,7 @@ internal class JobService(
                     r.BodyTemplate
                 }).ToList()
             })
-            .FirstOrDefaultAsync();
+            .FirstOrDefaultAsync(cancellationToken);
 
         if (contract == null)
         {
@@ -333,7 +336,7 @@ internal class JobService(
 
             try
             {
-                await notificationService.SendNotification(recipientQueryResult, null);
+                await notificationService.SendNotification(recipientQueryResult, null, cancellationToken);
             }
             catch (Exception ex)
             {
@@ -343,7 +346,7 @@ internal class JobService(
         }
     }
 
-    public async Task AggregateLearnedPatterns()
+    public async Task AggregateLearnedPatterns(IJobCancellationToken cancellationToken)
     {
         if (mcpLearningService == null)
         {
@@ -351,10 +354,10 @@ internal class JobService(
             return;
         }
 
-        await mcpLearningService.AggregateLearnedPatternsAsync();
+        await mcpLearningService.AggregateLearnedPatternsAsync(cancellationToken.ShutdownToken);
     }
 
-    public async Task GenerateDocumentationPatches()
+    public async Task GenerateDocumentationPatches(IJobCancellationToken cancellationToken)
     {
         if (mcpLearningService == null)
         {
@@ -362,10 +365,10 @@ internal class JobService(
             return;
         }
 
-        await mcpLearningService.GenerateDocumentationPatchesAsync();
+        await mcpLearningService.GenerateDocumentationPatchesAsync(cancellationToken.ShutdownToken);
     }
 
-    public async Task CleanupOldSignals()
+    public async Task CleanupOldSignals(IJobCancellationToken cancellationToken)
     {
         if (mcpLearningService == null)
         {
@@ -373,7 +376,7 @@ internal class JobService(
             return;
         }
 
-        await mcpLearningService.CleanupOldSignalsAsync();
+        await mcpLearningService.CleanupOldSignalsAsync(ct: cancellationToken.ShutdownToken);
     }
 
     private async Task TriggerAiActorIfApplicableAsync(int subscriptionId, int rowCount, CancellationToken cancellationToken)

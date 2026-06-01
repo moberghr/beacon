@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication;
 using Beacon.Core.Authorization;
+using Beacon.Core.Services;
 
 namespace Beacon.SampleProject.Services;
 
@@ -37,10 +38,10 @@ public class SampleClaimsTransformation : IClaimsTransformation
         {
             var role = username?.ToLowerInvariant() switch
             {
-                "admin" => "Admin",      // Full access
-                "editor" => "Editor",    // Read/Write, no delete
-                "viewer" => "Viewer",    // Read-only
-                _ => "Viewer"            // Default: Read-only
+                "admin" => RoleService.RoleNames.Admin,
+                "editor" => RoleService.RoleNames.Editor,
+                "viewer" => RoleService.RoleNames.Viewer,
+                _ => RoleService.RoleNames.Viewer,
             };
 
             identity.AddClaim(new Claim(BeaconClaims.Role, role));

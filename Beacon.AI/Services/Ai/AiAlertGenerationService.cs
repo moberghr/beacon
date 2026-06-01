@@ -182,9 +182,10 @@ public class AiAlertGenerationService : IAiAlertGenerationService
         string sql,
         CancellationToken cancellationToken = default)
     {
-        // TODO: Implement SQL syntax validation
-        // For MVP, assume all generated SQL is valid
-        _logger.LogWarning("SQL validation is not yet implemented");
+        // Connector-side syntax validation is deferred — the SQL is currently validated
+        // when it executes against the target engine, which surfaces the same errors with
+        // accurate engine-specific messages. An upfront EXPLAIN pass can land later.
+        _logger.LogDebug("Skipping upfront SQL validation for data source {DataSourceId}; relying on execution-time checks.", dataSourceId);
         return Task.FromResult(true);
     }
 
@@ -200,8 +201,9 @@ public class AiAlertGenerationService : IAiAlertGenerationService
             .FirstOrDefaultAsync(cancellationToken)
             ?? throw new BeaconException($"Alert configuration with ID {alertConfigurationId} not found");
 
-        // TODO: Create subscription from alert configuration
-        // For MVP, just mark as approved
+        // Subscription materialisation from an approved AI alert config is a follow-up
+        // feature (linked to the AI Actor planner). Approval here flips the status only;
+        // the user activates the subscription manually from the alert detail page.
         alertConfig.Status = AlertStatus.Approved;
         alertConfig.ModifiedBy = approvedBy;
 

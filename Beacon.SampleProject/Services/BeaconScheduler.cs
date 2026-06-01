@@ -32,7 +32,7 @@ public class BeaconScheduler : IBeaconScheduler
     {
         _recurringJobManager.AddOrUpdate<IJobService>(
             CompileDataQualityJobKey(contractId, contractName),
-            x => x.EvaluateDataContract(contractId),
+            x => x.EvaluateDataContract(contractId, JobCancellationToken.Null),
             cron);
     }
 

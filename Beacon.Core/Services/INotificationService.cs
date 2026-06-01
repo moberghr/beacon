@@ -7,7 +7,10 @@ namespace Beacon.Core.Services;
 
 public interface INotificationService
 {
-    Task SendNotification(RecipientQueryResult recipientQueryResult, int? lastExecutedQueryResultCount);
+    Task SendNotification(
+        RecipientQueryResult recipientQueryResult,
+        int? lastExecutedQueryResultCount,
+        CancellationToken cancellationToken = default);
 
     Task<QueryExecutionHistoryListData> GetQueryExecutionHistory(GetQueryExecutionHistoryRequest request, CancellationToken cancellationToken);
 
