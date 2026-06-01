@@ -1,4 +1,5 @@
 using Hangfire.Dashboard;
+using Beacon.Core.Services;
 
 namespace Beacon.SampleProject.Authentication;
 
@@ -11,8 +12,8 @@ internal sealed class HangfireDashboardAuthFilter : IDashboardAuthorizationFilte
 {
     public bool Authorize(DashboardContext context)
     {
-        var httpContext = context.GetHttpContext();
-        var user = httpContext.User;
-        return user.Identity?.IsAuthenticated == true && user.IsInRole("Admin");
+        var user = context.GetHttpContext().User;
+        return user.Identity?.IsAuthenticated == true
+            && user.IsInRole(RoleService.RoleNames.Admin);
     }
 }

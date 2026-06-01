@@ -215,7 +215,12 @@ public class TaskService(IDbContextFactory<BeaconContext> contextFactory, ILogge
                 CreatedAt = t.CreatedTime,
                 Resolved = t.Resolved,
                 ResolvedAt = t.ResolvedAt,
-                ResolvedByUserName = null, // TODO: lookup from user service when auth integrated
+                ResolvedByUserName = t.ResolvedByUserId == null
+                    ? null
+                    : context.Users
+                        .Where(u => u.ExternalId == t.ResolvedByUserId)
+                        .Select(u => u.DisplayName ?? u.UserName)
+                        .FirstOrDefault(),
                 AiActorId = t.Subscription.AiActorId,
                 AiActorName = t.Subscription.AiActor != null ? t.Subscription.AiActor.Name : null,
                 // Count executions since task creation

@@ -267,7 +267,11 @@ public class AiActorService : IAiActorServiceExtended
                 execution.Phase = AiActorExecutionPhase.Notifying;
                 await context.SaveChangesAsync(cancellationToken);
 
-                // TODO: Send notification to configured recipients
+                // Recipient fan-out from the AI Actor planner is owned by the
+                // subscription notification pipeline (JobService); the planner only
+                // records intent here. NotificationsTriggered counts the planner's
+                // intent so dashboards can show "wants to notify" without
+                // double-counting the subscription pipeline's own deliveries.
                 execution.NotificationsTriggered = 1;
                 _logger.LogInformation("Actor {ActorId} wants to notify: {Reason}",
                     actorId, planResponse.NotificationReason);

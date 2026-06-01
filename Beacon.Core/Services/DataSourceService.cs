@@ -1,6 +1,7 @@
 using System.Data;
 using Dapper;
 using Microsoft.EntityFrameworkCore;
+using Beacon.Core.Authorization;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Entities.Metadata;
@@ -39,6 +40,7 @@ internal class DataSourceService(
     IEncryptionService encryptionService,
     IDataSourceProviderFactory providerFactory,
     IManualQueryExecutionLogger queryExecutionLogger,
+    IBeaconUserContext userContext,
     ILogger<DataSourceService> logger) : IDataSourceService
 {
     public async Task<BaseResponse> CreateDataSource(DataSourceData dataSourceData, CancellationToken cancellationToken)
@@ -300,7 +302,7 @@ internal class DataSourceService(
                 dataSourceId: dataSourceId,
                 executionContext: "DataSourceEditor",
                 errorMessage: result.ErrorMessage,
-                userId: null, // TODO: Set from middleware/user context
+                userId: userContext.UserId,
                 cancellationToken: cancellationToken);
 
             return new AdHocQueryResult
@@ -328,7 +330,7 @@ internal class DataSourceService(
                 dataSourceId: dataSourceId,
                 executionContext: "DataSourceEditor",
                 errorMessage: ex.Message,
-                userId: null, // TODO: Set from middleware/user context
+                userId: userContext.UserId,
                 cancellationToken: cancellationToken);
 
             return new AdHocQueryResult

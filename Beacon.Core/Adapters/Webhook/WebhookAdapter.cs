@@ -17,12 +17,14 @@ internal class WebhookAdapter(IHttpClientFactory httpClientFactory, BeaconConfig
 
     public NotificationType NotificationType => NotificationType.Webhook;
 
-    public async Task SendNotificationAsync(RecipientQueryResult recipientQueryResult, int? lastNotificationResultCount)
+    public async Task SendNotificationAsync(
+        RecipientQueryResult recipientQueryResult,
+        int? lastNotificationResultCount,
+        CancellationToken cancellationToken = default)
     {
         var client = httpClientFactory.CreateClient();
         var queryResult = recipientQueryResult.QueryResult;
 
-        // Use body template if provided, otherwise use default JSON payload
         string bodyContent;
         if (!string.IsNullOrWhiteSpace(recipientQueryResult.BodyTemplate))
         {
@@ -44,7 +46,6 @@ internal class WebhookAdapter(IHttpClientFactory httpClientFactory, BeaconConfig
 
         var content = new StringContent(bodyContent, Encoding.UTF8, System.Net.Mime.MediaTypeNames.Application.Json);
 
-        // Parse and add custom headers
         if (!string.IsNullOrEmpty(recipientQueryResult.HeadersJson))
         {
             try
@@ -64,11 +65,11 @@ internal class WebhookAdapter(IHttpClientFactory httpClientFactory, BeaconConfig
             }
         }
 
-        var response = await client.PostAsync(recipientQueryResult.RecipientDestination, content);
+        var response = await client.PostAsync(recipientQueryResult.RecipientDestination, content, cancellationToken);
 
         if (!response.IsSuccessStatusCode)
         {
-            var errorBody = await response.Content.ReadAsStringAsync();
+            var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
             logger.LogError("Webhook returned error {StatusCode}: {ErrorBody}", response.StatusCode, errorBody);
             throw new BeaconException(
                 $"Failed to send Webhook notification: {response.StatusCode}. {errorBody}");

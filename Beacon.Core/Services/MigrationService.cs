@@ -5,6 +5,7 @@ using Dapper;
 using EFCore.BulkExtensions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Beacon.Core.Authorization;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities.DataMigration;
 using Beacon.Core.Data.Enums;
@@ -32,6 +33,7 @@ internal partial class MigrationService(
     IEncryptionService encryptionService,
     IQueryService queryService,
     IQueryExecutionPreviewService previewService,
+    IBeaconUserContext userContext,
     ILogger<MigrationService> logger) : IMigrationService
 {
     public async Task<CreateMigrationJobResponse> CreateMigrationJob(CreateMigrationJobRequest request, CancellationToken cancellationToken)
@@ -62,7 +64,7 @@ internal partial class MigrationService(
                 TimeoutMinutes = request.TimeoutMinutes,
                 ValidateBeforeExecution = request.ValidateBeforeExecution,
                 TransformationScript = request.TransformationScript,
-                ChangedBy = "System", // TODO: Get from current user context
+                ChangedBy = userContext.UserId ?? userContext.UserName ?? "system",
                 ChangedOn = DateTime.UtcNow
             };
 
@@ -344,7 +346,7 @@ internal partial class MigrationService(
             migrationJob.TimeoutMinutes = request.TimeoutMinutes;
             migrationJob.ValidateBeforeExecution = request.ValidateBeforeExecution;
             migrationJob.TransformationScript = request.TransformationScript;
-            migrationJob.ChangedBy = "System"; // TODO: Get from current user context
+            migrationJob.ChangedBy = userContext.UserId ?? userContext.UserName ?? "system";
             migrationJob.ChangedOn = DateTime.UtcNow;
 
             await context.SaveChangesAsync(cancellationToken);

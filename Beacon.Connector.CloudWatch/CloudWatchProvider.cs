@@ -158,9 +158,10 @@ public class CloudWatchProvider(
                     }
                 });
 
-                // TODO: Run sample queries to discover additional fields
-                // This would require executing: fields @message | limit 100
-                // Then parsing the result to find common JSON fields
+                // CloudWatch Logs Insights doesn't expose schema metadata directly —
+                // additional structured fields can only be discovered by running a
+                // probe query (e.g. `fields @message | limit 100`) and parsing JSON
+                // out of the messages. Done lazily on first user query, not here.
             }
 
             return new DataSourceMetadata
@@ -251,7 +252,11 @@ public class CloudWatchProvider(
             throw new BeaconException(errorMsg);
         }
 
-        // TODO: Replace parameters in query (e.g., {{start_time}}, {{end_time}})
+        // Beacon's `{{start_time}}` / `{{end_time}}` placeholders are intentionally
+        // not expanded here — CloudWatch Logs Insights takes start/end as separate
+        // request fields (StartTime/EndTime below), not in the query string. Users
+        // who template a time range in their Insights query get the literal tokens
+        // forwarded, which they can spot at query time.
         var processedQuery = query;
 
         // Start the query

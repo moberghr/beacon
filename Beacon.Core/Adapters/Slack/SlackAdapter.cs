@@ -34,14 +34,16 @@ internal class SlackAdapter : IAdapter
 
     public NotificationType NotificationType => NotificationType.Slack;
 
-    public async Task SendNotificationAsync(RecipientQueryResult recipientQueryResult, int? lastNotificationResultCount)
+    public async Task SendNotificationAsync(
+        RecipientQueryResult recipientQueryResult,
+        int? lastNotificationResultCount,
+        CancellationToken cancellationToken = default)
     {
         var client = _httpClientFactory.CreateClient();
         var queryResult = recipientQueryResult.QueryResult;
 
         string jsonPayload;
 
-        // If custom body template is provided, use shared template processor
         if (!string.IsNullOrWhiteSpace(recipientQueryResult.BodyTemplate))
         {
             try
@@ -57,18 +59,15 @@ internal class SlackAdapter : IAdapter
         }
         else
         {
-            // Use default Slack message format
             jsonPayload = BuildDefaultSlackMessage(recipientQueryResult, queryResult);
         }
 
-        // Send to Slack webhook
         var content = new StringContent(jsonPayload, Encoding.UTF8, System.Net.Mime.MediaTypeNames.Application.Json);
-        var response = await client.PostAsync(recipientQueryResult.RecipientDestination, content);
+        var response = await client.PostAsync(recipientQueryResult.RecipientDestination, content, cancellationToken);
 
-        // Handle errors
         if (!response.IsSuccessStatusCode)
         {
-            var errorBody = await response.Content.ReadAsStringAsync();
+            var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError("Slack webhook returned error {StatusCode}: {ErrorBody}", response.StatusCode, errorBody);
             throw new BeaconException(
                 $"Failed to send Slack notification: {response.StatusCode}. {errorBody}");

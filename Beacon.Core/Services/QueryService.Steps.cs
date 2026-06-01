@@ -209,7 +209,7 @@ internal partial class QueryService
             dataSourceId: primaryDataSourceId,
             executionContext: "FullQueryPreview",
             errorMessage: executionResult.ErrorMessage,
-            userId: null, // TODO: Set from middleware/user context
+            userId: userContext.UserId,
             cancellationToken: cancellationToken);
 
         return executionResult;
@@ -257,7 +257,7 @@ internal partial class QueryService
             dataSourceId: step.DataSourceId,
             executionContext: "QueryStepPreview",
             errorMessage: timedOut ? "Step execution timed out" : null,
-            userId: null, // TODO: Set from middleware/user context
+            userId: userContext.UserId,
             cancellationToken: CancellationToken.None);
 
         return stepResult;
