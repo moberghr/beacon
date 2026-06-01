@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
 
 namespace Beacon.Api.Endpoints;
 
@@ -7,7 +8,7 @@ namespace Beacon.Api.Endpoints;
 /// Validates the antiforgery token for non-GET/HEAD/OPTIONS requests from
 /// authenticated users. Anonymous endpoints opt out via <c>.DisableAntiforgery()</c>.
 /// </summary>
-internal sealed class AntiforgeryEndpointFilter(IAntiforgery antiforgery) : IEndpointFilter
+internal sealed class AntiforgeryEndpointFilter(IAntiforgery antiforgery, ILogger<AntiforgeryEndpointFilter> logger) : IEndpointFilter
 {
     public async ValueTask<object?> InvokeAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
     {
@@ -30,6 +31,7 @@ internal sealed class AntiforgeryEndpointFilter(IAntiforgery antiforgery) : IEnd
         }
         catch (AntiforgeryValidationException ex)
         {
+            logger.LogWarning(ex, "Antiforgery validation failed for {Method} {Path}", method, httpContext.Request.Path);
             return Results.Problem(
                 title: "Invalid antiforgery token.",
                 detail: ex.Message,
