@@ -29,6 +29,7 @@ import {
   Select,
   Kbd,
 } from '@/components/beacon';
+import { InputPromptDialog } from '@/components/ui/InputPromptDialog';
 import { NewStepEditorWithExplorer } from './new/NewStepEditorWithExplorer';
 import { InfoRow, CheckRow, type CheckTone } from './new/atoms';
 import { useDataSourcesQuery } from '@/routes/data-sources/queries';
@@ -111,6 +112,7 @@ export default function NewQueryPage() {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [steps, setSteps] = useState<DraftStep[]>(() => [emptyStep(1)]);
+  const [parameterPromptDraftId, setParameterPromptDraftId] = useState<number | null>(null);
 
   const dataSourceOptions = dataSources.data?.entries ?? [];
 
@@ -199,16 +201,26 @@ export default function NewQueryPage() {
   };
 
   const onAddParameter = (draftId: number) => {
-    const raw = window.prompt('Parameter name (without braces):', '');
-    if (!raw) return;
+    setParameterPromptDraftId(draftId);
+  };
+
+  const validateParameterName = (raw: string): string | null => {
     const cleaned = raw.trim().replace(/^\{|\}$/g, '');
-    if (!cleaned || !/^\w+$/.test(cleaned)) {
-      toast.error('Parameter name must be alphanumeric.');
-      return;
+    if (!cleaned) return 'Parameter name cannot be empty.';
+    if (!/^\w+$/.test(cleaned)) return 'Parameter name must be alphanumeric (a-z, 0-9, _).';
+    const targetStep = steps.find(s => s.draftId === parameterPromptDraftId);
+    if (targetStep?.parameters.some(p => p.name === cleaned)) {
+      return `Parameter "${cleaned}" already exists on this step.`;
     }
+    return null;
+  };
+
+  const confirmAddParameter = (raw: string) => {
+    if (parameterPromptDraftId === null) return;
+    const cleaned = raw.trim().replace(/^\{|\}$/g, '');
     setSteps(prev =>
       prev.map(s => {
-        if (s.draftId !== draftId) return s;
+        if (s.draftId !== parameterPromptDraftId) return s;
         if (s.parameters.some(p => p.name === cleaned)) return s;
         return {
           ...s,
@@ -224,6 +236,7 @@ export default function NewQueryPage() {
         };
       }),
     );
+    setParameterPromptDraftId(null);
   };
 
   const addStep = () => {
@@ -669,6 +682,18 @@ export default function NewQueryPage() {
           </Button>
         </div>
       </div>
+
+      <InputPromptDialog
+        open={parameterPromptDraftId !== null}
+        title="Add parameter"
+        message="Reference this parameter in the SQL with { } around the name — e.g. { startDate }."
+        label="Parameter name"
+        placeholder="startDate"
+        confirmLabel="Add"
+        validate={validateParameterName}
+        onConfirm={confirmAddParameter}
+        onCancel={() => setParameterPromptDraftId(null)}
+      />
     </div>
   );
 }

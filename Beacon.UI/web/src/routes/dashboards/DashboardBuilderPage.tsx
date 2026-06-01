@@ -11,6 +11,7 @@ import {
   Textarea,
 } from '@/components/beacon';
 import { EmptyState } from '@/components/data/EmptyState';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import type { DashboardWidgetData } from '@/api/generated/beacon-api';
 import { useDashboardQuery, useAddWidget, useDeleteWidget, WIDGET_TYPE, WIDGET_TYPE_LABEL } from './queries';
 
@@ -100,10 +101,18 @@ export default function DashboardBuilderPage() {
     setForm(INITIAL_FORM);
   };
 
+  const [pendingDelete, setPendingDelete] = useState<DashboardWidgetData | null>(null);
+
   const handleDeleteWidget = (w: DashboardWidgetData) => {
     if (w.id == null) return;
-    if (!confirm(`Remove widget "${w.title || 'Untitled'}"?`)) return;
-    deleteWidget.mutate(w.id);
+    setPendingDelete(w);
+  };
+
+  const confirmDeleteWidget = () => {
+    if (pendingDelete?.id != null) {
+      deleteWidget.mutate(pendingDelete.id);
+    }
+    setPendingDelete(null);
   };
 
   return (
@@ -259,6 +268,23 @@ export default function DashboardBuilderPage() {
           ))}
         </Card>
       )}
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title="Remove widget"
+        message={
+          <>
+            Remove widget <span className="font-medium">"{pendingDelete?.title || 'Untitled'}"</span>?
+            This cannot be undone.
+          </>
+        }
+        confirmLabel="Remove"
+        cancelLabel="Keep"
+        destructive
+        busy={deleteWidget.isPending}
+        onConfirm={confirmDeleteWidget}
+        onCancel={() => setPendingDelete(null)}
+      />
     </div>
   );
 }

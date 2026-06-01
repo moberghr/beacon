@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from './useAuth';
 
 interface RequireAuthProps {
@@ -6,10 +7,14 @@ interface RequireAuthProps {
 }
 
 /**
- * Gate for authenticated routes. Anonymous users get redirected to /login.
+ * Gate for authenticated routes. Anonymous users get redirected to /login
+ * via the SPA router (no full page reload), preserving the originally
+ * requested URL in location.state.returnTo so the post-login flow can
+ * deep-link the user back to where they were going.
  */
 export function RequireAuth({ children }: RequireAuthProps) {
   const { data, isLoading, isError } = useAuth();
+  const location = useLocation();
 
   if (isLoading) {
     return (
@@ -28,10 +33,8 @@ export function RequireAuth({ children }: RequireAuthProps) {
   }
 
   if (!data?.isAuthenticated) {
-    if (typeof window !== 'undefined') {
-      window.location.href = '/login';
-    }
-    return null;
+    const returnTo = `${location.pathname}${location.search}`;
+    return <Navigate to="/login" replace state={{ returnTo }} />;
   }
 
   return <>{children}</>;

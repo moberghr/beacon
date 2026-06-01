@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useForm } from 'react-hook-form';
+import { get, useForm, type FieldErrors, type FieldPath, type UseFormRegister } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
@@ -662,20 +662,21 @@ export function AddDataSourceDialog({ open, onClose }: AddDataSourceDialogProps)
 
 interface DsFieldProps {
   label: string;
-  name: string;
+  name: FieldPath<FormValues>;
   required?: boolean;
   type?: 'text' | 'password';
   placeholder?: string;
   multiline?: boolean;
   rows?: number;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  register: any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  errors: any;
+  register: UseFormRegister<FormValues>;
+  errors: FieldErrors<FormValues>;
 }
 
 function DsField({ label, name, required, type = 'text', placeholder, multiline, rows = 3, register, errors }: DsFieldProps) {
-  const err = errors?.[name];
+  // FormValues is a discriminated union, so RHF's FieldErrors<FormValues>
+  // doesn't expose a uniform index signature. `get()` is RHF's typed helper
+  // for path-based lookup that works across union shapes.
+  const err = get(errors, name) as { message?: string } | undefined;
   return (
     <BField label={<>{label}{required && REQ}</>}>
       {multiline ? (
@@ -693,7 +694,7 @@ function DsField({ label, name, required, type = 'text', placeholder, multiline,
           {...register(name)}
         />
       )}
-      {err && <span className="text-xs text-crit">{err.message as string}</span>}
+      {err?.message && <span className="text-xs text-crit">{String(err.message)}</span>}
     </BField>
   );
 }
