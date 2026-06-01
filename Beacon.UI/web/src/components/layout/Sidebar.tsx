@@ -28,6 +28,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { cn } from '@/lib/cn';
 import { useAuth } from '@/auth/useAuth';
 import { beaconApi } from '@/api/client';
+import { BuildBadge } from '@/components/beacon';
 
 interface NavItem {
   name: string;
@@ -151,7 +152,7 @@ export function Sidebar() {
           <span className="beacon-logo-dot" aria-hidden="true" />
           <span>Beacon</span>
         </div>
-        <span className="text-2xs mono text-text-subtle">v0.93</span>
+        <BuildBadge />
       </div>
 
       <nav className="flex-1 overflow-y-auto px-2 py-3 flex flex-col gap-4">

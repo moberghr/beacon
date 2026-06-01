@@ -1,12 +1,33 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'node:path';
+import { execSync } from 'node:child_process';
 
 const backend = process.env.BEACON_BACKEND_URL ?? 'https://localhost:7187';
+
+// Build-time identity: short git SHA + ISO build timestamp.
+// Surfaced via `import.meta.env.BEACON_COMMIT_SHA` / `BEACON_BUILD_DATE`
+// so the UI can render a single source of truth for the build (Sidebar + login).
+function readGitSha(): string {
+  try {
+    return execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] })
+      .toString()
+      .trim();
+  } catch {
+    return 'unknown';
+  }
+}
+
+const commitSha = process.env.BEACON_COMMIT_SHA ?? readGitSha();
+const buildDate = process.env.BEACON_BUILD_DATE ?? new Date().toISOString();
 
 export default defineConfig({
   base: '/',
   plugins: [react()],
+  define: {
+    'import.meta.env.BEACON_COMMIT_SHA': JSON.stringify(commitSha),
+    'import.meta.env.BEACON_BUILD_DATE': JSON.stringify(buildDate),
+  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),

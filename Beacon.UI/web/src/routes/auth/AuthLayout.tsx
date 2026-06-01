@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
+import { BuildBadge } from '@/components/beacon';
 import './login.css';
 
 const NODES: Array<[number, number]> = [
@@ -129,6 +130,7 @@ export function AuthLayout({
 
           <div className="login__foot">
             <span>© {now.getFullYear()} Beacon</span>
+            <BuildBadge />
           </div>
         </div>
       </aside>
