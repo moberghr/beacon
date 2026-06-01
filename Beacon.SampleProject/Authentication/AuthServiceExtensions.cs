@@ -3,15 +3,18 @@ using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
+using Beacon.Api.SignalR;
 using Beacon.Core;
 using Beacon.Core.Authentication;
 using Beacon.Core.Authentication.Providers;
 using Beacon.Core.Authorization;
 using Beacon.Core.Data;
+using Beacon.SampleProject.Services;
 
 namespace Beacon.SampleProject.Authentication;
 
@@ -148,6 +151,21 @@ public static class AuthServiceExtensions
                 sp.GetRequiredService<JwtExternalApiAuthenticationProvider>());
         }
 
+        return services;
+    }
+
+    /// <summary>
+    /// Registers host-level identity and SignalR plumbing that depends on the authenticated
+    /// user: the claims transformer that materialises Beacon role claims after cookie/OIDC
+    /// sign-in, the Hangfire → SignalR job-state bridge (per-user notifications), and the
+    /// SignalR <c>IUserIdProvider</c> that maps connections to <c>BeaconUser.Id</c>.
+    /// Kept here (§2.12) so <c>Program.cs</c> stays a thin composition root.
+    /// </summary>
+    public static IServiceCollection AddBeaconHostInfrastructure(this IServiceCollection services)
+    {
+        services.AddSingleton<HangfireSignalRJobFilter>();
+        services.AddScoped<Microsoft.AspNetCore.Authentication.IClaimsTransformation, SampleClaimsTransformation>();
+        services.AddSingleton<IUserIdProvider, HubUserIdProvider>();
         return services;
     }
 

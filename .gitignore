@@ -377,3 +377,6 @@ Beacon.UI/web/vite.config.d.ts
 
 # Playwright MCP page snapshots (agent-generated browser traces, not source)
 .playwright-mcp/
+
+# MCP local-override config — for committing-free secret values
+.mcp.local.json

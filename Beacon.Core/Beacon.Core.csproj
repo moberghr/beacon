@@ -12,7 +12,7 @@
 		<RepositoryUrl>https://github.com/moberghr/beacon</RepositoryUrl>
 		<RepositoryType>git</RepositoryType>
 		<PackageLicenseExpression>MIT</PackageLicenseExpression>
-		<PackageTags>beacon;database;alerts;notifications;postgresql;sqlserver;mysql;blazor</PackageTags>
+		<PackageTags>beacon;database;alerts;notifications;postgresql;sqlserver;mysql</PackageTags>
 		<PackageReadmeFile>README.md</PackageReadmeFile>
 		<IsPackable>true</IsPackable>
 	</PropertyGroup>
