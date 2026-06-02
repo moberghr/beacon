@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { describeError } from '@/lib/api';
+import { describeError, unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
 import { createSimpleMutation } from '@/lib/mutations';
 
@@ -131,7 +131,7 @@ export function useDataContracts() {
   return useQuery({
     queryKey: DATA_CONTRACTS_KEY,
     queryFn: async () =>
-      (await beaconApi().getDataContracts(undefined)) as unknown as DataContractData[],
+      unwrap<DataContractData[]>(await beaconApi().getDataContracts(undefined)),
   });
 }
 
@@ -139,7 +139,7 @@ export function useDataContract(id: number | null) {
   return useQuery({
     queryKey: id === null ? ['data-quality', 'contract', 'null'] : dataContractKey(id),
     queryFn: async () =>
-      (await beaconApi().getDataContractDetail(id as number)) as unknown as DataContractData,
+      unwrap<DataContractData>(await beaconApi().getDataContractDetail(id as number)),
     enabled: id !== null,
   });
 }
@@ -148,9 +148,9 @@ export function useEvaluationHistory(id: number | null) {
   return useQuery({
     queryKey: id === null ? ['data-quality', 'contract', 'null', 'history'] : evaluationHistoryKey(id),
     queryFn: async () =>
-      (await beaconApi().getEvaluationHistory(id as number, undefined)) as unknown as {
-        evaluations: DataQualityEvaluationData[];
-      },
+      unwrap<{ evaluations: DataQualityEvaluationData[] }>(
+        await beaconApi().getEvaluationHistory(id as number, undefined),
+      ),
     enabled: id !== null,
   });
 }
@@ -161,7 +161,7 @@ export function useEvaluateContract(id: number) {
     createSimpleMutation<void, DataQualityEvaluationData>({
       qc,
       mutationFn: async () =>
-        (await beaconApi().evaluateDataContract(id)) as unknown as DataQualityEvaluationData,
+        unwrap<DataQualityEvaluationData>(await beaconApi().evaluateDataContract(id)),
       invalidate: [dataContractKey(id), evaluationHistoryKey(id), DATA_QUALITY_OVERVIEW_KEY],
       errorFallback: 'Evaluate contract failed',
     }),

@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { beaconApi } from '@/api/client';
-import { fetchJson } from '@/lib/api';
+import { fetchJson, unwrap } from '@/lib/api';
 
 export interface HomePerfBucket {
   label: string;
@@ -56,7 +56,7 @@ export function useHomeTrendsQuery(days: number) {
   return useQuery({
     queryKey: ['home', 'trends', days],
     queryFn: async () =>
-      (await beaconApi().getHomeTrends(days)) as unknown as GetHomeTrendsResult,
+      unwrap<GetHomeTrendsResult>(await beaconApi().getHomeTrends(days)),
   });
 }
 
@@ -64,7 +64,7 @@ export function useHomeActivityQuery() {
   return useQuery({
     queryKey: ['home', 'activity'],
     queryFn: async () =>
-      (await beaconApi().getHomeActivity(8)) as unknown as GetHomeActivityResult,
+      unwrap<GetHomeActivityResult>(await beaconApi().getHomeActivity(8)),
   });
 }
 
@@ -79,7 +79,7 @@ export function useHomeMigrationSummaryQuery() {
   return useQuery({
     queryKey: ['home', 'migration-summary'],
     queryFn: async () =>
-      (await beaconApi().getHomeMigrationSummary()) as unknown as GetHomeMigrationSummaryResult,
+      unwrap<GetHomeMigrationSummaryResult>(await beaconApi().getHomeMigrationSummary()),
     retry: false,
   });
 }
@@ -94,7 +94,7 @@ export function useHomeTaskSummaryQuery() {
   return useQuery({
     queryKey: ['home', 'task-summary'],
     queryFn: async () =>
-      (await beaconApi().getHomeTaskSummary()) as unknown as GetHomeTaskSummaryResult,
+      unwrap<GetHomeTaskSummaryResult>(await beaconApi().getHomeTaskSummary()),
     retry: false,
   });
 }

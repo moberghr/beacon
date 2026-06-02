@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
 import { createSimpleMutation } from '@/lib/mutations';
 
@@ -27,7 +28,7 @@ export function useMigrationJobsQuery() {
   return useQuery({
     queryKey: MIGRATION_JOBS_KEY,
     queryFn: async () =>
-      (await beaconApi().getMigrationJobs()) as unknown as GetMigrationJobsResult,
+      unwrap<GetMigrationJobsResult>(await beaconApi().getMigrationJobs()),
   });
 }
 
@@ -46,7 +47,7 @@ export function useRunMigrationJob() {
     createSimpleMutation<{ id: number }, RunMigrationJobResult>({
       qc,
       mutationFn: async ({ id }) =>
-        (await beaconApi().runMigrationJob(id)) as unknown as RunMigrationJobResult,
+        unwrap<RunMigrationJobResult>(await beaconApi().runMigrationJob(id)),
       invalidate: (vars) => [MIGRATION_JOBS_KEY, ['migration-executions', vars.id]],
       errorFallback: 'Run migration job failed',
     }),

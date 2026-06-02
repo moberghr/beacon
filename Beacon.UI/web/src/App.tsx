@@ -42,9 +42,6 @@ const DataContractDetailPage = lazyWithRetry(() => import('./routes/data-quality
 const McpPlaygroundPage = lazyWithRetry(() => import('./routes/mcp/McpPlaygroundPage'));
 const McpLearningPage = lazyWithRetry(() => import('./routes/mcp/McpLearningPage'));
 const McpSettingsPage = lazyWithRetry(() => import('./routes/mcp/McpSettingsPage'));
-const DashboardsListPage = lazyWithRetry(() => import('./routes/dashboards/DashboardsListPage'));
-const DashboardViewerPage = lazyWithRetry(() => import('./routes/dashboards/DashboardViewerPage'));
-const DashboardBuilderPage = lazyWithRetry(() => import('./routes/dashboards/DashboardBuilderPage'));
 const AiActorsListPage = lazyWithRetry(() => import('./routes/ai-actors/AiActorsListPage'));
 const AiActorDetailPage = lazyWithRetry(() => import('./routes/ai-actors/AiActorDetailPage'));
 const MigrationJobsListPage = lazyWithRetry(() => import('./routes/migration-jobs/MigrationJobsListPage'));
@@ -125,9 +122,15 @@ export default function App() {
                   <Route path="/mcp-playground" element={lazyRoute(McpPlaygroundPage)} />
                   <Route path="/mcp-learning" element={lazyRoute(McpLearningPage)} />
                   <Route path="/mcp-settings" element={lazyRoute(McpSettingsPage)} />
-                  <Route path="/dashboards" element={lazyRoute(DashboardsListPage)} />
-                  <Route path="/dashboards/:id" element={lazyRoute(DashboardViewerPage)} />
-                  <Route path="/dashboards/:id/edit" element={lazyRoute(DashboardBuilderPage)} />
+                  {/*
+                    Dashboards are intentionally hidden pending a redesign (see UNFINISHED.md).
+                    The route components still live under ./routes/dashboards/* for that future
+                    work, but every dashboards path redirects to /home so direct-URL navigation
+                    doesn't expose the unfinished feature.
+                  */}
+                  <Route path="/dashboards" element={<Navigate to="/home" replace />} />
+                  <Route path="/dashboards/:id" element={<Navigate to="/home" replace />} />
+                  <Route path="/dashboards/:id/edit" element={<Navigate to="/home" replace />} />
                   <Route path="/ai-actors" element={lazyRoute(AiActorsListPage)} />
                   <Route path="/ai-actors/:id" element={lazyRoute(AiActorDetailPage)} />
                   <Route path="/ai-actors/:id/edit" element={lazyRoute(AiActorEditPage)} />

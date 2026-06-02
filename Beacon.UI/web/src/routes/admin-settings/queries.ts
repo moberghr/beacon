@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
 import { createSimpleMutation } from '@/lib/mutations';
 
@@ -108,7 +109,7 @@ export function useAdminSettingsQuery() {
   return useQuery({
     queryKey: ADMIN_SETTINGS_KEY,
     queryFn: async () =>
-      (await beaconApi().getAdminSettings()) as unknown as GetAdminSettingsResult,
+      unwrap<GetAdminSettingsResult>(await beaconApi().getAdminSettings()),
   });
 }
 
@@ -130,7 +131,7 @@ export function useTestLlmConnection() {
     createSimpleMutation<TestLlmConnectionPayload, TestLlmConnectionResult>({
       qc,
       mutationFn: async (values) =>
-        (await beaconApi().testLlmConnection(values as never)) as unknown as TestLlmConnectionResult,
+        unwrap<TestLlmConnectionResult>(await beaconApi().testLlmConnection(values as never)),
       errorFallback: 'Test LLM connection failed',
     }),
   );

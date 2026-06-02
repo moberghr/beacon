@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { describeError } from '@/lib/api';
+import { describeError, unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
 import { createSimpleMutation } from '@/lib/mutations';
 
@@ -126,7 +126,7 @@ export const MCP_PATCHES_KEY = ['mcp', 'patches'] as const;
 export function useMcpSettings() {
   return useQuery({
     queryKey: MCP_SETTINGS_KEY,
-    queryFn: async () => (await beaconApi().getMcpSettings()) as unknown as McpSettingsData,
+    queryFn: async () => unwrap<McpSettingsData>(await beaconApi().getMcpSettings()),
   });
 }
 
@@ -168,7 +168,7 @@ export function useLearningStats() {
   return useQuery({
     queryKey: MCP_LEARNING_STATS_KEY,
     queryFn: async () =>
-      (await beaconApi().getLearningStats(undefined)) as unknown as LearningStatsResult,
+      unwrap<LearningStatsResult>(await beaconApi().getLearningStats(undefined)),
   });
 }
 
