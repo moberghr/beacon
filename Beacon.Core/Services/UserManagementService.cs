@@ -43,6 +43,10 @@ internal class UserManagementService(
         // Hash the password
         var (hash, salt) = passwordHasher.HashPassword(request.Password);
 
+        // EF fixes up the join-table FK on SaveChanges, so the user row and its
+        // Admin role assignment commit together (§5.7 — one SaveChangesAsync per unit
+        // of work). Previously this was two consecutive saves, which left an admin
+        // row without a role visible to readers between the two transactions.
         var user = new BeaconUser
         {
             ExternalId = Guid.NewGuid().ToString(),
@@ -53,21 +57,18 @@ internal class UserManagementService(
             PasswordHash = hash,
             PasswordSalt = salt,
             IsSuperAdmin = true,
-            IsEnabled = true
+            IsEnabled = true,
+            UserRoles = new List<BeaconUserRole>
+            {
+                new()
+                {
+                    RoleId = adminRole.Id,
+                    AssignedAt = DateTime.UtcNow,
+                },
+            },
         };
 
         context.Users.Add(user);
-        await context.SaveChangesAsync(ct);
-
-        // Assign Admin role
-        var userRole = new BeaconUserRole
-        {
-            UserId = user.Id,
-            RoleId = adminRole.Id,
-            AssignedAt = DateTime.UtcNow
-        };
-
-        context.UserRoles.Add(userRole);
         await context.SaveChangesAsync(ct);
 
         return new BeaconUserData
@@ -290,6 +291,13 @@ internal class UserManagementService(
 
         var (hash, salt) = passwordHasher.HashPassword(request.Password);
 
+        // Filter the requested roles to those that actually exist before staging,
+        // so the user + UserRoles commit together in a single SaveChanges (§5.7).
+        var validRoleIds = await context.Roles
+            .Where(r => request.RoleIds.Contains(r.Id))
+            .Select(r => r.Id)
+            .ToListAsync(ct);
+
         var user = new BeaconUser
         {
             ExternalId = Guid.NewGuid().ToString(),
@@ -300,27 +308,17 @@ internal class UserManagementService(
             PasswordHash = hash,
             PasswordSalt = salt,
             IsSuperAdmin = false,
-            IsEnabled = true
+            IsEnabled = true,
+            UserRoles = validRoleIds
+                .Select(roleId => new BeaconUserRole
+                {
+                    RoleId = roleId,
+                    AssignedAt = DateTime.UtcNow,
+                })
+                .ToList(),
         };
 
         context.Users.Add(user);
-        await context.SaveChangesAsync(ct);
-
-        // Assign roles
-        foreach (var roleId in request.RoleIds)
-        {
-            var role = await context.Roles.FindAsync(new object[] { roleId }, ct);
-            if (role != null)
-            {
-                context.UserRoles.Add(new BeaconUserRole
-                {
-                    UserId = user.Id,
-                    RoleId = roleId,
-                    AssignedAt = DateTime.UtcNow
-                });
-            }
-        }
-
         await context.SaveChangesAsync(ct);
 
         return new BaseResponse { Success = true, Message = "User created successfully." };

@@ -9,10 +9,12 @@ internal class JiraAdapter(
 {
     public NotificationType NotificationType => NotificationType.Jira;
 
-    public async Task SendNotificationAsync(RecipientQueryResult recipientQueryResult, int? lastNotificationResultCount)
+    public async Task SendNotificationAsync(
+        RecipientQueryResult recipientQueryResult,
+        int? lastNotificationResultCount,
+        CancellationToken cancellationToken = default)
     {
         var credentials = new JiraCredentials(recipientQueryResult.RecipientDestination);
-        var cancellationToken = CancellationToken.None;
 
         if (lastNotificationResultCount == null)
         {
@@ -70,8 +72,10 @@ internal class JiraAdapter(
 
         if (recipientQueryResult.QueryResultFile != null)
         {
-            // TODO: Attachment upload is not yet supported in the new REST API
-            logger.LogWarning("Attachment upload for Jira issue {IssueKey} is not supported. File: {FileName}",
+            // Limitation: attachment upload still uses the Jira v2 endpoint internally
+            // and isn't wired through the new REST v3 adapter. The comment goes through;
+            // file payload is dropped with a warning so the user can re-send manually.
+            logger.LogWarning("Attachment upload for Jira issue {IssueKey} is not supported on the REST v3 adapter. File: {FileName}",
                 issueKey, recipientQueryResult.QueryResultFile.Name);
         }
 

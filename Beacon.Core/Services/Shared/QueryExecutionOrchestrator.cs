@@ -113,7 +113,8 @@ internal class QueryExecutionOrchestrator(
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         var dataSource = await context.DataSources
-            .FirstOrDefaultAsync(ds => ds.Id == step.DataSourceId, cancellationToken)
+            .Where(ds => ds.Id == step.DataSourceId)
+            .FirstOrDefaultAsync(cancellationToken)
             ?? throw new BeaconException($"Data source {step.DataSourceId} not found");
 
         // Get appropriate provider based on data source type

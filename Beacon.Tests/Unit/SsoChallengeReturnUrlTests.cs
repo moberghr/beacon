@@ -1,6 +1,7 @@
 using FluentAssertions;
 using NUnit.Framework;
-using Beacon.UI.Authentication;
+using Beacon.Api.Endpoints;
+using Beacon.SampleProject.Authentication;
 
 namespace Beacon.Tests.Unit;
 

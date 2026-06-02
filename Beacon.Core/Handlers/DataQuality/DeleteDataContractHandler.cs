@@ -15,7 +15,8 @@ internal sealed class DeleteDataContractHandler(
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         var contract = await context.DataContracts
-            .FirstOrDefaultAsync(c => c.Id == request.DataContractId, cancellationToken)
+            .Where(c => c.Id == request.DataContractId)
+            .FirstOrDefaultAsync(cancellationToken)
             ?? throw new BeaconException($"Data contract {request.DataContractId} not found");
 
         scheduler.RemoveDataQualityJob(contract.Id, contract.Name);

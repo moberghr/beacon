@@ -6,47 +6,37 @@ using Beacon.Core.Services;
 
 namespace Beacon.Core.Handlers.Projects;
 
-internal sealed class CreateProjectHandler(BeaconContext context, IEncryptionService encryptionService)
+internal sealed class CreateProjectHandler(IDbContextFactory<BeaconContext> contextFactory, IEncryptionService encryptionService)
     : IRequestHandler<CreateProjectCommand, CreateProjectResult>
 {
     public async Task<CreateProjectResult> Handle(
         CreateProjectCommand request,
         CancellationToken cancellationToken)
     {
-        var project = new Project
-        {
-            Name = request.Name,
-            Description = request.Description
-        };
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        context.Projects.Add(project);
-        await context.SaveChangesAsync(cancellationToken);
-
-        // Link data sources
-        foreach (var dsId in request.DataSourceIds)
-        {
-            context.ProjectDataSources.Add(new ProjectDataSource
-            {
-                ProjectId = project.Id,
-                DataSourceId = dsId
-            });
-        }
-
-        // Link repositories
         var encryptedToken = !string.IsNullOrWhiteSpace(request.AccessToken)
             ? encryptionService.Encrypt(request.AccessToken)
             : null;
 
-        foreach (var repoUrl in request.RepositoryUrls.Where(u => !string.IsNullOrWhiteSpace(u)))
+        var project = new Project
         {
-            context.GitHubRepositories.Add(new GitHubRepository
-            {
-                ProjectId = project.Id,
-                RepositoryUrl = repoUrl,
-                EncryptedAccessToken = encryptedToken
-            });
-        }
+            Name = request.Name,
+            Description = request.Description,
+            DataSources = request.DataSourceIds
+                .Select(x => new ProjectDataSource { DataSourceId = x })
+                .ToList(),
+            Repositories = request.RepositoryUrls
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Select(x => new GitHubRepository
+                {
+                    RepositoryUrl = x,
+                    EncryptedAccessToken = encryptedToken
+                })
+                .ToList()
+        };
 
+        context.Projects.Add(project);
         await context.SaveChangesAsync(cancellationToken);
 
         return new CreateProjectResult(project.Id);

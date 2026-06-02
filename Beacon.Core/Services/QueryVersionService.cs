@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
@@ -16,7 +17,7 @@ public interface IQueryVersionService
     Task<QueryVersionDiff> DiffVersionsAsync(int versionIdA, int versionIdB, CancellationToken cancellationToken = default);
 }
 
-internal class QueryVersionService(IDbContextFactory<BeaconContext> contextFactory) : IQueryVersionService
+internal class QueryVersionService(IDbContextFactory<BeaconContext> contextFactory, ILogger<QueryVersionService> logger) : IQueryVersionService
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -33,7 +34,8 @@ internal class QueryVersionService(IDbContextFactory<BeaconContext> contextFacto
             .Include(q => q.Steps)
                 .ThenInclude(s => s.Parameters)
             .Where(q => q.Id == queryId)
-            .SingleAsync(cancellationToken);
+            .FirstOrDefaultAsync(cancellationToken)
+            ?? throw new InvalidOperationException($"Query {queryId} not found.");
 
         // Get next version number
         var maxVersionNullable = await context.QueryVersions
@@ -76,11 +78,11 @@ internal class QueryVersionService(IDbContextFactory<BeaconContext> contextFacto
 
         context.QueryVersions.Add(version);
 
-        // If this is the active version, update the query reference
+        // If this is the active version, point the query at it via navigation
+        // so EF resolves the FK during the single SaveChanges below (§5.7).
         if (status == QueryVersionStatus.Active)
         {
-            await context.SaveChangesAsync(cancellationToken); // Save to get version ID
-            query.ActiveVersionId = version.Id;
+            query.ActiveVersion = version;
         }
 
         await context.SaveChangesAsync(cancellationToken);
@@ -130,7 +132,7 @@ internal class QueryVersionService(IDbContextFactory<BeaconContext> contextFacto
 
         var version = await context.QueryVersions
             .Where(v => v.Id == versionId)
-            .SingleOrDefaultAsync(cancellationToken);
+            .FirstOrDefaultAsync(cancellationToken);
 
         if (version == null) return null;
 
@@ -143,20 +145,23 @@ internal class QueryVersionService(IDbContextFactory<BeaconContext> contextFacto
 
         var version = await context.QueryVersions
             .Where(v => v.Id == versionId)
-            .SingleAsync(cancellationToken);
+            .FirstOrDefaultAsync(cancellationToken)
+            ?? throw new InvalidOperationException($"Query version {versionId} not found.");
 
         var query = await context.Queries
             .Include(q => q.Steps)
                 .ThenInclude(s => s.Parameters)
             .Where(q => q.Id == version.QueryId)
-            .SingleAsync(cancellationToken);
+            .FirstOrDefaultAsync(cancellationToken)
+            ?? throw new InvalidOperationException($"Query {version.QueryId} not found.");
 
         var snapshots = JsonSerializer.Deserialize<List<QueryStepSnapshot>>(version.StepsJson, JsonOptions) ?? [];
 
         // Archive the current active version
         var currentActive = await context.QueryVersions
-            .Where(v => v.QueryId == query.Id && v.Status == QueryVersionStatus.Active)
-            .SingleOrDefaultAsync(cancellationToken);
+            .Where(v => v.QueryId == query.Id)
+            .Where(v => v.Status == QueryVersionStatus.Active)
+            .FirstOrDefaultAsync(cancellationToken);
 
         if (currentActive != null)
         {
@@ -168,7 +173,8 @@ internal class QueryVersionService(IDbContextFactory<BeaconContext> contextFacto
         query.Description = version.Description;
         query.FinalQuery = version.FinalQuery;
 
-        // Remove existing steps and parameters
+        // Remove existing steps and parameters (cascaded by EF when we remove
+        // the step; parameters were configured with cascade-on-delete).
         foreach (var step in query.Steps.ToList())
         {
             foreach (var param in step.Parameters.ToList())
@@ -178,38 +184,33 @@ internal class QueryVersionService(IDbContextFactory<BeaconContext> contextFacto
             context.QuerySteps.Remove(step);
         }
 
-        await context.SaveChangesAsync(cancellationToken);
-
-        // Recreate steps from snapshot
+        // Recreate steps from snapshot using navigation so EF assigns FKs
+        // for both QueryStep and its child QueryStepParameters in one save.
         foreach (var snapshot in snapshots)
         {
-            var newStep = new QueryStep
+            context.QuerySteps.Add(new QueryStep
             {
                 QueryId = query.Id,
                 StepOrder = snapshot.StepOrder,
                 SqlValue = snapshot.SqlValue,
                 DataSourceId = snapshot.DataSourceId,
                 Name = snapshot.Name,
-                Description = snapshot.Description
-            };
-
-            context.QuerySteps.Add(newStep);
-            await context.SaveChangesAsync(cancellationToken);
-
-            foreach (var paramSnapshot in snapshot.Parameters)
-            {
-                context.QueryStepParameters.Add(new QueryStepParameter
-                {
-                    QueryStepId = newStep.Id,
-                    Name = paramSnapshot.Name,
-                    Type = paramSnapshot.Type,
-                    Description = paramSnapshot.Description,
-                    Placeholder = paramSnapshot.Placeholder
-                });
-            }
+                Description = snapshot.Description,
+                Parameters = snapshot.Parameters
+                    .Select(x => new QueryStepParameter
+                    {
+                        // QueryStepId is satisfied by the parent navigation
+                        // collection; EF resolves it during SaveChanges.
+                        QueryStepId = 0,
+                        Name = x.Name,
+                        Type = x.Type,
+                        Description = x.Description,
+                        Placeholder = x.Placeholder
+                    })
+                    .ToList()
+            });
         }
 
-        // Create new Active version from restored state
         var maxVersionNumberNullable = await context.QueryVersions
             .Where(v => v.QueryId == query.Id)
             .Select(v => (int?)v.VersionNumber)
@@ -231,9 +232,8 @@ internal class QueryVersionService(IDbContextFactory<BeaconContext> contextFacto
         };
 
         context.QueryVersions.Add(newVersion);
-        await context.SaveChangesAsync(cancellationToken);
+        query.ActiveVersion = newVersion;
 
-        query.ActiveVersionId = newVersion.Id;
         await context.SaveChangesAsync(cancellationToken);
 
         return newVersion.VersionNumber;
@@ -247,8 +247,10 @@ internal class QueryVersionService(IDbContextFactory<BeaconContext> contextFacto
             .Where(v => v.Id == versionIdA || v.Id == versionIdB)
             .ToListAsync(cancellationToken);
 
-        var versionA = versions.Single(v => v.Id == versionIdA);
-        var versionB = versions.Single(v => v.Id == versionIdB);
+        var versionA = versions.FirstOrDefault(v => v.Id == versionIdA)
+            ?? throw new InvalidOperationException($"Query version {versionIdA} not found.");
+        var versionB = versions.FirstOrDefault(v => v.Id == versionIdB)
+            ?? throw new InvalidOperationException($"Query version {versionIdB} not found.");
 
         var detailA = ToDetail(versionA);
         var detailB = ToDetail(versionB);
@@ -327,15 +329,16 @@ internal class QueryVersionService(IDbContextFactory<BeaconContext> contextFacto
         return diffs;
     }
 
-    private static int CountSteps(string stepsJson)
+    private int CountSteps(string stepsJson)
     {
         try
         {
             var steps = JsonSerializer.Deserialize<List<QueryStepSnapshot>>(stepsJson, JsonOptions);
             return steps?.Count ?? 0;
         }
-        catch
+        catch (JsonException ex)
         {
+            logger.LogWarning(ex, "Failed to deserialize query version steps; treating as zero-step version");
             return 0;
         }
     }

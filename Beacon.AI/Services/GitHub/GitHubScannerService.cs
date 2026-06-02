@@ -24,7 +24,8 @@ internal sealed class GitHubScannerService(
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
         var repo = await context.GitHubRepositories
-            .FirstOrDefaultAsync(r => r.Id == repositoryId, cancellationToken)
+            .Where(r => r.Id == repositoryId)
+            .FirstOrDefaultAsync(cancellationToken)
             ?? throw new InvalidOperationException($"Repository {repositoryId} not found");
 
         try
@@ -129,7 +130,8 @@ internal sealed class GitHubScannerService(
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
         var repo = await context.GitHubRepositories
-            .FirstOrDefaultAsync(r => r.Id == repositoryId, cancellationToken)
+            .Where(r => r.Id == repositoryId)
+            .FirstOrDefaultAsync(cancellationToken)
             ?? throw new InvalidOperationException($"Repository {repositoryId} not found");
 
         return new ScanProgressInfo(repo.ScanStatus, repo.TotalFilesScanned, repo.TotalReferencesFound, repo.LastScanError);

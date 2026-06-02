@@ -16,9 +16,15 @@ using Beacon.Connector.Databricks;
 using Beacon.Connector.Api;
 using Beacon.Connector.BigQuery;
 using Beacon.MCP;
+using Beacon.Api.Endpoints;
+using Beacon.Api.Hubs;
+using Beacon.Api.SignalR;
+using Beacon.SampleProject.Authentication;
+using Beacon.SampleProject.Middleware;
 using Beacon.SampleProject.Services;
 using Beacon.UI;
-using Beacon.UI.Authentication;
+using Microsoft.AspNetCore.RateLimiting;
+using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -54,6 +60,10 @@ builder.Services.AddHangfire(hangfireConfiguration => hangfireConfiguration
 
 builder.Services.AddHangfireServer();
 
+// Host-level identity + SignalR plumbing (claims transformer, Hangfire → SignalR bridge,
+// SignalR user-id provider). Registered together via AuthServiceExtensions (§2.12).
+builder.Services.AddBeaconHostInfrastructure();
+
 // ============================================================================
 // BEACON SETUP
 // ============================================================================
@@ -63,14 +73,13 @@ builder.Services.AddHangfireServer();
 builder.Services.AddBeaconServices(builder.Configuration, options =>
     {
         options.AddBeaconScheduler<BeaconScheduler>();
-        options.BaseUrl = "https://localhost:7187/beacon"; // For notification links
-        options.UseAI = true; // Enable AI features (requires LLM configuration)
+        options.BaseUrl = "https://localhost:7187"; // For notification links
+        options.UseAI = true;
 
         options.AddEmailAdapter<BeaconMailSender>();
 
         // Enable authorization with role-based access control
         options.Authorization.Enabled = true;
-        // DatabaseAuthorizationProvider auto-registers when UserManagement is enabled (via TryAddScoped)
 
         // Enable login form authentication
         options.Authentication.EnableLoginForm = true;
@@ -79,7 +88,6 @@ builder.Services.AddBeaconServices(builder.Configuration, options =>
         {
             // For demo purposes, allow user registration. In production, you would likely disable this.
             Enabled = true
-
         };
     })
     // Register data source connectors (enables each engine type)
@@ -94,31 +102,15 @@ builder.Services.AddBeaconServices(builder.Configuration, options =>
     .AddApiConnector()
     // Configure EF Core database provider for Beacon's own data store
     .UsePostgreSql(builder.Configuration.GetConnectionString("BeaconContext")!, "semantico")
-    //.UseSqlServer(builder.Configuration.GetConnectionString("BeaconContextSql")!, "beacon")
     ;
 
-// Alternative: Use SQL Server instead of PostgreSQL
-// builder.Services.AddBeaconWithSqlServer(
-//     builder.Configuration,
-//     builder.Configuration.GetConnectionString("BeaconContextSql")!,
-//     "beacon",
-//     options =>
-//     {
-//         options.AddBeaconScheduler<BeaconScheduler>();
-//         options.BaseUrl = "https://localhost:7187/beacon";
-//         options.UseAI = true;
-//     });
+// Step 2: Cookie authentication (React shell at root)
+builder.Services.AddBeaconCookieAuthentication("/");
 
-// Step 2: Add Beacon UI components (Blazor + MudBlazor)
-builder.Services.AddBeaconUI();
-
-// Step 3: Add cookie authentication for login form
-builder.Services.AddBeaconCookieAuthentication("/beacon");
-
-// Step 3b: Add OIDC authentication (SSO)
+// Step 2b: OIDC authentication (SSO)
 builder.Services.AddBeaconOidcAuthentication(builder.Configuration);
 
-// Step 3c: Add MCP bearer JWT authentication if OIDC is enabled with a JWKS endpoint
+// Step 2c: MCP bearer JWT authentication if OIDC is enabled with a JWKS endpoint
 var oidcSection = builder.Configuration.GetSection("Beacon:Authentication:Oidc");
 var oidcEnabled = oidcSection.GetValue<bool>("Enabled");
 var mcpJwksEndpoint = oidcSection.GetValue<string>("McpJwksEndpoint");
@@ -137,14 +129,45 @@ if (oidcEnabled && !string.IsNullOrWhiteSpace(mcpJwksEndpoint))
     });
 }
 
-// Register claims transformer to add role claims after authentication
-builder.Services.AddScoped<Microsoft.AspNetCore.Authentication.IClaimsTransformation, SampleClaimsTransformation>();
+// (Claims transformer registered via AddBeaconHostInfrastructure above.)
 
-// Step 4: Add Beacon AI services (required for AI features)
+// Step 3: Add Beacon AI services (required for AI features)
 builder.Services.AddBeaconAI(builder.Configuration);
 
-// Step 5: Add Beacon MCP server (exposes data to AI tools via SSE)
+// Step 4: Add Beacon MCP server
 builder.Services.AddBeaconMcp();
+
+// Step 5: REST API surface for the React shell.
+// OpenAPI document is emitted at /openapi/v1.json (consumed by NSwag for TS codegen).
+builder.Services.AddOpenApi();
+builder.Services.AddAntiforgery(options =>
+{
+    options.HeaderName = "X-XSRF-TOKEN";
+    options.Cookie.Name = ".Beacon.Antiforgery";
+});
+builder.Services.AddBeaconApiAuthorization();
+
+// Rate limiting for sensitive anonymous endpoints (login). 10 requests / 60 seconds
+// per remote-IP partition; clients beyond the window get 429 Too Many Requests.
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("login", httpContext =>
+    {
+        var remoteIp = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        return RateLimitPartition.GetFixedWindowLimiter(remoteIp, _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 10,
+            Window = TimeSpan.FromSeconds(60),
+            QueueLimit = 0,
+            QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+            AutoReplenishment = true,
+        });
+    });
+});
+
+builder.Services.AddSignalR();
+// (IUserIdProvider registered via AddBeaconHostInfrastructure above.)
 
 var app = builder.Build();
 
@@ -157,8 +180,6 @@ app.UseWhen(
     context => !context.Request.Path.StartsWithSegments("/beacon/mcp"),
     appBuilder => appBuilder.UseHttpsRedirection());
 
-// IMPORTANT: UseStaticFiles must be called before UseBeaconUI
-// to serve _content files from Razor Class Libraries
 app.UseStaticFiles();
 
 // API key auth must run before cookie auth to prevent redirect for MCP clients
@@ -167,29 +188,81 @@ app.UseMiddleware<ApiKeyAuthMiddleware>();
 // JWT bearer authentication for MCP clients using OIDC tokens
 app.UseBeaconJwtBearerAuthentication();
 
-// Authentication must be before authorization
+// Middleware order is load-bearing per §1.9:
+//   ApiKey → Authentication → Cookie (per-request cookie scheme) → Authorization → LoginForm.
+// BeaconCookieAuthMiddleware must populate context.User from the Beacon.Auth cookie BEFORE
+// UseAuthorization evaluates policies, otherwise the first authorization check on a cookie
+// session sees an unauthenticated user.
 app.UseAuthentication();
+app.UseMiddleware<BeaconCookieAuthMiddleware>();
 app.UseAuthorization();
 
+// Login form redirect middleware — redirects unauthenticated browser requests to /login (React route)
+var beaconConfiguration = app.Services.GetRequiredService<BeaconConfiguration>();
+if (beaconConfiguration.Authentication.EnableLoginForm)
+{
+    app.UseMiddleware<LoginFormAuthMiddleware>(beaconConfiguration, "/");
+}
+
+// First-run setup redirect middleware
+if (beaconConfiguration.UserManagement.Enabled)
+{
+    app.UseMiddleware<FirstRunSetupMiddleware>(beaconConfiguration, "/");
+}
+
+// Antiforgery middleware must run after auth so it can issue tokens for the current user.
+app.UseAntiforgery();
+
+// Rate limiter — sits after auth/antiforgery so endpoint-level policies (e.g. "login") apply.
+app.UseRateLimiter();
+
+// OpenAPI document at /openapi/v1.json - consumed by NSwag for React TS codegen.
+app.MapOpenApi();
+
+// Convert exceptions thrown inside /beacon/api/* into RFC 7807 problem+json responses.
+app.UseApiExceptionHandler("/beacon/api");
+
+// REST API surface for the React shell. Adds /beacon/api/{health, auth/me, auth/permissions, csrf}.
+app.MapBeaconApi();
+
+// Login/logout/sso endpoints (cookie sign-in/out + SSO challenge) at /beacon/api/auth/*.
+// Mapped outside the BeaconApi group because the group's RequireAuthorization(AuthPolicyName)
+// and antiforgery filter would block login itself; these endpoints configure their own auth.
+app.MapLoginEndpoints("/beacon", beaconConfiguration);
+
+// First-run setup endpoints at /beacon/api/setup/*.
+// Outside the group: setup must run before any user (and any antiforgery cookie) exists.
+if (beaconConfiguration.UserManagement.Enabled)
+{
+    app.MapSetupEndpoints("/beacon");
+}
+
+// SignalR hub for the React shell. Auth required (cookie scheme).
+app.MapHub<BeaconHub>("/beacon/api/hub").RequireAuthorization(BeaconApiEndpoints.AuthPolicyName);
+
+// Register the Hangfire SignalR filter against the global JobStorage, now that DI is built.
+Hangfire.GlobalJobFilters.Filters.Add(app.Services.GetRequiredService<HangfireSignalRJobFilter>());
+
 // Beacon MCP Server - available at /beacon/mcp (Streamable HTTP, SDK transport)
-// AI tools like Claude Code connect here via API key authentication
 app.MapMcp("/beacon/mcp").RequireAuthorization();
 
-// Beacon Admin UI - available at /beacon
-// Using login form instead of basic authentication
-app.UseBeaconUI()
-    .UseLoginForm() // Login form for demo (use admin/admin, editor/editor, or viewer/viewer)
-    .UseAuthorization() // Enable authorization checks
-    .AddBlazorUI("/beacon");
-
-// Hangfire Dashboard - available at /hangfire
+// Hangfire Dashboard - available at /hangfire — Admin-only (§7.4).
 app.UseHangfireDashboard("/hangfire", new DashboardOptions
 {
     IgnoreAntiforgeryToken = true,
+    Authorization = [new HangfireDashboardAuthFilter()],
 });
 
+// React SPA shell at root /. Beacon.UI ships the built React app as Razor Class
+// Library static web assets; MapBeaconUi() wires the SPA fallback so client-side
+// routes resolve to its index.html. Real asset requests fall through to UseStaticFiles.
+app.MapBeaconUi();
+
 // MCP Learning: aggregate patterns every 6 hours, cleanup old signals daily
-RecurringJob.AddOrUpdate<IJobService>("mcp-learning-aggregate", x => x.AggregateLearnedPatterns(), "0 */6 * * *");
-RecurringJob.AddOrUpdate<IJobService>("mcp-learning-cleanup", x => x.CleanupOldSignals(), "0 3 * * *");
+RecurringJob.AddOrUpdate<IJobService>("mcp-learning-aggregate", x => x.AggregateLearnedPatterns(JobCancellationToken.Null), "0 */6 * * *");
+RecurringJob.AddOrUpdate<IJobService>("mcp-learning-cleanup", x => x.CleanupOldSignals(JobCancellationToken.Null), "0 3 * * *");
 
 app.Run();
+
+// Marker partial class for WebApplicationFactory<Program> in Beacon.Tests integration tests.
+public partial class Program;

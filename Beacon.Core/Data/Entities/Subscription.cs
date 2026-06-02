@@ -12,6 +12,12 @@ public class Subscription : ArchivableBaseEntity
     public int? MaxRows { get; set; }
 
     /// <summary>
+    /// SLA window in hours for tasks created from this subscription.
+    /// Null means use the system default (24h).
+    /// </summary>
+    public int? SlaHours { get; set; }
+
+    /// <summary>
     /// Minimum row count threshold for sending notifications.
     /// If set, notifications will only be sent if the query result count is greater than or equal to this value.
     /// This filter is applied independently of the NotificationTrigger setting.

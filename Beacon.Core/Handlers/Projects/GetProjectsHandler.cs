@@ -5,13 +5,15 @@ using Beacon.Core.Data.Enums;
 
 namespace Beacon.Core.Handlers.Projects;
 
-internal sealed class GetProjectsHandler(BeaconContext context)
+internal sealed class GetProjectsHandler(IDbContextFactory<BeaconContext> contextFactory)
     : IRequestHandler<GetProjectsQuery, GetProjectsResult>
 {
     public async Task<GetProjectsResult> Handle(
         GetProjectsQuery request,
         CancellationToken cancellationToken)
     {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
         var rows = await context.Projects
             .OrderByDescending(p => p.CreatedTime)
             .Select(p => new

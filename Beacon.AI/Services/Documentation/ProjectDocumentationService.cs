@@ -66,23 +66,7 @@ internal sealed class ProjectDocumentationService(
 
         if (hasApiSources)
         {
-            tasks.Add(Task.Run(async () =>
-            {
-                try
-                {
-                    var userPrompt = BuildApiDocumentationPrompt(docContext);
-                    var response = await CallLlmAsync(GetSystemPrompt(ProjectDocSectionType.ApiDocumentation), userPrompt, ct);
-                    return (ProjectDocSectionType.ApiDocumentation, "API Documentation", 6, Content: response.Content,
-                        response.InputTokens, response.OutputTokens, response.Cost, response.Model, Error: (string?)null);
-                }
-                catch (Exception ex)
-                {
-                    logger.LogWarning(ex, "Documentation generation failed for API Documentation");
-                    return (ProjectDocSectionType.ApiDocumentation, "API Documentation", 6,
-                        Content: $"*Generation failed for this section: {ex.Message}. Please regenerate.*",
-                        InputTokens: 0, OutputTokens: 0, Cost: 0m, Model: "unknown", Error: ex.Message);
-                }
-            }, ct));
+            tasks.Add(GenerateApiDocumentationAsync(docContext, ct));
         }
 
         var results = await Task.WhenAll(tasks);
@@ -240,6 +224,31 @@ internal sealed class ProjectDocumentationService(
 
         if (latestId == null) return null;
         return await ExportToMarkdownAsync(latestId.Value, ct);
+    }
+
+    // --- Section helpers ---
+
+    // Generates the API-documentation section. Kept as a named method so the caller
+    // can `tasks.Add(GenerateApiDocumentationAsync(...))` without wrapping in Task.Run,
+    // which would otherwise queue an extra thread-pool item for an I/O-bound call.
+    private async Task<(ProjectDocSectionType Type, string Title, int SortOrder, string Content, int InputTokens, int OutputTokens, decimal Cost, string Model, string? Error)>
+        GenerateApiDocumentationAsync(DocumentationContext docContext, CancellationToken ct)
+    {
+        try
+        {
+            var userPrompt = BuildApiDocumentationPrompt(docContext);
+            var response = await CallLlmAsync(GetSystemPrompt(ProjectDocSectionType.ApiDocumentation), userPrompt, ct);
+            return (ProjectDocSectionType.ApiDocumentation, "API Documentation", 6,
+                Content: response.Content,
+                response.InputTokens, response.OutputTokens, response.Cost, response.Model, Error: null);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Documentation generation failed for API Documentation");
+            return (ProjectDocSectionType.ApiDocumentation, "API Documentation", 6,
+                Content: $"*Generation failed for this section: {ex.Message}. Please regenerate.*",
+                InputTokens: 0, OutputTokens: 0, Cost: 0m, Model: "unknown", Error: ex.Message);
+        }
     }
 
     // --- Context Gathering ---

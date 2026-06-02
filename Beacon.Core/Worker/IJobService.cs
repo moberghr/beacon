@@ -1,14 +1,18 @@
-﻿namespace Beacon.Core.Worker;
+﻿using Hangfire;
+
+namespace Beacon.Core.Worker;
 
 public interface IJobService
 {
-    Task ExecuteQuery(int subscriptionId);
+    // IJobCancellationToken lets Hangfire inject a shutdown-aware token so
+    // long-running background work can be cancelled cleanly on graceful shutdown.
+    Task ExecuteQuery(int subscriptionId, IJobCancellationToken cancellationToken);
 
-    Task EvaluateDataContract(int contractId);
+    Task EvaluateDataContract(int contractId, IJobCancellationToken cancellationToken);
 
-    Task AggregateLearnedPatterns();
+    Task AggregateLearnedPatterns(IJobCancellationToken cancellationToken);
 
-    Task GenerateDocumentationPatches();
+    Task GenerateDocumentationPatches(IJobCancellationToken cancellationToken);
 
-    Task CleanupOldSignals();
+    Task CleanupOldSignals(IJobCancellationToken cancellationToken);
 }

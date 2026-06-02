@@ -15,7 +15,7 @@ using Beacon.Core.Authorization;
 using Beacon.Core.Models;
 using Beacon.Core.Models.UserManagement;
 using Beacon.Core.Services;
-using Beacon.UI.Authentication;
+using Beacon.SampleProject.Authentication;
 
 namespace Beacon.Tests.Unit;
 

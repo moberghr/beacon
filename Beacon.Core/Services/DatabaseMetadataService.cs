@@ -27,7 +27,7 @@ public class DatabaseMetadataService(
     // Lock per data source to prevent concurrent refresh operations
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<int, SemaphoreSlim> _refreshLocks = new();
 
-    public async Task<DatabaseMetadataSnapshot> RefreshMetadataAsync(int dataSourceId, CancellationToken cancellationToken = default)
+    public async Task<DatabaseMetadataSnapshot> RefreshMetadataAsync(int dataSourceId, bool forceRefresh = false, CancellationToken cancellationToken = default)
     {
         // Get or create a lock for this specific data source
         var refreshLock = _refreshLocks.GetOrAdd(dataSourceId, _ => new SemaphoreSlim(1, 1));
@@ -36,8 +36,9 @@ public class DatabaseMetadataService(
         await refreshLock.WaitAsync(cancellationToken);
         try
         {
-            // Double-check cache after acquiring lock (another thread may have just completed refresh)
-            if (cache.TryGetValue(GetCacheKey(dataSourceId), out DatabaseMetadataSnapshot? cachedSnapshot) && cachedSnapshot != null)
+            // Double-check cache after acquiring lock (another thread may have just completed refresh).
+            // Skipped on explicit user-driven refresh so a hot cache doesn't mask a live re-scan.
+            if (!forceRefresh && cache.TryGetValue(GetCacheKey(dataSourceId), out DatabaseMetadataSnapshot? cachedSnapshot) && cachedSnapshot != null)
             {
                 logger.LogDebug("Metadata for data source {DataSourceId} was refreshed by another thread", dataSourceId);
                 return cachedSnapshot;
@@ -194,7 +195,7 @@ public class DatabaseMetadataService(
         }
 
         // If no data in database, refresh from source
-        return await RefreshMetadataAsync(dataSourceId, cancellationToken);
+        return await RefreshMetadataAsync(dataSourceId, forceRefresh: false, cancellationToken);
     }
 
     public async Task<IEnumerable<string>> GetTableNamesAsync(int dataSourceId, string? schemaName = null, CancellationToken cancellationToken = default)

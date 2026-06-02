@@ -18,17 +18,18 @@
         <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
         <PackageReference Include="Moq" Version="4.20.72" />
         <PackageReference Include="FluentAssertions" Version="6.12.1" />
-        <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="9.0.4" />
+        <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" Version="9.0.0" />
         <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="9.0.4" />
         <PackageReference Include="EFCore.NamingConventions" Version="9.0.0" />
         <PackageReference Include="MediatR" Version="12.4.1" />
         <PackageReference Include="bunit" Version="1.30.3" />
         <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="9.*" />
+        <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="9.0.11" />
     </ItemGroup>
 
     <ItemGroup>
         <ProjectReference Include="..\Beacon.Core\Beacon.Core.csproj" />
-        <ProjectReference Include="..\Beacon.UI\Beacon.UI.csproj" />
+        <ProjectReference Include="..\Beacon.SampleProject\Beacon.SampleProject.csproj" />
     </ItemGroup>
 
 </Project>

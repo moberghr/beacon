@@ -2887,6 +2887,10 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Property<DateTime?>("ArchivedTime")
                         .HasColumnType("datetime2");
 
+                    b.Property<string>("AssigneeUserId")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("datetime2");
 
@@ -2895,6 +2899,11 @@ namespace Beacon.Core.SqlServer.Data.Migrations
 
                     b.Property<int>("LatestResultCount")
                         .HasColumnType("int");
+
+                    b.Property<int>("Priority")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(3);
 
                     b.Property<string>("ResolutionNotes")
                         .HasMaxLength(2000)
@@ -2910,12 +2919,21 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Property<string>("ResolvedByUserId")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<DateTime?>("SnoozedUntil")
+                        .HasColumnType("datetime2");
+
                     b.Property<int>("SubscriptionId")
                         .HasColumnType("int");
 
                     b.HasKey("Id");
 
+                    b.HasIndex("AssigneeUserId");
+
                     b.HasIndex("CreatedTime");
+
+                    b.HasIndex("Priority");
+
+                    b.HasIndex("SnoozedUntil");
 
                     b.HasIndex("SubscriptionId");
 
@@ -3069,6 +3087,9 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Property<bool>("ShowQuery")
                         .HasColumnType("bit");
 
+                    b.Property<int?>("SlaHours")
+                        .HasColumnType("int");
+
                     b.Property<bool>("StoreResults")
                         .HasColumnType("bit");
 
@@ -3114,6 +3135,25 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.HasIndex("SubscriptionId");
 
                     b.ToTable("SubscriptionParameters", "beacon");
+                });
+
+            modelBuilder.Entity("Beacon.Core.Data.Entities.TaskWatcher", b =>
+                {
+                    b.Property<int>("QueryTaskId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("UserId")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("QueryTaskId", "UserId");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("TaskWatchers", "beacon");
                 });
 
             modelBuilder.Entity("DataContractRecipient", b =>
@@ -3826,6 +3866,17 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Navigation("Subscription");
                 });
 
+            modelBuilder.Entity("Beacon.Core.Data.Entities.TaskWatcher", b =>
+                {
+                    b.HasOne("Beacon.Core.Data.Entities.QueryTask", "QueryTask")
+                        .WithMany("Watchers")
+                        .HasForeignKey("QueryTaskId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("QueryTask");
+                });
+
             modelBuilder.Entity("DataContractRecipient", b =>
                 {
                     b.HasOne("Beacon.Core.Data.Entities.DataQuality.DataContract", null)
@@ -3977,6 +4028,8 @@ namespace Beacon.Core.SqlServer.Data.Migrations
             modelBuilder.Entity("Beacon.Core.Data.Entities.QueryTask", b =>
                 {
                     b.Navigation("Notifications");
+
+                    b.Navigation("Watchers");
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.Recipient", b =>

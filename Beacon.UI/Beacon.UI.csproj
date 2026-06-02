@@ -4,64 +4,48 @@
         <TargetFramework>net9.0</TargetFramework>
         <Nullable>enable</Nullable>
         <ImplicitUsings>enable</ImplicitUsings>
-        <AddRazorSupportForMvc>true</AddRazorSupportForMvc>
 
-        <!-- Package Information -->
-        <Authors>https://github.com/moberghr</Authors>
-        <Description>Blazor UI and ASP.NET Core integration for Beacon. Provides MudBlazor-based admin interface with middleware and service extensions for managing projects, queries, subscriptions, and notifications.</Description>
-        <PackageProjectUrl>https://github.com/moberghr/beacon</PackageProjectUrl>
-        <RepositoryUrl>https://github.com/moberghr/beacon</RepositoryUrl>
-        <RepositoryType>git</RepositoryType>
-        <PackageLicenseExpression>MIT</PackageLicenseExpression>
-        <PackageTags>beacon;blazor;ui;mudblazor;admin;dashboard;aspnet</PackageTags>
-        <PackageReadmeFile>README.md</PackageReadmeFile>
+        <!-- RCL static web assets are exposed at /_content/Beacon.UI/* in consuming apps. -->
+        <StaticWebAssetBasePath>/</StaticWebAssetBasePath>
+
+        <!-- NuGet packaging metadata. Consumers reference this package to get the React SPA + MapBeaconUi(). -->
         <IsPackable>true</IsPackable>
+        <PackageId>Beacon.UI</PackageId>
+        <Description>Beacon React SPA packaged as an ASP.NET Core Razor Class Library. Adds `app.MapBeaconUi()` to host the UI from any .NET 9 web app.</Description>
+        <Authors>Moberg</Authors>
+
+        <!-- React/Vite build wiring -->
+        <ReactAppDir>$(MSBuildProjectDirectory)/web</ReactAppDir>
+        <ReactBuildOutputDir>$(MSBuildProjectDirectory)/wwwroot</ReactBuildOutputDir>
+        <BuildReactInDebug Condition="'$(BuildReactInDebug)' == ''">false</BuildReactInDebug>
+        <ShouldBuildReact Condition="'$(Configuration)' == 'Release' Or '$(BuildReactInDebug)' == 'true'">true</ShouldBuildReact>
+        <ShouldBuildReact Condition="'$(ShouldBuildReact)' == ''">false</ShouldBuildReact>
+
+        <!-- Exclude the React source tree from the C# compile + RCL content scan.
+             Only wwwroot (vite build output) ships as static web assets. -->
+        <DefaultItemExcludes>$(DefaultItemExcludes);web/**</DefaultItemExcludes>
     </PropertyGroup>
-
-    <ItemGroup>
-        <None Include="README.md" Pack="true" PackagePath="\" />
-    </ItemGroup>
-
-    <ItemGroup>
-        <SupportedPlatform Include="browser" />
-    </ItemGroup>
 
     <ItemGroup>
         <FrameworkReference Include="Microsoft.AspNetCore.App" />
     </ItemGroup>
 
-    <ItemGroup>
-        <PackageReference Include="Blazored.LocalStorage" Version="4.5.0" />
-        <PackageReference Include="BlazorMonaco" Version="3.4.0" />
-        <PackageReference Include="Markdig" Version="0.44.0" />
-        <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="9.*" />
-        <PackageReference Include="MudBlazor" Version="9.0.0" />
-    </ItemGroup>
+    <Target Name="EnsureReactDependencies"
+            Condition="'$(ShouldBuildReact)' == 'true' And !Exists('$(ReactAppDir)/node_modules')">
+        <Message Importance="high" Text="Beacon.UI: installing npm dependencies in $(ReactAppDir)..." />
+        <Exec Command="npm ci" WorkingDirectory="$(ReactAppDir)" />
+    </Target>
 
-    <ItemGroup>
-      <AdditionalFiles Include="Components\Layout\MainLayout.razor" />
-      <AdditionalFiles Include="Components\Pages\Error.razor" />
-      <AdditionalFiles Include="Components\Routes.razor" />
-      <AdditionalFiles Include="Components\_Imports.razor" />
-    </ItemGroup>
+    <Target Name="BuildReactApp"
+            BeforeTargets="AssignTargetPaths;ResolveStaticWebAssetsConfiguration"
+            Condition="'$(ShouldBuildReact)' == 'true'"
+            DependsOnTargets="EnsureReactDependencies">
+        <Message Importance="high" Text="Beacon.UI: building React app (configuration $(Configuration))..." />
+        <Exec Command="npm run build" WorkingDirectory="$(ReactAppDir)" />
+    </Target>
 
-    <ItemGroup>
-      <ProjectReference Include="..\Beacon.Core\Beacon.Core.csproj" />
-    </ItemGroup>
-
-    <ItemGroup>
-      <Content Update="styles.css">
-        <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
-        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
-      </Content>
-    </ItemGroup>
-
-    <ItemGroup>
-      <None Include="wwwroot\styles.css" />
-    </ItemGroup>
-
-    <ItemGroup>
-      <InternalsVisibleTo Include="Beacon.Tests" />
-    </ItemGroup>
+    <Target Name="CleanReactBuild" AfterTargets="Clean">
+        <RemoveDir Directories="$(ReactBuildOutputDir)" Condition="Exists('$(ReactBuildOutputDir)')" />
+    </Target>
 
 </Project>
