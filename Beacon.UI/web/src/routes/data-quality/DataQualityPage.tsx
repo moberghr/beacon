@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
-import { Plus } from 'lucide-react';
+import { AlertTriangle, Plus } from 'lucide-react';
 import { PageHeader, Button, Card, Pill } from '@/components/beacon';
 import { EmptyState } from '@/components/data/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -57,6 +57,18 @@ export default function DataQualityPage() {
       />
 
       {overviewQ.isLoading && <p className="text-text-muted">Loading overview…</p>}
+      {overviewQ.isError && (
+        <EmptyState
+          icon={<AlertTriangle size={20} />}
+          title="Failed to load overview"
+          description={overviewQ.error instanceof Error ? overviewQ.error.message : 'Unknown error'}
+          action={
+            <Button variant="primary" onClick={() => overviewQ.refetch()}>
+              Retry
+            </Button>
+          }
+        />
+      )}
       {overviews.length > 0 && (
         <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(260px,1fr))]">
           {overviews.map(o => (
@@ -68,7 +80,19 @@ export default function DataQualityPage() {
       <h2 className="text-lg font-semibold mt-2 mb-0">Contracts</h2>
 
       {contractsQ.isLoading && <p className="text-text-muted">Loading contracts…</p>}
-      {!contractsQ.isLoading && contracts.length === 0 && (
+      {contractsQ.isError && (
+        <EmptyState
+          icon={<AlertTriangle size={20} />}
+          title="Failed to load contracts"
+          description={contractsQ.error instanceof Error ? contractsQ.error.message : 'Unknown error'}
+          action={
+            <Button variant="primary" onClick={() => contractsQ.refetch()}>
+              Retry
+            </Button>
+          }
+        />
+      )}
+      {!contractsQ.isLoading && !contractsQ.isError && contracts.length === 0 && (
         <EmptyState
           title="No contracts yet"
           description="Create a contract to start monitoring data quality on a table."

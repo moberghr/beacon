@@ -369,9 +369,9 @@ export default function HomePage() {
               </div>
             )}
             {!activityLoading &&
-              activity?.items.map((item: HomeActivityItem, i: number) => (
+              activity?.items.map((item: HomeActivityItem) => (
                 <FeedItem
-                  key={i}
+                  key={`${item.timestamp}-${item.title}`}
                   tone={item.tone}
                   Icon={feedIconMap[item.icon] ?? Info}
                   title={item.title}

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Layers, Plus } from 'lucide-react';
+import { AlertTriangle, Layers, Plus } from 'lucide-react';
 import { Button, Input, PageHeader, Pill } from '@/components/beacon';
 import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
@@ -49,7 +49,9 @@ const COLUMNS: Column<QueryListItem>[] = [
 export default function QueriesListPage() {
   const [search, setSearch] = useState('');
   const navigate = useNavigate();
-  const { data, isLoading } = useQueriesListQuery({ searchTerm: search.trim() || undefined });
+  const { data, isLoading, isError, error, refetch } = useQueriesListQuery({
+    searchTerm: search.trim() || undefined,
+  });
   const entries = data?.items ?? [];
 
   return (
@@ -80,20 +82,34 @@ export default function QueriesListPage() {
         />
       </div>
 
-      <DataTable
-        columns={COLUMNS}
-        rows={entries}
-        rowKey={q => q.queryId}
-        gridTemplate="2fr 1fr 0.6fr 0.8fr 1.2fr"
-        onRowClick={q => navigate(`/queries/${q.queryId}`)}
-        empty={
-          <EmptyState
-            icon={<Layers size={20} />}
-            title={isLoading ? 'Loading queries…' : 'No queries yet'}
-            description="Click + New query to start; you'll fill in the SQL on the editor page."
-          />
-        }
-      />
+      {isError ? (
+        <EmptyState
+          icon={<AlertTriangle size={20} />}
+          title="Failed to load queries"
+          description={error instanceof Error ? error.message : 'Unknown error'}
+          action={
+            <Button variant="primary" onClick={() => refetch()}>
+              Retry
+            </Button>
+          }
+        />
+      ) : (
+        <DataTable
+          columns={COLUMNS}
+          rows={entries}
+          rowKey={q => q.queryId}
+          gridTemplate="2fr 1fr 0.6fr 0.8fr 1.2fr"
+          onRowClick={q => navigate(`/queries/${q.queryId}`)}
+          ariaLabel="Saved queries"
+          empty={
+            <EmptyState
+              icon={<Layers size={20} />}
+              title={isLoading ? 'Loading queries…' : 'No queries yet'}
+              description="Click + New query to start; you'll fill in the SQL on the editor page."
+            />
+          }
+        />
+      )}
     </div>
   );
 }

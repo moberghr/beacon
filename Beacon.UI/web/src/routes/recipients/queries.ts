@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
 import { createSimpleMutation } from '@/lib/mutations';
 
@@ -49,7 +50,7 @@ export function useRecipientsQuery() {
   return useQuery({
     queryKey: RECIPIENTS_KEY,
     queryFn: async () =>
-      (await beaconApi().getRecipients()) as unknown as GetRecipientsResult,
+      unwrap<GetRecipientsResult>(await beaconApi().getRecipients()),
   });
 }
 

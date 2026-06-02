@@ -45,6 +45,25 @@ async function safeText(response: Response): Promise<string> {
   }
 }
 
+/**
+ * Trust boundary between the generated NSwag client and our hand-written
+ * result/command types.
+ *
+ * The generated DTOs are intentionally loose: `markOptionalProperties` makes
+ * every nullable field optional, every interface carries a `[key: string]: any`
+ * index signature, and date fields are typed `Date` even though the client
+ * deserializes with a plain `JSON.parse` (no reviver) — so at runtime they are
+ * strings. Our local interfaces are stricter and more accurate, so we assert
+ * the wire payload into them at the call boundary instead of consuming the
+ * loose generated shape directly.
+ *
+ * This is the single, greppable place that bridge happens. If we later add
+ * runtime validation (e.g. zod), it goes here and every call site is covered.
+ */
+export function unwrap<T>(value: unknown): T {
+  return value as T;
+}
+
 export class ApiError extends Error {
   constructor(public readonly status: number, public readonly body: string) {
     super(`HTTP ${status}: ${body}`);

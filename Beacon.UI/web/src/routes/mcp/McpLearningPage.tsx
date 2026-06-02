@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
+import { AlertTriangle } from 'lucide-react';
 import {
   PageHeader,
   Button,
@@ -90,6 +91,18 @@ export default function McpLearningPage() {
       />
 
       {statsQ.isLoading && <p className="text-text-muted">Loading stats…</p>}
+      {statsQ.isError && (
+        <EmptyState
+          icon={<AlertTriangle size={20} />}
+          title="Failed to load learning stats"
+          description={statsQ.error instanceof Error ? statsQ.error.message : 'Unknown error'}
+          action={
+            <Button variant="primary" onClick={() => statsQ.refetch()}>
+              Retry
+            </Button>
+          }
+        />
+      )}
       {stats && (
         <KPIGrid>
           <KPI dot="brand" label="Signals (7d / 30d)" value={`${stats.signals7d} / ${stats.signals30d}`} />

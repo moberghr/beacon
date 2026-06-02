@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
 
 export interface CurrentUser {
@@ -12,7 +13,7 @@ export interface CurrentUser {
 export function useAuth() {
   return useQuery<CurrentUser>({
     queryKey: ['auth', 'me'],
-    queryFn: async () => (await beaconApi().getCurrentUser()) as unknown as CurrentUser,
+    queryFn: async () => unwrap<CurrentUser>(await beaconApi().getCurrentUser()),
   });
 }
 

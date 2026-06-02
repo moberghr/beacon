@@ -63,6 +63,31 @@ export function Dialog({
       if (e.key === 'Escape') {
         e.stopPropagation();
         onCloseRef.current();
+        return;
+      }
+      if (e.key === 'Tab') {
+        const container = dialogRef.current;
+        if (!container) {
+          return;
+        }
+        const focusable = container.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        );
+        if (focusable.length === 0) {
+          e.preventDefault();
+          container.focus();
+          return;
+        }
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        const active = document.activeElement;
+        if (e.shiftKey && (active === first || active === container)) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && active === last) {
+          e.preventDefault();
+          first.focus();
+        }
       }
     };
     document.addEventListener('keydown', onKey);

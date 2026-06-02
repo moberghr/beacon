@@ -27,3 +27,14 @@ Plan: `docs/plans/2026-06-01-pr11-merge-fixes.md`
 ## Deferred (follow-up issue)
 
 - [ ] Translation tests for `GetControlTowerStatisticsHandler`, `GetMigrationExecutionsHandler`, `GetEvaluationHistoryHandler` (§4.6)
+
+## React Web Quality Refactor (2026-06-02)
+Spec: docs/specs/2026-06-02-react-web-quality-refactor.md · Plan: docs/plans/2026-06-02-react-web-quality-refactor.md
+
+- [x] Batch A — Codegen regeneration + control-tower migration (delete hand-rolled api.ts)
+- [x] Batch B — Typed-client refactor: remove 92 casts + duplicate interfaces across ~28 files
+- [x] Batch C — Accessibility: Button aria-label, Field htmlFor, DataTable roles, Dialog focus trap
+- [x] Batch D — Error-feedback: route mutation catches through describeError+toast; detail error states
+- [x] Batch E — Stable list keys: HomePage feed, MCP playground
+- [x] Batch F — Dashboards route guard: redirect /dashboards* to /home
+- [x] Post: full build + test, behavioral diff, review
