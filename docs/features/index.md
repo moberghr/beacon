@@ -11,8 +11,8 @@ Comprehensive guides for all Beacon capabilities.
 
 ## Core Features
 
-### [Projects](projects)
-Manage database connections to PostgreSQL, SQL Server, and MySQL. Create projects to organize your monitoring queries.
+### [Data Sources](data-sources)
+Manage connections across nine connectors — PostgreSQL, SQL Server, MySQL, Google BigQuery, Snowflake, Databricks, Azure Synapse, AWS CloudWatch, and a generic REST API. Organize them into projects for your monitoring queries.
 
 ### [Queries](queries)
 Define SQL queries with parameter support. Create simple queries or complex multi-step workflows.
@@ -21,13 +21,13 @@ Define SQL queries with parameter support. Create simple queries or complex mult
 Schedule query execution with cron expressions. Control when and how often your queries run.
 
 ### [Notifications](notifications)
-Deliver query results via Email, Microsoft Teams, or Jira. Configure recipients and notification formats.
+Deliver query results via Email, Microsoft Teams, Slack, or Jira. Configure recipients and notification formats.
 
 ### [Data Migration](data-migration)
 Extract, transform, and load data between databases using multi-step ETL pipelines. Support for cross-database migrations with scheduling and retry capabilities.
 
 ### [MCP Server](mcp-server)
-Connect AI assistants (Claude, Cursor, Windsurf) to your data through the Model Context Protocol. Natural language queries, schema search, and documentation — all project-scoped with API key authentication.
+Connect AI assistants (Claude, Cursor, Windsurf) to your data through the Model Context Protocol. Natural language queries, schema search, and documentation — all project-scoped with API key authentication and a self-improving learning loop.
 
 ## Advanced Features
 
@@ -40,14 +40,11 @@ Runtime application configuration through the Admin Settings UI. Hot-swap LLM pr
 ### [Authorization](authorization)
 Secure your Beacon installation with flexible authorization. Support for role-based access control (RBAC), database-backed roles, and custom authorization providers. Integrate with any authentication system.
 
-### [Multi-Step Queries](multi-step-queries)
-Chain multiple queries together and aggregate results. Query across different databases in a single workflow.
+### [Anomaly Detection](anomaly-detection)
+Statistical anomaly detection that learns baselines from historical execution data and alerts on unusual patterns.
 
-### [Query Parameters](parameters)
-Use dynamic placeholders in your queries for flexible monitoring and reporting.
-
-### [Recipients](recipients)
-Manage notification targets for email, Teams, and Jira delivery channels.
+### [AI Integration (Experimental)](ai-integration)
+Auto-generate data source documentation with ERD diagrams and turn natural language into SQL alerts using a runtime-swappable LLM provider.
 
 ## Quick Links
 
@@ -60,11 +57,5 @@ Start with the [Quick Start Guide](../getting-started/quick-start) to create you
 <div class="code-example" markdown="1">
 🔗 **Advanced Use Cases?**
 
-Explore [Advanced Topics](../advanced/) for query chaining, multi-tenant deployments, and extensibility.
-</div>
-
-<div class="code-example" markdown="1">
-🔧 **Having Issues?**
-
-Check the [Troubleshooting Guide](../troubleshooting/common-issues) for solutions.
+See [Queries](queries) for multi-step query chaining and cross-database joins, and [Data Sources](data-sources) for schema-agnostic, multi-tenant configuration.
 </div>

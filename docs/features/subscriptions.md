@@ -31,7 +31,7 @@ Subscriptions allow you to:
 
 ### Step 1: Navigate to Subscriptions
 
-1. Click **Subscriptions** in the left navigation
+1. Click **Subscriptions** in the left navigation (`/subscriptions`)
 2. Click **Create New Subscription**
 
 ### Step 2: Fill Subscription Details
@@ -94,7 +94,7 @@ The timeout determines maximum query execution time.
 2. Select recipients from the list
 3. Click **Save**
 
-📚 [Learn more about Recipients →](recipients)
+📚 [Learn more about delivery channels →](notifications)
 
 ### Step 6: Configure Parameters (if applicable)
 
@@ -104,7 +104,7 @@ If your query uses parameters (e.g., `{{start_date}}`), you'll see a **Parameter
 2. Use static values: `2025-01-01`
 3. Or use dynamic expressions: `NOW() - INTERVAL '7 days'`
 
-📚 [Learn more about Query Parameters →](parameters)
+📚 [Learn more about query parameters →](queries#query-parameters)
 
 ### Step 7: Save Subscription
 
@@ -250,7 +250,7 @@ GROUP BY DATE(created_at)
 
 ### When Subscriptions Run
 
-Beacon uses your configured `IBeaconScheduler` implementation for job scheduling:
+Beacon schedules jobs through the `IBeaconScheduler` abstraction. The default implementation, `BeaconScheduler`, is backed by Hangfire on PostgreSQL (1-second poll, automatic retry disabled by default); Quartz.NET is supported as an alternative:
 - Cron expressions are evaluated according to your scheduler configuration
 - Execution timing depends on your scheduler implementation
 - Multiple subscriptions can execute concurrently (depending on scheduler worker configuration)
@@ -377,7 +377,5 @@ If queries consistently timeout:
 ## Related Documentation
 
 - [Queries](queries) - Create and manage queries
-- [Recipients](recipients) - Configure notification targets
-- [Query Parameters](parameters) - Use dynamic values
-- [Notifications](notifications) - Understand notification delivery
-- [Troubleshooting](../troubleshooting/common-issues) - Common subscription issues
+- [Notifications](notifications) - Configure delivery channels and understand notification delivery
+- [Anomaly Detection](anomaly-detection) - Alert on unusual execution patterns

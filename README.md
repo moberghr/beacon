@@ -1,108 +1,122 @@
 # Beacon
 
 [![NuGet](https://img.shields.io/badge/NuGet-available-blue)](https://www.nuget.org/)
-[![Documentation](https://img.shields.io/badge/docs-github.io-blue)](https://moberghr.github.io/beacon)
+[![Documentation](https://img.shields.io/badge/docs-github.io-blue)](https://mibu.github.io/semantico)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![.NET](https://img.shields.io/badge/.NET-9.0-purple)](https://dotnet.microsoft.com/)
+[![React](https://img.shields.io/badge/React-18-61dafb)](https://react.dev/)
 
 ## Semantic Database Monitoring & Orchestration
 
 **Transform your database monitoring through intelligent queries, flexible alerting, and cross-database orchestration**
 
-**Beacon** is a powerful .NET library that enables semantic alerts and notifications for databases with robust data orchestration capabilities. Monitor data quality, enforce business rules, automate reporting, and orchestrate complex ETL workflows across PostgreSQL, SQL Server, and MySQL databases.
+**Beacon** is a .NET 9 platform for semantic alerts, notifications, and data orchestration across your databases. Monitor data quality, enforce business rules, automate reporting, and orchestrate ETL workflows across PostgreSQL, SQL Server, MySQL, BigQuery, Snowflake, Databricks, Azure Synapse, AWS CloudWatch, and REST APIs — through a modern React UI, a REST API, and a built-in MCP server for AI assistants.
+
+Beacon ships in two forms:
+
+- **A self-hostable application** — clone this repo and run the `Beacon.SampleProject` host, which serves the React single-page app at the root URL `/`.
+- **NuGet packages** — embed Beacon into your own ASP.NET Core application.
 
 ## 🎯 Core Capabilities
 
 ### 🔍 Query Monitoring
-Create semantic SQL queries to monitor data quality, business rules, and database health with multi-step execution
+Create semantic SQL queries to monitor data quality, business rules, and database health with multi-step execution.
 
 ### 🔔 Smart Alerting
-Deliver notifications via Email, Microsoft Teams, Slack, or Jira with rich formatting and complete result attachments
+Deliver notifications via Email, Microsoft Teams, Slack, or Jira with rich formatting and complete result attachments.
 
 ### 🤖 AI-Powered Features
-Automatic data source documentation generation, natural language alert creation, and intelligent anomaly detection
+Automatic data-source documentation, natural-language alert creation, and intelligent anomaly detection — with a runtime-swappable LLM provider.
+
+### 🔌 MCP Server
+A built-in Model Context Protocol server gives AI assistants read-only, audited, PII-aware access to your data.
 
 ### 🔄 Data Migration
-Orchestrate ETL workflows with Insert, Upsert, Truncate, and Sync modes across different database engines
+Orchestrate ETL workflows with Insert, Upsert, Truncate, and Sync modes across different database engines.
 
 ### 🔗 Cross-Database Joins
-Query across PostgreSQL, SQL Server, and MySQL simultaneously with virtual table abstractions
+Query across multiple engines simultaneously via in-memory SQLite virtual tables.
 
 ### 📋 Task Management & Anomaly Detection
-Automatic alerting tasks with lifecycle tracking, statistical anomaly detection, and intelligent auto-resolution
+Automatic alerting tasks with lifecycle tracking, statistical anomaly detection, and intelligent auto-resolution.
 
 ### 🔐 Authorization & Access Control
-Flexible, pluggable authorization system with role-based access control and custom provider support
+Cookie sessions, pluggable authentication providers, OIDC/SSO, JWT for MCP clients, and scoped API keys.
 
-## 🚀 Quick Start
+## 🚀 Quick Start (run the app)
 
-Add Beacon to your ASP.NET application in under 30 minutes:
+The fastest way to see Beacon is to run the host project and the React dev server.
 
-1. **Install NuGet packages**
-   ```bash
-   dotnet add package Beacon.Core.PostgreSql
-   dotnet add package Beacon.UI.AspNet
-   ```
+**Prerequisites:** .NET 9 SDK, Node.js 18+, and a PostgreSQL database. Set a connection string and a 32-character encryption key in `Beacon.SampleProject/appsettings.json` (or user-secrets / environment variables):
 
-2. **Configure in Program.cs**
-   ```csharp
-   // Step 1: Add core services and configure database provider
-   builder.Services.AddBeaconServices(builder.Configuration, options =>
-       {
-           options.AddBeaconScheduler<YourScheduler>();
-           options.BaseUrl = "https://your-domain.com/beacon"; // For notification links
-           options.UseAI = true; // Enable AI features (optional)
-       })
-       .UsePostgreSql(builder.Configuration.GetConnectionString("BeaconContext")!, "beacon");
+```json
+{
+  "ConnectionStrings": {
+    "BeaconContext": "Host=localhost;Database=beacon;Username=postgres;Password=yourpassword"
+  },
+  "Beacon": {
+    "EncryptionKey": "your-secure-32-character-key-here"
+  }
+}
+```
 
-   // Step 2: Add UI components
-   builder.Services.AddBeaconUI();
+```bash
+# 1. Start the API host (Kestrel) — http://localhost:5296 / https://localhost:7187
+dotnet run --project Beacon.SampleProject --no-launch-profile
 
-   // Step 3: Add AI services (optional, requires LLM configuration)
-   builder.Services.AddBeaconAI(builder.Configuration);
-   ```
+# 2. In another terminal, start the React dev server (Vite) — http://localhost:5173
+npm run dev --prefix Beacon.UI/web
+```
 
-3. **Add UI middleware**
-   ```csharp
-   app.UseStaticFiles(); // Required for Beacon UI assets
-   app.UseBeaconUI()
-       .UseBasicAuthentication("admin", "admin")
-       .AddBlazorUI("/beacon");
-   ```
+Open **http://localhost:5173** (Vite dev server, proxies `/beacon/api`, `/beacon/mcp`, and `/hangfire` to Kestrel). On first run, Beacon applies its EF Core migrations and walks you through **first-run admin setup** to create the initial user — there are no hardcoded credentials.
 
-4. **Access the UI** at `http://localhost:5000/beacon`
+Useful endpoints:
 
-📚 [View detailed quick start guide →](https://moberghr.github.io/beacon/getting-started/quick-start)
+| URL | What |
+|---|---|
+| `/` | React UI |
+| `/beacon/api/health` | Health check |
+| `/openapi/v1.json` | OpenAPI document (drives the typed TS client) |
+| `/beacon/mcp` | MCP server (Streamable HTTP, auth required) |
+| `/beacon/api/hub` | SignalR hub (real-time events) |
+| `/hangfire` | Hangfire dashboard (admin only) |
+
+📚 [View the detailed quick start guide →](https://mibu.github.io/semantico/getting-started/quick-start)
 
 ## 🏗️ System Architecture
 
-Beacon follows Clean Architecture principles with clear separation of concerns:
+Beacon follows a CQRS (MediatR) core where all project references converge on `Beacon.Core`:
 
 ```mermaid
 graph TB
     subgraph UI["Presentation Layer"]
-        BlazorUI[Blazor UI Components<br/>MudBlazor]
+        React[React SPA<br/>Vite + TypeScript + Tailwind]
     end
 
-    subgraph Core["Application Services Layer"]
+    subgraph Edge["Host Edge — Beacon.SampleProject"]
+        RestApi[REST API<br/>/beacon/api/*] ~~~ Mcp[MCP Server<br/>/beacon/mcp] ~~~ Hub[SignalR Hub<br/>/beacon/api/hub]
+    end
+
+    subgraph Core["Application Core (MediatR / CQRS)"]
         QuerySvc[Query Service] ~~~ SubSvc[Subscription Service] ~~~ MigSvc[Migration Service]
-        NotifSvc[Notification Service] ~~~ DataSrcSvc[DataSource Service] ~~~ TaskSvc[Task Service]
+        NotifSvc[Notification Service] ~~~ DataSrcSvc[DataSource Service] ~~~ AiSvc[AI Service]
     end
 
     subgraph Adapters["Notification Adapters"]
-        EmailAdapter[Email Adapter] ~~~ TeamsAdapter[Teams Adapter] ~~~ SlackAdapter[Slack Adapter] ~~~ JiraAdapter[Jira Adapter]
+        EmailAdapter[Email] ~~~ TeamsAdapter[Teams] ~~~ SlackAdapter[Slack] ~~~ JiraAdapter[Jira]
     end
 
     subgraph Data["Data Access Layer"]
-        EFCore[Entity Framework Core<br/>BeaconContext] ~~~ Dapper[Dapper<br/>Metadata Queries]
+        EFCore[EF Core 9<br/>BeaconContext] ~~~ Dapper[Dapper<br/>Hot Paths]
     end
 
     subgraph Infrastructure["Infrastructure Layer"]
-        PgSQL[(PostgreSQL)] ~~~ MSSQL[(SQL Server)] ~~~ MySQL[(MySQL)]
-        Scheduler[Job Scheduler<br/>via IBeaconScheduler] ~~~ SQLiteVM[SQLite Virtual Tables<br/>Cross-DB Joins]
+        Meta[(Metadata DB<br/>PostgreSQL / SQL Server)] ~~~ Sources[(9 Data-Source<br/>Connectors)]
+        Scheduler[Hangfire<br/>on PostgreSQL] ~~~ SQLiteVM[In-Memory SQLite<br/>Cross-DB Joins]
     end
 
-    BlazorUI --> Core
+    React --> Edge
+    Edge --> Core
     Core --> Adapters
     Core --> Data
     Data --> Infrastructure
@@ -110,6 +124,7 @@ graph TB
     Adapters --> Infrastructure
 
     style UI fill:#e3f2fd
+    style Edge fill:#ede7f6
     style Core fill:#f3e5f5
     style Adapters fill:#fff3e0
     style Data fill:#e8f5e9
@@ -123,7 +138,7 @@ Multi-step queries with cross-database capabilities:
 ```mermaid
 sequenceDiagram
     participant User
-    participant Scheduler
+    participant Scheduler as Hangfire Scheduler
     participant QueryOrchestrator
     participant VirtualTableManager
     participant PostgreSQL
@@ -144,11 +159,11 @@ sequenceDiagram
     QueryOrchestrator->>VirtualTableManager: Store @@result2
 
     QueryOrchestrator->>VirtualTableManager: Execute Final Query<br/>(JOIN @@result1 and @@result2)
-    VirtualTableManager->>VirtualTableManager: Create SQLite Virtual Tables
+    VirtualTableManager->>VirtualTableManager: Create in-memory SQLite tables
     VirtualTableManager-->>QueryOrchestrator: Combined Results
 
     QueryOrchestrator->>NotificationService: Send Results
-    NotificationService->>Adapter: Dispatch (Email/Teams/Jira)
+    NotificationService->>Adapter: Dispatch (Email/Teams/Slack/Jira)
     Adapter-->>User: Notification Delivered
 ```
 
@@ -165,7 +180,7 @@ flowchart LR
     end
 
     subgraph Transform["Transformation"]
-        VT[Virtual Tables<br/>Cross-DB Join]
+        VT[In-Memory SQLite<br/>Cross-DB Join]
         Enrich[Data Enrichment<br/>Business Logic]
     end
 
@@ -202,90 +217,89 @@ flowchart LR
 ## ✨ Key Features
 
 ### 🔍 Semantic Query Monitoring
-- Multi-step query execution with result chaining
-- Dynamic parameter substitution (@@user_id, @@date)
-- Query preview with first 10 rows
-- Execution history with full audit trail
+- Multi-step query execution with result chaining (`@@result1`, `@@result2`, …)
+- Dynamic parameter substitution (`@@user_id`, `@@date`)
+- Query preview and execution history with full audit trail
 
 ### ⏱️ Scheduling & Automation
-- Cron expression support (every 5 min to monthly)
-- Pluggable scheduler via `IBeaconScheduler` interface
-- Configurable timeouts and retry policies
-- Next execution time calculation
+- Cron expression support (every few minutes to monthly)
+- Hangfire on PostgreSQL (1-second poll; automatic retry disabled by default)
+- Pluggable scheduler via the `IBeaconScheduler` interface (`BeaconScheduler` is the Hangfire-backed implementation)
 
 ### 🔔 Multi-Channel Notifications
 - **Email** with HTML table + CSV/Excel attachment
 - **Microsoft Teams** with Adaptive Cards
-- **Slack** with rich Table Blocks (20 cols, 100 rows)
+- **Slack** with rich Table Blocks
 - **Jira** issue creation and updates
 - Full result attachments (unlimited rows)
 
 ### 🤖 AI-Powered Features (Experimental)
-- **Automatic Documentation**: AI analyzes schemas and generates comprehensive documentation
-- **Natural Language Alerts**: Create complex queries from plain English descriptions
-- **Smart Insights**: AI-powered data analysis and recommendations
-- Export documentation as Markdown, HTML, or PDF
+- **Automatic Documentation**: AI analyzes schemas and generates comprehensive documentation (export as Markdown, HTML with ERD diagrams, or PDF)
+- **Natural Language Alerts**: Create complex queries from plain-English descriptions
+- **Smart Insights**: AI-assisted data analysis and recommendations
+- Runtime-swappable LLM provider (OpenAI, Anthropic Claude, Azure OpenAI, AWS Bedrock); all calls go through a concurrency-limited request queue
 
 ⚠️ **Note:** AI features are experimental and may produce incorrect or incomplete results. Always review AI-generated content before use.
 
+### 🔌 MCP Server
+- Streamable HTTP transport at `/beacon/mcp` (auth required)
+- **Read-only enforced** at the connector level; PII detection and row limits on by default
+- Every invocation recorded by an audit service and a usage-signal service that powers a self-improving "learning loop"
+
 ### 🔐 Authorization & Access Control
-- **Flexible Authorization**: Pluggable authorization system (disabled by default)
-- **Built-in RBAC**: Simple role-based access control with Admin/Editor/Viewer roles
-- **Custom Providers**: Integrate with any authentication system (OAuth, Identity, external services)
-- **Resource-Level Permissions**: Fine-grained access control for individual resources
-- **User Context**: Access current user information throughout the application
-- **Backward Compatible**: Existing installations work unchanged
+- Cookie sessions (`Beacon.Auth`: `HttpOnly`, `SameSite=Lax`)
+- Pluggable authentication via `IBeaconAuthenticationProvider` (database, OIDC/SSO, custom)
+- JWT bearer authentication for MCP clients
+- Scoped API keys (`Read`, `Execute`, `Admin`) with optional project restrictions — SHA256-hashed at rest, shown once
+- Role-based access control with first-run admin setup
 
 ### 🔍 Anomaly Detection
-- **Statistical Methods**: Standard deviation, IQR, percentage change detection
-- **Baseline Learning**: Automatically learns normal patterns from historical data
-- **Configurable Thresholds**: Customize sensitivity and lookback periods
-- **Real-time Alerting**: Immediate notifications on detected anomalies
+- Statistical methods (standard deviation, IQR, percentage change)
+- Baseline learning from historical data, configurable thresholds, real-time alerting
 
 ### 💾 Multi-Database Support
-- PostgreSQL, SQL Server, MySQL connectivity
-- Cross-database joins via SQLite virtual tables
+- 9 connectors: PostgreSQL, SQL Server, MySQL, BigQuery, Snowflake, Databricks, Azure Synapse, AWS CloudWatch, REST API
+- Cross-database joins via in-memory SQLite virtual tables
 - Database metadata introspection with caching
-- **Encrypted connection strings** (AES-256) with mandatory encryption key
+- **Encrypted connection strings** (AES-256) with a mandatory encryption key
 
 ### 🔄 Data Migration (ETL)
 - 4 migration modes: Insert, Upsert, Truncate, Sync
-- Bulk operations with row-level error tracking
-- Atomic transactions with rollback on failure
-- Execution metrics (rows/second, success rate)
+- Bulk operations (EFCore.BulkExtensions) with row-level error tracking
+- Atomic transactions with rollback on failure, plus execution metrics
 
 ### 💻 Developer Experience
-- SQL editor with syntax highlighting
-- Database explorer with schema introspection
-- Parameter validation and autocomplete
-- Query flow visualization
+- React UI with a typed OpenAPI fetch client (NSwag, `npm run codegen`)
+- SQL editor, database explorer, parameter validation, real-time updates via SignalR
 
 ### 📋 Task Management
 - Automatic task creation from subscriptions with `CreateTasks` enabled
-- Auto-resolution when query returns 0 results (issue fixed)
-- Result count trend visualization and history charts
-- Task comments for team collaboration
-- Related tasks discovery from same query
-- Manual resolution with notes and user tracking
+- Auto-resolution when a query returns 0 results
+- Trend charts, comments, related-task discovery, manual resolution with notes
 
-[Explore all features →](https://moberghr.github.io/beacon/features/)
+[Explore all features →](https://mibu.github.io/semantico/features/)
 
-## 📦 Installation
+## 📦 Installation (embed via NuGet)
 
-### NuGet Packages
+If you prefer to embed Beacon in your own ASP.NET Core host instead of running `Beacon.SampleProject`, install the packages you need.
 
-Beacon is distributed as NuGet packages. Install the database provider package for your needs:
+### Packages
+
+| Package | Purpose |
+|---|---|
+| `Beacon.Core` | Core domain, CQRS handlers, EF model (required) |
+| `Beacon.Core.PostgreSql` / `Beacon.Core.SqlServer` | EF Core provider + migrations for Beacon's metadata DB |
+| `Beacon.UI` | React SPA shipped as a Razor Class Library (served at `/`) |
+| `Beacon.Api` | REST minimal-API endpoints + OpenAPI |
+| `Beacon.MCP` | MCP server (tools + resources) |
+| `Beacon.AI` | LLM integration, auto-documentation, anomaly detection (optional) |
+| `Beacon.Connector.*` | One per engine: `PostgreSql`, `SqlServer`, `MySql`, `BigQuery`, `Snowflake`, `Databricks`, `AzureSynapse`, `CloudWatch`, `Api` |
 
 **For PostgreSQL (recommended):**
 ```bash
 dotnet add package Beacon.Core.PostgreSql
-dotnet add package Beacon.UI.AspNet
-```
-
-**For SQL Server:**
-```bash
-dotnet add package Beacon.Core.SqlServer
-dotnet add package Beacon.UI.AspNet
+dotnet add package Beacon.UI
+dotnet add package Beacon.Connector.PostgreSql
 ```
 
 ### Basic Setup
@@ -295,41 +309,54 @@ Add to your ASP.NET Core `Program.cs`:
 ```csharp
 using Beacon.Core;
 using Beacon.Core.PostgreSql;
+using Beacon.Connector.PostgreSql;
 using Beacon.UI;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Step 1: Add core services and configure database provider
+// 1. Core services + database provider + connectors
 builder.Services.AddBeaconServices(builder.Configuration, options =>
     {
-        options.AddBeaconScheduler<YourScheduler>();
-        options.BaseUrl = "https://your-domain.com/beacon"; // For notification links
-        options.UseAI = true; // Enable AI features (optional)
+        options.AddBeaconScheduler<BeaconScheduler>();   // your IBeaconScheduler (Hangfire-backed)
+        options.BaseUrl = "https://your-domain.com";     // for notification deep-links
+        options.UseAI = true;                            // optional (experimental)
+        options.Authorization.Enabled = true;
+        options.Authentication.EnableLoginForm = true;
+        options.AddAuthenticationProvider<DatabaseAuthenticationProvider>();
     })
+    .AddPostgreSqlConnector()
+    // .AddSqlServerConnector().AddMySqlConnector().AddBigQueryConnector() ... (add the engines you need)
     .UsePostgreSql(builder.Configuration.GetConnectionString("BeaconContext")!, "beacon");
-// Or use SQL Server:
-// .UseSqlServer(builder.Configuration.GetConnectionString("BeaconContextSql")!, "beacon");
 
-// Step 2: Add UI components
-builder.Services.AddBeaconUI();
+// 2. Auth (cookie scheme for the React shell at root /)
+builder.Services.AddBeaconCookieAuthentication("/");
+// builder.Services.AddBeaconOidcAuthentication(builder.Configuration); // optional SSO
 
-// Step 3: Add AI services (optional, requires LLM configuration)
+// 3. AI + MCP + OpenAPI (optional layers)
 builder.Services.AddBeaconAI(builder.Configuration);
+builder.Services.AddBeaconMcp();
+builder.Services.AddOpenApi();
 
 var app = builder.Build();
 
 app.UseHttpsRedirection();
-app.UseStaticFiles(); // Required: Serves Beacon UI assets
+app.UseStaticFiles();
 
-// Configure Beacon UI
-app.UseBeaconUI()
-    .UseBasicAuthentication("admin", "admin")
-    .AddBlazorUI("/beacon");
+// Auth pipeline (order matters)
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.MapOpenApi();                       // /openapi/v1.json
+app.MapBeaconApi();                     // /beacon/api/*
+app.MapMcp("/beacon/mcp").RequireAuthorization();   // MCP server
+app.MapBeaconUi();                      // React SPA at root /
 
 app.Run();
 ```
 
-Add connection strings and encryption key to `appsettings.json`:
+> `Beacon.SampleProject/Program.cs` is the canonical, fully-wired reference (Hangfire, SignalR, OIDC, JWT-for-MCP, rate limiting, antiforgery, and the load-bearing middleware order). Start from it when embedding.
+
+Add connection strings and the encryption key to `appsettings.json`:
 
 ```json
 {
@@ -351,150 +378,96 @@ Add connection strings and encryption key to `appsettings.json`:
 }
 ```
 
-⚠️ **AI features are experimental.** Optional configuration for AI-powered documentation and alert generation.
-
 **Generate a secure encryption key:**
 ```bash
 openssl rand -base64 32
 ```
 
-⚠️ **Important:** The `EncryptionKey` is required for encrypting sensitive data like connection strings.
+⚠️ **Important:** The `EncryptionKey` is **required** — it encrypts connection strings and other sensitive data at rest. AI configuration is optional and experimental.
 
-📚 [View detailed installation guide →](https://moberghr.github.io/beacon/getting-started/installation)
+📚 [View the detailed installation guide →](https://mibu.github.io/semantico/getting-started/installation)
 
-## 📖 Documentation
+## 🧱 Project Layout
 
-- **Getting Started**
-  - [Installation Guide](https://moberghr.github.io/beacon/getting-started/installation) - NuGet package setup
-  - [Quick Start](https://moberghr.github.io/beacon/getting-started/quick-start) - First query in 30 minutes
-  - [Configuration](https://moberghr.github.io/beacon/getting-started/configuration) - Connection strings and options
-
-- **Features**
-  - [Projects](https://moberghr.github.io/beacon/features/projects) - Database connection management
-  - [Queries](https://moberghr.github.io/beacon/features/queries) - Query creation and parameters
-  - [Multi-Step Queries](https://moberghr.github.io/beacon/features/multi-step-queries) - Advanced query chaining
-  - [Subscriptions](https://moberghr.github.io/beacon/features/subscriptions) - Scheduled execution
-  - [Notifications](https://moberghr.github.io/beacon/features/notifications) - Email, Teams, Jira delivery
-  - [Tasks](https://moberghr.github.io/beacon/features/tasks) - Alerting task management
-
-- **Advanced**
-  - [Query Chaining](https://moberghr.github.io/beacon/advanced/query-chaining) - Cross-project queries
-  - [Multi-Tenant Deployments](https://moberghr.github.io/beacon/advanced/multi-tenant) - Schema-agnostic configuration
-  - [Architecture](https://moberghr.github.io/beacon/advanced/architecture) - Clean Architecture deep-dive
-
-- **Reference**
-  - [API Services](https://moberghr.github.io/beacon/api/services) - Service interfaces
-  - [Troubleshooting](https://moberghr.github.io/beacon/troubleshooting/common-issues) - Common issues and solutions
-
-## 🎯 Common Use Cases
-
-### 📊 Data Quality Monitoring
-Alert on orphaned records, invalid states, NULL violations, and constraint failures. Keep your data clean with automated validation checks.
-
-### 📈 Automated Reporting
-Schedule daily sales reports, weekly performance summaries, and monthly analytics. Delivered as Excel/CSV attachments via email.
-
-### 🏥 Database Health Monitoring
-Monitor table growth, connection counts, disk usage, and replication lag. Proactive alerts keep your databases healthy.
-
-### 🔗 Cross-Database Integration
-ETL from production to data warehouse, sync master data across systems, multi-tenant distribution, consolidated metrics.
-
-### ⚖️ Business Rule Enforcement
-Monitor SLA violations, inventory thresholds, payment delays, and compliance rules. Automatic Jira ticket creation for violations.
-
-### 🎫 Incident Management
-Create Jira issues on first detection, add comments on follow-ups, automatically close when resolved. Full incident lifecycle tracking.
-
-### 📋 Alert Lifecycle Management
-Create alerting tasks from subscriptions, track result count trends over time, collaborate with comments, and auto-resolve when issues are fixed.
-
-### 🤖 AI-Powered Data Analysis (Experimental)
-Generate comprehensive documentation by analyzing database schemas with AI. Export as interactive HTML with ERD diagrams, Markdown, or PDF. Create sophisticated alerts using natural language instead of SQL.
-
-⚠️ **Experimental Feature:** AI-generated content should be reviewed and validated before production use.
-
-### 📊 Intelligent Anomaly Detection
-Monitor subscriptions for unusual patterns using statistical methods (Z-score, IQR, percentage change). System learns baselines from historical data and alerts on deviations automatically.
+| Project | Role |
+|---|---|
+| `Beacon.Core` | Domain, CQRS handlers, services, EF model — everything points here |
+| `Beacon.Core.PostgreSql` / `Beacon.Core.SqlServer` | Provider-specific `BeaconContext` + EF migrations |
+| `Beacon.AI` | LLM integration, auto-documentation, anomaly detection, NL → query |
+| `Beacon.MCP` | MCP server (tools + resources) for AI assistants |
+| `Beacon.Api` | REST minimal-API endpoints + OpenAPI for the React shell |
+| `Beacon.UI` | React SPA (`web/`) shipped as a Razor Class Library, served at `/` |
+| `Beacon.SampleProject` | Host / composition root (Kestrel, DI wiring, Hangfire, middleware, auth) |
+| `Beacon.Connector.*` | Data-source connectors for the 9 supported engines |
+| `Beacon.Tests` | NUnit 4 + Moq + FluentAssertions; EF translation tests via `NpgsqlTestContext` |
 
 ## 🛠️ Technology Stack
 
 ### Framework & Runtime
-- .NET 9.0
-- C# 13
-- ASP.NET Core 9.0
+- .NET 9.0 / C# 13 / ASP.NET Core 9.0 (Kestrel, self-hosted)
 
 ### User Interface
-- Blazor Server
-- MudBlazor 8.0
-- Highlight.js
+- React 18 + Vite 5 + TypeScript
+- Tailwind CSS v3.4 + Beacon design-system primitives
+- React Router; SignalR client for real-time updates; NSwag-generated typed API client
 
 ### Data Access
-- Entity Framework Core 9.0
-- Dapper
-- EFCore.BulkExtensions
+- Entity Framework Core 9 (PostgreSQL + SQL Server, dual migrations)
+- Dapper (hot paths) + EFCore.BulkExtensions (bulk operations)
 
-### Database Drivers
-- Npgsql (PostgreSQL)
-- System.Data.SqlClient
-- MySql.Data
+### Database Drivers / Connectors
+- Npgsql, Microsoft.Data.SqlClient, MySqlConnector
+- BigQuery, Snowflake, Databricks, Azure Synapse, AWS CloudWatch, generic REST API
 
-### Job Scheduling
-- IBeaconScheduler interface (implement with Hangfire, Quartz.NET, or custom)
-- Cronos (cron expression parsing)
+### Background Jobs
+- Hangfire on PostgreSQL (`IBeaconScheduler` abstraction); Cronos for cron parsing
 
 ### AI & Machine Learning
-- OpenAI / Anthropic Claude / Azure OpenAI (LLM providers)
-- Configurable token limits and rate limiting
-- Cost tracking and usage monitoring
+- OpenAI / Anthropic Claude / Azure OpenAI / AWS Bedrock (runtime-swappable)
+- Concurrency-limited request queue with cost/usage tracking
 
 ### Document Generation
-- QuestPDF (PDF generation)
-- Markdig (Markdown processing)
-- Mermaid.js (ERD diagrams)
+- QuestPDF (PDF), Markdig (Markdown), Mermaid (ERD diagrams)
 
 ### Integrations
-- Atlassian.SDK (Jira)
-- AdaptiveCards
-- ClosedXML
-- CsvHelper
+- Atlassian.SDK (Jira), AdaptiveCards (Teams), ClosedXML (Excel), CsvHelper (CSV)
 
 ## 🔧 Requirements
 
-- **.NET 9.0** or later
-- **PostgreSQL 12+** or **SQL Server 2019+** for Beacon metadata database
-- **Job scheduler** implementing `IBeaconScheduler` (e.g., Hangfire, Quartz.NET, or custom)
-- **Encryption key** (32-character key for AES-256 encryption) - **Required**
-- **(Optional)** LLM API key (OpenAI, Anthropic, or Azure OpenAI) for AI-powered features
-- **(Optional)** Email provider for email notifications (built-in support for any SMTP-compatible service)
+- **.NET 9.0** SDK or later
+- **Node.js 18+** (to build the React UI when developing or self-hosting)
+- **PostgreSQL 12+** or **SQL Server 2019+** for Beacon's metadata database
+- **Encryption key** (32-character key for AES-256) — **required**
+- **(Optional)** LLM API key (OpenAI, Anthropic, Azure OpenAI, or AWS Bedrock) for AI features
+- **(Optional)** SMTP/email provider for email notifications
 
 ## 🚦 Getting Started
 
 ### Step 1: Connect Data Sources
-Add your PostgreSQL, SQL Server, or MySQL databases with encrypted connection strings
+Add your databases or APIs with encrypted connection strings.
 
 ### Step 2: Create Semantic Queries
-Write SQL queries to monitor data quality, business rules, or extract data for migration
+Write SQL to monitor data quality, enforce business rules, or extract data for migration.
 
 ### Step 3: Schedule & Automate
-Create subscriptions with cron schedules and configure notification recipients
+Create subscriptions with cron schedules and configure notification recipients.
 
 ### Step 4: Track & Resolve
-Enable task creation to track issues, add comments, and manage the resolution lifecycle
+Enable task creation to track issues, add comments, and manage the resolution lifecycle.
 
 ## 🤝 Support and Contributing
 
-- **Issues** - [Report bugs or request features](https://github.com/moberghr/beacon/issues)
-- **Discussions** - [Ask questions and share ideas](https://github.com/moberghr/beacon/discussions)
-- **Contributing** - [Contribution guidelines](https://moberghr.github.io/beacon/contributing/guidelines)
+- **Issues** — [Report bugs or request features](https://github.com/MiBu/semantico/issues)
+- **Discussions** — [Ask questions and share ideas](https://github.com/MiBu/semantico/discussions)
 
 ---
 
 ## 📚 Resources
 
-**Documentation**: [https://moberghr.github.io/beacon](https://moberghr.github.io/beacon)
-**Repository**: [https://github.com/moberghr/beacon](https://github.com/moberghr/beacon)
+**Documentation**: [https://mibu.github.io/semantico](https://mibu.github.io/semantico)
+**Repository**: [https://github.com/MiBu/semantico](https://github.com/MiBu/semantico)
 **Version**: 1.0
-**Copyright**: © 2025
+**Copyright**: © 2026
 
 Thank you for choosing Beacon! We hope you find it invaluable for managing your database monitoring, alerting, and orchestration needs.
+</content>

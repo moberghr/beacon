@@ -9,11 +9,11 @@ Beacon.Core contains the domain models, services, and data access abstractions f
 ## Features
 
 - Multi-step query execution with result chaining
-- Cross-database support (PostgreSQL, SQL Server, MySQL)
+- Cross-database support via 9 connectors (PostgreSQL, SQL Server, MySQL, BigQuery, Snowflake, Databricks, Azure Synapse, CloudWatch, generic API)
 - Notification delivery via Email, Teams, and Jira
 - Data migration and ETL capabilities
 - Database metadata introspection
-- Encrypted connection string storage
+- AES-256 encrypted connection string storage (requires `Beacon:EncryptionKey`)
 
 ## Installation
 
@@ -40,16 +40,18 @@ builder.Services.AddBeacon(builder.Configuration, options =>
     // options.UseSqlServer(builder.Configuration.GetConnectionString("BeaconContext")!, "beacon");
 
     options.AddBeaconScheduler<YourScheduler>();
-    options.BaseUrl = "https://your-domain.com/beacon";
+    options.BaseUrl = "https://your-domain.com";
 });
 ```
 
+The React SPA (shipped as the `Beacon.UI` Razor Class Library) is served at the root URL `/`. REST endpoints
+are exposed under `/beacon/api/*`, the MCP server at `/beacon/mcp`, and the Hangfire dashboard at `/hangfire`.
+
 ## Documentation
 
-- [Full Documentation](https://moberghr.github.io/beacon)
-- [Getting Started Guide](https://moberghr.github.io/beacon/getting-started/quick-start)
-- [Configuration Guide](https://moberghr.github.io/beacon/getting-started/configuration)
+- [Full Documentation](https://github.com/MiBu/semantico)
+- [Getting Started Guide](https://github.com/MiBu/semantico/wiki)
 
 ## License
 
-MIT License - see [LICENSE](https://github.com/moberghr/beacon/blob/main/LICENSE)
+MIT License - see [LICENSE](https://github.com/MiBu/semantico/blob/main/LICENSE)
