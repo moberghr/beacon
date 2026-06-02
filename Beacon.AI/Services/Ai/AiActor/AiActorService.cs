@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Data;
@@ -24,6 +25,7 @@ public class AiActorService : IAiActorServiceExtended
     private readonly IDatabaseMetadataService _metadataService;
     private readonly IQueryService _queryService;
     private readonly ISubscriptionService _subscriptionService;
+    private readonly IBackgroundJobClient _backgroundJobClient;
     private readonly ILogger<AiActorService> _logger;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -38,6 +40,7 @@ public class AiActorService : IAiActorServiceExtended
         IDatabaseMetadataService metadataService,
         IQueryService queryService,
         ISubscriptionService subscriptionService,
+        IBackgroundJobClient backgroundJobClient,
         ILogger<AiActorService> logger)
     {
         _contextFactory = contextFactory;
@@ -45,6 +48,7 @@ public class AiActorService : IAiActorServiceExtended
         _metadataService = metadataService;
         _queryService = queryService;
         _subscriptionService = subscriptionService;
+        _backgroundJobClient = backgroundJobClient;
         _logger = logger;
     }
 
@@ -56,7 +60,8 @@ public class AiActorService : IAiActorServiceExtended
 
         // Verify data source exists
         var dataSource = await context.DataSources
-            .FirstOrDefaultAsync(ds => ds.Id == options.DataSourceId, cancellationToken)
+            .Where(ds => ds.Id == options.DataSourceId)
+            .FirstOrDefaultAsync(cancellationToken)
             ?? throw new BeaconException($"DataSource with ID {options.DataSourceId} not found");
 
         var actor = new Beacon.Core.Data.Entities.AiActor
@@ -103,35 +108,43 @@ public class AiActorService : IAiActorServiceExtended
     {
         await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
 
-        // Check if this subscription belongs to an active actor
-        var subscription = await context.Subscriptions
-            .Include(s => s.AiActor)
-            .FirstOrDefaultAsync(s => s.Id == subscriptionId, cancellationToken);
+        // Check if this subscription belongs to an active actor. Project only the
+        // fields we need so we don't materialize the full Subscription + AiActor graph.
+        var subscriptionInfo = await context.Subscriptions
+            .AsNoTracking()
+            .Where(x => x.Id == subscriptionId)
+            .Where(x => x.AiActorId != null)
+            .Select(x =>
+                new
+                {
+                    x.AiActorId,
+                    ActorStatus = (AiActorStatus?)x.AiActor!.Status
+                })
+            .FirstOrDefaultAsync(cancellationToken);
 
-        if (subscription?.AiActorId == null || subscription.AiActor == null)
+        if (subscriptionInfo?.AiActorId == null || subscriptionInfo.ActorStatus == null)
+        {
             return;
+        }
 
-        if (subscription.AiActor.Status != AiActorStatus.Active)
+        if (subscriptionInfo.ActorStatus != AiActorStatus.Active)
         {
             _logger.LogDebug("Skipping think cycle for actor {ActorId} - status is {Status}",
-                subscription.AiActorId, subscription.AiActor.Status);
+                subscriptionInfo.AiActorId, subscriptionInfo.ActorStatus);
             return;
         }
 
-        _logger.LogInformation("Subscription {SubscriptionId} executed, triggering think cycle for actor {ActorId}",
-            subscriptionId, subscription.AiActorId);
+        var actorId = subscriptionInfo.AiActorId.Value;
 
-        // Execute think cycle (fire and forget in background via Hangfire would be ideal)
-        // For now, execute synchronously but could be enhanced to use background jobs
-        try
-        {
-            await ExecuteThinkCycleAsync(subscription.AiActorId.Value, subscriptionId, cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to execute think cycle for actor {ActorId} triggered by subscription {SubscriptionId}",
-                subscription.AiActorId, subscriptionId);
-        }
+        // Enqueue think cycle as a Hangfire background job so the subscription-execution
+        // pipeline does not block on LLM round-trips. The job runs under its own scope
+        // and its own CancellationToken; the value-type args round-trip through Hangfire JSON.
+        var jobId = _backgroundJobClient.Enqueue<IAiActorServiceExtended>(
+            x => x.ExecuteThinkCycleBackgroundAsync(actorId, subscriptionId));
+
+        _logger.LogInformation(
+            "Subscription {SubscriptionId} executed, enqueued think cycle job {JobId} for actor {ActorId}",
+            subscriptionId, jobId, actorId);
     }
 
     public async Task<AiActorThinkResult> ExecuteThinkCycleAsync(
@@ -144,7 +157,8 @@ public class AiActorService : IAiActorServiceExtended
 
         var actor = await context.AiActors
             .Include(a => a.DataSource)
-            .FirstOrDefaultAsync(a => a.Id == actorId, cancellationToken)
+            .Where(a => a.Id == actorId)
+            .FirstOrDefaultAsync(cancellationToken)
             ?? throw new BeaconException($"AI Actor with ID {actorId} not found");
 
         if (actor.Status != AiActorStatus.Active)
@@ -152,7 +166,14 @@ public class AiActorService : IAiActorServiceExtended
             throw new BeaconException($"AI Actor {actorId} is not active (status: {actor.Status})");
         }
 
-        // Create execution record
+        // SaveChanges checkpoints in this method are deliberate:
+        //   1. After creating the execution row (need the generated Id for downstream refs).
+        //   2. Before/after each external LLM call (so the row's Phase reflects reality if
+        //      the LLM call hangs, throws, or the worker dies mid-cycle).
+        //   3. Final save persists action metrics + actor counters atomically.
+        // Any consecutive saves with no external observation between them are collapsed.
+
+        // Create execution record (Phase already Analyzing — no second save needed).
         var execution = new AiActorExecution
         {
             AiActorId = actorId,
@@ -165,10 +186,7 @@ public class AiActorService : IAiActorServiceExtended
 
         try
         {
-            // 1. ANALYZING PHASE
-            execution.Phase = AiActorExecutionPhase.Analyzing;
-            await context.SaveChangesAsync(cancellationToken);
-
+            // 1. ANALYZING PHASE (already persisted above).
             var schemaContext = await GetSchemaContextAsync(actor.DataSourceId, cancellationToken);
             var existingQueries = await GetQueryContextAsync(actorId, cancellationToken);
             var recentResults = triggeringSubscriptionId.HasValue
@@ -177,7 +195,7 @@ public class AiActorService : IAiActorServiceExtended
 
             execution.QueriesAnalyzed = existingQueries.Count;
 
-            // 2. PLANNING PHASE
+            // 2. PLANNING PHASE — checkpoint before the LLM call so a hang/crash leaves a trail.
             execution.Phase = AiActorExecutionPhase.Planning;
             await context.SaveChangesAsync(cancellationToken);
 
@@ -249,7 +267,11 @@ public class AiActorService : IAiActorServiceExtended
                 execution.Phase = AiActorExecutionPhase.Notifying;
                 await context.SaveChangesAsync(cancellationToken);
 
-                // TODO: Send notification to configured recipients
+                // Recipient fan-out from the AI Actor planner is owned by the
+                // subscription notification pipeline (JobService); the planner only
+                // records intent here. NotificationsTriggered counts the planner's
+                // intent so dashboards can show "wants to notify" without
+                // double-counting the subscription pipeline's own deliveries.
                 execution.NotificationsTriggered = 1;
                 _logger.LogInformation("Actor {ActorId} wants to notify: {Reason}",
                     actorId, planResponse.NotificationReason);
@@ -308,7 +330,8 @@ public class AiActorService : IAiActorServiceExtended
         await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
 
         var actor = await context.AiActors
-            .FirstOrDefaultAsync(a => a.Id == actorId, cancellationToken)
+            .Where(a => a.Id == actorId)
+            .FirstOrDefaultAsync(cancellationToken)
             ?? throw new BeaconException($"AI Actor with ID {actorId} not found");
 
         if (actor.Status != AiActorStatus.Active)
@@ -327,7 +350,8 @@ public class AiActorService : IAiActorServiceExtended
         await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
 
         var actor = await context.AiActors
-            .FirstOrDefaultAsync(a => a.Id == actorId, cancellationToken)
+            .Where(a => a.Id == actorId)
+            .FirstOrDefaultAsync(cancellationToken)
             ?? throw new BeaconException($"AI Actor with ID {actorId} not found");
 
         if (actor.Status != AiActorStatus.Paused && actor.Status != AiActorStatus.Failed)
@@ -347,7 +371,8 @@ public class AiActorService : IAiActorServiceExtended
         await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
 
         var actor = await context.AiActors
-            .FirstOrDefaultAsync(a => a.Id == actorId, cancellationToken)
+            .Where(a => a.Id == actorId)
+            .FirstOrDefaultAsync(cancellationToken)
             ?? throw new BeaconException($"AI Actor with ID {actorId} not found");
 
         actor.Status = AiActorStatus.Archived;
@@ -367,7 +392,8 @@ public class AiActorService : IAiActorServiceExtended
 
         var actor = await context.AiActors
             .Include(a => a.DataSource)
-            .FirstOrDefaultAsync(a => a.Id == actorId, cancellationToken)
+            .Where(a => a.Id == actorId)
+            .FirstOrDefaultAsync(cancellationToken)
             ?? throw new BeaconException($"AI Actor with ID {actorId} not found");
 
         // Create execution record
@@ -504,27 +530,91 @@ public class AiActorService : IAiActorServiceExtended
         await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
 
         return await context.AiActors
-            .Include(a => a.DataSource)
-            .FirstOrDefaultAsync(a => a.Id == actorId, cancellationToken);
+            .AsNoTracking()
+            .Where(x => x.Id == actorId)
+            .Select(x =>
+                new Beacon.Core.Data.Entities.AiActor
+                {
+                    Id = x.Id,
+                    Name = x.Name,
+                    Instructions = x.Instructions,
+                    AdditionalContext = x.AdditionalContext,
+                    DataSourceId = x.DataSourceId,
+                    Status = x.Status,
+                    MaxQueries = x.MaxQueries,
+                    MaxSubscriptionsPerQuery = x.MaxSubscriptionsPerQuery,
+                    RequiresApproval = x.RequiresApproval,
+                    CreatedByUserId = x.CreatedByUserId,
+                    TotalTokensUsed = x.TotalTokensUsed,
+                    TotalCost = x.TotalCost,
+                    LastThinkTime = x.LastThinkTime,
+                    ThinkCount = x.ThinkCount,
+                    LastError = x.LastError,
+                    CreatedTime = x.CreatedTime,
+                    ArchivedTime = x.ArchivedTime,
+                    DataSource = new DataSource
+                    {
+                        Id = x.DataSource.Id,
+                        Name = x.DataSource.Name,
+                        DataSourceType = x.DataSource.DataSourceType,
+                        EncryptedConnectionData = string.Empty
+                    }
+                })
+            .FirstOrDefaultAsync(cancellationToken);
     }
 
     public async Task<List<Beacon.Core.Data.Entities.AiActor>> GetActorsForDataSourceAsync(
-        int dataSourceId,
+        int? dataSourceId,
         bool includeArchived = false,
         CancellationToken cancellationToken = default)
     {
         await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
 
         var query = context.AiActors
-            .Include(a => a.DataSource)
-            .Where(a => a.DataSourceId == dataSourceId);
+            .AsNoTracking()
+            .AsQueryable();
+
+        if (dataSourceId.HasValue)
+        {
+            query = query.Where(x => x.DataSourceId == dataSourceId.Value);
+        }
 
         if (!includeArchived)
         {
-            query = query.Where(a => a.ArchivedTime == null);
+            query = query.Where(x => x.ArchivedTime == null);
         }
 
-        return await query.OrderByDescending(a => a.CreatedTime).ToListAsync(cancellationToken);
+        return await query
+            .OrderByDescending(x => x.CreatedTime)
+            .Select(x =>
+                new Beacon.Core.Data.Entities.AiActor
+                {
+                    Id = x.Id,
+                    Name = x.Name,
+                    Instructions = x.Instructions,
+                    AdditionalContext = x.AdditionalContext,
+                    DataSourceId = x.DataSourceId,
+                    Status = x.Status,
+                    MaxQueries = x.MaxQueries,
+                    MaxSubscriptionsPerQuery = x.MaxSubscriptionsPerQuery,
+                    RequiresApproval = x.RequiresApproval,
+                    CreatedByUserId = x.CreatedByUserId,
+                    TotalTokensUsed = x.TotalTokensUsed,
+                    TotalCost = x.TotalCost,
+                    LastThinkTime = x.LastThinkTime,
+                    ThinkCount = x.ThinkCount,
+                    LastError = x.LastError,
+                    CreatedTime = x.CreatedTime,
+                    ArchivedTime = x.ArchivedTime,
+                    DataSource = new DataSource
+                    {
+                        Id = x.DataSource.Id,
+                        Name = x.DataSource.Name,
+                        DataSourceType = x.DataSource.DataSourceType,
+                        EncryptedConnectionData = string.Empty
+                    }
+                })
+            .ToListAsync(cancellationToken);
     }
 
     public async Task<List<AiActorExecution>> GetExecutionHistoryAsync(
@@ -553,9 +643,29 @@ public class AiActorService : IAiActorServiceExtended
         await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
 
         return await context.Queries
-            .Where(q => q.AiActorId == actorId)
-            .Include(q => q.Subscriptions)
-            .OrderByDescending(q => q.CreatedTime)
+            .AsNoTracking()
+            .Where(x => x.AiActorId == actorId)
+            .OrderByDescending(x => x.CreatedTime)
+            .Select(x =>
+                new Query
+                {
+                    Id = x.Id,
+                    Name = x.Name,
+                    Description = x.Description,
+                    AiActorId = x.AiActorId,
+                    IsLocked = x.IsLocked,
+                    LockedAt = x.LockedAt,
+                    CreatedTime = x.CreatedTime,
+                    Subscriptions = x.Subscriptions
+                        .Select(y =>
+                            new Subscription
+                            {
+                                Id = y.Id,
+                                QueryId = y.QueryId,
+                                CronExpression = y.CronExpression
+                            })
+                        .ToList()
+                })
             .ToListAsync(cancellationToken);
     }
 
@@ -566,10 +676,24 @@ public class AiActorService : IAiActorServiceExtended
         await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
 
         return await context.Subscriptions
-            .Where(s => s.AiActorId == actorId)
-            .Include(s => s.Query)
-            .Include(s => s.Recipients)
-            .OrderByDescending(s => s.CreatedTime)
+            .AsNoTracking()
+            .Where(x => x.AiActorId == actorId)
+            .OrderByDescending(x => x.CreatedTime)
+            .Select(x =>
+                new Subscription
+                {
+                    Id = x.Id,
+                    QueryId = x.QueryId,
+                    AiActorId = x.AiActorId,
+                    CronExpression = x.CronExpression,
+                    NotificationTrigger = x.NotificationTrigger,
+                    CreatedTime = x.CreatedTime,
+                    Query = new Query
+                    {
+                        Id = x.Query.Id,
+                        Name = x.Query.Name
+                    }
+                })
             .ToListAsync(cancellationToken);
     }
 
@@ -584,7 +708,8 @@ public class AiActorService : IAiActorServiceExtended
 
         var actor = await context.AiActors
             .Include(a => a.DataSource)
-            .FirstAsync(a => a.Id == actorId, cancellationToken);
+            .Where(a => a.Id == actorId)
+            .FirstAsync(cancellationToken);
 
         var execution = new AiActorExecution
         {
@@ -874,26 +999,28 @@ public class AiActorService : IAiActorServiceExtended
         // Create query directly in context to get the ID back
         await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
 
+        // Single unit of work: build the Query + its first QueryStep via the navigation
+        // collection so EF resolves the FK during SaveChanges. Previously this method
+        // called SaveChanges twice and could leave an orphan Query row if the second
+        // save (or the subsequent validation) blew up.
+        var queryStep = new QueryStep
+        {
+            DataSourceId = actor.DataSourceId,
+            StepOrder = 1,
+            Name = "Step 1",
+            SqlValue = sql,
+            QueryId = 0
+        };
+
         var query = new Query
         {
             Name = name,
             Description = description,
-            AiActorId = actor.Id
+            AiActorId = actor.Id,
+            Steps = { queryStep }
         };
 
         context.Queries.Add(query);
-        await context.SaveChangesAsync(cancellationToken);
-
-        var queryStep = new QueryStep
-        {
-            QueryId = query.Id,
-            DataSourceId = actor.DataSourceId,
-            StepOrder = 1,
-            Name = "Step 1",
-            SqlValue = sql
-        };
-
-        context.QuerySteps.Add(queryStep);
         await context.SaveChangesAsync(cancellationToken);
 
         // Validate the query by executing it - must run without exceptions
@@ -1036,7 +1163,8 @@ public class AiActorService : IAiActorServiceExtended
 
         var query = await context.Queries
             .Include(q => q.Steps)
-            .FirstOrDefaultAsync(q => q.Id == queryId && q.AiActorId == actor.Id, cancellationToken);
+            .Where(q => q.Id == queryId && q.AiActorId == actor.Id)
+            .FirstOrDefaultAsync(cancellationToken);
 
         if (query == null)
         {
@@ -1194,7 +1322,8 @@ public class AiActorService : IAiActorServiceExtended
 
         var actor = await context.AiActors
             .Include(a => a.DataSource)
-            .FirstOrDefaultAsync(a => a.Id == options.ActorId, cancellationToken)
+            .Where(a => a.Id == options.ActorId)
+            .FirstOrDefaultAsync(cancellationToken)
             ?? throw new BeaconException($"AI Actor with ID {options.ActorId} not found");
 
         try
@@ -1225,10 +1354,22 @@ public class AiActorService : IAiActorServiceExtended
                 systemPrompt = AiActorPrompts.InitialSetupSystemPrompt;
             }
 
-            // Add locked queries info to context
+            // Add locked queries info to context. Resolve locked ids in a single DB
+            // round-trip — the previous shape issued one query per existingQueries entry.
+            var candidateQueryIds = existingQueries
+                .Select(x => x.QueryId)
+                .ToList();
+
+            var lockedQueryIdSet = await context.Queries
+                .AsNoTracking()
+                .Where(x => candidateQueryIds.Contains(x.Id))
+                .Where(x => x.IsLocked)
+                .Select(x => x.Id)
+                .ToListAsync(cancellationToken);
+
             var lockedQueryIds = existingQueries
-                .Where(q => context.Queries.Any(qe => qe.Id == q.QueryId && qe.IsLocked))
-                .Select(q => q.QueryId)
+                .Where(x => lockedQueryIdSet.Contains(x.QueryId))
+                .Select(x => x.QueryId)
                 .ToList();
 
             if (lockedQueryIds.Count > 0)
@@ -1330,7 +1471,8 @@ public class AiActorService : IAiActorServiceExtended
         var plan = await context.AiActorPlans
             .Include(p => p.AiActor)
                 .ThenInclude(a => a.DataSource)
-            .FirstOrDefaultAsync(p => p.Id == options.PlanId, cancellationToken)
+            .Where(p => p.Id == options.PlanId)
+            .FirstOrDefaultAsync(cancellationToken)
             ?? throw new BeaconException($"Plan with ID {options.PlanId} not found");
 
         if (plan.Status != AiActorPlanStatus.PendingApproval)
@@ -1478,7 +1620,8 @@ public class AiActorService : IAiActorServiceExtended
         await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
 
         var plan = await context.AiActorPlans
-            .FirstOrDefaultAsync(p => p.Id == options.PlanId, cancellationToken)
+            .Where(p => p.Id == options.PlanId)
+            .FirstOrDefaultAsync(cancellationToken)
             ?? throw new BeaconException($"Plan with ID {options.PlanId} not found");
 
         if (plan.Status != AiActorPlanStatus.PendingApproval)
@@ -1503,7 +1646,8 @@ public class AiActorService : IAiActorServiceExtended
         await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
 
         var plan = await context.AiActorPlans
-            .FirstOrDefaultAsync(p => p.Id == options.PlanId, cancellationToken)
+            .Where(p => p.Id == options.PlanId)
+            .FirstOrDefaultAsync(cancellationToken)
             ?? throw new BeaconException($"Plan with ID {options.PlanId} not found");
 
         if (plan.Status != AiActorPlanStatus.PendingApproval)
@@ -1565,7 +1709,8 @@ public class AiActorService : IAiActorServiceExtended
             .Include(p => p.AiActor)
             .Include(p => p.ParentPlan)
             .Include(p => p.AiActorExecution)
-            .FirstOrDefaultAsync(p => p.Id == planId, cancellationToken);
+            .Where(p => p.Id == planId)
+            .FirstOrDefaultAsync(cancellationToken);
     }
 
     private async Task<int> GetNextPlanVersionAsync(int parentPlanId, CancellationToken cancellationToken)

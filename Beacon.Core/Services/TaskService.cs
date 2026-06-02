@@ -152,7 +152,8 @@ public class TaskService(IDbContextFactory<BeaconContext> contextFactory, ILogge
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         var task = await context.QueryTasks
-            .FirstOrDefaultAsync(t => t.Id == taskId, cancellationToken)
+            .Where(t => t.Id == taskId)
+            .FirstOrDefaultAsync(cancellationToken)
             ?? throw new BeaconException($"Task {taskId} not found");
 
         // Update task resolution fields
@@ -169,7 +170,8 @@ public class TaskService(IDbContextFactory<BeaconContext> contextFactory, ILogge
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         var task = await context.QueryTasks
-            .FirstOrDefaultAsync(t => t.Id == taskId, cancellationToken)
+            .Where(t => t.Id == taskId)
+            .FirstOrDefaultAsync(cancellationToken)
             ?? throw new BeaconException($"Task {taskId} not found");
 
         if (!task.Resolved)
@@ -213,7 +215,12 @@ public class TaskService(IDbContextFactory<BeaconContext> contextFactory, ILogge
                 CreatedAt = t.CreatedTime,
                 Resolved = t.Resolved,
                 ResolvedAt = t.ResolvedAt,
-                ResolvedByUserName = null, // TODO: lookup from user service when auth integrated
+                ResolvedByUserName = t.ResolvedByUserId == null
+                    ? null
+                    : context.Users
+                        .Where(u => u.ExternalId == t.ResolvedByUserId)
+                        .Select(u => u.DisplayName ?? u.UserName)
+                        .FirstOrDefault(),
                 AiActorId = t.Subscription.AiActorId,
                 AiActorName = t.Subscription.AiActor != null ? t.Subscription.AiActor.Name : null,
                 // Count executions since task creation
@@ -235,7 +242,7 @@ public class TaskService(IDbContextFactory<BeaconContext> contextFactory, ILogge
         };
     }
 
-    public async Task<TaskDetailsData?> GetTaskDetails(int taskId, CancellationToken cancellationToken)
+    public async Task<TaskDetailsData?> GetTaskDetails(int taskId, string? currentUserId, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
@@ -265,12 +272,42 @@ public class TaskService(IDbContextFactory<BeaconContext> contextFactory, ILogge
                 Resolved = t.Resolved,
                 ResolvedAt = t.ResolvedAt,
                 ResolvedByUserId = t.ResolvedByUserId,
-                ResolvedByUserName = null, // TODO: lookup when auth integrated
+                ResolvedByUserName = t.ResolvedByUserId == null
+                    ? null
+                    : context.Users
+                        .Where(u => u.ExternalId == t.ResolvedByUserId)
+                        .Select(u => u.DisplayName ?? u.UserName)
+                        .FirstOrDefault(),
                 ResolutionNotes = t.ResolutionNotes,
                 QueryId = t.Subscription.QueryId,
                 QueryName = t.Subscription.Query.Name,
                 AiActorId = t.Subscription.AiActorId,
-                AiActorName = t.Subscription.AiActor != null ? t.Subscription.AiActor.Name : null
+                AiActorName = t.Subscription.AiActor != null ? t.Subscription.AiActor.Name : null,
+                CronExpression = t.Subscription.CronExpression,
+                LastExecutionAt = context.QueryExecutionHistory
+                    .Where(qeh => qeh.SubscriptionId == t.SubscriptionId)
+                    .OrderByDescending(qeh => qeh.CreatedTime)
+                    .Select(qeh => (DateTime?)qeh.CreatedTime)
+                    .FirstOrDefault(),
+                Priority = t.Priority,
+                AssigneeUserId = t.AssigneeUserId,
+                AssigneeUserName = t.AssigneeUserId == null
+                    ? null
+                    : context.Users
+                        .Where(u => u.ExternalId == t.AssigneeUserId)
+                        .Select(u => u.DisplayName ?? u.UserName)
+                        .FirstOrDefault(),
+                SnoozedUntil = t.SnoozedUntil,
+                SlaHours = t.Subscription.SlaHours,
+                WatcherCount = t.Watchers.Count,
+                IsWatching = currentUserId != null && t.Watchers.Any(w => w.UserId == currentUserId),
+                OwnerUserId = t.Subscription.AiActor != null ? t.Subscription.AiActor.CreatedByUserId : null,
+                OwnerUserName = t.Subscription.AiActor != null && t.Subscription.AiActor.CreatedByUserId != null
+                    ? context.Users
+                        .Where(u => u.ExternalId == t.Subscription.AiActor!.CreatedByUserId)
+                        .Select(u => u.DisplayName ?? u.UserName)
+                        .FirstOrDefault()
+                    : null
             })
             .FirstOrDefaultAsync(cancellationToken);
 

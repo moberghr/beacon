@@ -8,21 +8,25 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="Blazored.LocalStorage" Version="4.5.0" />
         <PackageReference Include="Hangfire" Version="1.8.22" />
         <PackageReference Include="Hangfire.PostgreSql" Version="1.20.12" />
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.11" />
+        <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="9.0.11" />
         <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.11">
           <PrivateAssets>all</PrivateAssets>
           <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
-        <PackageReference Include="MudBlazor" Version="9.0.0" />
     </ItemGroup>
 
     <ItemGroup>
+      <InternalsVisibleTo Include="Beacon.Tests" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\Beacon.UI\Beacon.UI.csproj" />
+      <ProjectReference Include="..\Beacon.Api\Beacon.Api.csproj" />
       <ProjectReference Include="..\Beacon.Core.SqlServer\Beacon.Core.SqlServer.csproj" />
       <ProjectReference Include="..\Beacon.Core\Beacon.Core.csproj" />
-      <ProjectReference Include="..\Beacon.UI\Beacon.UI.csproj" />
       <ProjectReference Include="..\Beacon.Core.PostgreSql\Beacon.Core.PostgreSql.csproj" />
       <ProjectReference Include="..\Beacon.AI\Beacon.AI.csproj" />
       <ProjectReference Include="..\Beacon.MCP\Beacon.MCP.csproj" />

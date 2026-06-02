@@ -18,10 +18,12 @@ public class AuthenticationOptions
     public Type? ProviderType { get; set; }
 
     /// <summary>
-    /// Path to redirect to after successful login.
-    /// Default: "/" (root of the Beacon UI)
+    /// Path to redirect to after successful login. The React shell serves
+    /// its routes at the root, so this is an absolute UI path (not prefixed
+    /// by the API base path).
+    /// Default: "/home"
     /// </summary>
-    public string LoginRedirectPath { get; set; } = "/";
+    public string LoginRedirectPath { get; set; } = "/home";
 
     /// <summary>
     /// Path to the login page.

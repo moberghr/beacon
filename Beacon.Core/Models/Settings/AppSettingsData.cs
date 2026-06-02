@@ -13,6 +13,9 @@ public class AppSettingsData
     public string? LlmEndpoint { get; set; }
     public string? LlmRegion { get; set; }
     public string? LlmSessionToken { get; set; }
+    public string? LlmAwsAccessKeyId { get; set; }
+    public string? LlmAwsSecretAccessKey { get; set; }
+    public BedrockAuthMode LlmBedrockAuthMode { get; set; } = BedrockAuthMode.IamRole;
     public string? LlmModel { get; set; }
     public string? LlmFastModel { get; set; }
     public int LlmMaxConcurrentRequests { get; set; } = 50;

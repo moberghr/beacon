@@ -28,7 +28,8 @@ public class AnomalyDetectionService : IAnomalyDetectionService
         await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
 
         var config = await context.AnomalyConfigs
-            .FirstOrDefaultAsync(x => x.SubscriptionId == subscriptionId && x.Enabled, cancellationToken);
+            .Where(x => x.SubscriptionId == subscriptionId && x.Enabled)
+            .FirstOrDefaultAsync(cancellationToken);
 
         if (config == null)
         {
@@ -157,7 +158,8 @@ public class AnomalyDetectionService : IAnomalyDetectionService
         await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
 
         var existing = await context.AnomalyConfigs
-            .FirstOrDefaultAsync(x => x.SubscriptionId == config.SubscriptionId, cancellationToken);
+            .Where(x => x.SubscriptionId == config.SubscriptionId)
+            .FirstOrDefaultAsync(cancellationToken);
 
         if (existing != null)
         {
@@ -205,7 +207,8 @@ public class AnomalyDetectionService : IAnomalyDetectionService
         await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
 
         var config = await context.AnomalyConfigs
-            .FirstOrDefaultAsync(x => x.SubscriptionId == subscriptionId, cancellationToken);
+            .Where(x => x.SubscriptionId == subscriptionId)
+            .FirstOrDefaultAsync(cancellationToken);
 
         if (config != null)
         {
@@ -224,7 +227,8 @@ public class AnomalyDetectionService : IAnomalyDetectionService
         await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
 
         var config = await context.AnomalyConfigs
-            .FirstOrDefaultAsync(x => x.SubscriptionId == subscriptionId && x.Enabled, cancellationToken);
+            .Where(x => x.SubscriptionId == subscriptionId && x.Enabled)
+            .FirstOrDefaultAsync(cancellationToken);
 
         if (config == null)
         {

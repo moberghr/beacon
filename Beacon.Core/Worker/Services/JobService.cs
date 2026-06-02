@@ -1,3 +1,4 @@
+using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Adapters;
@@ -24,20 +25,22 @@ internal class JobService(
 {
     // AI Actor service is optional - only available if Beacon.AI is added
 
-    public async Task ExecuteQuery(int subscriptionId)
+    public async Task ExecuteQuery(int subscriptionId, IJobCancellationToken cancellationToken)
     {
-        await using var context = await contextFactory.CreateDbContextAsync();
+        var ct = cancellationToken.ShutdownToken;
+
+        await using var context = await contextFactory.CreateDbContextAsync(ct);
 
         var subscription = await context.Subscriptions
             .Where(x => x.Id == subscriptionId)
-            .FirstOrDefaultAsync();
+            .FirstOrDefaultAsync(ct);
 
         if (subscription == null)
         {
             return;
         }
 
-        var queryResult = await queryService.ExecuteQuery(subscriptionId, CancellationToken.None);
+        var queryResult = await queryService.ExecuteQuery(subscriptionId, ct);
 
         // Set subscription specific parameters
         queryResult.ShowQuery = subscription.ShowQuery;
@@ -62,7 +65,9 @@ internal class JobService(
 
         // Check if anomaly detection is enabled for this subscription
         var hasAnomalyDetection = await context.AnomalyConfigs
-            .AnyAsync(x => x.SubscriptionId == subscriptionId && x.Enabled);
+            .Where(x => x.SubscriptionId == subscriptionId)
+            .Where(x => x.Enabled)
+            .AnyAsync(ct);
 
         Models.Anomaly.AnomalyEvaluationResult? anomalyEvaluation = null;
 
@@ -72,14 +77,14 @@ internal class JobService(
             anomalyEvaluation = await anomalyDetectionService.EvaluateAnomalyAsync(
                 subscriptionId,
                 queryResult.TotalRecords,
-                CancellationToken.None);
+                ct);
 
             // Store baseline for future anomaly detection
             await anomalyDetectionService.StoreBaselineAsync(
                 subscriptionId,
                 queryResult.TotalRecords,
                 DateTime.UtcNow,
-                CancellationToken.None);
+                ct);
         }
 
         var status = DetermineNotificationStatus(
@@ -100,20 +105,20 @@ internal class JobService(
             Results = subscription.StoreResults ? queryResult.QueryResults : null
         };
 
-        await context.QueryExecutionHistory.AddAsync(executedQuery);
+        await context.QueryExecutionHistory.AddAsync(executedQuery, ct);
 
         // Handle tasks for subscriptions with CreateTasks enabled (even if no notifications to send)
         // This runs regardless of NotificationStatus to handle auto-resolve on 0 results
         if (subscription.CreateTasks)
         {
-            await context.SaveChangesAsync(); // Save QueryExecutionHistory first
+            await context.SaveChangesAsync(ct); // Save QueryExecutionHistory first
 
             logger.LogDebug("Creating/updating task for subscription {SubscriptionId}, result count {ResultCount}",
                 subscriptionId, queryResult.TotalRecords);
             await taskService.CreateOrUpdateTask(
                 subscriptionId,
                 queryResult.TotalRecords,
-                CancellationToken.None
+                ct
             );
         }
 
@@ -122,11 +127,11 @@ internal class JobService(
         {
             if (!subscription.CreateTasks) // Only save if we didn't already save above
             {
-                await context.SaveChangesAsync();
+                await context.SaveChangesAsync(ct);
             }
 
             // Trigger AI Actor think cycle even if no notification was sent
-            await TriggerAiActorIfApplicableAsync(subscriptionId, queryResult.TotalRecords);
+            await TriggerAiActorIfApplicableAsync(subscriptionId, queryResult.TotalRecords, ct);
             return;
         }
 
@@ -146,7 +151,7 @@ internal class JobService(
             notifications.Add(notification);
         }
 
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(ct);
 
         // Record anomaly event if anomaly was detected
         if (anomalyEvaluation?.IsAnomaly == true)
@@ -155,7 +160,7 @@ internal class JobService(
                 subscriptionId,
                 anomalyEvaluation,
                 notifications.FirstOrDefault()?.Id,
-                CancellationToken.None);
+                ct);
         }
 
         var recipientsQueryResults = new List<RecipientQueryResult>();
@@ -166,8 +171,6 @@ internal class JobService(
         {
             resultFile = await ExportProvider.GetReport(subscription.ResultAttachmentType.Value, queryResult.AllRecords);
         }
-
-        // TODO: refactor this to use sending Notifications table
 
         for (int i = 0; i < queryResult.Recipients.Count; i++)
         {
@@ -189,7 +192,7 @@ internal class JobService(
         {
             foreach (var recipientQueryResult in recipientsQueryResults)
             {
-                await notificationService.SendNotification(recipientQueryResult, lastExecutedQuery?.ResultCount);
+                await notificationService.SendNotification(recipientQueryResult, lastExecutedQuery?.ResultCount, ct);
             }
         }
         catch (Exception ex)
@@ -197,21 +200,23 @@ internal class JobService(
             logger.LogError(ex, "Failed to send notification for subscription {SubscriptionId}", subscriptionId);
             executedQuery.NotificationStatus = NotificationStatus.Failed;
             executedQuery.Comment = ex.Message;
-            await context.SaveChangesAsync();
+            await context.SaveChangesAsync(ct);
             throw;
         }
 
         // Trigger AI Actor think cycle if this subscription belongs to an actor
-        await TriggerAiActorIfApplicableAsync(subscriptionId, queryResult.TotalRecords);
+        await TriggerAiActorIfApplicableAsync(subscriptionId, queryResult.TotalRecords, ct);
     }
 
-    public async Task EvaluateDataContract(int contractId)
+    public async Task EvaluateDataContract(int contractId, IJobCancellationToken cancellationToken)
     {
+        var ct = cancellationToken.ShutdownToken;
+
         try
         {
             var evaluationResult = await dataQualityEvaluationService.EvaluateContractAsync(contractId);
 
-            await SendDataQualityNotificationsIfNeeded(contractId, evaluationResult);
+            await SendDataQualityNotificationsIfNeeded(contractId, evaluationResult, ct);
         }
         catch (Exception ex)
         {
@@ -220,9 +225,12 @@ internal class JobService(
         }
     }
 
-    private async Task SendDataQualityNotificationsIfNeeded(int contractId, Models.DataQuality.DataQualityEvaluationData evaluationResult)
+    private async Task SendDataQualityNotificationsIfNeeded(
+        int contractId,
+        Models.DataQuality.DataQualityEvaluationData evaluationResult,
+        CancellationToken cancellationToken)
     {
-        await using var context = await contextFactory.CreateDbContextAsync();
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         var contract = await context.DataContracts
             .Where(c => c.Id == contractId)
@@ -244,7 +252,7 @@ internal class JobService(
                     r.BodyTemplate
                 }).ToList()
             })
-            .FirstOrDefaultAsync();
+            .FirstOrDefaultAsync(cancellationToken);
 
         if (contract == null)
         {
@@ -328,7 +336,7 @@ internal class JobService(
 
             try
             {
-                await notificationService.SendNotification(recipientQueryResult, null);
+                await notificationService.SendNotification(recipientQueryResult, null, cancellationToken);
             }
             catch (Exception ex)
             {
@@ -338,7 +346,7 @@ internal class JobService(
         }
     }
 
-    public async Task AggregateLearnedPatterns()
+    public async Task AggregateLearnedPatterns(IJobCancellationToken cancellationToken)
     {
         if (mcpLearningService == null)
         {
@@ -346,10 +354,10 @@ internal class JobService(
             return;
         }
 
-        await mcpLearningService.AggregateLearnedPatternsAsync();
+        await mcpLearningService.AggregateLearnedPatternsAsync(cancellationToken.ShutdownToken);
     }
 
-    public async Task GenerateDocumentationPatches()
+    public async Task GenerateDocumentationPatches(IJobCancellationToken cancellationToken)
     {
         if (mcpLearningService == null)
         {
@@ -357,10 +365,10 @@ internal class JobService(
             return;
         }
 
-        await mcpLearningService.GenerateDocumentationPatchesAsync();
+        await mcpLearningService.GenerateDocumentationPatchesAsync(cancellationToken.ShutdownToken);
     }
 
-    public async Task CleanupOldSignals()
+    public async Task CleanupOldSignals(IJobCancellationToken cancellationToken)
     {
         if (mcpLearningService == null)
         {
@@ -368,10 +376,10 @@ internal class JobService(
             return;
         }
 
-        await mcpLearningService.CleanupOldSignalsAsync();
+        await mcpLearningService.CleanupOldSignalsAsync(ct: cancellationToken.ShutdownToken);
     }
 
-    private async Task TriggerAiActorIfApplicableAsync(int subscriptionId, int rowCount)
+    private async Task TriggerAiActorIfApplicableAsync(int subscriptionId, int rowCount, CancellationToken cancellationToken)
     {
         // AI Actor service is optional - only available if Beacon.AI is added
         if (aiActorService == null)
@@ -381,7 +389,7 @@ internal class JobService(
 
         try
         {
-            await aiActorService.OnSubscriptionExecutedAsync(subscriptionId, rowCount, CancellationToken.None);
+            await aiActorService.OnSubscriptionExecutedAsync(subscriptionId, rowCount, cancellationToken);
         }
         catch (Exception ex)
         {

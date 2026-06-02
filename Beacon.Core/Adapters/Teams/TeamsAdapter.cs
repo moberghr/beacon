@@ -14,12 +14,14 @@ internal class TeamsAdapter(IHttpClientFactory httpClientFactory, BeaconConfigur
 
     public NotificationType NotificationType => NotificationType.Teams;
 
-    public async Task SendNotificationAsync(RecipientQueryResult recipientQueryResult, int? lastNotificationResultCount)
+    public async Task SendNotificationAsync(
+        RecipientQueryResult recipientQueryResult,
+        int? lastNotificationResultCount,
+        CancellationToken cancellationToken = default)
     {
         var client = httpClientFactory.CreateClient();
         var queryResult = recipientQueryResult.QueryResult;
 
-        // If custom body template is provided, use shared template processor
         string jsonPayload;
         if (!string.IsNullOrWhiteSpace(recipientQueryResult.BodyTemplate))
         {
@@ -36,17 +38,16 @@ internal class TeamsAdapter(IHttpClientFactory httpClientFactory, BeaconConfigur
         }
         else
         {
-            // Use default Adaptive Card format
             jsonPayload = BuildDefaultAdaptiveCard(recipientQueryResult, queryResult);
         }
 
         var content = new StringContent(jsonPayload, Encoding.UTF8, System.Net.Mime.MediaTypeNames.Application.Json);
 
-        var response = await client.PostAsync(recipientQueryResult.RecipientDestination, content);
+        var response = await client.PostAsync(recipientQueryResult.RecipientDestination, content, cancellationToken);
 
         if (!response.IsSuccessStatusCode)
         {
-            var errorBody = await response.Content.ReadAsStringAsync();
+            var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
             logger.LogError("Microsoft Teams webhook returned error {StatusCode}: {ErrorBody}", response.StatusCode, errorBody);
             throw new BeaconException(
                 $"Failed to send Teams notification: {response.StatusCode}. {errorBody}");

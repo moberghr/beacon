@@ -95,7 +95,10 @@ internal class SubscriptionService(
             await anomalyDetectionService.SaveAnomalyConfigAsync(subscriptionData.AnomalyConfig, cancellationToken);
         }
 
-        var query = context.Queries.Single(x => x.Id == subscriptionData.QueryId);
+        var query = context.Queries
+            .Where(x => x.Id == subscriptionData.QueryId)
+            .FirstOrDefault()
+            ?? throw new InvalidOperationException($"Query {subscriptionData.QueryId} not found.");
 
         beaconScheduler.AddOrUpdate(subscription.Id, $"{query.Name}: {subscription.Id}", subscription.CronExpression);
 
@@ -110,7 +113,8 @@ internal class SubscriptionService(
             .Include(x => x.Parameters)
             .Include(x => x.Query)
             .Where(x => x.Id == subscriptionId)
-            .SingleAsync(cancellationToken);
+            .FirstOrDefaultAsync(cancellationToken)
+            ?? throw new InvalidOperationException($"Subscription {subscriptionId} not found.");
 
         subscription.Archive();
 
@@ -173,9 +177,10 @@ internal class SubscriptionService(
         CronExpression.Parse(subscriptionData.CronExpression);
 
         var subscription = await context.Subscriptions
-            .Include(subscription => subscription.Parameters)
+            .Include(x => x.Parameters)
             .Where(x => x.Id == subscriptionData.SubscriptionId)
-            .SingleAsync(cancellationToken);
+            .FirstOrDefaultAsync(cancellationToken)
+            ?? throw new InvalidOperationException($"Subscription {subscriptionData.SubscriptionId} not found.");
 
         var queryParams = await context.QueryParameters
             .Where(x => x.QueryId == subscription.QueryId)
@@ -232,7 +237,10 @@ internal class SubscriptionService(
             await anomalyDetectionService.SaveAnomalyConfigAsync(subscriptionData.AnomalyConfig, cancellationToken);
         }
 
-        var query = context.Queries.Single(x => x.Id == subscription.QueryId);
+        var query = context.Queries
+            .Where(x => x.Id == subscription.QueryId)
+            .FirstOrDefault()
+            ?? throw new InvalidOperationException($"Query {subscription.QueryId} not found.");
 
         if (shouldUpdateHangfire)
         {
@@ -279,7 +287,8 @@ internal class SubscriptionService(
                     Value = y.Value
                 }).ToList(),
             })
-            .SingleAsync(cancellationToken);
+            .FirstOrDefaultAsync(cancellationToken)
+            ?? throw new InvalidOperationException($"Subscription {subscriptionId} not found.");
 
         // Load anomaly configuration if it exists
         subscription.AnomalyConfig = await anomalyDetectionService.GetAnomalyConfigAsync(subscriptionId, cancellationToken);
@@ -294,7 +303,8 @@ internal class SubscriptionService(
         var subscription = await context.Subscriptions
             .Where(x => x.Id == subscriptionId)
             .Include(x => x.Recipients)
-            .SingleAsync(cancellationToken);
+            .FirstOrDefaultAsync(cancellationToken)
+            ?? throw new InvalidOperationException($"Subscription {subscriptionId} not found.");
 
         subscription.Recipients = subscription.Recipients.Where(x => x.Id != recipientId).ToList();
 
@@ -308,7 +318,8 @@ internal class SubscriptionService(
         var subscription = await context.Subscriptions
             .Where(x => x.Id == subscriptionId)
             .Include(x => x.Recipients)
-            .SingleAsync(cancellationToken);
+            .FirstOrDefaultAsync(cancellationToken)
+            ?? throw new InvalidOperationException($"Subscription {subscriptionId} not found.");
 
         recipientIds = recipientIds.Except(subscription.Recipients.Select(x => x.Id)).ToList();
 

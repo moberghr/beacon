@@ -17,7 +17,8 @@ internal sealed class ToggleQueryLockHandler(
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         var query = await context.Queries
-            .FirstOrDefaultAsync(q => q.Id == request.QueryId, cancellationToken);
+            .Where(q => q.Id == request.QueryId)
+            .FirstOrDefaultAsync(cancellationToken);
 
         if (query == null)
         {

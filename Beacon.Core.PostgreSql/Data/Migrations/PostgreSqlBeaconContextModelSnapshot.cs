@@ -3692,6 +3692,11 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("archived_time");
 
+                    b.Property<string>("AssigneeUserId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("assignee_user_id");
+
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_time");
@@ -3703,6 +3708,12 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.Property<int>("LatestResultCount")
                         .HasColumnType("integer")
                         .HasColumnName("latest_result_count");
+
+                    b.Property<int>("Priority")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(3)
+                        .HasColumnName("priority");
 
                     b.Property<string>("ResolutionNotes")
                         .HasMaxLength(2000)
@@ -3722,6 +3733,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("text")
                         .HasColumnName("resolved_by_user_id");
 
+                    b.Property<DateTime?>("SnoozedUntil")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("snoozed_until");
+
                     b.Property<int>("SubscriptionId")
                         .HasColumnType("integer")
                         .HasColumnName("subscription_id");
@@ -3729,8 +3744,17 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasKey("Id")
                         .HasName("pk_query_tasks");
 
+                    b.HasIndex("AssigneeUserId")
+                        .HasDatabaseName("ix_query_tasks_assignee_user_id");
+
                     b.HasIndex("CreatedTime")
                         .HasDatabaseName("ix_query_tasks_created_time");
+
+                    b.HasIndex("Priority")
+                        .HasDatabaseName("ix_query_tasks_priority");
+
+                    b.HasIndex("SnoozedUntil")
+                        .HasDatabaseName("ix_query_tasks_snoozed_until");
 
                     b.HasIndex("SubscriptionId")
                         .HasDatabaseName("ix_query_tasks_subscription_id");
@@ -3925,6 +3949,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("show_query");
 
+                    b.Property<int?>("SlaHours")
+                        .HasColumnType("integer")
+                        .HasColumnName("sla_hours");
+
                     b.Property<bool>("StoreResults")
                         .HasColumnType("boolean")
                         .HasColumnName("store_results");
@@ -3983,6 +4011,30 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasDatabaseName("ix_subscription_parameters_subscription_id");
 
                     b.ToTable("subscription_parameters", (string)null);
+                });
+
+            modelBuilder.Entity("Beacon.Core.Data.Entities.TaskWatcher", b =>
+                {
+                    b.Property<int>("QueryTaskId")
+                        .HasColumnType("integer")
+                        .HasColumnName("query_task_id");
+
+                    b.Property<string>("UserId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("user_id");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_time");
+
+                    b.HasKey("QueryTaskId", "UserId")
+                        .HasName("pk_task_watchers");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("ix_task_watchers_user_id");
+
+                    b.ToTable("task_watchers", (string)null);
                 });
 
             modelBuilder.Entity("DataContractRecipient", b =>
@@ -4776,6 +4828,18 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.Navigation("Subscription");
                 });
 
+            modelBuilder.Entity("Beacon.Core.Data.Entities.TaskWatcher", b =>
+                {
+                    b.HasOne("Beacon.Core.Data.Entities.QueryTask", "QueryTask")
+                        .WithMany("Watchers")
+                        .HasForeignKey("QueryTaskId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_task_watchers_query_tasks_query_task_id");
+
+                    b.Navigation("QueryTask");
+                });
+
             modelBuilder.Entity("DataContractRecipient", b =>
                 {
                     b.HasOne("Beacon.Core.Data.Entities.DataQuality.DataContract", null)
@@ -4931,6 +4995,8 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
             modelBuilder.Entity("Beacon.Core.Data.Entities.QueryTask", b =>
                 {
                     b.Navigation("Notifications");
+
+                    b.Navigation("Watchers");
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.Recipient", b =>

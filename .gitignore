@@ -363,3 +363,20 @@ tasks/todo.md
 .claude/.mtk-cache/
 .claude/references.index
 .mtk/
+
+# React (post-Phase-3-cutover — UI now lives in Beacon.UI/)
+Beacon.UI/web/dist/
+# React build output — produced by BuildReactApp into Beacon.UI/wwwroot/.
+# Hashes change every build; don't track them.
+Beacon.UI/wwwroot/assets/
+Beacon.UI/wwwroot/index.html
+Beacon.UI/web/*.tsbuildinfo
+Beacon.UI/web/vite.config.js
+Beacon.UI/web/vite.config.d.ts
+/.claude/worktrees/
+
+# Playwright MCP page snapshots (agent-generated browser traces, not source)
+.playwright-mcp/
+
+# MCP local-override config — for committing-free secret values
+.mcp.local.json
