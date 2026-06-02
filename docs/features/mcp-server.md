@@ -36,10 +36,10 @@ The MCP server is **project-centric**: each API key is scoped to one or more pro
 
 ### 1. Create an API Key
 
-Go to **Settings > API Keys** (`/beacon/settings/api-keys`) and create a new key:
+Go to **API Keys** in the React UI (`/api-keys`) and create a new key:
 - Choose a **scope**: `Read`, `Execute`, or `Admin`
 - Optionally restrict to specific **projects**
-- Copy the key — it's shown only once
+- Copy the key — it's shown only once (the key is SHA256-hashed before storage and never persisted in plaintext)
 
 The key format is: `sk-sem_...`
 
@@ -52,7 +52,7 @@ Add Beacon to your MCP client configuration. The exact format depends on your cl
 {
   "mcpServers": {
     "beacon": {
-      "url": "https://your-beacon-host/beacon/mcp/sse",
+      "url": "https://your-beacon-host/beacon/mcp",
       "headers": {
         "Authorization": "Bearer sk-sem_YOUR_API_KEY"
       }
@@ -66,7 +66,7 @@ Add Beacon to your MCP client configuration. The exact format depends on your cl
 {
   "mcpServers": {
     "beacon": {
-      "url": "https://your-beacon-host/beacon/mcp/sse",
+      "url": "https://your-beacon-host/beacon/mcp",
       "headers": {
         "Authorization": "Bearer sk-sem_YOUR_API_KEY"
       }
@@ -80,7 +80,7 @@ Add Beacon to your MCP client configuration. The exact format depends on your cl
 {
   "mcpServers": {
     "beacon": {
-      "serverUrl": "https://your-beacon-host/beacon/mcp/sse",
+      "serverUrl": "https://your-beacon-host/beacon/mcp",
       "headers": {
         "Authorization": "Bearer sk-sem_YOUR_API_KEY"
       }
@@ -105,13 +105,11 @@ Once connected, your AI assistant can use the tools described below. Try asking:
 
 | Property | Value |
 |----------|-------|
-| **SSE Endpoint** | `GET /beacon/mcp/sse` |
-| **Message Endpoint** | `POST /beacon/mcp/message?sessionId={id}` |
-| **Transport** | Server-Sent Events (SSE) + JSON-RPC 2.0 |
-| **Protocol Version** | `2024-11-05` |
-| **Authentication** | `Authorization: Bearer sk-sem_...` header |
+| **Endpoint** | `/beacon/mcp` |
+| **Transport** | Streamable HTTP + JSON-RPC 2.0 (via `ModelContextProtocol.AspNetCore`) |
+| **Authentication** | Required — `Authorization: Bearer sk-sem_...` header |
 
-The SSE endpoint establishes a persistent connection. The first SSE message returns the message endpoint URL for sending requests. All responses are delivered back through the SSE stream.
+The server is mounted with `app.MapMcp("/beacon/mcp").RequireAuthorization()`. Clients exchange JSON-RPC messages with the single `/beacon/mcp` endpoint over the Streamable HTTP transport; the server streams responses back on the same connection.
 
 ---
 
@@ -248,13 +246,27 @@ The MCP server enforces several safety measures:
 | **Row limits** | Maximum rows returned per query | 100 (single), 500 (cross-source), max 1000 |
 | **PII detection** | Automatically detects and flags sensitive data patterns | Enabled |
 | **Query timeout** | Queries are cancelled after 30 seconds | Always on |
-| **Audit logging** | All tool calls are logged with user, timing, and parameters | Always on |
+| **Audit logging** | Every tool call is recorded by `McpAuditService` with user, timing, and parameters | Always on |
+| **Usage signals** | Every tool call is recorded by `McpSignalService` to feed the learning loop | Always on |
+
+Both `McpAuditService` and `McpSignalService` fire on every tool invocation, including the failure path — they are never short-circuited.
+
+---
+
+## Learning Loop
+
+The MCP server is self-improving. `McpSignalService` records a usage signal for every tool invocation (which questions were asked, which data sources and tables were used, whether execution succeeded). Hangfire recurring jobs then process these signals:
+
+- **Pattern aggregation** runs every 6 hours, consolidating recorded signals into learned query patterns that improve routing and SQL generation for the `ask` tool.
+- **Signal cleanup** runs daily, removing old signals to keep the learning store compact.
+
+This loop runs entirely in the background and requires no configuration.
 
 ---
 
 ## Configuration
 
-Administrators can customize the MCP server behavior at **Settings > MCP** (`/beacon/settings/mcp`):
+Administrators can customize the MCP server behavior at **MCP Settings** in the React UI (`/mcp-settings`):
 
 - **Custom tool descriptions** — Override the default description for each tool
 - **System prompt** — Customize the LLM prompt used for SQL generation in the `ask` tool
@@ -267,25 +279,12 @@ Administrators can customize the MCP server behavior at **Settings > MCP** (`/be
 
 ## Manual Connection (Advanced)
 
-If your MCP client doesn't support SSE configuration natively, you can connect manually using the SSE protocol.
+If your MCP client doesn't support Streamable HTTP configuration natively, you can drive the protocol manually by POSTing JSON-RPC messages to the single `/beacon/mcp` endpoint. Every request carries the `Authorization: Bearer` header.
 
-### Step 1: Open SSE Connection
-
-```bash
-curl -N -H "Authorization: Bearer sk-sem_YOUR_KEY" \
-  https://your-host/beacon/mcp/sse
-```
-
-The first message returns the message endpoint:
-```
-event: endpoint
-data: https://your-host/beacon/mcp/message?sessionId=abc-123
-```
-
-### Step 2: Initialize the Session
+### Step 1: Initialize the Session
 
 ```bash
-curl -X POST "https://your-host/beacon/mcp/message?sessionId=abc-123" \
+curl -X POST "https://your-host/beacon/mcp" \
   -H "Authorization: Bearer sk-sem_YOUR_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -299,19 +298,19 @@ curl -X POST "https://your-host/beacon/mcp/message?sessionId=abc-123" \
   }'
 ```
 
-### Step 3: List Available Tools
+### Step 2: List Available Tools
 
 ```bash
-curl -X POST "https://your-host/beacon/mcp/message?sessionId=abc-123" \
+curl -X POST "https://your-host/beacon/mcp" \
   -H "Authorization: Bearer sk-sem_YOUR_KEY" \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc": "2.0", "id": 2, "method": "tools/list"}'
 ```
 
-### Step 4: Call a Tool
+### Step 3: Call a Tool
 
 ```bash
-curl -X POST "https://your-host/beacon/mcp/message?sessionId=abc-123" \
+curl -X POST "https://your-host/beacon/mcp" \
   -H "Authorization: Bearer sk-sem_YOUR_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -325,7 +324,7 @@ curl -X POST "https://your-host/beacon/mcp/message?sessionId=abc-123" \
   }'
 ```
 
-Responses arrive on the SSE stream (step 1).
+The server streams the JSON-RPC response back on the same connection.
 
 ---
 
@@ -341,7 +340,7 @@ Responses arrive on the SSE stream (step 1).
 : The query contains write operations (INSERT, UPDATE, DELETE) which are blocked by read-only enforcement. Only SELECT queries are allowed.
 
 **Connection drops or timeouts**
-: SSE connections may be interrupted by proxies or load balancers. Reconnect by opening a new SSE connection — a fresh session will be created.
+: Streaming connections may be interrupted by proxies or load balancers. Reconnect by re-initializing against `/beacon/mcp` — a fresh session will be created.
 
 **Authentication fails**
 : Verify your API key starts with `sk-sem_`, hasn't expired, and hasn't been revoked. Check the `Authorization: Bearer` header format.

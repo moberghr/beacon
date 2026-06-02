@@ -641,5 +641,7 @@ public interface IAnomalyDetectionService
 ## Related Features
 
 - [Subscriptions](subscriptions) - Configure scheduled queries with anomaly detection
-- [Tasks](tasks) - Alert tasks created when anomalies are detected
 - [AI Integration](ai-integration) - Complement statistical detection with AI-powered insights
+
+{: .note }
+> When an anomaly is detected, Beacon can raise an alerting task. Alerting tasks are auto-created from subscriptions (when enabled), auto-resolve when a query returns 0 rows, and support trend charts, comments, and manual resolution in the UI (`/tasks`).

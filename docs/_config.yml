@@ -1,8 +1,8 @@
 # Site settings
 title: "Beacon Documentation"
 description: "Comprehensive documentation for Beacon - semantic database alerting and notification system"
-baseurl: "/beacon" # Project path for GitHub Pages
-url: "https://moberghr.github.io"
+baseurl: "/semantico" # Project path for GitHub Pages
+url: "https://mibu.github.io"
 
 # Build settings
 markdown: kramdown
@@ -22,12 +22,12 @@ favicon_ico: "/favicon.svg"
 # Navigation
 nav_external_links:
   - title: GitHub
-    url: https://github.com/moberghr/beacon
+    url: https://github.com/MiBu/semantico
 
 # Accessibility
 aux_links:
   "View on GitHub":
-    - "https://github.com/moberghr/beacon"
+    - "https://github.com/MiBu/semantico"
 
 # Skip to content for screen readers
 skip_to_content: true
@@ -60,19 +60,19 @@ mermaid:
 # Centralized URLs - define URLs once, reference throughout documentation
 urls:
   # Repository
-  github_repo: "https://github.com/moberghr/beacon"
-  github_issues: "https://github.com/moberghr/beacon/issues"
-  github_discussions: "https://github.com/moberghr/beacon/discussions"
+  github_repo: "https://github.com/MiBu/semantico"
+  github_issues: "https://github.com/MiBu/semantico/issues"
+  github_discussions: "https://github.com/MiBu/semantico/discussions"
 
   # Documentation
-  docs_base: "https://moberghr.github.io/beacon"
-  docs_installation: "https://moberghr.github.io/beacon/getting-started/installation"
-  docs_quick_start: "https://moberghr.github.io/beacon/getting-started/quick-start"
-  docs_configuration: "https://moberghr.github.io/beacon/getting-started/configuration"
-  docs_features: "https://moberghr.github.io/beacon/features/"
-  docs_architecture: "https://moberghr.github.io/beacon/advanced/architecture"
-  docs_contributing: "https://moberghr.github.io/beacon/contributing/guidelines"
-  docs_troubleshooting: "https://moberghr.github.io/beacon/troubleshooting/common-issues"
+  docs_base: "https://mibu.github.io/semantico"
+  docs_installation: "https://mibu.github.io/semantico/getting-started/installation"
+  docs_quick_start: "https://mibu.github.io/semantico/getting-started/quick-start"
+  docs_configuration: "https://mibu.github.io/semantico/getting-started/configuration"
+  docs_features: "https://mibu.github.io/semantico/features/"
+  docs_architecture: "https://mibu.github.io/semantico/advanced/architecture"
+  docs_contributing: "https://mibu.github.io/semantico/contributing/guidelines"
+  docs_troubleshooting: "https://mibu.github.io/semantico/troubleshooting/common-issues"
 
   # NuGet packages
   nuget: "https://www.nuget.org/"

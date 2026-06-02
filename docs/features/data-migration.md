@@ -32,8 +32,8 @@ Data Migration allows you to:
 
 ### Step 1: Navigate to Data Migration
 
-1. Log in to Beacon
-2. Click **Data Migration** in the left navigation menu
+1. Log in to Beacon at the React UI (`/login`)
+2. Click **Data Migration** in the left navigation menu (`/data-migration`)
 3. Click **Create New Migration Job**
 
 ### Step 2: Fill Basic Information
@@ -109,8 +109,9 @@ LEFT JOIN user_analytics a ON r.user_id = a.user_id
 > **Multi-Step Features**:
 > - Reference previous results using `@result1`, `@result2`, etc.
 > - Each step can use a different project/database
-> - Mix PostgreSQL, MySQL, and SQL Server in the same pipeline
+> - Mix any of Beacon's connectors in the same pipeline
 > - Visual flow diagram shows step dependencies
+> - Cross-database joins materialize intermediate results into an in-memory SQLite database, where the final join runs
 
 #### Test Your Query
 
@@ -554,6 +555,9 @@ Each execution records:
 - Consider batch processing (multiple jobs with date ranges)
 - Monitor row-level errors for constraints
 
+{: .note }
+> Bulk inserts and updates are performed via `EFCore.BulkExtensions` for high-throughput writes to the destination.
+
 ## Validation
 
 ### Pre-Execution Validation
@@ -699,7 +703,6 @@ Test connectivity before saving:
 ## Related Documentation
 
 - [Queries](queries) - Understanding the query execution layer
-- [Projects](projects) - Managing database connections
+- [Data Sources](data-sources) - Managing database connections
 - [Subscriptions](subscriptions) - Scheduling and automation concepts
 - [Configuration](../getting-started/configuration) - Connection string reference
-- [Troubleshooting](../troubleshooting/common-issues) - Common issues and solutions

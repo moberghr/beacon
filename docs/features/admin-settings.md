@@ -22,7 +22,7 @@ Admin Settings provides:
 ## Accessing Admin Settings
 
 1. Log in as an Admin user
-2. Navigate to **Admin Settings** in the navigation menu
+2. Navigate to **Admin Settings** in the navigation menu (`/admin-settings`)
 3. Configure settings across available tabs
 
 {: .note }
@@ -34,9 +34,9 @@ Admin Settings provides:
 
 | Setting | Description | Example |
 |---------|-------------|---------|
-| **Base URL** | Application URL for notification links | `https://yourdomain.com/beacon` |
+| **Base URL** | Application URL for notification links | `https://yourdomain.com` |
 
-The Base URL is used to generate clickable links in Teams/Slack notifications that take users to the Beacon UI.
+The Base URL is used to generate clickable links in Teams/Slack notifications that take users to the Beacon UI (the React app is served at the root URL).
 
 ### AI Configuration
 
@@ -117,7 +117,7 @@ Settings can be pre-configured in two ways:
 ```json
 {
   "Beacon": {
-    "BaseUrl": "https://yourdomain.com/beacon",
+    "BaseUrl": "https://yourdomain.com",
     "LLM": {
       "Provider": "OpenAI",
       "ApiKey": "sk-your-api-key",
@@ -185,7 +185,7 @@ public class MyService
 
 ```csharp
 var settings = await _settingsService.GetSettingsAsync();
-settings.BaseUrl = "https://new-domain.com/beacon";
+settings.BaseUrl = "https://new-domain.com";
 
 await _settingsService.SaveSettingsAsync(settings, userId: currentUser.Id);
 ```

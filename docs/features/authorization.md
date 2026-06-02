@@ -1,3 +1,10 @@
+---
+layout: default
+title: Authorization
+parent: Features
+nav_order: 11
+---
+
 # Authorization and Permissions
 
 Beacon provides a flexible, pluggable authorization system that supports both simple role-based access control (RBAC) and fine-grained resource-level permissions.
@@ -8,6 +15,7 @@ The authorization system consists of:
 
 - **IBeaconUserContext** - Provides access to current user information
 - **IBeaconAuthorizationProvider** - Enforces authorization policies
+- **IBeaconAuthenticationProvider** - Pluggable authentication (the sample uses `DatabaseAuthenticationProvider`)
 - **Built-in Providers** - Ready-to-use implementations (Default, Role-Based, Database-Backed)
 - **Custom Providers** - Plug in your own authorization logic
 
@@ -15,6 +23,7 @@ The authorization system consists of:
 
 - Opt-in by default - Authorization disabled unless explicitly enabled
 - Pluggable architecture - Integrate with any authentication system
+- Cookie-based sessions - A login form is served at the React route `/login`; optional OIDC/SSO and JWT bearer (for MCP) are also supported
 - Multiple authorization levels - Global permissions and resource-level permissions
 - Backward compatible - Existing installations work unchanged
 - Framework agnostic - Works with ASP.NET Core Identity, OAuth, custom auth, etc.
@@ -33,7 +42,7 @@ Update your `Program.cs` to enable authorization:
 builder.Services.AddBeaconServices(builder.Configuration, options =>
 {
     options.AddBeaconScheduler<BeaconScheduler>();
-    options.BaseUrl = "https://localhost:7187/beacon";
+    options.BaseUrl = "https://localhost:7187";
 
     // Enable authorization
     options.Authorization.Enabled = true;
@@ -41,13 +50,17 @@ builder.Services.AddBeaconServices(builder.Configuration, options =>
 })
 .UsePostgreSql(connectionString, "beacon");
 
+// Serves the React SPA (Beacon.UI Razor Class Library) at the root URL "/"
 builder.Services.AddBeaconUI();
 
-// Enable authorization middleware
-app.UseBeaconUI()
-    .UseBasicAuthentication("admin", "admin") // Your authentication
-    .UseAuthorization() // Enable authorization checks
-    .AddBlazorUI("/beacon");
+var app = builder.Build();
+
+// Authentication + authorization middleware
+app.UseAuthentication();
+app.UseAuthorization();
+
+// Map the React shell + Beacon REST API
+app.UseBeaconUI();
 ```
 
 ### 2. Add Role Claims
@@ -81,7 +94,7 @@ builder.Services.AddScoped<IClaimsTransformation, MyClaimsTransformation>();
 ### 3. Test Authorization
 
 Start your application and verify:
-- Username appears in top-right corner (not hardcoded)
+- Username appears in the React UI (not hardcoded)
 - Unauthorized operations return 403 Forbidden
 - Different roles have different permissions
 
@@ -621,7 +634,7 @@ public class AuthorizationOptions
 builder.Services.AddBeaconServices(builder.Configuration, options =>
 {
     options.AddBeaconScheduler<BeaconScheduler>();
-    options.BaseUrl = "https://localhost:7187/beacon";
+    options.BaseUrl = "https://localhost:7187";
 
     // Authorization configuration
     options.Authorization.Enabled = true;
@@ -645,10 +658,9 @@ builder.Services.AddBeaconServices(builder.Configuration, options =>
 
 2. Verify `UseAuthorization()` is called:
    ```csharp
-   app.UseBeaconUI()
-       .UseBasicAuthentication("admin", "admin")
-       .UseAuthorization() // ← This must be present
-       .AddBlazorUI("/beacon");
+   app.UseAuthentication();
+   app.UseAuthorization(); // ← This must be present
+   app.UseBeaconUI();      // serves the React SPA at "/"
    ```
 
 3. Check claims are added correctly:
@@ -660,7 +672,7 @@ builder.Services.AddBeaconServices(builder.Configuration, options =>
 
 ### Username Not Displayed
 
-**Problem:** Top-right corner shows "Guest" or nothing.
+**Problem:** The React UI shows "Guest" or nothing.
 
 **Solution:**
 1. Verify `IBeaconUserContext` is registered (automatic with `AddBeaconUI()`)
