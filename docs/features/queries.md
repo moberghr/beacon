@@ -30,7 +30,7 @@ Queries allow you to:
 
 ### Step 1: Navigate to Queries
 
-1. Log in to Semantico
+1. Log in to Beacon
 2. Click **Queries** in the left navigation
 3. Click **Create New Query**
 

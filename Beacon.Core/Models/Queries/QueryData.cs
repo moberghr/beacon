@@ -1,0 +1,158 @@
+﻿using Beacon.Core.Data.Enums;
+
+namespace Beacon.Core.Models.Queries;
+
+public class QueryData
+{
+    public int? QueryId { get; set; }
+
+    public string Name { get; set; } = null!;
+
+    public string? Description { get; set; }
+
+    /// <summary>
+    /// Folder ID for organization. Null means root level (no folder).
+    /// </summary>
+    public int? FolderId { get; set; }
+
+    /// <summary>
+    /// Full folder path (e.g., "topfolder/something"). Null if query is at root level.
+    /// </summary>
+    public string? FolderPath { get; set; }
+
+    public DateTime CreatedTime { get; set; }
+
+    public int SubscriptionsCount { get; set; }
+
+    public List<QueryStepData> Steps { get; set; } = new();
+
+    /// <summary>
+    /// Final query to execute against the in-memory SQLite database with all step results loaded
+    /// Uses @result1, @result2, etc. to reference previous step results
+    /// </summary>
+    public string? FinalQuery { get; set; }
+
+    /// <summary>
+    /// Data Source ID where the final query should be executed (for database engine context)
+    /// If null, defaults to the first step's data source
+    /// </summary>
+    public int? FinalQueryDataSourceId { get; set; }
+
+    /// <summary>
+    /// Cross-data-source computed properties
+    /// </summary>
+    public bool IsMultiStep => Steps.Count > 1;
+
+    public bool IsCrossDataSource => Steps.Select(s => s.DataSourceId).Distinct().Count() > 1;
+
+    public bool IsCrossDatabase => Steps.Select(s => s.DatabaseEngineType).Distinct().Count() > 1;
+
+    public List<string> DataSourceNames => Steps.Select(s => s.DataSourceName).Distinct().ToList();
+
+    public List<DatabaseEngineType> DatabaseEngines => Steps
+        .Where(s => s.DatabaseEngineType.HasValue)
+        .Select(s => s.DatabaseEngineType!.Value)
+        .Distinct()
+        .ToList();
+
+    /// <summary>
+    /// AI Actor ID if this query is managed by an AI Actor, null if user-created
+    /// </summary>
+    public int? AiActorId { get; set; }
+
+    /// <summary>
+    /// Name of the AI Actor managing this query
+    /// </summary>
+    public string? AiActorName { get; set; }
+
+    /// <summary>
+    /// Backward compatibility properties (map to first step)
+    /// </summary>
+    public string SqlValue
+    {
+        get => Steps.OrderBy(s => s.StepOrder).FirstOrDefault()?.SqlValue ?? "";
+        set
+        {
+            EnsureSingleStep();
+            Steps[0].SqlValue = value;
+        }
+    }
+
+    public int DataSourceId
+    {
+        get => Steps.OrderBy(s => s.StepOrder).FirstOrDefault()?.DataSourceId ?? 0;
+        set
+        {
+            EnsureSingleStep();
+            Steps[0].DataSourceId = value;
+        }
+    }
+
+    public string DataSourceName
+    {
+        get => Steps.OrderBy(s => s.StepOrder).FirstOrDefault()?.DataSourceName ?? "";
+        set
+        {
+            EnsureSingleStep();
+            Steps[0].DataSourceName = value;
+        }
+    }
+
+    public List<QueryParameterData> Parameters
+    {
+        get => Steps.OrderBy(s => s.StepOrder).FirstOrDefault()?.Parameters.Select(ConvertToQueryParameterData).ToList() ?? new();
+        set
+        {
+            EnsureSingleStep();
+            Steps[0].Parameters = value.Select(ConvertToQueryStepParameterData).ToList();
+        }
+    }
+
+    /// <summary>
+    /// Ensure this QueryData has exactly one step for backward compatibility operations
+    /// </summary>
+    private void EnsureSingleStep()
+    {
+        if (Steps.Count == 0)
+        {
+            Steps.Add(new QueryStepData
+            {
+                StepOrder = 1,
+                Name = "Step 1",
+                SqlValue = "",
+                DataSourceId = 0,
+                DataSourceName = "",
+                DatabaseEngineType = DatabaseEngineType.PostgreSQL,
+                Parameters = new()
+            });
+        }
+    }
+
+    /// <summary>
+    /// Convert QueryStepParameterData to QueryParameterData for backward compatibility
+    /// </summary>
+    private static QueryParameterData ConvertToQueryParameterData(QueryStepParameterData stepParam)
+    {
+        return new QueryParameterData
+        {
+            Name = stepParam.Name,
+            Type = stepParam.Type,
+            Description = stepParam.Description ?? "",
+            Placeholder = stepParam.Placeholder ?? ""
+        };
+    }
+
+    /// <summary>
+    /// Convert QueryParameterData to QueryStepParameterData
+    /// </summary>
+    private static QueryStepParameterData ConvertToQueryStepParameterData(QueryParameterData queryParam)
+    {
+        return new QueryStepParameterData
+        {
+            Name = queryParam.Name,
+            Type = queryParam.Type,
+            Description = queryParam.Description,
+            Placeholder = queryParam.Placeholder
+        };
+    }
+}

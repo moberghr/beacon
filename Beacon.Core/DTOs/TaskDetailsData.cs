@@ -1,0 +1,66 @@
+using Beacon.Core.Data.Enums;
+
+namespace Beacon.Core.DTOs;
+
+public record TaskDetailsData
+{
+    public required int Id { get; init; }
+    public required SubscriptionSummary Subscription { get; init; }
+    public required int LatestResultCount { get; init; }
+    public DateTime? LastNotificationAt { get; init; }
+    public required int NotificationCount { get; init; }
+    public required List<NotificationSummary> Notifications { get; init; }
+    public required DateTime CreatedAt { get; init; }
+    public required bool Resolved { get; init; }
+    public DateTime? ResolvedAt { get; init; }
+    public string? ResolvedByUserId { get; init; }
+    public string? ResolvedByUserName { get; init; }
+    public string? ResolutionNotes { get; init; }
+    public required int QueryId { get; init; }
+    public required string QueryName { get; init; }
+
+    /// <summary>
+    /// Cron expression of the parent subscription, e.g. "0 */15 * * *".
+    /// </summary>
+    public string? CronExpression { get; init; }
+
+    /// <summary>
+    /// Timestamp of the most recent execution for the parent subscription, null if none.
+    /// </summary>
+    public DateTime? LastExecutionAt { get; init; }
+
+    /// <summary>
+    /// AI Actor ID if the subscription is managed by an AI Actor, null if user-created
+    /// </summary>
+    public int? AiActorId { get; init; }
+
+    /// <summary>
+    /// Name of the AI Actor managing the subscription
+    /// </summary>
+    public string? AiActorName { get; init; }
+
+    public TaskPriority Priority { get; init; }
+
+    public string? AssigneeUserId { get; init; }
+
+    public string? AssigneeUserName { get; init; }
+
+    public DateTime? SnoozedUntil { get; init; }
+
+    public int? SlaHours { get; init; }
+
+    public int WatcherCount { get; init; }
+
+    public bool IsWatching { get; init; }
+
+    public string? OwnerUserId { get; init; }
+
+    public string? OwnerUserName { get; init; }
+}
+
+public record SubscriptionSummary(int Id, string Name, string? Description);
+public record QueryExecutionSummary(int Id, DateTime ExecutedAt, double ExecutionTimeMs, NotificationStatus Status, int ResultCount);
+public record NotificationSummary(int Id, DateTime SentAt, int ResultCount, string? StoredResults);
+public record CommentData(int Id, string Content, string? UserName, DateTime CreatedAt);
+public record RelatedTaskSummary(int Id, DateTime CreatedAt, int LatestResultCount, bool Resolved, DateTime? ResolvedAt);
+public record ResultCountDataPoint(DateTime Date, int ResultCount);

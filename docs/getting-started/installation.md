@@ -7,14 +7,14 @@ nav_order: 1
 
 # Installation Guide
 
-Complete step-by-step guide to install and configure Semantico in your ASP.NET Core application. This guide is based on the actual SampleProject implementation.
+Complete step-by-step guide to install and configure Beacon in your ASP.NET Core application. This guide is based on the actual SampleProject implementation.
 
 ## Prerequisites
 
 Before you begin, ensure you have:
 
 - **.NET 9.0 SDK** or later
-- **PostgreSQL 12+** or **SQL Server 2019+** for Semantico metadata database
+- **PostgreSQL 12+** or **SQL Server 2019+** for Beacon metadata database
 - **Visual Studio 2022**, **Rider**, or **VS Code** with C# support
 - **Job scheduler** (Hangfire recommended, but Quartz.NET or custom implementations work)
 
@@ -23,9 +23,9 @@ Before you begin, ensure you have:
 ### For PostgreSQL (Recommended)
 
 ```bash
-# Core Semantico packages
-dotnet add package Semantico.Core.PostgreSql
-dotnet add package Semantico.UI.AspNet
+# Core Beacon packages
+dotnet add package Beacon.Core.PostgreSql
+dotnet add package Beacon.UI.AspNet
 
 # Job scheduler (Hangfire example)
 dotnet add package Hangfire.AspNetCore
@@ -35,9 +35,9 @@ dotnet add package Hangfire.PostgreSql
 ### For SQL Server
 
 ```bash
-# Core Semantico packages
-dotnet add package Semantico.Core.SqlServer
-dotnet add package Semantico.UI.AspNet
+# Core Beacon packages
+dotnet add package Beacon.Core.SqlServer
+dotnet add package Beacon.UI.AspNet
 
 # Job scheduler (Hangfire example)
 dotnet add package Hangfire.AspNetCore
@@ -45,11 +45,11 @@ dotnet add package Hangfire.SqlServer
 ```
 
 {: .note }
-> The provider you choose is for Semantico's metadata database. You can still query PostgreSQL, SQL Server, and MySQL databases for monitoring regardless of which provider you choose.
+> The provider you choose is for Beacon's metadata database. You can still query PostgreSQL, SQL Server, and MySQL databases for monitoring regardless of which provider you choose.
 
 ## Step 2: Generate Encryption Key
 
-Semantico requires an encryption key for securing sensitive data like connection strings.
+Beacon requires an encryption key for securing sensitive data like connection strings.
 
 ```bash
 openssl rand -base64 32
@@ -64,14 +64,14 @@ Save this key - you'll need it in the next step.
 
 ## Step 3: Configure appsettings.json
 
-Add connection strings and Semantico configuration:
+Add connection strings and Beacon configuration:
 
 ```json
 {
   "ConnectionStrings": {
-    "SemanticoContext": "Host=localhost;Database=semantico;Username=postgres;Password=yourpassword"
+    "BeaconContext": "Host=localhost;Database=beacon;Username=postgres;Password=yourpassword"
   },
-  "Semantico": {
+  "Beacon": {
     "EncryptionKey": "[REMOVED-KEY]="
   },
   "Logging": {
@@ -90,7 +90,7 @@ Add connection strings and Semantico configuration:
 
 ```json
 {
-  "Semantico": {
+  "Beacon": {
     "EncryptionKey": "your-generated-key",
     "LLM": {
       "Provider": "OpenAI",
@@ -113,24 +113,24 @@ Add connection strings and Semantico configuration:
 
 ## Step 4: Create Job Scheduler Implementation
 
-Create a class that implements `ISemanticoScheduler`. This example uses Hangfire (from SampleProject):
+Create a class that implements `IBeaconScheduler`. This example uses Hangfire (from SampleProject):
 
-**Create file:** `Services/SemanticoScheduler.cs`
+**Create file:** `Services/BeaconScheduler.cs`
 
 ```csharp
 using Hangfire;
-using Semantico.Core.Worker;
+using Beacon.Core.Worker;
 
 namespace YourProject.Services;
 
 /// <summary>
-/// Hangfire implementation of Semantico scheduler
+/// Hangfire implementation of Beacon scheduler
 /// </summary>
-public class SemanticoScheduler : ISemanticoScheduler
+public class BeaconScheduler : IBeaconScheduler
 {
     private readonly IRecurringJobManager _recurringJobManager;
 
-    public SemanticoScheduler(IRecurringJobManager recurringJobManager)
+    public BeaconScheduler(IRecurringJobManager recurringJobManager)
     {
         _recurringJobManager = recurringJobManager;
     }
@@ -157,19 +157,19 @@ public class SemanticoScheduler : ISemanticoScheduler
 ```
 
 {: .note }
-> If you prefer Quartz.NET or a custom scheduler, implement the same `ISemanticoScheduler` interface with your chosen scheduler. See [Alternative Schedulers](#alternative-schedulers) section below.
+> If you prefer Quartz.NET or a custom scheduler, implement the same `IBeaconScheduler` interface with your chosen scheduler. See [Alternative Schedulers](#alternative-schedulers) section below.
 
 ## Step 5: Configure Program.cs
 
-Update your `Program.cs` to register Semantico services. This is the complete configuration from SampleProject:
+Update your `Program.cs` to register Beacon services. This is the complete configuration from SampleProject:
 
 ```csharp
 using Hangfire;
 using Hangfire.PostgreSql;
-using Semantico.AI;
-using Semantico.Core;
-using Semantico.Core.PostgreSql;
-using Semantico.UI;
+using Beacon.AI;
+using Beacon.Core;
+using Beacon.Core.PostgreSql;
+using Beacon.UI;
 using YourProject.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -181,7 +181,7 @@ builder.Services.AddHangfire((provider, hangfireConfiguration) => hangfireConfig
     .UseRecommendedSerializerSettings()
     .UseFilter(new AutomaticRetryAttribute { Attempts = 0 })
     .UsePostgreSqlStorage(
-        builder.Configuration.GetConnectionString("SemanticoContext"),
+        builder.Configuration.GetConnectionString("BeaconContext"),
         new PostgreSqlStorageOptions
         {
             PrepareSchemaIfNecessary = true,
@@ -190,35 +190,35 @@ builder.Services.AddHangfire((provider, hangfireConfiguration) => hangfireConfig
 
 builder.Services.AddHangfireServer();
 
-// 2. SEMANTICO: Add core services and configure database provider
-builder.Services.AddSemanticoServices(builder.Configuration, options =>
+// 2. BEACON: Add core services and configure database provider
+builder.Services.AddBeaconServices(builder.Configuration, options =>
     {
         // Required: Register your scheduler implementation
-        options.AddSemanticoScheduler<SemanticoScheduler>();
+        options.AddBeaconScheduler<BeaconScheduler>();
 
         // Optional: Base URL for notification links
-        options.BaseUrl = "https://localhost:7187/semantico";
+        options.BaseUrl = "https://localhost:7187/beacon";
 
         // Optional: Enable AI features (experimental)
         options.UseAI = true;
     })
-    .UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
+    .UsePostgreSql(builder.Configuration.GetConnectionString("BeaconContext")!, "beacon");
 
-// 3. SEMANTICO: Add UI components
-builder.Services.AddSemanticoUI();
+// 3. BEACON: Add UI components
+builder.Services.AddBeaconUI();
 
-// 4. SEMANTICO: Add AI services (optional)
-builder.Services.AddSemanticoAI(builder.Configuration);
+// 4. BEACON: Add AI services (optional)
+builder.Services.AddBeaconAI(builder.Configuration);
 
 var app = builder.Build();
 
 app.UseHttpsRedirection();
-app.UseStaticFiles(); // Required: Serves Semantico UI assets
+app.UseStaticFiles(); // Required: Serves Beacon UI assets
 
-// 5. SEMANTICO: Configure admin UI with authentication
-app.UseSemanticoUI()
+// 5. BEACON: Configure admin UI with authentication
+app.UseBeaconUI()
     .UseBasicAuthentication("admin", "admin")  // Change these credentials!
-    .AddBlazorUI("/semantico");
+    .AddBlazorUI("/beacon");
 
 // Optional: Hangfire dashboard
 app.UseHangfireDashboard("/hangfire", new DashboardOptions
@@ -235,26 +235,26 @@ If using SQL Server instead of PostgreSQL, make these changes:
 
 ```csharp
 using Hangfire.SqlServer;
-using Semantico.Core.SqlServer;
+using Beacon.Core.SqlServer;
 
 // Replace PostgreSQL configuration with SQL Server:
-builder.Services.AddSemanticoServices(builder.Configuration, options =>
+builder.Services.AddBeaconServices(builder.Configuration, options =>
     {
-        options.AddSemanticoScheduler<SemanticoScheduler>();
+        options.AddBeaconScheduler<BeaconScheduler>();
     })
-    .UseSqlServer(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
+    .UseSqlServer(builder.Configuration.GetConnectionString("BeaconContext")!, "beacon");
 
 // Update Hangfire to use SQL Server:
 builder.Services.AddHangfire(config => config
     .UseSqlServerStorage(
-        builder.Configuration.GetConnectionString("SemanticoContext")));
+        builder.Configuration.GetConnectionString("BeaconContext")));
 ```
 
 Update connection string in appsettings.json:
 ```json
 {
   "ConnectionStrings": {
-    "SemanticoContext": "Server=localhost;Database=semantico;User Id=sa;Password=YourPassword123!;TrustServerCertificate=True"
+    "BeaconContext": "Server=localhost;Database=beacon;User Id=sa;Password=YourPassword123!;TrustServerCertificate=True"
   }
 }
 ```
@@ -297,10 +297,10 @@ builder.Services.AddHttpClient().ConfigureHttpClientDefaults(http =>
 dotnet run
 ```
 
-On first run, Semantico will automatically create the database schema and apply migrations.
+On first run, Beacon will automatically create the database schema and apply migrations.
 
 Navigate to:
-- **Semantico Admin UI**: https://localhost:7187/semantico
+- **Beacon Admin UI**: https://localhost:7187/beacon
 - **Hangfire Dashboard**: https://localhost:7187/hangfire (if enabled)
 
 **Default credentials (basic auth):**
@@ -316,10 +316,10 @@ Here's the complete `Program.cs` from SampleProject with all features enabled:
 ```csharp
 using Hangfire;
 using Hangfire.PostgreSql;
-using Semantico.AI;
-using Semantico.Core;
-using Semantico.Core.PostgreSql;
-using Semantico.UI;
+using Beacon.AI;
+using Beacon.Core;
+using Beacon.Core.PostgreSql;
+using Beacon.UI;
 using YourProject.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -347,7 +347,7 @@ builder.Services.AddHangfire((provider, hangfireConfiguration) => hangfireConfig
     .UseRecommendedSerializerSettings()
     .UseFilter(new AutomaticRetryAttribute { Attempts = 0 })
     .UsePostgreSqlStorage(
-        builder.Configuration.GetConnectionString("SemanticoContext"),
+        builder.Configuration.GetConnectionString("BeaconContext"),
         new PostgreSqlStorageOptions
         {
             PrepareSchemaIfNecessary = true,
@@ -356,30 +356,30 @@ builder.Services.AddHangfire((provider, hangfireConfiguration) => hangfireConfig
 
 builder.Services.AddHangfireServer();
 
-// SEMANTICO: Add core services and configure database provider
-builder.Services.AddSemanticoServices(builder.Configuration, options =>
+// BEACON: Add core services and configure database provider
+builder.Services.AddBeaconServices(builder.Configuration, options =>
     {
-        options.AddSemanticoScheduler<SemanticoScheduler>();
-        options.BaseUrl = "https://localhost:7187/semantico";
+        options.AddBeaconScheduler<BeaconScheduler>();
+        options.BaseUrl = "https://localhost:7187/beacon";
         options.UseAI = true;  // Optional: Enable AI features (experimental)
     })
-    .UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
+    .UsePostgreSql(builder.Configuration.GetConnectionString("BeaconContext")!, "beacon");
 
-// SEMANTICO: Add UI components
-builder.Services.AddSemanticoUI();
+// BEACON: Add UI components
+builder.Services.AddBeaconUI();
 
-// SEMANTICO: Add AI services (optional)
-builder.Services.AddSemanticoAI(builder.Configuration);
+// BEACON: Add AI services (optional)
+builder.Services.AddBeaconAI(builder.Configuration);
 
 var app = builder.Build();
 
 app.UseHttpsRedirection();
-app.UseStaticFiles(); // Required: Serves Semantico UI assets
+app.UseStaticFiles(); // Required: Serves Beacon UI assets
 
-// SEMANTICO: Configure admin UI
-app.UseSemanticoUI()
+// BEACON: Configure admin UI
+app.UseBeaconUI()
     .UseBasicAuthentication("admin", "admin")  // Change in production!
-    .AddBlazorUI("/semantico");
+    .AddBlazorUI("/beacon");
 
 // Optional: Hangfire dashboard
 app.UseHangfireDashboard("/hangfire", new DashboardOptions
@@ -396,9 +396,9 @@ Replace basic authentication with your own authorization logic:
 
 ```csharp
 using Microsoft.AspNetCore.Http;
-using Semantico.UI.AspNet;
+using Beacon.UI.AspNet;
 
-public class CustomAuthorizationProvider : ISemanticoAuthorizationProvider
+public class CustomAuthorizationProvider : IBeaconAuthorizationProvider
 {
     public Task<bool> IsAuthorizedAsync(HttpContext context)
     {
@@ -406,28 +406,28 @@ public class CustomAuthorizationProvider : ISemanticoAuthorizationProvider
         // Example: Check if user is authenticated and has specific role
         return Task.FromResult(
             context.User.Identity?.IsAuthenticated == true &&
-            context.User.IsInRole("SemanticoAdmin"));
+            context.User.IsInRole("BeaconAdmin"));
     }
 }
 ```
 
 Register in Program.cs:
 ```csharp
-builder.Services.AddSemanticoServices(builder.Configuration, options =>
+builder.Services.AddBeaconServices(builder.Configuration, options =>
     {
-        options.AddSemanticoScheduler<SemanticoScheduler>();
+        options.AddBeaconScheduler<BeaconScheduler>();
     })
-    .UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
+    .UsePostgreSql(builder.Configuration.GetConnectionString("BeaconContext")!, "beacon");
 
-builder.Services.AddSemanticoUI(options =>
+builder.Services.AddBeaconUI(options =>
 {
     options.AddAuthorizationProvider<CustomAuthorizationProvider>();
 });
 
 // Use custom authorization instead of basic auth
-app.UseSemanticoUI()
+app.UseBeaconUI()
     .UseAuthorization()  // Instead of UseBasicAuthentication
-    .AddBlazorUI("/semantico");
+    .AddBlazorUI("/beacon");
 ```
 
 ## Alternative Schedulers
@@ -436,13 +436,13 @@ app.UseSemanticoUI()
 
 ```csharp
 using Quartz;
-using Semantico.Core.Worker;
+using Beacon.Core.Worker;
 
-public class QuartzSemanticoScheduler : ISemanticoScheduler
+public class QuartzBeaconScheduler : IBeaconScheduler
 {
     private readonly ISchedulerFactory _schedulerFactory;
 
-    public QuartzSemanticoScheduler(ISchedulerFactory schedulerFactory)
+    public QuartzBeaconScheduler(ISchedulerFactory schedulerFactory)
     {
         _schedulerFactory = schedulerFactory;
     }
@@ -451,13 +451,13 @@ public class QuartzSemanticoScheduler : ISemanticoScheduler
     {
         var scheduler = await _schedulerFactory.GetScheduler();
 
-        var job = JobBuilder.Create<SemanticoJob>()
-            .WithIdentity($"semantico-{subscriptionId}")
+        var job = JobBuilder.Create<BeaconJob>()
+            .WithIdentity($"beacon-{subscriptionId}")
             .UsingJobData("subscriptionId", subscriptionId)
             .Build();
 
         var trigger = TriggerBuilder.Create()
-            .WithIdentity($"semantico-{subscriptionId}-trigger")
+            .WithIdentity($"beacon-{subscriptionId}-trigger")
             .WithCronSchedule(cron)
             .Build();
 
@@ -467,15 +467,15 @@ public class QuartzSemanticoScheduler : ISemanticoScheduler
     public async void Remove(int subscriptionId, string subscriptionName)
     {
         var scheduler = await _schedulerFactory.GetScheduler();
-        await scheduler.DeleteJob(new JobKey($"semantico-{subscriptionId}"));
+        await scheduler.DeleteJob(new JobKey($"beacon-{subscriptionId}"));
     }
 }
 
-public class SemanticoJob : IJob
+public class BeaconJob : IJob
 {
     private readonly IJobService _jobService;
 
-    public SemanticoJob(IJobService jobService)
+    public BeaconJob(IJobService jobService)
     {
         _jobService = jobService;
     }
@@ -490,7 +490,7 @@ public class SemanticoJob : IJob
 
 ## Troubleshooting
 
-### Issue: "Semantico:EncryptionKey must be configured"
+### Issue: "Beacon:EncryptionKey must be configured"
 
 **Solution:** Generate and add encryption key to appsettings.json:
 ```bash
@@ -503,7 +503,7 @@ openssl rand -base64 32
 
 **PostgreSQL:**
 ```sql
-GRANT CREATE ON DATABASE semantico TO your_user;
+GRANT CREATE ON DATABASE beacon TO your_user;
 ```
 
 **SQL Server:**
@@ -519,10 +519,10 @@ GRANT CREATE SCHEMA TO your_user;
 3. Ensure `AddHangfireServer()` is called
 4. Verify database connection
 
-### Issue: UI not loading at /semantico
+### Issue: UI not loading at /beacon
 
 **Solutions:**
-1. Verify route matches `.AddBlazorUI("/semantico")`
+1. Verify route matches `.AddBlazorUI("/beacon")`
 2. Check browser console for errors
 3. Ensure `AddServerSideBlazor()` is configured
 4. Try clearing browser cache
@@ -532,7 +532,7 @@ GRANT CREATE SCHEMA TO your_user;
 **Solutions:**
 1. Verify credentials match `.UseBasicAuthentication("admin", "admin")`
 2. Check if custom authorization provider is properly configured
-3. Ensure `UseAuthorization()` is called before Semantico UI
+3. Ensure `UseAuthorization()` is called before Beacon UI
 
 ### Issue: AI features not working
 
@@ -556,8 +556,8 @@ GRANT CREATE SCHEMA TO your_user;
 **Example with environment variables:**
 ```json
 {
-  "Semantico": {
-    "EncryptionKey": "${SEMANTICO_ENCRYPTION_KEY}",
+  "Beacon": {
+    "EncryptionKey": "${BEACON_ENCRYPTION_KEY}",
     "LLM": {
       "ApiKey": "${LLM_API_KEY}"
     }
@@ -581,7 +581,7 @@ GRANT CREATE SCHEMA TO your_user;
 
 ## Next Steps
 
-Now that Semantico is installed:
+Now that Beacon is installed:
 
 1. **[Connect your first data source](../features/data-sources)** - Add databases to monitor
 2. **[Create your first query](../features/queries)** - Define SQL monitoring queries
@@ -593,4 +593,4 @@ Now that Semantico is installed:
 - 📚 [Configuration Guide](configuration) - Detailed configuration options
 - 🚀 [Quick Start](quick-start) - 5-minute quickstart guide
 - 🎓 [Features Overview](../features/) - Complete feature documentation
-- 🐛 [Report Issues](https://github.com/MiBu/semantico/issues)
+- 🐛 [Report Issues](https://github.com/moberghr/beacon/issues)

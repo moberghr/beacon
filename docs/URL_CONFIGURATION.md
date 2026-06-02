@@ -4,7 +4,7 @@ nav_exclude: true
 
 # URL Configuration Guide
 
-This guide explains how to use the centralized URL configuration system in Semantico documentation.
+This guide explains how to use the centralized URL configuration system in Beacon documentation.
 
 ## Overview
 
@@ -23,14 +23,14 @@ All URLs are defined in `docs/_config.yml` under the `urls` section:
 # Centralized URLs - define URLs once, reference throughout documentation
 urls:
   # Repository
-  github_repo: "https://github.com/MiBu/semantico"
-  github_issues: "https://github.com/MiBu/semantico/issues"
-  github_discussions: "https://github.com/MiBu/semantico/discussions"
+  github_repo: "https://github.com/moberghr/beacon"
+  github_issues: "https://github.com/moberghr/beacon/issues"
+  github_discussions: "https://github.com/moberghr/beacon/discussions"
 
   # Documentation
-  docs_base: "https://mibu.github.io/semantico"
-  docs_installation: "https://mibu.github.io/semantico/getting-started/installation"
-  docs_quick_start: "https://mibu.github.io/semantico/getting-started/quick-start"
+  docs_base: "https://moberghr.github.io/beacon"
+  docs_installation: "https://moberghr.github.io/beacon/getting-started/installation"
+  docs_quick_start: "https://moberghr.github.io/beacon/getting-started/quick-start"
   # ... more URLs
 ```
 
@@ -44,7 +44,7 @@ To use a configured URL in your markdown documentation, use Jekyll's Liquid temp
 [View on GitHub]({{ site.urls.github_repo }})
 ```
 
-Renders as: `[View on GitHub](https://github.com/MiBu/semantico)`
+Renders as: `[View on GitHub](https://github.com/moberghr/beacon)`
 
 ### Button with URL
 
@@ -98,7 +98,7 @@ To add a new URL to the configuration:
 ```yaml
 urls:
   # ... existing URLs
-  docs_api_reference: "https://mibu.github.io/semantico/api/reference"
+  docs_api_reference: "https://moberghr.github.io/beacon/api/reference"
 ```
 
 4. Use it in your documentation:
@@ -142,7 +142,7 @@ After adding or modifying URLs, test them:
    bundle exec jekyll serve
    ```
 
-2. Open `http://localhost:4001/semantico/`
+2. Open `http://localhost:4001/beacon/`
 
 3. Click through links to verify they work correctly
 

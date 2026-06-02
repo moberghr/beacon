@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-I have designed and implemented a production-ready multi-agent workflow system for generating database documentation in Semantico. The system uses Microsoft's agent orchestration pattern with three phases:
+I have designed and implemented a production-ready multi-agent workflow system for generating database documentation in Beacon. The system uses Microsoft's agent orchestration pattern with three phases:
 
 1. **Orchestrator Agent** - Analyzes schema and identifies logical domains
 2. **Domain Agents (parallel)** - Document specific functional areas
@@ -30,7 +30,7 @@ I have designed and implemented a production-ready multi-agent workflow system f
 - Next steps and enhancements
 
 ### 4. Data Models (6 files)
-All in `Semantico.Core/Models/Ai/MultiAgent/`:
+All in `Beacon.Core/Models/Ai/MultiAgent/`:
 - `OrchestratorResult.cs` - Schema analysis output
 - `DomainGroup.cs` - Logical table groupings
 - `DomainResult.cs` - Domain documentation
@@ -39,8 +39,8 @@ All in `Semantico.Core/Models/Ai/MultiAgent/`:
 - `DocumentationProgress.cs` - Real-time progress tracking
 
 ### 5. Service Implementation
-- **Interface:** `Semantico.Core/Services/Ai/MultiAgent/IMultiAgentDocumentationService.cs`
-- **Implementation:** `Semantico.Core/Services/Ai/MultiAgent/MultiAgentDocumentationService.cs` (830 lines)
+- **Interface:** `Beacon.Core/Services/Ai/MultiAgent/IMultiAgentDocumentationService.cs`
+- **Implementation:** `Beacon.Core/Services/Ai/MultiAgent/MultiAgentDocumentationService.cs` (830 lines)
   - Complete orchestration logic
   - Parallel processing with SemaphoreSlim
   - Caching with IMemoryCache
@@ -49,7 +49,7 @@ All in `Semantico.Core/Models/Ai/MultiAgent/`:
   - JSON parsing with fallbacks
 
 ### 6. Agent Prompts
-- **File:** `Semantico.Core/Services/Ai/MultiAgent/MultiAgentPrompts.cs` (580 lines)
+- **File:** `Beacon.Core/Services/Ai/MultiAgent/MultiAgentPrompts.cs` (580 lines)
 - Orchestrator system prompt and builder
 - Domain agent system prompt and builder
 - Aggregator system prompt and builder
@@ -110,7 +110,7 @@ Phase 3: AGGREGATOR (4-6 seconds)
 
 ### 1. Service Registration (High Priority)
 
-Add to `Semantico.Core/ServiceConfiguration.cs`:
+Add to `Beacon.Core/ServiceConfiguration.cs`:
 
 ```csharp
 // Multi-agent documentation service
@@ -121,7 +121,7 @@ services.AddSingleton<IMultiAgentDocumentationService, MultiAgentDocumentationSe
 
 ### 2. UI Integration (High Priority)
 
-**File to modify:** `Semantico.UI/Components/Pages/DataSources/GenerateDocumentationDialog.razor`
+**File to modify:** `Beacon.UI/Components/Pages/DataSources/GenerateDocumentationDialog.razor`
 
 Add:
 - Toggle: "Use Multi-Agent Workflow" (default: true)
@@ -143,7 +143,7 @@ Add:
 ### 3. Handler/Command Integration (Medium Priority)
 
 **Option A: New Handler**
-Create `Semantico.Core/Handlers/Documentation/GenerateMultiAgentDocumentationHandler.cs`
+Create `Beacon.Core/Handlers/Documentation/GenerateMultiAgentDocumentationHandler.cs`
 
 **Option B: Update Existing**
 Modify existing documentation handler to support multi-agent mode via options
@@ -153,10 +153,10 @@ Modify existing documentation handler to support multi-agent mode via options
 ### 4. Testing (Medium Priority)
 
 Create test files:
-- `Semantico.Core.Tests/Services/Ai/MultiAgent/OrchestratorAgentTests.cs`
-- `Semantico.Core.Tests/Services/Ai/MultiAgent/DomainAgentTests.cs`
-- `Semantico.Core.Tests/Services/Ai/MultiAgent/AggregatorAgentTests.cs`
-- `Semantico.Core.Tests/Services/Ai/MultiAgent/MultiAgentIntegrationTests.cs`
+- `Beacon.Core.Tests/Services/Ai/MultiAgent/OrchestratorAgentTests.cs`
+- `Beacon.Core.Tests/Services/Ai/MultiAgent/DomainAgentTests.cs`
+- `Beacon.Core.Tests/Services/Ai/MultiAgent/AggregatorAgentTests.cs`
+- `Beacon.Core.Tests/Services/Ai/MultiAgent/MultiAgentIntegrationTests.cs`
 
 **Test scenarios:**
 - Small database (10 tables, 2 domains)
@@ -167,7 +167,7 @@ Create test files:
 
 ### 5. Configuration (Low Priority)
 
-Add to `Semantico.Core/Configuration/SemanticoConfiguration.cs`:
+Add to `Beacon.Core/Configuration/BeaconConfiguration.cs`:
 
 ```csharp
 public class MultiAgentDocumentationOptions
@@ -236,7 +236,7 @@ Update:
 ## File Structure Created
 
 ```
-Semantico.Core/
+Beacon.Core/
 ├── Models/
 │   └── Ai/
 │       └── MultiAgent/
@@ -263,8 +263,8 @@ MULTI_AGENT_IMPLEMENTATION_PLAN.md ✅ (this file)
 
 ## Code Quality Checklist ✅
 
-- ✅ Follows Semantico coding standards
-- ✅ Uses `IDbContextFactory<SemanticoContext>` (not direct DbContext)
+- ✅ Follows Beacon coding standards
+- ✅ Uses `IDbContextFactory<BeaconContext>` (not direct DbContext)
 - ✅ Comprehensive logging via ILogger
 - ✅ Exception handling with custom `AiServiceException`
 - ✅ Full async/await support

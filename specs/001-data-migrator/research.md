@@ -1,8 +1,8 @@
-# Data Migrator Research - Semantico Project Architecture Analysis
+# Data Migrator Research - Beacon Project Architecture Analysis
 
 ## Executive Summary
 
-This document analyzes the current Semantico project architecture to understand patterns and structures that can be extended for the Data Migration feature. The analysis focuses on query execution patterns, entity relationships, UI patterns, and extension points.
+This document analyzes the current Beacon project architecture to understand patterns and structures that can be extended for the Data Migration feature. The analysis focuses on query execution patterns, entity relationships, UI patterns, and extension points.
 
 ## Current Query Execution Architecture
 
@@ -10,7 +10,7 @@ This document analyzes the current Semantico project architecture to understand 
 
 The query execution system is built around a sophisticated multi-step, cross-project architecture:
 
-**Key Service: `QueryService` (`/Users/mirkobudimir/Dev/semantico/Semantico.Core/Services/QueryService.cs`)**
+**Key Service: `QueryService` (`/Users/mirkobudimir/Dev/beacon/Beacon.Core/Services/QueryService.cs`)**
 
 #### Multi-Step Query Support
 - **Query Structure**: Queries can have multiple steps (`QueryStep`) that execute across different projects/databases
@@ -37,7 +37,7 @@ Task<QueryResult> ExecuteQuery(int subscriptionId, CancellationToken cancellatio
 
 ### Notification Processing
 
-**Key Service: `NotificationService` (`/Users/mirkobudimir/Dev/semantico/Semantico.Core/Services/NotificationService.cs`)**
+**Key Service: `NotificationService` (`/Users/mirkobudimir/Dev/beacon/Beacon.Core/Services/NotificationService.cs`)**
 
 #### Notification Flow:
 1. **Query Execution**: `JobService.ExecuteQuery()` runs scheduled queries
@@ -58,14 +58,14 @@ Task<QueryResult> ExecuteQuery(int subscriptionId, CancellationToken cancellatio
 
 **Base Classes:**
 ```csharp
-// /Users/mirkobudimir/Dev/semantico/Semantico.Core/Data/Entities/Base/BaseEntity.cs
+// /Users/mirkobudimir/Dev/beacon/Beacon.Core/Data/Entities/Base/BaseEntity.cs
 internal abstract class BaseEntity
 {
     public int Id { get; set; }
     public DateTime CreatedTime { get; set; } = DateTime.UtcNow;
 }
 
-// /Users/mirkobudimir/Dev/semantico/Semantico.Core/Data/Entities/Base/ArchivableBaseEntity.cs  
+// /Users/mirkobudimir/Dev/beacon/Beacon.Core/Data/Entities/Base/ArchivableBaseEntity.cs  
 internal abstract class ArchivableBaseEntity : BaseEntity
 {
     public DateTime? ArchivedTime { get; set; }
@@ -78,7 +78,7 @@ internal abstract class ArchivableBaseEntity : BaseEntity
 
 #### Project Entity
 ```csharp
-// /Users/mirkobudimir/Dev/semantico/Semantico.Core/Data/Entities/Project.cs
+// /Users/mirkobudimir/Dev/beacon/Beacon.Core/Data/Entities/Project.cs
 internal class Project : ArchivableBaseEntity
 {
     public required string Name { get; set; }
@@ -92,7 +92,7 @@ internal class Project : ArchivableBaseEntity
 
 #### Query Execution System
 ```csharp
-// /Users/mirkobudimir/Dev/semantico/Semantico.Core/Data/Entities/Query.cs
+// /Users/mirkobudimir/Dev/beacon/Beacon.Core/Data/Entities/Query.cs
 internal class Query : ArchivableBaseEntity
 {
     public string Name { get; set; }
@@ -106,7 +106,7 @@ internal class Query : ArchivableBaseEntity
     public bool IsCrossDatabase => Steps.Select(s => s.Project.DatabaseEngineType).Distinct().Count() > 1;
 }
 
-// /Users/mirkobudimir/Dev/semantico/Semantico.Core/Data/Entities/QueryStep.cs
+// /Users/mirkobudimir/Dev/beacon/Beacon.Core/Data/Entities/QueryStep.cs
 internal class QueryStep : BaseEntity
 {
     public required int QueryId { get; set; }
@@ -125,7 +125,7 @@ internal class QueryStep : BaseEntity
 
 #### QueryExecutionHistory and Notifications
 ```csharp
-// /Users/mirkobudimir/Dev/semantico/Semantico.Core/Data/Entities/QueryExecutionHistory.cs
+// /Users/mirkobudimir/Dev/beacon/Beacon.Core/Data/Entities/QueryExecutionHistory.cs
 internal class QueryExecutionHistory : BaseEntity
 {
     public required int SubscriptionId { get; set; }
@@ -136,7 +136,7 @@ internal class QueryExecutionHistory : BaseEntity
     public List<Notification> Notifications { get; set; } = new();
 }
 
-// /Users/mirkobudimir/Dev/semantico/Semantico.Core/Data/Entities/Notification.cs  
+// /Users/mirkobudimir/Dev/beacon/Beacon.Core/Data/Entities/Notification.cs  
 internal class Notification : BaseEntity
 {
     public required int RecipientId { get; set; }
@@ -150,8 +150,8 @@ internal class Notification : BaseEntity
 
 ### Database Context
 ```csharp
-// /Users/mirkobudimir/Dev/semantico/Semantico.Core/Data/SemanticoContext.cs
-internal class SemanticoContext : DbContext
+// /Users/mirkobudimir/Dev/beacon/Beacon.Core/Data/BeaconContext.cs
+internal class BeaconContext : DbContext
 {
     public DbSet<Query> Queries => Set<Query>();
     public DbSet<QueryStep> QuerySteps => Set<QueryStep>();
@@ -169,7 +169,7 @@ internal class SemanticoContext : DbContext
 
 **Base Pattern:**
 ```csharp
-// /Users/mirkobudimir/Dev/semantico/Semantico.UI/Components/Shared/BasePageComponent.cs
+// /Users/mirkobudimir/Dev/beacon/Beacon.UI/Components/Shared/BasePageComponent.cs
 public class BasePageComponent: ComponentBase
 {
     [Inject] protected NavigationManager NavManager { get; set; }
@@ -179,19 +179,19 @@ public class BasePageComponent: ComponentBase
 ```
 
 ### List/Grid Pattern
-**Example: Queries List (`/Users/mirkobudimir/Dev/semantico/Semantico.UI/Components/Pages/Queries/Queries.razor`)**
+**Example: Queries List (`/Users/mirkobudimir/Dev/beacon/Beacon.UI/Components/Pages/Queries/Queries.razor`)**
 
 ```razor
-@page "/semantico/queries"
+@page "/beacon/queries"
 @inherits BasePageComponent
 
-<SemanticoPageTitle Title="Queries"/>
+<BeaconPageTitle Title="Queries"/>
 <MudContainer Class="my-4 px-4">
-    <SemanticoPageHeader Icon="@Icons.Material.Filled.QueryBuilder" 
+    <BeaconPageHeader Icon="@Icons.Material.Filled.QueryBuilder" 
                         Title="Queries" 
                         ButtonText="New query" 
                         OnClick="@NewQuery"/>
-    <SemanticoPageAlert Text="Description text"/>
+    <BeaconPageAlert Text="Description text"/>
     <MudDataGrid @ref="_dataGrid" 
                 ServerData="ServerReload" 
                 T="QueryData" 
@@ -203,13 +203,13 @@ public class BasePageComponent: ComponentBase
 ```
 
 **Key Components:**
-- `SemanticoPageTitle`: Sets page title
-- `SemanticoPageHeader`: Provides consistent header with action button
-- `SemanticoPageAlert`: Info banner
+- `BeaconPageTitle`: Sets page title
+- `BeaconPageHeader`: Provides consistent header with action button
+- `BeaconPageAlert`: Info banner
 - `MudDataGrid`: Server-side data grid with pagination
 
 ### Dialog Pattern
-**Example: Add Project Dialog (`/Users/mirkobudimir/Dev/semantico/Semantico.UI/Components/Pages/Projects/AddProjectDialog.razor`)**
+**Example: Add Project Dialog (`/Users/mirkobudimir/Dev/beacon/Beacon.UI/Components/Pages/Projects/AddProjectDialog.razor`)**
 
 ```razor
 <MudDialog Class="pb-2">
@@ -307,13 +307,13 @@ internal class MigrationExecution : BaseEntity
 ### 3. UI Component Extensions
 
 **Pattern**: Follow existing page structure
-- Migration Jobs List: `/semantico/migrations`
-- Migration Job Details: `/semantico/migrations/details/{id}`  
+- Migration Jobs List: `/beacon/migrations`
+- Migration Job Details: `/beacon/migrations/details/{id}`  
 - Add Migration Dialog: `AddMigrationJobDialog.razor`
 
 **Reusable Components:**
-- `SemanticoPageHeader` - for consistent headers
-- `SemanticoPageAlert` - for informational messages
+- `BeaconPageHeader` - for consistent headers
+- `BeaconPageAlert` - for informational messages
 - `BasePageComponent` - for navigation and history
 - `MudDataGrid` - for job listing
 - Dialog pattern - for job creation/editing
@@ -341,7 +341,7 @@ services.AddSingleton<IAdapter, MigrationAdapter>();
 
 **Pattern**: Extend existing `JobService` or create `MigrationJobService`
 ```csharp
-internal class MigrationJobService(IDbContextFactory<SemanticoContext> contextFactory, 
+internal class MigrationJobService(IDbContextFactory<BeaconContext> contextFactory, 
                                   IQueryService queryService, 
                                   INotificationService notificationService) : IMigrationJobService
 {

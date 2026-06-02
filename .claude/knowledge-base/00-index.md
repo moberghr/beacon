@@ -1,8 +1,8 @@
-# Semantico Knowledge Base Index
+# Beacon Knowledge Base Index
 
 ## Overview
 
-Semantico is a .NET library for semantic database monitoring, alerting, and data orchestration. It enables scheduled SQL query execution with multi-channel notifications (Teams, Slack, Email, Jira) and ETL capabilities across PostgreSQL, SQL Server, and MySQL databases.
+Beacon is a .NET library for semantic database monitoring, alerting, and data orchestration. It enables scheduled SQL query execution with multi-channel notifications (Teams, Slack, Email, Jira) and ETL capabilities across PostgreSQL, SQL Server, and MySQL databases.
 
 ---
 
@@ -10,7 +10,7 @@ Semantico is a .NET library for semantic database monitoring, alerting, and data
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                            SEMANTICO ARCHITECTURE                            │
+│                            BEACON ARCHITECTURE                            │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
 │   ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐  │
@@ -21,7 +21,7 @@ Semantico is a .NET library for semantic database monitoring, alerting, and data
 │          └──────────────────┴──────────────────┴──────────────────┘         │
 │                                    │                                        │
 │                         ┌──────────▼──────────┐                             │
-│                         │    Semantico.UI     │ ◄─── UI Components          │
+│                         │    Beacon.UI     │ ◄─── UI Components          │
 │                         └──────────┬──────────┘                             │
 │                                    │                                        │
 │          ┌─────────────────────────┼─────────────────────────┐              │
@@ -44,7 +44,7 @@ Semantico is a .NET library for semantic database monitoring, alerting, and data
 │  └─────┘  └───────┘  └─────┘             └─────────┘ └──────┘               │
 │                                                                             │
 │          ┌───────────────────────────────────────────────────┐              │
-│          │              SemanticoContext (EF Core)           │              │
+│          │              BeaconContext (EF Core)           │              │
 │          └───────────────────────────┬───────────────────────┘              │
 │                                      │                                      │
 │               ┌──────────────────────┼──────────────────────┐               │
@@ -129,27 +129,27 @@ Notification delivery plugins implementing `IAdapter`. Factory pattern routes ba
 ### Database Operations
 ```csharp
 // Create migration
-dotnet ef migrations add Name --project Semantico.Core.PostgreSql
+dotnet ef migrations add Name --project Beacon.Core.PostgreSql
 
 // Apply migration
-dotnet ef database update --project Semantico.Core.PostgreSql
+dotnet ef database update --project Beacon.Core.PostgreSql
 ```
 
 ### Service Registration
 ```csharp
 // PostgreSQL
-builder.Services.AddPostgreSqlSemantico(connectionString, "schema");
+builder.Services.AddPostgreSqlBeacon(connectionString, "schema");
 
 // Configure services
-builder.Services.AddSemanticoAdmin(config, options => {
-    options.AddSemanticoScheduler<MyScheduler>();
-    options.BaseUrl = "https://example.com/semantico";
+builder.Services.AddBeaconAdmin(config, options => {
+    options.AddBeaconScheduler<MyScheduler>();
+    options.BaseUrl = "https://example.com/beacon";
 });
 
 // UI
-app.UseSemanticoUI()
+app.UseBeaconUI()
    .UseBasicAuthentication("admin", "pass")
-   .AddBlazorUI("/semantico");
+   .AddBlazorUI("/beacon");
 ```
 
 ### Query Execution Flow
@@ -175,7 +175,7 @@ Scheduler → JobService.ExecuteQuery()
 | **UI** | Blazor Server, MudBlazor 8.0 |
 | **ORM** | Entity Framework Core 9.0, Dapper |
 | **Databases** | PostgreSQL, SQL Server, MySQL, SQLite (virtual tables) |
-| **Scheduling** | ISemanticoScheduler (Hangfire/Quartz.NET) |
+| **Scheduling** | IBeaconScheduler (Hangfire/Quartz.NET) |
 | **Integrations** | Atlassian.SDK, AdaptiveCards, ClosedXML |
 
 ---
@@ -183,7 +183,7 @@ Scheduler → JobService.ExecuteQuery()
 ## File Locations
 
 ```
-Semantico.Core/
+Beacon.Core/
 ├── Data/Entities/                    # Entity classes
 ├── Data/Enums/                       # NotificationType, MigrationMode, etc.
 ├── Services/                         # Business logic
@@ -194,7 +194,7 @@ Semantico.Core/
 │   └── Jira/JiraAdapter.cs
 └── ServiceConfiguration.cs           # DI setup
 
-Semantico.UI/Components/
+Beacon.UI/Components/
 ├── Layout/MainLayout.razor           # App layout
 ├── Pages/                            # Feature pages
 └── Custom/                           # Reusable components

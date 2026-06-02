@@ -1,0 +1,28 @@
+---
+description: MediatR vertical-slice patterns for CQRS handler design
+globs: ["**/Handlers/**/*.cs", "**/Features/**/*.cs"]
+alwaysApply: false
+---
+<!-- Customized by setup-bootstrap on 2026-05-04. Detected: no FluentValidation; inline validation + InvalidOperationException. -->
+
+# MediatR Slice Patterns
+
+Shared conventions for Moberg CQRS/MediatR-style codebases.
+
+## Structure
+
+- Keep `Request`, `Response`, and `Handler` together when the project follows that pattern.
+- Use `Command` and `Query` suffixes consistently.
+- Match the folder layout used by neighboring slices.
+
+## Behavior
+
+- Handlers orchestrate application logic; they should not become dumping grounds for unrelated concerns.
+- Validate requests inline in the handler. No FluentValidation in this repo — throw `InvalidOperationException` for business-rule violations.
+- Keep side effects explicit.
+
+## Review Questions
+
+- Does this slice match adjacent slices in naming and structure?
+- Is validation present where the project expects it?
+- Is the handler doing orchestration only, or has business logic leaked into the wrong layer?

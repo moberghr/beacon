@@ -7,7 +7,7 @@ has_children: true
 
 # Features
 
-Comprehensive guides for all Semantico capabilities.
+Comprehensive guides for all Beacon capabilities.
 
 ## Core Features
 
@@ -38,7 +38,7 @@ Built-in user management with internal (password) and external (JWT/OAuth) authe
 Runtime application configuration through the Admin Settings UI. Hot-swap LLM providers, manage base URL, and view change history - all without restarting.
 
 ### [Authorization](authorization)
-Secure your Semantico installation with flexible authorization. Support for role-based access control (RBAC), database-backed roles, and custom authorization providers. Integrate with any authentication system.
+Secure your Beacon installation with flexible authorization. Support for role-based access control (RBAC), database-backed roles, and custom authorization providers. Integrate with any authentication system.
 
 ### [Multi-Step Queries](multi-step-queries)
 Chain multiple queries together and aggregate results. Query across different databases in a single workflow.
@@ -52,7 +52,7 @@ Manage notification targets for email, Teams, and Jira delivery channels.
 ## Quick Links
 
 <div class="code-example" markdown="1">
-🚀 **New to Semantico?**
+🚀 **New to Beacon?**
 
 Start with the [Quick Start Guide](../getting-started/quick-start) to create your first alert in 30 minutes.
 </div>

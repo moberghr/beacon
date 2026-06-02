@@ -1,0 +1,51 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+    <PropertyGroup>
+        <TargetFramework>net9.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+
+        <!-- RCL static web assets are exposed at /_content/Beacon.UI/* in consuming apps. -->
+        <StaticWebAssetBasePath>/</StaticWebAssetBasePath>
+
+        <!-- NuGet packaging metadata. Consumers reference this package to get the React SPA + MapBeaconUi(). -->
+        <IsPackable>true</IsPackable>
+        <PackageId>Beacon.UI</PackageId>
+        <Description>Beacon React SPA packaged as an ASP.NET Core Razor Class Library. Adds `app.MapBeaconUi()` to host the UI from any .NET 9 web app.</Description>
+        <Authors>Moberg</Authors>
+
+        <!-- React/Vite build wiring -->
+        <ReactAppDir>$(MSBuildProjectDirectory)/web</ReactAppDir>
+        <ReactBuildOutputDir>$(MSBuildProjectDirectory)/wwwroot</ReactBuildOutputDir>
+        <BuildReactInDebug Condition="'$(BuildReactInDebug)' == ''">false</BuildReactInDebug>
+        <ShouldBuildReact Condition="'$(Configuration)' == 'Release' Or '$(BuildReactInDebug)' == 'true'">true</ShouldBuildReact>
+        <ShouldBuildReact Condition="'$(ShouldBuildReact)' == ''">false</ShouldBuildReact>
+
+        <!-- Exclude the React source tree from the C# compile + RCL content scan.
+             Only wwwroot (vite build output) ships as static web assets. -->
+        <DefaultItemExcludes>$(DefaultItemExcludes);web/**</DefaultItemExcludes>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    </ItemGroup>
+
+    <Target Name="EnsureReactDependencies"
+            Condition="'$(ShouldBuildReact)' == 'true' And !Exists('$(ReactAppDir)/node_modules')">
+        <Message Importance="high" Text="Beacon.UI: installing npm dependencies in $(ReactAppDir)..." />
+        <Exec Command="npm ci" WorkingDirectory="$(ReactAppDir)" />
+    </Target>
+
+    <Target Name="BuildReactApp"
+            BeforeTargets="AssignTargetPaths;ResolveStaticWebAssetsConfiguration"
+            Condition="'$(ShouldBuildReact)' == 'true'"
+            DependsOnTargets="EnsureReactDependencies">
+        <Message Importance="high" Text="Beacon.UI: building React app (configuration $(Configuration))..." />
+        <Exec Command="npm run build" WorkingDirectory="$(ReactAppDir)" />
+    </Target>
+
+    <Target Name="CleanReactBuild" AfterTargets="Clean">
+        <RemoveDir Directories="$(ReactBuildOutputDir)" Condition="Exists('$(ReactBuildOutputDir)')" />
+    </Target>
+
+</Project>

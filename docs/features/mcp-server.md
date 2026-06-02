@@ -8,7 +8,7 @@ nav_order: 10
 # MCP Server
 {: .no_toc }
 
-Semantico exposes a **Model Context Protocol (MCP)** server that lets AI assistants (Claude, Cursor, Windsurf, custom agents) query your data sources, search your catalog, and access documentation — all through a standardized protocol.
+Beacon exposes a **Model Context Protocol (MCP)** server that lets AI assistants (Claude, Cursor, Windsurf, custom agents) query your data sources, search your catalog, and access documentation — all through a standardized protocol.
 
 <details open markdown="block">
   <summary>Table of contents</summary>
@@ -36,7 +36,7 @@ The MCP server is **project-centric**: each API key is scoped to one or more pro
 
 ### 1. Create an API Key
 
-Go to **Settings > API Keys** (`/semantico/settings/api-keys`) and create a new key:
+Go to **Settings > API Keys** (`/beacon/settings/api-keys`) and create a new key:
 - Choose a **scope**: `Read`, `Execute`, or `Admin`
 - Optionally restrict to specific **projects**
 - Copy the key — it's shown only once
@@ -45,14 +45,14 @@ The key format is: `sk-sem_...`
 
 ### 2. Configure Your MCP Client
 
-Add Semantico to your MCP client configuration. The exact format depends on your client.
+Add Beacon to your MCP client configuration. The exact format depends on your client.
 
 **Claude Desktop** (`claude_desktop_config.json`):
 ```json
 {
   "mcpServers": {
-    "semantico": {
-      "url": "https://your-semantico-host/semantico/mcp/sse",
+    "beacon": {
+      "url": "https://your-beacon-host/beacon/mcp/sse",
       "headers": {
         "Authorization": "Bearer sk-sem_YOUR_API_KEY"
       }
@@ -65,8 +65,8 @@ Add Semantico to your MCP client configuration. The exact format depends on your
 ```json
 {
   "mcpServers": {
-    "semantico": {
-      "url": "https://your-semantico-host/semantico/mcp/sse",
+    "beacon": {
+      "url": "https://your-beacon-host/beacon/mcp/sse",
       "headers": {
         "Authorization": "Bearer sk-sem_YOUR_API_KEY"
       }
@@ -79,8 +79,8 @@ Add Semantico to your MCP client configuration. The exact format depends on your
 ```json
 {
   "mcpServers": {
-    "semantico": {
-      "serverUrl": "https://your-semantico-host/semantico/mcp/sse",
+    "beacon": {
+      "serverUrl": "https://your-beacon-host/beacon/mcp/sse",
       "headers": {
         "Authorization": "Bearer sk-sem_YOUR_API_KEY"
       }
@@ -105,8 +105,8 @@ Once connected, your AI assistant can use the tools described below. Try asking:
 
 | Property | Value |
 |----------|-------|
-| **SSE Endpoint** | `GET /semantico/mcp/sse` |
-| **Message Endpoint** | `POST /semantico/mcp/message?sessionId={id}` |
+| **SSE Endpoint** | `GET /beacon/mcp/sse` |
+| **Message Endpoint** | `POST /beacon/mcp/message?sessionId={id}` |
 | **Transport** | Server-Sent Events (SSE) + JSON-RPC 2.0 |
 | **Protocol Version** | `2024-11-05` |
 | **Authentication** | `Authorization: Bearer sk-sem_...` header |
@@ -148,7 +148,7 @@ Get an overview of the project: data sources, schemas, tables, quality scores, a
 
 ### `ask`
 
-Ask a natural language question about your data. Semantico auto-detects the right data source(s), generates SQL, executes it, and returns results.
+Ask a natural language question about your data. Beacon auto-detects the right data source(s), generates SQL, executes it, and returns results.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
@@ -161,7 +161,7 @@ Ask a natural language question about your data. Semantico auto-detects the righ
 2. **SQL generation** — Generates SQL using your actual schema as context
 3. **Execution** — Runs the query with safety guardrails (read-only, row limits, PII detection)
 
-**Cross-source queries:** If your question spans multiple data sources, Semantico queries each source separately and joins results in an in-memory SQLite database.
+**Cross-source queries:** If your question spans multiple data sources, Beacon queries each source separately and joins results in an in-memory SQLite database.
 
 ---
 
@@ -231,10 +231,10 @@ The MCP server also exposes **4 resources per project** that clients can read di
 
 | Resource URI | Description |
 |-------------|-------------|
-| `semantico://project/{id}/documentation` | AI-generated project documentation (markdown) |
-| `semantico://project/{id}/schema` | Full schema context across all data sources |
-| `semantico://project/{id}/quality` | Data quality report with scores and trends |
-| `semantico://project/{id}/report` | Comprehensive project report (sources, repos, stats) |
+| `beacon://project/{id}/documentation` | AI-generated project documentation (markdown) |
+| `beacon://project/{id}/schema` | Full schema context across all data sources |
+| `beacon://project/{id}/quality` | Data quality report with scores and trends |
+| `beacon://project/{id}/report` | Comprehensive project report (sources, repos, stats) |
 
 ---
 
@@ -254,7 +254,7 @@ The MCP server enforces several safety measures:
 
 ## Configuration
 
-Administrators can customize the MCP server behavior at **Settings > MCP** (`/semantico/settings/mcp`):
+Administrators can customize the MCP server behavior at **Settings > MCP** (`/beacon/settings/mcp`):
 
 - **Custom tool descriptions** — Override the default description for each tool
 - **System prompt** — Customize the LLM prompt used for SQL generation in the `ask` tool
@@ -273,19 +273,19 @@ If your MCP client doesn't support SSE configuration natively, you can connect m
 
 ```bash
 curl -N -H "Authorization: Bearer sk-sem_YOUR_KEY" \
-  https://your-host/semantico/mcp/sse
+  https://your-host/beacon/mcp/sse
 ```
 
 The first message returns the message endpoint:
 ```
 event: endpoint
-data: https://your-host/semantico/mcp/message?sessionId=abc-123
+data: https://your-host/beacon/mcp/message?sessionId=abc-123
 ```
 
 ### Step 2: Initialize the Session
 
 ```bash
-curl -X POST "https://your-host/semantico/mcp/message?sessionId=abc-123" \
+curl -X POST "https://your-host/beacon/mcp/message?sessionId=abc-123" \
   -H "Authorization: Bearer sk-sem_YOUR_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -302,7 +302,7 @@ curl -X POST "https://your-host/semantico/mcp/message?sessionId=abc-123" \
 ### Step 3: List Available Tools
 
 ```bash
-curl -X POST "https://your-host/semantico/mcp/message?sessionId=abc-123" \
+curl -X POST "https://your-host/beacon/mcp/message?sessionId=abc-123" \
   -H "Authorization: Bearer sk-sem_YOUR_KEY" \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc": "2.0", "id": 2, "method": "tools/list"}'
@@ -311,7 +311,7 @@ curl -X POST "https://your-host/semantico/mcp/message?sessionId=abc-123" \
 ### Step 4: Call a Tool
 
 ```bash
-curl -X POST "https://your-host/semantico/mcp/message?sessionId=abc-123" \
+curl -X POST "https://your-host/beacon/mcp/message?sessionId=abc-123" \
   -H "Authorization: Bearer sk-sem_YOUR_KEY" \
   -H "Content-Type: application/json" \
   -d '{

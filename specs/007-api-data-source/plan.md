@@ -14,12 +14,12 @@ Add `DataSourceType.Api` as a new connector that imports REST API endpoints from
 
 #### Task 1.1: Add `DataSourceType.Api` enum value
 
-**File**: `Semantico.Core/Data/Enums/DataSourceType.cs`
+**File**: `Beacon.Core/Data/Enums/DataSourceType.cs`
 - Add `Api = 8` to the enum
 
 #### Task 1.2: Create API connection config models
 
-**File**: `Semantico.Connector.Api/Models/ApiConnectionConfig.cs`
+**File**: `Beacon.Connector.Api/Models/ApiConnectionConfig.cs`
 ```csharp
 public class ApiConnectionConfig
 {
@@ -31,7 +31,7 @@ public class ApiConnectionConfig
 }
 ```
 
-**File**: `Semantico.Connector.Api/Models/ApiAuthConfig.cs`
+**File**: `Beacon.Connector.Api/Models/ApiAuthConfig.cs`
 ```csharp
 public class ApiAuthConfig
 {
@@ -48,7 +48,7 @@ public class ApiAuthConfig
 }
 ```
 
-**File**: `Semantico.Connector.Api/Models/ApiEndpointFilter.cs`
+**File**: `Beacon.Connector.Api/Models/ApiEndpointFilter.cs`
 ```csharp
 public class ApiEndpointFilter
 {
@@ -59,7 +59,7 @@ public class ApiEndpointFilter
 
 #### Task 1.3: Create API query definition models
 
-**File**: `Semantico.Connector.Api/Models/ApiQueryDefinition.cs`
+**File**: `Beacon.Connector.Api/Models/ApiQueryDefinition.cs`
 ```csharp
 public class ApiQueryDefinition
 {
@@ -78,7 +78,7 @@ public class ApiQueryParameters
 }
 ```
 
-**File**: `Semantico.Connector.Api/Models/ApiResultMapping.cs`
+**File**: `Beacon.Connector.Api/Models/ApiResultMapping.cs`
 ```csharp
 public class ApiResultMapping
 {
@@ -96,7 +96,7 @@ public class ApiColumnMapping
 
 #### Task 1.4: Add API endpoint metadata to `DataSourceMetadata`
 
-**File**: `Semantico.Core/Models/Providers/DataSourceMetadata.cs`
+**File**: `Beacon.Core/Models/Providers/DataSourceMetadata.cs`
 - Add a new property for API endpoints:
 ```csharp
 /// <summary>
@@ -139,11 +139,11 @@ public class ApiResponseFieldMetadata
 
 ### Phase 2: Connector Project + Provider (depends on Phase 1)
 
-**Goal**: Create `Semantico.Connector.Api` project with the `IDataSourceProvider` implementation.
+**Goal**: Create `Beacon.Connector.Api` project with the `IDataSourceProvider` implementation.
 
 #### Task 2.1: Create the project
 
-**File**: `Semantico.Connector.Api/Semantico.Connector.Api.csproj`
+**File**: `Beacon.Connector.Api/Beacon.Connector.Api.csproj`
 ```xml
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
@@ -152,10 +152,10 @@ public class ApiResponseFieldMetadata
     <Nullable>enable</Nullable>
     <Version>2.0.5.0</Version>
     <IsPackable>true</IsPackable>
-    <Description>REST API connector for Semantico</Description>
+    <Description>REST API connector for Beacon</Description>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\Semantico.Core\Semantico.Core.csproj" />
+    <ProjectReference Include="..\Beacon.Core\Beacon.Core.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.OpenApi.Readers" Version="2.0.0-preview.2" />
@@ -164,12 +164,12 @@ public class ApiResponseFieldMetadata
 </Project>
 ```
 
-- Add project reference to `Semantico.sln`
-- Add project reference from `Semantico.SampleProject` to `Semantico.Connector.Api`
+- Add project reference to `Beacon.sln`
+- Add project reference from `Beacon.SampleProject` to `Beacon.Connector.Api`
 
 #### Task 2.2: OpenAPI import service
 
-**File**: `Semantico.Connector.Api/Services/OpenApiImportService.cs`
+**File**: `Beacon.Connector.Api/Services/OpenApiImportService.cs`
 
 Responsibilities:
 - Fetch OpenAPI spec from URL using `HttpClient`
@@ -197,7 +197,7 @@ public List<ApiEndpointMetadata> ImportFromString(
 
 #### Task 2.3: JSON response tabularizer
 
-**File**: `Semantico.Connector.Api/Services/JsonResponseTabularizer.cs`
+**File**: `Beacon.Connector.Api/Services/JsonResponseTabularizer.cs`
 
 Responsibilities:
 - Takes raw JSON response string + `ApiResultMapping`
@@ -218,7 +218,7 @@ public List<Dictionary<string, object?>> Tabularize(
 
 #### Task 2.4: HTTP client helper
 
-**File**: `Semantico.Connector.Api/Services/ApiHttpClientFactory.cs`
+**File**: `Beacon.Connector.Api/Services/ApiHttpClientFactory.cs`
 
 Responsibilities:
 - Create `HttpRequestMessage` from `ApiQueryDefinition` + `ApiConnectionConfig`
@@ -238,7 +238,7 @@ public HttpRequestMessage CreateRequest(
 
 #### Task 2.5: ApiProvider — `IDataSourceProvider` implementation
 
-**File**: `Semantico.Connector.Api/ApiProvider.cs`
+**File**: `Beacon.Connector.Api/ApiProvider.cs`
 
 Follow the exact pattern from `CloudWatchProvider`:
 - Constructor: inject `IEncryptionService`, `ILogger<ApiProvider>`, `IHttpClientFactory`, `OpenApiImportService`, `JsonResponseTabularizer`
@@ -270,13 +270,13 @@ Follow the exact pattern from `CloudWatchProvider`:
 
 #### Task 2.6: ServiceCollectionExtensions + ConnectorRegistry
 
-**File**: `Semantico.Connector.Api/ServiceCollectionExtensions.cs`
+**File**: `Beacon.Connector.Api/ServiceCollectionExtensions.cs`
 
 Follow exact pattern from CloudWatch:
 ```csharp
 public static class ServiceCollectionExtensions
 {
-    public static SemanticoBuilder AddApiConnector(this SemanticoBuilder builder)
+    public static BeaconBuilder AddApiConnector(this BeaconBuilder builder)
     {
         ConnectorRegistry.RegisterDataSourceType(DataSourceType.Api, "REST API");
         builder.Services.AddTransient<IDataSourceProvider, ApiProvider>();
@@ -289,8 +289,8 @@ public static class ServiceCollectionExtensions
 
 #### Task 2.7: Register in SampleProject
 
-**File**: `Semantico.SampleProject/Program.cs`
-- Add `using Semantico.Connector.Api;`
+**File**: `Beacon.SampleProject/Program.cs`
+- Add `using Beacon.Connector.Api;`
 - Add `.AddApiConnector()` in the connector chain (after `.AddBigQueryConnector()`)
 
 ---
@@ -301,7 +301,7 @@ public static class ServiceCollectionExtensions
 
 #### Task 3.1: Store API endpoints as DatabaseMetadata rows
 
-**File**: `Semantico.Core/Services/DatabaseMetadataService.cs`
+**File**: `Beacon.Core/Services/DatabaseMetadataService.cs`
 
 Modify `RefreshMetadataAsync` (or add new method `RefreshApiMetadataAsync`):
 - When `DataSourceType == Api`, use the `IDataSourceProvider.GetMetadataAsync()` to get endpoints
@@ -318,13 +318,13 @@ Modify `RefreshMetadataAsync` (or add new method `RefreshApiMetadataAsync`):
 
 **Decision**: Rather than modifying the existing `RefreshMetadataAsync` which is tightly coupled to `IDatabaseMetadataExtractor`, add a new method and call it from `DataSourceService` after creation when type is Api.
 
-**File**: `Semantico.Core/Services/DataSourceService.cs`
+**File**: `Beacon.Core/Services/DataSourceService.cs`
 - In `CreateDataSource`: after saving, if `DataSourceType == Api`, trigger metadata import
 - This requires injecting the provider factory and calling `GetMetadataAsync`, then storing results
 
 #### Task 3.2: Update DataSourceService to handle API metadata import on creation
 
-**File**: `Semantico.Core/Services/DataSourceService.cs`
+**File**: `Beacon.Core/Services/DataSourceService.cs`
 
 After `await context.SaveChangesAsync()` in `CreateDataSource`:
 ```csharp
@@ -357,7 +357,7 @@ Add private method `StoreApiEndpointsAsMetadata` that creates `DatabaseMetadata`
 
 #### Task 4.1: Add API fields to AddDataSourceDialog
 
-**File**: `Semantico.UI/Components/Pages/DataSources/AddDataSourceDialog.razor`
+**File**: `Beacon.UI/Components/Pages/DataSources/AddDataSourceDialog.razor`
 
 Add a new `else if (_selectedDataSourceType == DataSourceType.Api)` block after the BigQuery section:
 
@@ -402,7 +402,7 @@ case DataSourceType.Api:
 
 #### Task 5.1: Create ApiQueryEditor component
 
-**File**: `Semantico.UI/Components/Pages/DataSources/ApiQueryEditor.razor`
+**File**: `Beacon.UI/Components/Pages/DataSources/ApiQueryEditor.razor`
 
 New Blazor component (follows the pattern of `CloudWatchQueryEditor`):
 
@@ -428,7 +428,7 @@ New Blazor component (follows the pattern of `CloudWatchQueryEditor`):
 
 #### Task 5.2: Integrate ApiQueryEditor into QueryEditor page
 
-**File**: `Semantico.UI/Components/Pages/DataSources/QueryEditor.razor`
+**File**: `Beacon.UI/Components/Pages/DataSources/QueryEditor.razor`
 
 Add condition (line ~213, where CloudWatch check is):
 ```razor
@@ -453,7 +453,7 @@ Also update the Overview card (line ~46) to handle API type:
 
 #### Task 6.1: Update GetDataCatalogHandler
 
-**File**: `Semantico.Core/Handlers/DataCatalog/GetDataCatalogHandler.cs`
+**File**: `Beacon.Core/Handlers/DataCatalog/GetDataCatalogHandler.cs`
 
 Current query filters `where ds.DataSourceType == DataSourceType.Database`. Change to:
 ```csharp
@@ -476,7 +476,7 @@ public record DataCatalogEntry(
 
 #### Task 6.2: Update Data Catalog UI
 
-**File**: `Semantico.UI/Components/Pages/DataCatalog/DataCatalog.razor`
+**File**: `Beacon.UI/Components/Pages/DataCatalog/DataCatalog.razor`
 
 - Add a type icon/badge to each card: database icon for Database, API icon (e.g., `Icons.Material.Filled.Api`) for API
 - For API entries, show parameter count instead of column count (or hide column count if 0)
@@ -491,7 +491,7 @@ public record DataCatalogEntry(
 
 #### Task 7.1: Update ListDataSourcesTool
 
-**File**: `Semantico.MCP/Tools/ListDataSourcesTool.cs`
+**File**: `Beacon.MCP/Tools/ListDataSourcesTool.cs`
 
 The `ListDataSourcesAsync` method already lists all data sources — no change needed for the list.
 
@@ -501,7 +501,7 @@ The `ListDataSourcesAsync` method already lists all data sources — no change n
 
 #### Task 7.2: Update ExecuteQueryTool
 
-**File**: `Semantico.MCP/Tools/ExecuteQueryTool.cs`
+**File**: `Beacon.MCP/Tools/ExecuteQueryTool.cs`
 
 Current tool expects `sql` parameter. For API data sources, the "query" is a JSON object.
 
@@ -521,7 +521,7 @@ In `ExecuteAsync`:
 
 #### Task 7.3: Update GetDocumentationTool
 
-**File**: `Semantico.MCP/Tools/GetDocumentationTool.cs`
+**File**: `Beacon.MCP/Tools/GetDocumentationTool.cs`
 
 Verify this works with API data sources. Since documentation is stored per data source and the AI documentation service reads from `DatabaseMetadata`, it should work if the AI documentation service is updated (Phase 8).
 
@@ -533,7 +533,7 @@ Verify this works with API data sources. Since documentation is stored per data 
 
 #### Task 8.1: Update AI documentation service context building
 
-**File**: `Semantico.AI/Services/Ai/AiDocumentationService.cs` (or `MultiAgentDocumentationService.cs`)
+**File**: `Beacon.AI/Services/Ai/AiDocumentationService.cs` (or `MultiAgentDocumentationService.cs`)
 
 When building context for the LLM:
 - For API data sources, include endpoint descriptions, parameters, and response fields from `DatabaseMetadata`
@@ -557,7 +557,7 @@ This is a minor change — the service already reads `DatabaseMetadata` for tabl
 
 #### Task 9.3: Unit tests
 
-**File**: `Semantico.Tests/` — new test files:
+**File**: `Beacon.Tests/` — new test files:
 - `JsonResponseTabularizerTests.cs` — test various JSON shapes, auto-detect, explicit mapping, edge cases
 - `OpenApiImportServiceTests.cs` — test spec parsing, filtering, response schema extraction
 - `ApiProviderTests.cs` — test query definition parsing, validation
@@ -569,36 +569,36 @@ This is a minor change — the service already reads `DatabaseMetadata` for tabl
 ### New Files
 | File | Phase |
 |------|-------|
-| `Semantico.Connector.Api/Semantico.Connector.Api.csproj` | 2.1 |
-| `Semantico.Connector.Api/ApiProvider.cs` | 2.5 |
-| `Semantico.Connector.Api/ServiceCollectionExtensions.cs` | 2.6 |
-| `Semantico.Connector.Api/Models/ApiConnectionConfig.cs` | 1.2 |
-| `Semantico.Connector.Api/Models/ApiAuthConfig.cs` | 1.2 |
-| `Semantico.Connector.Api/Models/ApiEndpointFilter.cs` | 1.2 |
-| `Semantico.Connector.Api/Models/ApiQueryDefinition.cs` | 1.3 |
-| `Semantico.Connector.Api/Models/ApiResultMapping.cs` | 1.3 |
-| `Semantico.Connector.Api/Services/OpenApiImportService.cs` | 2.2 |
-| `Semantico.Connector.Api/Services/JsonResponseTabularizer.cs` | 2.3 |
-| `Semantico.Connector.Api/Services/ApiHttpClientFactory.cs` | 2.4 |
-| `Semantico.UI/Components/Pages/DataSources/ApiQueryEditor.razor` | 5.1 |
-| `Semantico.Tests/JsonResponseTabularizerTests.cs` | 9.3 |
-| `Semantico.Tests/OpenApiImportServiceTests.cs` | 9.3 |
+| `Beacon.Connector.Api/Beacon.Connector.Api.csproj` | 2.1 |
+| `Beacon.Connector.Api/ApiProvider.cs` | 2.5 |
+| `Beacon.Connector.Api/ServiceCollectionExtensions.cs` | 2.6 |
+| `Beacon.Connector.Api/Models/ApiConnectionConfig.cs` | 1.2 |
+| `Beacon.Connector.Api/Models/ApiAuthConfig.cs` | 1.2 |
+| `Beacon.Connector.Api/Models/ApiEndpointFilter.cs` | 1.2 |
+| `Beacon.Connector.Api/Models/ApiQueryDefinition.cs` | 1.3 |
+| `Beacon.Connector.Api/Models/ApiResultMapping.cs` | 1.3 |
+| `Beacon.Connector.Api/Services/OpenApiImportService.cs` | 2.2 |
+| `Beacon.Connector.Api/Services/JsonResponseTabularizer.cs` | 2.3 |
+| `Beacon.Connector.Api/Services/ApiHttpClientFactory.cs` | 2.4 |
+| `Beacon.UI/Components/Pages/DataSources/ApiQueryEditor.razor` | 5.1 |
+| `Beacon.Tests/JsonResponseTabularizerTests.cs` | 9.3 |
+| `Beacon.Tests/OpenApiImportServiceTests.cs` | 9.3 |
 
 ### Modified Files
 | File | Phase | Change |
 |------|-------|--------|
-| `Semantico.Core/Data/Enums/DataSourceType.cs` | 1.1 | Add `Api = 8` |
-| `Semantico.Core/Models/Providers/DataSourceMetadata.cs` | 1.4 | Add `Endpoints` property + metadata classes |
-| `Semantico.Core/Services/DataSourceService.cs` | 3.2 | Import API metadata on creation |
-| `Semantico.Core/Services/DatabaseMetadataService.cs` | 3.1 | Support API metadata storage/refresh |
-| `Semantico.Core/Handlers/DataCatalog/GetDataCatalogHandler.cs` | 6.1 | Include API type, add DataSourceType to record |
-| `Semantico.UI/Components/Pages/DataSources/AddDataSourceDialog.razor` | 4.1 | API form fields |
-| `Semantico.UI/Components/Pages/DataSources/QueryEditor.razor` | 5.2 | Route to ApiQueryEditor |
-| `Semantico.UI/Components/Pages/DataCatalog/DataCatalog.razor` | 6.2 | Type badge, API endpoint display |
-| `Semantico.MCP/Tools/ListDataSourcesTool.cs` | 7.1 | API-aware output text |
-| `Semantico.MCP/Tools/ExecuteQueryTool.cs` | 7.2 | `api_query` parameter, skip SQL guardrails |
-| `Semantico.SampleProject/Program.cs` | 2.7 | Register `.AddApiConnector()` |
-| `Semantico.sln` | 2.1 | Add project reference |
+| `Beacon.Core/Data/Enums/DataSourceType.cs` | 1.1 | Add `Api = 8` |
+| `Beacon.Core/Models/Providers/DataSourceMetadata.cs` | 1.4 | Add `Endpoints` property + metadata classes |
+| `Beacon.Core/Services/DataSourceService.cs` | 3.2 | Import API metadata on creation |
+| `Beacon.Core/Services/DatabaseMetadataService.cs` | 3.1 | Support API metadata storage/refresh |
+| `Beacon.Core/Handlers/DataCatalog/GetDataCatalogHandler.cs` | 6.1 | Include API type, add DataSourceType to record |
+| `Beacon.UI/Components/Pages/DataSources/AddDataSourceDialog.razor` | 4.1 | API form fields |
+| `Beacon.UI/Components/Pages/DataSources/QueryEditor.razor` | 5.2 | Route to ApiQueryEditor |
+| `Beacon.UI/Components/Pages/DataCatalog/DataCatalog.razor` | 6.2 | Type badge, API endpoint display |
+| `Beacon.MCP/Tools/ListDataSourcesTool.cs` | 7.1 | API-aware output text |
+| `Beacon.MCP/Tools/ExecuteQueryTool.cs` | 7.2 | `api_query` parameter, skip SQL guardrails |
+| `Beacon.SampleProject/Program.cs` | 2.7 | Register `.AddApiConnector()` |
+| `Beacon.sln` | 2.1 | Add project reference |
 
 ## Execution Order
 

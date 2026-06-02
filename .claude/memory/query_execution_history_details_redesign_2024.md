@@ -6,7 +6,7 @@ Completely redesigned the Query Execution History Details page (`/query-executio
 ## Key Changes
 
 ### 1. CSS Extraction (MAJOR IMPROVEMENT)
-**Extracted common enterprise styles to `/wwwroot/css/semantico-styles.css`**:
+**Extracted common enterprise styles to `/wwwroot/css/beacon-styles.css`**:
 - `.hero-stat-card` - Primary gradient cards
 - `.hero-stat-card-success` - Green gradient variant
 - `.hero-stat-card-info` - Blue gradient variant
@@ -69,21 +69,21 @@ Completely redesigned the Query Execution History Details page (`/query-executio
 - Alert message if no results stored
 
 ### Removed Elements
-- Removed `SemanticoPageHeader` component
+- Removed `BeaconPageHeader` component
 - Removed awkward `px-2` classes from cards
 - Cleaner overall layout
 - **Removed inline CSS** (now uses shared styles)
 
 ## Files Modified
 
-**Semantico.UI/wwwroot/css/semantico-styles.css**
+**Beacon.UI/wwwroot/css/beacon-styles.css**
 - Added enterprise dashboard styles section (~90 lines)
 - Hero card variants (primary, success, info, warning)
 - Detail card styling
 - Section title styling
 - Info row styling with hover effects
 
-**Semantico.UI/Components/Pages/QueryExecutionHistory/QueryExecutionHistoryDetails.razor**
+**Beacon.UI/Components/Pages/QueryExecutionHistory/QueryExecutionHistoryDetails.razor**
 - Complete redesign (~280 lines)
 - **No inline CSS** - uses shared styles
 - 4 hero stat cards
@@ -176,12 +176,12 @@ Each page had duplicate inline CSS:
 - **Total: ~332 lines of duplicate CSS**
 
 ### After
-All pages now use shared CSS from semantico-styles.css:
+All pages now use shared CSS from beacon-styles.css:
 - Home.razor: **0 lines of inline CSS**
 - QueryDetails.razor: **0 lines of inline CSS**
 - TaskDetails.razor: **0 lines of inline CSS**
 - QueryExecutionHistoryDetails.razor: **0 lines of inline CSS**
-- semantico-styles.css: **~90 lines of shared CSS**
+- beacon-styles.css: **~90 lines of shared CSS**
 - **Reduction: 242 lines of duplicate code eliminated**
 
 ### Future Impact

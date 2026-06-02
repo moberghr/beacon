@@ -6,25 +6,25 @@ The multi-agent documentation system is now **fully integrated** and ready for t
 
 ### Core Components
 
-1. **Service Layer** (`Semantico.Core/Services/Ai/MultiAgent/`)
+1. **Service Layer** (`Beacon.Core/Services/Ai/MultiAgent/`)
    - `IMultiAgentDocumentationService` - Service interface
    - `MultiAgentDocumentationService` - Main orchestration service
    - `MultiAgentPrompts` - System and user prompts for each agent phase
 
-2. **Handler** (`Semantico.Core/Handlers/Documentation/`)
+2. **Handler** (`Beacon.Core/Handlers/Documentation/`)
    - `GenerateMultiAgentDocumentationHandler` - MediatR handler
    - `GenerateMultiAgentDocumentationCommand` - Command with progress reporting
 
-3. **Models** (`Semantico.Core/Models/Ai/MultiAgent/`)
+3. **Models** (`Beacon.Core/Models/Ai/MultiAgent/`)
    - `DocumentationProgress` - Real-time progress updates
    - `MultiAgentGenerationOptions` - Configuration options
    - `OrchestratorResult`, `DomainResult`, `AggregatedDocumentation` - Results
 
-4. **UI** (`Semantico.UI/Components/Pages/DataSources/`)
+4. **UI** (`Beacon.UI/Components/Pages/DataSources/`)
    - `GenerateDocumentationDialog.razor` - Dialog with multi-agent switch
    - `QueryEditor.razor` - Page with "Multi-Agent Workflow" button
 
-5. **Dependency Injection** (`Semantico.Core/ServiceConfiguration.cs`)
+5. **Dependency Injection** (`Beacon.Core/ServiceConfiguration.cs`)
    - Service registered on line 135
    - Requires LLM configuration in appsettings.json
 
@@ -79,7 +79,7 @@ Output: Unified, cohesive documentation
 1. **LLM Configuration** in `appsettings.json`:
    ```json
    {
-     "Semantico": {
+     "Beacon": {
        "EncryptionKey": "your-32-character-encryption-key",
        "LLM": {
          "Provider": "OpenAI",
@@ -96,9 +96,9 @@ Output: Unified, cohesive documentation
    }
    ```
 
-2. **Enable AI in Semantico Configuration**:
+2. **Enable AI in Beacon Configuration**:
    ```csharp
-   builder.Services.AddSemantico(builder.Configuration, options =>
+   builder.Services.AddBeacon(builder.Configuration, options =>
    {
        options.UseAI = true; // IMPORTANT!
        // ... other options
@@ -109,11 +109,11 @@ Output: Unified, cohesive documentation
 
 1. **Start the Application**
    ```bash
-   dotnet run --project Semantico.SampleProject
+   dotnet run --project Beacon.SampleProject
    ```
 
 2. **Navigate to Data Source**
-   - Go to https://localhost:7187/semantico
+   - Go to https://localhost:7187/beacon
    - Log in (default: admin/admin)
    - Click on a data source with multiple tables (10+ recommended)
 
@@ -205,7 +205,7 @@ Output: Unified, cohesive documentation
 ## Troubleshooting
 
 ### "AI service not available"
-- Check `Semantico:LLM` configuration in appsettings.json
+- Check `Beacon:LLM` configuration in appsettings.json
 - Verify `options.UseAI = true` in ServiceConfiguration
 - Ensure API key is valid
 

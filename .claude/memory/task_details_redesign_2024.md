@@ -94,7 +94,7 @@ Completely redesigned the Task Details page (`/tasks/{id}`) to match the new ent
 - **Rolling thresholds**: Also limited to last 30 to match data points
 
 ### Removed Elements
-- Removed `SemanticoPageHeader` component
+- Removed `BeaconPageHeader` component
 - Removed awkward `px-2` classes from cards
 - Removed separate Actions section at bottom
 - Moved action buttons to page header
@@ -102,7 +102,7 @@ Completely redesigned the Task Details page (`/tasks/{id}`) to match the new ent
 
 ## Files Modified
 
-**Semantico.UI/Components/Pages/Tasks/TaskDetails.razor**
+**Beacon.UI/Components/Pages/Tasks/TaskDetails.razor**
 - Complete redesign (~720 lines including CSS)
 - Added ~90 lines of CSS styling
 - 4 hero stat cards

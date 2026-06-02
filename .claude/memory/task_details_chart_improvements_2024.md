@@ -6,7 +6,7 @@ Updated the TaskDetails page charts to make them taller and ensure all X-axis la
 ## Changes Made
 
 ### 1. Result Count Progression Chart
-**File**: Semantico.UI/Components/Pages/Tasks/TaskDetails.razor (Line 118)
+**File**: Beacon.UI/Components/Pages/Tasks/TaskDetails.razor (Line 118)
 
 **Before**:
 ```razor
@@ -22,7 +22,7 @@ Height="400px"
 - Already had `_axisChartOptions.XAxisLabelRotation = 45` set in PrepareChartData()
 
 ### 2. Anomaly Detection Chart
-**File**: Semantico.UI/Components/Pages/Tasks/TaskDetails.razor (Line 163)
+**File**: Beacon.UI/Components/Pages/Tasks/TaskDetails.razor (Line 163)
 
 **Before**:
 ```razor
@@ -46,7 +46,7 @@ Height="400px"
 ```
 
 ### 3. Added AxisChartOptions Field
-**File**: Semantico.UI/Components/Pages/Tasks/TaskDetails.razor (Line 458)
+**File**: Beacon.UI/Components/Pages/Tasks/TaskDetails.razor (Line 458)
 
 **Added**:
 ```csharp
@@ -54,7 +54,7 @@ private AxisChartOptions _anomalyAxisChartOptions = new();
 ```
 
 ### 4. Configured X-Axis Rotation for Anomaly Chart
-**File**: Semantico.UI/Components/Pages/Tasks/TaskDetails.razor (Line 616)
+**File**: Beacon.UI/Components/Pages/Tasks/TaskDetails.razor (Line 616)
 
 **Added to PrepareAnomalyChart() method**:
 ```csharp
@@ -95,7 +95,7 @@ The `XAxisLabelRotation = 45` property rotates labels 45 degrees clockwise, whic
 
 ## Files Modified
 
-**Semantico.UI/Components/Pages/Tasks/TaskDetails.razor**:
+**Beacon.UI/Components/Pages/Tasks/TaskDetails.razor**:
 - Line 122: Changed chart height from 250px to 400px
 - Line 167: Changed chart height from 300px to 400px
 - Line 169: Added `AxisChartOptions="@_anomalyAxisChartOptions"`
@@ -106,5 +106,5 @@ The `XAxisLabelRotation = 45` property rotates labels 45 degrees clockwise, whic
 ✅ Build succeeded with 0 warnings, 0 errors
 
 ## Location
-Page URL: `https://localhost:7187/semantico/tasks/{id}`
-Example: `https://localhost:7187/semantico/tasks/8`
+Page URL: `https://localhost:7187/beacon/tasks/{id}`
+Example: `https://localhost:7187/beacon/tasks/8`

@@ -34,9 +34,9 @@ Admin Settings provides:
 
 | Setting | Description | Example |
 |---------|-------------|---------|
-| **Base URL** | Application URL for notification links | `https://yourdomain.com/semantico` |
+| **Base URL** | Application URL for notification links | `https://yourdomain.com/beacon` |
 
-The Base URL is used to generate clickable links in Teams/Slack notifications that take users to the Semantico UI.
+The Base URL is used to generate clickable links in Teams/Slack notifications that take users to the Beacon UI.
 
 ### AI Configuration
 
@@ -87,7 +87,7 @@ AppSettingsService.SaveSettingsAsync()
     │
     ├── Save to database (encrypted)
     ├── Invalidate cache
-    ├── Update SemanticoConfiguration singleton
+    ├── Update BeaconConfiguration singleton
     │
     └── ILlmConfigurationUpdater.UpdateConfiguration()
             │
@@ -116,8 +116,8 @@ Settings can be pre-configured in two ways:
 
 ```json
 {
-  "Semantico": {
-    "BaseUrl": "https://yourdomain.com/semantico",
+  "Beacon": {
+    "BaseUrl": "https://yourdomain.com/beacon",
     "LLM": {
       "Provider": "OpenAI",
       "ApiKey": "sk-your-api-key",
@@ -185,7 +185,7 @@ public class MyService
 
 ```csharp
 var settings = await _settingsService.GetSettingsAsync();
-settings.BaseUrl = "https://new-domain.com/semantico";
+settings.BaseUrl = "https://new-domain.com/beacon";
 
 await _settingsService.SaveSettingsAsync(settings, userId: currentUser.Id);
 ```
@@ -210,7 +210,7 @@ public interface ILlmConfigurationUpdater
 }
 ```
 
-This interface lives in `Semantico.Core` so that `AppSettingsService` can call it without depending on `Semantico.AI`. The implementation (`LlmProviderManager`) lives in the AI project.
+This interface lives in `Beacon.Core` so that `AppSettingsService` can call it without depending on `Beacon.AI`. The implementation (`LlmProviderManager`) lives in the AI project.
 
 ## Caching
 

@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allowedTools": [
+      "Bash(dotnet build:*)",
+      "Bash(dotnet test:*)",
+      "Bash(dotnet format:*)"
+    ],
+    "deny": [
+      "Read(**/appsettings.Production.json)",
+      "Bash(dotnet publish:*)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=$(jq -r '.tool_input.file_path // empty' 2>/dev/null); case \"$f\" in *.cs) dotnet format --include \"$f\" --verbosity quiet 2>/dev/null || true ;; esac"
+          }
+        ]
+      }
+    ]
+  }
+}

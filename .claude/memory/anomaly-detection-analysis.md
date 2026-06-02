@@ -1,14 +1,14 @@
-# Anomaly Detection Feature Analysis for Semantico
+# Anomaly Detection Feature Analysis for Beacon
 
 ## Executive Summary
 
 **Verdict: HIGHLY VIABLE** ✅
 
-Semantico is exceptionally well-positioned to add anomaly detection. The existing infrastructure (query execution, scheduling, notifications, task management) provides 80% of what's needed. Anomaly detection would be a natural evolution that reduces alert fatigue and provides intelligent monitoring.
+Beacon is exceptionally well-positioned to add anomaly detection. The existing infrastructure (query execution, scheduling, notifications, task management) provides 80% of what's needed. Anomaly detection would be a natural evolution that reduces alert fatigue and provides intelligent monitoring.
 
 ---
 
-## Current Semantico Capabilities
+## Current Beacon Capabilities
 
 ### Core Architecture
 - **Query Engine**: Multi-step SQL execution with result chaining
@@ -29,7 +29,7 @@ Subscription → Query Execution → Store Results → Send Notification
 
 ## Five Pillars of Data Observability (Monte Carlo)
 
-| Pillar | Definition | Semantico Current Support |
+| Pillar | Definition | Beacon Current Support |
 |--------|------------|---------------------------|
 | **Freshness** | Data currency and update gaps | ✅ Can detect with queries |
 | **Distribution** | Field-level data health within ranges | ✅ Can detect with queries |
@@ -354,7 +354,7 @@ FROM sales_fact
 - **Features**: APM + monitoring with anomaly detection
 - **Gap**: Not database-focused
 
-### Semantico + Anomaly Detection
+### Beacon + Anomaly Detection
 - **Pricing**: Open source / self-hosted
 - **Features**: Database monitoring with intelligent anomaly detection
 - **Advantage**: Affordable, database-native, SQL-based
@@ -369,7 +369,7 @@ FROM sales_fact
 ✅ **Intelligent Monitoring**: Detect issues users didn't know to look for
 ✅ **Better Insights**: Understand "is this normal?" automatically
 
-### For Semantico Product
+### For Beacon Product
 ✅ **Competitive Differentiation**: Most monitoring tools lack anomaly detection
 ✅ **Natural Evolution**: Builds on existing infrastructure
 ✅ **Premium Feature**: Could be paid tier for hosted version
@@ -503,7 +503,7 @@ CREATE TABLE anomaly_events (
 2. **Low Implementation Cost**: ~5 days for MVP
 3. **Strong Market Fit**: Fills gap between basic monitoring and expensive observability platforms
 4. **Natural Evolution**: Builds on existing solid foundation
-5. **Competitive Advantage**: Differentiates Semantico from alternatives
+5. **Competitive Advantage**: Differentiates Beacon from alternatives
 
 ### Suggested Approach
 1. **Start with Phase 1 MVP**: Row count anomaly detection only

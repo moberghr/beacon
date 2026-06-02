@@ -7,14 +7,14 @@
 
 ## Purpose
 
-This guide provides step-by-step instructions for creating the comprehensive documentation system for Semantico. It covers setup, content creation workflow, and validation.
+This guide provides step-by-step instructions for creating the comprehensive documentation system for Beacon. It covers setup, content creation workflow, and validation.
 
 ## Prerequisites
 
-- Git access to Semantico repository
+- Git access to Beacon repository
 - Text editor or IDE for Markdown editing
 - Basic understanding of Jekyll and GitHub Pages
-- Familiarity with Semantico's features (from research.md)
+- Familiarity with Beacon's features (from research.md)
 - Ruby 2.7+ and Bundler (for local Jekyll testing)
 
 ## Quick Overview
@@ -37,7 +37,7 @@ This guide provides step-by-step instructions for creating the comprehensive doc
 
 ```bash
 # Navigate to repository root
-cd /Users/mirkobudimir/Dev/semantico
+cd /Users/mirkobudimir/Dev/beacon
 
 # Create directory structure
 mkdir -p docs/{getting-started,features,advanced,api,troubleshooting,contributing}
@@ -50,10 +50,10 @@ Create `docs/_config.yml`:
 
 ```yaml
 # Site settings
-title: "Semantico Documentation"
-description: "Comprehensive documentation for Semantico - semantic database alerting and notification system"
+title: "Beacon Documentation"
+description: "Comprehensive documentation for Beacon - semantic database alerting and notification system"
 baseurl: "" # Leave empty for root deployment
-url: "https://mibu.github.io/semantico"
+url: "https://moberghr.github.io/beacon"
 
 # Build settings
 markdown: kramdown
@@ -71,16 +71,16 @@ logo: "/assets/images/logo.png"
 # Navigation
 nav_external_links:
   - title: GitHub
-    url: https://github.com/MiBu/semantico
+    url: https://github.com/moberghr/beacon
 
 # Accessibility
 aux_links:
   "View on GitHub":
-    - "https://github.com/MiBu/semantico"
+    - "https://github.com/moberghr/beacon"
 
 # SEO
 lang: en-US
-author: Semantico Team
+author: Beacon Team
 
 # Exclude from build
 exclude:
@@ -145,26 +145,26 @@ bundle exec jekyll serve
 ```markdown
 ---
 layout: home
-title: Semantico
+title: Beacon
 nav_order: 1
 description: "Semantic database alerting and notification system"
 permalink: /
 ---
 
-# Semantico
+# Beacon
 {: .fs-9 }
 
 Powerful semantic alerts and notifications for your databases
 {: .fs-6 .fw-300 }
 
 [Get Started](getting-started/quick-start){: .btn .btn-primary .fs-5 .mb-4 .mb-md-0 .mr-2 }
-[View on GitHub](https://github.com/MiBu/semantico){: .btn .fs-5 .mb-4 .mb-md-0 }
+[View on GitHub](https://github.com/moberghr/beacon){: .btn .fs-5 .mb-4 .mb-md-0 }
 
 ---
 
-## Why Semantico?
+## Why Beacon?
 
-Semantico transforms database monitoring with semantic queries, flexible alerting, and cross-database orchestration.
+Beacon transforms database monitoring with semantic queries, flexible alerting, and cross-database orchestration.
 
 - **Multi-Database Support**: PostgreSQL, SQL Server, and MySQL in one unified platform
 - **Flexible Alerting**: Email, Microsoft Teams, and Jira notifications with cron scheduling
@@ -221,7 +221,7 @@ Get your first database alert running in under 30 minutes:
    docker compose up -d
    ```
 
-2. **Access the UI** at `http://localhost:8080/semantico`
+2. **Access the UI** at `http://localhost:8080/beacon`
 
 3. **Create a project** connecting to your database
 
@@ -274,12 +274,12 @@ nav_order: 1
 
 # Installation Guide
 
-Deploy Semantico with Docker Compose in under 10 minutes.
+Deploy Beacon with Docker Compose in under 10 minutes.
 
 ## Prerequisites
 
 - Docker 20.10+ and Docker Compose 2.0+
-- PostgreSQL 12+ database for Semantico metadata
+- PostgreSQL 12+ database for Beacon metadata
 - (Optional) SendGrid API key for email notifications
 
 ## Quick Installation
@@ -288,21 +288,21 @@ Deploy Semantico with Docker Compose in under 10 minutes.
 
 ```yaml
 services:
-  semantico:
-    image: 'ghcr.io/MiBu/semantico:latest'
+  beacon:
+    image: 'ghcr.io/moberghr/beacon:latest'
     ports:
       - 8080:80
     environment:
-      # Required: PostgreSQL connection for Semantico metadata
-      - ConnectionStrings__SemanticoContext=Host=your-postgres-host;Database=semantico;Username=semantico;Password=your-password
+      # Required: PostgreSQL connection for Beacon metadata
+      - ConnectionStrings__BeaconContext=Host=your-postgres-host;Database=beacon;Username=beacon;Password=your-password
 
       # Optional: SendGrid for email notifications
       - SendGridSettings__ApiKey=your-sendgrid-api-key
       - SendGridSettings__SenderEmail=alerts@yourdomain.com
-      - SendGridSettings__SenderName=Semantico Alerts
+      - SendGridSettings__SenderName=Beacon Alerts
 ```
 
-### 2. Start Semantico
+### 2. Start Beacon
 
 ```bash
 docker compose up -d
@@ -310,7 +310,7 @@ docker compose up -d
 
 ### 3. Access the UI
 
-Open your browser to [http://localhost:8080/semantico](http://localhost:8080/semantico)
+Open your browser to [http://localhost:8080/beacon](http://localhost:8080/beacon)
 
 Default credentials: `admin` / `admin`
 
@@ -484,7 +484,7 @@ Before marking any page complete, verify:
 ### Writing Style (FR-029, FR-030)
 - [ ] Page starts with clear goal statement
 - [ ] Prerequisites listed at top
-- [ ] Written for database-aware users with no Semantico experience
+- [ ] Written for database-aware users with no Beacon experience
 - [ ] Consistent terminology used (Query, not "SQL Query")
 
 ### Accessibility (FR-023)
@@ -582,7 +582,7 @@ git push origin main
 
 ### 4. Verify GitHub Pages Deployment
 
-- Visit https://mibu.github.io/semantico
+- Visit https://moberghr.github.io/beacon
 - Verify site loads in < 2 seconds (SC-010)
 - Test navigation on mobile
 - Verify all use cases display correctly

@@ -7,7 +7,7 @@ nav_order: 1
 
 # Data Sources
 
-Data Sources represent database connections that you want to monitor with Semantico.
+Data Sources represent database connections that you want to monitor with Beacon.
 
 ## Purpose
 
@@ -29,7 +29,7 @@ Data Sources allow you to:
 
 ### Step 1: Navigate to Data Sources
 
-1. Log in to Semantico
+1. Log in to Beacon
 2. Click **Data Sources** in the left navigation menu
 3. Click **Create New Data Source**
 
@@ -67,7 +67,7 @@ Server=mysql-server.company.com;Database=myapp;Uid=readonly;Pwd=secretpass
 
 {: .warning }
 > If connection fails, check:
-> - Database server is accessible from Semantico application
+> - Database server is accessible from Beacon application
 > - Credentials are correct
 > - Database name exists
 > - User has at least SELECT permissions
@@ -105,7 +105,7 @@ The Data Sources page shows all configured data sources with:
 
 ## Metadata Loading Options
 
-For database-type data sources, Semantico loads schema metadata (tables, columns, relationships) to power features like the ad-hoc query editor with IntelliSense and AI documentation generation. You can control this behavior when creating or editing a data source.
+For database-type data sources, Beacon loads schema metadata (tables, columns, relationships) to power features like the ad-hoc query editor with IntelliSense and AI documentation generation. You can control this behavior when creating or editing a data source.
 
 ### Configuration Options
 
@@ -153,29 +153,29 @@ This loads only tables from the `public` and `app` schemas, capped at 200 tables
 
 ### Use Read-Only Users
 
-Create dedicated read-only database users for Semantico:
+Create dedicated read-only database users for Beacon:
 
 **PostgreSQL:**
 ```sql
-CREATE USER semantico_readonly WITH PASSWORD 'strong-password';
-GRANT CONNECT ON DATABASE your_database TO semantico_readonly;
-GRANT USAGE ON SCHEMA public TO semantico_readonly;
-GRANT SELECT ON ALL TABLES IN SCHEMA public TO semantico_readonly;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO semantico_readonly;
+CREATE USER beacon_readonly WITH PASSWORD 'strong-password';
+GRANT CONNECT ON DATABASE your_database TO beacon_readonly;
+GRANT USAGE ON SCHEMA public TO beacon_readonly;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO beacon_readonly;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO beacon_readonly;
 ```
 
 **SQL Server:**
 ```sql
-CREATE LOGIN semantico_readonly WITH PASSWORD = 'strong-password';
+CREATE LOGIN beacon_readonly WITH PASSWORD = 'strong-password';
 USE your_database;
-CREATE USER semantico_readonly FOR LOGIN semantico_readonly;
-ALTER ROLE db_datareader ADD MEMBER semantico_readonly;
+CREATE USER beacon_readonly FOR LOGIN beacon_readonly;
+ALTER ROLE db_datareader ADD MEMBER beacon_readonly;
 ```
 
 **MySQL:**
 ```sql
-CREATE USER 'semantico_readonly'@'%' IDENTIFIED BY 'strong-password';
-GRANT SELECT ON your_database.* TO 'semantico_readonly'@'%';
+CREATE USER 'beacon_readonly'@'%' IDENTIFIED BY 'strong-password';
+GRANT SELECT ON your_database.* TO 'beacon_readonly'@'%';
 FLUSH PRIVILEGES;
 ```
 

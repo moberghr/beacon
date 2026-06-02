@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+    <PropertyGroup>
+        <TargetFramework>net9.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+
+        <!-- Package Information -->
+        <Authors>https://github.com/moberghr</Authors>
+        <Description>MCP (Model Context Protocol) server for Beacon. Exposes data sources, knowledge graph, and query capabilities to AI tools via SSE transport.</Description>
+        <PackageProjectUrl>https://github.com/moberghr/beacon</PackageProjectUrl>
+        <RepositoryUrl>https://github.com/moberghr/beacon</RepositoryUrl>
+        <RepositoryType>git</RepositoryType>
+        <PackageLicenseExpression>MIT</PackageLicenseExpression>
+        <PackageTags>beacon;mcp;model-context-protocol;ai;sse</PackageTags>
+        <IsPackable>true</IsPackable>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="ModelContextProtocol.AspNetCore" Version="1.1.0" />
+        <PackageReference Include="SqlParserCS" Version="0.6.5" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\Beacon.Core\Beacon.Core.csproj" />
+        <ProjectReference Include="..\Beacon.AI\Beacon.AI.csproj" />
+    </ItemGroup>
+
+
+</Project>
