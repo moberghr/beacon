@@ -12,11 +12,11 @@ Data Sources represent database connections that you want to monitor with Beacon
 ## Purpose
 
 Data Sources allow you to:
-- Connect to multiple databases across different servers
+- Connect to multiple databases and services across different servers
 - Organize queries by database or application
-- Support PostgreSQL, SQL Server, and MySQL
+- Support nine connectors: PostgreSQL, SQL Server, MySQL, Google BigQuery, Snowflake, Databricks, Azure Synapse, AWS CloudWatch, and a generic REST API
 - Reuse connections across multiple queries
-- Manage credentials securely
+- Manage credentials securely (connection strings are encrypted at rest with AES-256 via the required `Beacon:EncryptionKey`)
 
 ## Use Cases
 
@@ -29,8 +29,8 @@ Data Sources allow you to:
 
 ### Step 1: Navigate to Data Sources
 
-1. Log in to Beacon
-2. Click **Data Sources** in the left navigation menu
+1. Log in to Beacon at the React UI (`/login`)
+2. Click **Data Sources** in the left navigation menu (`/data-sources`)
 3. Click **Create New Data Source**
 
 ### Step 2: Fill Data Source Details
@@ -39,8 +39,11 @@ Data Sources allow you to:
 |-------|-------------|----------|---------|
 | **Name** | Descriptive data source name | Yes | `Production Database` |
 | **Description** | Purpose of this data source | No | `Main application database monitoring` |
-| **Database Type** | Database engine | Yes | PostgreSQL, SQL Server, or MySQL |
-| **Connection String** | Database connection | Yes | See examples below |
+| **Database Type** | Connector engine | Yes | PostgreSQL, SQL Server, MySQL, Google BigQuery, Snowflake, Databricks, Azure Synapse, AWS CloudWatch, or REST API |
+| **Connection String** | Connection details | Yes | See examples below |
+
+{: .note }
+> **Encrypted at rest**: Connection strings are never stored in plaintext. They are encrypted with AES-256 using the required `Beacon:EncryptionKey` and decrypted only when a query runs.
 
 ### Step 3: Configure Connection String
 
@@ -49,7 +52,7 @@ Data Sources allow you to:
 Host=prod-db.company.com;Database=myapp;Username=readonly;Password=secretpass
 ```
 
-**SQL Server:**
+**SQL Server / Azure Synapse:**
 ```
 Server=sql-server.company.com;Database=myapp;User Id=readonly;Password=secretpass;TrustServerCertificate=True
 ```
@@ -58,6 +61,8 @@ Server=sql-server.company.com;Database=myapp;User Id=readonly;Password=secretpas
 ```
 Server=mysql-server.company.com;Database=myapp;Uid=readonly;Pwd=secretpass
 ```
+
+**Other connectors** (Google BigQuery, Snowflake, Databricks, AWS CloudWatch, and the generic REST API) use connector-specific connection details — for example service-account credentials, account/warehouse identifiers, workspace tokens, AWS region/keys, or a base URL with auth headers. The Create New Data Source form shows the fields required for the connector you select.
 
 ### Step 4: Test Connection
 
@@ -296,6 +301,5 @@ Server=sqlserver;Database=db;User Id=user;Password=pass;TrustServerCertificate=T
 ## Related Documentation
 
 - [Queries](queries) - Create queries using this data source
+- [Data Migration](data-migration) - Move data between connected sources
 - [Configuration](../getting-started/configuration) - Connection string reference
-- [Troubleshooting](../troubleshooting/common-issues) - Common connection issues
-- [Multi-Tenant Deployments](../advanced/multi-tenant) - Schema-agnostic patterns

@@ -19,10 +19,14 @@ dotnet add package Beacon.AI
 
 ## Supported LLM Providers
 
-- **OpenAI** (GPT-4, GPT-4 Turbo)
+- **OpenAI** (GPT-4, GPT-4 Turbo, GPT-4o)
 - **Anthropic Claude** (Claude 3.5 Sonnet, Claude 3 Opus)
 - **Azure OpenAI** (GPT-4 deployments)
-- **AWS Bedrock** (Claude models)
+- **AWS Bedrock** (Claude and other Bedrock-hosted models)
+
+The active provider is **runtime-swappable** via admin settings — `LlmProviderManager` holds the current
+provider and `DelegatingLlmProvider` proxies calls, so no provider-specific assumptions are baked into handlers.
+All LLM calls are funneled through a request queue that enforces a configurable concurrency limit.
 
 ## Configuration
 
@@ -169,7 +173,7 @@ This package includes:
 
 ## Documentation
 
-For complete documentation, visit: https://github.com/moberghr/beacon
+For complete documentation, visit: https://github.com/MiBu/semantico
 
 ## License
 
@@ -177,12 +181,14 @@ MIT License - see LICENSE file for details
 
 ## Support
 
-- GitHub Issues: https://github.com/moberghr/beacon/issues
-- Documentation: https://github.com/moberghr/beacon/wiki
+- GitHub Issues: https://github.com/MiBu/semantico/issues
+- Documentation: https://github.com/MiBu/semantico/wiki
 
 ## Related Packages
 
 - **Beacon.Core** - Core library (required)
 - **Beacon.Core.PostgreSql** - PostgreSQL support
 - **Beacon.Core.SqlServer** - SQL Server support
-- **Beacon.UI** - Blazor admin UI
+- **Beacon.Api** - REST minimal-API endpoints + OpenAPI for the React shell
+- **Beacon.MCP** - MCP server (tools + resources) for AI assistants
+- **Beacon.UI** - React SPA (Vite + TypeScript + Tailwind) shipped as a Razor Class Library, served at root `/`

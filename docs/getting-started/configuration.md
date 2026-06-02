@@ -7,98 +7,98 @@ nav_order: 3
 
 # Configuration Guide
 
-Complete reference for all Beacon configuration options.
+Complete reference for configuring Beacon — connection strings, the required encryption key, authentication, AI/LLM, email, scheduling, and the metadata database.
+
+This guide applies to both delivery modes: running the `Beacon.SampleProject` host and embedding the `Beacon.*` NuGet packages in your own ASP.NET Core app. Configuration is identical either way.
 
 ## Configuration in Program.cs
 
-Beacon is configured in your ASP.NET Core application's `Program.cs` file using a single method call.
-
-### Basic Configuration
+Beacon is wired in `Program.cs`. The canonical setup (from `Beacon.SampleProject`) is:
 
 ```csharp
+using Beacon.AI;
+using Beacon.Api;
 using Beacon.Core;
 using Beacon.Core.PostgreSql;
+using Beacon.MCP;
 using Beacon.UI;
 
-// Step 1: Add core services and configure database provider
+// Host identity + SignalR plumbing
+builder.Services.AddBeaconHostInfrastructure();
+
+// Core services, scheduler, connectors, metadata provider
 builder.Services.AddBeaconServices(builder.Configuration, options =>
     {
-        options.AddBeaconScheduler<YourScheduler>();
-        options.BaseUrl = "https://your-domain.com/beacon"; // For notification links
-        options.UseAI = true; // Enable AI features (optional)
+        options.AddBeaconScheduler<BeaconScheduler>();   // IBeaconScheduler (Hangfire-backed)
+        options.BaseUrl = "https://localhost:7187";
+        options.UseAI = true;
+        options.AddEmailAdapter<BeaconMailSender>();
+        options.Authorization.Enabled = true;
+        options.Authentication.EnableLoginForm = true;
+        options.AddAuthenticationProvider<DatabaseAuthenticationProvider>();
+        options.UserManagement = new UserManagementOptions { Enabled = true };
     })
+    .AddPostgreSqlConnector()
+    .AddSqlServerConnector()
+    .AddMySqlConnector()
+    // ... other connectors ...
     .UsePostgreSql(builder.Configuration.GetConnectionString("BeaconContext")!, "beacon");
-// Or use SQL Server:
-// .UseSqlServer(builder.Configuration.GetConnectionString("BeaconContext")!, "beacon");
 
-// Step 2: Add UI components
-builder.Services.AddBeaconUI();
-
-// Step 3: Add AI services (optional)
+builder.Services.AddBeaconCookieAuthentication("/");
+builder.Services.AddBeaconOidcAuthentication(builder.Configuration); // optional SSO
 builder.Services.AddBeaconAI(builder.Configuration);
+builder.Services.AddBeaconMcp();
+builder.Services.AddOpenApi();
 
 var app = builder.Build();
 
-app.UseStaticFiles(); // Required: Serves Beacon UI assets
+app.UseStaticFiles();
+app.UseMiddleware<ApiKeyAuthMiddleware>();
+app.UseAuthentication();
+app.UseMiddleware<BeaconCookieAuthMiddleware>();
+app.UseAuthorization();
+app.UseAntiforgery();
 
-// Configure UI
-app.UseBeaconUI()
-    .UseBasicAuthentication("admin", "admin")
-    .AddBlazorUI("/beacon");
+app.MapOpenApi();                 // /openapi/v1.json
+app.MapBeaconApi();               // /beacon/api/*
+app.MapLoginEndpoints("/beacon", beaconConfiguration);
+app.MapHub<BeaconHub>("/beacon/api/hub").RequireAuthorization();
+app.MapMcp("/beacon/mcp").RequireAuthorization();
+app.UseHangfireDashboard("/hangfire");
+app.MapBeaconUi();                // React SPA at root /
 ```
+
+{: .note }
+> The React SPA is served at the **root URL `/`** by the `Beacon.UI` Razor Class Library (it builds from `Beacon.UI/web` into `Beacon.UI/wwwroot`). The REST API lives under `/beacon/api/*`, the MCP server at `/beacon/mcp`, the SignalR hub at `/beacon/api/hub`, and the OpenAPI document at `/openapi/v1.json`.
 
 ## Base URL Configuration
 
-The `BaseUrl` setting specifies where your Beacon admin UI is hosted. This URL is used to generate clickable links in notifications (especially Teams messages) that take users directly to notification details.
-
-### Setting Base URL
+`BaseUrl` is the public origin where Beacon is hosted. It's used to build clickable links in notifications (e.g. Teams cards) back to the details page in the app.
 
 ```csharp
-builder.Services.AddBeaconServices(builder.Configuration, options =>
-    {
-        options.AddBeaconScheduler<YourScheduler>();
-        // Set the URL where Beacon UI is accessible
-        options.BaseUrl = "https://your-domain.com/beacon";
-    })
-    .UsePostgreSql(builder.Configuration.GetConnectionString("BeaconContext")!, "beacon");
+options.BaseUrl = "https://localhost:7187";        // development
+options.BaseUrl = "https://staging.example.com";   // staging
+options.BaseUrl = "https://beacon.example.com";     // production
+options.BaseUrl = builder.Configuration["Beacon:BaseUrl"]; // from config
 ```
 
-### Base URL Examples
-
-**Development (localhost):**
-```csharp
-options.BaseUrl = "https://localhost:7187/beacon";
-```
-
-**Staging:**
-```csharp
-options.BaseUrl = "https://staging.yourdomain.com/beacon";
-```
-
-**Production:**
-```csharp
-options.BaseUrl = "https://yourdomain.com/beacon";
-```
-
-**From configuration:**
-```csharp
-options.BaseUrl = builder.Configuration["Beacon:BaseUrl"];
-```
-
-### appsettings.json Configuration
+### appsettings.json
 
 ```json
 {
   "Beacon": {
-    "BaseUrl": "https://yourdomain.com/beacon",
-    "EncryptionKey": "your-secure-32-character-key-here"
+    "BaseUrl": "https://beacon.example.com",
+    "EncryptionKey": "your-secure-32-byte-base64-key"
   }
 }
 ```
 
+{: .note }
+> The SPA is served at the root `/`, so notification links resolve to paths like `{BaseUrl}/notifications/{id}` — no `/beacon` UI prefix.
+
 ## Encryption Key Configuration ⚠️ REQUIRED
 
-The `EncryptionKey` is **required** for encrypting sensitive data like database connection strings.
+`Beacon:EncryptionKey` is **required**. It encrypts sensitive data — most importantly data-source connection strings — at rest using AES-256.
 
 ### Generate a Secure Key
 
@@ -106,32 +106,31 @@ The `EncryptionKey` is **required** for encrypting sensitive data like database 
 openssl rand -base64 32
 ```
 
-This generates a cryptographically secure 32-character random key suitable for AES-256 encryption.
+This produces a 32-byte key (base64-encoded) suitable for AES-256.
 
 ### Configuration
 
 ```json
 {
   "Beacon": {
-    "EncryptionKey": "k8J3m9Lp2Nq5Rt8Vw1Yz4Bc7Df0Gh3Jk6=="
+    "EncryptionKey": "k8J3m9Lp2Nq5Rt8Vw1Yz4Bc7Df0Gh3Jk6Lm9No2Pq="
   }
 }
 ```
 
 ### Security Best Practices
 
-⚠️ **Never commit encryption keys to source control**
+⚠️ **Never commit the encryption key to source control.**
 
-**Development:**
-```json
-{
-  "Beacon": {
-    "EncryptionKey": "DevKey_OnlyForLocalDevelopment_ChangeInProd!"
-  }
-}
+**Development — User Secrets:**
+```bash
+dotnet user-secrets set "Beacon:EncryptionKey" "$(openssl rand -base64 32)"
 ```
 
-**Production - Use Environment Variables:**
+**Production — environment variable:**
+```bash
+export BEACON_ENCRYPTION_KEY="your-production-key-here"
+```
 ```json
 {
   "Beacon": {
@@ -140,12 +139,7 @@ This generates a cryptographically secure 32-character random key suitable for A
 }
 ```
 
-Then set the environment variable:
-```bash
-export BEACON_ENCRYPTION_KEY="your-production-key-here"
-```
-
-**Production - Use Azure Key Vault:**
+**Production — Azure Key Vault:**
 ```csharp
 var keyVaultEndpoint = new Uri(Environment.GetEnvironmentVariable("VaultUri"));
 var secretClient = new SecretClient(keyVaultEndpoint, new DefaultAzureCredential());
@@ -155,96 +149,91 @@ builder.Configuration["Beacon:EncryptionKey"] = secret.Value.Value;
 
 ### What Gets Encrypted
 
-The encryption key is used to encrypt:
-- Data source connection strings (stored in database)
-- Other sensitive configuration values (as needed)
+- Data-source connection strings (stored in the metadata database)
+- Other sensitive configuration values as needed
+
+API keys are **not** encrypted — they are SHA256-hashed, and the raw key is shown to the user once at creation.
 
 ### Error if Missing
 
-If the encryption key is not configured, Beacon will throw an exception on startup:
+If the encryption key is not configured, Beacon throws on startup:
 
 ```
 InvalidOperationException: Beacon:EncryptionKey must be configured.
 Generate a secure key with: openssl rand -base64 32
-Then add to appsettings.json: { "Beacon": { "EncryptionKey": "your-generated-key" } }
 ```
 
-## Authorization Configuration (Optional)
+## Authentication
 
-Beacon provides a flexible authorization system for controlling user access. Authorization is **disabled by default** (backward compatible).
+Beacon authentication is **cookie-based**. The `Beacon.Auth` cookie is `HttpOnly` with `SameSite=Lax`. Identity is resolved through a pluggable `IBeaconAuthenticationProvider`. There is **no basic auth and no default `admin`/`admin` account** — the first-run setup flow creates the initial admin user.
 
-### Quick Start - Enable Authorization
+### Login Form (cookie auth)
 
 ```csharp
 builder.Services.AddBeaconServices(builder.Configuration, options =>
-{
-    options.AddBeaconScheduler<YourScheduler>();
-    options.BaseUrl = "https://your-domain.com/beacon";
-
-    // Enable authorization with role-based access control
-    options.Authorization.Enabled = true;
-    options.AddAuthorizationProvider<RoleBasedAuthorizationProvider>();
-})
-.UsePostgreSql(connectionString, "beacon");
-
-builder.Services.AddBeaconUI();
-
-// Enable authorization middleware
-app.UseBeaconUI()
-    .UseBasicAuthentication("admin", "admin")
-    .UseAuthorization() // ← Add this line
-    .AddBlazorUI("/beacon");
-```
-
-### Built-in Authorization Providers
-
-**DefaultAuthorizationProvider** (default):
-- Allows all operations
-- Used when authorization is disabled
-- No configuration required
-
-**RoleBasedAuthorizationProvider**:
-- Simple RBAC with Admin, Editor, Viewer roles
-- Requires role claims to be added after authentication
-
-### Add Role Claims
-
-When using `RoleBasedAuthorizationProvider`, add a claims transformer:
-
-```csharp
-using Microsoft.AspNetCore.Authentication;
-using Beacon.Core.Authorization;
-
-public class MyClaimsTransformation : IClaimsTransformation
-{
-    public Task<ClaimsPrincipal> TransformAsync(ClaimsPrincipal principal)
     {
-        var identity = (ClaimsIdentity)principal.Identity!;
+        options.AddBeaconScheduler<BeaconScheduler>();
+        options.Authentication.EnableLoginForm = true;
+        options.AddAuthenticationProvider<DatabaseAuthenticationProvider>();
+    })
+    .UsePostgreSql(connectionString, "beacon");
 
-        // Add role based on your logic
-        identity.AddClaim(new Claim(BeaconClaims.Role, "Admin"));
-        identity.AddClaim(new Claim(BeaconClaims.UserId, principal.Identity.Name));
-        identity.AddClaim(new Claim(BeaconClaims.UserName, principal.Identity.Name));
+// Login redirect target — the SPA serves the login form at /login
+builder.Services.AddBeaconCookieAuthentication("/");
 
-        return Task.FromResult(principal);
-    }
-}
-
-// Register it
-builder.Services.AddScoped<IClaimsTransformation, MyClaimsTransformation>();
+app.MapLoginEndpoints("/beacon", beaconConfiguration);
 ```
 
-### Authorization Options
+### Authentication Providers
+
+| Provider | Use Case |
+|----------|----------|
+| `DatabaseAuthenticationProvider` | Internal users with passwords stored in Beacon |
+| `JwtExternalApiAuthenticationProvider` | External JWT / OAuth identity provider |
+| `HybridAuthenticationProvider` | Both internal and external users |
+
+### Optional: OIDC / SSO
 
 ```csharp
-options.Authorization.Enabled = true; // Enable authorization
-options.Authorization.EnableResourceLevelAuthorization = true; // Enable fine-grained permissions
-options.AddAuthorizationProvider<MyCustomProvider>(); // Use custom provider
+builder.Services.AddBeaconOidcAuthentication(builder.Configuration);
+```
+
+```json
+{
+  "Beacon": {
+    "Oidc": {
+      "Authority": "https://login.example.com",
+      "ClientId": "beacon",
+      "ClientSecret": "${OIDC_CLIENT_SECRET}"
+    }
+  }
+}
+```
+
+### API Keys
+
+Beacon issues API keys for programmatic and MCP access:
+
+- SHA256-hashed at rest; the raw key is shown **once** at creation
+- Carry scopes: `Read`, `Execute`, `Admin`
+- Support optional project restrictions
+- Authenticated by `ApiKeyAuthMiddleware`, which runs **before** `UseAuthentication`
+
+MCP clients may also use **JWT bearer** tokens.
+
+{: .note }
+> For complete user-management and provider documentation (external JWT setup, custom providers, roles), see the [User Management Guide](../features/user-management).
+
+## Authorization
+
+Authorization is controlled via options and a pluggable provider.
+
+```csharp
+options.Authorization.Enabled = true;
+options.AddAuthorizationProvider<MyCustomProvider>();
 ```
 
 ### Custom Authorization Provider
-
-Create your own authorization logic:
 
 ```csharp
 public class MyAuthorizationProvider : IBeaconAuthorizationProvider
@@ -257,42 +246,59 @@ public class MyAuthorizationProvider : IBeaconAuthorizationProvider
     }
 
     public Task<bool> HasReadPermissionAsync(CancellationToken cancellationToken = default)
-    {
-        // Your logic here
-        return Task.FromResult(_userContext.IsAuthenticated);
-    }
+        => Task.FromResult(_userContext.IsAuthenticated);
 
     public Task<bool> HasWritePermissionAsync(CancellationToken cancellationToken = default)
-    {
-        // Your logic here
-        return Task.FromResult(_userContext.HasClaim(BeaconClaims.Role, "Admin"));
-    }
+        => Task.FromResult(_userContext.HasClaim(BeaconClaims.Role, "Admin"));
 
     // Implement other methods...
 }
+
+// Register it
+options.AddAuthorizationProvider<MyAuthorizationProvider>();
 ```
 
 {: .note }
-> For complete authorization documentation, integration examples, and advanced scenarios, see the [Authorization Guide](../features/authorization.md).
+> For complete authorization documentation, see the [Authorization Guide](../features/authorization).
 
-## AI/LLM Configuration (Optional - Experimental)
+## User Management
+
+```csharp
+options.Authorization.Enabled = true;
+options.Authentication.EnableLoginForm = true;
+options.AddAuthenticationProvider<DatabaseAuthenticationProvider>();
+
+options.UserManagement = new UserManagementOptions
+{
+    Enabled = true,
+    AllowInternalUsers = true,
+    MinimumPasswordLength = 8,
+    RequirePasswordComplexity = true
+};
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `Enabled` | Enable user-management features | `false` |
+| `AllowInternalUsers` | Allow password-based users | `true` |
+| `MinimumPasswordLength` | Minimum password length | `8` |
+| `RequirePasswordComplexity` | Require mixed case, numbers, symbols | `true` |
+
+## AI / LLM Configuration (Optional — Experimental)
 
 {: .warning }
-> **Experimental Feature:** AI-powered features are experimental and may produce incorrect results. Configure only if you understand the limitations and will validate all AI-generated content.
+> **Experimental Feature:** AI-powered features (auto-documentation, natural-language → query, anomaly detection) are experimental and may produce incorrect results. Configure only if you'll validate AI-generated content.
 
-Configure LLM providers for AI-powered features like documentation generation and natural language alert creation.
+The LLM provider is **runtime-swappable** — it can be changed at runtime via Admin Settings without a restart. All LLM calls go through a request queue that enforces concurrency limits. Do not hard-code provider assumptions; read capabilities through the abstraction.
 
 {: .note }
-> LLM configuration can also be managed at runtime via the [Admin Settings](../features/admin-settings) UI. Settings saved there take precedence over `appsettings.json` values and support hot-swapping providers without restarting.
+> LLM settings in `appsettings.json` act as startup defaults. Values configured in [Admin Settings](../features/admin-settings) take precedence and support hot-swapping providers.
 
 ### Supported Providers
 
-- **OpenAI**: gpt-4o (recommended), gpt-4
-- **Anthropic Claude**: claude-3-5-sonnet-20241022 (recommended)
-- **Azure OpenAI**: Latest models only
-
-{: .note }
-> Use latest models only. Older models (gpt-3.5-turbo, claude-3-opus) are not recommended.
+- **OpenAI**
+- **Anthropic Claude**
+- **Azure OpenAI**
 
 ### Basic Configuration
 
@@ -328,28 +334,7 @@ Configure LLM providers for AI-powered features like documentation generation an
 }
 ```
 
-### OpenAI Configuration
-
-```json
-{
-  "Beacon": {
-    "LLM": {
-      "Provider": "OpenAI",
-      "ApiKey": "sk-...",
-      "Model": "gpt-4o",
-      "BaseUrl": "https://api.openai.com/v1"
-    }
-  }
-}
-```
-
-**Recommended model:**
-- `gpt-4o` - Best balance of cost and performance (use this)
-
-**Alternative:**
-- `gpt-4` - Higher quality, more expensive
-
-### Anthropic Claude Configuration
+### Anthropic Claude
 
 ```json
 {
@@ -364,10 +349,7 @@ Configure LLM providers for AI-powered features like documentation generation an
 }
 ```
 
-**Recommended model:**
-- `claude-3-5-sonnet-20241022` - Best overall (use this)
-
-### Azure OpenAI Configuration
+### Azure OpenAI
 
 ```json
 {
@@ -384,54 +366,16 @@ Configure LLM providers for AI-powered features like documentation generation an
 
 ### Rate Limiting
 
-Control API usage and costs with rate limits:
-
-```json
-{
-  "Beacon": {
-    "LLM": {
-      "Limits": {
-        "MaxConcurrentRequests": 5,
-        "RequestsPerMinute": 60,
-        "MaxTokensPerRequest": 4000
-      }
-    }
-  }
-}
-```
+The request queue caps concurrency and throughput:
 
 | Setting | Description | Default | Recommended |
 |---------|-------------|---------|-------------|
-| `MaxConcurrentRequests` | Max parallel AI requests | 5 | 3-10 based on tier |
+| `MaxConcurrentRequests` | Max parallel AI requests | 5 | 3–10 based on tier |
 | `RequestsPerMinute` | Rate limit per minute | 60 | Match provider tier |
-| `MaxTokensPerRequest` | Max tokens per request | 4000 | 4000-8000 |
+| `MaxTokensPerRequest` | Max tokens per request | 4000 | 4000–8000 |
 
-### Cost Estimation
+### Production — Use Environment Variables
 
-Typical costs per operation:
-
-| Operation | Tokens | OpenAI (gpt-4o) | Anthropic (Claude 3.5) |
-|-----------|--------|-----------------|------------------------|
-| Small doc generation (10 tables) | ~2,500 | $0.02 | $0.01 |
-| Large doc generation (50 tables) | ~8,000 | $0.06 | $0.04 |
-| Alert query generation | ~1,000 | $0.01 | $0.01 |
-
-### Environment-Specific Configuration
-
-**Development:**
-```json
-{
-  "Beacon": {
-    "LLM": {
-      "Provider": "OpenAI",
-      "ApiKey": "sk-dev-key-here",
-      "Model": "gpt-4o"  // Use same model as production
-    }
-  }
-}
-```
-
-**Production - Use Environment Variables:**
 ```json
 {
   "Beacon": {
@@ -442,32 +386,11 @@ Typical costs per operation:
 }
 ```
 
-### How It's Used
+## Metadata Database Provider
 
-When `BaseUrl` is configured, Teams notifications include a **"View Query Results"** button that links to:
-```
-{BaseUrl}/notifications/details/{notificationId}
-```
+Beacon's metadata database runs on **EF Core 9** with dual-provider support (PostgreSQL and SQL Server). The default schema is `beacon` (configurable). Dapper is used for hot paths.
 
-For example:
-```
-https://yourdomain.com/beacon/notifications/details/12345
-```
-
-This allows recipients to click through from Teams to view:
-- Complete query results
-- Execution metrics
-- Query execution history
-- All notification details
-
-{: .note }
-> If `BaseUrl` is not configured, Teams notifications will still be sent but without the clickable link to view details in the Beacon UI.
-
-## Database Provider Configuration
-
-Database providers are configured within the `AddBeacon` options.
-
-### PostgreSQL Provider
+### PostgreSQL
 
 ```csharp
 using Beacon.Core;
@@ -475,14 +398,13 @@ using Beacon.Core.PostgreSql;
 
 builder.Services.AddBeaconServices(builder.Configuration, options =>
     {
-        options.AddBeaconScheduler<YourScheduler>();
+        options.AddBeaconScheduler<BeaconScheduler>();
     })
     .UsePostgreSql(
         builder.Configuration.GetConnectionString("BeaconContext")!,
-        "beacon"); // Optional schema, defaults to "beacon"
+        "beacon"); // optional schema, defaults to "beacon"
 ```
 
-**Connection string in appsettings.json:**
 ```json
 {
   "ConnectionStrings": {
@@ -491,7 +413,7 @@ builder.Services.AddBeaconServices(builder.Configuration, options =>
 }
 ```
 
-### SQL Server Provider
+### SQL Server
 
 ```csharp
 using Beacon.Core;
@@ -499,14 +421,13 @@ using Beacon.Core.SqlServer;
 
 builder.Services.AddBeaconServices(builder.Configuration, options =>
     {
-        options.AddBeaconScheduler<YourScheduler>();
+        options.AddBeaconScheduler<BeaconScheduler>();
     })
     .UseSqlServer(
         builder.Configuration.GetConnectionString("BeaconContext")!,
-        "beacon"); // Optional schema, defaults to "beacon"
+        "beacon");
 ```
 
-**Connection string in appsettings.json:**
 ```json
 {
   "ConnectionStrings": {
@@ -515,87 +436,97 @@ builder.Services.AddBeaconServices(builder.Configuration, options =>
 }
 ```
 
+## Data-Source Connectors
+
+Register a connector for each kind of data source you intend to monitor. Beacon ships nine connectors:
+
+```csharp
+builder.Services.AddBeaconServices(builder.Configuration, options => { /* ... */ })
+    .AddPostgreSqlConnector()
+    .AddSqlServerConnector()
+    .AddMySqlConnector()
+    .AddBigQueryConnector()
+    .AddSnowflakeConnector()
+    .AddDatabricksConnector()
+    .AddAzureSynapseConnector()
+    .AddCloudWatchConnector()
+    .AddApiConnector()
+    .UsePostgreSql(connectionString, "beacon");
+```
+
+| Connector | Package |
+|---|---|
+| PostgreSQL | `Beacon.Connector.PostgreSql` |
+| SQL Server | `Beacon.Connector.SqlServer` |
+| MySQL | `Beacon.Connector.MySql` |
+| Google BigQuery | `Beacon.Connector.BigQuery` |
+| Snowflake | `Beacon.Connector.Snowflake` |
+| Databricks | `Beacon.Connector.Databricks` |
+| Azure Synapse | `Beacon.Connector.AzureSynapse` |
+| AWS CloudWatch | `Beacon.Connector.CloudWatch` |
+| Generic REST API | `Beacon.Connector.Api` |
+
+Individual data-source connection strings are entered in the UI and encrypted at rest with your `Beacon:EncryptionKey`. See the [Data Sources Guide](../features/data-sources).
+
 ## Connection String Reference
 
-### PostgreSQL Connection Strings
+### PostgreSQL
 
-**Basic connection:**
 ```
 Host=hostname;Port=5432;Database=dbname;Username=user;Password=pass
-```
-
-**With SSL:**
-```
 Host=hostname;Database=dbname;Username=user;Password=pass;SSL Mode=Require
-```
-
-**With connection pooling:**
-```
 Host=hostname;Database=dbname;Username=user;Password=pass;Pooling=true;MinPoolSize=0;MaxPoolSize=100
 ```
 
-**Connection timeout:**
-```
-Host=hostname;Database=dbname;Username=user;Password=pass;Timeout=30;CommandTimeout=60
-```
+### SQL Server
 
-**Parameters:**
-- `Host`: PostgreSQL server hostname or IP
-- `Port`: Port number (default: 5432)
-- `Database`: Database name
-- `Username`: Database user
-- `Password`: User password
-- `SSL Mode`: None, Prefer, Require, VerifyCA, VerifyFull
-- `Pooling`: Enable connection pooling (recommended: true)
-- `MinPoolSize`: Minimum connections in pool
-- `MaxPoolSize`: Maximum connections in pool
-- `Timeout`: Connection timeout in seconds
-- `CommandTimeout`: Command execution timeout in seconds
-
-### SQL Server Connection Strings
-
-**Basic connection:**
 ```
 Server=hostname;Database=dbname;User Id=user;Password=pass;TrustServerCertificate=True
-```
-
-**Windows Authentication:**
-```
 Server=hostname;Database=dbname;Integrated Security=True
-```
-
-**With encryption:**
-```
 Server=hostname;Database=dbname;User Id=user;Password=pass;Encrypt=True;TrustServerCertificate=False
 ```
 
-**Parameters:**
-- `Server`: SQL Server hostname or IP
-- `Database`: Database name
-- `User Id`: SQL Server login
-- `Password`: Login password
-- `Integrated Security`: Use Windows authentication
-- `TrustServerCertificate`: Trust server certificate (True for self-signed)
-- `Encrypt`: Encrypt connection
-- `Connection Timeout`: Connection timeout in seconds
+### MySQL
 
-### MySQL Connection Strings (for query projects)
-
-**Basic connection:**
 ```
 Server=hostname;Port=3306;Database=dbname;Uid=user;Pwd=pass
-```
-
-**With SSL:**
-```
 Server=hostname;Database=dbname;Uid=user;Pwd=pass;SslMode=Required
 ```
 
-## Scheduler Configuration
+## Scheduling
 
-Beacon requires an `IBeaconScheduler` implementation for job scheduling. You can use any job scheduler library (Hangfire, Quartz.NET, etc.) or create a custom implementation.
+Beacon schedules recurring work through the `IBeaconScheduler` abstraction. The canonical implementation, `BeaconScheduler`, is backed by **Hangfire on PostgreSQL** (1-second poll, automatic retries disabled). Quartz.NET remains a valid alternative implementation of the same interface.
 
-### Example: Hangfire Scheduler Implementation
+### Hangfire Storage (canonical)
+
+```csharp
+using Hangfire;
+using Hangfire.PostgreSql;
+
+builder.Services.AddHangfire((provider, config) => config
+    .SetDataCompatibilityLevel(CompatibilityLevel.Version_170)
+    .UseSimpleAssemblyNameTypeSerializer()
+    .UseRecommendedSerializerSettings()
+    .UseFilter(new AutomaticRetryAttribute { Attempts = 0 }) // retries disabled
+    .UsePostgreSqlStorage(connectionString, new PostgreSqlStorageOptions
+    {
+        PrepareSchemaIfNecessary = true,
+        QueuePollInterval = TimeSpan.FromSeconds(1)
+    }));
+
+builder.Services.AddHangfireServer(options =>
+{
+    options.WorkerCount = 10; // default: CPU core count
+});
+```
+
+**Worker-count guidelines:**
+
+- Light load (< 100 subscriptions): 2–4 workers
+- Medium load (100–500 subscriptions): 5–10 workers
+- Heavy load (500+ subscriptions): 10–20 workers
+
+### Scheduler Implementation
 
 ```csharp
 using Hangfire;
@@ -625,409 +556,20 @@ public class BeaconScheduler : IBeaconScheduler
         _recurringJobManager.RemoveIfExists(jobKey);
     }
 }
-```
-
-Register the scheduler:
-
-```csharp
-builder.Services.AddBeaconServices(builder.Configuration, options =>
-    {
-        options.AddBeaconScheduler<BeaconScheduler>();
-    })
-    .UsePostgreSql(builder.Configuration.GetConnectionString("BeaconContext")!, "beacon");
-```
-
-## UI Configuration
-
-### Basic Authentication (Simple)
-
-For quick setups without user management:
-
-```csharp
-app.UseBeaconUI()
-    .UseBasicAuthentication("admin", "secretpassword")
-    .AddBlazorUI("/beacon");
-```
-
-### Login Form Authentication (Recommended)
-
-For production deployments with user management:
-
-```csharp
-builder.Services.AddBeaconCookieAuthentication("/beacon");
-
-app.UseAuthentication();
-app.UseAuthorization();
-
-app.UseBeaconUI()
-    .UseLoginForm()
-    .UseAuthorization()
-    .AddBlazorUI("/beacon");
-```
-
-### Custom UI Path
-
-Change the UI path from default `/beacon`:
-
-```csharp
-app.UseBeaconUI()
-    .UseLoginForm()
-    .AddBlazorUI("/alerts"); // Custom path
-```
-
-Access UI at: `http://localhost:5000/alerts`
-
-## User Management Configuration (Optional)
-
-Enable built-in user management with login form, role-based access, and first-run setup.
-
-### Quick Start
-
-```csharp
-builder.Services.AddBeaconServices(builder.Configuration, options =>
-{
-    options.AddBeaconScheduler<BeaconScheduler>();
-    options.BaseUrl = "https://your-domain.com/beacon";
-
-    // Enable authorization + user management
-    options.Authorization.Enabled = true;
-    options.Authentication.EnableLoginForm = true;
-    options.AddAuthenticationProvider<DatabaseAuthenticationProvider>();
-
-    options.UserManagement = new UserManagementOptions
-    {
-        Enabled = true,
-        AllowInternalUsers = true,
-        MinimumPasswordLength = 8,
-        RequirePasswordComplexity = true
-    };
-})
-.UsePostgreSql(connectionString, "beacon");
-
-builder.Services.AddBeaconUI();
-builder.Services.AddBeaconCookieAuthentication("/beacon");
-
-app.UseAuthentication();
-app.UseAuthorization();
-
-app.UseBeaconUI()
-    .UseLoginForm()
-    .UseAuthorization()
-    .AddBlazorUI("/beacon");
-```
-
-### User Management Options
-
-| Option | Description | Default |
-|--------|-------------|---------|
-| `Enabled` | Enable user management features | `false` |
-| `AllowInternalUsers` | Allow password-based users | `true` |
-| `MinimumPasswordLength` | Minimum password length | `8` |
-| `RequirePasswordComplexity` | Require mixed case, numbers, symbols | `true` |
-
-### Authentication Providers
-
-| Provider | Use Case |
-|----------|----------|
-| `DatabaseAuthenticationProvider` | Internal users with passwords in Beacon |
-| `JwtExternalApiAuthenticationProvider` | External JWT/OAuth identity provider |
-| `HybridAuthenticationProvider` | Both internal and external users |
-
-{: .note }
-> For complete user management documentation including external JWT setup, custom providers, and role details, see the [User Management Guide](../features/user-management).
-
-### Custom Authorization Provider
-
-Implement custom authorization logic:
-
-```csharp
-public class CustomAuthorizationProvider : IBeaconAuthorizationProvider
-{
-    private readonly IBeaconUserContext _userContext;
-
-    public CustomAuthorizationProvider(IBeaconUserContext userContext)
-    {
-        _userContext = userContext;
-    }
-
-    public Task<bool> HasReadPermissionAsync(CancellationToken ct = default)
-        => Task.FromResult(_userContext.IsAuthenticated);
-
-    public Task<bool> HasWritePermissionAsync(CancellationToken ct = default)
-        => Task.FromResult(_userContext.HasClaim(BeaconClaims.Role, "Admin"));
-
-    // Implement other methods...
-}
 
 // Register it
-options.AddAuthorizationProvider<CustomAuthorizationProvider>();
+options.AddBeaconScheduler<BeaconScheduler>();
 ```
+
+The Hangfire dashboard mounts at `/hangfire` (admin only).
 
 ## Email Adapter
 
-### Custom Email Implementation
-
-Implement `IEmailAdapter` for your email provider:
+Beacon does not ship a default email implementation. Provide your own `IEmailAdapter` and register it via `options.AddEmailAdapter<...>()`.
 
 ```csharp
 using Beacon.Core.Adapters.Mail;
-
-public class SmtpEmailAdapter : IEmailAdapter
-{
-    private readonly SmtpClient _smtpClient;
-
-    public SmtpEmailAdapter(IConfiguration configuration)
-    {
-        _smtpClient = new SmtpClient
-        {
-            Host = configuration["Smtp:Host"],
-            Port = int.Parse(configuration["Smtp:Port"]),
-            EnableSsl = true,
-            Credentials = new NetworkCredential(
-                configuration["Smtp:Username"],
-                configuration["Smtp:Password"])
-        };
-    }
-
-    public async Task SendEmailAsync(string to, string subject, string body, Stream? attachment = null)
-    {
-        var message = new MailMessage
-        {
-            From = new MailAddress("alerts@yourdomain.com", "Beacon Alerts"),
-            Subject = subject,
-            Body = body,
-            IsBodyHtml = true
-        };
-
-        message.To.Add(to);
-
-        if (attachment != null)
-        {
-            message.Attachments.Add(new Attachment(attachment, "results.csv", "text/csv"));
-        }
-
-        await _smtpClient.SendMailAsync(message);
-    }
-}
-```
-
-Register the adapter:
-
-```csharp
-builder.Services.AddBeaconServices(builder.Configuration, options =>
-    {
-        options.AddBeaconScheduler<BeaconScheduler>();
-        options.AddEmailAdapter<SmtpEmailAdapter>();
-    })
-    .UsePostgreSql(builder.Configuration.GetConnectionString("BeaconContext")!, "beacon");
-```
-
-Add SMTP settings to `appsettings.json`:
-
-```json
-{
-  "Smtp": {
-    "Host": "smtp.gmail.com",
-    "Port": "587",
-    "Username": "your-email@gmail.com",
-    "Password": "your-app-password"
-  }
-}
-```
-
-## Schema Configuration
-
-### Custom Schema Name
-
-Specify a custom schema for multi-tenant deployments:
-
-```csharp
-builder.Services.AddBeaconServices(builder.Configuration, options =>
-    {
-        options.AddBeaconScheduler<YourScheduler>();
-    })
-    .UsePostgreSql(
-        builder.Configuration.GetConnectionString("BeaconContext")!,
-        "tenant_acme"); // Custom schema name
-```
-
-### Runtime Schema Selection
-
-Select schema based on configuration or tenant context:
-
-```csharp
-var schema = builder.Configuration["Beacon:Schema"] ?? "beacon";
-
-builder.Services.AddBeaconServices(builder.Configuration, options =>
-    {
-        options.AddBeaconScheduler<YourScheduler>();
-    })
-    .UsePostgreSql(
-        builder.Configuration.GetConnectionString("BeaconContext")!,
-        schema);
-```
-
-**In appsettings.json:**
-```json
-{
-  "Beacon": {
-    "Schema": "production_beacon"
-  }
-}
-```
-
-### Multi-Tenant Deployment
-
-Each tenant gets its own schema in the same database:
-
-```csharp
-// Detect tenant from request context
-var tenantId = GetTenantFromContext();
-var schema = $"tenant_{tenantId}";
-
-builder.Services.AddBeaconServices(builder.Configuration, options =>
-    {
-        options.AddBeaconScheduler<YourScheduler>();
-    })
-    .UsePostgreSql(
-        builder.Configuration.GetConnectionString("BeaconContext")!,
-        schema);
-```
-
-📚 [Learn more about multi-tenant deployments →](../advanced/multi-tenant)
-
-## Job Scheduler Configuration
-
-Beacon works with any job scheduler that implements `IBeaconScheduler`. The examples below use Hangfire, but you can adapt them to Quartz.NET or other schedulers.
-
-### Hangfire Storage Provider (Example)
-
-**PostgreSQL (recommended):**
-```csharp
-using Hangfire.PostgreSql;
-
-builder.Services.AddHangfire(config => config
-    .UsePostgreSqlStorage(connectionString, new PostgreSqlStorageOptions
-    {
-        PrepareSchemaIfNecessary = true
-    }));
-```
-
-**SQL Server:**
-```csharp
-using Hangfire.SqlServer;
-
-builder.Services.AddHangfire(config => config
-    .UseSqlServerStorage(connectionString, new SqlServerStorageOptions
-    {
-        PrepareSchemaIfNecessary = true
-    }));
-```
-
-**Redis:**
-```csharp
-using Hangfire.Redis;
-
-builder.Services.AddHangfire(config => config
-    .UseRedisStorage(connectionString));
-```
-
-### Worker Count
-
-Adjust worker count based on subscription load:
-
-```csharp
-builder.Services.AddHangfireServer(options =>
-{
-    options.WorkerCount = 10; // Default: CPU core count
-});
-```
-
-**Guidelines:**
-- Light load (< 100 subscriptions): 2-4 workers
-- Medium load (100-500 subscriptions): 5-10 workers
-- Heavy load (500+ subscriptions): 10-20 workers
-
-## Security Configuration
-
-### Database User Permissions
-
-**For Beacon metadata database (PostgreSQL):**
-```sql
-CREATE USER beacon WITH PASSWORD 'strong-password';
-GRANT ALL PRIVILEGES ON DATABASE beacon TO beacon;
-GRANT ALL ON SCHEMA beacon TO beacon;
-```
-
-**For query projects (read-only recommended):**
-```sql
-CREATE USER beacon_readonly WITH PASSWORD 'strong-password';
-GRANT CONNECT ON DATABASE your_database TO beacon_readonly;
-GRANT USAGE ON SCHEMA public TO beacon_readonly;
-GRANT SELECT ON ALL TABLES IN SCHEMA public TO beacon_readonly;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO beacon_readonly;
-```
-
-### Connection String Security
-
-**Best practices:**
-- ✓ Use User Secrets for development
-- ✓ Use Azure Key Vault or similar for production
-- ✓ Use read-only users for query projects
-- ✓ Enable SSL/TLS for production
-- ✓ Rotate passwords regularly
-
-**User Secrets (development):**
-```bash
-dotnet user-secrets init
-dotnet user-secrets set "ConnectionStrings:BeaconContext" "Host=localhost;Database=beacon;Username=postgres;Password=devpassword"
-```
-
-**Azure Key Vault (production):**
-```csharp
-builder.Configuration.AddAzureKeyVault(
-    new Uri($"https://{keyVaultName}.vault.azure.net/"),
-    new DefaultAzureCredential());
-```
-
-## Performance Configuration
-
-### Connection Pooling
-
-Enable connection pooling for better performance:
-
-**PostgreSQL:**
-```
-Host=postgres;Database=beacon;Username=sa;Password=pass;Pooling=true;MinPoolSize=5;MaxPoolSize=50
-```
-
-**SQL Server:**
-```
-Server=sqlserver;Database=beacon;User Id=sa;Password=pass;Max Pool Size=50;Min Pool Size=5
-```
-
-### Query Timeout
-
-Set appropriate timeouts for long-running queries:
-
-**In connection string:**
-```
-Host=postgres;Database=beacon;Username=sa;Password=pass;CommandTimeout=300
-```
-
-**In subscription settings:**
-- Set timeout to match expected query duration
-- Default: 60 seconds
-- Long-running reports: 300-600 seconds
-
-## Notification Configuration
-
-### Email Adapter
-
-Beacon doesn't include a default email implementation. You must provide your own:
-
-```csharp
-using Beacon.Core.Adapters.Mail;
+using System.Net;
 using System.Net.Mail;
 
 public class SmtpEmailAdapter : IEmailAdapter
@@ -1073,7 +615,7 @@ public class SmtpEmailAdapter : IEmailAdapter
 }
 ```
 
-Register the adapter:
+Register it:
 
 ```csharp
 builder.Services.AddBeaconServices(builder.Configuration, options =>
@@ -1081,16 +623,15 @@ builder.Services.AddBeaconServices(builder.Configuration, options =>
         options.AddBeaconScheduler<BeaconScheduler>();
         options.AddEmailAdapter<SmtpEmailAdapter>();
     })
-    .UsePostgreSql(builder.Configuration.GetConnectionString("BeaconContext")!, "beacon");
+    .UsePostgreSql(connectionString, "beacon");
 ```
 
-**Email configuration in appsettings.json:**
 ```json
 {
   "Email": {
     "SmtpHost": "smtp.gmail.com",
     "SmtpPort": "587",
-    "Username": "your-email@gmail.com",
+    "Username": "alerts@yourdomain.com",
     "Password": "your-app-password",
     "FromAddress": "alerts@yourdomain.com",
     "FromName": "Beacon Alerts"
@@ -1098,60 +639,24 @@ builder.Services.AddBeaconServices(builder.Configuration, options =>
 }
 ```
 
-### Teams Notifications
-
-Teams notifications work out-of-the-box. No additional configuration needed beyond creating recipient with webhook URL.
-
-### Jira Notifications
-
-Jira notifications work out-of-the-box. Configure per recipient with Jira instance details.
+Teams and Jira notifications work out of the box — configure them per recipient in the UI. See the [Notifications Guide](../features/notifications).
 
 ## Schema Configuration
 
-### Default Schema
-
-By default, Beacon uses `"beacon"` schema:
-
-```csharp
-builder.Services.AddBeaconServices(builder.Configuration, options =>
-    {
-        options.AddBeaconScheduler<YourScheduler>();
-    })
-    .UsePostgreSql(builder.Configuration.GetConnectionString("BeaconContext")!);
-    // Uses "beacon" schema by default
-```
-
-### Custom Schema
-
-Specify custom schema for multi-tenancy or environment separation:
-
-```csharp
-builder.Services.AddBeaconServices(builder.Configuration, options =>
-    {
-        options.AddBeaconScheduler<YourScheduler>();
-    })
-    .UsePostgreSql(
-        builder.Configuration.GetConnectionString("BeaconContext")!,
-        "custom_schema");
-```
-
-### Runtime Schema Selection
-
-Load schema from configuration:
+The default schema is `beacon`. Override it for multi-tenancy or environment separation:
 
 ```csharp
 var schema = builder.Configuration["Beacon:Schema"] ?? "beacon";
 
 builder.Services.AddBeaconServices(builder.Configuration, options =>
     {
-        options.AddBeaconScheduler<YourScheduler>();
+        options.AddBeaconScheduler<BeaconScheduler>();
     })
     .UsePostgreSql(
         builder.Configuration.GetConnectionString("BeaconContext")!,
         schema);
 ```
 
-**In appsettings.json:**
 ```json
 {
   "Beacon": {
@@ -1160,57 +665,48 @@ builder.Services.AddBeaconServices(builder.Configuration, options =>
 }
 ```
 
-**Environment-specific schemas:**
+## Security
 
-**appsettings.Development.json:**
-```json
-{
-  "Beacon": {
-    "Schema": "dev_beacon"
-  }
-}
+### Database User Permissions
+
+**Beacon metadata database (PostgreSQL):**
+```sql
+CREATE USER beacon WITH PASSWORD 'strong-password';
+GRANT ALL PRIVILEGES ON DATABASE beacon TO beacon;
+GRANT ALL ON SCHEMA beacon TO beacon;
 ```
 
-**appsettings.Production.json:**
-```json
-{
-  "Beacon": {
-    "Schema": "prod_beacon"
-  }
-}
+**Monitored data sources (read-only recommended):**
+```sql
+CREATE USER beacon_readonly WITH PASSWORD 'strong-password';
+GRANT CONNECT ON DATABASE your_database TO beacon_readonly;
+GRANT USAGE ON SCHEMA public TO beacon_readonly;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO beacon_readonly;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO beacon_readonly;
 ```
 
-## UI Path Configuration
+### Connection String Security
 
-### Custom Base Path
+- ✅ Use User Secrets for development
+- ✅ Use Azure Key Vault or similar for production
+- ✅ Use read-only users for monitored data sources
+- ✅ Enable SSL/TLS in production
+- ✅ Rotate passwords regularly
 
-Change the Beacon UI path:
+**User Secrets (development):**
+```bash
+dotnet user-secrets init
+dotnet user-secrets set "ConnectionStrings:BeaconContext" "Host=localhost;Database=beacon;Username=postgres;Password=devpassword"
+```
 
+**Azure Key Vault (production):**
 ```csharp
-app.UseBeaconUI()
-    .UseBasicAuthentication("admin", "admin")
-    .AddBlazorUI("/custom-path");
+builder.Configuration.AddAzureKeyVault(
+    new Uri($"https://{keyVaultName}.vault.azure.net/"),
+    new DefaultAzureCredential());
 ```
 
-Access UI at: `http://localhost:5000/custom-path`
-
-### Multiple Paths
-
-Host Beacon UI at multiple paths (for different auth):
-
-```csharp
-app.UseBeaconUI()
-    .UseBasicAuthentication("admin", "admin")
-    .AddBlazorUI("/beacon");
-
-app.UseBeaconUI()
-    .UseBasicAuthentication("viewer", "readonly")
-    .AddBlazorUI("/beacon-viewer");
-```
-
-## Logging Configuration
-
-Configure logging in `appsettings.json`:
+## Logging
 
 ```json
 {
@@ -1225,133 +721,23 @@ Configure logging in `appsettings.json`:
 }
 ```
 
-**Log levels:**
-- `Trace`: Detailed diagnostic information
-- `Debug`: Debugging information
-- `Information`: General informational messages
-- `Warning`: Warnings that might need attention
-- `Error`: Errors and exceptions
-- `Critical`: Critical failures
+{: .warning }
+> **No PII in logs.** User-supplied query text, connection strings, full row payloads, and auth tokens are never logged — Beacon logs identifiers and counts only.
 
-## Complete Configuration Example
+## Complete appsettings.json Example
 
-### With User Management (Recommended)
-
-```csharp
-using Hangfire;
-using Hangfire.PostgreSql;
-using Beacon.AI;
-using Beacon.Core;
-using Beacon.Core.Authentication;
-using Beacon.Core.PostgreSql;
-using Beacon.UI;
-
-var builder = WebApplication.CreateBuilder(args);
-
-// Hangfire configuration
-builder.Services.AddHangfire((provider, config) => config
-    .SetDataCompatibilityLevel(CompatibilityLevel.Version_170)
-    .UseSimpleAssemblyNameTypeSerializer()
-    .UseRecommendedSerializerSettings()
-    .UseFilter(new AutomaticRetryAttribute { Attempts = 0 })
-    .UsePostgreSqlStorage(
-        builder.Configuration.GetConnectionString("BeaconContext"),
-        new PostgreSqlStorageOptions
-        {
-            PrepareSchemaIfNecessary = true,
-            QueuePollInterval = TimeSpan.FromSeconds(1),
-        }));
-
-builder.Services.AddHangfireServer(options =>
-{
-    options.WorkerCount = 10;
-});
-
-// Step 1: Add Beacon core services with user management
-var schema = builder.Configuration["Beacon:Schema"] ?? "beacon";
-builder.Services.AddBeaconServices(builder.Configuration, options =>
-    {
-        options.AddBeaconScheduler<BeaconScheduler>();
-        options.AddEmailAdapter<SmtpEmailAdapter>();
-        options.BaseUrl = builder.Configuration["Beacon:BaseUrl"];
-        options.UseAI = true;
-
-        // Enable authorization and user management
-        options.Authorization.Enabled = true;
-        options.Authentication.EnableLoginForm = true;
-        options.AddAuthenticationProvider<DatabaseAuthenticationProvider>();
-
-        options.UserManagement = new UserManagementOptions
-        {
-            Enabled = true,
-            AllowInternalUsers = true,
-            MinimumPasswordLength = 8,
-            RequirePasswordComplexity = true
-        };
-    })
-    .UsePostgreSql(
-        builder.Configuration.GetConnectionString("BeaconContext")!,
-        schema);
-
-// Step 2: Add UI components
-builder.Services.AddBeaconUI();
-
-// Step 3: Add cookie authentication
-builder.Services.AddBeaconCookieAuthentication("/beacon");
-
-// Step 4: Add AI services (optional)
-builder.Services.AddBeaconAI(builder.Configuration);
-
-var app = builder.Build();
-
-app.UseHttpsRedirection();
-app.UseStaticFiles();
-
-app.UseAuthentication();
-app.UseAuthorization();
-
-// Beacon UI with login form
-app.UseBeaconUI()
-    .UseLoginForm()
-    .UseAuthorization()
-    .AddBlazorUI("/beacon");
-
-// Optional: Hangfire dashboard
-app.UseHangfireDashboard("/hangfire");
-
-app.Run();
-```
-
-### Without User Management (Simple)
-
-```csharp
-builder.Services.AddBeaconServices(builder.Configuration, options =>
-    {
-        options.AddBeaconScheduler<BeaconScheduler>();
-        options.BaseUrl = builder.Configuration["Beacon:BaseUrl"];
-    })
-    .UsePostgreSql(connectionString, schema);
-
-builder.Services.AddBeaconUI();
-
-app.UseBeaconUI()
-    .UseBasicAuthentication("admin", "secretpassword")
-    .AddBlazorUI("/beacon");
-```
-
-**Complete appsettings.json:**
 ```json
 {
   "ConnectionStrings": {
     "BeaconContext": "Host=localhost;Database=beacon;Username=beacon;Password=secretpass;Pooling=true;MaxPoolSize=50"
   },
   "Beacon": {
-    "EncryptionKey": "your-secure-32-character-key-here",
+    "EncryptionKey": "your-secure-32-byte-base64-key",
     "Schema": "beacon",
-    "BaseUrl": "https://yourdomain.com/beacon",
+    "BaseUrl": "https://beacon.example.com",
     "LLM": {
       "Provider": "OpenAI",
-      "ApiKey": "sk-your-api-key",
+      "ApiKey": "${LLM_API_KEY}",
       "Model": "gpt-4o"
     }
   },
@@ -1381,17 +767,17 @@ app.UseBeaconUI()
 <div class="code-example" markdown="1">
 📊 **[Features →](../features/)**
 
-Explore Projects, Queries, Subscriptions, and more
+Explore Data Sources, Queries, Subscriptions, and more
 </div>
 
 <div class="code-example" markdown="1">
-🔧 **[Troubleshooting →](../troubleshooting/common-issues)**
+🚀 **[Quick Start →](quick-start)**
 
-Solutions for common configuration problems
+Create your first alert end to end
 </div>
 
 <div class="code-example" markdown="1">
-🏗️ **[Architecture →](../advanced/architecture)**
+🤖 **[MCP Server →](../features/mcp-server)**
 
-Understand Beacon's extensibility points
+Integrate Beacon with AI agents over MCP
 </div>

@@ -39,7 +39,7 @@ Update your `Program.cs`:
 builder.Services.AddBeaconServices(builder.Configuration, options =>
 {
     options.AddBeaconScheduler<BeaconScheduler>();
-    options.BaseUrl = "https://your-domain.com/beacon";
+    options.BaseUrl = "https://your-domain.com";
 
     // Enable authorization
     options.Authorization.Enabled = true;
@@ -59,20 +59,19 @@ builder.Services.AddBeaconServices(builder.Configuration, options =>
 })
 .UsePostgreSql(connectionString, "beacon");
 
+// Serves the React SPA (Beacon.UI Razor Class Library) at the root URL "/"
 builder.Services.AddBeaconUI();
 
 // Add cookie authentication
-builder.Services.AddBeaconCookieAuthentication("/beacon");
+builder.Services.AddBeaconCookieAuthentication();
 
 var app = builder.Build();
 
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.UseBeaconUI()
-    .UseLoginForm()
-    .UseAuthorization()
-    .AddBlazorUI("/beacon");
+// Maps the React shell + Beacon REST API; the login form is served at "/login"
+app.UseBeaconUI();
 ```
 
 ### 2. First-Run Setup
@@ -87,7 +86,7 @@ On first launch with no users in the database, Beacon redirects to a setup wizar
 
 ### 3. Manage Users
 
-After setup, navigate to **Users** in the admin UI to:
+After setup, navigate to **Users** in the React UI (`/users`) to:
 - Create new internal users
 - Assign roles
 - Enable/disable accounts
@@ -203,13 +202,13 @@ builder.Services.AddBeaconServices(builder.Configuration, options =>
 .UsePostgreSql(connectionString, "beacon");
 
 builder.Services.AddBeaconUI();
-builder.Services.AddBeaconCookieAuthentication("/beacon");
+builder.Services.AddBeaconCookieAuthentication();
 ```
 
 This gives you:
-- Login form at `/beacon/login`
+- Login form at the React route `/login`
 - First-run setup wizard
-- User management UI at `/beacon/users`
+- User management UI at `/users`
 - Cookie-based sessions (24h default, 30 days with "Remember Me")
 - Password hashing with salt
 
@@ -312,11 +311,10 @@ builder.Services.AddBeaconServices(builder.Configuration, options =>
 // Add your own claims transformer
 builder.Services.AddScoped<IClaimsTransformation, MyClaimsTransformation>();
 
-// Use basic auth or your own auth
-app.UseBeaconUI()
-    .UseBasicAuthentication("admin", "admin")
-    .UseAuthorization()
-    .AddBlazorUI("/beacon");
+// Plug in your own authentication, then map the React shell + REST API
+app.UseAuthentication();
+app.UseAuthorization();
+app.UseBeaconUI();
 ```
 
 ## User Entity Model
@@ -341,12 +339,15 @@ The `BeaconUser` entity stores user information:
 Configure session behavior:
 
 ```csharp
-builder.Services.AddBeaconCookieAuthentication("/beacon", options =>
+builder.Services.AddBeaconCookieAuthentication(options =>
 {
     options.CookieExpirationHours = 24;       // Normal session duration
     options.RememberMeExpirationDays = 30;    // "Remember Me" duration
 });
 ```
+
+{: .note }
+> The `Beacon.Auth` cookie is configured with `HttpOnly = true`, `SameSite = Lax`, and `SecurePolicy = SameAsRequest`.
 
 ## Database Schema
 
@@ -362,19 +363,21 @@ These tables are created automatically by the EF Core migration `20260206112218_
 
 ### Authentication
 
+These are part of Beacon's REST minimal-API surface under `/beacon/api/*` (OpenAPI document at `/openapi/v1.json`).
+
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/auth/login` | POST | Authenticate with username/password |
-| `/api/auth/logout` | POST | Clear session cookie |
-| `/api/auth/signout` | GET | Browser-navigable sign out with redirect |
+| `/beacon/api/auth/login` | POST | Authenticate with username/password |
+| `/beacon/api/auth/logout` | POST | Clear session cookie |
+| `/beacon/api/auth/signout` | GET | Browser-navigable sign out with redirect |
 
 ### First-Run Setup
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/setup/status` | GET | Check if first-run setup is needed |
-| `/api/setup/superadmin` | POST | Create super admin (first run only) |
-| `/api/setup/roles` | GET | List available roles |
+| `/beacon/api/setup/status` | GET | Check if first-run setup is needed |
+| `/beacon/api/setup/superadmin` | POST | Create super admin (first run only) |
+| `/beacon/api/setup/roles` | GET | List available roles |
 
 ## Troubleshooting
 
@@ -384,8 +387,8 @@ These tables are created automatically by the EF Core migration `20260206112218_
 
 **Solution:**
 1. Ensure `EnableLoginForm = true` in authentication options
-2. Ensure `.UseLoginForm()` is called in the middleware pipeline
-3. Check that `AddBeaconCookieAuthentication()` is registered
+2. Ensure `AddBeaconCookieAuthentication()` is registered
+3. Confirm the React app is being served (`AddBeaconUI()` / `UseBeaconUI()`); the login form lives at the React route `/login`
 
 ### External Users Can't Log In
 

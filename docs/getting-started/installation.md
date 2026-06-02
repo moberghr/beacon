@@ -7,64 +7,141 @@ nav_order: 1
 
 # Installation Guide
 
-Complete step-by-step guide to install and configure Beacon in your ASP.NET Core application. This guide is based on the actual SampleProject implementation.
+Beacon ships two ways. Pick the path that fits you:
+
+- **[Path A — Run the self-hostable application](#path-a--run-the-self-hostable-application)**: clone the repo and run `Beacon.SampleProject`. Fastest way to evaluate Beacon and the recommended path for contributors.
+- **[Path B — Embed Beacon as NuGet packages](#path-b--embed-beacon-as-nuget-packages)**: reference the `Beacon.*` packages and wire them into your own ASP.NET Core app.
+
+Both paths use the same configuration model (see the [Configuration Guide](configuration)).
 
 ## Prerequisites
 
 Before you begin, ensure you have:
 
 - **.NET 9.0 SDK** or later
-- **PostgreSQL 12+** or **SQL Server 2019+** for Beacon metadata database
+- **PostgreSQL 12+** or **SQL Server 2019+** for Beacon's metadata database (PostgreSQL is also used for Hangfire job storage)
+- **Node.js 18+** and npm — only needed to build or run the React frontend from source
 - **Visual Studio 2022**, **Rider**, or **VS Code** with C# support
-- **Job scheduler** (Hangfire recommended, but Quartz.NET or custom implementations work)
+- An **encryption key** (`Beacon:EncryptionKey`) — required (see [Step 2](#step-2-generate-the-encryption-key))
 
-## Step 1: Install NuGet Packages
+---
 
-### For PostgreSQL (Recommended)
+## Path A — Run the Self-Hostable Application
+
+The `Beacon.SampleProject` host is the composition root. It self-hosts Kestrel, serves the React SPA at the root URL `/`, exposes the REST API / MCP server / SignalR hub, and runs Hangfire.
+
+### A1. Clone the repository
 
 ```bash
-# Core Beacon packages
-dotnet add package Beacon.Core.PostgreSql
-dotnet add package Beacon.UI.AspNet
-
-# Job scheduler (Hangfire example)
-dotnet add package Hangfire.AspNetCore
-dotnet add package Hangfire.PostgreSql
+git clone https://github.com/MiBu/semantico.git
+cd semantico
 ```
 
-### For SQL Server
+### A2. Configure secrets
+
+Set the metadata connection string and the required encryption key. Use User Secrets (recommended) or `appsettings.Development.json`:
 
 ```bash
-# Core Beacon packages
-dotnet add package Beacon.Core.SqlServer
-dotnet add package Beacon.UI.AspNet
+dotnet user-secrets --project Beacon.SampleProject set \
+  "ConnectionStrings:BeaconContext" \
+  "Host=localhost;Database=beacon;Username=postgres;Password=yourpassword"
 
-# Job scheduler (Hangfire example)
+dotnet user-secrets --project Beacon.SampleProject set \
+  "Beacon:EncryptionKey" "$(openssl rand -base64 32)"
+```
+
+### A3. Run the API host
+
+```bash
+dotnet run --project Beacon.SampleProject --no-launch-profile
+```
+
+This starts Kestrel on:
+
+- **HTTP**: http://localhost:5296
+- **HTTPS**: https://localhost:7187
+
+On first run Beacon automatically applies EF Core migrations and creates the `beacon` schema. Verify it's up with the health check:
+
+```bash
+curl http://localhost:5296/beacon/api/health
+```
+
+### A4. (Optional) Run the React dev server
+
+The host serves the pre-built SPA out of `Beacon.UI/wwwroot`. If you're working on the frontend, run the Vite dev server instead — it hot-reloads and proxies API/MCP/Hangfire calls to Kestrel:
+
+```bash
+npm install --prefix Beacon.UI/web
+npm run dev --prefix Beacon.UI/web
+```
+
+Vite serves the app on **http://localhost:5173** and proxies `/beacon/api`, `/beacon/mcp`, and `/hangfire` to Kestrel (port 5296 / 7187), so keep the API host from A3 running alongside it.
+
+Other frontend commands (run inside `Beacon.UI/web`):
+
+| Command | What it does |
+|---|---|
+| `npm run build` | Production build → outputs to `Beacon.UI/wwwroot` |
+| `npm run codegen` | Regenerates the typed TS fetch client from `/openapi/v1.json` via NSwag |
+| `npm test` | Runs the Vitest test suite |
+
+### A5. Open the app
+
+| URL | What |
+|---|---|
+| **`/`** (e.g. https://localhost:7187/) | Beacon React SPA |
+| **`/login`** | Login form |
+| **`/beacon/api/health`** | API health check |
+| **`/openapi/v1.json`** | OpenAPI document |
+| **`/beacon/mcp`** | MCP server (auth required) |
+| **`/hangfire`** | Hangfire dashboard (admin only) |
+
+On the **first run** Beacon walks you through a setup flow that creates the initial admin user. There are **no hardcoded credentials** — you set them during setup.
+
+---
+
+## Path B — Embed Beacon as NuGet Packages
+
+Embed Beacon into your own ASP.NET Core app by referencing the `Beacon.*` packages.
+
+### B1. Install NuGet packages
+
+```bash
+# Core + metadata DB provider (choose one provider)
+dotnet add package Beacon.Core
+dotnet add package Beacon.Core.PostgreSql   # or: Beacon.Core.SqlServer
+
+# UI (React SPA shipped as a Razor Class Library), REST API, AI, MCP
+dotnet add package Beacon.UI
+dotnet add package Beacon.Api
+dotnet add package Beacon.AI
+dotnet add package Beacon.MCP
+
+# Data-source connectors — add only the ones you need
+dotnet add package Beacon.Connector.PostgreSql
+dotnet add package Beacon.Connector.SqlServer
+dotnet add package Beacon.Connector.MySql
+dotnet add package Beacon.Connector.BigQuery
+dotnet add package Beacon.Connector.Snowflake
+dotnet add package Beacon.Connector.Databricks
+dotnet add package Beacon.Connector.AzureSynapse
+dotnet add package Beacon.Connector.CloudWatch
+dotnet add package Beacon.Connector.Api
+
+# Hangfire (scheduler storage)
 dotnet add package Hangfire.AspNetCore
-dotnet add package Hangfire.SqlServer
+dotnet add package Hangfire.PostgreSql   # or: Hangfire.SqlServer
 ```
 
 {: .note }
-> The provider you choose is for Beacon's metadata database. You can still query PostgreSQL, SQL Server, and MySQL databases for monitoring regardless of which provider you choose.
+> The `Beacon.Core.PostgreSql` / `Beacon.Core.SqlServer` provider you choose is for Beacon's **metadata** database. The data sources you **monitor** are wired separately via the connector packages, and you can mix any of the nine connectors regardless of which metadata provider you use.
 
-## Step 2: Generate Encryption Key
+### B2. Generate the encryption key
 
-Beacon requires an encryption key for securing sensitive data like connection strings.
+See [Step 2](#step-2-generate-the-encryption-key) below.
 
-```bash
-openssl rand -base64 32
-```
-
-**Example output:**
-```
-[REMOVED-KEY]=
-```
-
-Save this key - you'll need it in the next step.
-
-## Step 3: Configure appsettings.json
-
-Add connection strings and Beacon configuration:
+### B3. Configure `appsettings.json`
 
 ```json
 {
@@ -84,38 +161,133 @@ Add connection strings and Beacon configuration:
 }
 ```
 
-### Optional: Enable AI Features (Experimental)
+See the [Configuration Guide](configuration) for AI/LLM, OIDC, email, and scheduling options.
 
-⚠️ **AI features are experimental.** Add LLM configuration only if you plan to use AI-powered documentation or alert generation:
+### B4. Wire up `Program.cs`
+
+This is the full host setup, modeled on `Beacon.SampleProject/Program.cs`:
+
+```csharp
+using Hangfire;
+using Hangfire.PostgreSql;
+using Beacon.AI;
+using Beacon.Api;
+using Beacon.Core;
+using Beacon.Core.PostgreSql;
+using Beacon.MCP;
+using Beacon.UI;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// 1. Hangfire (scheduler storage) on PostgreSQL
+builder.Services.AddHangfire((provider, config) => config
+    .SetDataCompatibilityLevel(CompatibilityLevel.Version_170)
+    .UseSimpleAssemblyNameTypeSerializer()
+    .UseRecommendedSerializerSettings()
+    .UseFilter(new AutomaticRetryAttribute { Attempts = 0 }) // retries disabled
+    .UsePostgreSqlStorage(
+        builder.Configuration.GetConnectionString("BeaconContext"),
+        new PostgreSqlStorageOptions
+        {
+            PrepareSchemaIfNecessary = true,
+            QueuePollInterval = TimeSpan.FromSeconds(1)
+        }));
+
+builder.Services.AddHangfireServer();
+
+// 2. Host identity + SignalR plumbing
+builder.Services.AddBeaconHostInfrastructure();
+
+// 3. Core services, scheduler, connectors, metadata provider
+builder.Services.AddBeaconServices(builder.Configuration, options =>
+    {
+        options.AddBeaconScheduler<BeaconScheduler>();   // IBeaconScheduler (Hangfire-backed)
+        options.BaseUrl = "https://localhost:7187";
+        options.UseAI = true;
+        options.AddEmailAdapter<BeaconMailSender>();      // your IEmailAdapter impl
+
+        // Auth + user management
+        options.Authorization.Enabled = true;
+        options.Authentication.EnableLoginForm = true;
+        options.AddAuthenticationProvider<DatabaseAuthenticationProvider>();
+        options.UserManagement = new UserManagementOptions { Enabled = true };
+    })
+    .AddPostgreSqlConnector()
+    .AddSqlServerConnector()
+    .AddMySqlConnector()
+    .AddCloudWatchConnector()
+    .AddAzureSynapseConnector()
+    .AddSnowflakeConnector()
+    .AddDatabricksConnector()
+    .AddBigQueryConnector()
+    .AddApiConnector()
+    .UsePostgreSql(builder.Configuration.GetConnectionString("BeaconContext")!, "beacon");
+
+// 4. Authentication, AI, MCP, OpenAPI
+builder.Services.AddBeaconCookieAuthentication("/");          // login redirect target
+builder.Services.AddBeaconOidcAuthentication(builder.Configuration); // optional SSO
+builder.Services.AddBeaconAI(builder.Configuration);
+builder.Services.AddBeaconMcp();
+builder.Services.AddOpenApi();
+
+var app = builder.Build();
+
+// 5. Middleware order is load-bearing
+app.UseStaticFiles();
+app.UseMiddleware<ApiKeyAuthMiddleware>();
+app.UseAuthentication();
+app.UseMiddleware<BeaconCookieAuthMiddleware>();
+app.UseAuthorization();
+app.UseAntiforgery();
+
+// 6. Endpoints
+app.MapOpenApi();                 // /openapi/v1.json
+app.MapBeaconApi();               // /beacon/api/*
+app.MapLoginEndpoints("/beacon", beaconConfiguration);
+app.MapHub<BeaconHub>("/beacon/api/hub").RequireAuthorization();
+app.MapMcp("/beacon/mcp").RequireAuthorization();
+app.UseHangfireDashboard("/hangfire");
+app.MapBeaconUi();                // React SPA at root /
+
+app.Run();
+```
+
+{: .note }
+> **Middleware order matters.** `ApiKeyAuthMiddleware` runs before `UseAuthentication`, and `BeaconCookieAuthMiddleware` runs after it. Reordering breaks API-key-only callers and the login redirect.
+
+### For SQL Server
+
+If you use SQL Server for Beacon's metadata instead of PostgreSQL:
+
+```csharp
+using Hangfire.SqlServer;
+using Beacon.Core.SqlServer;
+
+// Metadata provider
+builder.Services.AddBeaconServices(builder.Configuration, options =>
+    {
+        options.AddBeaconScheduler<BeaconScheduler>();
+    })
+    // ... connectors ...
+    .UseSqlServer(builder.Configuration.GetConnectionString("BeaconContext")!, "beacon");
+```
+
+{: .note }
+> Hangfire job storage requires **PostgreSQL** in the canonical setup (`QueuePollInterval` 1s, retries disabled). The metadata database can be PostgreSQL or SQL Server.
+
+Update the connection string in `appsettings.json`:
 
 ```json
 {
-  "Beacon": {
-    "EncryptionKey": "your-generated-key",
-    "LLM": {
-      "Provider": "OpenAI",
-      "ApiKey": "sk-your-openai-key",
-      "Model": "gpt-4o",
-      "Limits": {
-        "MaxConcurrentRequests": 5,
-        "RequestsPerMinute": 60,
-        "MaxTokensPerRequest": 4000
-      }
-    }
+  "ConnectionStrings": {
+    "BeaconContext": "Server=localhost;Database=beacon;User Id=sa;Password=YourPassword123!;TrustServerCertificate=True"
   }
 }
 ```
 
-**Supported Providers:**
-- `OpenAI` - gpt-4o (recommended)
-- `Anthropic` - claude-3-5-sonnet-20241022 (recommended)
-- `AzureOpenAI` - Latest models only
+### B5. Provide a scheduler implementation
 
-## Step 4: Create Job Scheduler Implementation
-
-Create a class that implements `IBeaconScheduler`. This example uses Hangfire (from SampleProject):
-
-**Create file:** `Services/BeaconScheduler.cs`
+Beacon schedules work through the `IBeaconScheduler` abstraction. The sample uses `BeaconScheduler`, a Hangfire-backed implementation. (Quartz.NET remains a valid alternative implementation of the same interface.)
 
 ```csharp
 using Hangfire;
@@ -123,9 +295,6 @@ using Beacon.Core.Worker;
 
 namespace YourProject.Services;
 
-/// <summary>
-/// Hangfire implementation of Beacon scheduler
-/// </summary>
 public class BeaconScheduler : IBeaconScheduler
 {
     private readonly IRecurringJobManager _recurringJobManager;
@@ -156,132 +325,17 @@ public class BeaconScheduler : IBeaconScheduler
 }
 ```
 
-{: .note }
-> If you prefer Quartz.NET or a custom scheduler, implement the same `IBeaconScheduler` interface with your chosen scheduler. See [Alternative Schedulers](#alternative-schedulers) section below.
+### B6. (Optional) Extended timeouts for AI operations
 
-## Step 5: Configure Program.cs
-
-Update your `Program.cs` to register Beacon services. This is the complete configuration from SampleProject:
+AI calls can run for minutes. Kestrel keep-alive and request-header timeouts and the default `HttpClient` timeout are tuned to 5 minutes:
 
 ```csharp
-using Hangfire;
-using Hangfire.PostgreSql;
-using Beacon.AI;
-using Beacon.Core;
-using Beacon.Core.PostgreSql;
-using Beacon.UI;
-using YourProject.Services;
-
-var builder = WebApplication.CreateBuilder(args);
-
-// 1. Configure Hangfire (job scheduler)
-builder.Services.AddHangfire((provider, hangfireConfiguration) => hangfireConfiguration
-    .SetDataCompatibilityLevel(CompatibilityLevel.Version_170)
-    .UseSimpleAssemblyNameTypeSerializer()
-    .UseRecommendedSerializerSettings()
-    .UseFilter(new AutomaticRetryAttribute { Attempts = 0 })
-    .UsePostgreSqlStorage(
-        builder.Configuration.GetConnectionString("BeaconContext"),
-        new PostgreSqlStorageOptions
-        {
-            PrepareSchemaIfNecessary = true,
-            QueuePollInterval = TimeSpan.FromSeconds(1)
-        }));
-
-builder.Services.AddHangfireServer();
-
-// 2. BEACON: Add core services and configure database provider
-builder.Services.AddBeaconServices(builder.Configuration, options =>
-    {
-        // Required: Register your scheduler implementation
-        options.AddBeaconScheduler<BeaconScheduler>();
-
-        // Optional: Base URL for notification links
-        options.BaseUrl = "https://localhost:7187/beacon";
-
-        // Optional: Enable AI features (experimental)
-        options.UseAI = true;
-    })
-    .UsePostgreSql(builder.Configuration.GetConnectionString("BeaconContext")!, "beacon");
-
-// 3. BEACON: Add UI components
-builder.Services.AddBeaconUI();
-
-// 4. BEACON: Add AI services (optional)
-builder.Services.AddBeaconAI(builder.Configuration);
-
-var app = builder.Build();
-
-app.UseHttpsRedirection();
-app.UseStaticFiles(); // Required: Serves Beacon UI assets
-
-// 5. BEACON: Configure admin UI with authentication
-app.UseBeaconUI()
-    .UseBasicAuthentication("admin", "admin")  // Change these credentials!
-    .AddBlazorUI("/beacon");
-
-// Optional: Hangfire dashboard
-app.UseHangfireDashboard("/hangfire", new DashboardOptions
-{
-    IgnoreAntiforgeryToken = true
-});
-
-app.Run();
-```
-
-### For SQL Server
-
-If using SQL Server instead of PostgreSQL, make these changes:
-
-```csharp
-using Hangfire.SqlServer;
-using Beacon.Core.SqlServer;
-
-// Replace PostgreSQL configuration with SQL Server:
-builder.Services.AddBeaconServices(builder.Configuration, options =>
-    {
-        options.AddBeaconScheduler<BeaconScheduler>();
-    })
-    .UseSqlServer(builder.Configuration.GetConnectionString("BeaconContext")!, "beacon");
-
-// Update Hangfire to use SQL Server:
-builder.Services.AddHangfire(config => config
-    .UseSqlServerStorage(
-        builder.Configuration.GetConnectionString("BeaconContext")));
-```
-
-Update connection string in appsettings.json:
-```json
-{
-  "ConnectionStrings": {
-    "BeaconContext": "Server=localhost;Database=beacon;User Id=sa;Password=YourPassword123!;TrustServerCertificate=True"
-  }
-}
-```
-
-## Step 6: Optional - Extended Timeouts for AI Operations
-
-If you plan to use AI features, configure extended timeouts for long-running operations (from SampleProject):
-
-```csharp
-// Configure Kestrel server limits for long-running AI operations
 builder.WebHost.ConfigureKestrel(serverOptions =>
 {
     serverOptions.Limits.KeepAliveTimeout = TimeSpan.FromMinutes(5);
     serverOptions.Limits.RequestHeadersTimeout = TimeSpan.FromMinutes(5);
 });
 
-// Configure Blazor Server with extended timeouts for long-running AI operations
-builder.Services.AddServerSideBlazor()
-    .AddCircuitOptions(options =>
-    {
-        options.DisconnectedCircuitMaxRetained = 100;
-        options.DisconnectedCircuitRetentionPeriod = TimeSpan.FromMinutes(3);
-        options.JSInteropDefaultCallTimeout = TimeSpan.FromMinutes(5);
-        options.MaxBufferedUnacknowledgedRenderBatches = 10;
-    });
-
-// Increase timeout for all HTTP clients (including AI provider APIs)
 builder.Services.AddHttpClient().ConfigureHttpClientDefaults(http =>
 {
     http.ConfigureHttpClient(client =>
@@ -291,306 +345,144 @@ builder.Services.AddHttpClient().ConfigureHttpClientDefaults(http =>
 });
 ```
 
-## Step 7: Run Your Application
+### B7. Run
 
 ```bash
 dotnet run
 ```
 
-On first run, Beacon will automatically create the database schema and apply migrations.
+On first run Beacon applies EF Core migrations, creates the `beacon` schema, and walks you through the first-run setup flow that creates the initial admin user. Then open:
 
-Navigate to:
-- **Beacon Admin UI**: https://localhost:7187/beacon
-- **Hangfire Dashboard**: https://localhost:7187/hangfire (if enabled)
+| URL | What |
+|---|---|
+| **`/`** | Beacon React SPA |
+| **`/login`** | Login form |
+| **`/hangfire`** | Hangfire dashboard (admin only) |
 
-**Default credentials (basic auth):**
-- Username: `admin`
-- Password: `admin`
+---
 
-⚠️ **Important:** Change default credentials in production!
+## Step 2: Generate the Encryption Key
 
-## Complete Program.cs Example (Production-Ready)
+Beacon **requires** an encryption key (`Beacon:EncryptionKey`) to encrypt sensitive data — most importantly data-source connection strings — at rest with AES-256.
 
-Here's the complete `Program.cs` from SampleProject with all features enabled:
-
-```csharp
-using Hangfire;
-using Hangfire.PostgreSql;
-using Beacon.AI;
-using Beacon.Core;
-using Beacon.Core.PostgreSql;
-using Beacon.UI;
-using YourProject.Services;
-
-var builder = WebApplication.CreateBuilder(args);
-
-// Configure Kestrel server limits for long-running AI operations
-builder.WebHost.ConfigureKestrel(serverOptions =>
-{
-    serverOptions.Limits.KeepAliveTimeout = TimeSpan.FromMinutes(5);
-    serverOptions.Limits.RequestHeadersTimeout = TimeSpan.FromMinutes(5);
-});
-
-// Increase timeout for all HTTP clients
-builder.Services.AddHttpClient().ConfigureHttpClientDefaults(http =>
-{
-    http.ConfigureHttpClient(client =>
-    {
-        client.Timeout = TimeSpan.FromMinutes(5);
-    });
-});
-
-// Configure Hangfire
-builder.Services.AddHangfire((provider, hangfireConfiguration) => hangfireConfiguration
-    .SetDataCompatibilityLevel(CompatibilityLevel.Version_170)
-    .UseSimpleAssemblyNameTypeSerializer()
-    .UseRecommendedSerializerSettings()
-    .UseFilter(new AutomaticRetryAttribute { Attempts = 0 })
-    .UsePostgreSqlStorage(
-        builder.Configuration.GetConnectionString("BeaconContext"),
-        new PostgreSqlStorageOptions
-        {
-            PrepareSchemaIfNecessary = true,
-            QueuePollInterval = TimeSpan.FromSeconds(1)
-        }));
-
-builder.Services.AddHangfireServer();
-
-// BEACON: Add core services and configure database provider
-builder.Services.AddBeaconServices(builder.Configuration, options =>
-    {
-        options.AddBeaconScheduler<BeaconScheduler>();
-        options.BaseUrl = "https://localhost:7187/beacon";
-        options.UseAI = true;  // Optional: Enable AI features (experimental)
-    })
-    .UsePostgreSql(builder.Configuration.GetConnectionString("BeaconContext")!, "beacon");
-
-// BEACON: Add UI components
-builder.Services.AddBeaconUI();
-
-// BEACON: Add AI services (optional)
-builder.Services.AddBeaconAI(builder.Configuration);
-
-var app = builder.Build();
-
-app.UseHttpsRedirection();
-app.UseStaticFiles(); // Required: Serves Beacon UI assets
-
-// BEACON: Configure admin UI
-app.UseBeaconUI()
-    .UseBasicAuthentication("admin", "admin")  // Change in production!
-    .AddBlazorUI("/beacon");
-
-// Optional: Hangfire dashboard
-app.UseHangfireDashboard("/hangfire", new DashboardOptions
-{
-    IgnoreAntiforgeryToken = true
-});
-
-app.Run();
-```
-
-## Custom Authorization Provider
-
-Replace basic authentication with your own authorization logic:
-
-```csharp
-using Microsoft.AspNetCore.Http;
-using Beacon.UI.AspNet;
-
-public class CustomAuthorizationProvider : IBeaconAuthorizationProvider
-{
-    public Task<bool> IsAuthorizedAsync(HttpContext context)
-    {
-        // Your authorization logic here
-        // Example: Check if user is authenticated and has specific role
-        return Task.FromResult(
-            context.User.Identity?.IsAuthenticated == true &&
-            context.User.IsInRole("BeaconAdmin"));
-    }
-}
-```
-
-Register in Program.cs:
-```csharp
-builder.Services.AddBeaconServices(builder.Configuration, options =>
-    {
-        options.AddBeaconScheduler<BeaconScheduler>();
-    })
-    .UsePostgreSql(builder.Configuration.GetConnectionString("BeaconContext")!, "beacon");
-
-builder.Services.AddBeaconUI(options =>
-{
-    options.AddAuthorizationProvider<CustomAuthorizationProvider>();
-});
-
-// Use custom authorization instead of basic auth
-app.UseBeaconUI()
-    .UseAuthorization()  // Instead of UseBasicAuthentication
-    .AddBlazorUI("/beacon");
-```
-
-## Alternative Schedulers
-
-### Using Quartz.NET
-
-```csharp
-using Quartz;
-using Beacon.Core.Worker;
-
-public class QuartzBeaconScheduler : IBeaconScheduler
-{
-    private readonly ISchedulerFactory _schedulerFactory;
-
-    public QuartzBeaconScheduler(ISchedulerFactory schedulerFactory)
-    {
-        _schedulerFactory = schedulerFactory;
-    }
-
-    public async void AddOrUpdate(int subscriptionId, string subscriptionName, string cron)
-    {
-        var scheduler = await _schedulerFactory.GetScheduler();
-
-        var job = JobBuilder.Create<BeaconJob>()
-            .WithIdentity($"beacon-{subscriptionId}")
-            .UsingJobData("subscriptionId", subscriptionId)
-            .Build();
-
-        var trigger = TriggerBuilder.Create()
-            .WithIdentity($"beacon-{subscriptionId}-trigger")
-            .WithCronSchedule(cron)
-            .Build();
-
-        await scheduler.ScheduleJob(job, trigger);
-    }
-
-    public async void Remove(int subscriptionId, string subscriptionName)
-    {
-        var scheduler = await _schedulerFactory.GetScheduler();
-        await scheduler.DeleteJob(new JobKey($"beacon-{subscriptionId}"));
-    }
-}
-
-public class BeaconJob : IJob
-{
-    private readonly IJobService _jobService;
-
-    public BeaconJob(IJobService jobService)
-    {
-        _jobService = jobService;
-    }
-
-    public async Task Execute(IJobExecutionContext context)
-    {
-        var subscriptionId = context.JobDetail.JobDataMap.GetInt("subscriptionId");
-        await _jobService.ExecuteQuery(subscriptionId);
-    }
-}
-```
-
-## Troubleshooting
-
-### Issue: "Beacon:EncryptionKey must be configured"
-
-**Solution:** Generate and add encryption key to appsettings.json:
 ```bash
 openssl rand -base64 32
 ```
 
-### Issue: "Cannot create database schema"
+**Example output:**
 
-**Solution:** Ensure your database user has CREATE SCHEMA permissions:
+```
+[REMOVED-KEY]=
+```
+
+Store it via User Secrets, an environment variable, or a secrets manager — never commit it. See the [Configuration Guide](configuration) for production patterns.
+
+---
+
+## Authentication
+
+Beacon authentication is **cookie-based** (the `Beacon.Auth` cookie is `HttpOnly`, `SameSite=Lax`) and driven by a pluggable `IBeaconAuthenticationProvider`. The sample uses `DatabaseAuthenticationProvider` (internal users with passwords stored in Beacon). There is **no basic auth and no `admin`/`admin` default** — the first-run setup flow creates the initial admin user.
+
+Beacon supports:
+
+- **Login form** — React `/login` route, backed by the cookie scheme
+- **OIDC / SSO** — optional, via `AddBeaconOidcAuthentication(...)`
+- **JWT bearer** — for MCP clients
+- **API keys** — SHA256-hashed at rest, carry scopes (`Read`, `Execute`, `Admin`) and optional project restrictions; the raw key is shown once at creation
+
+See the [Configuration Guide](configuration#authentication) and the [User Management Guide](../features/user-management) for details.
+
+---
+
+## Troubleshooting
+
+### "Beacon:EncryptionKey must be configured"
+
+Generate and configure the key:
+
+```bash
+openssl rand -base64 32
+```
+
+### "Cannot create database schema"
+
+Ensure the Beacon database user has permission to create a schema.
 
 **PostgreSQL:**
+
 ```sql
 GRANT CREATE ON DATABASE beacon TO your_user;
 ```
 
 **SQL Server:**
+
 ```sql
 GRANT CREATE SCHEMA TO your_user;
 ```
 
-### Issue: Jobs not executing
+### Jobs not executing
 
-**Solutions:**
-1. Verify Hangfire is configured and running
-2. Check Hangfire dashboard at `/hangfire` for job status
-3. Ensure `AddHangfireServer()` is called
-4. Verify database connection
+1. Verify Hangfire is configured and `AddHangfireServer()` is called.
+2. Check the Hangfire dashboard at `/hangfire` for job status.
+3. Confirm the PostgreSQL connection used for Hangfire storage is reachable.
 
-### Issue: UI not loading at /beacon
+### SPA not loading at `/`
 
-**Solutions:**
-1. Verify route matches `.AddBlazorUI("/beacon")`
-2. Check browser console for errors
-3. Ensure `AddServerSideBlazor()` is configured
-4. Try clearing browser cache
+1. Confirm `app.MapBeaconUi()` is wired and `app.UseStaticFiles()` runs before it.
+2. If developing the frontend, make sure the Vite dev server (`npm run dev`) is running, or that you ran `npm run build` so `Beacon.UI/wwwroot` is up to date.
+3. Check the browser console for errors and clear cache.
 
-### Issue: Authentication failing
+### Authentication failing
 
-**Solutions:**
-1. Verify credentials match `.UseBasicAuthentication("admin", "admin")`
-2. Check if custom authorization provider is properly configured
-3. Ensure `UseAuthorization()` is called before Beacon UI
+1. Confirm `AddBeaconCookieAuthentication("/")` is registered and `UseAuthentication` runs in the correct order.
+2. Verify the authentication provider (e.g. `DatabaseAuthenticationProvider`) is registered.
+3. For API-key callers, confirm the key's scope and project restriction allow the request.
 
-### Issue: AI features not working
+### AI features not working
 
-**Solutions:**
-1. Verify `options.UseAI = true` is set
-2. Check LLM configuration in appsettings.json
-3. Verify API key is valid and has quota
-4. Check application logs for API errors
-5. Ensure extended timeouts are configured (Step 6)
+1. Verify `options.UseAI = true`.
+2. Check the LLM configuration (provider, key) in `appsettings.json` or Admin Settings.
+3. Confirm the provider key is valid and within quota.
+4. Ensure the extended timeouts (B6) are configured.
+
+---
 
 ## Production Considerations
 
 ### Security
 
-✅ **Change default credentials** - Never use admin/admin in production
-✅ **Use environment variables** - Store sensitive config outside appsettings.json
-✅ **Enable HTTPS** - Always use HTTPS in production
-✅ **Implement proper auth** - Use custom authorization provider
-✅ **Rotate encryption keys** - Regularly update encryption keys
-
-**Example with environment variables:**
-```json
-{
-  "Beacon": {
-    "EncryptionKey": "${BEACON_ENCRYPTION_KEY}",
-    "LLM": {
-      "ApiKey": "${LLM_API_KEY}"
-    }
-  }
-}
-```
+- ✅ **Set a strong admin password** during first-run setup — there are no default credentials.
+- ✅ **Keep the encryption key out of source control** — use environment variables or a secrets manager.
+- ✅ **Enable HTTPS** in production.
+- ✅ **Use OIDC/SSO** for production identity where possible.
+- ✅ **Scope API keys** tightly (`Read`/`Execute`/`Admin` + project restrictions).
 
 ### Performance
 
-✅ **Connection pooling** - Configure database connection pooling
-✅ **Hangfire workers** - Adjust worker count based on load
-✅ **Memory monitoring** - Monitor memory usage for large result sets
-✅ **Query timeouts** - Set appropriate execution timeouts
+- ✅ Configure database connection pooling.
+- ✅ Adjust the Hangfire worker count to match subscription load.
+- ✅ Set query timeouts appropriate to your workloads.
 
 ### Monitoring
 
-✅ **Application logging** - Enable detailed logging for troubleshooting
-✅ **Hangfire dashboard** - Monitor job execution and failures
-✅ **Query alerts** - Set up notifications for critical failures
-✅ **AI usage tracking** - Monitor token usage and costs (if using AI)
+- ✅ Enable detailed logging for troubleshooting (no PII in logs).
+- ✅ Use the Hangfire dashboard to monitor job execution.
+- ✅ Track LLM token usage and cost if AI is enabled.
+
+---
 
 ## Next Steps
 
-Now that Beacon is installed:
+Now that Beacon is running:
 
-1. **[Connect your first data source](../features/data-sources)** - Add databases to monitor
-2. **[Create your first query](../features/queries)** - Define SQL monitoring queries
-3. **[Set up a subscription](../features/subscriptions)** - Schedule automated execution
-4. **[Configure notifications](../features/notifications)** - Send results via Email, Teams, Slack, or Jira
+1. **[Connect your first data source](../features/data-sources)** — add databases and APIs to monitor
+2. **[Create your first query](../features/queries)** — define SQL monitoring queries (including cross-database)
+3. **[Set up a subscription](../features/subscriptions)** — schedule automated execution
+4. **[Configure notifications](../features/notifications)** — deliver results via Email, Teams, or Jira
 
 ## Additional Resources
 
-- 📚 [Configuration Guide](configuration) - Detailed configuration options
-- 🚀 [Quick Start](quick-start) - 5-minute quickstart guide
-- 🎓 [Features Overview](../features/) - Complete feature documentation
-- 🐛 [Report Issues](https://github.com/moberghr/beacon/issues)
+- 📚 [Configuration Guide](configuration) — detailed configuration options
+- 🚀 [Quick Start](quick-start) — create your first alert end to end
+- 🎓 [Features Overview](../features/) — complete feature documentation
+- 🐛 [Report Issues](https://github.com/MiBu/semantico/issues)
