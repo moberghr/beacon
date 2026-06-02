@@ -1,13 +1,13 @@
 # Authorization and Permissions
 
-Semantico provides a flexible, pluggable authorization system that supports both simple role-based access control (RBAC) and fine-grained resource-level permissions.
+Beacon provides a flexible, pluggable authorization system that supports both simple role-based access control (RBAC) and fine-grained resource-level permissions.
 
 ## Overview
 
 The authorization system consists of:
 
-- **ISemanticoUserContext** - Provides access to current user information
-- **ISemanticoAuthorizationProvider** - Enforces authorization policies
+- **IBeaconUserContext** - Provides access to current user information
+- **IBeaconAuthorizationProvider** - Enforces authorization policies
 - **Built-in Providers** - Ready-to-use implementations (Default, Role-Based, Database-Backed)
 - **Custom Providers** - Plug in your own authorization logic
 
@@ -30,24 +30,24 @@ The authorization system consists of:
 Update your `Program.cs` to enable authorization:
 
 ```csharp
-builder.Services.AddSemanticoServices(builder.Configuration, options =>
+builder.Services.AddBeaconServices(builder.Configuration, options =>
 {
-    options.AddSemanticoScheduler<SemanticoScheduler>();
-    options.BaseUrl = "https://localhost:7187/semantico";
+    options.AddBeaconScheduler<BeaconScheduler>();
+    options.BaseUrl = "https://localhost:7187/beacon";
 
     // Enable authorization
     options.Authorization.Enabled = true;
     options.AddAuthorizationProvider<RoleBasedAuthorizationProvider>();
 })
-.UsePostgreSql(connectionString, "semantico");
+.UsePostgreSql(connectionString, "beacon");
 
-builder.Services.AddSemanticoUI();
+builder.Services.AddBeaconUI();
 
 // Enable authorization middleware
-app.UseSemanticoUI()
+app.UseBeaconUI()
     .UseBasicAuthentication("admin", "admin") // Your authentication
     .UseAuthorization() // Enable authorization checks
-    .AddBlazorUI("/semantico");
+    .AddBlazorUI("/beacon");
 ```
 
 ### 2. Add Role Claims
@@ -57,7 +57,7 @@ The built-in `RoleBasedAuthorizationProvider` requires role claims. Add a claims
 ```csharp
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication;
-using Semantico.Core.Authorization;
+using Beacon.Core.Authorization;
 
 public class MyClaimsTransformation : IClaimsTransformation
 {
@@ -65,10 +65,10 @@ public class MyClaimsTransformation : IClaimsTransformation
     {
         var identity = (ClaimsIdentity)principal.Identity!;
 
-        // Add Semantico role claim
-        identity.AddClaim(new Claim(SemanticoClaims.Role, "Admin"));
-        identity.AddClaim(new Claim(SemanticoClaims.UserId, principal.Identity.Name));
-        identity.AddClaim(new Claim(SemanticoClaims.UserName, principal.Identity.Name));
+        // Add Beacon role claim
+        identity.AddClaim(new Claim(BeaconClaims.Role, "Admin"));
+        identity.AddClaim(new Claim(BeaconClaims.UserId, principal.Identity.Name));
+        identity.AddClaim(new Claim(BeaconClaims.UserName, principal.Identity.Name));
 
         return Task.FromResult(principal);
     }
@@ -89,14 +89,14 @@ Start your application and verify:
 
 ### Accessing Current User
 
-Inject `ISemanticoUserContext` anywhere in your application:
+Inject `IBeaconUserContext` anywhere in your application:
 
 ```csharp
 public class MyService
 {
-    private readonly ISemanticoUserContext _userContext;
+    private readonly IBeaconUserContext _userContext;
 
-    public MyService(ISemanticoUserContext userContext)
+    public MyService(IBeaconUserContext userContext)
     {
         _userContext = userContext;
     }
@@ -108,7 +108,7 @@ public class MyService
         var email = _userContext.Email;
         var isAuthenticated = _userContext.IsAuthenticated;
 
-        if (_userContext.HasClaim(SemanticoClaims.Role, "Admin"))
+        if (_userContext.HasClaim(BeaconClaims.Role, "Admin"))
         {
             // Admin-only logic
         }
@@ -121,10 +121,10 @@ public class MyService
 Use these standard claim types for consistency:
 
 ```csharp
-SemanticoClaims.UserId       // "semantico:user_id"
-SemanticoClaims.UserName     // "semantico:user_name"
-SemanticoClaims.Role         // "semantico:role"
-SemanticoClaims.Permission   // "semantico:permission"
+BeaconClaims.UserId       // "beacon:user_id"
+BeaconClaims.UserName     // "beacon:user_name"
+BeaconClaims.Role         // "beacon:role"
+BeaconClaims.Permission   // "beacon:permission"
 ```
 
 ## Built-in Authorization Providers
@@ -137,12 +137,12 @@ Allows all operations (backward compatible default).
 
 ```csharp
 // Authorization disabled (default behavior)
-builder.Services.AddSemanticoServices(builder.Configuration, options =>
+builder.Services.AddBeaconServices(builder.Configuration, options =>
 {
     // Authorization.Enabled = false by default
-    options.AddSemanticoScheduler<SemanticoScheduler>();
+    options.AddBeaconScheduler<BeaconScheduler>();
 })
-.UsePostgreSql(connectionString, "semantico");
+.UsePostgreSql(connectionString, "beacon");
 ```
 
 ### RoleBasedAuthorizationProvider
@@ -165,12 +165,12 @@ options.AddAuthorizationProvider<RoleBasedAuthorizationProvider>();
 
 **Required claims:**
 ```csharp
-identity.AddClaim(new Claim(SemanticoClaims.Role, "Admin")); // or "Editor", "Viewer"
+identity.AddClaim(new Claim(BeaconClaims.Role, "Admin")); // or "Editor", "Viewer"
 ```
 
 ### DatabaseAuthorizationProvider
 
-Database-backed authorization that reads roles from Semantico's user management tables. This is the recommended provider when using the built-in [User Management](user-management) system.
+Database-backed authorization that reads roles from Beacon's user management tables. This is the recommended provider when using the built-in [User Management](user-management) system.
 
 | Role | Level | Read | Create/Edit/Execute | Delete/Archive |
 |------|-------|------|---------------------|----------------|
@@ -178,7 +178,7 @@ Database-backed authorization that reads roles from Semantico's user management 
 | **Editor** | 2 | Yes | Yes | No |
 | **Viewer** | 1 | Yes | No | No |
 
-**Use case:** When using Semantico's built-in user management with login form and role assignment.
+**Use case:** When using Beacon's built-in user management with login form and role assignment.
 
 ```csharp
 options.Authorization.Enabled = true;
@@ -201,18 +201,18 @@ No claims transformer needed - roles are loaded directly from the database.
 
 ## Custom Authorization Provider
 
-Implement `ISemanticoAuthorizationProvider` to create custom authorization logic:
+Implement `IBeaconAuthorizationProvider` to create custom authorization logic:
 
 ```csharp
-using Semantico.Core.Authorization;
+using Beacon.Core.Authorization;
 
-public class MyAuthorizationProvider : ISemanticoAuthorizationProvider
+public class MyAuthorizationProvider : IBeaconAuthorizationProvider
 {
-    private readonly ISemanticoUserContext _userContext;
+    private readonly IBeaconUserContext _userContext;
     private readonly IMyPermissionService _permissionService;
 
     public MyAuthorizationProvider(
-        ISemanticoUserContext userContext,
+        IBeaconUserContext userContext,
         IMyPermissionService permissionService)
     {
         _userContext = userContext;
@@ -225,7 +225,7 @@ public class MyAuthorizationProvider : ISemanticoAuthorizationProvider
     {
         return await _permissionService.HasPermissionAsync(
             _userContext.UserId,
-            "semantico.read");
+            "beacon.read");
     }
 
     public async Task<bool> HasWritePermissionAsync(
@@ -233,7 +233,7 @@ public class MyAuthorizationProvider : ISemanticoAuthorizationProvider
     {
         return await _permissionService.HasPermissionAsync(
             _userContext.UserId,
-            "semantico.write");
+            "beacon.write");
     }
 
     // Resource-level permissions (optional - return null to skip)
@@ -306,40 +306,40 @@ options.AddAuthorizationProvider<MyAuthorizationProvider>();
 builder.Services.AddIdentity<ApplicationUser, IdentityRole>()
     .AddEntityFrameworkStores<ApplicationDbContext>();
 
-// Add Semantico with authorization
-builder.Services.AddSemanticoServices(builder.Configuration, options =>
+// Add Beacon with authorization
+builder.Services.AddBeaconServices(builder.Configuration, options =>
 {
     options.Authorization.Enabled = true;
     options.AddAuthorizationProvider<RoleBasedAuthorizationProvider>();
 })
-.UsePostgreSql(connectionString, "semantico");
+.UsePostgreSql(connectionString, "beacon");
 
 // Claims transformer
-public class IdentityToSemanticoClaimsTransformer : IClaimsTransformation
+public class IdentityToBeaconClaimsTransformer : IClaimsTransformation
 {
     public Task<ClaimsPrincipal> TransformAsync(ClaimsPrincipal principal)
     {
         var identity = (ClaimsIdentity)principal.Identity!;
 
-        // Map Identity roles to Semantico roles
+        // Map Identity roles to Beacon roles
         if (principal.IsInRole("Administrator"))
-            identity.AddClaim(new Claim(SemanticoClaims.Role, "Admin"));
+            identity.AddClaim(new Claim(BeaconClaims.Role, "Admin"));
         else if (principal.IsInRole("PowerUser"))
-            identity.AddClaim(new Claim(SemanticoClaims.Role, "Editor"));
+            identity.AddClaim(new Claim(BeaconClaims.Role, "Editor"));
         else
-            identity.AddClaim(new Claim(SemanticoClaims.Role, "Viewer"));
+            identity.AddClaim(new Claim(BeaconClaims.Role, "Viewer"));
 
         // Add user claims
-        identity.AddClaim(new Claim(SemanticoClaims.UserId,
+        identity.AddClaim(new Claim(BeaconClaims.UserId,
             principal.FindFirstValue(ClaimTypes.NameIdentifier)));
-        identity.AddClaim(new Claim(SemanticoClaims.UserName,
+        identity.AddClaim(new Claim(BeaconClaims.UserName,
             principal.Identity.Name));
 
         return Task.FromResult(principal);
     }
 }
 
-builder.Services.AddScoped<IClaimsTransformation, IdentityToSemanticoClaimsTransformer>();
+builder.Services.AddScoped<IClaimsTransformation, IdentityToBeaconClaimsTransformer>();
 ```
 
 ### OAuth 2.0 / OpenID Connect
@@ -361,22 +361,22 @@ builder.Services.AddAuthentication(options =>
     options.SaveTokens = true;
 });
 
-// Add Semantico with authorization
-builder.Services.AddSemanticoServices(builder.Configuration, options =>
+// Add Beacon with authorization
+builder.Services.AddBeaconServices(builder.Configuration, options =>
 {
     options.Authorization.Enabled = true;
     options.AddAuthorizationProvider<RoleBasedAuthorizationProvider>();
 })
-.UsePostgreSql(connectionString, "semantico");
+.UsePostgreSql(connectionString, "beacon");
 
 // Claims transformer
-public class OAuthToSemanticoClaimsTransformer : IClaimsTransformation
+public class OAuthToBeaconClaimsTransformer : IClaimsTransformation
 {
     public Task<ClaimsPrincipal> TransformAsync(ClaimsPrincipal principal)
     {
         var identity = (ClaimsIdentity)principal.Identity!;
 
-        // Map OAuth roles to Semantico roles
+        // Map OAuth roles to Beacon roles
         var role = principal.FindFirstValue("role") switch
         {
             "admin" => "Admin",
@@ -384,10 +384,10 @@ public class OAuthToSemanticoClaimsTransformer : IClaimsTransformation
             _ => "Viewer"
         };
 
-        identity.AddClaim(new Claim(SemanticoClaims.Role, role));
-        identity.AddClaim(new Claim(SemanticoClaims.UserId,
+        identity.AddClaim(new Claim(BeaconClaims.Role, role));
+        identity.AddClaim(new Claim(BeaconClaims.UserId,
             principal.FindFirstValue("sub")));
-        identity.AddClaim(new Claim(SemanticoClaims.UserName,
+        identity.AddClaim(new Claim(BeaconClaims.UserName,
             principal.FindFirstValue("name")));
 
         return Task.FromResult(principal);
@@ -406,13 +406,13 @@ public interface IExternalAuthService
 }
 
 // Custom authorization provider
-public class ExternalAuthProvider : ISemanticoAuthorizationProvider
+public class ExternalAuthProvider : IBeaconAuthorizationProvider
 {
-    private readonly ISemanticoUserContext _userContext;
+    private readonly IBeaconUserContext _userContext;
     private readonly IExternalAuthService _externalAuth;
 
     public ExternalAuthProvider(
-        ISemanticoUserContext userContext,
+        IBeaconUserContext userContext,
         IExternalAuthService externalAuth)
     {
         _userContext = userContext;
@@ -424,7 +424,7 @@ public class ExternalAuthProvider : ISemanticoAuthorizationProvider
     {
         return await _externalAuth.CheckPermissionAsync(
             _userContext.UserId,
-            "semantico.read");
+            "beacon.read");
     }
 
     public async Task<bool> HasWritePermissionAsync(
@@ -432,7 +432,7 @@ public class ExternalAuthProvider : ISemanticoAuthorizationProvider
     {
         return await _externalAuth.CheckPermissionAsync(
             _userContext.UserId,
-            "semantico.write");
+            "beacon.write");
     }
 
     // Implement other methods...
@@ -495,7 +495,7 @@ public async Task<AuthorizationResult?> AuthorizeAsync(
     CancellationToken cancellationToken = default)
 {
     // Allow admins to do anything
-    if (_userContext.HasClaim(SemanticoClaims.Role, "Admin"))
+    if (_userContext.HasClaim(BeaconClaims.Role, "Admin"))
         return AuthorizationResult.Success();
 
     // Check ownership for queries
@@ -529,9 +529,9 @@ public async Task<AuthorizationResult?> AuthorizeAsync(
 Cache permissions for better performance:
 
 ```csharp
-public class CachedAuthorizationProvider : ISemanticoAuthorizationProvider
+public class CachedAuthorizationProvider : IBeaconAuthorizationProvider
 {
-    private readonly ISemanticoUserContext _userContext;
+    private readonly IBeaconUserContext _userContext;
     private readonly IMemoryCache _cache;
     private readonly IActualAuthProvider _actualProvider;
 
@@ -618,17 +618,17 @@ public class AuthorizationOptions
 ### Example Configuration
 
 ```csharp
-builder.Services.AddSemanticoServices(builder.Configuration, options =>
+builder.Services.AddBeaconServices(builder.Configuration, options =>
 {
-    options.AddSemanticoScheduler<SemanticoScheduler>();
-    options.BaseUrl = "https://localhost:7187/semantico";
+    options.AddBeaconScheduler<BeaconScheduler>();
+    options.BaseUrl = "https://localhost:7187/beacon";
 
     // Authorization configuration
     options.Authorization.Enabled = true;
     options.Authorization.EnableResourceLevelAuthorization = true;
     options.AddAuthorizationProvider<MyAuthorizationProvider>();
 })
-.UsePostgreSql(connectionString, "semantico");
+.UsePostgreSql(connectionString, "beacon");
 ```
 
 ## Troubleshooting
@@ -645,10 +645,10 @@ builder.Services.AddSemanticoServices(builder.Configuration, options =>
 
 2. Verify `UseAuthorization()` is called:
    ```csharp
-   app.UseSemanticoUI()
+   app.UseBeaconUI()
        .UseBasicAuthentication("admin", "admin")
        .UseAuthorization() // ← This must be present
-       .AddBlazorUI("/semantico");
+       .AddBlazorUI("/beacon");
    ```
 
 3. Check claims are added correctly:
@@ -663,8 +663,8 @@ builder.Services.AddSemanticoServices(builder.Configuration, options =>
 **Problem:** Top-right corner shows "Guest" or nothing.
 
 **Solution:**
-1. Verify `ISemanticoUserContext` is registered (automatic with `AddSemanticoUI()`)
-2. Check that claims transformer adds `SemanticoClaims.UserName`
+1. Verify `IBeaconUserContext` is registered (automatic with `AddBeaconUI()`)
+2. Check that claims transformer adds `BeaconClaims.UserName`
 3. Verify user is authenticated
 
 ### 403 Forbidden on All Requests

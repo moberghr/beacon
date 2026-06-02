@@ -20,14 +20,14 @@
 1. **Lightweight abstraction**: Microsoft.Extensions.AI provides minimal overhead while enabling provider portability via `IChatClient` interface
 2. **Future-proof**: Foundation for Microsoft Agent Framework (GA Q1 2026)
 3. **Direct SDK access**: Maintain full control over LLM API features (token counting, streaming, function calling)
-4. **Native DI integration**: Seamlessly fits Semantico's existing `ServiceConfiguration.cs` pattern
+4. **Native DI integration**: Seamlessly fits Beacon's existing `ServiceConfiguration.cs` pattern
 5. **Multi-provider support**: Users can choose their LLM provider via configuration (aligns with DataSource pattern)
 
 **Alternatives Considered:**
 
 | Option | Pros | Cons | Why Not Chosen |
 |--------|------|------|----------------|
-| **Microsoft Semantic Kernel** | Rich features (memory, agents, templates), enterprise-ready | Heavier abstraction, moderate overhead, steep learning curve | Unnecessary complexity for Semantico's focused SQL generation use case |
+| **Microsoft Semantic Kernel** | Rich features (memory, agents, templates), enterprise-ready | Heavier abstraction, moderate overhead, steep learning curve | Unnecessary complexity for Beacon's focused SQL generation use case |
 | **LangChain .NET** | Familiar to Python users, maximum provider choice | Community-driven, early-stage maturity, smaller contributor base | Maturity concerns, not officially supported |
 | **Direct SDKs only** | Zero overhead, full control | No provider abstraction, harder to switch providers | Lacks portability for users who want to choose their LLM |
 
@@ -120,7 +120,7 @@ services.AddSingleton<IChatClient>(sp =>
 
 *TPM = Tokens Per Minute, RPM = Requests Per Minute*
 
-**Cost Estimates for Semantico:**
+**Cost Estimates for Beacon:**
 
 **Per-Operation Costs:**
 - 50-table schema analysis: $0.065 (Claude Sonnet 4.5)
@@ -214,12 +214,12 @@ Document.Create(container => {
 | **Puppeteer Sharp** | MIT (free) | Modern CSS support | Requires Chromium (~200MB), high memory | Better for HTML-heavy content |
 
 **HTML/Markdown Conversion Note:**
-QuestPDF is code-first and doesn't natively support HTML/Markdown. For Semantico's use case:
+QuestPDF is code-first and doesn't natively support HTML/Markdown. For Beacon's use case:
 1. Generate structured documentation data from AI
 2. Use QuestPDF's fluent API to build PDF directly
 3. Alternatively: Use Markdig to generate HTML, then Puppeteer Sharp for HTML→PDF if needed
 
-**Recommendation for Semantico:**
+**Recommendation for Beacon:**
 - **Primary**: QuestPDF for structured, programmatic PDF generation
 - **Alternative**: Puppeteer Sharp if AI generates rich HTML documentation requiring pixel-perfect rendering
 
@@ -263,9 +263,9 @@ var html = Markdown.ToHtml(markdown, pipeline);
 // Renders as: <h2 class="custom-header">Heading</h2>
 ```
 
-**Integration with Semantico:**
+**Integration with Beacon:**
 
-Markdig aligns perfectly with Semantico's existing patterns in `Adapters/Helpers.cs`:
+Markdig aligns perfectly with Beacon's existing patterns in `Adapters/Helpers.cs`:
 
 ```csharp
 // Generate Markdown from AI documentation

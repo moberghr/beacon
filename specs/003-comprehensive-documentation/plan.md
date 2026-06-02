@@ -5,7 +5,7 @@
 
 ## Summary
 
-This feature creates a comprehensive documentation system for Semantico, consisting of an enhanced README.md and a complete Jekyll-powered GitHub Pages site with marketing content, user guides, feature documentation, and advanced topics. The documentation enables new users to deploy Semantico and create their first notification in under 30 minutes, reduces support load by 60%, and achieves 70% visitor-to-installation conversion.
+This feature creates a comprehensive documentation system for Beacon, consisting of an enhanced README.md and a complete Jekyll-powered GitHub Pages site with marketing content, user guides, feature documentation, and advanced topics. The documentation enables new users to deploy Beacon and create their first notification in under 30 minutes, reduces support load by 60%, and achieves 70% visitor-to-installation conversion.
 
 **Primary Requirements**:
 - Enhanced README.md with quick start and feature overview
@@ -20,7 +20,7 @@ This feature creates a comprehensive documentation system for Semantico, consist
 - GitHub Pages deployment from /docs folder
 - GitHub-flavored Markdown for all content
 - Validated code examples with syntax highlighting
-- Screenshots from running Semantico instances
+- Screenshots from running Beacon instances
 - High-contrast color scheme for accessibility
 
 ## Technical Context
@@ -87,7 +87,7 @@ specs/003-comprehensive-documentation/
 **Note**: This feature creates documentation content, not source code. The structure below shows where documentation files will be created.
 
 ```text
-/Users/mirkobudimir/Dev/semantico/
+/Users/mirkobudimir/Dev/beacon/
 ├── README.md                          # Enhanced with quick start and navigation
 ├── docs/                              # NEW: Jekyll site root
 │   ├── _config.yml                   # Jekyll configuration
@@ -138,7 +138,7 @@ specs/003-comprehensive-documentation/
 │
 ├── CLAUDE.md                          # Existing (reference for code examples)
 ├── SCHEMA_AGNOSTIC_MIGRATIONS.md     # Existing (reference for advanced docs)
-└── Semantico.Core/                    # Existing (reference for API docs)
+└── Beacon.Core/                    # Existing (reference for API docs)
     └── Services/                      # Service interfaces to document
 ```
 
@@ -218,7 +218,7 @@ Priority 1 documentation enables 30-minute onboarding (SC-001).
 **Content** (FR-010):
 - Prerequisites
 - Docker Compose configuration
-- Environment variables (ConnectionStrings__SemanticoContext, SendGrid settings)
+- Environment variables (ConnectionStrings__BeaconContext, SendGrid settings)
 - Connection string formats (PostgreSQL, SQL Server, MySQL)
 - API key setup (default key documented)
 - Troubleshooting section
@@ -288,7 +288,7 @@ Enable users to discover all capabilities (SC-006).
 
 **Dependencies**: 3.5 complete
 **Total Estimated Time**: 12 hours
-**Validation**: All Semantico features documented
+**Validation**: All Beacon features documented
 
 #### 4.2 API Service Reference
 
@@ -301,7 +301,7 @@ Enable users to discover all capabilities (SC-006).
 - INotificationService interface
 - IMigrationService interface
 - Request/response examples for key operations
-**Dependencies**: None (reference Semantico.Core/Services/)
+**Dependencies**: None (reference Beacon.Core/Services/)
 **Estimated Time**: 4 hours
 **Validation**: All service interfaces documented with examples
 
@@ -371,7 +371,7 @@ Power user scenarios and extensibility.
 - Recipient management
 - Query execution history
 
-**Dependencies**: Semantico running instance
+**Dependencies**: Beacon running instance
 **Estimated Time**: 4 hours (capture, optimize, caption)
 **Validation**: All images < 200KB, descriptive alt text, clear captions
 
@@ -497,7 +497,7 @@ bundle exec jekyll serve
 
 ### 3. Post-Deployment Validation
 
-- Visit https://mibu.github.io/semantico
+- Visit https://moberghr.github.io/beacon
 - Test navigation on mobile and desktop
 - Verify all use cases display
 - Check homepage CTA links

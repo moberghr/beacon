@@ -84,14 +84,14 @@ Completely redesigned the Query Details page (`/queries/{id}`) to match the new 
 - **Responsive**: Grid layout adapts to screen sizes
 
 ### Removed Elements
-- Removed `SemanticoPageHeader` component
+- Removed `BeaconPageHeader` component
 - Removed awkward `px-2` classes from MudCard
 - Removed redundant spacing between sections
 - Cleaner overall layout
 
 ## Files Modified
 
-**Semantico.UI/Components/Pages/Queries/QueryDetails.razor**
+**Beacon.UI/Components/Pages/Queries/QueryDetails.razor**
 - Complete redesign (~876 lines)
 - Added ~92 lines of CSS styling
 - 4 hero stat cards

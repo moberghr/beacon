@@ -1,8 +1,8 @@
-# Semantico Configuration & Setup
+# Beacon Configuration & Setup
 
 ## Overview
 
-Semantico is configured through a combination of NuGet packages, service registration, and appsettings.json configuration.
+Beacon is configured through a combination of NuGet packages, service registration, and appsettings.json configuration.
 
 ---
 
@@ -10,22 +10,22 @@ Semantico is configured through a combination of NuGet packages, service registr
 
 | Package | Purpose |
 |---------|---------|
-| `Semantico.Core` | Core domain logic, services, entities |
-| `Semantico.Core.PostgreSql` | PostgreSQL database provider |
-| `Semantico.Core.SqlServer` | SQL Server database provider |
-| `Semantico.UI` | Blazor UI components |
-| `Semantico.UI.AspNet` | ASP.NET Core hosting helpers |
+| `Beacon.Core` | Core domain logic, services, entities |
+| `Beacon.Core.PostgreSql` | PostgreSQL database provider |
+| `Beacon.Core.SqlServer` | SQL Server database provider |
+| `Beacon.UI` | Blazor UI components |
+| `Beacon.UI.AspNet` | ASP.NET Core hosting helpers |
 
 ### Installation
 
 ```bash
 # PostgreSQL (recommended)
-dotnet add package Semantico.Core.PostgreSql
-dotnet add package Semantico.UI.AspNet
+dotnet add package Beacon.Core.PostgreSql
+dotnet add package Beacon.UI.AspNet
 
 # SQL Server
-dotnet add package Semantico.Core.SqlServer
-dotnet add package Semantico.UI.AspNet
+dotnet add package Beacon.Core.SqlServer
+dotnet add package Beacon.UI.AspNet
 ```
 
 ---
@@ -37,31 +37,31 @@ dotnet add package Semantico.UI.AspNet
 ```csharp
 using Hangfire;
 using Hangfire.PostgreSql;
-using Semantico.Core.PostgreSql;
-using Semantico.UI.AspNet;
+using Beacon.Core.PostgreSql;
+using Beacon.UI.AspNet;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // 1. Configure Hangfire (or your preferred scheduler)
 builder.Services.AddHangfire(config => config
     .UsePostgreSqlStorage(
-        builder.Configuration.GetConnectionString("SemanticoContext")));
+        builder.Configuration.GetConnectionString("BeaconContext")));
 builder.Services.AddHangfireServer();
 
 // 2. Configure database provider (choose one)
-builder.Services.AddPostgreSqlSemantico(
-    builder.Configuration.GetConnectionString("SemanticoContext")!,
-    schema: "semantico"); // Optional schema name
+builder.Services.AddPostgreSqlBeacon(
+    builder.Configuration.GetConnectionString("BeaconContext")!,
+    schema: "beacon"); // Optional schema name
 
 // OR for SQL Server:
-// builder.Services.AddSqlServerSemantico(
-//     builder.Configuration.GetConnectionString("SemanticoContextSql")!);
+// builder.Services.AddSqlServerBeacon(
+//     builder.Configuration.GetConnectionString("BeaconContextSql")!);
 
-// 3. Configure Semantico admin services
-builder.Services.AddSemanticoAdmin(builder.Configuration, options =>
+// 3. Configure Beacon admin services
+builder.Services.AddBeaconAdmin(builder.Configuration, options =>
 {
     // Required: Job scheduler implementation
-    options.AddSemanticoScheduler<YourScheduler>();
+    options.AddBeaconScheduler<YourScheduler>();
 
     // Optional: Email adapter for email notifications
     // options.AddEmailAdapter<YourEmailAdapter>();
@@ -70,7 +70,7 @@ builder.Services.AddSemanticoAdmin(builder.Configuration, options =>
     // options.AddAuthorizationProvider<YourAuthProvider>();
 
     // Optional: Base URL for notification links
-    options.BaseUrl = "https://your-domain.com/semantico";
+    options.BaseUrl = "https://your-domain.com/beacon";
 });
 
 var app = builder.Build();
@@ -78,11 +78,11 @@ var app = builder.Build();
 app.UseHttpsRedirection();
 app.UseAuthorization();
 
-// 4. Configure Semantico UI
-app.UseSemanticoUI()
+// 4. Configure Beacon UI
+app.UseBeaconUI()
     .UseBasicAuthentication("admin", "password")  // Simple auth
     // .UseAuthorization()  // Custom auth provider
-    .AddBlazorUI("/semantico");  // UI base path
+    .AddBlazorUI("/beacon");  // UI base path
 
 app.Run();
 ```
@@ -93,12 +93,12 @@ app.Run();
 
 ### PostgreSQL
 
-**File:** `Semantico.Core.PostgreSql/ServiceCollectionExtensions.cs`
+**File:** `Beacon.Core.PostgreSql/ServiceCollectionExtensions.cs`
 
 ```csharp
-builder.Services.AddPostgreSqlSemantico(
-    connectionString: "Host=localhost;Database=semantico;Username=postgres;Password=password",
-    schema: "semantico"  // Default schema, optional
+builder.Services.AddPostgreSqlBeacon(
+    connectionString: "Host=localhost;Database=beacon;Username=postgres;Password=password",
+    schema: "beacon"  // Default schema, optional
 );
 ```
 
@@ -110,28 +110,28 @@ builder.Services.AddPostgreSqlSemantico(
 ### SQL Server
 
 ```csharp
-builder.Services.AddSqlServerSemantico(
-    connectionString: "Server=localhost;Database=semantico;User Id=sa;Password=password"
+builder.Services.AddSqlServerBeacon(
+    connectionString: "Server=localhost;Database=beacon;User Id=sa;Password=password"
 );
 ```
 
 ---
 
-## SemanticoConfiguration Options
+## BeaconConfiguration Options
 
-**File:** `Semantico.Core/ServiceConfiguration.cs`
+**File:** `Beacon.Core/ServiceConfiguration.cs`
 
 ```csharp
-public class SemanticoConfiguration
+public class BeaconConfiguration
 {
     // Connection string name in appsettings.json
-    public string ConnectionStringName { get; set; } = "SemanticoContext";
+    public string ConnectionStringName { get; set; } = "BeaconContext";
 
     // Base URL for notification links (View Results button)
     public string? BaseUrl { get; set; }
 
     // Register scheduler implementation (REQUIRED)
-    public void AddSemanticoScheduler<T>() where T : class, ISemanticoScheduler;
+    public void AddBeaconScheduler<T>() where T : class, IBeaconScheduler;
 
     // Register email adapter (optional, required for email notifications)
     public void AddEmailAdapter<T>() where T : class, IEmailAdapter;
@@ -143,12 +143,12 @@ public class SemanticoConfiguration
 
 ---
 
-## ISemanticoScheduler Interface
+## IBeaconScheduler Interface
 
-**File:** `Semantico.Core/Worker/ISemanticoScheduler.cs`
+**File:** `Beacon.Core/Worker/IBeaconScheduler.cs`
 
 ```csharp
-public interface ISemanticoScheduler
+public interface IBeaconScheduler
 {
     void AddOrUpdate(int subscriptionId, string jobName, string cronExpression);
     void Remove(int subscriptionId, string jobName);
@@ -158,11 +158,11 @@ public interface ISemanticoScheduler
 ### Hangfire Implementation Example
 
 ```csharp
-public class HangfireSemanticoScheduler : ISemanticoScheduler
+public class HangfireBeaconScheduler : IBeaconScheduler
 {
     private readonly IJobService _jobService;
 
-    public HangfireSemanticoScheduler(IJobService jobService)
+    public HangfireBeaconScheduler(IJobService jobService)
     {
         _jobService = jobService;
     }
@@ -170,14 +170,14 @@ public class HangfireSemanticoScheduler : ISemanticoScheduler
     public void AddOrUpdate(int subscriptionId, string jobName, string cronExpression)
     {
         RecurringJob.AddOrUpdate(
-            $"semantico-{subscriptionId}",
+            $"beacon-{subscriptionId}",
             () => _jobService.ExecuteQuery(subscriptionId, CancellationToken.None),
             cronExpression);
     }
 
     public void Remove(int subscriptionId, string jobName)
     {
-        RecurringJob.RemoveIfExists($"semantico-{subscriptionId}");
+        RecurringJob.RemoveIfExists($"beacon-{subscriptionId}");
     }
 }
 ```
@@ -186,7 +186,7 @@ public class HangfireSemanticoScheduler : ISemanticoScheduler
 
 ## IEmailAdapter Interface
 
-**File:** `Semantico.Core/Adapters/Mail/IEmailAdapter.cs`
+**File:** `Beacon.Core/Adapters/Mail/IEmailAdapter.cs`
 
 ```csharp
 public interface IEmailAdapter
@@ -244,11 +244,11 @@ public class SmtpEmailAdapter : IEmailAdapter
 ```json
 {
   "ConnectionStrings": {
-    "SemanticoContext": "Host=localhost;Database=semantico;Username=postgres;Password=yourpassword"
+    "BeaconContext": "Host=localhost;Database=beacon;Username=postgres;Password=yourpassword"
   },
-  "Semantico": {
+  "Beacon": {
     "EncryptionKey": "YourSecure32CharacterEncryptionKey!",
-    "BaseUrl": "https://your-domain.com/semantico"
+    "BaseUrl": "https://your-domain.com/beacon"
   }
 }
 ```
@@ -257,24 +257,24 @@ public class SmtpEmailAdapter : IEmailAdapter
 
 | Key | Required | Description |
 |-----|----------|-------------|
-| `ConnectionStrings:SemanticoContext` | Yes | Database connection string |
-| `Semantico:EncryptionKey` | No | 32-character key for encrypting connection strings (has default) |
-| `Semantico:BaseUrl` | No | Base URL for notification "View Results" links |
+| `ConnectionStrings:BeaconContext` | Yes | Database connection string |
+| `Beacon:EncryptionKey` | No | 32-character key for encrypting connection strings (has default) |
+| `Beacon:BaseUrl` | No | Base URL for notification "View Results" links |
 
 ---
 
 ## UI Builder Configuration
 
-**File:** `Semantico.UI.AspNet/Helpers.cs`
+**File:** `Beacon.UI.AspNet/Helpers.cs`
 
 ### Builder Pattern
 
 ```csharp
-app.UseSemanticoUI()
+app.UseBeaconUI()
     .UseBasicAuthentication("admin", "password")  // Option 1: Basic auth
-    .UseBasicAuthentication("admin", "pwd", "Semantico")  // With custom realm
+    .UseBasicAuthentication("admin", "pwd", "Beacon")  // With custom realm
     .UseAuthorization()  // Option 2: Custom auth provider
-    .AddBlazorUI("/semantico");  // Required: Sets base path
+    .AddBlazorUI("/beacon");  // Required: Sets base path
 ```
 
 ### Authentication Options
@@ -293,10 +293,10 @@ app.UseSemanticoUI()
    .UseAuthorization()
    ```
 
-### ISemanticoAuthorizationProvider
+### IBeaconAuthorizationProvider
 
 ```csharp
-public interface ISemanticoAuthorizationProvider
+public interface IBeaconAuthorizationProvider
 {
     Task<bool> IsAuthorizedAsync(HttpContext context);
 }
@@ -306,7 +306,7 @@ public interface ISemanticoAuthorizationProvider
 
 ## Service Registration Summary
 
-**File:** `Semantico.Core/ServiceConfiguration.cs`
+**File:** `Beacon.Core/ServiceConfiguration.cs`
 
 ```csharp
 // Registered services (via TryAddTransient)
@@ -323,7 +323,7 @@ services.TryAddTransient<IMigrationService, MigrationService>();
 services.TryAddTransient<IDatabaseMetadataService, DatabaseMetadataService>();
 
 // Singletons
-services.AddSingleton(configurationOptions);  // SemanticoConfiguration
+services.AddSingleton(configurationOptions);  // BeaconConfiguration
 services.AddSingleton<IEncryptionService>(new EncryptionService(encryptionKey));
 services.AddSingleton<IAdapter, TeamsAdapter>();
 services.AddSingleton<IAdapter, SlackAdapter>();
@@ -345,46 +345,46 @@ Migrations are generated without hardcoded schema names. The schema is applied a
 ```bash
 # PostgreSQL
 dotnet ef migrations add MigrationName \
-    --project Semantico.Core.PostgreSql \
-    --startup-project Semantico.SampleProject
+    --project Beacon.Core.PostgreSql \
+    --startup-project Beacon.SampleProject
 
 # SQL Server
 dotnet ef migrations add MigrationName \
-    --project Semantico.Core.SqlServer \
-    --startup-project Semantico.SampleProject
+    --project Beacon.Core.SqlServer \
+    --startup-project Beacon.SampleProject
 ```
 
 ### Apply Migration
 
 ```bash
 dotnet ef database update \
-    --project Semantico.Core.PostgreSql \
-    --startup-project Semantico.SampleProject
+    --project Beacon.Core.PostgreSql \
+    --startup-project Beacon.SampleProject
 ```
 
 ### Automatic Migration
 
-Migrations are automatically applied via `ServiceConfiguration.UseSemantico()`:
+Migrations are automatically applied via `ServiceConfiguration.UseBeacon()`:
 
 ```csharp
 // Called internally by AddBlazorUI()
-ServiceConfiguration.UseSemantico(app.Services);
+ServiceConfiguration.UseBeacon(app.Services);
 
 // Or manually with schema creation
-ServiceConfiguration.UseSemantico(app.Services, createSchema: true);
+ServiceConfiguration.UseBeacon(app.Services, createSchema: true);
 ```
 
 ---
 
 ## Encryption Service
 
-**File:** `Semantico.Core/Services/EncryptionService.cs`
+**File:** `Beacon.Core/Services/EncryptionService.cs`
 
 Connection strings stored in DataSource entities are encrypted using AES encryption.
 
 ```csharp
 // Encryption key from configuration
-var encryptionKey = configuration["Semantico:EncryptionKey"]
+var encryptionKey = configuration["Beacon:EncryptionKey"]
     ?? "DefaultKey_ChangeInProduction_MustBe32CharsLong!";
 
 services.AddSingleton<IEncryptionService>(new EncryptionService(encryptionKey));
@@ -404,43 +404,43 @@ var connectionString = encryptionService.Decrypt(dataSource.ConnectionString);
 ## Project Structure
 
 ```
-Semantico/
-├── Semantico.Core/                    # Core domain logic
+Beacon/
+├── Beacon.Core/                    # Core domain logic
 │   ├── Data/
 │   │   ├── Entities/                  # Entity classes
 │   │   ├── Enums/                     # Enumerations
-│   │   └── SemanticoContext.cs        # Base DbContext
+│   │   └── BeaconContext.cs        # Base DbContext
 │   ├── Adapters/                      # Notification adapters
 │   ├── Services/                      # Business logic services
 │   ├── Worker/                        # Job execution
 │   └── ServiceConfiguration.cs        # DI registration
 │
-├── Semantico.Core.PostgreSql/         # PostgreSQL provider
+├── Beacon.Core.PostgreSql/         # PostgreSQL provider
 │   ├── Data/
-│   │   ├── PostgreSqlSemanticoContext.cs
+│   │   ├── PostgreSqlBeaconContext.cs
 │   │   └── Migrations/
 │   └── ServiceCollectionExtensions.cs
 │
-├── Semantico.Core.SqlServer/          # SQL Server provider
+├── Beacon.Core.SqlServer/          # SQL Server provider
 │   ├── Data/
-│   │   ├── SqlServerSemanticoContext.cs
+│   │   ├── SqlServerBeaconContext.cs
 │   │   └── Migrations/
 │   └── ServiceCollectionExtensions.cs
 │
-├── Semantico.UI/                      # Blazor UI components
+├── Beacon.UI/                      # Blazor UI components
 │   └── Components/
 │       ├── Layout/
 │       ├── Pages/
 │       └── Custom/
 │
-├── Semantico.UI.AspNet/               # ASP.NET hosting
+├── Beacon.UI.AspNet/               # ASP.NET hosting
 │   ├── Authentication/
 │   └── Helpers.cs
 │
-└── Semantico.SampleProject/           # Example implementation
+└── Beacon.SampleProject/           # Example implementation
     ├── Program.cs
     └── Services/
-        └── SemanticoScheduler.cs
+        └── BeaconScheduler.cs
 ```
 
 ---
@@ -452,11 +452,11 @@ Semantico/
 ```json
 {
   "ConnectionStrings": {
-    "SemanticoContext": "Host=localhost;Database=semantico_dev;..."
+    "BeaconContext": "Host=localhost;Database=beacon_dev;..."
   },
-  "Semantico": {
+  "Beacon": {
     "EncryptionKey": "DevKey_32CharactersLongForAES256!",
-    "BaseUrl": "https://localhost:7187/semantico"
+    "BaseUrl": "https://localhost:7187/beacon"
   }
 }
 ```
@@ -466,11 +466,11 @@ Semantico/
 ```json
 {
   "ConnectionStrings": {
-    "SemanticoContext": "Host=prod-server;Database=semantico;..."
+    "BeaconContext": "Host=prod-server;Database=beacon;..."
   },
-  "Semantico": {
-    "EncryptionKey": "${SEMANTICO_ENCRYPTION_KEY}",
-    "BaseUrl": "https://your-production-domain.com/semantico"
+  "Beacon": {
+    "EncryptionKey": "${BEACON_ENCRYPTION_KEY}",
+    "BaseUrl": "https://your-production-domain.com/beacon"
   }
 }
 ```

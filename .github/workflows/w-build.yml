@@ -1,4 +1,4 @@
-name: Build the Semantico Release
+name: Build the Beacon Release
 
 on:
   release:
@@ -12,7 +12,7 @@ on:
 
 jobs:
   build:
-    name: "Build and Publish Semantico"
+    name: "Build and Publish Beacon"
     runs-on: ubuntu-latest
 
     steps:
@@ -48,7 +48,7 @@ jobs:
         echo "Publishing version: $VERSION"
 
         # Get projects from solution file (only projects in solution will be processed)
-        SOLUTION_PROJECTS=$(grep -E '\.csproj"' Semantico.sln | sed 's/.*"\([^"]*\.csproj\)".*/\1/' | sed 's/\\/\//g')
+        SOLUTION_PROJECTS=$(grep -E '\.csproj"' Beacon.sln | sed 's/.*"\([^"]*\.csproj\)".*/\1/' | sed 's/\\/\//g')
 
         echo "Projects in solution:"
         echo "$SOLUTION_PROJECTS"

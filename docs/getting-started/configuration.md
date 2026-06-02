@@ -7,90 +7,90 @@ nav_order: 3
 
 # Configuration Guide
 
-Complete reference for all Semantico configuration options.
+Complete reference for all Beacon configuration options.
 
 ## Configuration in Program.cs
 
-Semantico is configured in your ASP.NET Core application's `Program.cs` file using a single method call.
+Beacon is configured in your ASP.NET Core application's `Program.cs` file using a single method call.
 
 ### Basic Configuration
 
 ```csharp
-using Semantico.Core;
-using Semantico.Core.PostgreSql;
-using Semantico.UI;
+using Beacon.Core;
+using Beacon.Core.PostgreSql;
+using Beacon.UI;
 
 // Step 1: Add core services and configure database provider
-builder.Services.AddSemanticoServices(builder.Configuration, options =>
+builder.Services.AddBeaconServices(builder.Configuration, options =>
     {
-        options.AddSemanticoScheduler<YourScheduler>();
-        options.BaseUrl = "https://your-domain.com/semantico"; // For notification links
+        options.AddBeaconScheduler<YourScheduler>();
+        options.BaseUrl = "https://your-domain.com/beacon"; // For notification links
         options.UseAI = true; // Enable AI features (optional)
     })
-    .UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
+    .UsePostgreSql(builder.Configuration.GetConnectionString("BeaconContext")!, "beacon");
 // Or use SQL Server:
-// .UseSqlServer(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
+// .UseSqlServer(builder.Configuration.GetConnectionString("BeaconContext")!, "beacon");
 
 // Step 2: Add UI components
-builder.Services.AddSemanticoUI();
+builder.Services.AddBeaconUI();
 
 // Step 3: Add AI services (optional)
-builder.Services.AddSemanticoAI(builder.Configuration);
+builder.Services.AddBeaconAI(builder.Configuration);
 
 var app = builder.Build();
 
-app.UseStaticFiles(); // Required: Serves Semantico UI assets
+app.UseStaticFiles(); // Required: Serves Beacon UI assets
 
 // Configure UI
-app.UseSemanticoUI()
+app.UseBeaconUI()
     .UseBasicAuthentication("admin", "admin")
-    .AddBlazorUI("/semantico");
+    .AddBlazorUI("/beacon");
 ```
 
 ## Base URL Configuration
 
-The `BaseUrl` setting specifies where your Semantico admin UI is hosted. This URL is used to generate clickable links in notifications (especially Teams messages) that take users directly to notification details.
+The `BaseUrl` setting specifies where your Beacon admin UI is hosted. This URL is used to generate clickable links in notifications (especially Teams messages) that take users directly to notification details.
 
 ### Setting Base URL
 
 ```csharp
-builder.Services.AddSemanticoServices(builder.Configuration, options =>
+builder.Services.AddBeaconServices(builder.Configuration, options =>
     {
-        options.AddSemanticoScheduler<YourScheduler>();
-        // Set the URL where Semantico UI is accessible
-        options.BaseUrl = "https://your-domain.com/semantico";
+        options.AddBeaconScheduler<YourScheduler>();
+        // Set the URL where Beacon UI is accessible
+        options.BaseUrl = "https://your-domain.com/beacon";
     })
-    .UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
+    .UsePostgreSql(builder.Configuration.GetConnectionString("BeaconContext")!, "beacon");
 ```
 
 ### Base URL Examples
 
 **Development (localhost):**
 ```csharp
-options.BaseUrl = "https://localhost:7187/semantico";
+options.BaseUrl = "https://localhost:7187/beacon";
 ```
 
 **Staging:**
 ```csharp
-options.BaseUrl = "https://staging.yourdomain.com/semantico";
+options.BaseUrl = "https://staging.yourdomain.com/beacon";
 ```
 
 **Production:**
 ```csharp
-options.BaseUrl = "https://yourdomain.com/semantico";
+options.BaseUrl = "https://yourdomain.com/beacon";
 ```
 
 **From configuration:**
 ```csharp
-options.BaseUrl = builder.Configuration["Semantico:BaseUrl"];
+options.BaseUrl = builder.Configuration["Beacon:BaseUrl"];
 ```
 
 ### appsettings.json Configuration
 
 ```json
 {
-  "Semantico": {
-    "BaseUrl": "https://yourdomain.com/semantico",
+  "Beacon": {
+    "BaseUrl": "https://yourdomain.com/beacon",
     "EncryptionKey": "your-secure-32-character-key-here"
   }
 }
@@ -112,7 +112,7 @@ This generates a cryptographically secure 32-character random key suitable for A
 
 ```json
 {
-  "Semantico": {
+  "Beacon": {
     "EncryptionKey": "k8J3m9Lp2Nq5Rt8Vw1Yz4Bc7Df0Gh3Jk6=="
   }
 }
@@ -125,7 +125,7 @@ This generates a cryptographically secure 32-character random key suitable for A
 **Development:**
 ```json
 {
-  "Semantico": {
+  "Beacon": {
     "EncryptionKey": "DevKey_OnlyForLocalDevelopment_ChangeInProd!"
   }
 }
@@ -134,23 +134,23 @@ This generates a cryptographically secure 32-character random key suitable for A
 **Production - Use Environment Variables:**
 ```json
 {
-  "Semantico": {
-    "EncryptionKey": "${SEMANTICO_ENCRYPTION_KEY}"
+  "Beacon": {
+    "EncryptionKey": "${BEACON_ENCRYPTION_KEY}"
   }
 }
 ```
 
 Then set the environment variable:
 ```bash
-export SEMANTICO_ENCRYPTION_KEY="your-production-key-here"
+export BEACON_ENCRYPTION_KEY="your-production-key-here"
 ```
 
 **Production - Use Azure Key Vault:**
 ```csharp
 var keyVaultEndpoint = new Uri(Environment.GetEnvironmentVariable("VaultUri"));
 var secretClient = new SecretClient(keyVaultEndpoint, new DefaultAzureCredential());
-var secret = await secretClient.GetSecretAsync("SemanticoEncryptionKey");
-builder.Configuration["Semantico:EncryptionKey"] = secret.Value.Value;
+var secret = await secretClient.GetSecretAsync("BeaconEncryptionKey");
+builder.Configuration["Beacon:EncryptionKey"] = secret.Value.Value;
 ```
 
 ### What Gets Encrypted
@@ -161,39 +161,39 @@ The encryption key is used to encrypt:
 
 ### Error if Missing
 
-If the encryption key is not configured, Semantico will throw an exception on startup:
+If the encryption key is not configured, Beacon will throw an exception on startup:
 
 ```
-InvalidOperationException: Semantico:EncryptionKey must be configured.
+InvalidOperationException: Beacon:EncryptionKey must be configured.
 Generate a secure key with: openssl rand -base64 32
-Then add to appsettings.json: { "Semantico": { "EncryptionKey": "your-generated-key" } }
+Then add to appsettings.json: { "Beacon": { "EncryptionKey": "your-generated-key" } }
 ```
 
 ## Authorization Configuration (Optional)
 
-Semantico provides a flexible authorization system for controlling user access. Authorization is **disabled by default** (backward compatible).
+Beacon provides a flexible authorization system for controlling user access. Authorization is **disabled by default** (backward compatible).
 
 ### Quick Start - Enable Authorization
 
 ```csharp
-builder.Services.AddSemanticoServices(builder.Configuration, options =>
+builder.Services.AddBeaconServices(builder.Configuration, options =>
 {
-    options.AddSemanticoScheduler<YourScheduler>();
-    options.BaseUrl = "https://your-domain.com/semantico";
+    options.AddBeaconScheduler<YourScheduler>();
+    options.BaseUrl = "https://your-domain.com/beacon";
 
     // Enable authorization with role-based access control
     options.Authorization.Enabled = true;
     options.AddAuthorizationProvider<RoleBasedAuthorizationProvider>();
 })
-.UsePostgreSql(connectionString, "semantico");
+.UsePostgreSql(connectionString, "beacon");
 
-builder.Services.AddSemanticoUI();
+builder.Services.AddBeaconUI();
 
 // Enable authorization middleware
-app.UseSemanticoUI()
+app.UseBeaconUI()
     .UseBasicAuthentication("admin", "admin")
     .UseAuthorization() // ← Add this line
-    .AddBlazorUI("/semantico");
+    .AddBlazorUI("/beacon");
 ```
 
 ### Built-in Authorization Providers
@@ -213,7 +213,7 @@ When using `RoleBasedAuthorizationProvider`, add a claims transformer:
 
 ```csharp
 using Microsoft.AspNetCore.Authentication;
-using Semantico.Core.Authorization;
+using Beacon.Core.Authorization;
 
 public class MyClaimsTransformation : IClaimsTransformation
 {
@@ -222,9 +222,9 @@ public class MyClaimsTransformation : IClaimsTransformation
         var identity = (ClaimsIdentity)principal.Identity!;
 
         // Add role based on your logic
-        identity.AddClaim(new Claim(SemanticoClaims.Role, "Admin"));
-        identity.AddClaim(new Claim(SemanticoClaims.UserId, principal.Identity.Name));
-        identity.AddClaim(new Claim(SemanticoClaims.UserName, principal.Identity.Name));
+        identity.AddClaim(new Claim(BeaconClaims.Role, "Admin"));
+        identity.AddClaim(new Claim(BeaconClaims.UserId, principal.Identity.Name));
+        identity.AddClaim(new Claim(BeaconClaims.UserName, principal.Identity.Name));
 
         return Task.FromResult(principal);
     }
@@ -247,11 +247,11 @@ options.AddAuthorizationProvider<MyCustomProvider>(); // Use custom provider
 Create your own authorization logic:
 
 ```csharp
-public class MyAuthorizationProvider : ISemanticoAuthorizationProvider
+public class MyAuthorizationProvider : IBeaconAuthorizationProvider
 {
-    private readonly ISemanticoUserContext _userContext;
+    private readonly IBeaconUserContext _userContext;
 
-    public MyAuthorizationProvider(ISemanticoUserContext userContext)
+    public MyAuthorizationProvider(IBeaconUserContext userContext)
     {
         _userContext = userContext;
     }
@@ -265,7 +265,7 @@ public class MyAuthorizationProvider : ISemanticoAuthorizationProvider
     public Task<bool> HasWritePermissionAsync(CancellationToken cancellationToken = default)
     {
         // Your logic here
-        return Task.FromResult(_userContext.HasClaim(SemanticoClaims.Role, "Admin"));
+        return Task.FromResult(_userContext.HasClaim(BeaconClaims.Role, "Admin"));
     }
 
     // Implement other methods...
@@ -298,7 +298,7 @@ Configure LLM providers for AI-powered features like documentation generation an
 
 ```json
 {
-  "Semantico": {
+  "Beacon": {
     "LLM": {
       "Provider": "OpenAI",
       "ApiKey": "sk-your-api-key-here",
@@ -312,7 +312,7 @@ Configure LLM providers for AI-powered features like documentation generation an
 
 ```json
 {
-  "Semantico": {
+  "Beacon": {
     "LLM": {
       "Provider": "OpenAI",
       "ApiKey": "sk-your-api-key-here",
@@ -332,7 +332,7 @@ Configure LLM providers for AI-powered features like documentation generation an
 
 ```json
 {
-  "Semantico": {
+  "Beacon": {
     "LLM": {
       "Provider": "OpenAI",
       "ApiKey": "sk-...",
@@ -353,7 +353,7 @@ Configure LLM providers for AI-powered features like documentation generation an
 
 ```json
 {
-  "Semantico": {
+  "Beacon": {
     "LLM": {
       "Provider": "Anthropic",
       "ApiKey": "sk-ant-...",
@@ -371,7 +371,7 @@ Configure LLM providers for AI-powered features like documentation generation an
 
 ```json
 {
-  "Semantico": {
+  "Beacon": {
     "LLM": {
       "Provider": "AzureOpenAI",
       "ApiKey": "your-azure-key",
@@ -388,7 +388,7 @@ Control API usage and costs with rate limits:
 
 ```json
 {
-  "Semantico": {
+  "Beacon": {
     "LLM": {
       "Limits": {
         "MaxConcurrentRequests": 5,
@@ -421,7 +421,7 @@ Typical costs per operation:
 **Development:**
 ```json
 {
-  "Semantico": {
+  "Beacon": {
     "LLM": {
       "Provider": "OpenAI",
       "ApiKey": "sk-dev-key-here",
@@ -434,7 +434,7 @@ Typical costs per operation:
 **Production - Use Environment Variables:**
 ```json
 {
-  "Semantico": {
+  "Beacon": {
     "LLM": {
       "ApiKey": "${LLM_API_KEY}"
     }
@@ -451,7 +451,7 @@ When `BaseUrl` is configured, Teams notifications include a **"View Query Result
 
 For example:
 ```
-https://yourdomain.com/semantico/notifications/details/12345
+https://yourdomain.com/beacon/notifications/details/12345
 ```
 
 This allows recipients to click through from Teams to view:
@@ -461,32 +461,32 @@ This allows recipients to click through from Teams to view:
 - All notification details
 
 {: .note }
-> If `BaseUrl` is not configured, Teams notifications will still be sent but without the clickable link to view details in the Semantico UI.
+> If `BaseUrl` is not configured, Teams notifications will still be sent but without the clickable link to view details in the Beacon UI.
 
 ## Database Provider Configuration
 
-Database providers are configured within the `AddSemantico` options.
+Database providers are configured within the `AddBeacon` options.
 
 ### PostgreSQL Provider
 
 ```csharp
-using Semantico.Core;
-using Semantico.Core.PostgreSql;
+using Beacon.Core;
+using Beacon.Core.PostgreSql;
 
-builder.Services.AddSemanticoServices(builder.Configuration, options =>
+builder.Services.AddBeaconServices(builder.Configuration, options =>
     {
-        options.AddSemanticoScheduler<YourScheduler>();
+        options.AddBeaconScheduler<YourScheduler>();
     })
     .UsePostgreSql(
-        builder.Configuration.GetConnectionString("SemanticoContext")!,
-        "semantico"); // Optional schema, defaults to "semantico"
+        builder.Configuration.GetConnectionString("BeaconContext")!,
+        "beacon"); // Optional schema, defaults to "beacon"
 ```
 
 **Connection string in appsettings.json:**
 ```json
 {
   "ConnectionStrings": {
-    "SemanticoContext": "Host=localhost;Database=semantico;Username=postgres;Password=yourpassword"
+    "BeaconContext": "Host=localhost;Database=beacon;Username=postgres;Password=yourpassword"
   }
 }
 ```
@@ -494,23 +494,23 @@ builder.Services.AddSemanticoServices(builder.Configuration, options =>
 ### SQL Server Provider
 
 ```csharp
-using Semantico.Core;
-using Semantico.Core.SqlServer;
+using Beacon.Core;
+using Beacon.Core.SqlServer;
 
-builder.Services.AddSemanticoServices(builder.Configuration, options =>
+builder.Services.AddBeaconServices(builder.Configuration, options =>
     {
-        options.AddSemanticoScheduler<YourScheduler>();
+        options.AddBeaconScheduler<YourScheduler>();
     })
     .UseSqlServer(
-        builder.Configuration.GetConnectionString("SemanticoContext")!,
-        "semantico"); // Optional schema, defaults to "semantico"
+        builder.Configuration.GetConnectionString("BeaconContext")!,
+        "beacon"); // Optional schema, defaults to "beacon"
 ```
 
 **Connection string in appsettings.json:**
 ```json
 {
   "ConnectionStrings": {
-    "SemanticoContext": "Server=localhost;Database=semantico;User Id=sa;Password=YourPassword123!;TrustServerCertificate=True"
+    "BeaconContext": "Server=localhost;Database=beacon;User Id=sa;Password=YourPassword123!;TrustServerCertificate=True"
   }
 }
 ```
@@ -593,19 +593,19 @@ Server=hostname;Database=dbname;Uid=user;Pwd=pass;SslMode=Required
 
 ## Scheduler Configuration
 
-Semantico requires an `ISemanticoScheduler` implementation for job scheduling. You can use any job scheduler library (Hangfire, Quartz.NET, etc.) or create a custom implementation.
+Beacon requires an `IBeaconScheduler` implementation for job scheduling. You can use any job scheduler library (Hangfire, Quartz.NET, etc.) or create a custom implementation.
 
 ### Example: Hangfire Scheduler Implementation
 
 ```csharp
 using Hangfire;
-using Semantico.Core.Worker;
+using Beacon.Core.Worker;
 
-public class SemanticoScheduler : ISemanticoScheduler
+public class BeaconScheduler : IBeaconScheduler
 {
     private readonly IRecurringJobManager _recurringJobManager;
 
-    public SemanticoScheduler(IRecurringJobManager recurringJobManager)
+    public BeaconScheduler(IRecurringJobManager recurringJobManager)
     {
         _recurringJobManager = recurringJobManager;
     }
@@ -630,11 +630,11 @@ public class SemanticoScheduler : ISemanticoScheduler
 Register the scheduler:
 
 ```csharp
-builder.Services.AddSemanticoServices(builder.Configuration, options =>
+builder.Services.AddBeaconServices(builder.Configuration, options =>
     {
-        options.AddSemanticoScheduler<SemanticoScheduler>();
+        options.AddBeaconScheduler<BeaconScheduler>();
     })
-    .UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
+    .UsePostgreSql(builder.Configuration.GetConnectionString("BeaconContext")!, "beacon");
 ```
 
 ## UI Configuration
@@ -644,9 +644,9 @@ builder.Services.AddSemanticoServices(builder.Configuration, options =>
 For quick setups without user management:
 
 ```csharp
-app.UseSemanticoUI()
+app.UseBeaconUI()
     .UseBasicAuthentication("admin", "secretpassword")
-    .AddBlazorUI("/semantico");
+    .AddBlazorUI("/beacon");
 ```
 
 ### Login Form Authentication (Recommended)
@@ -654,23 +654,23 @@ app.UseSemanticoUI()
 For production deployments with user management:
 
 ```csharp
-builder.Services.AddSemanticoCookieAuthentication("/semantico");
+builder.Services.AddBeaconCookieAuthentication("/beacon");
 
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.UseSemanticoUI()
+app.UseBeaconUI()
     .UseLoginForm()
     .UseAuthorization()
-    .AddBlazorUI("/semantico");
+    .AddBlazorUI("/beacon");
 ```
 
 ### Custom UI Path
 
-Change the UI path from default `/semantico`:
+Change the UI path from default `/beacon`:
 
 ```csharp
-app.UseSemanticoUI()
+app.UseBeaconUI()
     .UseLoginForm()
     .AddBlazorUI("/alerts"); // Custom path
 ```
@@ -684,10 +684,10 @@ Enable built-in user management with login form, role-based access, and first-ru
 ### Quick Start
 
 ```csharp
-builder.Services.AddSemanticoServices(builder.Configuration, options =>
+builder.Services.AddBeaconServices(builder.Configuration, options =>
 {
-    options.AddSemanticoScheduler<SemanticoScheduler>();
-    options.BaseUrl = "https://your-domain.com/semantico";
+    options.AddBeaconScheduler<BeaconScheduler>();
+    options.BaseUrl = "https://your-domain.com/beacon";
 
     // Enable authorization + user management
     options.Authorization.Enabled = true;
@@ -702,18 +702,18 @@ builder.Services.AddSemanticoServices(builder.Configuration, options =>
         RequirePasswordComplexity = true
     };
 })
-.UsePostgreSql(connectionString, "semantico");
+.UsePostgreSql(connectionString, "beacon");
 
-builder.Services.AddSemanticoUI();
-builder.Services.AddSemanticoCookieAuthentication("/semantico");
+builder.Services.AddBeaconUI();
+builder.Services.AddBeaconCookieAuthentication("/beacon");
 
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.UseSemanticoUI()
+app.UseBeaconUI()
     .UseLoginForm()
     .UseAuthorization()
-    .AddBlazorUI("/semantico");
+    .AddBlazorUI("/beacon");
 ```
 
 ### User Management Options
@@ -729,7 +729,7 @@ app.UseSemanticoUI()
 
 | Provider | Use Case |
 |----------|----------|
-| `DatabaseAuthenticationProvider` | Internal users with passwords in Semantico |
+| `DatabaseAuthenticationProvider` | Internal users with passwords in Beacon |
 | `JwtExternalApiAuthenticationProvider` | External JWT/OAuth identity provider |
 | `HybridAuthenticationProvider` | Both internal and external users |
 
@@ -741,11 +741,11 @@ app.UseSemanticoUI()
 Implement custom authorization logic:
 
 ```csharp
-public class CustomAuthorizationProvider : ISemanticoAuthorizationProvider
+public class CustomAuthorizationProvider : IBeaconAuthorizationProvider
 {
-    private readonly ISemanticoUserContext _userContext;
+    private readonly IBeaconUserContext _userContext;
 
-    public CustomAuthorizationProvider(ISemanticoUserContext userContext)
+    public CustomAuthorizationProvider(IBeaconUserContext userContext)
     {
         _userContext = userContext;
     }
@@ -754,7 +754,7 @@ public class CustomAuthorizationProvider : ISemanticoAuthorizationProvider
         => Task.FromResult(_userContext.IsAuthenticated);
 
     public Task<bool> HasWritePermissionAsync(CancellationToken ct = default)
-        => Task.FromResult(_userContext.HasClaim(SemanticoClaims.Role, "Admin"));
+        => Task.FromResult(_userContext.HasClaim(BeaconClaims.Role, "Admin"));
 
     // Implement other methods...
 }
@@ -770,7 +770,7 @@ options.AddAuthorizationProvider<CustomAuthorizationProvider>();
 Implement `IEmailAdapter` for your email provider:
 
 ```csharp
-using Semantico.Core.Adapters.Mail;
+using Beacon.Core.Adapters.Mail;
 
 public class SmtpEmailAdapter : IEmailAdapter
 {
@@ -793,7 +793,7 @@ public class SmtpEmailAdapter : IEmailAdapter
     {
         var message = new MailMessage
         {
-            From = new MailAddress("alerts@yourdomain.com", "Semantico Alerts"),
+            From = new MailAddress("alerts@yourdomain.com", "Beacon Alerts"),
             Subject = subject,
             Body = body,
             IsBodyHtml = true
@@ -814,12 +814,12 @@ public class SmtpEmailAdapter : IEmailAdapter
 Register the adapter:
 
 ```csharp
-builder.Services.AddSemanticoServices(builder.Configuration, options =>
+builder.Services.AddBeaconServices(builder.Configuration, options =>
     {
-        options.AddSemanticoScheduler<SemanticoScheduler>();
+        options.AddBeaconScheduler<BeaconScheduler>();
         options.AddEmailAdapter<SmtpEmailAdapter>();
     })
-    .UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
+    .UsePostgreSql(builder.Configuration.GetConnectionString("BeaconContext")!, "beacon");
 ```
 
 Add SMTP settings to `appsettings.json`:
@@ -842,12 +842,12 @@ Add SMTP settings to `appsettings.json`:
 Specify a custom schema for multi-tenant deployments:
 
 ```csharp
-builder.Services.AddSemanticoServices(builder.Configuration, options =>
+builder.Services.AddBeaconServices(builder.Configuration, options =>
     {
-        options.AddSemanticoScheduler<YourScheduler>();
+        options.AddBeaconScheduler<YourScheduler>();
     })
     .UsePostgreSql(
-        builder.Configuration.GetConnectionString("SemanticoContext")!,
+        builder.Configuration.GetConnectionString("BeaconContext")!,
         "tenant_acme"); // Custom schema name
 ```
 
@@ -856,22 +856,22 @@ builder.Services.AddSemanticoServices(builder.Configuration, options =>
 Select schema based on configuration or tenant context:
 
 ```csharp
-var schema = builder.Configuration["Semantico:Schema"] ?? "semantico";
+var schema = builder.Configuration["Beacon:Schema"] ?? "beacon";
 
-builder.Services.AddSemanticoServices(builder.Configuration, options =>
+builder.Services.AddBeaconServices(builder.Configuration, options =>
     {
-        options.AddSemanticoScheduler<YourScheduler>();
+        options.AddBeaconScheduler<YourScheduler>();
     })
     .UsePostgreSql(
-        builder.Configuration.GetConnectionString("SemanticoContext")!,
+        builder.Configuration.GetConnectionString("BeaconContext")!,
         schema);
 ```
 
 **In appsettings.json:**
 ```json
 {
-  "Semantico": {
-    "Schema": "production_semantico"
+  "Beacon": {
+    "Schema": "production_beacon"
   }
 }
 ```
@@ -885,12 +885,12 @@ Each tenant gets its own schema in the same database:
 var tenantId = GetTenantFromContext();
 var schema = $"tenant_{tenantId}";
 
-builder.Services.AddSemanticoServices(builder.Configuration, options =>
+builder.Services.AddBeaconServices(builder.Configuration, options =>
     {
-        options.AddSemanticoScheduler<YourScheduler>();
+        options.AddBeaconScheduler<YourScheduler>();
     })
     .UsePostgreSql(
-        builder.Configuration.GetConnectionString("SemanticoContext")!,
+        builder.Configuration.GetConnectionString("BeaconContext")!,
         schema);
 ```
 
@@ -898,7 +898,7 @@ builder.Services.AddSemanticoServices(builder.Configuration, options =>
 
 ## Job Scheduler Configuration
 
-Semantico works with any job scheduler that implements `ISemanticoScheduler`. The examples below use Hangfire, but you can adapt them to Quartz.NET or other schedulers.
+Beacon works with any job scheduler that implements `IBeaconScheduler`. The examples below use Hangfire, but you can adapt them to Quartz.NET or other schedulers.
 
 ### Hangfire Storage Provider (Example)
 
@@ -952,20 +952,20 @@ builder.Services.AddHangfireServer(options =>
 
 ### Database User Permissions
 
-**For Semantico metadata database (PostgreSQL):**
+**For Beacon metadata database (PostgreSQL):**
 ```sql
-CREATE USER semantico WITH PASSWORD 'strong-password';
-GRANT ALL PRIVILEGES ON DATABASE semantico TO semantico;
-GRANT ALL ON SCHEMA semantico TO semantico;
+CREATE USER beacon WITH PASSWORD 'strong-password';
+GRANT ALL PRIVILEGES ON DATABASE beacon TO beacon;
+GRANT ALL ON SCHEMA beacon TO beacon;
 ```
 
 **For query projects (read-only recommended):**
 ```sql
-CREATE USER semantico_readonly WITH PASSWORD 'strong-password';
-GRANT CONNECT ON DATABASE your_database TO semantico_readonly;
-GRANT USAGE ON SCHEMA public TO semantico_readonly;
-GRANT SELECT ON ALL TABLES IN SCHEMA public TO semantico_readonly;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO semantico_readonly;
+CREATE USER beacon_readonly WITH PASSWORD 'strong-password';
+GRANT CONNECT ON DATABASE your_database TO beacon_readonly;
+GRANT USAGE ON SCHEMA public TO beacon_readonly;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO beacon_readonly;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO beacon_readonly;
 ```
 
 ### Connection String Security
@@ -980,7 +980,7 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO semantico_re
 **User Secrets (development):**
 ```bash
 dotnet user-secrets init
-dotnet user-secrets set "ConnectionStrings:SemanticoContext" "Host=localhost;Database=semantico;Username=postgres;Password=devpassword"
+dotnet user-secrets set "ConnectionStrings:BeaconContext" "Host=localhost;Database=beacon;Username=postgres;Password=devpassword"
 ```
 
 **Azure Key Vault (production):**
@@ -998,12 +998,12 @@ Enable connection pooling for better performance:
 
 **PostgreSQL:**
 ```
-Host=postgres;Database=semantico;Username=sa;Password=pass;Pooling=true;MinPoolSize=5;MaxPoolSize=50
+Host=postgres;Database=beacon;Username=sa;Password=pass;Pooling=true;MinPoolSize=5;MaxPoolSize=50
 ```
 
 **SQL Server:**
 ```
-Server=sqlserver;Database=semantico;User Id=sa;Password=pass;Max Pool Size=50;Min Pool Size=5
+Server=sqlserver;Database=beacon;User Id=sa;Password=pass;Max Pool Size=50;Min Pool Size=5
 ```
 
 ### Query Timeout
@@ -1012,7 +1012,7 @@ Set appropriate timeouts for long-running queries:
 
 **In connection string:**
 ```
-Host=postgres;Database=semantico;Username=sa;Password=pass;CommandTimeout=300
+Host=postgres;Database=beacon;Username=sa;Password=pass;CommandTimeout=300
 ```
 
 **In subscription settings:**
@@ -1024,10 +1024,10 @@ Host=postgres;Database=semantico;Username=sa;Password=pass;CommandTimeout=300
 
 ### Email Adapter
 
-Semantico doesn't include a default email implementation. You must provide your own:
+Beacon doesn't include a default email implementation. You must provide your own:
 
 ```csharp
-using Semantico.Core.Adapters.Mail;
+using Beacon.Core.Adapters.Mail;
 using System.Net.Mail;
 
 public class SmtpEmailAdapter : IEmailAdapter
@@ -1076,12 +1076,12 @@ public class SmtpEmailAdapter : IEmailAdapter
 Register the adapter:
 
 ```csharp
-builder.Services.AddSemanticoServices(builder.Configuration, options =>
+builder.Services.AddBeaconServices(builder.Configuration, options =>
     {
-        options.AddSemanticoScheduler<SemanticoScheduler>();
+        options.AddBeaconScheduler<BeaconScheduler>();
         options.AddEmailAdapter<SmtpEmailAdapter>();
     })
-    .UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
+    .UsePostgreSql(builder.Configuration.GetConnectionString("BeaconContext")!, "beacon");
 ```
 
 **Email configuration in appsettings.json:**
@@ -1093,7 +1093,7 @@ builder.Services.AddSemanticoServices(builder.Configuration, options =>
     "Username": "your-email@gmail.com",
     "Password": "your-app-password",
     "FromAddress": "alerts@yourdomain.com",
-    "FromName": "Semantico Alerts"
+    "FromName": "Beacon Alerts"
   }
 }
 ```
@@ -1110,15 +1110,15 @@ Jira notifications work out-of-the-box. Configure per recipient with Jira instan
 
 ### Default Schema
 
-By default, Semantico uses `"semantico"` schema:
+By default, Beacon uses `"beacon"` schema:
 
 ```csharp
-builder.Services.AddSemanticoServices(builder.Configuration, options =>
+builder.Services.AddBeaconServices(builder.Configuration, options =>
     {
-        options.AddSemanticoScheduler<YourScheduler>();
+        options.AddBeaconScheduler<YourScheduler>();
     })
-    .UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!);
-    // Uses "semantico" schema by default
+    .UsePostgreSql(builder.Configuration.GetConnectionString("BeaconContext")!);
+    // Uses "beacon" schema by default
 ```
 
 ### Custom Schema
@@ -1126,12 +1126,12 @@ builder.Services.AddSemanticoServices(builder.Configuration, options =>
 Specify custom schema for multi-tenancy or environment separation:
 
 ```csharp
-builder.Services.AddSemanticoServices(builder.Configuration, options =>
+builder.Services.AddBeaconServices(builder.Configuration, options =>
     {
-        options.AddSemanticoScheduler<YourScheduler>();
+        options.AddBeaconScheduler<YourScheduler>();
     })
     .UsePostgreSql(
-        builder.Configuration.GetConnectionString("SemanticoContext")!,
+        builder.Configuration.GetConnectionString("BeaconContext")!,
         "custom_schema");
 ```
 
@@ -1140,22 +1140,22 @@ builder.Services.AddSemanticoServices(builder.Configuration, options =>
 Load schema from configuration:
 
 ```csharp
-var schema = builder.Configuration["Semantico:Schema"] ?? "semantico";
+var schema = builder.Configuration["Beacon:Schema"] ?? "beacon";
 
-builder.Services.AddSemanticoServices(builder.Configuration, options =>
+builder.Services.AddBeaconServices(builder.Configuration, options =>
     {
-        options.AddSemanticoScheduler<YourScheduler>();
+        options.AddBeaconScheduler<YourScheduler>();
     })
     .UsePostgreSql(
-        builder.Configuration.GetConnectionString("SemanticoContext")!,
+        builder.Configuration.GetConnectionString("BeaconContext")!,
         schema);
 ```
 
 **In appsettings.json:**
 ```json
 {
-  "Semantico": {
-    "Schema": "production_semantico"
+  "Beacon": {
+    "Schema": "production_beacon"
   }
 }
 ```
@@ -1165,8 +1165,8 @@ builder.Services.AddSemanticoServices(builder.Configuration, options =>
 **appsettings.Development.json:**
 ```json
 {
-  "Semantico": {
-    "Schema": "dev_semantico"
+  "Beacon": {
+    "Schema": "dev_beacon"
   }
 }
 ```
@@ -1174,8 +1174,8 @@ builder.Services.AddSemanticoServices(builder.Configuration, options =>
 **appsettings.Production.json:**
 ```json
 {
-  "Semantico": {
-    "Schema": "prod_semantico"
+  "Beacon": {
+    "Schema": "prod_beacon"
   }
 }
 ```
@@ -1184,10 +1184,10 @@ builder.Services.AddSemanticoServices(builder.Configuration, options =>
 
 ### Custom Base Path
 
-Change the Semantico UI path:
+Change the Beacon UI path:
 
 ```csharp
-app.UseSemanticoUI()
+app.UseBeaconUI()
     .UseBasicAuthentication("admin", "admin")
     .AddBlazorUI("/custom-path");
 ```
@@ -1196,16 +1196,16 @@ Access UI at: `http://localhost:5000/custom-path`
 
 ### Multiple Paths
 
-Host Semantico UI at multiple paths (for different auth):
+Host Beacon UI at multiple paths (for different auth):
 
 ```csharp
-app.UseSemanticoUI()
+app.UseBeaconUI()
     .UseBasicAuthentication("admin", "admin")
-    .AddBlazorUI("/semantico");
+    .AddBlazorUI("/beacon");
 
-app.UseSemanticoUI()
+app.UseBeaconUI()
     .UseBasicAuthentication("viewer", "readonly")
-    .AddBlazorUI("/semantico-viewer");
+    .AddBlazorUI("/beacon-viewer");
 ```
 
 ## Logging Configuration
@@ -1217,7 +1217,7 @@ Configure logging in `appsettings.json`:
   "Logging": {
     "LogLevel": {
       "Default": "Information",
-      "Semantico": "Debug",
+      "Beacon": "Debug",
       "Hangfire": "Information",
       "Microsoft.AspNetCore": "Warning"
     }
@@ -1240,11 +1240,11 @@ Configure logging in `appsettings.json`:
 ```csharp
 using Hangfire;
 using Hangfire.PostgreSql;
-using Semantico.AI;
-using Semantico.Core;
-using Semantico.Core.Authentication;
-using Semantico.Core.PostgreSql;
-using Semantico.UI;
+using Beacon.AI;
+using Beacon.Core;
+using Beacon.Core.Authentication;
+using Beacon.Core.PostgreSql;
+using Beacon.UI;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -1255,7 +1255,7 @@ builder.Services.AddHangfire((provider, config) => config
     .UseRecommendedSerializerSettings()
     .UseFilter(new AutomaticRetryAttribute { Attempts = 0 })
     .UsePostgreSqlStorage(
-        builder.Configuration.GetConnectionString("SemanticoContext"),
+        builder.Configuration.GetConnectionString("BeaconContext"),
         new PostgreSqlStorageOptions
         {
             PrepareSchemaIfNecessary = true,
@@ -1267,13 +1267,13 @@ builder.Services.AddHangfireServer(options =>
     options.WorkerCount = 10;
 });
 
-// Step 1: Add Semantico core services with user management
-var schema = builder.Configuration["Semantico:Schema"] ?? "semantico";
-builder.Services.AddSemanticoServices(builder.Configuration, options =>
+// Step 1: Add Beacon core services with user management
+var schema = builder.Configuration["Beacon:Schema"] ?? "beacon";
+builder.Services.AddBeaconServices(builder.Configuration, options =>
     {
-        options.AddSemanticoScheduler<SemanticoScheduler>();
+        options.AddBeaconScheduler<BeaconScheduler>();
         options.AddEmailAdapter<SmtpEmailAdapter>();
-        options.BaseUrl = builder.Configuration["Semantico:BaseUrl"];
+        options.BaseUrl = builder.Configuration["Beacon:BaseUrl"];
         options.UseAI = true;
 
         // Enable authorization and user management
@@ -1290,17 +1290,17 @@ builder.Services.AddSemanticoServices(builder.Configuration, options =>
         };
     })
     .UsePostgreSql(
-        builder.Configuration.GetConnectionString("SemanticoContext")!,
+        builder.Configuration.GetConnectionString("BeaconContext")!,
         schema);
 
 // Step 2: Add UI components
-builder.Services.AddSemanticoUI();
+builder.Services.AddBeaconUI();
 
 // Step 3: Add cookie authentication
-builder.Services.AddSemanticoCookieAuthentication("/semantico");
+builder.Services.AddBeaconCookieAuthentication("/beacon");
 
 // Step 4: Add AI services (optional)
-builder.Services.AddSemanticoAI(builder.Configuration);
+builder.Services.AddBeaconAI(builder.Configuration);
 
 var app = builder.Build();
 
@@ -1310,11 +1310,11 @@ app.UseStaticFiles();
 app.UseAuthentication();
 app.UseAuthorization();
 
-// Semantico UI with login form
-app.UseSemanticoUI()
+// Beacon UI with login form
+app.UseBeaconUI()
     .UseLoginForm()
     .UseAuthorization()
-    .AddBlazorUI("/semantico");
+    .AddBlazorUI("/beacon");
 
 // Optional: Hangfire dashboard
 app.UseHangfireDashboard("/hangfire");
@@ -1325,30 +1325,30 @@ app.Run();
 ### Without User Management (Simple)
 
 ```csharp
-builder.Services.AddSemanticoServices(builder.Configuration, options =>
+builder.Services.AddBeaconServices(builder.Configuration, options =>
     {
-        options.AddSemanticoScheduler<SemanticoScheduler>();
-        options.BaseUrl = builder.Configuration["Semantico:BaseUrl"];
+        options.AddBeaconScheduler<BeaconScheduler>();
+        options.BaseUrl = builder.Configuration["Beacon:BaseUrl"];
     })
     .UsePostgreSql(connectionString, schema);
 
-builder.Services.AddSemanticoUI();
+builder.Services.AddBeaconUI();
 
-app.UseSemanticoUI()
+app.UseBeaconUI()
     .UseBasicAuthentication("admin", "secretpassword")
-    .AddBlazorUI("/semantico");
+    .AddBlazorUI("/beacon");
 ```
 
 **Complete appsettings.json:**
 ```json
 {
   "ConnectionStrings": {
-    "SemanticoContext": "Host=localhost;Database=semantico;Username=semantico;Password=secretpass;Pooling=true;MaxPoolSize=50"
+    "BeaconContext": "Host=localhost;Database=beacon;Username=beacon;Password=secretpass;Pooling=true;MaxPoolSize=50"
   },
-  "Semantico": {
+  "Beacon": {
     "EncryptionKey": "your-secure-32-character-key-here",
-    "Schema": "semantico",
-    "BaseUrl": "https://yourdomain.com/semantico",
+    "Schema": "beacon",
+    "BaseUrl": "https://yourdomain.com/beacon",
     "LLM": {
       "Provider": "OpenAI",
       "ApiKey": "sk-your-api-key",
@@ -1361,12 +1361,12 @@ app.UseSemanticoUI()
     "Username": "alerts@yourdomain.com",
     "Password": "app-specific-password",
     "FromAddress": "alerts@yourdomain.com",
-    "FromName": "Semantico Alerts"
+    "FromName": "Beacon Alerts"
   },
   "Logging": {
     "LogLevel": {
       "Default": "Information",
-      "Semantico": "Information",
+      "Beacon": "Information",
       "Hangfire": "Warning"
     }
   }
@@ -1393,5 +1393,5 @@ Solutions for common configuration problems
 <div class="code-example" markdown="1">
 🏗️ **[Architecture →](../advanced/architecture)**
 
-Understand Semantico's extensibility points
+Understand Beacon's extensibility points
 </div>

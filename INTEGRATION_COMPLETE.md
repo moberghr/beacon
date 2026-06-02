@@ -2,7 +2,7 @@
 
 ## Status: ✅ READY FOR TESTING
 
-The multi-agent database documentation system has been **fully integrated** into Semantico and is ready for testing.
+The multi-agent database documentation system has been **fully integrated** into Beacon and is ready for testing.
 
 ## What Was Delivered
 
@@ -14,7 +14,7 @@ The multi-agent database documentation system has been **fully integrated** into
 
 ### 💻 Production Code (12 files, 1,600+ lines)
 
-**Models** (6 files in `Semantico.Core/Models/Ai/MultiAgent/`):
+**Models** (6 files in `Beacon.Core/Models/Ai/MultiAgent/`):
 - `OrchestratorResult.cs` - Schema analysis output
 - `DomainGroup.cs` - Logical table groupings
 - `DomainResult.cs` - Domain-specific documentation
@@ -22,17 +22,17 @@ The multi-agent database documentation system has been **fully integrated** into
 - `MultiAgentGenerationOptions.cs` - Configuration
 - `DocumentationProgress.cs` - Real-time progress
 
-**Services** (3 files in `Semantico.Core/Services/Ai/MultiAgent/`):
+**Services** (3 files in `Beacon.Core/Services/Ai/MultiAgent/`):
 - `IMultiAgentDocumentationService.cs` - Interface
 - `MultiAgentDocumentationService.cs` - 830 lines, full orchestration
 - `MultiAgentPrompts.cs` - 580 lines, all agent prompts
 
 **Handlers** (1 file):
-- `Semantico.Core/Handlers/Documentation/GenerateMultiAgentDocumentationHandler.cs`
+- `Beacon.Core/Handlers/Documentation/GenerateMultiAgentDocumentationHandler.cs`
 
 **Integration** (2 files modified):
-- `Semantico.Core/ServiceConfiguration.cs` - Service registration
-- `Semantico.UI/Components/Pages/DataSources/GenerateDocumentationDialog.razor` - UI updates
+- `Beacon.Core/ServiceConfiguration.cs` - Service registration
+- `Beacon.UI/Components/Pages/DataSources/GenerateDocumentationDialog.razor` - UI updates
 
 ### 📚 Testing Guide
 - **Testing instructions** (`docs/TESTING_MULTI_AGENT.md`) - Complete testing guide
@@ -41,7 +41,7 @@ The multi-agent database documentation system has been **fully integrated** into
 
 ### 1. Service Registration ✅
 
-**File**: `Semantico.Core/ServiceConfiguration.cs`
+**File**: `Beacon.Core/ServiceConfiguration.cs`
 
 **Line 135**: Added multi-agent service registration
 ```csharp
@@ -51,7 +51,7 @@ services.TryAddScoped<Services.Ai.MultiAgent.IMultiAgentDocumentationService,
 
 ### 2. MediatR Handler ✅
 
-**File**: `Semantico.Core/Handlers/Documentation/GenerateMultiAgentDocumentationHandler.cs`
+**File**: `Beacon.Core/Handlers/Documentation/GenerateMultiAgentDocumentationHandler.cs`
 
 New handler with command:
 - `GenerateMultiAgentDocumentationCommand` - Command with progress support
@@ -59,7 +59,7 @@ New handler with command:
 
 ### 3. UI Updates ✅
 
-**File**: `Semantico.UI/Components/Pages/DataSources/GenerateDocumentationDialog.razor`
+**File**: `Beacon.UI/Components/Pages/DataSources/GenerateDocumentationDialog.razor`
 
 **Changes**:
 - Line 2-5: Added using directives
@@ -140,12 +140,12 @@ To test the integration, you need:
 
 ### 1. Database Connection
 
-Update `Semantico.SampleProject/appsettings.json`:
+Update `Beacon.SampleProject/appsettings.json`:
 
 ```json
 {
   "ConnectionStrings": {
-    "SemanticoContext": "Host=localhost;Database=semantico;Username=postgres;Password="
+    "BeaconContext": "Host=localhost;Database=beacon;Username=postgres;Password="
   }
 }
 ```
@@ -156,7 +156,7 @@ Enable AI features in `appsettings.json`:
 
 ```json
 {
-  "Semantico": {
+  "Beacon": {
     "LLM": {
       "Provider": "Claude",
       "ApiKey": "your-api-key",
@@ -174,10 +174,10 @@ Enable AI features in `appsettings.json`:
 1. **Configure** database and LLM in `appsettings.json`
 2. **Run** the application:
    ```bash
-   cd Semantico.SampleProject
+   cd Beacon.SampleProject
    dotnet run
    ```
-3. **Navigate** to `https://localhost:7187/semantico`
+3. **Navigate** to `https://localhost:7187/beacon`
 4. **Go to** Data Sources
 5. **Click** "Generate Documentation"
 6. **See** the multi-agent toggle (ON by default)
@@ -195,7 +195,7 @@ Enable AI features in `appsettings.json`:
 
 ## Code Quality
 
-✅ Follows Semantico coding standards
+✅ Follows Beacon coding standards
 ✅ Uses `IDbContextFactory` (not direct DbContext)
 ✅ Comprehensive logging
 ✅ Thread-safe parallel processing
@@ -207,7 +207,7 @@ Enable AI features in `appsettings.json`:
 ## Files Created
 
 ```
-Semantico.Core/
+Beacon.Core/
 ├── Models/Ai/MultiAgent/
 │   ├── OrchestratorResult.cs ✅
 │   ├── DomainGroup.cs ✅
@@ -255,7 +255,7 @@ All criteria met:
 
 ## Summary
 
-The multi-agent documentation system is **production-ready** and fully integrated into Semantico. Once you configure:
+The multi-agent documentation system is **production-ready** and fully integrated into Beacon. Once you configure:
 - Database connection
 - LLM API credentials
 

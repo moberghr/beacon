@@ -16,7 +16,7 @@ AI-powered features that leverage large language models (LLMs) to automate docum
 
 ## Purpose
 
-AI integration in Semantico provides:
+AI integration in Beacon provides:
 - **Automatic Documentation**: Generate comprehensive data source documentation by analyzing schemas
 - **Natural Language Alerts**: Create complex SQL queries from plain English descriptions
 - **Smart Insights**: AI-powered data analysis and recommendations
@@ -24,7 +24,7 @@ AI integration in Semantico provides:
 
 ## Supported LLM Providers
 
-Semantico supports multiple LLM providers through a pluggable architecture:
+Beacon supports multiple LLM providers through a pluggable architecture:
 
 | Provider | Recommended Models | Configuration |
 |----------|-------------------|---------------|
@@ -63,7 +63,7 @@ Changes take effect immediately. You can switch providers at runtime without res
 
 ```json
 {
-  "Semantico": {
+  "Beacon": {
     "LLM": {
       "Provider": "OpenAI",
       "ApiKey": "sk-your-api-key-here",
@@ -99,7 +99,7 @@ Automatically generate comprehensive documentation by analyzing database schemas
 
 ### How It Works
 
-1. **Schema Analysis**: Semantico fetches schema metadata (tables, columns, data types, constraints, relationships)
+1. **Schema Analysis**: Beacon fetches schema metadata (tables, columns, data types, constraints, relationships)
 2. **Sample Data Collection**: Retrieves first 10 rows from each table for context
 3. **AI Processing**: Sends schema structure and samples to LLM with specialized prompts
 4. **Documentation Generation**: AI generates table descriptions, column explanations, relationships, and insights
@@ -373,7 +373,7 @@ Rate limits prevent abuse and control costs:
 
 ```json
 {
-  "Semantico": {
+  "Beacon": {
     "LLM": {
       "Limits": {
         "MaxConcurrentRequests": 5,
@@ -426,7 +426,7 @@ catch (RateLimitException ex)
 
 ```json
 {
-  "Semantico": {
+  "Beacon": {
     "LLM": {
       "ApiKey": "${LLM_API_KEY}"  // Environment variable
     }
@@ -463,7 +463,7 @@ var options = new GenerationOptions
 ### Common Issues
 
 **Issue:** "LLM configuration not found"
-**Solution:** Ensure `Semantico:LLM` section exists in appsettings.json
+**Solution:** Ensure `Beacon:LLM` section exists in appsettings.json
 
 **Issue:** "Invalid API key"
 **Solution:** Verify API key is correct and has appropriate permissions
@@ -481,8 +481,8 @@ Enable verbose logging:
 {
   "Logging": {
     "LogLevel": {
-      "Semantico.Core.Services.Ai": "Debug",
-      "Semantico.Core.Services.LlmProviders": "Debug"
+      "Beacon.Core.Services.Ai": "Debug",
+      "Beacon.Core.Services.LlmProviders": "Debug"
     }
   }
 }

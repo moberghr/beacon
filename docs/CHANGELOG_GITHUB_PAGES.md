@@ -6,7 +6,7 @@ nav_exclude: true
 
 ## Summary
 
-Enhanced the Semantico GitHub Pages documentation with two major features:
+Enhanced the Beacon GitHub Pages documentation with two major features:
 1. **Centralized URL Configuration** - Define URLs once, use throughout documentation
 2. **Mermaid Diagram Support** - Display system architecture and flow diagrams
 
@@ -21,14 +21,14 @@ Added a `urls` section for centralized URL management:
 ```yaml
 urls:
   # Repository
-  github_repo: "https://github.com/MiBu/semantico"
-  github_issues: "https://github.com/MiBu/semantico/issues"
-  github_discussions: "https://github.com/MiBu/semantico/discussions"
+  github_repo: "https://github.com/moberghr/beacon"
+  github_issues: "https://github.com/moberghr/beacon/issues"
+  github_discussions: "https://github.com/moberghr/beacon/discussions"
 
   # Documentation
-  docs_base: "https://mibu.github.io/semantico"
-  docs_installation: "https://mibu.github.io/semantico/getting-started/installation"
-  docs_quick_start: "https://mibu.github.io/semantico/getting-started/quick-start"
+  docs_base: "https://moberghr.github.io/beacon"
+  docs_installation: "https://moberghr.github.io/beacon/getting-started/installation"
+  docs_quick_start: "https://moberghr.github.io/beacon/getting-started/quick-start"
   # ... and more
 ```
 
@@ -108,10 +108,10 @@ Created comprehensive guide explaining:
 Build Status: ✅ **Success**
 
 ```
-Configuration file: /Users/mirkobudimir/Dev/MiBu/semantico/docs/_config.yml
+Configuration file: /Users/mirkobudimir/Dev/moberghr/beacon/docs/_config.yml
       Remote Theme: Using theme just-the-docs/just-the-docs
-            Source: /Users/mirkobudimir/Dev/MiBu/semantico/docs
-       Destination: /Users/mirkobudimir/Dev/MiBu/semantico/docs/_site
+            Source: /Users/mirkobudimir/Dev/moberghr/beacon/docs
+       Destination: /Users/mirkobudimir/Dev/moberghr/beacon/docs/_site
       Generating...
                     done in 2.094 seconds.
 ```
@@ -152,7 +152,7 @@ The diagrams will be automatically rendered when the page loads.
 1. **Deploy to GitHub Pages**:
    - Push changes to main branch
    - GitHub Actions will automatically build and deploy
-   - Site available at: https://mibu.github.io/semantico
+   - Site available at: https://moberghr.github.io/beacon
 
 2. **Extend URL Configuration**:
    - Add more URLs as needed to `_config.yml`
@@ -189,4 +189,4 @@ For questions about these enhancements:
 
 **Date**: 2025-11-12
 **Version**: 1.0.0
-**Author**: Semantico Team
+**Author**: Beacon Team

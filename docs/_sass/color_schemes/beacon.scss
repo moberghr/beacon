@@ -1,0 +1,40 @@
+// Beacon Custom Color Scheme
+// Based on the Beacon logo gradient: cyan → blue → purple → magenta
+
+// Primary brand colors from logo
+$brand-cyan: #00d4ff;
+$brand-light-blue: #4da6ff;
+$brand-blue: #0066ff;
+$brand-purple: #8b5cf6;
+$brand-magenta: #e946ff;
+$brand-dark-blue: #0d1b3e;
+$brand-deep-blue: #1a2b5c;
+
+// Semantic color assignments
+$body-background-color: #ffffff;
+$sidebar-color: $brand-dark-blue;
+$body-text-color: #24292e;
+$body-heading-color: $brand-dark-blue;
+$link-color: $brand-blue;
+$nav-child-link-color: #c8d5ff;
+$search-background-color: rgba(255, 255, 255, 0.1);
+$search-result-preview-color: #c8d5ff;
+$code-background-color: #f5f7fa;
+$feedback-color: darken($sidebar-color, 3%);
+
+// Button colors
+$btn-primary-color: $brand-cyan;
+$btn-primary-hover-color: darken($brand-cyan, 10%);
+
+// Border and accents
+$border-color: #e8ecf1;
+$table-background-color: #fafbfc;
+$code-linenumber-color: #586069;
+
+// Gradient backgrounds (for headers and special sections)
+$gradient-primary: linear-gradient(135deg, $brand-cyan 0%, $brand-blue 50%, $brand-purple 100%);
+$gradient-accent: linear-gradient(135deg, $brand-blue 0%, $brand-magenta 100%);
+
+// Focus and interactive states
+$focus-color: $brand-cyan;
+$selection-color: rgba($brand-cyan, 0.2);

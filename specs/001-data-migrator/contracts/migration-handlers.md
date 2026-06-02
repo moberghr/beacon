@@ -5,7 +5,7 @@
 ### CreateMigrationJobHandler
 ```csharp
 internal sealed class CreateMigrationJobHandler(
-    SemanticoContext context,
+    BeaconContext context,
     ILogger<CreateMigrationJobHandler> logger
 ) : IRequestHandler<CreateMigrationJobRequest, CreateMigrationJobResponse>
 {
@@ -55,7 +55,7 @@ public record ValidationResult(
 ### ExecuteMigrationJobHandler
 ```csharp
 internal sealed class ExecuteMigrationJobHandler(
-    SemanticoContext context,
+    BeaconContext context,
     IQueryService queryService,
     ILogger<ExecuteMigrationJobHandler> logger
 ) : IRequestHandler<ExecuteMigrationJobRequest, ExecuteMigrationJobResponse>
@@ -94,7 +94,7 @@ public record ExecuteMigrationJobResponse(
 ### GetMigrationJobsHandler
 ```csharp
 internal sealed class GetMigrationJobsHandler(
-    SemanticoContext context
+    BeaconContext context
 ) : IRequestHandler<GetMigrationJobsRequest, GetMigrationJobsResponse>
 {
     public async Task<GetMigrationJobsResponse> Handle(
@@ -156,7 +156,7 @@ public record MigrationJobDto(
 ### GetMigrationExecutionsHandler
 ```csharp
 internal sealed class GetMigrationExecutionsHandler(
-    SemanticoContext context
+    BeaconContext context
 ) : IRequestHandler<GetMigrationExecutionsRequest, GetMigrationExecutionsResponse>
 {
     public async Task<GetMigrationExecutionsResponse> Handle(
@@ -218,7 +218,7 @@ public record MigrationExecutionDto(
 ### UpdateMigrationJobHandler
 ```csharp
 internal sealed class UpdateMigrationJobHandler(
-    SemanticoContext context,
+    BeaconContext context,
     ILogger<UpdateMigrationJobHandler> logger
 ) : IRequestHandler<UpdateMigrationJobRequest, UpdateMigrationJobResponse>
 {
@@ -259,7 +259,7 @@ public record UpdateMigrationJobResponse(
 ### DeleteMigrationJobHandler
 ```csharp
 internal sealed class DeleteMigrationJobHandler(
-    SemanticoContext context,
+    BeaconContext context,
     ILogger<DeleteMigrationJobHandler> logger
 ) : IRequestHandler<DeleteMigrationJobRequest, DeleteMigrationJobResponse>
 {
@@ -290,19 +290,19 @@ public record DeleteMigrationJobResponse(
 
 ### Common Error Types
 ```csharp
-public class MigrationJobNotFoundException : SemanticoException
+public class MigrationJobNotFoundException : BeaconException
 {
     public MigrationJobNotFoundException(int migrationJobId) 
         : base($"Migration job with ID {migrationJobId} was not found.") { }
 }
 
-public class MigrationExecutionException : SemanticoException
+public class MigrationExecutionException : BeaconException
 {
     public MigrationExecutionException(string message, Exception? innerException = null) 
         : base(message, innerException) { }
 }
 
-public class MigrationValidationException : SemanticoException
+public class MigrationValidationException : BeaconException
 {
     public List<string> ValidationErrors { get; }
     

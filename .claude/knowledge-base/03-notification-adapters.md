@@ -1,4 +1,4 @@
-# Semantico Notification Adapters
+# Beacon Notification Adapters
 
 ## Overview
 
@@ -10,7 +10,7 @@ Notification adapters implement the `IAdapter` interface to deliver query result
 
 ### IAdapter Interface
 
-**File:** `Semantico.Core/Adapters/IAdapter.cs`
+**File:** `Beacon.Core/Adapters/IAdapter.cs`
 
 ```csharp
 internal interface IAdapter
@@ -27,7 +27,7 @@ internal interface IAdapter
 
 ### AdapterFactory
 
-**File:** `Semantico.Core/Adapters/AdapterFactory.cs`
+**File:** `Beacon.Core/Adapters/AdapterFactory.cs`
 
 ```csharp
 internal class AdapterFactory
@@ -49,7 +49,7 @@ internal class AdapterFactory
 
 ### Service Registration
 
-**File:** `Semantico.Core/ServiceConfiguration.cs`
+**File:** `Beacon.Core/ServiceConfiguration.cs`
 
 ```csharp
 // Register all adapters as singletons
@@ -66,7 +66,7 @@ services.AddSingleton<AdapterFactory>();
 
 ## RecipientQueryResult
 
-**File:** `Semantico.Core/Adapters/RecipientQueryResult.cs`
+**File:** `Beacon.Core/Adapters/RecipientQueryResult.cs`
 
 DTO passed to all adapters containing:
 
@@ -84,7 +84,7 @@ public class RecipientQueryResult
 
 ## Slack Adapter
 
-**File:** `Semantico.Core/Adapters/Slack/SlackAdapter.cs`
+**File:** `Beacon.Core/Adapters/Slack/SlackAdapter.cs`
 **NotificationType:** `Slack = 4`
 
 ### Features
@@ -104,7 +104,7 @@ https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX
 
 ```json
 {
-  "text": "[Semantico] DataSource - SubscriptionName",
+  "text": "[Beacon] DataSource - SubscriptionName",
   "blocks": [
     { "type": "header", "text": { "type": "plain_text", "text": "..." } },
     { "type": "section", "text": { "type": "mrkdwn", "text": "**Query:**\n```sql\n...\n```" } },
@@ -145,7 +145,7 @@ private enum ColumnType { Text, Number, Date, Boolean }
 ### Key Implementation
 
 ```csharp
-internal class SlackAdapter(IHttpClientFactory httpClientFactory, SemanticoConfiguration configuration) : IAdapter
+internal class SlackAdapter(IHttpClientFactory httpClientFactory, BeaconConfiguration configuration) : IAdapter
 {
     private const int MaxColumns = 20;
     private const int MaxRows = 100;
@@ -172,7 +172,7 @@ internal class SlackAdapter(IHttpClientFactory httpClientFactory, SemanticoConfi
 
 ## Teams Adapter
 
-**File:** `Semantico.Core/Adapters/Teams/TeamsAdapter.cs`
+**File:** `Beacon.Core/Adapters/Teams/TeamsAdapter.cs`
 **NotificationType:** `Teams = 1`
 
 ### Features
@@ -214,7 +214,7 @@ var card = new AdaptiveCard("1.5")
 ### Key Implementation
 
 ```csharp
-internal class TeamsAdapter(IHttpClientFactory httpClientFactory, SemanticoConfiguration configuration) : IAdapter
+internal class TeamsAdapter(IHttpClientFactory httpClientFactory, BeaconConfiguration configuration) : IAdapter
 {
     public NotificationType NotificationType => NotificationType.Teams;
 
@@ -237,7 +237,7 @@ internal class TeamsAdapter(IHttpClientFactory httpClientFactory, SemanticoConfi
 
 ## Email Adapter
 
-**File:** `Semantico.Core/Adapters/Email/EmailAdapter.cs`
+**File:** `Beacon.Core/Adapters/Email/EmailAdapter.cs`
 **NotificationType:** `Email = 2`
 
 ### Features
@@ -252,7 +252,7 @@ user@domain.com
 ```
 
 ### Email Structure
-- Subject: `[Semantico] {DataSourceName} - {SubscriptionName}`
+- Subject: `[Beacon] {DataSourceName} - {SubscriptionName}`
 - Body: HTML table with first 10 rows
 - Attachment: Full results as CSV or XLSX
 
@@ -290,7 +290,7 @@ public class EmailConfiguration
 
 ## Jira Adapter
 
-**File:** `Semantico.Core/Adapters/Jira/JiraAdapter.cs`
+**File:** `Beacon.Core/Adapters/Jira/JiraAdapter.cs`
 **NotificationType:** `Jira = 3`
 
 ### Features
@@ -317,7 +317,7 @@ Example: `company.atlassian.net;PROJ;user@company.com;ATATT3xFfGF0...`
 ### Issue Structure
 
 ```markdown
-**Summary:** [Semantico] {DataSourceName} - {SubscriptionName}
+**Summary:** [Beacon] {DataSourceName} - {SubscriptionName}
 
 **Description:**
 Query: {SqlQuery}
@@ -373,9 +373,9 @@ issue.AddAttachment(attachmentPath);
 1. **Create adapter class:**
 
 ```csharp
-namespace Semantico.Core.Adapters.NewChannel;
+namespace Beacon.Core.Adapters.NewChannel;
 
-internal class NewChannelAdapter(IHttpClientFactory httpClientFactory, SemanticoConfiguration configuration) : IAdapter
+internal class NewChannelAdapter(IHttpClientFactory httpClientFactory, BeaconConfiguration configuration) : IAdapter
 {
     public NotificationType NotificationType => NotificationType.NewChannel;
 
@@ -389,7 +389,7 @@ internal class NewChannelAdapter(IHttpClientFactory httpClientFactory, Semantico
 2. **Add to NotificationType enum:**
 
 ```csharp
-// Semantico.Core/Data/Enums/NotificationType.cs
+// Beacon.Core/Data/Enums/NotificationType.cs
 public enum NotificationType
 {
     Teams = 1,
@@ -426,12 +426,12 @@ private string GetDestinationLabel() => Recipient.NotificationType switch
 
 ## Configuration
 
-### SemanticoConfiguration
+### BeaconConfiguration
 
-**File:** `Semantico.Core/SemanticoConfiguration.cs`
+**File:** `Beacon.Core/BeaconConfiguration.cs`
 
 ```csharp
-public class SemanticoConfiguration
+public class BeaconConfiguration
 {
     /// <summary>
     /// Base URL for "View Results" links in notifications
@@ -449,15 +449,15 @@ public class SemanticoConfiguration
 
 ```json
 {
-  "Semantico": {
-    "BaseUrl": "https://your-domain.com/semantico",
+  "Beacon": {
+    "BaseUrl": "https://your-domain.com/beacon",
     "Email": {
       "SmtpHost": "smtp.example.com",
       "SmtpPort": 587,
       "Username": "user",
       "Password": "password",
-      "FromAddress": "semantico@example.com",
-      "FromName": "Semantico Alerts"
+      "FromAddress": "beacon@example.com",
+      "FromName": "Beacon Alerts"
     }
   }
 }
@@ -469,4 +469,4 @@ public class SemanticoConfiguration
 
 All adapters inject:
 - `IHttpClientFactory` - HTTP client management
-- `SemanticoConfiguration` - BaseUrl for links, email settings
+- `BeaconConfiguration` - BaseUrl for links, email settings

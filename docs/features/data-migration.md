@@ -32,7 +32,7 @@ Data Migration allows you to:
 
 ### Step 1: Navigate to Data Migration
 
-1. Log in to Semantico
+1. Log in to Beacon
 2. Click **Data Migration** in the left navigation menu
 3. Click **Create New Migration Job**
 
@@ -558,7 +558,7 @@ Each execution records:
 
 ### Pre-Execution Validation
 
-When **Validate Before Execution** is enabled, Semantico checks:
+When **Validate Before Execution** is enabled, Beacon checks:
 1. Source query syntax is valid
 2. Source database is accessible
 3. Destination table exists

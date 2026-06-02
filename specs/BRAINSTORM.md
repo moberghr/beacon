@@ -1,4 +1,4 @@
-# Semantico — Feature Brainstorm
+# Beacon — Feature Brainstorm
 
 > Living document for brainstorming future features. Once we pick a winner, we'll create a proper spec & plan.
 
@@ -37,10 +37,10 @@
 - **Team / workspace support** — Group users, queries, subscriptions by team
 
 ### Integration & Extensibility
-- **REST API exposure** — Expose Semantico features as a REST API for external tool integration
+- **REST API exposure** — Expose Beacon features as a REST API for external tool integration
 - **Plugin / extension system** — Custom notification adapters or query transformers without modifying core
 - **dbt integration** — Monitor dbt model freshness and test results
-- **Grafana data source** — Let Grafana pull from Semantico query results
+- **Grafana data source** — Let Grafana pull from Beacon query results
 
 ### Observability
 - **Result count trend visualization** — Extend existing task-level trends to full dashboards

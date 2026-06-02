@@ -1,6 +1,6 @@
-# Semantico Coding Style Guide
+# Beacon Coding Style Guide
 
-This document provides detailed coding style guidelines for the Semantico solution. Follow these patterns when generating or modifying code to maintain consistency.
+This document provides detailed coding style guidelines for the Beacon solution. Follow these patterns when generating or modifying code to maintain consistency.
 
 ## Naming Conventions
 - **Classes/Types**: PascalCase (e.g., `ProjectService`, `QueryParameter`)
@@ -59,11 +59,11 @@ internal class ProjectService : IProjectService
 - **Extension methods**: Create extension methods for common operations (e.g., LINQ extensions)
 
 ## Error Handling
-- **Domain Exceptions**: Use `SemanticoException` class for domain-specific errors
+- **Domain Exceptions**: Use `BeaconException` class for domain-specific errors
 ```csharp
 if (condition)
 {
-    throw new SemanticoException("Meaningful error message");
+    throw new BeaconException("Meaningful error message");
 }
 ```
 - **Validation**: Perform early validation before processing operations
@@ -86,7 +86,7 @@ public async Task<BaseResponse> CreateProject(ProjectData projectData, Cancellat
 ## Database and Entity Framework
 - **Migrations**: Create migrations for schema changes
 ```bash
-dotnet ef migrations add MigrationName --project Semantico.Core --startup-project Semantico.SampleProject
+dotnet ef migrations add MigrationName --project Beacon.Core --startup-project Beacon.SampleProject
 ```
 - **Entity configuration**: Use Fluent API or attributes for entity configuration
 - **Queries**: Use AsSplitQuery() for loading related entities when appropriate
@@ -114,9 +114,9 @@ _context.Entities
 ```csharp
 internal class ProjectService : IProjectService
 {
-    private readonly SemanticoContext _context;
+    private readonly BeaconContext _context;
 
-    public ProjectService(SemanticoContext context)
+    public ProjectService(BeaconContext context)
     {
         _context = context;
     }
@@ -126,7 +126,7 @@ internal class ProjectService : IProjectService
         // Validation
         if (string.IsNullOrEmpty(projectData.Name))
         {
-            throw new SemanticoException("Project name is required");
+            throw new BeaconException("Project name is required");
         }
 
         var project = new Project
@@ -164,15 +164,15 @@ internal class Project : ArchivableBaseEntity
 
 ### Blazor Component
 ```csharp
-@page "/semantico/projects"
+@page "/beacon/projects"
 @inherits BasePageComponent
-@using Semantico.Core.Models.Projects
+@using Beacon.Core.Models.Projects
 
-<SemanticoPageTitle Title="Projects" />
+<BeaconPageTitle Title="Projects" />
 
 <MudContainer Class="my-4 px-4">
-    <SemanticoPageHeader Icon="@Icons.Material.Filled.FolderOpen" Title="Projects" ButtonText="Add Project" OnClick="OpenAddProjectDialog"/>
-    <SemanticoPageAlert Text="List of available projects." />
+    <BeaconPageHeader Icon="@Icons.Material.Filled.FolderOpen" Title="Projects" ButtonText="Add Project" OnClick="OpenAddProjectDialog"/>
+    <BeaconPageAlert Text="List of available projects." />
     
     <MudDataGrid @ref="_dataGrid" ServerData="ServerReload" T="ProjectData" Hover="true">
         <Columns>

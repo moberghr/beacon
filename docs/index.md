@@ -1,12 +1,12 @@
 ---
 layout: home
-title: Semantico
+title: Beacon
 nav_order: 1
 description: "Semantic database alerting and notification system for .NET"
 permalink: /
 ---
 
-# Semantico
+# Beacon
 {: .fs-9 }
 
 Powerful semantic alerts and notifications for your databases
@@ -17,9 +17,9 @@ Powerful semantic alerts and notifications for your databases
 
 ---
 
-## Why Semantico?
+## Why Beacon?
 
-Semantico is a .NET library that transforms database monitoring with semantic queries, flexible alerting, and cross-database orchestration.
+Beacon is a .NET library that transforms database monitoring with semantic queries, flexible alerting, and cross-database orchestration.
 
 - **Multi-Database Support**: PostgreSQL, SQL Server, and MySQL in one unified platform
 - **Flexible Alerting**: Email, Microsoft Teams, and Jira notifications with cron scheduling
@@ -33,7 +33,7 @@ Semantico is a .NET library that transforms database monitoring with semantic qu
 
 ## 🏗️ System Architecture
 
-Semantico follows Clean Architecture principles with clear separation of concerns:
+Beacon follows Clean Architecture principles with clear separation of concerns:
 
 ```mermaid
 graph TB
@@ -51,12 +51,12 @@ graph TB
     end
 
     subgraph Data["Data Access Layer"]
-        EFCore[Entity Framework Core<br/>SemanticoContext] ~~~ Dapper[Dapper<br/>Metadata Queries]
+        EFCore[Entity Framework Core<br/>BeaconContext] ~~~ Dapper[Dapper<br/>Metadata Queries]
     end
 
     subgraph Infrastructure["Infrastructure Layer"]
         PgSQL[(PostgreSQL)] ~~~ MSSQL[(SQL Server)] ~~~ MySQL[(MySQL)]
-        Scheduler[Job Scheduler<br/>via ISemanticoScheduler] ~~~ SQLiteVM[SQLite Virtual Tables<br/>Cross-DB Joins]
+        Scheduler[Job Scheduler<br/>via IBeaconScheduler] ~~~ SQLiteVM[SQLite Virtual Tables<br/>Cross-DB Joins]
     end
 
     BlazorUI --> Core
@@ -198,36 +198,36 @@ flowchart LR
 
 ## Quick Start
 
-Add Semantico to your ASP.NET Core application in under 30 minutes:
+Add Beacon to your ASP.NET Core application in under 30 minutes:
 
 ### 1. Install NuGet Packages
 
 ```bash
-dotnet add package Semantico.Core.PostgreSql
-dotnet add package Semantico.UI.AspNet
+dotnet add package Beacon.Core.PostgreSql
+dotnet add package Beacon.UI.AspNet
 ```
 
 ### 2. Configure in Program.cs
 
 ```csharp
-using Semantico.Core;
-using Semantico.UI.AspNet;
+using Beacon.Core;
+using Beacon.UI.AspNet;
 
-// Add Semantico with PostgreSQL (single method call)
-builder.Services.AddSemantico(builder.Configuration, options =>
+// Add Beacon with PostgreSQL (single method call)
+builder.Services.AddBeacon(builder.Configuration, options =>
 {
-    options.UsePostgreSql(builder.Configuration.GetConnectionString("SemanticoContext")!, "semantico");
-    options.AddSemanticoScheduler<YourHangfireScheduler>();
+    options.UsePostgreSql(builder.Configuration.GetConnectionString("BeaconContext")!, "beacon");
+    options.AddBeaconScheduler<YourHangfireScheduler>();
 });
 
 var app = builder.Build();
 
-app.UseStaticFiles(); // Required for Semantico UI assets
+app.UseStaticFiles(); // Required for Beacon UI assets
 
 // Configure UI
-app.UseSemanticoUI()
+app.UseBeaconUI()
     .UseBasicAuthentication("admin", "admin")
-    .AddBlazorUI("/semantico");
+    .AddBlazorUI("/beacon");
 ```
 
 ### 3. Add Connection String
@@ -236,7 +236,7 @@ app.UseSemanticoUI()
 ```json
 {
   "ConnectionStrings": {
-    "SemanticoContext": "Host=localhost;Database=semantico;Username=postgres;Password=yourpassword"
+    "BeaconContext": "Host=localhost;Database=beacon;Username=postgres;Password=yourpassword"
   }
 }
 ```
@@ -247,7 +247,7 @@ app.UseSemanticoUI()
 dotnet run
 ```
 
-Access Semantico UI at `http://localhost:5000/semantico`
+Access Beacon UI at `http://localhost:5000/beacon`
 
 [View detailed quick start guide →](getting-started/quick-start)
 
@@ -280,7 +280,7 @@ Access Semantico UI at `http://localhost:5000/semantico`
 <div class="code-example" markdown="1">
 ### 🚀 Getting Started
 
-New to Semantico? Start here to add Semantico to your application.
+New to Beacon? Start here to add Beacon to your application.
 
 - [Installation Guide](getting-started/installation)
 - [Quick Start (30 minutes)](getting-started/quick-start)
@@ -316,7 +316,7 @@ Power user scenarios and extensibility patterns.
 Get help and contribute to the project.
 
 - [Troubleshooting](troubleshooting/common-issues)
-- [GitHub Issues](https://github.com/MiBu/semantico/issues)
+- [GitHub Issues](https://github.com/moberghr/beacon/issues)
 - [Contributing Guidelines](contributing/guidelines)
 </div>
 
@@ -346,15 +346,15 @@ Get help and contribute to the project.
 
 - **.NET 9.0** or later
 - **ASP.NET Core** web application
-- **PostgreSQL 12+** or **SQL Server 2019+** for Semantico metadata
-- **Job scheduler** implementing `ISemanticoScheduler` (e.g., Hangfire, Quartz.NET, or custom)
+- **PostgreSQL 12+** or **SQL Server 2019+** for Beacon metadata
+- **Job scheduler** implementing `IBeaconScheduler` (e.g., Hangfire, Quartz.NET, or custom)
 - **(Optional)** Email provider for email notifications (SMTP, etc.)
 
 ---
 
 ## Community and Support
 
-- **GitHub Repository**: [MiBu/semantico]({{ site.urls.github_repo }})
+- **GitHub Repository**: [moberghr/beacon]({{ site.urls.github_repo }})
 - **Report Issues**: [GitHub Issues]({{ site.urls.github_issues }})
 - **Discussions**: [GitHub Discussions]({{ site.urls.github_discussions }})
 - **Contribute**: [Contribution Guidelines]({{ site.urls.docs_contributing }})

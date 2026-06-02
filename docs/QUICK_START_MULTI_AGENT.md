@@ -1,16 +1,16 @@
 # Quick Start: Multi-Agent Documentation Integration
 
-This guide shows you how to integrate the multi-agent documentation system into Semantico in under 30 minutes.
+This guide shows you how to integrate the multi-agent documentation system into Beacon in under 30 minutes.
 
 ## Step 1: Register Service (2 minutes)
 
-Edit `Semantico.Core/ServiceConfiguration.cs`:
+Edit `Beacon.Core/ServiceConfiguration.cs`:
 
 ```csharp
-public static IServiceCollection AddSemantico(
+public static IServiceCollection AddBeacon(
     this IServiceCollection services,
     IConfiguration configuration,
-    Action<SemanticoConfiguration> configure)
+    Action<BeaconConfiguration> configure)
 {
     // ... existing code ...
 
@@ -24,15 +24,15 @@ public static IServiceCollection AddSemantico(
 
 ## Step 2: Create Handler (10 minutes)
 
-Create `Semantico.Core/Handlers/Documentation/GenerateMultiAgentDocumentationHandler.cs`:
+Create `Beacon.Core/Handlers/Documentation/GenerateMultiAgentDocumentationHandler.cs`:
 
 ```csharp
 using MediatR;
-using Semantico.Core.Data.Entities;
-using Semantico.Core.Models.Ai.MultiAgent;
-using Semantico.Core.Services.Ai.MultiAgent;
+using Beacon.Core.Data.Entities;
+using Beacon.Core.Models.Ai.MultiAgent;
+using Beacon.Core.Services.Ai.MultiAgent;
 
-namespace Semantico.Core.Handlers.Documentation;
+namespace Beacon.Core.Handlers.Documentation;
 
 internal sealed class GenerateMultiAgentDocumentationHandler(
     IMultiAgentDocumentationService multiAgentService)
@@ -80,7 +80,7 @@ public record GenerateMultiAgentDocumentationCommand : IRequest<DataSourceDocume
 
 ## Step 3: Update UI Dialog (15 minutes)
 
-Edit `Semantico.UI/Components/Pages/DataSources/GenerateDocumentationDialog.razor`:
+Edit `Beacon.UI/Components/Pages/DataSources/GenerateDocumentationDialog.razor`:
 
 ### Add field:
 ```csharp
@@ -210,7 +210,7 @@ Add to `appsettings.json`:
 
 ```json
 {
-  "Semantico": {
+  "Beacon": {
     "AI": {
       "MultiAgent": {
         "Enabled": true,
@@ -307,7 +307,7 @@ _metrics.RecordDocumentationGeneration(
 ## Support
 
 For questions or issues:
-1. Check logs in `Semantico.Core.Services.Ai.MultiAgent.MultiAgentDocumentationService`
+1. Check logs in `Beacon.Core.Services.Ai.MultiAgent.MultiAgentDocumentationService`
 2. Review design doc: `docs/multi-agent-documentation.md`
 3. See diagrams: `docs/multi-agent-workflow-diagram.md`
 4. Implementation summary: `docs/IMPLEMENTATION_SUMMARY.md`

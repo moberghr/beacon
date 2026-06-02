@@ -1,8 +1,8 @@
-# Semantico Services Architecture
+# Beacon Services Architecture
 
 ## Overview
 
-Semantico follows Clean Architecture with services implementing business logic. All services use `IDbContextFactory<SemanticoContext>` for database access and follow the CQRS-light pattern.
+Beacon follows Clean Architecture with services implementing business logic. All services use `IDbContextFactory<BeaconContext>` for database access and follow the CQRS-light pattern.
 
 **Common Patterns:**
 - Services are registered as `internal class` with public interfaces
@@ -16,7 +16,7 @@ Semantico follows Clean Architecture with services implementing business logic. 
 ## QueryService
 
 **Interface:** `IQueryService`
-**File:** `Semantico.Core/Services/QueryService.cs`
+**File:** `Beacon.Core/Services/QueryService.cs`
 
 ### Responsibilities
 - Query CRUD operations with multi-step support
@@ -84,7 +84,7 @@ var finalResult = await virtualTableManager.ExecuteFinalQueryWithInMemoryDatabas
 ```
 
 ### Dependencies
-- `IDbContextFactory<SemanticoContext>` - Database access
+- `IDbContextFactory<BeaconContext>` - Database access
 - `IEncryptionService` - Connection string decryption
 - `ILogger<QueryService>` - Logging
 - `ILoggerFactory` - Logger creation for VirtualTableManager
@@ -94,7 +94,7 @@ var finalResult = await virtualTableManager.ExecuteFinalQueryWithInMemoryDatabas
 ## SubscriptionService
 
 **Interface:** `ISubscriptionService`
-**File:** `Semantico.Core/Services/SubscriptionService.cs`
+**File:** `Beacon.Core/Services/SubscriptionService.cs`
 
 ### Responsibilities
 - Subscription CRUD with cron schedule management
@@ -123,7 +123,7 @@ CronExpression.Parse(subscriptionData.CronExpression);
 // Recipient requirement (unless CreateTasks enabled)
 if (!subscriptionData.CreateTasks && !subscriptionData.Recipients.Any())
 {
-    throw new SemanticoException("At least one recipient is required when 'Create Tasks' is not enabled");
+    throw new BeaconException("At least one recipient is required when 'Create Tasks' is not enabled");
 }
 
 // Parameter validation
@@ -134,25 +134,25 @@ SubscriptionValidator.ValidateParameters(subscriptionData.Parameters, queryParam
 
 ```csharp
 // Register job with scheduler
-semanticoScheduler.AddOrUpdate(
+beaconScheduler.AddOrUpdate(
     subscription.Id,
     $"{query.Name}: {subscription.Id}",
     subscription.CronExpression);
 
 // Remove on delete
-semanticoScheduler.Remove(subscription.Id, $"{query.Name}: {subscription.Id}");
+beaconScheduler.Remove(subscription.Id, $"{query.Name}: {subscription.Id}");
 ```
 
 ### Dependencies
-- `IDbContextFactory<SemanticoContext>` - Database access
-- `ISemanticoScheduler` - Job scheduling abstraction
+- `IDbContextFactory<BeaconContext>` - Database access
+- `IBeaconScheduler` - Job scheduling abstraction
 
 ---
 
 ## NotificationService
 
 **Interface:** `INotificationService`
-**File:** `Semantico.Core/Services/NotificationService.cs`
+**File:** `Beacon.Core/Services/NotificationService.cs`
 
 ### Responsibilities
 - Dispatch notifications via adapters
@@ -192,7 +192,7 @@ var queryStats = await context.QueryExecutionHistory
 ```
 
 ### Dependencies
-- `IDbContextFactory<SemanticoContext>` - Database access
+- `IDbContextFactory<BeaconContext>` - Database access
 - `AdapterFactory` - Notification adapter routing
 
 ---
@@ -200,7 +200,7 @@ var queryStats = await context.QueryExecutionHistory
 ## TaskService
 
 **Interface:** `ITaskService`
-**File:** `Semantico.Core/Services/TaskService.cs`
+**File:** `Beacon.Core/Services/TaskService.cs`
 
 ### Responsibilities
 - Task lifecycle management (create, update, resolve, reopen)
@@ -264,7 +264,7 @@ Return task.Id               Return task.Id
 ```
 
 ### Dependencies
-- `IDbContextFactory<SemanticoContext>` - Database access
+- `IDbContextFactory<BeaconContext>` - Database access
 - `ILogger<TaskService>` - Logging
 
 ---
@@ -272,7 +272,7 @@ Return task.Id               Return task.Id
 ## RecipientService
 
 **Interface:** `IRecipientService`
-**File:** `Semantico.Core/Services/RecipientService.cs`
+**File:** `Beacon.Core/Services/RecipientService.cs`
 
 ### Responsibilities
 - Recipient CRUD operations
@@ -296,7 +296,7 @@ public async Task DeleteRecipient(int recipientId, CancellationToken cancellatio
 
     if (recipient.Subscriptions.Count > 0)
     {
-        throw new SemanticoException("Unable to remove recipient due to existing subscriptions");
+        throw new BeaconException("Unable to remove recipient due to existing subscriptions");
     }
 
     recipient.Archive();
@@ -305,14 +305,14 @@ public async Task DeleteRecipient(int recipientId, CancellationToken cancellatio
 ```
 
 ### Dependencies
-- `IDbContextFactory<SemanticoContext>` - Database access
+- `IDbContextFactory<BeaconContext>` - Database access
 
 ---
 
 ## DataSourceService
 
 **Interface:** `IDataSourceService`
-**File:** `Semantico.Core/Services/DataSourceService.cs`
+**File:** `Beacon.Core/Services/DataSourceService.cs`
 
 ### Responsibilities
 - Data source CRUD with connection string encryption
@@ -341,7 +341,7 @@ var decryptedCs = encryptionService.Decrypt(dataSource.ConnectionString);
 ```
 
 ### Dependencies
-- `IDbContextFactory<SemanticoContext>` - Database access
+- `IDbContextFactory<BeaconContext>` - Database access
 - `IEncryptionService` - Connection string encryption
 - `IDatabaseMetadataService` - Schema introspection
 
@@ -350,7 +350,7 @@ var decryptedCs = encryptionService.Decrypt(dataSource.ConnectionString);
 ## MigrationService
 
 **Interface:** `IMigrationService`
-**File:** `Semantico.Core/Services/MigrationService.cs`
+**File:** `Beacon.Core/Services/MigrationService.cs`
 
 ### Responsibilities
 - Migration job CRUD
@@ -378,7 +378,7 @@ var decryptedCs = encryptionService.Decrypt(dataSource.ConnectionString);
 | **Truncate** | Delete all destination data, then insert |
 
 ### Dependencies
-- `IDbContextFactory<SemanticoContext>` - Database access
+- `IDbContextFactory<BeaconContext>` - Database access
 - `IEncryptionService` - Connection string decryption
 - `IQueryService` - Query execution for source data
 
@@ -387,7 +387,7 @@ var decryptedCs = encryptionService.Decrypt(dataSource.ConnectionString);
 ## DatabaseMetadataService
 
 **Interface:** `IDatabaseMetadataService`
-**File:** `Semantico.Core/Services/DatabaseMetadataService.cs`
+**File:** `Beacon.Core/Services/DatabaseMetadataService.cs`
 
 ### Responsibilities
 - Database schema introspection
@@ -418,7 +418,7 @@ FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_CATALOG = @catalog
 ```
 
 ### Dependencies
-- `IDbContextFactory<SemanticoContext>` - Database access
+- `IDbContextFactory<BeaconContext>` - Database access
 - `IEncryptionService` - Connection string decryption
 
 ---
@@ -426,7 +426,7 @@ FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_CATALOG = @catalog
 ## CommentService
 
 **Interface:** `ICommentService`
-**File:** `Semantico.Core/Services/CommentService.cs`
+**File:** `Beacon.Core/Services/CommentService.cs`
 
 ### Responsibilities
 - Generic comment system for entities
@@ -466,14 +466,14 @@ var comments = await context.Comments
 | `IDatabaseMetadataService` | `DatabaseMetadataService` | Scoped |
 | `ICommentService` | `CommentService` | Scoped |
 | `IEncryptionService` | `AesEncryptionService` | Singleton |
-| `ISemanticoScheduler` | Consumer-provided | Scoped |
+| `IBeaconScheduler` | Consumer-provided | Scoped |
 
 ---
 
 ## Helper Classes
 
 ### QueryHelper
-**File:** `Semantico.Core/Helpers/QueryHelper.cs`
+**File:** `Beacon.Core/Helpers/QueryHelper.cs`
 
 ```csharp
 // Compile SQL with parameter substitution
@@ -481,7 +481,7 @@ public static string CompileSql(string sql, List<SubscriptionParameterData> para
 ```
 
 ### QueryValidator
-**File:** `Semantico.Core/Validators/QueryValidator.cs`
+**File:** `Beacon.Core/Validators/QueryValidator.cs`
 
 ```csharp
 // Check for dangerous SQL keywords (DROP, DELETE, TRUNCATE, etc.)
@@ -492,7 +492,7 @@ public static void CheckForParameters(string sql, List<QueryParameterData> param
 ```
 
 ### ParameterEntityFactory
-**File:** `Semantico.Core/Helpers/ParameterEntityFactory.cs`
+**File:** `Beacon.Core/Helpers/ParameterEntityFactory.cs`
 
 ```csharp
 // Create QueryStepParameter entities from DTOs

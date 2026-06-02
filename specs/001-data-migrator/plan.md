@@ -37,7 +37,7 @@ Data Migration Tool that extends existing query execution layer to support data 
 **Storage**: Existing database with QueryExecutionHistory table extension  
 **Testing**: NUnit/xUnit (following existing test patterns)  
 **Target Platform**: Web application (Blazor Server/WASM)
-**Project Type**: web (extends existing Semantico.UI and Semantico.Core)  
+**Project Type**: web (extends existing Beacon.UI and Beacon.Core)  
 **Performance Goals**: Handle migration jobs similar to notification processing performance  
 **Constraints**: Reuse existing query execution infrastructure, maintain UI consistency  
 **Scale/Scope**: Extend existing application with migration capabilities
@@ -46,14 +46,14 @@ Data Migration Tool that extends existing query execution layer to support data 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
 **Simplicity**:
-- Projects: 2 (Semantico.Core for logic, Semantico.UI for interface - reusing existing)
+- Projects: 2 (Beacon.Core for logic, Beacon.UI for interface - reusing existing)
 - Using framework directly? (yes - direct EF, MediatR, Blazor usage)
 - Single data model? (yes - extending existing entities)
 - Avoiding patterns? (yes - no new repository patterns, reuse existing handlers)
 
 **Architecture**:
-- EVERY feature as library? (extends existing library structure in Semantico.Core)
-- Libraries listed: Migration handlers in Semantico.Core, UI components in Semantico.UI
+- EVERY feature as library? (extends existing library structure in Beacon.Core)
+- Libraries listed: Migration handlers in Beacon.Core, UI components in Beacon.UI
 - CLI per library: N/A (web application, not CLI-focused)
 - Library docs: Will update existing documentation patterns
 
@@ -68,7 +68,7 @@ Data Migration Tool that extends existing query execution layer to support data 
 **Observability**:
 - Structured logging included? (yes - reuse existing logging infrastructure)
 - Frontend logs → backend? (yes - existing Blazor logging patterns)
-- Error context sufficient? (yes - SemanticoException patterns)
+- Error context sufficient? (yes - BeaconException patterns)
 
 **Versioning**:
 - Version number assigned? (extends existing application version)
@@ -90,8 +90,8 @@ specs/001-data-migrator/
 
 ### Source Code (repository root)
 ```
-# Extends existing Semantico project structure
-Semantico.Core/
+# Extends existing Beacon project structure
+Beacon.Core/
 ├── Features/
 │   └── DataMigration/           # New feature area
 │       ├── Entities/           # Migration job entities
@@ -99,7 +99,7 @@ Semantico.Core/
 │       └── Services/           # Migration execution services
 └── Extensions/                  # Extend QueryExecutionHistory
 
-Semantico.UI/
+Beacon.UI/
 └── Components/
     └── Pages/
         └── DataMigration/       # New UI pages
@@ -108,7 +108,7 @@ Semantico.UI/
             └── MigrationHistory.razor
 ```
 
-**Structure Decision**: Extends existing web application structure (Semantico.Core + Semantico.UI)
+**Structure Decision**: Extends existing web application structure (Beacon.Core + Beacon.UI)
 
 ## Phase 0: Outline & Research
 

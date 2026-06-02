@@ -15,7 +15,7 @@ TDD mandatory: Tests written → User approved → Tests fail → Then implement
 Prefer strong typing with explicit models for data transfer. Use PascalCase for classes, methods, properties; camelCase for parameters, local variables. Organize imports by System namespaces first, then third-party, then project namespaces.
 
 ### V. Error Handling and Observability
-Use exceptions with custom SemanticoException class for domain errors. Structured logging required for debugging and monitoring. All operations must provide clear error messages and proper exception handling.
+Use exceptions with custom BeaconException class for domain errors. Structured logging required for debugging and monitoring. All operations must provide clear error messages and proper exception handling.
 
 ## Development Standards
 
@@ -33,15 +33,15 @@ Use exceptions with custom SemanticoException class for domain errors. Structure
 
 ### Database Operations
 Database changes must follow proper migration procedures:
-- Generate migration: `dotnet ef migrations add MigrationName --project Semantico.Core --startup-project Semantico.SampleProject`
-- Update database: `dotnet ef database update --project Semantico.Core --startup-project Semantico.SampleProject`
+- Generate migration: `dotnet ef migrations add MigrationName --project Beacon.Core --startup-project Beacon.SampleProject`
+- Update database: `dotnet ef database update --project Beacon.Core --startup-project Beacon.SampleProject`
 
 ## Build and Development Workflow
 
 ### Build Commands
 - Build solution: `dotnet build --property WarningLevel=0`
-- Run application: `dotnet run --project Semantico.SampleProject`
-- Watch for changes: `dotnet watch run --project Semantico.SampleProject`
+- Run application: `dotnet run --project Beacon.SampleProject`
+- Watch for changes: `dotnet watch run --project Beacon.SampleProject`
 
 ### Feature Development Process
 1. Create specification using Spec-Driven Development lifecycle
@@ -51,9 +51,9 @@ Database changes must follow proper migration procedures:
 5. Run quality checks and build verification
 
 ## Project Structure
-- **Semantico.Core**: Core domain model, services, data access
-- **Semantico.UI**: Blazor UI components  
-- **Semantico.SampleProject**: Sample implementation/application
+- **Beacon.Core**: Core domain model, services, data access
+- **Beacon.UI**: Blazor UI components  
+- **Beacon.SampleProject**: Sample implementation/application
 
 ## Governance
 
