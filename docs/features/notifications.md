@@ -100,6 +100,7 @@ Results:
 
 View full execution history:
 https://your-beacon-instance/notifications/12345
+(root-relative React route: /notifications/12345)
 
 ---
 Sent by Beacon
@@ -189,8 +190,8 @@ builder.Services.AddBeacon(builder.Configuration, options =>
 {
     options.UsePostgreSql(builder.Configuration.GetConnectionString("BeaconContext")!, "beacon");
     options.AddBeaconScheduler<YourScheduler>();
-    // Set your Beacon UI base URL
-    options.BaseUrl = "https://yourdomain.com/beacon";
+    // Set your Beacon UI base URL (the React app is served at the root)
+    options.BaseUrl = "https://yourdomain.com";
 });
 ```
 
@@ -199,7 +200,7 @@ builder.Services.AddBeacon(builder.Configuration, options =>
 ```json
 {
   "Beacon": {
-    "BaseUrl": "https://yourdomain.com/beacon"
+    "BaseUrl": "https://yourdomain.com"
   }
 }
 ```
@@ -215,7 +216,7 @@ builder.Services.AddBeacon(builder.Configuration, options =>
 
 When configured, Teams notifications will include a button that links to:
 ```
-https://yourdomain.com/beacon/notifications/details/{notificationId}
+https://yourdomain.com/notifications/details/{notificationId}
 ```
 
 This allows recipients to:
@@ -344,8 +345,8 @@ builder.Services.AddBeacon(builder.Configuration, options =>
 {
     options.UsePostgreSql(builder.Configuration.GetConnectionString("BeaconContext")!, "beacon");
     options.AddBeaconScheduler<YourScheduler>();
-    // Set your Beacon UI base URL
-    options.BaseUrl = "https://yourdomain.com/beacon";
+    // Set your Beacon UI base URL (the React app is served at the root)
+    options.BaseUrl = "https://yourdomain.com";
 });
 ```
 
@@ -354,14 +355,14 @@ builder.Services.AddBeacon(builder.Configuration, options =>
 ```json
 {
   "Beacon": {
-    "BaseUrl": "https://yourdomain.com/beacon"
+    "BaseUrl": "https://yourdomain.com"
   }
 }
 ```
 
 When configured, Slack notifications will include a button that links to:
 ```
-https://yourdomain.com/beacon/notifications/{notificationId}
+https://yourdomain.com/notifications/{notificationId}
 ```
 
 This allows recipients to:
@@ -440,7 +441,7 @@ Issues created include:
 
 ### Viewing History
 
-1. Click **Notifications** in left navigation
+1. Click **Notifications** in left navigation (`/notifications`)
 2. View all notification deliveries with:
    - Execution timestamp
    - Query executed
@@ -540,6 +541,10 @@ Beacon does NOT automatically retry failed deliveries:
 
 {: .note }
 > **Design Decision**: No retries prevent notification storms and duplicate alerts. Manual re-execution gives control.
+
+### Real-Time Updates in the UI
+
+In addition to the delivery channels above, the React UI receives real-time updates over a SignalR hub at `/beacon/api/hub`. The `NotificationCreated` event (scoped to the current user) pushes new notifications to the UI as they occur, alongside `JobStatusChanged` and `ApprovalUpdated`.
 
 ## Examples
 
@@ -674,7 +679,5 @@ If this fails, recreate the webhook in Teams.
 
 ## Related Documentation
 
-- [Recipients](recipients) - Configure notification targets
-- [Subscriptions](subscriptions) - Schedule notifications
+- [Subscriptions](subscriptions) - Schedule notifications and add recipients
 - [Configuration](../getting-started/configuration) - SendGrid and webhook setup
-- [Troubleshooting](../troubleshooting/common-issues) - Notification delivery issues

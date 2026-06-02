@@ -10,7 +10,7 @@ This package provides Entity Framework Core configuration and migrations for usi
 
 ```bash
 dotnet add package Beacon.Core.PostgreSql
-dotnet add package Beacon.UI.AspNet
+dotnet add package Beacon.UI
 ```
 
 ## Quick Start
@@ -19,23 +19,25 @@ dotnet add package Beacon.UI.AspNet
 
 ```csharp
 using Beacon.Core;
-using Beacon.UI.AspNet;
+using Beacon.UI;
 
 // Single method call for all Beacon configuration
 builder.Services.AddBeacon(builder.Configuration, options =>
 {
     options.UsePostgreSql(builder.Configuration.GetConnectionString("BeaconContext")!, "beacon");
     options.AddBeaconScheduler<YourScheduler>();
-    options.BaseUrl = "https://your-domain.com/beacon";
+    options.BaseUrl = "https://your-domain.com";
 });
 
 var app = builder.Build();
 
 app.UseStaticFiles(); // Required for Beacon UI assets
 
-app.UseBeaconUI()
-    .UseBasicAuthentication("admin", "admin")
-    .AddBlazorUI("/beacon");
+// Serve the React SPA (Vite + TypeScript + Tailwind) at the root URL "/".
+// Authentication is cookie-based with a pluggable IBeaconAuthenticationProvider
+// (login form, OIDC/SSO, JWT for MCP, SHA256-hashed API keys).
+app.UseBeaconUI();
+app.MapBeaconApi();
 ```
 
 ### 2. Add Connection String
@@ -68,10 +70,9 @@ GRANT ALL ON SCHEMA beacon TO postgres;
 
 ## Documentation
 
-- [Full Documentation](https://moberghr.github.io/beacon)
-- [Installation Guide](https://moberghr.github.io/beacon/getting-started/installation)
-- [Configuration Guide](https://moberghr.github.io/beacon/getting-started/configuration)
+- [Full Documentation](https://github.com/MiBu/semantico)
+- [Installation Guide](https://github.com/MiBu/semantico/wiki)
 
 ## License
 
-MIT License - see [LICENSE](https://github.com/moberghr/beacon/blob/main/LICENSE)
+MIT License - see [LICENSE](https://github.com/MiBu/semantico/blob/main/LICENSE)

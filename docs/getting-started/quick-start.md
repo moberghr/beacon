@@ -7,51 +7,55 @@ nav_order: 2
 
 # Quick Start Guide
 
-Create your first database alert in under 30 minutes.
+Create your first database alert end to end.
 
 {: .note }
-> **Prerequisites**: Beacon must be [installed in your ASP.NET application](installation). You should have the Beacon UI accessible.
+> **Prerequisites**: Beacon must be running. Either run the `Beacon.SampleProject` host or embed Beacon in your own app — see the [Installation Guide](installation). You should be able to reach the React app at the root URL `/`.
 
 ## Overview
 
 In this guide, you'll:
 
-1. Access the Beacon UI
-2. Create a project (database connection)
+1. Open the Beacon app and sign in
+2. Add a data source (the database you want to monitor)
 3. Define a simple query
 4. Test query execution
-5. Create a subscription with cron schedule
+5. Create a subscription with a cron schedule
 6. Add a recipient for notifications
 7. Trigger and verify your first notification
 
-**Estimated time**: 30 minutes
+**Estimated time**: ~30 minutes
 
-## Step 1: Access Beacon UI
+## Step 1: Open Beacon and Sign In
 
-1. Start your ASP.NET application:
+1. Start the host:
+
    ```bash
-   dotnet run
+   dotnet run --project Beacon.SampleProject --no-launch-profile
    ```
 
-2. Open your browser to the Beacon UI path (default: `http://localhost:5000/beacon`)
+   (Or run your own app with `dotnet run`.)
 
-3. Enter basic authentication credentials (from your `Program.cs`):
-   - Username: `admin` (or your configured username)
-   - Password: `admin` (or your configured password)
+2. Open your browser to the root URL — the React SPA is served at `/`:
+   - https://localhost:7187/ (or http://localhost:5296/)
 
-4. You'll see the Beacon dashboard with statistics and navigation
+3. **First run:** Beacon shows a setup flow that creates the initial admin user — set the admin email and password. There are no default credentials.
 
-## Step 2: Create a Project
+4. On later runs, sign in at the `/login` route with the account you created.
 
-A **project** represents a database connection that you want to monitor.
+{: .note }
+> If you're developing the frontend, run the Vite dev server with `npm run dev --prefix Beacon.UI/web` and open http://localhost:5173 — it proxies API calls to the running host.
 
-1. Click **Projects** in the left navigation
-2. Click **Create New Project**
-3. Fill in the project details:
+## Step 2: Add a Data Source
+
+A **data source** is a database or API endpoint you want to monitor. Beacon supports nine connectors: PostgreSQL, SQL Server, MySQL, Google BigQuery, Snowflake, Databricks, Azure Synapse, AWS CloudWatch, and generic REST APIs.
+
+1. Open **Data Sources** in the navigation
+2. Click **Add Data Source**
+3. Fill in the details:
    - **Name**: `My Application Database`
-   - **Description**: `Production database monitoring`
-   - **Database Type**: Select your database (PostgreSQL, SQL Server, or MySQL)
-   - **Connection String**: Enter your database connection string
+   - **Type**: select your connector (e.g. PostgreSQL)
+   - **Connection String**: enter the connection string (encrypted at rest with your `Beacon:EncryptionKey`)
 
 **Connection String Examples:**
 
@@ -80,24 +84,27 @@ Server=your-server;Database=your-db;Uid=readonly;Pwd=your-password
 
 A **query** defines what data you want to monitor.
 
-1. Click **Queries** in the left navigation
+1. Open **Queries** in the navigation
 2. Click **Create New Query**
-3. Fill in the query details:
+3. Fill in the details:
    - **Name**: `Daily New Users`
    - **Description**: `Count of new users registered today`
 
-4. Add a **Query Step**:
+4. Add a **query step**:
    - **Step Name**: `Count Users`
-   - **Project**: Select `My Application Database`
-   - **SQL Query**:
-   ```sql
-   SELECT COUNT(*) as new_users
-   FROM users
-   WHERE created_at >= CURRENT_DATE
-   ```
+   - **Data Source**: select `My Application Database`
+   - **SQL**:
+     ```sql
+     SELECT COUNT(*) as new_users
+     FROM users
+     WHERE created_at >= CURRENT_DATE
+     ```
    - **Order**: 1
 
 5. Click **Save**
+
+{: .note }
+> Queries can chain multiple steps and join across data sources. Cross-source joins materialize intermediate results in an in-memory engine. See the [Queries Guide](../features/queries) for multi-step and cross-database queries.
 
 ### Data Validation Query Examples
 
@@ -157,9 +164,8 @@ Before scheduling, test that your query works:
 
 1. Open your saved query
 2. Click **Preview Query Execution**
-3. Review the results
-4. Verify the data looks correct
-5. Note the execution time
+3. Review the results and verify the data looks correct
+4. Note the execution time
 
 {: .note }
 > **Pro Tip**: Always test queries before creating subscriptions to avoid scheduling errors.
@@ -168,15 +174,15 @@ Before scheduling, test that your query works:
 
 A **subscription** schedules when your query runs and who gets notified.
 
-1. Click **Subscriptions** in the left navigation
+1. Open **Subscriptions** in the navigation
 2. Click **Create New Subscription**
-3. Fill in subscription details:
+3. Fill in the details:
    - **Name**: `Daily User Count Alert`
-   - **Query**: Select `Daily New Users`
-   - **Cron Expression**: `0 9 * * *` (Daily at 9 AM)
+   - **Query**: select `Daily New Users`
+   - **Cron Expression**: `0 9 * * *` (daily at 9 AM)
    - **Timeout**: `60` seconds
-   - **Store Results**: ✓ (checked)
-   - **Send Notifications**: ✓ (checked)
+   - **Store Results**: ✓
+   - **Send Notifications**: ✓
 
 **Common Cron Expressions:**
 
@@ -191,24 +197,24 @@ A **subscription** schedules when your query runs and who gets notified.
 4. Click **Save**
 
 {: .note }
-> **Cron Help**: Hover over the cron expression field for a human-readable description, or use [crontab.guru](https://crontab.guru/) for help.
+> **Cron Help**: Use [crontab.guru](https://crontab.guru/) to build and verify cron expressions. Scheduling runs on Hangfire (1-second poll, automatic retries disabled).
 
 ## Step 6: Add a Recipient
 
 **Recipients** define where notifications are delivered.
 
-1. Click **Recipients** in the left navigation
+1. Open **Recipients** (under Notifications) in the navigation
 2. Click **Create New Recipient**
-3. Choose notification type:
+3. Choose a notification type:
 
-### Option A: Email Notification
+### Option A: Email
 
 - **Name**: `DevOps Team`
 - **Type**: Email
 - **Email Address**: `devops@yourdomain.com`
 
 {: .warning }
-> **Email Adapter Required**: Email notifications require implementing `IEmailAdapter` in your application configuration. See [Configuration Guide](configuration#email-adapter).
+> **Email adapter required**: Email delivery requires an `IEmailAdapter` registered in your host (`options.AddEmailAdapter<...>()`). See the [Configuration Guide](configuration#email-adapter).
 
 ### Option B: Microsoft Teams
 
@@ -216,62 +222,40 @@ A **subscription** schedules when your query runs and who gets notified.
 - **Type**: Teams
 - **Webhook URL**: `https://outlook.office.com/webhook/...`
 
-To get your Teams webhook URL:
-1. Go to your Teams channel
-2. Click **...** → **Connectors** → **Incoming Webhook**
-3. Configure and copy the webhook URL
-
 ### Option C: Jira
 
 - **Name**: `Jira Alerts`
 - **Type**: Jira
-- **Jira Configuration**: Enter your Jira details
+- **Jira Configuration**: enter your Jira details
 
 4. Click **Save**
 
-## Step 7: Add Recipient to Subscription
+## Step 7: Attach the Recipient to the Subscription
 
-1. Go back to **Subscriptions**
-2. Open `Daily User Count Alert`
-3. In the **Recipients** section, click **Add Recipient**
-4. Select your recipient (e.g., `DevOps Team`)
-5. Click **Save**
+1. Open `Daily User Count Alert` under **Subscriptions**
+2. In the **Recipients** section, click **Add Recipient**
+3. Select `DevOps Team`
+4. Click **Save**
 
-## Step 8: Trigger Manual Execution
+## Step 8: Trigger a Manual Execution
 
-Test your complete workflow:
-
-1. Open your subscription `Daily User Count Alert`
-2. Click **Execute Now** (manual trigger button)
-3. Wait for execution to complete (usually 5-10 seconds)
+1. Open the subscription `Daily User Count Alert`
+2. Click **Execute Now**
+3. Wait for execution to complete (usually a few seconds)
 4. Check the execution status
 
-## Step 9: Verify Notification
+## Step 9: Verify the Notification
 
-Check that you received the notification:
+- **Email**: check your inbox
+- **Teams**: check your channel for the alert card
+- **Jira**: check your project for the new issue
 
-- **Email**: Check your inbox for notification from Beacon
-- **Teams**: Check your Teams channel for the alert card
-- **Jira**: Check your Jira project for the new issue
-
-### What You Should See
-
-The notification will include:
-- Query name and description
-- Execution timestamp
-- Query results (formatted table)
-- Link to execution history (if applicable)
+The notification includes the query name and description, execution timestamp, results, and a link back to the details in the Beacon app (when `BaseUrl` is configured).
 
 ## Step 10: View Execution History
 
-1. Click **Notifications** in the left navigation
-2. You should see your recent execution
-3. Click to view full details:
-   - Query executed
-   - Execution time
-   - Results
-   - Recipients notified
-   - Delivery status
+1. Open **Notifications** in the navigation
+2. Find your recent execution and open it to view the executed query, timing, results, recipients, and delivery status
 
 ## Next Steps
 
@@ -280,21 +264,21 @@ The notification will include:
 ### Explore More Features
 
 <div class="code-example" markdown="1">
-📊 **[Multi-Step Queries →](../features/multi-step-queries)**
+📊 **[Queries (multi-step & cross-database) →](../features/queries)**
 
-Chain queries together and aggregate results
+Chain query steps and join across data sources
 </div>
 
 <div class="code-example" markdown="1">
-🔄 **[Query Parameters →](../features/parameters)**
+🔄 **[Data Migration / ETL →](../features/data-migration)**
 
-Use dynamic placeholders in your queries
+Move data between databases with pipelines
 </div>
 
 <div class="code-example" markdown="1">
-🔗 **[Query Chaining →](../advanced/query-chaining)**
+🤖 **[MCP Server →](../features/mcp-server)**
 
-Run queries across multiple databases
+Expose Beacon to AI agents over the Model Context Protocol
 </div>
 
 ### Common Use Cases
@@ -304,20 +288,19 @@ Run queries across multiple databases
 - Detect orphaned records (broken foreign keys)
 - Catch invalid state combinations
 - Find duplicate records that shouldn't exist
-- Validate business rule compliance
+- Validate business-rule compliance
 
 **Database health monitoring:**
-- Table sizes exceeding thresholds (DBA use)
+- Table sizes exceeding thresholds
 - Connection counts approaching limits
 - Replication lag warnings
 - Slow query detection
 
 **Scheduled reporting with attachments:**
-- Daily sales reports with full data as CSV/Excel
-- Weekly user activity summaries
+- Daily sales reports as CSV/Excel
+- Weekly user-activity summaries
 - Monthly financial reports
 - Inventory snapshots delivered to stakeholders
-- Analytics reports without database access
 
 **Business metrics and alerts:**
 - New user registration alerts
@@ -327,41 +310,39 @@ Run queries across multiple databases
 
 ### Tips for Success
 
-1. **Start Simple**: Begin with basic queries, add complexity later
-2. **Test First**: Always preview queries before scheduling
-3. **Use Descriptive Names**: Make queries and subscriptions easy to identify
-4. **Monitor Gradually**: Don't create too many alerts at once
-5. **Review History**: Check execution history to tune query performance
+1. **Start simple**: begin with basic queries, add complexity later
+2. **Test first**: always preview queries before scheduling
+3. **Use descriptive names**: make queries and subscriptions easy to identify
+4. **Monitor gradually**: don't create too many alerts at once
+5. **Review history**: check execution history to tune query performance
 
 ## Troubleshooting
 
 ### Query Execution Failed
 
-- Check query syntax in your database client first
-- Verify database user has SELECT permissions
-- Check timeout setting (increase if needed)
-- Review error message in execution history
+- Test the query syntax in your database client first
+- Verify the data-source user has SELECT permissions
+- Increase the subscription timeout if needed
+- Review the error message in execution history
 
 ### No Notification Received
 
-- Verify recipient is added to subscription
-- Check email adapter configuration (for email)
-- Test Teams webhook URL separately
+- Verify the recipient is attached to the subscription
+- Check the email adapter configuration (for email)
+- Test the Teams webhook URL separately
 - Review notification history for error messages
 
 ### Cron Not Triggering
 
-- Verify cron expression is valid (use crontab.guru)
-- Check that subscription is enabled
-- Verify your job scheduler is running (e.g., Hangfire server)
-- Check scheduler dashboard/logs for errors
+- Verify the cron expression (use crontab.guru)
+- Confirm the subscription is enabled
+- Confirm the Hangfire server is running — check `/hangfire`
 
-### UI Not Accessible
+### App Not Accessible
 
-- Verify application is running
-- Check UI path configuration in `AddBlazorUI("/beacon")`
-- Verify basic authentication credentials
-- Check browser console for errors
+- Verify the host is running and reachable at the root URL `/`
+- If developing the frontend, confirm the Vite dev server is running, or that `Beacon.UI/wwwroot` was rebuilt
+- Check the browser console for errors
 
 ## Need Help?
 
@@ -372,13 +353,13 @@ Detailed guides for all Beacon features
 </div>
 
 <div class="code-example" markdown="1">
-🔧 **[Troubleshooting →](../troubleshooting/common-issues)**
+⚙️ **[Configuration Guide →](configuration)**
 
-Solutions for common problems
+Connection strings, encryption, auth, AI, and scheduling
 </div>
 
 <div class="code-example" markdown="1">
-💬 **[GitHub Discussions](https://github.com/moberghr/beacon/discussions)**
+💬 **[GitHub Discussions](https://github.com/MiBu/semantico/discussions)**
 
 Ask questions and share ideas
 </div>

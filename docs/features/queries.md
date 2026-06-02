@@ -30,8 +30,8 @@ Queries allow you to:
 
 ### Step 1: Navigate to Queries
 
-1. Log in to Beacon
-2. Click **Queries** in the left navigation
+1. Log in to Beacon at the React UI (`/login`)
+2. Click **Queries** in the left navigation (`/queries`)
 3. Click **Create New Query**
 
 ### Step 2: Fill Query Details
@@ -225,8 +225,6 @@ WHERE created_at >= '{{start_date}}'
 
 When creating a subscription, you'll provide values for `start_date` and `end_date`.
 
-📚 [Learn more about Query Parameters →](parameters)
-
 ## Multi-Step Queries
 
 Create complex workflows by chaining multiple query steps.
@@ -250,7 +248,7 @@ SELECT
 FROM @result1  -- References Step 1 results
 ```
 
-📚 [Learn more about Multi-Step Queries →](multi-step-queries)
+Cross-database multi-step queries materialize intermediate results into an in-memory SQLite database, then run the final join there.
 
 ## Managing Queries
 
@@ -491,7 +489,6 @@ WHERE grantee = 'your_user';
 
 ## Related Documentation
 
-- [Multi-Step Queries](multi-step-queries) - Chain multiple queries
-- [Query Parameters](parameters) - Use dynamic parameters
 - [Subscriptions](subscriptions) - Schedule query execution
-- [Projects](projects) - Database connection management
+- [Data Sources](data-sources) - Database connection and project management
+- [Data Migration](data-migration) - Cross-database ETL using the same query layer
