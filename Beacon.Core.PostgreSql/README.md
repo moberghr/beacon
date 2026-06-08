@@ -75,4 +75,4 @@ GRANT ALL ON SCHEMA beacon TO postgres;
 
 ## License
 
-MIT License - see [LICENSE](https://github.com/MiBu/semantico/blob/main/LICENSE)
+GNU AGPL v3.0 or Commercial license - see [LICENSE](https://github.com/MiBu/semantico/blob/main/LICENSE)
