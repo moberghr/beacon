@@ -99,6 +99,8 @@ function McpSettingsForm() {
         .split('\n')
         .map(s => s.trim())
         .filter(Boolean),
+      // No UI toggle yet — preserve the stored value so saving never silently flips it
+      enableSampleValueCollection: data?.enableSampleValueCollection ?? true,
       enableLearning: values.enableLearning,
       learningAutoApproveThreshold: values.learningAutoApproveThreshold,
       learningInjectionBudgetChars: values.learningInjectionBudgetChars,

@@ -32,6 +32,9 @@ public static class ServiceConfiguration
         // SQL schema validator (pre-execution column check)
         services.AddSingleton<SqlSchemaValidator>();
 
+        // AST read-only validator (defense-in-depth on top of the regex guardrail, §1.5)
+        services.AddSingleton<SqlReadOnlyAstValidator>();
+
         // Query execution
         services.TryAddTransient<IQueryExecutionService, QueryExecutionService>();
 

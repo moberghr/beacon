@@ -222,6 +222,32 @@ public class QueryTranslationTests : QueryTranslationTestBase
             .Include(q => q.Steps));
     }
 
+    /// <summary>
+    /// Mirrors the smart-context projection in KnowledgeGraphService.GetSmartContextForAskAsync —
+    /// nested SchemaColumn construction including the SampleValues / MaxLength columns added for
+    /// M-Schema grounding. Guards against the record ctor breaking Npgsql translation.
+    /// </summary>
+    [Test]
+    public void GetSmartContextForAsk_MetadataProjection_Translates()
+    {
+        const int dataSourceId = 7;
+
+        AssertQueryTranslates(ctx => ctx.DatabaseMetadata
+            .Where(m => m.DataSourceId == dataSourceId)
+            .OrderBy(m => m.SchemaName).ThenBy(m => m.TableName)
+            .Select(m => new
+            {
+                m.SchemaName,
+                m.TableName,
+                m.TableDescription,
+                Columns = m.Columns.Select(c => new Beacon.AI.Services.Knowledge.SchemaColumn(
+                    c.ColumnName, c.DataType, c.IsPrimaryKey, c.IsNullable,
+                    c.ForeignKeyTable, c.ForeignKeyColumn, c.Description,
+                    c.MaxLength, c.SampleValues
+                )).ToList()
+            }));
+    }
+
     private static int CountJsonArrayElements(string json)
     {
         // Mirrors the private helper in AiActorService. EF Core treats this as a

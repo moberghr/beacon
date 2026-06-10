@@ -19,6 +19,9 @@ internal sealed class McpSignalBuilder
     private string? _schemaValidationError;
     private bool _executionFailed;
     private string? _executionError;
+    private bool _dryRunFailed;
+    private string? _dryRunError;
+    private bool _emptyResultRetryAttempted;
     private bool _retryAttempted;
     private bool _retrySucceeded;
     private string? _correctedSql;
@@ -67,6 +70,19 @@ internal sealed class McpSignalBuilder
         return this;
     }
 
+    public McpSignalBuilder SetDryRunFailed(string error)
+    {
+        _dryRunFailed = true;
+        _dryRunError = error;
+        return this;
+    }
+
+    public McpSignalBuilder SetEmptyResultRetry()
+    {
+        _emptyResultRetryAttempted = true;
+        return this;
+    }
+
     public McpSignalBuilder SetRetry(string correctedSql, bool succeeded)
     {
         _retryAttempted = true;
@@ -101,6 +117,9 @@ internal sealed class McpSignalBuilder
             SchemaValidationError = Truncate(_schemaValidationError, 4000),
             ExecutionFailed = _executionFailed,
             ExecutionError = Truncate(_executionError, 4000),
+            DryRunFailed = _dryRunFailed,
+            DryRunError = Truncate(_dryRunError, 4000),
+            EmptyResultRetryAttempted = _emptyResultRetryAttempted,
             RetryAttempted = _retryAttempted,
             RetrySucceeded = _retrySucceeded,
             CorrectedSql = _correctedSql,

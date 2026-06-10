@@ -21,6 +21,11 @@
     </ItemGroup>
 
     <ItemGroup>
+        <InternalsVisibleTo Include="Beacon.Tests" />
+        <InternalsVisibleTo Include="DynamicProxyGenAssembly2" />
+    </ItemGroup>
+
+    <ItemGroup>
         <PackageReference Include="ModelContextProtocol.AspNetCore" Version="1.1.0" />
         <PackageReference Include="SqlParserCS" Version="0.6.5" />
     </ItemGroup>

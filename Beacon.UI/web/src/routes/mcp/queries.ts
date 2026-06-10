@@ -58,6 +58,7 @@ export interface McpSettingsData {
   enforceReadOnly: boolean;
   enablePiiDetection: boolean;
   customPiiPatterns: string[];
+  enableSampleValueCollection: boolean;
   enableLearning: boolean;
   learningAutoApproveThreshold: number;
   learningInjectionBudgetChars: number;

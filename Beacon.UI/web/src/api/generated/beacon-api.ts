@@ -15,7 +15,7 @@ export class BeaconApiClient {
 
     constructor(baseUrl?: string, http?: { fetch(url: RequestInfo, init?: RequestInit): Promise<Response> }) {
         this.http = http ? http : window as any;
-        this.baseUrl = baseUrl ?? "https://localhost:7187/";
+        this.baseUrl = baseUrl ?? "http://localhost:5000/";
     }
 
     /**
@@ -6257,6 +6257,7 @@ export interface ColumnMetadataDto {
     defaultValue: string | null;
     maxLength: number | null;
     description: string | null;
+    sampleValues?: string[] | null;
 
     [key: string]: any;
 }
@@ -7269,6 +7270,7 @@ export interface McpSettingsData {
     enforceReadOnly?: boolean;
     enablePiiDetection?: boolean;
     customPiiPatterns?: string[];
+    enableSampleValueCollection?: boolean;
     enableLearning?: boolean;
     learningAutoApproveThreshold?: number;
     learningInjectionBudgetChars?: number;

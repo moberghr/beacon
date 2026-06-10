@@ -22,6 +22,8 @@ internal sealed class SqlGenerationService : ISqlGenerationService
             - Use proper quoting for identifiers
             - Limit results to 100 rows unless the question implies aggregation
             - The schema may have two sections: "Relevant Tables" with full columns, and "Other Tables" with column summaries.
+            - Columns are listed as tuples: (column_name: data_type, PK, NOT NULL, description, Examples: [v1, v2, ...]). "Examples" shows real representative values from the data — use them to match exact filter values, casing, and value formats (e.g. status codes like 'A'/'I' instead of 'active'/'inactive').
+            - Each table may list a "Foreign Keys" section (column → target_table.target_column). Use these relationships to find correct join paths.
             - CRITICAL: Use ONLY the exact column names listed in the schema. NEVER guess or infer column names. Common mistakes: using "created_at" instead of "created_time", "updated_at" instead of "modified_time", "name" instead of "title", etc. Every column in your SQL MUST appear verbatim in the schema.
             - CRITICAL: If a table is in "Other Tables" with limited columns shown, do NOT assume it has columns beyond what is listed — join through it using only its listed columns.
             - CRITICAL: Before writing your final SQL, mentally verify each column reference against the schema. If a column is not listed, do NOT use it.

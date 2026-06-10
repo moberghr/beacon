@@ -40,4 +40,25 @@ internal sealed class QueryExecutionService(
 
         return new QueryExecutionResult("No results returned.\n", null, 0, true);
     }
+
+    public async Task<string?> ValidateAsync(int dataSourceId, string sql, CancellationToken ct)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(ct);
+        var dataSource = await context.DataSources
+            .Where(x => x.Id == dataSourceId)
+            .FirstOrDefaultAsync(ct)
+            ?? throw new InvalidOperationException($"Data source {dataSourceId} not found");
+
+        var provider = providerFactory.GetProvider(dataSource.DataSourceType);
+        var result = await provider.ValidateQueryAsync(dataSource, sql, ct);
+
+        if (result.IsValid)
+        {
+            return null;
+        }
+
+        return result.Errors is { Count: > 0 }
+            ? string.Join("; ", result.Errors)
+            : "Query validation failed.";
+    }
 }
