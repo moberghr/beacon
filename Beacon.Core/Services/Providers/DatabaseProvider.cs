@@ -160,14 +160,27 @@ internal class DatabaseProvider(
 
             await connection.OpenAsync(cancellationToken);
 
-            // For PostgreSQL, we can use EXPLAIN to validate syntax
-            if (dataSource.DatabaseEngineType == DatabaseEngineType.PostgreSQL)
+            // Engine-specific dry-run: validates syntax and column binding without executing the query.
+            // Engines without a strategy report valid (unknown != failure).
+            switch (dataSource.DatabaseEngineType)
             {
-                var explainQuery = $"EXPLAIN {query}";
-                await connection.QueryAsync(new CommandDefinition(
-                    explainQuery,
-                    cancellationToken: cancellationToken,
-                    commandTimeout: 30));
+                case DatabaseEngineType.PostgreSQL:
+                case DatabaseEngineType.MySQL:
+                case DatabaseEngineType.Snowflake:
+                    await connection.QueryAsync(new CommandDefinition(
+                        $"EXPLAIN {query}",
+                        cancellationToken: cancellationToken,
+                        commandTimeout: 30));
+                    break;
+
+                case DatabaseEngineType.MSSQL:
+                case DatabaseEngineType.AzureSynapse:
+                    await connection.QueryAsync(new CommandDefinition(
+                        "sp_describe_first_result_set @tsql",
+                        new { tsql = query },
+                        cancellationToken: cancellationToken,
+                        commandTimeout: 30));
+                    break;
             }
 
             return new QueryValidationResult

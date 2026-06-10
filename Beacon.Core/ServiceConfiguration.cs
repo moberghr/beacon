@@ -123,6 +123,7 @@ public static class ServiceConfiguration
         services.TryAddTransient<IDashboardService, DashboardService>();
         services.TryAddTransient<IMigrationService, MigrationService>();
         services.TryAddTransient<IDatabaseMetadataService, DatabaseMetadataService>();
+        services.TryAddTransient<Services.Metadata.IColumnValueSampler, Services.Metadata.ColumnValueSampler>();
         services.TryAddTransient<IAnomalyDetectionService, AnomalyDetectionService>();
         services.TryAddTransient<IDataQualitySqlGenerator, DataQualitySqlGenerator>();
         services.TryAddTransient<IDataQualityEvaluationService, DataQualityEvaluationService>();
@@ -188,10 +189,19 @@ public static class ServiceConfiguration
         // Get the schema name from the context
         var schema = GetSchemaFromContext(context);
 
-        // Ensure the schema exists before running migrations
+        // Ensure the schema exists before running migrations.
+        // Schema names cannot be parameterized in DDL — validate the identifier instead (it comes
+        // from internal context configuration, never user input).
         if (createSchema)
         {
+            if (!System.Text.RegularExpressions.Regex.IsMatch(schema, "^[A-Za-z_][A-Za-z0-9_]*$"))
+            {
+                throw new InvalidOperationException($"Invalid schema name '{schema}'.");
+            }
+
+#pragma warning disable EF1002 // identifier validated above; DDL cannot take parameters
             context.Database.ExecuteSqlRaw($"CREATE SCHEMA {schema};");
+#pragma warning restore EF1002
         }
 
         context.Database.Migrate();

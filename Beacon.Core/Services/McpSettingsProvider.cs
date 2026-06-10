@@ -66,6 +66,7 @@ internal sealed class McpSettingsProvider(
             EnforceReadOnly = entity.EnforceReadOnly,
             EnablePiiDetection = entity.EnablePiiDetection,
             CustomPiiPatterns = piiPatterns,
+            EnableSampleValueCollection = entity.EnableSampleValueCollection,
             EnableLearning = entity.EnableLearning,
             LearningAutoApproveThreshold = entity.LearningAutoApproveThreshold,
             LearningInjectionBudgetChars = entity.LearningInjectionBudgetChars,

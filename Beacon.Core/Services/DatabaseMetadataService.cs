@@ -1,4 +1,5 @@
 using System.Data;
+using System.Text.Json;
 using Dapper;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
@@ -9,6 +10,7 @@ using Beacon.Core.Data.Entities.Metadata;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Metadata;
+using Beacon.Core.Services.Metadata;
 using Beacon.Core.Services.Providers;
 
 namespace Beacon.Core.Services;
@@ -17,6 +19,8 @@ public class DatabaseMetadataService(
     IDbContextFactory<BeaconContext> contextFactory,
     IEncryptionService encryptionService,
     IEnumerable<IDatabaseMetadataExtractor> metadataExtractors,
+    IColumnValueSampler columnValueSampler,
+    IMcpSettingsProvider mcpSettingsProvider,
     IMemoryCache cache,
     ILogger<DatabaseMetadataService> logger)
     : IDatabaseMetadataService
@@ -64,6 +68,18 @@ public class DatabaseMetadataService(
 
             // Apply per-datasource filters
             tables = ApplyMetadataFilters(tables, dataSource);
+
+            // Enrich with representative sample values for LLM grounding (failure-tolerant)
+            var mcpSettings = await mcpSettingsProvider.GetSettingsAsync(cancellationToken);
+            if (mcpSettings.EnableSampleValueCollection)
+            {
+                tables = await columnValueSampler.EnrichWithSampleValuesAsync(
+                    dataSource.DatabaseEngineType.Value,
+                    connectionString,
+                    tables,
+                    mcpSettings.CustomPiiPatterns,
+                    cancellationToken);
+            }
 
             // Store in database
             await StoreMetadataAsync(dataSourceId, tables, cancellationToken);
@@ -177,7 +193,8 @@ public class DatabaseMetadataService(
                         c.ForeignKeyColumn,
                         c.DefaultValue,
                         c.MaxLength,
-                        c.Description
+                        c.Description,
+                        DeserializeSampleValues(c.SampleValues)
                     )).ToList(),
                 loadTableNamesOnly ? new List<IndexMetadataDto>() : m.Indexes.Select(i => new IndexMetadataDto(
                     i.IndexName,
@@ -264,7 +281,8 @@ public class DatabaseMetadataService(
                     ForeignKeyColumn = column.ForeignKeyColumn,
                     DefaultValue = column.DefaultValue,
                     MaxLength = column.MaxLength,
-                    Description = column.Description
+                    Description = column.Description,
+                    SampleValues = SerializeSampleValues(column.SampleValues)
                 });
             }
 
@@ -362,7 +380,8 @@ public class DatabaseMetadataService(
             m.Columns.OrderBy(c => c.OrdinalPosition).Select(c => new ColumnMetadataDto(
                 c.ColumnName, c.DataType, c.IsNullable, c.IsPrimaryKey, c.IsForeignKey,
                 c.OrdinalPosition, c.ForeignKeyTable, c.ForeignKeyColumn,
-                c.DefaultValue, c.MaxLength, c.Description
+                c.DefaultValue, c.MaxLength, c.Description,
+                DeserializeSampleValues(c.SampleValues)
             )).ToList(),
             new List<IndexMetadataDto>(),
             m.TableDescription
@@ -378,6 +397,31 @@ public class DatabaseMetadataService(
     {
         if (string.IsNullOrWhiteSpace(commaSeparated)) return new List<string>();
         return commaSeparated.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+    }
+
+    private static string? SerializeSampleValues(IReadOnlyList<string>? sampleValues)
+    {
+        return sampleValues is { Count: > 0 }
+            ? JsonSerializer.Serialize(sampleValues)
+            : null;
+    }
+
+    private static IReadOnlyList<string>? DeserializeSampleValues(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<List<string>>(json);
+        }
+        catch
+        {
+            // Invalid JSON — treat as no samples
+            return null;
+        }
     }
 
     private static string GetCacheKey(int dataSourceId) => $"{CacheKeyPrefix}{dataSourceId}";
