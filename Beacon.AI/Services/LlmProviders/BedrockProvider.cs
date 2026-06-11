@@ -122,6 +122,10 @@ public class BedrockProvider : ILlmProvider
 
             throw new AiServiceException($"Model {_modelId} is not supported by BedrockProvider");
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex) when (ex is not AiServiceException)
         {
             throw new AiServiceException($"AWS Bedrock API request failed: {ex.Message}", ex);
@@ -183,8 +187,13 @@ public class BedrockProvider : ILlmProvider
                 OutputTokens = result.Usage?.OutputTokens ?? 0,
                 Cost = (inputCost ?? 0) + (outputCost ?? 0),
                 Model = _modelId,
-                PromptCacheHit = false
+                PromptCacheHit = false,
+                Truncated = result.StopReason == "max_tokens"
             };
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Amazon.BedrockRuntime.Model.ValidationException vex)
         {
@@ -271,7 +280,8 @@ public class BedrockProvider : ILlmProvider
             OutputTokens = outputTokens,
             Cost = inputCost + outputCost,
             Model = _modelId,
-            PromptCacheHit = false
+            PromptCacheHit = false,
+            Truncated = result.StopReason == "length"
         };
     }
 

@@ -19,11 +19,22 @@ let hubFailureToastShown = false;
 
 function getHub(): Promise<BeaconHub> {
   if (hubPromise === undefined) {
-    hubPromise = connectBeaconHub().catch(err => {
-      // Reset so a subsequent subscribe attempt can retry.
-      hubPromise = undefined;
-      throw err;
-    });
+    hubPromise = connectBeaconHub()
+      .then(hub => {
+        // When automatic reconnect exhausts, the connection is dead for good.
+        // Drop the cached promise so the next subscriber creates a fresh one.
+        hub.onClosed(() => {
+          hubPromise = undefined;
+          // eslint-disable-next-line no-console
+          console.warn('[beacon-hub] connection closed permanently — will reconnect on next subscription');
+        });
+        return hub;
+      })
+      .catch(err => {
+        // Reset so a subsequent subscribe attempt can retry.
+        hubPromise = undefined;
+        throw err;
+      });
   }
   return hubPromise;
 }
@@ -95,4 +106,35 @@ export function useHubEvent<E extends keyof EventMap>(
       unsubscribe?.();
     };
   }, [event]);
+}
+
+/**
+ * Run a callback whenever the shared hub connection reconnects after a
+ * transient drop — events fired while disconnected are gone, so callers
+ * should reconcile (typically by invalidating their query keys).
+ */
+export function useHubReconnected(handler: () => void) {
+  const handlerRef = useRef(handler);
+  handlerRef.current = handler;
+
+  useEffect(() => {
+    let unsubscribe: (() => void) | undefined;
+    let cancelled = false;
+
+    getHub()
+      .then(hub => {
+        if (cancelled) {
+          return;
+        }
+        unsubscribe = hub.onReconnected(() => handlerRef.current());
+      })
+      .catch(() => {
+        // Connection failures are already surfaced by the subscribe path.
+      });
+
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+    };
+  }, []);
 }

@@ -73,7 +73,7 @@ builder.Services.AddBeaconHostInfrastructure();
 builder.Services.AddBeaconServices(builder.Configuration, options =>
     {
         options.AddBeaconScheduler<BeaconScheduler>();
-        options.BaseUrl = "https://localhost:7187"; // For notification links
+        options.BaseUrl = builder.Configuration["Beacon:BaseUrl"] ?? "https://localhost:7187"; // For notification links
         options.UseAI = true;
 
         options.AddEmailAdapter<BeaconMailSender>();
@@ -182,6 +182,11 @@ app.UseWhen(
 
 app.UseStaticFiles();
 
+// Convert exceptions thrown inside /beacon/api/* into RFC 7807 problem+json responses.
+// Must sit BEFORE the auth/antiforgery/rate-limiter middlewares so their exceptions are
+// also translated instead of surfacing as raw 500s.
+app.UseApiExceptionHandler("/beacon/api");
+
 // API key auth must run before cookie auth to prevent redirect for MCP clients
 app.UseMiddleware<ApiKeyAuthMiddleware>();
 
@@ -218,9 +223,6 @@ app.UseRateLimiter();
 
 // OpenAPI document at /openapi/v1.json - consumed by NSwag for React TS codegen.
 app.MapOpenApi();
-
-// Convert exceptions thrown inside /beacon/api/* into RFC 7807 problem+json responses.
-app.UseApiExceptionHandler("/beacon/api");
 
 // REST API surface for the React shell. Adds /beacon/api/{health, auth/me, auth/permissions, csrf}.
 app.MapBeaconApi();

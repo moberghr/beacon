@@ -32,7 +32,7 @@ public class SqlServerMetadataExtractor : IDatabaseMetadataExtractor
             LEFT JOIN sys.indexes i ON t.object_id = i.object_id AND i.is_primary_key = 1
             LEFT JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id AND c.column_id = ic.column_id";
 
-        var columnsData = await connection.QueryAsync(tablesQuery);
+        var columnsData = await connection.QueryAsync(new CommandDefinition(tablesQuery, commandTimeout: 180, cancellationToken: cancellationToken));
 
         const string foreignKeysQuery = @"
             SELECT
@@ -48,7 +48,7 @@ public class SqlServerMetadataExtractor : IDatabaseMetadataExtractor
             JOIN sys.tables rt ON fk.referenced_object_id = rt.object_id
             JOIN sys.columns rc ON fk.referenced_object_id = rc.object_id AND fk.referenced_column_id = rc.column_id";
 
-        var foreignKeys = await connection.QueryAsync(foreignKeysQuery);
+        var foreignKeys = await connection.QueryAsync(new CommandDefinition(foreignKeysQuery, commandTimeout: 180, cancellationToken: cancellationToken));
         var fkLookup = foreignKeys
             .GroupBy(fk => $"{fk.table_schema}.{fk.table_name}.{fk.column_name}")
             .ToDictionary(
@@ -72,7 +72,7 @@ public class SqlServerMetadataExtractor : IDatabaseMetadataExtractor
             WHERE i.name IS NOT NULL
             GROUP BY s.name, t.name, i.name, i.is_unique, i.is_primary_key";
 
-        var indexesData = await connection.QueryAsync(indexesQuery);
+        var indexesData = await connection.QueryAsync(new CommandDefinition(indexesQuery, commandTimeout: 180, cancellationToken: cancellationToken));
 
         var tables = columnsData
             .GroupBy(c => new { schema = (string)c.table_schema, table = (string)c.table_name })

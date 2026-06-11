@@ -18,6 +18,8 @@ public class DatabricksProvider(
     IEncryptionService encryptionService,
     ILogger<DatabricksProvider> logger) : IDataSourceProvider
 {
+    private const int MaxResultRows = 10000;
+
     public DataSourceType SupportedType => DataSourceType.Databricks;
     public string GetQueryLanguageName() => "Databricks SQL";
 
@@ -29,7 +31,7 @@ public class DatabricksProvider(
             var config = ParseConfiguration(dataSource);
             using var client = CreateHttpClient(config);
 
-            var response = await client.GetAsync($"https://{config.Host}/api/2.0/sql/warehouses", cancellationToken);
+            using var response = await client.GetAsync($"https://{config.Host}/api/2.0/sql/warehouses", cancellationToken);
             response.EnsureSuccessStatusCode();
 
             stopwatch.Stop();
@@ -67,16 +69,32 @@ public class DatabricksProvider(
             var config = ParseConfiguration(dataSource);
             using var client = CreateHttpClient(config);
 
-            var requestBody = new
+            // Databricks only accepts wait_timeout of 0s or 5s-50s; rely on the poll loop below for longer waits.
+            var waitSeconds = Math.Clamp(config.QueryTimeoutSeconds, 5, 50);
+
+            var requestBody = new Dictionary<string, object?>
             {
-                statement = query,
-                warehouse_id = ExtractWarehouseId(config.HttpPath),
-                catalog = config.Catalog,
-                schema = config.Schema,
-                wait_timeout = $"{config.QueryTimeoutSeconds}s"
+                ["statement"] = query,
+                ["warehouse_id"] = ExtractWarehouseId(config.HttpPath),
+                ["catalog"] = config.Catalog,
+                ["schema"] = config.Schema,
+                ["wait_timeout"] = $"{waitSeconds}s"
             };
 
-            var response = await client.PostAsJsonAsync(
+            if (parameters is { Count: > 0 })
+            {
+                // §1.10 — bind caller-supplied values via the Statement Execution API's parameters array.
+                requestBody["parameters"] = parameters
+                    .Select(x =>
+                        new
+                        {
+                            name = x.Key,
+                            value = x.Value?.ToString()
+                        })
+                    .ToList();
+            }
+
+            using var response = await client.PostAsJsonAsync(
                 $"https://{config.Host}/api/2.0/sql/statements",
                 requestBody,
                 cancellationToken);
@@ -90,11 +108,20 @@ public class DatabricksProvider(
                 throw new BeaconException($"Databricks query failed: {result.Status.Error?.Message}");
             }
 
-            // Poll if pending
+            // Poll if pending, with an overall timeout and gentle backoff (500ms growing to 5s).
+            var pollDelayMs = 500;
             while (result?.Status?.State is "PENDING" or "RUNNING")
             {
-                await Task.Delay(500, cancellationToken);
-                var pollResponse = await client.GetAsync(
+                if (stopwatch.Elapsed.TotalSeconds >= config.QueryTimeoutSeconds)
+                {
+                    await TryCancelStatementAsync(client, config, result.StatementId, cancellationToken);
+                    throw new BeaconException($"Databricks query timed out after {config.QueryTimeoutSeconds} seconds");
+                }
+
+                await Task.Delay(pollDelayMs, cancellationToken);
+                pollDelayMs = Math.Min(pollDelayMs * 2, 5000);
+
+                using var pollResponse = await client.GetAsync(
                     $"https://{config.Host}/api/2.0/sql/statements/{result.StatementId}",
                     cancellationToken);
                 pollResponse.EnsureSuccessStatusCode();
@@ -103,10 +130,12 @@ public class DatabricksProvider(
 
             if (result?.Status?.State != "SUCCEEDED")
             {
-                throw new BeaconException($"Databricks query ended with state: {result?.Status?.State}");
+                var errorDetail = result?.Status?.Error?.Message;
+                var stateMessage = $"Databricks query ended with state: {result?.Status?.State}";
+                throw new BeaconException(errorDetail == null ? stateMessage : $"{stateMessage} — {errorDetail}");
             }
 
-            var rows = ConvertResultToRows(result);
+            var (rows, truncated) = await ConvertResultToRowsAsync(client, config, result, cancellationToken);
             stopwatch.Stop();
 
             return new ProviderQueryResult
@@ -117,7 +146,10 @@ public class DatabricksProvider(
                 Success = true,
                 Metadata = new Dictionary<string, object?>
                 {
-                    ["StatementId"] = result.StatementId
+                    ["StatementId"] = result.StatementId,
+                    ["Truncated"] = truncated,
+                    ["RowLimit"] = MaxResultRows,
+                    ["TotalRowCount"] = result.Manifest?.TotalRowCount
                 }
             };
         }
@@ -176,16 +208,70 @@ public class DatabricksProvider(
         return parts[^1];
     }
 
-    private static List<Dictionary<string, object?>> ConvertResultToRows(DatabricksStatementResponse result)
+    private async Task TryCancelStatementAsync(HttpClient client, DatabricksConfiguration config, string? statementId, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrEmpty(statementId))
+        {
+            return;
+        }
+
+        try
+        {
+            using var cancelResponse = await client.PostAsync(
+                $"https://{config.Host}/api/2.0/sql/statements/{statementId}/cancel",
+                null,
+                cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to cancel Databricks statement {StatementId}", statementId);
+        }
+    }
+
+    private static async Task<(List<Dictionary<string, object?>> Rows, bool Truncated)> ConvertResultToRowsAsync(
+        HttpClient client,
+        DatabricksConfiguration config,
+        DatabricksStatementResponse result,
+        CancellationToken cancellationToken)
     {
         var rows = new List<Dictionary<string, object?>>();
         if (result.Manifest?.Schema?.Columns == null || result.Result?.DataArray == null)
-            return rows;
+            return (rows, false);
 
         var columnNames = result.Manifest.Schema.Columns.Select(c => c.Name).ToList();
+        var truncated = AppendChunkRows(rows, columnNames, result.Result.DataArray);
+        var nextChunkIndex = result.Result.NextChunkIndex;
 
-        foreach (var dataRow in result.Result.DataArray)
+        // Follow subsequent result chunks; large results arrive in multiple chunks.
+        while (!truncated && nextChunkIndex != null)
         {
+            using var chunkResponse = await client.GetAsync(
+                $"https://{config.Host}/api/2.0/sql/statements/{result.StatementId}/result/chunks/{nextChunkIndex}",
+                cancellationToken);
+            chunkResponse.EnsureSuccessStatusCode();
+
+            var chunk = await chunkResponse.Content.ReadFromJsonAsync<DatabricksResult>(cancellationToken: cancellationToken);
+            if (chunk?.DataArray == null)
+            {
+                break;
+            }
+
+            truncated = AppendChunkRows(rows, columnNames, chunk.DataArray);
+            nextChunkIndex = chunk.NextChunkIndex;
+        }
+
+        return (rows, truncated);
+    }
+
+    private static bool AppendChunkRows(List<Dictionary<string, object?>> rows, List<string> columnNames, List<List<string?>> dataArray)
+    {
+        foreach (var dataRow in dataArray)
+        {
+            if (rows.Count >= MaxResultRows)
+            {
+                return true;
+            }
+
             var row = new Dictionary<string, object?>();
             for (int i = 0; i < columnNames.Count && i < dataRow.Count; i++)
             {
@@ -194,7 +280,7 @@ public class DatabricksProvider(
             rows.Add(row);
         }
 
-        return rows;
+        return false;
     }
 
     // Response DTOs
@@ -232,6 +318,9 @@ public class DatabricksProvider(
     {
         [JsonPropertyName("schema")]
         public DatabricksSchema? Schema { get; set; }
+
+        [JsonPropertyName("total_row_count")]
+        public long? TotalRowCount { get; set; }
     }
 
     private class DatabricksSchema
@@ -250,5 +339,8 @@ public class DatabricksProvider(
     {
         [JsonPropertyName("data_array")]
         public List<List<string?>>? DataArray { get; set; }
+
+        [JsonPropertyName("next_chunk_index")]
+        public int? NextChunkIndex { get; set; }
     }
 }

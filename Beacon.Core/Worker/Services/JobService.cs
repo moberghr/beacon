@@ -53,7 +53,7 @@ internal class JobService(
             queryResult.TopRecords = queryResult.TopRecords.Take(subscription.MaxRows.Value).ToList();
         }
 
-        var lastExecutedQuery = context.QueryExecutionHistory
+        var lastExecutedQuery = await context.QueryExecutionHistory
             .Where(x => x.SubscriptionId == subscriptionId)
             .OrderByDescending(x => x.CreatedTime)
             .Select(x =>
@@ -61,7 +61,7 @@ internal class JobService(
                 {
                     x.ResultCount
                 })
-            .FirstOrDefault();
+            .FirstOrDefaultAsync(ct);
 
         // Check if anomaly detection is enabled for this subscription
         var hasAnomalyDetection = await context.AnomalyConfigs
@@ -214,7 +214,7 @@ internal class JobService(
 
         try
         {
-            var evaluationResult = await dataQualityEvaluationService.EvaluateContractAsync(contractId);
+            var evaluationResult = await dataQualityEvaluationService.EvaluateContractAsync(contractId, ct);
 
             await SendDataQualityNotificationsIfNeeded(contractId, evaluationResult, ct);
         }

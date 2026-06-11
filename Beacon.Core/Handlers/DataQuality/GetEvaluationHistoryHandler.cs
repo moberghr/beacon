@@ -10,7 +10,7 @@ internal sealed class GetEvaluationHistoryHandler(
 {
     public async Task<GetEvaluationHistoryResult> Handle(GetEvaluationHistoryQuery request, CancellationToken cancellationToken)
     {
-        var evaluations = await evaluationService.GetEvaluationHistoryAsync(request.DataContractId, request.Take ?? 20);
+        var evaluations = await evaluationService.GetEvaluationHistoryAsync(request.DataContractId, request.Take ?? 20, cancellationToken);
         return new GetEvaluationHistoryResult(evaluations);
     }
 }

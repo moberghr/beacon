@@ -263,12 +263,17 @@ export default function NewQueryPage() {
   const saveQuery = async (): Promise<number | null> => {
     if (!canSave) return null;
     try {
-      const created = await create.mutateAsync({
-        name: trimmedName,
-        description: trimmedDesc || null,
-      });
-      const newId = created.queryId;
-      setCreatedId(newId);
+      // A previous attempt may have created the query but failed on the
+      // follow-up step update — reuse the created id instead of duplicating.
+      let newId = createdId;
+      if (newId == null) {
+        const created = await create.mutateAsync({
+          name: trimmedName,
+          description: trimmedDesc || null,
+        });
+        newId = created.queryId;
+        setCreatedId(newId);
+      }
 
       const hasContent = steps.some(s => s.sqlValue.trim().length > 0);
       if (hasContent) {

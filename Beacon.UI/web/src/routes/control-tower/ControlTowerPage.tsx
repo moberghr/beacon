@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Activity,
   AlertTriangle,
@@ -157,7 +157,8 @@ export default function ControlTowerPage() {
     column: 'name',
     direction: 'asc',
   });
-  const [selectedRow, setSelectedRow] = useState<ControlTowerSubscriptionHealthData | null>(null);
+  // Store the id, not a row snapshot — rows go stale across the 30s refetch.
+  const [selectedSubscriptionId, setSelectedSubscriptionId] = useState<number | null>(null);
 
   const filters = useMemo<ControlTowerFilters>(
     () => ({
@@ -177,6 +178,21 @@ export default function ControlTowerPage() {
 
   const stats = data?.stats;
   const entries = data?.entries ?? [];
+
+  const selectedRow =
+    selectedSubscriptionId == null
+      ? null
+      : entries.find(r => r.subscriptionId === selectedSubscriptionId) ?? null;
+
+  // Close the panel when the selected row drops out of the refetched data.
+  useEffect(() => {
+    if (selectedSubscriptionId == null || data == null) {
+      return;
+    }
+    if (!data.entries.some(r => r.subscriptionId === selectedSubscriptionId)) {
+      setSelectedSubscriptionId(null);
+    }
+  }, [data, selectedSubscriptionId]);
 
   // Client-side sort overlay for direction + columns the API can't sort on.
   const sortedEntries = useMemo(() => {
@@ -447,7 +463,7 @@ export default function ControlTowerPage() {
               rows={sortedEntries}
               rowKey={r => r.subscriptionId}
               gridTemplate={gridTemplate}
-              onRowClick={r => setSelectedRow(r)}
+              onRowClick={r => setSelectedSubscriptionId(r.subscriptionId)}
               empty={
                 <EmptyState
                   icon={<Sparkles />}
@@ -468,7 +484,7 @@ export default function ControlTowerPage() {
         <SubscriptionDetailPanel
           row={selectedRow}
           timeRangeDays={Number(timeRange)}
-          onClose={() => setSelectedRow(null)}
+          onClose={() => setSelectedSubscriptionId(null)}
         />
       )}
     </div>

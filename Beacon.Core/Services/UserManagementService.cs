@@ -405,6 +405,8 @@ internal class UserManagementService(
             .FirstOrDefaultAsync(ct)
             ?? throw new BeaconException($"Default role '{defaultRoleName}' does not exist.");
 
+        // Stage the default role on the navigation collection so the user and
+        // the UserRole commit together in a single SaveChanges (§5.7).
         var newUser = new BeaconUser
         {
             ExternalId = externalId,
@@ -415,20 +417,18 @@ internal class UserManagementService(
             IsInternalUser = false,
             IsSuperAdmin = false,
             IsEnabled = true,
-            LastLoginAt = DateTime.UtcNow
+            LastLoginAt = DateTime.UtcNow,
+            UserRoles = new List<BeaconUserRole>
+            {
+                new()
+                {
+                    RoleId = defaultRole.Id,
+                    AssignedAt = DateTime.UtcNow,
+                }
+            },
         };
 
         context.Users.Add(newUser);
-        await context.SaveChangesAsync(ct);
-
-        var userRole = new BeaconUserRole
-        {
-            UserId = newUser.Id,
-            RoleId = defaultRole.Id,
-            AssignedAt = DateTime.UtcNow
-        };
-
-        context.UserRoles.Add(userRole);
         await context.SaveChangesAsync(ct);
 
         return new BeaconUserData
@@ -474,6 +474,13 @@ internal class UserManagementService(
             return new BaseResponse { Success = false, Message = "A user with this username already exists." };
         }
 
+        // Filter the requested roles to those that actually exist before staging,
+        // so the user + UserRoles commit together in a single SaveChanges (§5.7).
+        var validRoleIds = await context.Roles
+            .Where(r => request.RoleIds.Contains(r.Id))
+            .Select(r => r.Id)
+            .ToListAsync(ct);
+
         var user = new BeaconUser
         {
             ExternalId = request.ExternalId,
@@ -482,27 +489,17 @@ internal class UserManagementService(
             DisplayName = request.DisplayName ?? request.UserName,
             IsInternalUser = false,
             IsSuperAdmin = false,
-            IsEnabled = true
+            IsEnabled = true,
+            UserRoles = validRoleIds
+                .Select(roleId => new BeaconUserRole
+                {
+                    RoleId = roleId,
+                    AssignedAt = DateTime.UtcNow,
+                })
+                .ToList(),
         };
 
         context.Users.Add(user);
-        await context.SaveChangesAsync(ct);
-
-        // Assign roles
-        foreach (var roleId in request.RoleIds)
-        {
-            var role = await context.Roles.FindAsync(new object[] { roleId }, ct);
-            if (role != null)
-            {
-                context.UserRoles.Add(new BeaconUserRole
-                {
-                    UserId = user.Id,
-                    RoleId = roleId,
-                    AssignedAt = DateTime.UtcNow
-                });
-            }
-        }
-
         await context.SaveChangesAsync(ct);
 
         return new BaseResponse { Success = true, Message = "External user pre-registered successfully." };

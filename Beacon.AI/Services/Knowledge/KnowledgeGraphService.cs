@@ -650,7 +650,7 @@ internal sealed class KnowledgeGraphService(
         var mcpSettings = await settingsProvider.GetSettingsAsync(ct);
 
         // Small schema fast path: send everything
-        if (allTables.Count <= 40 || totalColumns <= 300)
+        if (allTables.Count <= 40 && totalColumns <= 300)
         {
             var sb = new StringBuilder();
             sb.AppendLine(isApi

@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using Beacon.AI.Services.LlmProviders;
+using Beacon.Core.Exceptions;
 using Beacon.Core.Models;
 
 namespace Beacon.AI.Services.Mcp;
@@ -51,6 +52,11 @@ internal sealed class SqlGenerationService : ISqlGenerationService
         };
 
         var response = await llmProvider.CompleteAsync(request, ct);
+        if (response.Truncated)
+        {
+            throw new AiServiceException("SQL generation response was truncated at the token limit. The generated SQL is incomplete and cannot be used.");
+        }
+
         var generatedSql = CleanSqlResponse(response.Content);
         var tablesUsed = ExtractTableNamesFromSql(generatedSql);
 
@@ -105,12 +111,30 @@ internal sealed class SqlGenerationService : ISqlGenerationService
         };
 
         var retryResponse = await llmProvider.CompleteAsync(retryRequest, ct);
+        if (retryResponse.Truncated)
+        {
+            // A truncated repair is unusable; null tells the caller no usable retry is available
+            return null;
+        }
 
-        return CleanSqlResponse(retryResponse.Content);
+        try
+        {
+            return CleanSqlResponse(retryResponse.Content);
+        }
+        catch (AiServiceException)
+        {
+            // No SQL in the repair response — treat as "no usable retry" instead of failing the whole ask
+            return null;
+        }
     }
 
     private static string CleanSqlResponse(string content)
     {
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            throw new AiServiceException("The model returned no SQL (empty response).");
+        }
+
         var sql = content.Trim();
 
         if (sql.Contains("```"))
@@ -137,6 +161,11 @@ internal sealed class SqlGenerationService : ISqlGenerationService
                 {
                     bestIdx = idx;
                 }
+            }
+
+            if (bestIdx < 0)
+            {
+                throw new AiServiceException("The model returned no SQL — the response contains no SELECT, WITH, or EXPLAIN statement.");
             }
 
             if (bestIdx > 0)
