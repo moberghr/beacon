@@ -55,6 +55,7 @@ export default function TaskDetailPage() {
   useEffect(() => {
     if (!task) return;
     const onKey = (e: KeyboardEvent) => {
+      if (e.repeat) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const target = e.target as HTMLElement | null;
       const tag = target?.tagName?.toLowerCase();
@@ -67,14 +68,16 @@ export default function TaskDetailPage() {
         setResolveOpen(true);
       } else if (k === 'a' && !task.resolved && currentUser?.userId) {
         e.preventDefault();
-        if (task.assigneeUserId !== currentUser.userId) {
+        if (!assign.isPending && task.assigneeUserId !== currentUser.userId) {
           assign.mutate({ assigneeUserId: currentUser.userId });
         }
       } else if (k === 's' && !task.resolved) {
         e.preventDefault();
-        snooze.mutate({
-          snoozeUntil: new Date(Date.now() + 3_600_000).toISOString(),
-        });
+        if (!snooze.isPending) {
+          snooze.mutate({
+            snoozeUntil: new Date(Date.now() + 3_600_000).toISOString(),
+          });
+        }
       } else if (k === 'c') {
         e.preventDefault();
         const ta = document.getElementById(COMMENT_TEXTAREA_ID) as HTMLTextAreaElement | null;

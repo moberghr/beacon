@@ -36,8 +36,16 @@ public static class AuthServiceExtensions
         // Register authentication service
         services.TryAddScoped<IBeaconAuthenticationService, BeaconAuthenticationService>();
 
-        // Register the cookie scheme without changing the host app's default authentication scheme.
-        services.AddAuthentication()
+        // Register the cookie scheme without changing the host app's default authenticate scheme
+        // (ApiKeyAuthMiddleware assigns its principal directly and must not be overridden).
+        // The challenge/forbid defaults must point at the cookie scheme so anonymous requests to
+        // protected endpoints get a 401/403 instead of an InvalidOperationException when other
+        // remote schemes (OIDC) are also registered.
+        services.AddAuthentication(options =>
+        {
+            options.DefaultChallengeScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+            options.DefaultForbidScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+        })
             .AddCookie(CookieAuthenticationDefaults.AuthenticationScheme, options =>
             {
                 options.LoginPath = new PathString($"{basePath.TrimEnd('/')}/login");

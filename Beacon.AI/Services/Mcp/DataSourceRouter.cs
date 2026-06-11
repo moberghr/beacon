@@ -90,12 +90,27 @@ internal sealed class DataSourceRouter(ILogger<DataSourceRouter> logger) : IData
                 };
             }
 
+            // Only accept IDs that belong to this project's data sources — the LLM output is
+            // untrusted and must never route to another project's sources.
+            var validIds = dataSources
+                .Select(x => x.DataSourceId)
+                .ToHashSet();
+            var legitimateSources = parsed.Sources
+                .Where(x => validIds.Contains(x.DatasourceId))
+                .ToList();
+
+            if (legitimateSources.Count == 0)
+            {
+                logger.LogWarning("Routing response contained only unknown data source IDs for this project; treating as undetermined");
+                return new RoutingResult { Sources = [] };
+            }
+
             return new RoutingResult
             {
-                Sources = parsed.Sources.Select(x => new RoutedSource
+                Sources = legitimateSources.Select(x => new RoutedSource
                 {
                     DataSourceId = x.DatasourceId,
-                    DataSourceName = x.DatasourceName ?? dataSources.FirstOrDefault(y => y.DataSourceId == x.DatasourceId)?.Name ?? "Unknown",
+                    DataSourceName = dataSources.First(y => y.DataSourceId == x.DatasourceId).Name,
                     Reason = x.Reason ?? ""
                 }).ToList()
             };

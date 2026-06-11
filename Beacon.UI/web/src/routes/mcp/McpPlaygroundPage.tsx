@@ -86,6 +86,7 @@ export default function McpPlaygroundPage() {
   }
 
   function send() {
+    if (runMutation.isPending) return;
     if (projectId === null) {
       toast.warning('Select a project first.');
       return;
@@ -212,6 +213,7 @@ export default function McpPlaygroundPage() {
               onChange={e => setText(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Keyword (e.g. customer, revenue)"
+              disabled={runMutation.isPending}
             />
             <Input
               type="number"

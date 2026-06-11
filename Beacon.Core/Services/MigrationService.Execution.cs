@@ -71,7 +71,7 @@ internal partial class MigrationService
                 Value = kvp.Value?.ToString() ?? ""
             }).ToList() ?? new List<ParameterValue>();
 
-            var queryResult = await previewService.ExecuteTemporaryQueryPreview(queryData, cancellationToken);
+            var queryResult = await previewService.ExecuteTemporaryQueryPreview(queryData, cancellationToken, parameters);
 
             if (!queryResult.Success || queryResult.FinalResult?.AllRecords == null)
             {

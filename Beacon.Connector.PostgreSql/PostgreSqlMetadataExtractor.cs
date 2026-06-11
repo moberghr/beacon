@@ -43,12 +43,12 @@ public class PostgreSqlMetadataExtractor : IDatabaseMetadataExtractor
             JOIN pg_attribute a ON a.attrelid = c.oid
             JOIN pg_type t ON a.atttypid = t.oid
             LEFT JOIN pg_attrdef ad ON a.attrelid = ad.adrelid AND a.attnum = ad.adnum
-            WHERE c.relkind = 'r'
+            WHERE c.relkind IN ('r', 'p')
                 AND n.nspname NOT IN ('pg_catalog', 'information_schema')
                 AND a.attnum > 0
                 AND NOT a.attisdropped";
 
-        var columnsData = await connection.QueryAsync(tablesQuery, commandTimeout: 180);
+        var columnsData = await connection.QueryAsync(new CommandDefinition(tablesQuery, commandTimeout: 180, cancellationToken: cancellationToken));
 
         const string foreignKeysQuery = @"
             SELECT
@@ -69,7 +69,7 @@ public class PostgreSqlMetadataExtractor : IDatabaseMetadataExtractor
                 AND n.nspname NOT IN ('pg_catalog', 'information_schema')
                 AND array_position(con.conkey, a.attnum) = array_position(con.confkey, fa.attnum)";
 
-        var foreignKeys = await connection.QueryAsync(foreignKeysQuery, commandTimeout: 180);
+        var foreignKeys = await connection.QueryAsync(new CommandDefinition(foreignKeysQuery, commandTimeout: 180, cancellationToken: cancellationToken));
         var fkLookup = foreignKeys
             .GroupBy(fk => $"{fk.table_schema}.{fk.table_name}.{fk.column_name}")
             .ToDictionary(
@@ -86,7 +86,7 @@ public class PostgreSqlMetadataExtractor : IDatabaseMetadataExtractor
             FROM pg_indexes
             WHERE schemaname NOT IN ('pg_catalog', 'information_schema')";
 
-        var indexesData = await connection.QueryAsync(indexesQuery, commandTimeout: 180);
+        var indexesData = await connection.QueryAsync(new CommandDefinition(indexesQuery, commandTimeout: 180, cancellationToken: cancellationToken));
 
         var tables = columnsData
             .GroupBy(c => new { schema = (string)c.table_schema, table = (string)c.table_name })
@@ -120,9 +120,16 @@ public class PostgreSqlMetadataExtractor : IDatabaseMetadataExtractor
                         var isPrimaryKey = indexDef.Contains("PRIMARY KEY", StringComparison.OrdinalIgnoreCase);
                         var isUnique = indexDef.Contains("UNIQUE", StringComparison.OrdinalIgnoreCase) || isPrimaryKey;
 
-                        var columnsMatch = Regex.Match(indexDef, @"\((.*?)\)");
+                        // Match the column list greedily after USING so expression indexes with
+                        // nested parentheses (e.g. lower(name)) keep their full definition.
+                        var usingIndex = indexDef.IndexOf(" USING ", StringComparison.OrdinalIgnoreCase);
+                        var columnsSource = usingIndex >= 0 ? indexDef[usingIndex..] : indexDef;
+                        var columnsMatch = Regex.Match(columnsSource, @"\((.*)\)");
                         var columnNames = columnsMatch.Success
-                            ? columnsMatch.Groups[1].Value.Split(',').Select(c => c.Trim()).ToArray()
+                            ? columnsMatch.Groups[1].Value
+                                .Split(',')
+                                .Select(c => Regex.Replace(c.Trim(), @"\s+(DESC|ASC|NULLS\s+(FIRST|LAST))\b", "", RegexOptions.IgnoreCase).Trim())
+                                .ToArray()
                             : Array.Empty<string>();
 
                         return new IndexMetadataDto(

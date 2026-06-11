@@ -45,8 +45,15 @@ public static partial class LoginEndpoints
         }).AllowAnonymous();
     }
 
+    /// <summary>
+    /// Accepts only local, root-relative URLs (starts with "/", not "//" or "/\", no scheme).
+    /// UI routes live at the root, so there is no base-path prefix requirement — any other
+    /// shape (absolute URL, protocol-relative, backslash trick) is rejected to prevent open
+    /// redirects. <paramref name="basePath"/> is retained for signature compatibility only.
+    /// </summary>
     internal static bool IsSafeReturnUrl(string? returnUrl, string basePath)
     {
+        _ = basePath;
         if (string.IsNullOrWhiteSpace(returnUrl))
         {
             return false;
@@ -67,13 +74,7 @@ public static partial class LoginEndpoints
             return false;
         }
 
-        var normalizedBase = basePath.TrimEnd('/');
-        if (string.IsNullOrEmpty(normalizedBase))
-        {
-            return true;
-        }
-
-        return returnUrl.Equals(normalizedBase, StringComparison.OrdinalIgnoreCase)
-            || returnUrl.StartsWith($"{normalizedBase}/", StringComparison.OrdinalIgnoreCase);
+        // Defense in depth: must parse as a relative URI (rejects anything carrying a scheme).
+        return Uri.TryCreate(returnUrl, UriKind.Relative, out _);
     }
 }

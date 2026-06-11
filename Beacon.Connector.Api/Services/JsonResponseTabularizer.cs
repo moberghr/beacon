@@ -74,15 +74,19 @@ public class JsonResponseTabularizer
     {
         var rows = new List<Dictionary<string, object?>>();
 
+        // Pre-parse each column path once instead of per row.
+        var columnPaths = columns
+            .Select(col => (Column: col, Path: JsonPath.Parse(col.Path)))
+            .ToList();
+
         foreach (var element in elements)
         {
             if (element == null) continue;
 
             var row = new Dictionary<string, object?>();
 
-            foreach (var col in columns)
+            foreach (var (col, colPath) in columnPaths)
             {
-                var colPath = JsonPath.Parse(col.Path);
                 var colResult = colPath.Evaluate(element);
 
                 if (colResult.Matches != null && colResult.Matches.Count > 0)

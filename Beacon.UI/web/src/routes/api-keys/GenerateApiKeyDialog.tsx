@@ -108,6 +108,7 @@ export function GenerateApiKeyDialog({ open, onClose }: GenerateApiKeyDialogProp
         : 'Scoped key for CI pipelines, monitoring bots, and MCP clients.'}
       size="md"
       closeOnBackdrop={!plainKey}
+      closeOnEscape={!plainKey}
       footer={
         plainKey ? (
           <Button type="button" variant="primary" onClick={handleClose}>

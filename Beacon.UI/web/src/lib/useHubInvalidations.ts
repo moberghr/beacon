@@ -1,5 +1,5 @@
 import { useQueryClient, type QueryKey } from '@tanstack/react-query';
-import { useHubEvent } from './useHubEvent';
+import { useHubEvent, useHubReconnected } from './useHubEvent';
 
 type HubEventName = 'ApprovalUpdated' | 'JobStatusChanged' | 'NotificationCreated';
 
@@ -40,6 +40,16 @@ export function useHubInvalidations(): void {
   useHubEvent('NotificationCreated', () => {
     for (const key of INVALIDATIONS.NotificationCreated) {
       qc.invalidateQueries({ queryKey: key });
+    }
+  });
+
+  // Events fired during a transient disconnect are lost — reconcile every
+  // mapped query key once the connection comes back.
+  useHubReconnected(() => {
+    for (const keys of Object.values(INVALIDATIONS)) {
+      for (const key of keys) {
+        qc.invalidateQueries({ queryKey: key });
+      }
     }
   });
 }

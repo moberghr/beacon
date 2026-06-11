@@ -14,6 +14,7 @@ interface DialogProps {
   children: ReactNode;
   footer?: ReactNode;
   closeOnBackdrop?: boolean;
+  closeOnEscape?: boolean;
   ariaLabel?: string;
 }
 
@@ -25,7 +26,7 @@ const sizeWidth: Record<DialogSize, number> = {
 };
 
 /**
- * Reusable dialog shell. Esc key closes; click on backdrop closes (configurable).
+ * Reusable dialog shell. Esc key closes (configurable); click on backdrop closes (configurable).
  * Focus moves to the dialog on open and is restored on close. Body scroll is
  * locked while open.
  */
@@ -38,6 +39,7 @@ export function Dialog({
   children,
   footer,
   closeOnBackdrop = true,
+  closeOnEscape = true,
   ariaLabel,
 }: DialogProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -46,8 +48,10 @@ export function Dialog({
   // Latest onClose without invalidating the effect — callers passing fresh
   // arrows shouldn't steal focus from inputs on every keystroke.
   const onCloseRef = useRef(onClose);
+  const closeOnEscapeRef = useRef(closeOnEscape);
   useEffect(() => {
     onCloseRef.current = onClose;
+    closeOnEscapeRef.current = closeOnEscape;
   });
 
   useEffect(() => {
@@ -62,7 +66,9 @@ export function Dialog({
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.stopPropagation();
-        onCloseRef.current();
+        if (closeOnEscapeRef.current) {
+          onCloseRef.current();
+        }
         return;
       }
       if (e.key === 'Tab') {

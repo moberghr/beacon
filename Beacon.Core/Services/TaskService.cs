@@ -225,10 +225,13 @@ public class TaskService(IDbContextFactory<BeaconContext> contextFactory, ILogge
                 AiActorName = t.Subscription.AiActor != null ? t.Subscription.AiActor.Name : null,
                 // Count executions since task creation
                 ExecutionCount = context.QueryExecutionHistory
-                    .Count(qeh => qeh.SubscriptionId == t.SubscriptionId),
-                // Count distinct result counts to show volatility
+                    .Where(qeh => qeh.SubscriptionId == t.SubscriptionId)
+                    .Where(qeh => qeh.CreatedTime >= t.CreatedTime)
+                    .Count(),
+                // Count distinct result counts since task creation to show volatility
                 UniqueResultCounts = context.QueryExecutionHistory
                     .Where(qeh => qeh.SubscriptionId == t.SubscriptionId)
+                    .Where(qeh => qeh.CreatedTime >= t.CreatedTime)
                     .Select(qeh => qeh.ResultCount)
                     .Distinct()
                     .Count()
@@ -318,23 +321,41 @@ public class TaskService(IDbContextFactory<BeaconContext> contextFactory, ILogge
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        var totalTasks = await context.QueryTasks.CountAsync(cancellationToken);
-        var unresolvedCount = await context.QueryTasks.Where(t => !t.Resolved).CountAsync(cancellationToken);
-        var resolvedCount = await context.QueryTasks.Where(t => t.Resolved).CountAsync(cancellationToken);
-
-        var resolvedTasks = await context.QueryTasks
-            .Where(t => t.Resolved && t.ResolvedAt.HasValue)
-            .Select(t => new { t.CreatedTime, t.ResolvedAt })
+        // Single grouped query instead of three separate COUNTs
+        var taskCounts = await context.QueryTasks
+            .GroupBy(x => x.Resolved)
+            .Select(x =>
+                new
+                {
+                    Resolved = x.Key,
+                    Count = x.Count()
+                })
             .ToListAsync(cancellationToken);
 
-        double? averageResolutionTimeHours = null;
-        if (resolvedTasks.Any())
-        {
-            var totalHours = resolvedTasks
-                .Where(t => t.ResolvedAt.HasValue)
-                .Sum(t => (t.ResolvedAt!.Value - t.CreatedTime).TotalHours);
-            averageResolutionTimeHours = totalHours / resolvedTasks.Count;
-        }
+        var resolvedCount = taskCounts
+            .Where(x => x.Resolved)
+            .Sum(x => x.Count);
+        var unresolvedCount = taskCounts
+            .Where(x => !x.Resolved)
+            .Sum(x => x.Count);
+        var totalTasks = resolvedCount + unresolvedCount;
+
+        // DateTime subtraction does not translate on both providers (SQL Server has no
+        // TimeSpan mapping), so project only the two timestamps and average in memory.
+        var resolvedTasks = await context.QueryTasks
+            .Where(x => x.Resolved)
+            .Where(x => x.ResolvedAt.HasValue)
+            .Select(x =>
+                new
+                {
+                    x.CreatedTime,
+                    x.ResolvedAt
+                })
+            .ToListAsync(cancellationToken);
+
+        double? averageResolutionTimeHours = resolvedTasks.Count > 0
+            ? resolvedTasks.Average(x => (x.ResolvedAt!.Value - x.CreatedTime).TotalHours)
+            : null;
 
         return new TaskStatisticsData
         {
@@ -418,12 +439,15 @@ public class TaskService(IDbContextFactory<BeaconContext> contextFactory, ILogge
         if (subscriptionId == 0)
             return new List<ResultCountDataPoint>();
 
-        // Get result counts from execution history for charting
+        // Get the most recent 100 result counts, then re-order ascending for the chart
         var resultHistory = await context.QueryExecutionHistory
             .Where(qeh => qeh.SubscriptionId == subscriptionId)
-            .OrderBy(qeh => qeh.CreatedTime)
+            .OrderByDescending(qeh => qeh.CreatedTime)
+            .Take(100)
             .Select(qeh => new ResultCountDataPoint(qeh.CreatedTime, qeh.ResultCount))
             .ToListAsync(cancellationToken);
+
+        resultHistory.Reverse();
 
         return resultHistory;
     }

@@ -16,6 +16,8 @@ public class BigQueryProvider(
     IEncryptionService encryptionService,
     ILogger<BigQueryProvider> logger) : IDataSourceProvider
 {
+    private const int MaxResultRows = 10000;
+
     public DataSourceType SupportedType => DataSourceType.BigQuery;
     public string GetQueryLanguageName() => "BigQuery SQL";
 
@@ -89,9 +91,16 @@ public class BigQueryProvider(
 
             var rows = new List<Dictionary<string, object?>>();
             var schema = result.Schema;
+            var truncated = false;
 
             await foreach (var row in result.GetRowsAsync().WithCancellation(cancellationToken))
             {
+                if (rows.Count >= MaxResultRows)
+                {
+                    truncated = true;
+                    break;
+                }
+
                 var dict = new Dictionary<string, object?>();
                 for (int i = 0; i < schema.Fields.Count; i++)
                 {
@@ -110,7 +119,9 @@ public class BigQueryProvider(
                 Metadata = new Dictionary<string, object?>
                 {
                     ["JobId"] = job.Reference.JobId,
-                    ["BytesProcessed"] = job.Statistics?.TotalBytesProcessed
+                    ["BytesProcessed"] = job.Statistics?.TotalBytesProcessed,
+                    ["Truncated"] = truncated,
+                    ["RowLimit"] = MaxResultRows
                 }
             };
         }

@@ -256,6 +256,11 @@ public class CloudWatchProvider(
             throw new BeaconException(errorMsg);
         }
 
+        if (parameters is { Count: > 0 })
+        {
+            throw new NotSupportedException("The CloudWatch connector does not support SQL parameters; inline values directly in the Logs Insights query.");
+        }
+
         // Beacon's `{{start_time}}` / `{{end_time}}` placeholders are intentionally
         // not expanded here — CloudWatch Logs Insights takes start/end as separate
         // request fields (StartTime/EndTime below), not in the query string. Users
@@ -301,36 +306,42 @@ public class CloudWatchProvider(
 
         logger.LogInformation("Started CloudWatch Logs Insights query {QueryId}", queryId);
 
-        // Poll for results. Track elapsed time in milliseconds so the sub-second
-        // poll interval can't be truncated to zero (an integer-division bug that
-        // previously made the timeout unreachable and the loop effectively infinite).
-        var timeoutMs = config.QueryTimeoutSeconds * 1000;
+        // Poll for results with a wall-clock timeout measured by a Stopwatch.
+        var timeout = TimeSpan.FromSeconds(config.QueryTimeoutSeconds);
         var pollIntervalMs = 500;
-        var elapsedMs = 0;
+        var pollStopwatch = Stopwatch.StartNew();
 
         GetQueryResultsResponse? queryResults = null;
 
-        while (elapsedMs < timeoutMs)
+        try
         {
-            var getResultsRequest = new GetQueryResultsRequest { QueryId = queryId };
-            queryResults = await client.GetQueryResultsAsync(getResultsRequest, cancellationToken);
-
-            if (queryResults.Status == QueryStatus.Complete)
+            while (pollStopwatch.Elapsed < timeout)
             {
-                break;
-            }
+                var getResultsRequest = new GetQueryResultsRequest { QueryId = queryId };
+                queryResults = await client.GetQueryResultsAsync(getResultsRequest, cancellationToken);
 
-            if (queryResults.Status == QueryStatus.Failed || queryResults.Status == QueryStatus.Cancelled)
-            {
-                throw new BeaconException($"CloudWatch query {queryId} {queryResults.Status.Value}: {queryResults.Status}");
-            }
+                if (queryResults.Status == QueryStatus.Complete)
+                {
+                    break;
+                }
 
-            await Task.Delay(pollIntervalMs, cancellationToken);
-            elapsedMs += pollIntervalMs;
+                if (queryResults.Status == QueryStatus.Failed || queryResults.Status == QueryStatus.Cancelled)
+                {
+                    throw new BeaconException($"CloudWatch query {queryId} {queryResults.Status.Value}: {queryResults.Status}");
+                }
+
+                await Task.Delay(pollIntervalMs, cancellationToken);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            await TryStopQueryAsync(client, queryId);
+            throw;
         }
 
         if (queryResults?.Status != QueryStatus.Complete)
         {
+            await TryStopQueryAsync(client, queryId);
             throw new BeaconException($"CloudWatch query {queryId} timed out after {config.QueryTimeoutSeconds} seconds");
         }
 
@@ -357,6 +368,20 @@ public class CloudWatchProvider(
                 ["RecordsScanned"] = queryResults.Statistics?.RecordsScanned ?? 0
             }
         };
+    }
+
+    private async Task TryStopQueryAsync(AmazonCloudWatchLogsClient client, string queryId)
+    {
+        try
+        {
+            // Best-effort stop so an abandoned query doesn't keep scanning (and billing).
+            // Not passing the caller's token — it may already be cancelled.
+            await client.StopQueryAsync(new StopQueryRequest { QueryId = queryId });
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to stop CloudWatch query {QueryId}", queryId);
+        }
     }
 
     private CloudWatchConfiguration ParseConfiguration(DataSourceEntity dataSource)

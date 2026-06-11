@@ -25,6 +25,8 @@ internal partial class QueryService
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
+        // Stage parameters on the navigation collection so the step and its
+        // parameters commit together in a single SaveChanges (§5.7).
         var queryStep = new QueryStep
         {
             QueryId = queryId,
@@ -32,16 +34,11 @@ internal partial class QueryService
             StepOrder = stepData.StepOrder,
             Name = stepData.Name,
             Description = stepData.Description,
-            SqlValue = stepData.SqlValue
+            SqlValue = stepData.SqlValue,
+            Parameters = ParameterEntityFactory.CreateQueryStepParameters(stepData.Parameters, 0)
         };
 
         context.QuerySteps.Add(queryStep);
-        await context.SaveChangesAsync(cancellationToken);
-
-        // Create step parameters
-        var parameters = ParameterEntityFactory.CreateQueryStepParameters(stepData.Parameters, queryStep.Id);
-        context.QueryStepParameters.AddRange(parameters);
-
         await context.SaveChangesAsync(cancellationToken);
 
         return new BaseResponse

@@ -285,24 +285,31 @@ internal partial class QueryService
             // Combine with the provided cancellation token if needed
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(timeoutCts.Token);
 
-            // Execute the query with parameterized values to prevent SQL injection
+            // Execute the query with parameterized values to prevent SQL injection.
+            // Unbuffered so rows stream off the reader into a single list instead of
+            // being materialized twice (Dapper buffer + ToList).
             var commandDefinition = new CommandDefinition(
                 commandText: cleanedSql,
                 parameters: parameters,  // Dapper handles parameterized queries securely
                 commandTimeout: timeoutSeconds,
+                flags: CommandFlags.None,
                 cancellationToken: linkedCts.Token
             );
 
             var dapperRows = await connection.QueryAsync(commandDefinition);
 
+            // Convert the dapper rows to a list of dictionaries for reflection and serialization
+            var results = new List<IDictionary<string, object?>>();
+            foreach (var dapperRow in dapperRows)
+            {
+                results.Add((IDictionary<string, object?>)dapperRow);
+            }
+
             stopwatch.Stop();
             var executionTimeMs = stopwatch.Elapsed.TotalMilliseconds;
-
-            // Convert the dapper rows to a list of dictionaries for reflection and serialization
-            var results = dapperRows.Select(x => (IDictionary<string, object?>)x).ToList();
             return (results, executionTimeMs, false);
         }
-        catch (TaskCanceledException)
+        catch (OperationCanceledException)
         {
             // Query was cancelled due to timeout
             stopwatch.Stop();

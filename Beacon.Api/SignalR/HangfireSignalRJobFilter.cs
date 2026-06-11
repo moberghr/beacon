@@ -42,8 +42,14 @@ public sealed class HangfireSignalRJobFilter : JobFilterAttribute, IApplyStateFi
             context.NewState.Name,
             DateTimeOffset.UtcNow);
 
-        // Fire-and-forget — Hangfire transaction commits regardless of SignalR delivery.
-        _ = hubContext.Clients.User(userId).SendAsync(BeaconHubEventNames.JobStatusChanged, payload);
+        // Fire-and-forget — Hangfire transaction commits regardless of SignalR delivery,
+        // but faults are observed and logged instead of being silently swallowed.
+        var logger = _serviceProvider.GetService(typeof(ILogger<HangfireSignalRJobFilter>)) as ILogger<HangfireSignalRJobFilter>;
+        var jobId = context.BackgroundJob.Id;
+        _ = hubContext.Clients.User(userId).SendAsync(BeaconHubEventNames.JobStatusChanged, payload)
+            .ContinueWith(
+                x => logger?.LogWarning(x.Exception, "Failed to publish JobStatusChanged for job {JobId}.", jobId),
+                TaskContinuationOptions.OnlyOnFaulted);
     }
 
     public void OnStateUnapplied(ApplyStateContext context, IWriteOnlyTransaction transaction)
