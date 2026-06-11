@@ -95,7 +95,9 @@ public class AzureSynapseMetadataExtractor : IDatabaseMetadataExtractor
                         ForeignKeyTable: hasFk ? fkInfo.TableName : null,
                         ForeignKeyColumn: hasFk ? fkInfo.ColumnName : null,
                         DefaultValue: null,
-                        MaxLength: c.max_length as int?,
+                        // sys.columns.max_length is boxed as short, so `as int?` is always null — convert explicitly.
+                        // Note: for nvarchar/nchar this value is in bytes (2x the character length).
+                        MaxLength: c.max_length == null ? (int?)null : Convert.ToInt32(c.max_length),
                         Description: null
                     );
                 }).ToList();

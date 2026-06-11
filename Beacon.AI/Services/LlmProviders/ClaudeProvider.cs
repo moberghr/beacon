@@ -1,5 +1,6 @@
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Exceptions;
 
@@ -25,7 +26,8 @@ public class ClaudeProvider : ILlmProvider
         _model = model;
         _httpClient = new HttpClient
         {
-            BaseAddress = new Uri("https://api.anthropic.com/v1/")
+            BaseAddress = new Uri("https://api.anthropic.com/v1/"),
+            Timeout = TimeSpan.FromMinutes(5)
         };
         _httpClient.DefaultRequestHeaders.Add("x-api-key", _apiKey);
         _httpClient.DefaultRequestHeaders.Add("anthropic-version", "2023-06-01");
@@ -61,6 +63,9 @@ public class ClaudeProvider : ILlmProvider
             if (result == null)
                 throw new AiServiceException("Failed to parse Claude API response");
 
+            if (result.Usage == null)
+                throw new AiServiceException("Claude API response did not contain usage information");
+
             var content = result.Content?.FirstOrDefault()?.Text ?? string.Empty;
 
             // Calculate costs
@@ -93,21 +98,34 @@ public class ClaudeProvider : ILlmProvider
 
     private class ClaudeResponse
     {
+        [JsonPropertyName("model")]
         public string Model { get; set; } = null!;
+
+        [JsonPropertyName("content")]
         public List<ContentBlock>? Content { get; set; }
-        public UsageInfo Usage { get; set; } = null!;
+
+        [JsonPropertyName("usage")]
+        public UsageInfo? Usage { get; set; }
     }
 
     private class ContentBlock
     {
+        [JsonPropertyName("type")]
         public string Type { get; set; } = null!;
+
+        [JsonPropertyName("text")]
         public string Text { get; set; } = null!;
     }
 
     private class UsageInfo
     {
+        [JsonPropertyName("input_tokens")]
         public int InputTokens { get; set; }
+
+        [JsonPropertyName("output_tokens")]
         public int OutputTokens { get; set; }
+
+        [JsonPropertyName("cache_read_input_tokens")]
         public int CacheReadInputTokens { get; set; }
     }
 

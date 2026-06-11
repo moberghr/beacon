@@ -9,8 +9,7 @@ namespace Beacon.AI.Handlers.Projects;
 
 internal sealed class InstructDocumentationHandler(
     IDbContextFactory<BeaconContext> contextFactory,
-    ILlmProvider llmProvider,
-    LlmRequestQueue requestQueue)
+    ILlmProvider llmProvider)
     : IRequestHandler<InstructDocumentationCommand, InstructDocumentationResult>
 {
     public async Task<InstructDocumentationResult> Handle(
@@ -47,7 +46,7 @@ internal sealed class InstructDocumentationHandler(
             MaxTokens = 8192
         };
 
-        var response = await requestQueue.EnqueueRequestAsync(llmProvider, llmRequest, cancellationToken);
+        var response = await llmProvider.CompleteAsync(llmRequest, cancellationToken);
 
         return new InstructDocumentationResult(response.Content);
     }

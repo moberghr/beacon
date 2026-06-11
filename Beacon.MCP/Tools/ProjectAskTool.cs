@@ -118,7 +118,7 @@ internal sealed class ProjectAskTool(
                 text += "\n";
 
                 text += await crossSourceQueryService.ExecuteAsync(
-                    llmProvider, routing.Sources, question, settings, execute, cancellationToken);
+                    llmProvider, routing.Sources, question, settings, execute, signal, cancellationToken);
             }
 
             sw.Stop();

@@ -17,18 +17,20 @@ internal sealed class ApplyDocumentationPatchHandler(IDbContextFactory<BeaconCon
         if (patch.Status != McpDocPatchStatus.Proposed)
             throw new InvalidOperationException($"Patch {request.PatchId} is already {patch.Status}");
 
-        // Apply the patch to the target entity
-        switch (patch.TargetType)
+        // Apply the patch to the target entity. If the target can't be located, leave the patch
+        // in Proposed so it stays retryable rather than silently marking it Applied.
+        var applied = patch.TargetType switch
         {
-            case McpDocPatchTarget.ColumnDescription:
-                await ApplyColumnDescriptionAsync(context, patch, cancellationToken);
-                break;
-            case McpDocPatchTarget.TableDescription:
-                await ApplyTableDescriptionAsync(context, patch, cancellationToken);
-                break;
-            case McpDocPatchTarget.DocumentationSection:
-                await ApplyDocumentationSectionAsync(context, patch, cancellationToken);
-                break;
+            McpDocPatchTarget.ColumnDescription => await ApplyColumnDescriptionAsync(context, patch, cancellationToken),
+            McpDocPatchTarget.TableDescription => await ApplyTableDescriptionAsync(context, patch, cancellationToken),
+            McpDocPatchTarget.DocumentationSection => await ApplyDocumentationSectionAsync(context, patch, cancellationToken),
+            _ => false
+        };
+
+        if (!applied)
+        {
+            throw new InvalidOperationException(
+                $"Patch {request.PatchId} target '{patch.TargetIdentifier}' was not found; patch remains retryable");
         }
 
         patch.Status = McpDocPatchStatus.Applied;
@@ -38,11 +40,14 @@ internal sealed class ApplyDocumentationPatchHandler(IDbContextFactory<BeaconCon
         await context.SaveChangesAsync(cancellationToken);
     }
 
-    private static async Task ApplyColumnDescriptionAsync(BeaconContext context, Data.Entities.McpDocumentationPatch patch, CancellationToken ct)
+    private static async Task<bool> ApplyColumnDescriptionAsync(BeaconContext context, Data.Entities.McpDocumentationPatch patch, CancellationToken ct)
     {
         // TargetIdentifier format: "schema.table.column"
         var parts = patch.TargetIdentifier.Split('.');
-        if (parts.Length < 3) return;
+        if (parts.Length < 3)
+        {
+            return false;
+        }
 
         var schema = parts[0];
         var table = parts[1];
@@ -55,15 +60,23 @@ internal sealed class ApplyDocumentationPatchHandler(IDbContextFactory<BeaconCon
                 c.DatabaseMetadata.TableName == table &&
                 c.ColumnName == column, ct);
 
-        if (col != null)
-            col.Description = patch.ProposedContent;
+        if (col == null)
+        {
+            return false;
+        }
+
+        col.Description = patch.ProposedContent;
+        return true;
     }
 
-    private static async Task ApplyTableDescriptionAsync(BeaconContext context, Data.Entities.McpDocumentationPatch patch, CancellationToken ct)
+    private static async Task<bool> ApplyTableDescriptionAsync(BeaconContext context, Data.Entities.McpDocumentationPatch patch, CancellationToken ct)
     {
         // TargetIdentifier format: "schema.table"
         var parts = patch.TargetIdentifier.Split('.');
-        if (parts.Length < 2) return;
+        if (parts.Length < 2)
+        {
+            return false;
+        }
 
         var metadata = await context.DatabaseMetadata
             .FirstOrDefaultAsync(m =>
@@ -71,11 +84,16 @@ internal sealed class ApplyDocumentationPatchHandler(IDbContextFactory<BeaconCon
                 m.SchemaName == parts[0] &&
                 m.TableName == parts[1], ct);
 
-        if (metadata != null)
-            metadata.TableDescription = patch.ProposedContent;
+        if (metadata == null)
+        {
+            return false;
+        }
+
+        metadata.TableDescription = patch.ProposedContent;
+        return true;
     }
 
-    private static async Task ApplyDocumentationSectionAsync(BeaconContext context, Data.Entities.McpDocumentationPatch patch, CancellationToken ct)
+    private static async Task<bool> ApplyDocumentationSectionAsync(BeaconContext context, Data.Entities.McpDocumentationPatch patch, CancellationToken ct)
     {
         // TargetIdentifier format: "ProjectDocumentation:{docId}:SectionType:{sectionType}"
         // Or simpler: find the latest doc section of the given type for this project
@@ -84,15 +102,23 @@ internal sealed class ApplyDocumentationPatchHandler(IDbContextFactory<BeaconCon
             .OrderByDescending(d => d.GeneratedAt)
             .FirstOrDefaultAsync(ct);
 
-        if (latestDoc == null) return;
+        if (latestDoc == null)
+        {
+            return false;
+        }
 
         var section = await context.ProjectDocumentationSections
             .FirstOrDefaultAsync(s =>
                 s.ProjectDocumentationId == latestDoc.Id &&
                 s.Title == patch.TargetIdentifier, ct);
 
-        if (section != null)
-            section.Content += "\n\n" + patch.ProposedContent;
+        if (section == null)
+        {
+            return false;
+        }
+
+        section.Content += "\n\n" + patch.ProposedContent;
+        return true;
     }
 }
 

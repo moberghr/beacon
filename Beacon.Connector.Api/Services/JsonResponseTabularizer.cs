@@ -12,6 +12,19 @@ public class JsonResponseTabularizer
         ApiResultMapping mapping,
         int maxRows = 1000)
     {
+        return Tabularize(jsonResponse, mapping, out _, out _, maxRows);
+    }
+
+    public List<Dictionary<string, object?>> Tabularize(
+        string jsonResponse,
+        ApiResultMapping mapping,
+        out bool truncated,
+        out int totalAvailable,
+        int maxRows = 1000)
+    {
+        truncated = false;
+        totalAvailable = 0;
+
         var rootNode = JsonNode.Parse(jsonResponse);
         if (rootNode == null)
             return new List<Dictionary<string, object?>>();
@@ -41,8 +54,13 @@ public class JsonResponseTabularizer
         if (elements.Count == 0)
             return new List<Dictionary<string, object?>>();
 
+        totalAvailable = elements.Count;
+
         if (elements.Count > maxRows)
+        {
+            truncated = true;
             elements = elements.Take(maxRows).ToList();
+        }
 
         if (mapping.Columns != null && mapping.Columns.Count > 0)
             return TabularizeWithExplicitColumns(elements, mapping.Columns);

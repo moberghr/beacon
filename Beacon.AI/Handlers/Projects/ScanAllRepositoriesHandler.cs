@@ -7,7 +7,7 @@ using Beacon.Core.Handlers.Projects;
 namespace Beacon.AI.Handlers.Projects;
 
 internal sealed class ScanAllRepositoriesHandler(
-    BeaconContext context,
+    IDbContextFactory<BeaconContext> contextFactory,
     IGitHubScannerService scanner,
     ILogger<ScanAllRepositoriesHandler> logger)
     : IRequestHandler<ScanAllRepositoriesCommand, ScanAllRepositoriesResult>
@@ -16,6 +16,8 @@ internal sealed class ScanAllRepositoriesHandler(
         ScanAllRepositoriesCommand request,
         CancellationToken cancellationToken)
     {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
         var repoIds = await context.GitHubRepositories
             .Where(r => r.ProjectId == request.ProjectId)
             .Select(r => r.Id)

@@ -13,7 +13,8 @@ internal static class DataSourcesEndpoints
             .WithName("GetDataSources");
 
         ds.MapPost("/", (CreateDataSourceCommand cmd, IMediator m, CancellationToken ct) => m.Send(cmd, ct))
-            .WithName("CreateDataSource");
+            .WithName("CreateDataSource")
+            .RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
 
         ds.MapPost("/test-connection", (TestDataSourceConnectionCommand cmd, IMediator m, CancellationToken ct) => m.Send(cmd, ct))
             .WithName("TestDataSourceConnection");
@@ -30,7 +31,7 @@ internal static class DataSourcesEndpoints
         {
             await m.Send(new DeleteDataSourceCommand(id), ct);
             return TypedResults.NoContent();
-        }).WithName("DeleteDataSource");
+        }).WithName("DeleteDataSource").RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
 
         return group;
     }

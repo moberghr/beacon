@@ -28,6 +28,28 @@ public class JwtAuthenticationOptions
     /// Maps JWT claims to Beacon user properties.
     /// </summary>
     public JwtClaimsMappingOptions ClaimsMapping { get; set; } = new();
+
+    /// <summary>
+    /// Validates that the options are internally consistent. Call after binding configuration
+    /// (e.g. from <c>AddBeaconServices</c> / the host composition root) before the provider is used.
+    /// Any flow that validates tokens — bearer authentication or external login — requires either a
+    /// signing key or a JWKS endpoint; otherwise token signatures cannot be verified.
+    /// </summary>
+    public void Validate()
+    {
+        var requiresKey = EnableBearerAuthentication || !string.IsNullOrWhiteSpace(ExternalLoginEndpoint);
+        if (!requiresKey)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(Validation.SigningKey) && string.IsNullOrWhiteSpace(Validation.JwksEndpoint))
+        {
+            throw new InvalidOperationException(
+                "JWT authentication requires Validation.SigningKey or Validation.JwksEndpoint to be configured " +
+                "when EnableBearerAuthentication or ExternalLoginEndpoint is set.");
+        }
+    }
 }
 
 /// <summary>

@@ -29,6 +29,7 @@ internal sealed class CrossSourceQueryService(
         string question,
         McpSettingsData settings,
         bool execute,
+        McpSignalBuilder signal,
         CancellationToken ct)
     {
         var text = "";
@@ -89,7 +90,7 @@ internal sealed class CrossSourceQueryService(
             }
 
             // Dry-run before execution: one bounded repair per source, never a hard block
-            sql = await DryRunWithRepairAsync(llmProvider, dataSource, source, sql, schemaContext, question, settings, ct);
+            sql = await DryRunWithRepairAsync(llmProvider, dataSource, source, sql, schemaContext, question, settings, signal, ct);
 
             var limitedSql = guardrailService.ApplyRowLimit(sql, 500, dataSource.DatabaseEngineType?.ToString());
             var provider = providerFactory.GetProvider(dataSource.DataSourceType);
@@ -148,6 +149,19 @@ internal sealed class CrossSourceQueryService(
 
         text += $"\n### Join Query\n```sql\n{translatedSql}\n```\n\n";
 
+        // The join SQL is LLM-generated from the user's question — validate read-only before running it
+        // against the in-memory SQLite store (defense-in-depth, §1.5).
+        if (settings.EnforceReadOnly)
+        {
+            var joinAstError = readOnlyAstValidator.Validate(translatedSql, "SQLite");
+            if (joinAstError != null)
+            {
+                text += $"**Validation Error for join query:** {joinAstError}\n";
+
+                return text;
+            }
+        }
+
         var (joinResults, execTimeMs, timedOut) = await memDb.ExecuteQueryAsync(translatedSql, 30);
 
         if (timedOut)
@@ -175,6 +189,7 @@ internal sealed class CrossSourceQueryService(
         string schemaContext,
         string question,
         McpSettingsData settings,
+        McpSignalBuilder signal,
         CancellationToken ct)
     {
         string? dryRunError;
@@ -203,6 +218,7 @@ internal sealed class CrossSourceQueryService(
         }
 
         logger.LogInformation("Dry-run failed for {DataSourceName}, retrying. Error: {Error}", source.DataSourceName, dryRunError);
+        signal.SetDryRunFailed(dryRunError);
 
         var systemPrompt = settings.AskSystemPrompt ?? "You are a SQL expert. Return ONLY the SQL query.";
         var retriedSql = await sqlGenerationService.RetryWithErrorAsync(
@@ -228,6 +244,29 @@ internal sealed class CrossSourceQueryService(
         {
             return sql;
         }
+
+        // Re-run the dry-run to confirm the repair actually fixed the query before adopting it
+        try
+        {
+            var provider = providerFactory.GetProvider(dataSource.DataSourceType);
+            var reDryRun = await provider.ValidateQueryAsync(dataSource, retriedSql, ct);
+            if (!reDryRun.IsValid)
+            {
+                signal.SetRetry(retriedSql, false);
+
+                return sql;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Re-validation unavailable for data source {DataSourceId}", dataSource.Id);
+        }
+
+        signal.SetRetry(retriedSql, true);
 
         return retriedSql;
     }

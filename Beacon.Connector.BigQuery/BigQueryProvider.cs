@@ -25,12 +25,11 @@ public class BigQueryProvider(
         try
         {
             var config = ParseConfiguration(dataSource);
-            var client = CreateBigQueryClient(config);
+            using var client = CreateBigQueryClient(config);
 
-            // Test by listing datasets (lightweight operation)
-            var datasets = client.ListDatasets(config.ProjectId);
-            var count = 0;
-            foreach (var _ in datasets) { count++; if (count >= 1) break; }
+            // Test by listing a single dataset (lightweight operation)
+            var datasets = client.ListDatasetsAsync(config.ProjectId);
+            await datasets.ReadPageAsync(1, cancellationToken);
 
             stopwatch.Stop();
             return new ConnectionTestResult
@@ -64,7 +63,7 @@ public class BigQueryProvider(
         try
         {
             var config = ParseConfiguration(dataSource);
-            var client = CreateBigQueryClient(config);
+            using var client = CreateBigQueryClient(config);
 
             var queryOptions = new QueryOptions
             {
@@ -76,8 +75,17 @@ public class BigQueryProvider(
                 queryOptions.DefaultDataset = client.GetDatasetReference(config.ProjectId, config.DatasetId);
             }
 
-            var job = await client.CreateQueryJobAsync(query, parameters: null, queryOptions, cancellationToken);
-            var result = await client.GetQueryResultsAsync(job.Reference, cancellationToken: cancellationToken);
+            // §1.10 — bind caller-supplied values as named BigQuery parameters rather than dropping them.
+            var queryParameters = BuildQueryParameters(parameters, queryOptions);
+
+            var job = await client.CreateQueryJobAsync(query, queryParameters, queryOptions, cancellationToken);
+
+            // Honor the configured query timeout (defaults to ~5 minutes when unset).
+            var resultOptions = new GetQueryResultsOptions
+            {
+                Timeout = TimeSpan.FromSeconds(config.QueryTimeoutSeconds)
+            };
+            var result = await client.GetQueryResultsAsync(job.Reference, resultOptions, cancellationToken);
 
             var rows = new List<Dictionary<string, object?>>();
             var schema = result.Schema;
@@ -137,6 +145,25 @@ public class BigQueryProvider(
             IsValid = !string.IsNullOrWhiteSpace(query),
             Errors = string.IsNullOrWhiteSpace(query) ? new List<string> { "Query cannot be empty" } : new List<string>()
         });
+    }
+
+    private static IEnumerable<BigQueryParameter>? BuildQueryParameters(Dictionary<string, object?> parameters, QueryOptions queryOptions)
+    {
+        if (parameters == null || parameters.Count == 0)
+        {
+            return null;
+        }
+
+        queryOptions.ParameterMode = BigQueryParameterMode.Named;
+
+        var result = new List<BigQueryParameter>();
+        foreach (var parameter in parameters)
+        {
+            // Pass a null db type so BigQuery infers it from the value.
+            result.Add(new BigQueryParameter(parameter.Key, (BigQueryDbType?)null, parameter.Value));
+        }
+
+        return result;
     }
 
     private BigQueryConfiguration ParseConfiguration(DataSource dataSource)

@@ -118,6 +118,23 @@ export interface LearningStatsResult {
   problemTables: ProblemTableEntry[];
 }
 
+export interface McpToolsResult {
+  toolNames: string[];
+}
+
+export interface RunMcpToolResult {
+  text: string;
+  isError: boolean;
+}
+
+export interface LearnedPatternsResult {
+  patterns: LearnedPatternEntry[];
+}
+
+export interface DocumentationPatchesResult {
+  patches: DocumentationPatchEntry[];
+}
+
 export const MCP_SETTINGS_KEY = ['mcp', 'settings'] as const;
 export const MCP_TOOLS_KEY = ['mcp', 'tools'] as const;
 export const MCP_LEARNING_STATS_KEY = ['mcp', 'learning-stats'] as const;
@@ -146,8 +163,7 @@ export function useUpdateMcpSettings() {
 export function useMcpTools() {
   return useQuery({
     queryKey: MCP_TOOLS_KEY,
-    queryFn: async () =>
-      (await beaconApi().getMcpTools()) as unknown as { toolNames: string[] },
+    queryFn: async () => unwrap<McpToolsResult>(await beaconApi().getMcpTools()),
   });
 }
 
@@ -157,11 +173,7 @@ export function useRunMcpTool() {
       toolName: string;
       projectId: number;
       arguments: Record<string, unknown>;
-    }) =>
-      (await beaconApi().runMcpTool(vars as never)) as unknown as {
-        text: string;
-        isError: boolean;
-      },
+    }) => unwrap<RunMcpToolResult>(await beaconApi().runMcpTool(vars as never)),
   });
 }
 
@@ -177,13 +189,15 @@ export function useLearnedPatterns() {
   return useQuery({
     queryKey: MCP_PATTERNS_KEY,
     queryFn: async () =>
-      (await beaconApi().getLearnedPatterns(
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-      )) as unknown as { patterns: LearnedPatternEntry[] },
+      unwrap<LearnedPatternsResult>(
+        await beaconApi().getLearnedPatterns(
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+        ),
+      ),
   });
 }
 
@@ -191,9 +205,9 @@ export function useDocumentationPatches() {
   return useQuery({
     queryKey: MCP_PATCHES_KEY,
     queryFn: async () =>
-      (await beaconApi().getDocumentationPatches(undefined, undefined)) as unknown as {
-        patches: DocumentationPatchEntry[];
-      },
+      unwrap<DocumentationPatchesResult>(
+        await beaconApi().getDocumentationPatches(undefined, undefined),
+      ),
   });
 }
 
