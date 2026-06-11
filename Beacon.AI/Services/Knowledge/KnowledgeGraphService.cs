@@ -624,7 +624,8 @@ internal sealed class KnowledgeGraphService(
                 m.TableDescription,
                 Columns = m.Columns.Select(c => new SchemaColumn(
                     c.ColumnName, c.DataType, c.IsPrimaryKey, c.IsNullable,
-                    c.ForeignKeyTable, c.ForeignKeyColumn, c.Description
+                    c.ForeignKeyTable, c.ForeignKeyColumn, c.Description,
+                    c.MaxLength, c.SampleValues
                 )).ToList()
             })
             .ToListAsync(ct);
@@ -644,7 +645,7 @@ internal sealed class KnowledgeGraphService(
             sb.AppendLine($"Tables: {allTables.Count}\n");
 
             foreach (var t in allTables)
-                AppendTableWithFullColumns(sb, t.SchemaName, t.TableName, t.TableDescription, t.Columns, isApi);
+                SchemaContextFormatter.AppendTableWithFullColumns(sb, t.SchemaName, t.TableName, t.TableDescription, t.Columns, isApi);
 
             // Inject learned patterns
             if (mcpSettings.EnableLearning)
@@ -728,7 +729,7 @@ internal sealed class KnowledgeGraphService(
         // Section 1: Relevant tables with full schema
         smartSb.AppendLine("## Relevant Tables (full schema)\n");
         foreach (var t in allTables.Where(t => detailedTables.Contains($"{t.SchemaName}.{t.TableName}")))
-            AppendTableWithFullColumns(smartSb, t.SchemaName, t.TableName, t.TableDescription, t.Columns, isApi);
+            SchemaContextFormatter.AppendTableWithFullColumns(smartSb, t.SchemaName, t.TableName, t.TableDescription, t.Columns, isApi);
 
         // Section 2: Other tables compact
         var otherTables = allTables.Where(t => !detailedTables.Contains($"{t.SchemaName}.{t.TableName}")).ToList();
@@ -736,7 +737,7 @@ internal sealed class KnowledgeGraphService(
         {
             smartSb.AppendLine("\n## Other Tables (name and primary keys only)\n");
             foreach (var t in otherTables)
-                AppendTableCompact(smartSb, t.SchemaName, t.TableName, t.TableDescription, t.Columns, isApi);
+                SchemaContextFormatter.AppendTableCompact(smartSb, t.SchemaName, t.TableName, t.TableDescription, t.Columns, isApi);
         }
 
         // Inject learned patterns for relevant tables
@@ -777,7 +778,8 @@ internal sealed class KnowledgeGraphService(
                 m.TableDescription,
                 Columns = m.Columns.Select(c => new SchemaColumn(
                     c.ColumnName, c.DataType, c.IsPrimaryKey, c.IsNullable,
-                    c.ForeignKeyTable, c.ForeignKeyColumn, c.Description
+                    c.ForeignKeyTable, c.ForeignKeyColumn, c.Description,
+                    c.MaxLength, c.SampleValues
                 )).ToList()
             })
             .ToListAsync(ct);
@@ -791,62 +793,10 @@ internal sealed class KnowledgeGraphService(
         var sb = new StringBuilder();
         sb.AppendLine("# Table Schemas\n");
         foreach (var t in matched)
-            AppendTableWithFullColumns(sb, t.SchemaName, t.TableName, t.TableDescription, t.Columns, isApi);
+            SchemaContextFormatter.AppendTableWithFullColumns(sb, t.SchemaName, t.TableName, t.TableDescription, t.Columns, isApi);
 
         return sb.ToString();
     }
-
-    private static void AppendTableWithFullColumns(
-        StringBuilder sb, string schemaName, string tableName, string? description,
-        IEnumerable<SchemaColumn> columns, bool isApi)
-    {
-        if (isApi)
-        {
-            sb.AppendLine($"### {tableName}");
-            if (description != null) sb.AppendLine($"  {description}");
-        }
-        else
-        {
-            sb.AppendLine($"### {schemaName}.{tableName}");
-            if (description != null) sb.AppendLine($"  {description}");
-        }
-
-        sb.AppendLine("  Columns:");
-        foreach (var col in columns)
-        {
-            sb.Append($"    - {col.ColumnName} ({col.DataType})");
-            if (col.IsPrimaryKey) sb.Append(" [PK]");
-            if (!col.IsNullable) sb.Append(" NOT NULL");
-            if (col.ForeignKeyTable != null) sb.Append($" FK→{col.ForeignKeyTable}.{col.ForeignKeyColumn}");
-            if (col.Description != null) sb.Append($" -- {col.Description}");
-            sb.AppendLine();
-        }
-        sb.AppendLine();
-    }
-
-    private static void AppendTableCompact(
-        StringBuilder sb, string schemaName, string tableName, string? description,
-        IEnumerable<SchemaColumn> columns, bool isApi)
-    {
-        var columnList = columns.ToList();
-        var pks = columnList.Where(c => c.IsPrimaryKey).Select(c => c.ColumnName).ToList();
-        var pkStr = pks.Count > 0 ? $"PK: {string.Join(", ", pks)}" : "no PK";
-        var label = isApi ? tableName : $"{schemaName}.{tableName}";
-        sb.Append($"  - {label} ({pkStr})");
-        if (description != null) sb.Append($" -- {description}");
-        sb.AppendLine();
-
-        // Show all column names so LLM never has to guess
-        var colNames = columnList.Select(c => c.ColumnName).ToList();
-        if (colNames.Count > 0)
-        {
-            sb.AppendLine($"    Columns: {string.Join(", ", colNames)}");
-        }
-    }
-
-    private record SchemaColumn(
-        string ColumnName, string DataType, bool IsPrimaryKey, bool IsNullable,
-        string? ForeignKeyTable, string? ForeignKeyColumn, string? Description);
 
     private static string? TruncateContent(string? content, int maxLength)
     {

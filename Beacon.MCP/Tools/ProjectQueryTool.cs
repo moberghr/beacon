@@ -17,6 +17,7 @@ internal sealed class ProjectQueryTool(
     IDbContextFactory<BeaconContext> contextFactory,
     IDataSourceProviderFactory providerFactory,
     IQueryGuardrailService guardrailService,
+    SqlReadOnlyAstValidator readOnlyAstValidator,
     IMcpSettingsProvider settingsProvider,
     IProjectContext projectContext,
     McpProjectContextManager sessionManager,
@@ -98,6 +99,22 @@ internal sealed class ProjectQueryTool(
                 });
                 if (!validation.IsValid)
                     return ToolHelper.Error($"Query validation failed: {validation.Error}");
+
+                // AST-based read-only defense-in-depth on top of the regex guardrail (§1.5)
+                if (settings.EnforceReadOnly)
+                {
+                    var astError = readOnlyAstValidator.Validate(sql, dataSource.DatabaseEngineType?.ToString());
+                    if (astError != null)
+                    {
+                        sw.Stop();
+                        signal.SetExecutionFailed(astError);
+                        signal.SetResult(null, (int)sw.ElapsedMilliseconds, false);
+                        await auditService.LogToolCallAsync(null, projectContext.UserId, "query",
+                            sql, datasource_id, projectId, (int)sw.ElapsedMilliseconds, null, astError, cancellationToken);
+                        await signalService.RecordSignalAsync(signal.Build(), cancellationToken);
+                        return ToolHelper.Error($"Query validation failed: {astError}");
+                    }
+                }
 
                 queryText = guardrailService.ApplyRowLimit(sql, maxRows, dataSource.DatabaseEngineType?.ToString());
             }

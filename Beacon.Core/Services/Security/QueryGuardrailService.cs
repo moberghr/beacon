@@ -111,6 +111,36 @@ internal sealed class QueryGuardrailService : IQueryGuardrailService
             .ToList();
     }
 
+    public bool IsPiiColumn(string columnName, IReadOnlyList<string>? customPatterns = null)
+    {
+        if (PiiColumnPattern.IsMatch(columnName))
+        {
+            return true;
+        }
+
+        if (customPatterns is not { Count: > 0 })
+        {
+            return false;
+        }
+
+        foreach (var pattern in customPatterns)
+        {
+            try
+            {
+                if (Regex.IsMatch(columnName, pattern, RegexOptions.IgnoreCase, TimeSpan.FromSeconds(1)))
+                {
+                    return true;
+                }
+            }
+            catch
+            {
+                // Invalid regex pattern — skip
+            }
+        }
+
+        return false;
+    }
+
     public Dictionary<string, object?> MaskPiiValues(Dictionary<string, object?> row, IEnumerable<string> piiColumns)
     {
         var piiSet = new HashSet<string>(piiColumns, StringComparer.OrdinalIgnoreCase);

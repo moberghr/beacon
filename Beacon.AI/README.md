@@ -177,7 +177,7 @@ For complete documentation, visit: https://github.com/MiBu/semantico
 
 ## License
 
-MIT License - see LICENSE file for details
+GNU AGPL v3.0 or Commercial license - see LICENSE file for details
 
 ## Support
 

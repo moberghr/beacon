@@ -5,6 +5,7 @@ public interface IQueryGuardrailService
     QueryValidationResult ValidateQuery(string sql, QueryGuardrailOptions? options = null);
     string ApplyRowLimit(string sql, int maxRows, string? databaseEngine = null);
     List<string> DetectPiiColumns(string sql, IEnumerable<string> columnNames);
+    bool IsPiiColumn(string columnName, IReadOnlyList<string>? customPatterns = null);
     Dictionary<string, object?> MaskPiiValues(Dictionary<string, object?> row, IEnumerable<string> piiColumns);
 }
 

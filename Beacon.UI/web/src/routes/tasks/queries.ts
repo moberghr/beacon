@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
 import { createSimpleMutation } from '@/lib/mutations';
 
@@ -118,21 +119,21 @@ export function useTasksQuery(args: UseTasksArgs) {
   return useQuery({
     queryKey: TASKS_KEY(args),
     queryFn: async () =>
-      (await beaconApi().getTasks(
+      unwrap<GetTasksResult>(await beaconApi().getTasks(
         undefined,
         resolved,
         'CreatedAt',
         true,
         args.page,
         args.pageSize,
-      )) as unknown as GetTasksResult,
+      )),
   });
 }
 
 export function useTaskDetailQuery(id: number | undefined) {
   return useQuery({
     queryKey: ['task', id],
-    queryFn: async () => (await beaconApi().getTaskDetail(id as number)) as unknown as TaskDetail,
+    queryFn: async () => unwrap<TaskDetail>(await beaconApi().getTaskDetail(id as number)),
     enabled: typeof id === 'number' && Number.isFinite(id),
   });
 }
@@ -141,7 +142,7 @@ export function useTaskExecutionsQuery(id: number | undefined) {
   return useQuery({
     queryKey: ['tasks', 'executions', id],
     queryFn: async () =>
-      (await beaconApi().getTaskExecutions(id as number)) as unknown as TaskExecutionsResult,
+      unwrap<TaskExecutionsResult>(await beaconApi().getTaskExecutions(id as number)),
     enabled: typeof id === 'number' && Number.isFinite(id),
   });
 }
@@ -150,7 +151,7 @@ export function useTaskRelatedQuery(id: number | undefined) {
   return useQuery({
     queryKey: ['tasks', 'related', id],
     queryFn: async () =>
-      (await beaconApi().getTaskRelated(id as number)) as unknown as TaskRelatedResult,
+      unwrap<TaskRelatedResult>(await beaconApi().getTaskRelated(id as number)),
     enabled: typeof id === 'number' && Number.isFinite(id),
   });
 }
@@ -159,7 +160,7 @@ export function useTaskResultHistoryQuery(id: number | undefined) {
   return useQuery({
     queryKey: ['tasks', 'result-history', id],
     queryFn: async () =>
-      (await beaconApi().getTaskResultHistory(id as number)) as unknown as TaskResultHistoryResult,
+      unwrap<TaskResultHistoryResult>(await beaconApi().getTaskResultHistory(id as number)),
     enabled: typeof id === 'number' && Number.isFinite(id),
   });
 }
@@ -168,7 +169,7 @@ export function useTaskCommentsQuery(id: number | undefined) {
   return useQuery({
     queryKey: ['tasks', 'comments', id],
     queryFn: async () =>
-      (await beaconApi().getTaskComments(id as number)) as unknown as TaskCommentsResult,
+      unwrap<TaskCommentsResult>(await beaconApi().getTaskComments(id as number)),
     enabled: typeof id === 'number' && Number.isFinite(id),
   });
 }

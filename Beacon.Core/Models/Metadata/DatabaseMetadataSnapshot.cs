@@ -28,7 +28,8 @@ public record ColumnMetadataDto(
     string? ForeignKeyColumn,
     string? DefaultValue,
     int? MaxLength,
-    string? Description
+    string? Description,
+    IReadOnlyList<string>? SampleValues = null
 );
 
 public record IndexMetadataDto(

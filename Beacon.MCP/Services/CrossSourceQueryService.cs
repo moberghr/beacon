@@ -17,6 +17,7 @@ internal sealed class CrossSourceQueryService(
     IDbContextFactory<BeaconContext> contextFactory,
     IDataSourceProviderFactory providerFactory,
     IQueryGuardrailService guardrailService,
+    SqlReadOnlyAstValidator readOnlyAstValidator,
     IKnowledgeGraphService knowledgeGraph,
     ISqlGenerationService sqlGenerationService,
     ILoggerFactory loggerFactory,
@@ -32,7 +33,7 @@ internal sealed class CrossSourceQueryService(
     {
         var text = "";
 
-        var sourceQueries = new List<(RoutedSource Source, string Sql)>();
+        var sourceQueries = new List<(RoutedSource Source, string Sql, string SchemaContext)>();
         foreach (var source in sources)
         {
             var smartContext = await knowledgeGraph.GetSmartContextForAskAsync(source.DataSourceId, question, ct);
@@ -40,7 +41,7 @@ internal sealed class CrossSourceQueryService(
             var sqlResult = await sqlGenerationService.GenerateAsync(
                 llmProvider, smartContext.FullContext, question, settings, ct);
 
-            sourceQueries.Add((source, sqlResult.Sql));
+            sourceQueries.Add((source, sqlResult.Sql, smartContext.FullContext));
 
             text += $"### Source: {source.DataSourceName}\n```sql\n{sqlResult.Sql}\n```\n\n";
         }
@@ -54,7 +55,7 @@ internal sealed class CrossSourceQueryService(
 
         for (var i = 0; i < sourceQueries.Count; i++)
         {
-            var (source, sql) = sourceQueries[i];
+            var (source, sql, schemaContext) = sourceQueries[i];
             var validation = guardrailService.ValidateQuery(sql, new QueryGuardrailOptions
             {
                 ReadOnly = settings.EnforceReadOnly,
@@ -74,6 +75,21 @@ internal sealed class CrossSourceQueryService(
                 .Where(x => x.Id == source.DataSourceId)
                 .FirstOrDefaultAsync(ct)
                 ?? throw new InvalidOperationException($"Data source {source.DataSourceId} not found");
+
+            // AST-based read-only defense-in-depth on top of the regex guardrail (§1.5)
+            if (settings.EnforceReadOnly)
+            {
+                var astError = readOnlyAstValidator.Validate(sql, dataSource.DatabaseEngineType?.ToString());
+                if (astError != null)
+                {
+                    text += $"**Validation Error for {source.DataSourceName}:** {astError}\n";
+
+                    return text;
+                }
+            }
+
+            // Dry-run before execution: one bounded repair per source, never a hard block
+            sql = await DryRunWithRepairAsync(llmProvider, dataSource, source, sql, schemaContext, question, settings, ct);
 
             var limitedSql = guardrailService.ApplyRowLimit(sql, 500, dataSource.DatabaseEngineType?.ToString());
             var provider = providerFactory.GetProvider(dataSource.DataSourceType);
@@ -149,5 +165,70 @@ internal sealed class CrossSourceQueryService(
         }
 
         return text;
+    }
+
+    private async Task<string> DryRunWithRepairAsync(
+        ILlmProvider llmProvider,
+        Core.Data.Entities.DataSource dataSource,
+        RoutedSource source,
+        string sql,
+        string schemaContext,
+        string question,
+        McpSettingsData settings,
+        CancellationToken ct)
+    {
+        string? dryRunError;
+        try
+        {
+            var provider = providerFactory.GetProvider(dataSource.DataSourceType);
+            var dryRun = await provider.ValidateQueryAsync(dataSource, sql, ct);
+            if (dryRun.IsValid)
+            {
+                return sql;
+            }
+
+            dryRunError = dryRun.Errors is { Count: > 0 }
+                ? string.Join("; ", dryRun.Errors)
+                : "Query validation failed.";
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // Dry-run infrastructure failures never block the cross-source flow
+            logger.LogWarning(ex, "Dry-run validation unavailable for data source {DataSourceId}", dataSource.Id);
+            return sql;
+        }
+
+        logger.LogInformation("Dry-run failed for {DataSourceName}, retrying. Error: {Error}", source.DataSourceName, dryRunError);
+
+        var systemPrompt = settings.AskSystemPrompt ?? "You are a SQL expert. Return ONLY the SQL query.";
+        var retriedSql = await sqlGenerationService.RetryWithErrorAsync(
+            llmProvider, systemPrompt, sql, dryRunError, schemaContext, null, question, ct);
+
+        if (retriedSql == null)
+        {
+            return sql;
+        }
+
+        var retryValidation = guardrailService.ValidateQuery(retriedSql, new QueryGuardrailOptions
+        {
+            ReadOnly = settings.EnforceReadOnly,
+            DetectPii = settings.EnablePiiDetection,
+            CustomPiiPatterns = settings.CustomPiiPatterns.Count > 0 ? settings.CustomPiiPatterns : null
+        });
+        if (!retryValidation.IsValid)
+        {
+            return sql;
+        }
+
+        if (settings.EnforceReadOnly && readOnlyAstValidator.Validate(retriedSql, dataSource.DatabaseEngineType?.ToString()) != null)
+        {
+            return sql;
+        }
+
+        return retriedSql;
     }
 }

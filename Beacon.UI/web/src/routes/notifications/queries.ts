@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
 
 export function useNotificationsQuery() {
@@ -32,7 +33,7 @@ export function useNotificationDetailQuery(id: number | undefined) {
   return useQuery({
     queryKey: ['notifications', id],
     queryFn: async () =>
-      (await beaconApi().getNotificationDetail(id as number)) as unknown as GetNotificationDetailResult,
+      unwrap<GetNotificationDetailResult>(await beaconApi().getNotificationDetail(id as number)),
     enabled: typeof id === 'number' && Number.isFinite(id),
   });
 }

@@ -15,6 +15,7 @@ public class McpSettings : BaseEntity
     public bool EnforceReadOnly { get; set; } = true;
     public bool EnablePiiDetection { get; set; } = true;
     public string? CustomPiiPatterns { get; set; }
+    public bool EnableSampleValueCollection { get; set; } = true;
 
     // Learning settings
     public bool EnableLearning { get; set; } = true;

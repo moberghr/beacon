@@ -5,6 +5,7 @@ import { useProjectsQuery } from '../projects/queries';
 import { describeMcpError, useMcpTools, useRunMcpTool } from './queries';
 
 interface ChatMessage {
+  id: number;
   isUser: boolean;
   text: string;
   toolName: string;
@@ -27,6 +28,7 @@ export default function McpPlaygroundPage() {
   const [maxRows, setMaxRows] = useState(100);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const chatRef = useRef<HTMLDivElement>(null);
+  const messageIdRef = useRef(0);
 
   const projects = projectsQ.data?.entries ?? [];
   const toolNames = toolsQ.data?.toolNames ?? [];
@@ -92,7 +94,7 @@ export default function McpPlaygroundPage() {
     const display = displayText();
     setMessages(prev => [
       ...prev,
-      { isUser: true, text: display, toolName: tool, isError: false, durationMs: null },
+      { id: messageIdRef.current++, isUser: true, text: display, toolName: tool, isError: false, durationMs: null },
     ]);
     const startedAt = performance.now();
     runMutation.mutate(
@@ -102,7 +104,7 @@ export default function McpPlaygroundPage() {
           const ms = Math.round(performance.now() - startedAt);
           setMessages(prev => [
             ...prev,
-            { isUser: false, text: r.text, toolName: tool, isError: r.isError, durationMs: ms },
+            { id: messageIdRef.current++, isUser: false, text: r.text, toolName: tool, isError: r.isError, durationMs: ms },
           ]);
           setText('');
         },
@@ -110,6 +112,7 @@ export default function McpPlaygroundPage() {
           setMessages(prev => [
             ...prev,
             {
+              id: messageIdRef.current++,
               isUser: false,
               text: describeMcpError(err, 'Tool execution failed'),
               toolName: tool,
@@ -178,7 +181,7 @@ export default function McpPlaygroundPage() {
             Select a project and ask a question to get started.
           </div>
         ) : (
-          messages.map((m, i) => <MessageBubble key={i} msg={m} />)
+          messages.map(m => <MessageBubble key={m.id} msg={m} />)
         )}
         {runMutation.isPending && (
           <div className="text-text-muted">Executing {tool}…</div>

@@ -1857,6 +1857,16 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Property<int?>("DataSourceId")
                         .HasColumnType("int");
 
+                    b.Property<string>("DryRunError")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<bool>("DryRunFailed")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("EmptyResultRetryAttempted")
+                        .HasColumnType("bit");
+
                     b.Property<string>("ExecutionError")
                         .HasMaxLength(4000)
                         .HasColumnType("nvarchar(4000)");
@@ -2005,6 +2015,9 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Property<bool>("EnablePiiDetection")
                         .HasColumnType("bit");
 
+                    b.Property<bool>("EnableSampleValueCollection")
+                        .HasColumnType("bit");
+
                     b.Property<bool>("EnforceReadOnly")
                         .HasColumnType("bit");
 
@@ -2099,6 +2112,10 @@ namespace Beacon.Core.SqlServer.Data.Migrations
 
                     b.Property<int>("OrdinalPosition")
                         .HasColumnType("int");
+
+                    b.Property<string>("SampleValues")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
 
                     b.HasKey("Id");
 
