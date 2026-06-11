@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
 import { createSimpleMutation } from '@/lib/mutations';
 
@@ -67,14 +68,14 @@ export function useUsersQuery(search: string) {
   return useQuery({
     queryKey: USERS_KEY(search),
     queryFn: async () =>
-      (await beaconApi().getUsers(search.trim() || undefined)) as unknown as GetUsersResult,
+      unwrap<GetUsersResult>(await beaconApi().getUsers(search.trim() || undefined)),
   });
 }
 
 export function useRolesQuery() {
   return useQuery({
     queryKey: ROLES_KEY,
-    queryFn: async () => (await beaconApi().getRoles()) as unknown as GetRolesResult,
+    queryFn: async () => unwrap<GetRolesResult>(await beaconApi().getRoles()),
   });
 }
 

@@ -2,7 +2,7 @@
 
 [![NuGet](https://img.shields.io/badge/NuGet-available-blue)](https://www.nuget.org/)
 [![Documentation](https://img.shields.io/badge/docs-github.io-blue)](https://mibu.github.io/semantico)
-[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![License](https://img.shields.io/badge/license-AGPL--3.0%20or%20Commercial-blue)](LICENSING.md)
 [![.NET](https://img.shields.io/badge/.NET-9.0-purple)](https://dotnet.microsoft.com/)
 [![React](https://img.shields.io/badge/React-18-61dafb)](https://react.dev/)
 
@@ -467,7 +467,15 @@ Enable task creation to track issues, add comments, and manage the resolution li
 **Documentation**: [https://mibu.github.io/semantico](https://mibu.github.io/semantico)
 **Repository**: [https://github.com/MiBu/semantico](https://github.com/MiBu/semantico)
 **Version**: 1.0
-**Copyright**: © 2026
+**Copyright**: © 2026 Moberg d.o.o.
+
+## License
+
+Beacon is **dual-licensed**: the free [GNU AGPL v3.0](LICENSE) **or** a paid
+commercial license. Use under the AGPLv3 (including its §13 network/SaaS
+source-disclosure requirement), or [contact us for a commercial license](LICENSING.md)
+to use Beacon without the copyleft obligations. Contributions require signing the
+[CLA](CLA.md). See [LICENSING.md](LICENSING.md) for details.
 
 Thank you for choosing Beacon! We hope you find it invaluable for managing your database monitoring, alerting, and orchestration needs.
 </content>

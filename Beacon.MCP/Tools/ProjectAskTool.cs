@@ -23,6 +23,7 @@ internal sealed class ProjectAskTool(
     McpAuditService auditService,
     McpSignalService signalService,
     SqlSchemaValidator schemaValidator,
+    SqlReadOnlyAstValidator readOnlyAstValidator,
     IQueryExecutionService queryExecutionService,
     IIntentClassifier intentClassifier,
     IDataSourceRouter dataSourceRouter,
@@ -139,7 +140,8 @@ internal sealed class ProjectAskTool(
         }
     }
 
-    private async Task<string> GenerateAndExecuteSqlAsync(
+    // Internal for repair-flow tests (InternalsVisibleTo Beacon.Tests)
+    internal async Task<string> GenerateAndExecuteSqlAsync(
         ILlmProvider llmProvider,
         int dataSourceId,
         string question,
@@ -157,39 +159,34 @@ internal sealed class ProjectAskTool(
 
         var text = $"### Generated SQL\n```sql\n{generatedSql}\n```\n\n";
 
-        var validation = guardrailService.ValidateQuery(generatedSql, new QueryGuardrailOptions
+        var validationError = ValidateGeneratedSql(generatedSql, settings, smartContext.DatabaseDialect);
+        if (validationError != null)
         {
-            ReadOnly = settings.EnforceReadOnly,
-            DetectPii = settings.EnablePiiDetection,
-            CustomPiiPatterns = settings.CustomPiiPatterns.Count > 0 ? settings.CustomPiiPatterns : null
-        });
-        if (!validation.IsValid)
-        {
-            text += $"**Validation Error:** {validation.Error}\n";
+            signal.SetExecutionFailed(validationError);
+            text += $"**Validation Error:** {validationError}\n";
             return text;
         }
 
+        // Explicit budget shared by ALL repair triggers (schema, dry-run, execution error, empty result)
+        var repairAttempts = 0;
+        const int maxRepairAttempts = 2;
+        var systemPrompt = settings.AskSystemPrompt ?? "You are a SQL expert. Return ONLY the SQL query.";
+
         // Pre-execution schema validation
         var schemaCheck = schemaValidator.Validate(generatedSql, smartContext.SchemaCatalog, smartContext.DatabaseDialect);
-        if (!schemaCheck.IsValid)
+        if (!schemaCheck.IsValid && repairAttempts < maxRepairAttempts)
         {
+            repairAttempts++;
             signal.SetSchemaValidationFailed(schemaCheck.Error!);
             logger.LogInformation("Schema pre-validation failed, retrying. Error: {Error}", schemaCheck.Error);
 
-            var systemPrompt = settings.AskSystemPrompt ?? "You are a SQL expert. Return ONLY the SQL query.";
             var preValidationRetry = await sqlGenerationService.RetryWithErrorAsync(
                 llmProvider, systemPrompt, generatedSql, schemaCheck.Error!,
                 smartContext.FullContext, null, question, ct);
 
             if (preValidationRetry != null)
             {
-                var retryGuardrail = guardrailService.ValidateQuery(preValidationRetry, new QueryGuardrailOptions
-                {
-                    ReadOnly = settings.EnforceReadOnly,
-                    DetectPii = settings.EnablePiiDetection,
-                    CustomPiiPatterns = settings.CustomPiiPatterns.Count > 0 ? settings.CustomPiiPatterns : null
-                });
-                if (retryGuardrail.IsValid)
+                if (ValidateGeneratedSql(preValidationRetry, settings, smartContext.DatabaseDialect) == null)
                 {
                     signal.SetRetry(preValidationRetry, true);
                     text += $"*Initial query had schema errors ({schemaCheck.Error}), retried.*\n\n";
@@ -199,48 +196,161 @@ internal sealed class ProjectAskTool(
             }
         }
 
-        if (execute)
+        if (!execute)
         {
-            var execResult = await queryExecutionService.ExecuteAsync(dataSourceId, generatedSql, 100, ct);
-
-            if (!execResult.IsSuccess && execResult.ErrorMessage != null)
-            {
-                signal.SetExecutionFailed(execResult.ErrorMessage);
-                logger.LogInformation("SQL error detected, retrying. Error: {Error}", execResult.ErrorMessage);
-                var tableNames = SqlParsingHelper.ExtractTableNamesFromSql(generatedSql);
-                var tablesContext = tableNames.Count > 0
-                    ? await knowledgeGraph.GetTablesContextAsync(dataSourceId, tableNames, ct)
-                    : null;
-
-                var systemPrompt = settings.AskSystemPrompt ?? "You are a SQL expert. Return ONLY the SQL query.";
-                var retriedSql = await sqlGenerationService.RetryWithErrorAsync(
-                    llmProvider, systemPrompt, generatedSql, execResult.ErrorMessage,
-                    smartContext.FullContext, tablesContext, question, ct);
-
-                if (retriedSql != null)
-                {
-                    var retryValidation = guardrailService.ValidateQuery(retriedSql, new QueryGuardrailOptions
-                    {
-                        ReadOnly = settings.EnforceReadOnly,
-                        DetectPii = settings.EnablePiiDetection,
-                        CustomPiiPatterns = settings.CustomPiiPatterns.Count > 0 ? settings.CustomPiiPatterns : null
-                    });
-
-                    if (retryValidation.IsValid)
-                    {
-                        signal.SetRetry(retriedSql, true);
-                        text += $"*Initial query failed ({execResult.ErrorMessage}), retried with corrected SQL.*\n\n";
-                        text += $"### Corrected SQL\n```sql\n{retriedSql}\n```\n\n";
-                        var retryExec = await queryExecutionService.ExecuteAsync(dataSourceId, retriedSql, 100, ct);
-                        text += retryExec.FormattedResult ?? $"**Execution Error:** {retryExec.ErrorMessage}\n";
-                        return text;
-                    }
-                }
-            }
-
-            text += execResult.FormattedResult ?? $"**Execution Error:** {execResult.ErrorMessage}\n";
+            return text;
         }
 
+        // Dry-run through the provider (EXPLAIN / sp_describe_first_result_set) before real execution.
+        // A dry-run failure only spends a repair attempt — it never hard-blocks execution.
+        var dryRunError = await TryDryRunAsync(dataSourceId, generatedSql, ct);
+        if (dryRunError != null && repairAttempts < maxRepairAttempts)
+        {
+            repairAttempts++;
+            signal.SetDryRunFailed(dryRunError);
+            logger.LogInformation("Dry-run validation failed, retrying. Error: {Error}", dryRunError);
+
+            var dryRunRetry = await sqlGenerationService.RetryWithErrorAsync(
+                llmProvider, systemPrompt, generatedSql, dryRunError,
+                smartContext.FullContext, null, question, ct);
+
+            if (dryRunRetry != null)
+            {
+                if (ValidateGeneratedSql(dryRunRetry, settings, smartContext.DatabaseDialect) == null)
+                {
+                    var retryDryRunError = await TryDryRunAsync(dataSourceId, dryRunRetry, ct);
+                    signal.SetRetry(dryRunRetry, retryDryRunError == null);
+                    text += $"*Initial query failed dry-run validation ({dryRunError}), retried.*\n\n";
+                    text += $"### Corrected SQL\n```sql\n{dryRunRetry}\n```\n\n";
+                    generatedSql = dryRunRetry;
+                }
+            }
+        }
+
+        var execResult = await queryExecutionService.ExecuteAsync(dataSourceId, generatedSql, 100, ct);
+
+        if (!execResult.IsSuccess && execResult.ErrorMessage != null && repairAttempts < maxRepairAttempts)
+        {
+            repairAttempts++;
+            signal.SetExecutionFailed(execResult.ErrorMessage);
+            logger.LogInformation("SQL error detected, retrying. Error: {Error}", execResult.ErrorMessage);
+            var tableNames = SqlParsingHelper.ExtractTableNamesFromSql(generatedSql);
+            var tablesContext = tableNames.Count > 0
+                ? await knowledgeGraph.GetTablesContextAsync(dataSourceId, tableNames, ct)
+                : null;
+
+            var retriedSql = await sqlGenerationService.RetryWithErrorAsync(
+                llmProvider, systemPrompt, generatedSql, execResult.ErrorMessage,
+                smartContext.FullContext, tablesContext, question, ct);
+
+            if (retriedSql != null)
+            {
+                if (ValidateGeneratedSql(retriedSql, settings, smartContext.DatabaseDialect) == null)
+                {
+                    signal.SetRetry(retriedSql, true);
+                    text += $"*Initial query failed ({execResult.ErrorMessage}), retried with corrected SQL.*\n\n";
+                    text += $"### Corrected SQL\n```sql\n{retriedSql}\n```\n\n";
+                    var retryExec = await queryExecutionService.ExecuteAsync(dataSourceId, retriedSql, 100, ct);
+                    text += retryExec.FormattedResult ?? $"**Execution Error:** {retryExec.ErrorMessage}\n";
+                    return text;
+                }
+            }
+        }
+        else if (execResult.IsSuccess && execResult.RowCount == 0 && repairAttempts < maxRepairAttempts && !QuestionExpectsCountOrExistence(question))
+        {
+            // Empty-result repair: one bounded retry; identical SQL or a second empty result
+            // means zero rows is accepted as the answer.
+            repairAttempts++;
+            signal.SetEmptyResultRetry();
+            logger.LogInformation("Query returned zero rows, attempting one retry");
+
+            var emptyRetry = await sqlGenerationService.RetryWithErrorAsync(
+                llmProvider, systemPrompt, generatedSql,
+                "The query executed successfully but returned zero rows. Re-check filter values against the Examples in the schema, join paths, and value casing. If zero rows is genuinely the correct answer, return the identical SQL.",
+                smartContext.FullContext, null, question, ct);
+
+            if (emptyRetry != null && !SqlEquals(emptyRetry, generatedSql))
+            {
+                if (ValidateGeneratedSql(emptyRetry, settings, smartContext.DatabaseDialect) == null)
+                {
+                    var retryExec = await queryExecutionService.ExecuteAsync(dataSourceId, emptyRetry, 100, ct);
+                    if (retryExec.IsSuccess && retryExec.RowCount > 0)
+                    {
+                        signal.SetRetry(emptyRetry, true);
+                        text += "*Initial query returned zero rows, retried with corrected SQL.*\n\n";
+                        text += $"### Corrected SQL\n```sql\n{emptyRetry}\n```\n\n";
+                        text += retryExec.FormattedResult;
+                        return text;
+                    }
+
+                    signal.SetRetry(emptyRetry, false);
+                }
+            }
+        }
+
+        text += execResult.FormattedResult ?? $"**Execution Error:** {execResult.ErrorMessage}\n";
+
         return text;
+    }
+
+    private async Task<string?> TryDryRunAsync(int dataSourceId, string sql, CancellationToken ct)
+    {
+        try
+        {
+            return await queryExecutionService.ValidateAsync(dataSourceId, sql, ct);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // Dry-run infrastructure failures (connectivity, unsupported engine) never block the ask flow
+            logger.LogWarning(ex, "Dry-run validation unavailable for data source {DataSourceId}", dataSourceId);
+            return null;
+        }
+    }
+
+    private string? ValidateGeneratedSql(string sql, Core.Models.McpSettingsData settings, string? dialect)
+    {
+        var validation = guardrailService.ValidateQuery(sql, BuildGuardrailOptions(settings));
+        if (!validation.IsValid)
+        {
+            return validation.Error;
+        }
+
+        // AST-based read-only defense-in-depth on top of the regex guardrail (§1.5)
+        return settings.EnforceReadOnly
+            ? readOnlyAstValidator.Validate(sql, dialect)
+            : null;
+    }
+
+    private static QueryGuardrailOptions BuildGuardrailOptions(Core.Models.McpSettingsData settings)
+    {
+        return new QueryGuardrailOptions
+        {
+            ReadOnly = settings.EnforceReadOnly,
+            DetectPii = settings.EnablePiiDetection,
+            CustomPiiPatterns = settings.CustomPiiPatterns.Count > 0 ? settings.CustomPiiPatterns : null
+        };
+    }
+
+    // For existence/count-style questions zero rows is usually the correct answer — retrying
+    // would burn a repair attempt second-guessing a legitimate result.
+    internal static bool QuestionExpectsCountOrExistence(string question)
+    {
+        return System.Text.RegularExpressions.Regex.IsMatch(
+            question,
+            @"\b(how many|count|number of|total of|are there|is there|any\b|exists?|do we have|does .{1,40} have|has .{1,40} ever)\b",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase,
+            TimeSpan.FromSeconds(1));
+    }
+
+    private static bool SqlEquals(string left, string right)
+    {
+        return string.Equals(
+            left.Trim().TrimEnd(';'),
+            right.Trim().TrimEnd(';'),
+            StringComparison.OrdinalIgnoreCase);
     }
 }

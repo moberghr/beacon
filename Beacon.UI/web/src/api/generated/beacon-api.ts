@@ -15,7 +15,7 @@ export class BeaconApiClient {
 
     constructor(baseUrl?: string, http?: { fetch(url: RequestInfo, init?: RequestInit): Promise<Response> }) {
         this.http = http ? http : window as any;
-        this.baseUrl = baseUrl ?? "";
+        this.baseUrl = baseUrl ?? "http://localhost:5000/";
     }
 
     /**
@@ -491,6 +491,47 @@ export class BeaconApiClient {
             });
         }
         return Promise.resolve<GetHomeTaskSummaryResult>(null as any);
+    }
+
+    /**
+     * @param hours (optional) 
+     * @return OK
+     */
+    getExecutionUptime(hours: number | undefined): Promise<GetExecutionUptimeResult> {
+        let url_ = this.baseUrl + "/beacon/api/home/uptime?";
+        if (hours === null)
+            throw new Error("The parameter 'hours' cannot be null.");
+        else if (hours !== undefined)
+            url_ += "hours=" + encodeURIComponent("" + hours) + "&";
+        url_ = url_.replace(/[?&]$/, "");
+
+        let options_: RequestInit = {
+            method: "GET",
+            headers: {
+                "Accept": "application/json"
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processGetExecutionUptime(_response);
+        });
+    }
+
+    protected processGetExecutionUptime(response: Response): Promise<GetExecutionUptimeResult> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 200) {
+            return response.text().then((_responseText) => {
+            let result200: any = null;
+            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as GetExecutionUptimeResult;
+            return result200;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<GetExecutionUptimeResult>(null as any);
     }
 
     /**
@@ -6216,6 +6257,7 @@ export interface ColumnMetadataDto {
     defaultValue: string | null;
     maxLength: number | null;
     description: string | null;
+    sampleValues?: string[] | null;
 
     [key: string]: any;
 }
@@ -6927,6 +6969,12 @@ export interface GetEvaluationHistoryResult {
     [key: string]: any;
 }
 
+export interface GetExecutionUptimeResult {
+    ticks: string[];
+
+    [key: string]: any;
+}
+
 export interface GetHomeActivityResult {
     items: HomeActivityItem[];
 
@@ -7222,6 +7270,7 @@ export interface McpSettingsData {
     enforceReadOnly?: boolean;
     enablePiiDetection?: boolean;
     customPiiPatterns?: string[];
+    enableSampleValueCollection?: boolean;
     enableLearning?: boolean;
     learningAutoApproveThreshold?: number;
     learningInjectionBudgetChars?: number;
@@ -8203,7 +8252,6 @@ export interface UpdateDataContractBody {
     description: string | null;
     cronExpression: string;
     isEnabled: boolean;
-    ownerUserId: string | null;
     alertOnFailure: boolean;
     failureThresholdScore: number;
     rules: DataContractRuleData[];

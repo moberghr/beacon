@@ -19,4 +19,5 @@ public class ColumnMetadata : BaseEntity
     public string? DefaultValue { get; set; }
     public int? MaxLength { get; set; }
     public string? Description { get; set; }
+    public string? SampleValues { get; set; }
 }

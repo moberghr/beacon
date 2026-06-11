@@ -1,10 +1,16 @@
 /**
- * Hand-rolled Control Tower API wrappers. The generated NSwag client is regenerated
- * from a running server; until the next `npm run codegen` we drive the new query
- * parameters (timeRangeDays, sortBy) and the subscription-detail endpoint directly.
+ * Control Tower API wrappers. These call the generated NSwag client and assert
+ * the loose generated payloads into the strict types below (which mirror the C#
+ * DTOs in Beacon.Core/Models/ControlTower and drive the UI's enum/lookup logic).
  *
- * Types match the C# DTOs in Beacon.Core/Models/ControlTower.
+ * The strict types are kept local rather than imported from the generated client
+ * because the generated DTOs make every field optional and type enums as `number`,
+ * which would break the `Record<HealthStatus, …>` / `Record<NotificationStatus, …>`
+ * lookups and the required-field access throughout the Control Tower UI.
  */
+
+import { beaconApi } from '@/api/client';
+import { unwrap } from '@/lib/api';
 
 export enum HealthStatus {
   Green = 1,
@@ -123,43 +129,18 @@ export interface ControlTowerFilters {
   sortBy: ControlTowerSortBy;
 }
 
-const BASE = '/beacon/api/control-tower';
-
-function buildQuery(params: Record<string, string | number | boolean | undefined | null>): string {
-  const search = new URLSearchParams();
-  for (const [key, value] of Object.entries(params)) {
-    if (value === undefined || value === null || value === '') continue;
-    search.set(key, String(value));
-  }
-  const str = search.toString();
-  return str ? `?${str}` : '';
-}
-
-async function getJson<T>(url: string): Promise<T> {
-  const response = await fetch(url, { credentials: 'include' });
-  if (!response.ok) {
-    throw new Error(`Request failed: ${response.status} ${response.statusText}`);
-  }
-  return (await response.json()) as T;
-}
-
-function filterParams(filters: ControlTowerFilters): Record<string, string | number | boolean | undefined> {
-  return {
-    searchKeyword: filters.searchKeyword,
-    folderId: filters.folderId,
-    healthStatus: filters.healthStatus,
-    hasUnresolvedTasks: filters.hasUnresolvedTasks,
-    timeRangeDays: filters.timeRangeDays,
-  };
-}
-
 export async function fetchControlTowerStatistics(
   filters: ControlTowerFilters,
 ): Promise<ControlTowerStatistics> {
-  const result = await getJson<{ statistics: ControlTowerStatistics }>(
-    `${BASE}/statistics${buildQuery(filterParams(filters))}`,
+  const result = await beaconApi().getControlTowerStatistics(
+    undefined,
+    filters.folderId,
+    filters.healthStatus,
+    filters.hasUnresolvedTasks,
+    filters.searchKeyword,
+    filters.timeRangeDays,
   );
-  return result.statistics;
+  return unwrap<ControlTowerStatistics>(result.statistics);
 }
 
 export async function fetchControlTowerHealth(
@@ -167,22 +148,27 @@ export async function fetchControlTowerHealth(
   page = 0,
   pageSize = 200,
 ): Promise<{ entries: ControlTowerSubscriptionHealthData[]; totalCount: number }> {
-  return getJson(
-    `${BASE}/health${buildQuery({
-      page,
-      pageSize,
-      ...filterParams(filters),
-      sortBy: filters.sortBy,
-    })}`,
+  const result = await beaconApi().getControlTowerHealth(
+    page,
+    pageSize,
+    undefined,
+    filters.folderId,
+    filters.healthStatus,
+    filters.hasUnresolvedTasks,
+    filters.searchKeyword,
+    filters.timeRangeDays,
+    filters.sortBy,
   );
+  return {
+    entries: unwrap<ControlTowerSubscriptionHealthData[]>(result.entries),
+    totalCount: result.totalCount,
+  };
 }
 
 export async function fetchControlTowerSubscriptionDetail(
   subscriptionId: number,
   timeRangeDays: number,
 ): Promise<ControlTowerSubscriptionDetail> {
-  const result = await getJson<{ detail: ControlTowerSubscriptionDetail }>(
-    `${BASE}/subscriptions/${subscriptionId}/detail${buildQuery({ timeRangeDays })}`,
-  );
-  return result.detail;
+  const result = await beaconApi().getControlTowerSubscriptionDetail(subscriptionId, timeRangeDays);
+  return unwrap<ControlTowerSubscriptionDetail>(result.detail);
 }

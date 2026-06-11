@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
 import { createSimpleMutation } from '@/lib/mutations';
 
@@ -52,7 +53,7 @@ export function useDataSourcesQuery() {
   return useQuery({
     queryKey: DATA_SOURCES_KEY,
     queryFn: async () =>
-      (await beaconApi().getDataSources()) as unknown as GetDataSourcesResult,
+      unwrap<GetDataSourcesResult>(await beaconApi().getDataSources()),
   });
 }
 
@@ -152,7 +153,7 @@ export function useDataSourceMetadataQuery(dataSourceId: number | null | undefin
   return useQuery({
     queryKey: ['data-sources', dataSourceId, 'metadata'] as const,
     queryFn: async () =>
-      (await beaconApi().getDataSourceMetadata(dataSourceId as number)) as unknown as DatabaseMetadataSnapshot,
+      unwrap<DatabaseMetadataSnapshot>(await beaconApi().getDataSourceMetadata(dataSourceId as number)),
     enabled: dataSourceId != null && dataSourceId > 0,
     staleTime: 60_000,
     retry: false,
@@ -165,7 +166,7 @@ export function useRefreshDataSourceMetadata() {
   // the createSimpleMutation factory which only invalidates.
   return useMutation({
     mutationFn: async (dataSourceId: number) =>
-      (await beaconApi().refreshDataSourceMetadata(dataSourceId)) as unknown as DatabaseMetadataSnapshot,
+      unwrap<DatabaseMetadataSnapshot>(await beaconApi().refreshDataSourceMetadata(dataSourceId)),
     onSuccess: (snapshot, dataSourceId) => {
       qc.setQueryData(['data-sources', dataSourceId, 'metadata'] as const, snapshot);
     },

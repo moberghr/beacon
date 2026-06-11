@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
 import { createSimpleMutation } from '@/lib/mutations';
 
@@ -131,7 +132,7 @@ export function useQueryDetailQuery(id: number | undefined) {
   return useQuery({
     queryKey: ['query', id],
     queryFn: async () =>
-      (await beaconApi().getQueryDetail(id as number)) as unknown as QueryDetail,
+      unwrap<QueryDetail>(await beaconApi().getQueryDetail(id as number)),
     enabled: typeof id === 'number' && Number.isFinite(id),
   });
 }
@@ -151,10 +152,10 @@ export function useToggleQueryLock(id: number | undefined) {
     createSimpleMutation<{ lock: boolean; userId?: string | null }, ToggleQueryLockResult>({
       qc,
       mutationFn: async (vars) =>
-        (await beaconApi().toggleQueryLock(id as number, {
+        unwrap<ToggleQueryLockResult>(await beaconApi().toggleQueryLock(id as number, {
           lock: vars.lock,
           userId: vars.userId ?? null,
-        })) as unknown as ToggleQueryLockResult,
+        })),
       invalidate: [['query', id], ['queries']],
       successMsg: (_vars, result) => (result.isLocked ? 'Query locked' : 'Query unlocked'),
       errorFallback: 'Lock toggle failed',
@@ -201,14 +202,14 @@ export function useQueryChangeHistoryQuery(
   return useQuery({
     queryKey: ['query', id, 'change-history', filters],
     queryFn: async () =>
-      (await beaconApi().getQueryChangeHistory(
+      unwrap<QueryChangeHistoryResult>(await beaconApi().getQueryChangeHistory(
         id as number,
         filters.stepId,
         filters.changeSource,
         filters.fromDate ? new Date(filters.fromDate) : undefined,
         filters.toDate ? new Date(filters.toDate) : undefined,
         filters.maxResults,
-      )) as unknown as QueryChangeHistoryResult,
+      )),
     enabled: typeof id === 'number' && Number.isFinite(id),
   });
 }
@@ -287,7 +288,7 @@ export function useUpdateQueryMutation(id: number | undefined) {
     createSimpleMutation<UpdateQueryPayload, UpdateQueryResult>({
       qc,
       mutationFn: async (payload) =>
-        (await beaconApi().updateQuery(id as number, payload as never)) as unknown as UpdateQueryResult,
+        unwrap<UpdateQueryResult>(await beaconApi().updateQuery(id as number, payload as never)),
       invalidate: [['query', id], ['queries', id, 'versions']],
       successMsg: 'Query saved',
       errorFallback: 'Save failed',
@@ -348,9 +349,9 @@ export function usePreviewStepMutation(id: number | undefined) {
     createSimpleMutation<{ stepOrder: number; parameters?: ParameterValueInput[] }, QueryStepPreviewResult>({
       qc,
       mutationFn: async (vars) =>
-        (await beaconApi().executeStepPreview(id as number, vars.stepOrder, {
+        unwrap<QueryStepPreviewResult>(await beaconApi().executeStepPreview(id as number, vars.stepOrder, {
           parameters: (vars.parameters ?? null) as never,
-        })) as unknown as QueryStepPreviewResult,
+        })),
       errorFallback: 'Step preview failed',
     }),
   );
@@ -362,7 +363,7 @@ export function usePreviewQueryMutation(id: number | undefined) {
     createSimpleMutation<void, QueryExecutionPreviewResult>({
       qc,
       mutationFn: async () =>
-        (await beaconApi().executeQueryPreview(id as number)) as unknown as QueryExecutionPreviewResult,
+        unwrap<QueryExecutionPreviewResult>(await beaconApi().executeQueryPreview(id as number)),
       errorFallback: 'Query preview failed',
     }),
   );
@@ -401,7 +402,7 @@ export function useQueriesListQuery(params: QueriesListParams = {}) {
   return useQuery({
     queryKey: ['queries', 'list', params],
     queryFn: async () =>
-      (await beaconApi().getQueries(
+      unwrap<PagedQueriesResponse>(await beaconApi().getQueries(
         undefined,
         params.dataSourceId,
         undefined,
@@ -409,7 +410,7 @@ export function useQueriesListQuery(params: QueriesListParams = {}) {
         params.searchTerm,
         params.page ?? 1,
         params.pageSize ?? 50,
-      )) as unknown as PagedQueriesResponse,
+      )),
   });
 }
 

@@ -4,7 +4,7 @@ import { Kbd } from './Kbd';
 
 /**
  * Beacon dialog. Pair <Modal> with <ModalHeader> + <ModalBody> + <ModalFooter>.
- * Esc closes.
+ * Esc closes. Focus moves into the panel on open and is trapped while open.
  */
 export function Modal({
   open,
@@ -12,18 +12,61 @@ export function Modal({
   children,
   width = 580,
   className,
+  ariaLabel,
 }: {
   open: boolean;
   onClose: () => void;
   children: React.ReactNode;
   width?: number;
   className?: string;
+  /** Accessible name for the dialog, announced by screen readers. */
+  ariaLabel?: string;
 }) {
+  const panelRef = React.useRef<HTMLDivElement>(null);
+
   React.useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+
+    const previouslyFocused = document.activeElement;
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+        return;
+      }
+      if (e.key === 'Tab') {
+        const container = panelRef.current;
+        if (!container) return;
+        const focusable = container.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        );
+        if (focusable.length === 0) {
+          e.preventDefault();
+          container.focus();
+          return;
+        }
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        const active = document.activeElement;
+        if (e.shiftKey && (active === first || active === container)) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && active === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+
+    requestAnimationFrame(() => panelRef.current?.focus());
+
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      if (previouslyFocused instanceof HTMLElement) {
+        previouslyFocused.focus();
+      }
+    };
   }, [open, onClose]);
 
   if (!open) return null;
@@ -34,10 +77,15 @@ export function Modal({
       className="fixed inset-0 z-50 grid place-items-start justify-center pt-[8vh] px-4 bg-black/35 backdrop-blur-sm"
     >
       <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={ariaLabel}
+        tabIndex={-1}
         onClick={e => e.stopPropagation()}
         style={{ width: '100%', maxWidth: width }}
         className={cn(
-          'bg-surface border border-border rounded-lg shadow-pop overflow-hidden flex flex-col max-h-[84vh]',
+          'bg-surface border border-border rounded-lg shadow-pop overflow-hidden flex flex-col max-h-[84vh] outline-none',
           className,
         )}
       >

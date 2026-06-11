@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
 import { createSimpleMutation } from '@/lib/mutations';
 
@@ -25,7 +26,7 @@ export function useUserSettingsQuery() {
   return useQuery({
     queryKey: USER_SETTINGS_KEY,
     queryFn: async () =>
-      (await beaconApi().getUserSettings()) as unknown as GetUserSettingsResult,
+      unwrap<GetUserSettingsResult>(await beaconApi().getUserSettings()),
   });
 }
 

@@ -312,6 +312,7 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             entity.Property(e => e.ForeignKeyColumn).HasMaxLength(200);
             entity.Property(e => e.DefaultValue).HasMaxLength(500);
             entity.Property(e => e.Description).HasMaxLength(1000);
+            entity.Property(e => e.SampleValues).HasMaxLength(2000);
 
             // Indexes for performance
             entity.HasIndex(e => e.DatabaseMetadataId);
@@ -1298,6 +1299,7 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             entity.Property(e => e.IntentClassification).HasMaxLength(50);
             entity.Property(e => e.SchemaValidationError).HasMaxLength(4000);
             entity.Property(e => e.ExecutionError).HasMaxLength(4000);
+            entity.Property(e => e.DryRunError).HasMaxLength(4000);
 
             entity.HasIndex(e => e.ProjectId);
             entity.HasIndex(e => e.DataSourceId);

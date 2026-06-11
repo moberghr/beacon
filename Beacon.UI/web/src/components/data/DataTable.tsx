@@ -17,6 +17,8 @@ interface DataTableProps<T> {
   onRowClick?: (row: T) => void;
   empty?: ReactNode;
   className?: string;
+  /** Accessible name for the table, announced by screen readers. */
+  ariaLabel?: string;
 }
 
 /**
@@ -31,20 +33,27 @@ export function DataTable<T>({
   onRowClick,
   empty,
   className,
+  ariaLabel,
 }: DataTableProps<T>) {
   return (
     <div
+      role="table"
+      aria-label={ariaLabel ?? 'Data table'}
+      aria-rowcount={rows.length}
       className={cn(
         'bg-surface border border-border rounded-md overflow-hidden shadow-sm',
         className,
       )}
     >
       <div
+        role="row"
         className="grid gap-2.5 px-4 py-2 bg-surface-2 border-b border-border text-2xs font-semibold uppercase tracking-eyebrow text-text-muted"
         style={{ gridTemplateColumns: gridTemplate }}
       >
         {columns.map(c => (
-          <div key={c.key}>{c.header}</div>
+          <div role="columnheader" key={c.key}>
+            {c.header}
+          </div>
         ))}
       </div>
 
@@ -59,13 +68,13 @@ export function DataTable<T>({
         : rows.map((row, index) => (
             <div
               key={rowKey(row, index)}
+              role="row"
               className={cn(
                 'grid gap-2.5 px-4 py-3 border-b border-border last:border-b-0 items-center text-sm',
                 onRowClick && 'cursor-pointer hover:bg-surface-2',
               )}
               style={{ gridTemplateColumns: gridTemplate }}
               onClick={onRowClick ? () => onRowClick(row) : undefined}
-              role={onRowClick ? 'button' : undefined}
               tabIndex={onRowClick ? 0 : undefined}
               onKeyDown={
                 onRowClick
@@ -79,7 +88,7 @@ export function DataTable<T>({
               }
             >
               {columns.map(c => (
-                <div key={c.key} className="min-w-0">
+                <div role="cell" key={c.key} className="min-w-0">
                   {c.render(row)}
                 </div>
               ))}

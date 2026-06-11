@@ -37,6 +37,7 @@ internal sealed class UpdateMcpSettingsHandler(
         entity.CustomPiiPatterns = data.CustomPiiPatterns.Count > 0
             ? JsonSerializer.Serialize(data.CustomPiiPatterns)
             : null;
+        entity.EnableSampleValueCollection = data.EnableSampleValueCollection;
 
         // Learning settings
         entity.EnableLearning = data.EnableLearning;

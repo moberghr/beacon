@@ -23,6 +23,10 @@ public class McpQuerySignal : BaseEntity
     public bool ExecutionFailed { get; set; }
     public string? ExecutionError { get; set; }
 
+    public bool DryRunFailed { get; set; }
+    public string? DryRunError { get; set; }
+    public bool EmptyResultRetryAttempted { get; set; }
+
     public bool RetryAttempted { get; set; }
     public bool RetrySucceeded { get; set; }
     public string? CorrectedSql { get; set; }

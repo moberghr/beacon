@@ -42,14 +42,21 @@ export function Field({
   hint,
   children,
   className,
+  htmlFor,
 }: {
   label: React.ReactNode;
   hint?: React.ReactNode;
   children: React.ReactNode;
   className?: string;
+  /**
+   * Binds the label to a control by id. Optional — the control is also wrapped
+   * by this <label>, so clicking focuses it either way, but passing `htmlFor`
+   * makes the association explicit for assistive technologies.
+   */
+  htmlFor?: string;
 }) {
   return (
-    <label className={cn('flex flex-col gap-1.5', className)}>
+    <label htmlFor={htmlFor} className={cn('flex flex-col gap-1.5', className)}>
       <span className="text-2xs font-semibold uppercase tracking-eyebrow text-text-muted">
         {label}
       </span>

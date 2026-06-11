@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
 import { createSimpleMutation } from '@/lib/mutations';
 
@@ -37,7 +38,7 @@ export function useSubscriptionsQuery(search?: string) {
   return useQuery({
     queryKey: [...SUBSCRIPTIONS_KEY, search ?? null],
     queryFn: async () =>
-      (await beaconApi().getSubscriptions(search?.trim() || undefined)) as unknown as GetSubscriptionsResult,
+      unwrap<GetSubscriptionsResult>(await beaconApi().getSubscriptions(search?.trim() || undefined)),
   });
 }
 
@@ -136,7 +137,7 @@ export function useSubscriptionDetailQuery(id: number | undefined) {
   return useQuery({
     queryKey: ['subscriptions', id, 'detail'] as const,
     queryFn: async () =>
-      (await beaconApi().getSubscriptionDetail(id as number)) as unknown as GetSubscriptionDetailResult,
+      unwrap<GetSubscriptionDetailResult>(await beaconApi().getSubscriptionDetail(id as number)),
     enabled: typeof id === 'number' && Number.isFinite(id),
   });
 }
@@ -166,7 +167,7 @@ export function useSubscriptionExecutionsQuery(id: number | undefined, pageSize 
   return useQuery({
     queryKey: ['subscriptions', id, 'executions', pageSize] as const,
     queryFn: async () =>
-      (await beaconApi().getNotifications(0, pageSize, undefined, id)) as unknown as GetSubscriptionExecutionsResult,
+      unwrap<GetSubscriptionExecutionsResult>(await beaconApi().getNotifications(0, pageSize, undefined, id)),
     enabled: typeof id === 'number' && Number.isFinite(id),
   });
 }
@@ -194,7 +195,7 @@ export function useSubscriptionAnomalyChart(id: number | undefined, days = 30) {
   return useQuery({
     queryKey: ['subscriptions', id, 'anomaly-chart', days] as const,
     queryFn: async () =>
-      (await beaconApi().getSubscriptionAnomalyChart(id as number, days)) as unknown as AnomalyChartResult,
+      unwrap<AnomalyChartResult>(await beaconApi().getSubscriptionAnomalyChart(id as number, days)),
     enabled: typeof id === 'number' && Number.isFinite(id),
   });
 }

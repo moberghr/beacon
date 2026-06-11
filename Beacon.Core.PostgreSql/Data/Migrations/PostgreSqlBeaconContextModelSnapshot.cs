@@ -2378,6 +2378,19 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("data_source_id");
 
+                    b.Property<string>("DryRunError")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)")
+                        .HasColumnName("dry_run_error");
+
+                    b.Property<bool>("DryRunFailed")
+                        .HasColumnType("boolean")
+                        .HasColumnName("dry_run_failed");
+
+                    b.Property<bool>("EmptyResultRetryAttempted")
+                        .HasColumnType("boolean")
+                        .HasColumnName("empty_result_retry_attempted");
+
                     b.Property<string>("ExecutionError")
                         .HasMaxLength(4000)
                         .HasColumnType("character varying(4000)")
@@ -2569,6 +2582,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("enable_pii_detection");
 
+                    b.Property<bool>("EnableSampleValueCollection")
+                        .HasColumnType("boolean")
+                        .HasColumnName("enable_sample_value_collection");
+
                     b.Property<bool>("EnforceReadOnly")
                         .HasColumnType("boolean")
                         .HasColumnName("enforce_read_only");
@@ -2688,6 +2705,11 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.Property<int>("OrdinalPosition")
                         .HasColumnType("integer")
                         .HasColumnName("ordinal_position");
+
+                    b.Property<string>("SampleValues")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("sample_values");
 
                     b.HasKey("Id")
                         .HasName("pk_column_metadata");
