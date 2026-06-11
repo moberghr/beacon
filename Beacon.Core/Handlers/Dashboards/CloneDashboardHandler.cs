@@ -3,16 +3,32 @@ using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Authorization;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
+using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.Dashboards.CreateDashboard;
+using Beacon.Core.Services;
 
 namespace Beacon.Core.Handlers.Dashboards.CloneDashboard;
 
 internal sealed class CloneDashboardHandler(
     IDbContextFactory<BeaconContext> contextFactory,
+    IDashboardService dashboardService,
     IBeaconUserContext userContext) : IRequestHandler<CloneDashboardCommand, CreateDashboardResult>
 {
     public async Task<CreateDashboardResult> Handle(CloneDashboardCommand request, CancellationToken cancellationToken)
     {
+        // Caller must at least be able to view the source dashboard before cloning it
+        var userId = userContext.UserId ?? string.Empty;
+        var hasPermission = await dashboardService.UserHasPermissionAsync(
+            request.SourceDashboardId,
+            userId,
+            DashboardPermissionLevel.View,
+            cancellationToken);
+
+        if (!hasPermission)
+        {
+            throw new InvalidOperationException("Insufficient permissions to clone this dashboard");
+        }
+
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         var sourceDashboard = await context.Dashboards
@@ -40,10 +56,7 @@ internal sealed class CloneDashboardHandler(
             CreatedTime = DateTime.UtcNow
         };
 
-        context.Dashboards.Add(clonedDashboard);
-        await context.SaveChangesAsync(cancellationToken);
-
-        // Clone widgets
+        // Clone widgets onto the new dashboard's navigation so they persist in the same save
         foreach (var sourceWidget in sourceDashboard.Widgets)
         {
             var clonedWidget = new DashboardWidget
@@ -61,9 +74,10 @@ internal sealed class CloneDashboardHandler(
                 CreatedTime = DateTime.UtcNow
             };
 
-            context.DashboardWidgets.Add(clonedWidget);
+            clonedDashboard.Widgets.Add(clonedWidget);
         }
 
+        context.Dashboards.Add(clonedDashboard);
         await context.SaveChangesAsync(cancellationToken);
 
         return new CreateDashboardResult { DashboardId = clonedDashboard.Id };

@@ -7,7 +7,7 @@ namespace Beacon.Core.Data.Entities;
 /// An AI Actor that autonomously monitors a data source by creating queries,
 /// subscriptions, analyzing results, and sending notifications.
 /// </summary>
-public class AiActor : BaseEntity
+public class AiActor : ArchivableBaseEntity
 {
     /// <summary>
     /// Display name for the actor
@@ -81,11 +81,6 @@ public class AiActor : BaseEntity
     /// Error message if actor is in Failed status
     /// </summary>
     public string? LastError { get; set; }
-
-    /// <summary>
-    /// When the actor was archived (null if not archived)
-    /// </summary>
-    public DateTime? ArchivedTime { get; set; }
 
     // Navigation properties
     public DataSource DataSource { get; set; } = null!;

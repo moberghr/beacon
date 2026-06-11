@@ -8,19 +8,21 @@ public static class Helpers
 {
     public static string GenerateEmailContent(QueryResult queryResult)
     {
+        // HTML-encode every dynamic value (§XSS) — query text, column keys, and cell values are
+        // user/source-controlled and must not be able to inject markup into the email body.
         var querySection = queryResult.ShowQuery
             ? $@"
             <p>Sql Query:</p>
-            <pre>{queryResult.SqlQuery}</pre>"
+            <pre>{System.Net.WebUtility.HtmlEncode(queryResult.SqlQuery)}</pre>"
             : "";
 
         var firstRecord = queryResult.TopRecords.GetFirstRecordSafe();
         var tableHeaders = firstRecord != null
-            ? string.Join("", firstRecord.Select(property => $"<th>{property.Key}</th>"))
+            ? string.Join("", firstRecord.Select(property => $"<th>{System.Net.WebUtility.HtmlEncode(property.Key)}</th>"))
             : "<th>No data</th>";
 
         var tableRows = queryResult.TopRecords.HasRecords()
-            ? string.Join("", queryResult.TopRecords.Select(record => $"<tr>{string.Join("", record.Select(property => $"<td>{CellValueFormatter.Format(property.Value)}</td>"))}</tr>"))
+            ? string.Join("", queryResult.TopRecords.Select(record => $"<tr>{string.Join("", record.Select(property => $"<td>{System.Net.WebUtility.HtmlEncode(CellValueFormatter.Format(property.Value))}</td>"))}</tr>"))
             : "<tr><td>No records found</td></tr>";
 
         return $@"

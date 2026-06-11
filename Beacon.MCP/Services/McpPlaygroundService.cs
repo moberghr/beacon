@@ -1,3 +1,5 @@
+using System.Security.Claims;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Protocol;
 using Beacon.Core.Services;
@@ -15,10 +17,22 @@ internal sealed class McpPlaygroundService(IServiceProvider serviceProvider) : I
         using var scope = serviceProvider.CreateScope();
         var sp = scope.ServiceProvider;
 
-        // Set up project context directly (bypasses IHttpContextAccessor since this is a UI request)
+        // Set up project context directly (bypasses the MCP transport's context factory since this
+        // is a UI request). UserId is still attributed from the authenticated HttpContext so audit /
+        // signal entries are not recorded against a null user (§1.7, §9.5).
         var context = sp.GetRequiredService<McpProjectContext>();
         context.ActiveProjectId = projectId;
         context.AllowedProjectIds = [projectId];
+
+        var httpUser = sp.GetRequiredService<IHttpContextAccessor>().HttpContext?.User;
+        if (httpUser != null)
+        {
+            var userIdClaim = httpUser.FindFirst(ClaimTypes.NameIdentifier);
+            context.UserId = userIdClaim != null && int.TryParse(userIdClaim.Value, out var uid) ? uid : null;
+
+            var apiKeyIdClaim = httpUser.FindFirst("api_key_id");
+            context.ApiKeyId = apiKeyIdClaim != null && int.TryParse(apiKeyIdClaim.Value, out var akid) ? akid : null;
+        }
 
         try
         {

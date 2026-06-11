@@ -178,21 +178,32 @@ internal sealed class KnowledgeGraphService(
         var results = new List<SearchResult>();
         var queryLower = query.ToLower();
 
-        // Search tables by name or description
+        // Tokenize the question so each meaningful term can match independently. Searching
+        // for the whole question as a single substring never matches on real schemas.
+        var terms = TokenizeQuery(query);
+
+        // Fall back to the whole (lowercased) query when tokenization yields nothing useful.
+        if (terms.Count == 0)
+            terms = [queryLower];
+
+        // Search tables by name or description — match ANY term.
         var tablesQuery = context.DatabaseMetadata.AsQueryable();
         if (dataSourceId.HasValue)
             tablesQuery = tablesQuery.Where(m => m.DataSourceId == dataSourceId.Value);
 
         var matchingTables = await tablesQuery
-            .Where(m => m.TableName.ToLower().Contains(queryLower) ||
-                        (m.TableDescription != null && m.TableDescription.ToLower().Contains(queryLower)))
+            .Where(m => terms.Any(t => m.TableName.ToLower().Contains(t)) ||
+                        (m.TableDescription != null && terms.Any(t => m.TableDescription.ToLower().Contains(t))))
             .Select(m => new { m.DataSourceId, DataSourceName = m.DataSource.Name, m.SchemaName, m.TableName, m.TableDescription })
-            .Take(maxResults)
+            .Take(maxResults * 2)
             .ToListAsync(ct);
 
         foreach (var table in matchingTables)
         {
-            var relevance = table.TableName.Equals(query, StringComparison.OrdinalIgnoreCase) ? 1.0 : 0.8;
+            var overlap = CountOverlap(terms, table.TableName, table.TableDescription);
+            var relevance = table.TableName.Equals(query, StringComparison.OrdinalIgnoreCase)
+                ? 1.0
+                : 0.8 + (overlap * 0.05);
             results.Add(new SearchResult
             {
                 Type = "table",
@@ -205,14 +216,14 @@ internal sealed class KnowledgeGraphService(
             });
         }
 
-        // Search columns by name or description
+        // Search columns by name or description — match ANY term.
         var columnsQuery = context.ColumnMetadata.AsQueryable();
         if (dataSourceId.HasValue)
             columnsQuery = columnsQuery.Where(c => c.DatabaseMetadata.DataSourceId == dataSourceId.Value);
 
         var matchingColumns = await columnsQuery
-            .Where(c => c.ColumnName.ToLower().Contains(queryLower) ||
-                        (c.Description != null && c.Description.ToLower().Contains(queryLower)))
+            .Where(c => terms.Any(t => c.ColumnName.ToLower().Contains(t)) ||
+                        (c.Description != null && terms.Any(t => c.Description.ToLower().Contains(t))))
             .Select(c => new
             {
                 c.DatabaseMetadata.DataSourceId,
@@ -222,11 +233,12 @@ internal sealed class KnowledgeGraphService(
                 c.ColumnName,
                 c.Description
             })
-            .Take(maxResults)
+            .Take(maxResults * 2)
             .ToListAsync(ct);
 
         foreach (var col in matchingColumns)
         {
+            var overlap = CountOverlap(terms, col.ColumnName, col.Description);
             results.Add(new SearchResult
             {
                 Type = "column",
@@ -236,13 +248,15 @@ internal sealed class KnowledgeGraphService(
                 TableName = col.TableName,
                 ColumnName = col.ColumnName,
                 Description = col.Description,
-                Relevance = col.ColumnName.Equals(query, StringComparison.OrdinalIgnoreCase) ? 0.9 : 0.6
+                Relevance = col.ColumnName.Equals(query, StringComparison.OrdinalIgnoreCase)
+                    ? 0.9
+                    : 0.6 + (overlap * 0.05)
             });
         }
 
-        // Search project documentation sections
+        // Search project documentation sections — match ANY term.
         var docSections = await context.ProjectDocumentationSections
-            .Where(s => s.Content.ToLower().Contains(queryLower))
+            .Where(s => terms.Any(t => s.Content.ToLower().Contains(t)))
             .Select(s => new
             {
                 ProjectName = s.Documentation.Project.Name,
@@ -832,6 +846,46 @@ internal sealed class KnowledgeGraphService(
         if (nextBlank > 0 && nextBlank < end) end = nextBlank;
 
         return TruncateContent(dataModelContent[start..end], 400);
+    }
+
+    private static readonly HashSet<string> StopWords = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "the", "and", "for", "are", "was", "were", "how", "many", "much", "what", "which",
+        "who", "whom", "with", "from", "into", "that", "this", "these", "those", "have",
+        "has", "had", "did", "does", "all", "any", "each", "per", "show", "list", "give",
+        "get", "find", "count", "last", "week", "month", "year", "day", "between", "over"
+    };
+
+    private static List<string> TokenizeQuery(string query)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return [];
+        }
+
+        return System.Text.RegularExpressions.Regex
+            .Split(query, "[^A-Za-z0-9]+")
+            .Where(x => x.Length > 2)
+            .Select(x => x.ToLowerInvariant())
+            .Where(x => !StopWords.Contains(x))
+            .Distinct()
+            .ToList();
+    }
+
+    private static int CountOverlap(List<string> terms, string name, string? description)
+    {
+        var nameLower = name.ToLowerInvariant();
+        var descLower = description?.ToLowerInvariant();
+        var count = 0;
+        foreach (var term in terms)
+        {
+            if (nameLower.Contains(term) || (descLower != null && descLower.Contains(term)))
+            {
+                count++;
+            }
+        }
+
+        return count;
     }
 
     public async Task<List<LearnedPatternInfo>> GetRelevantPatternsAsync(

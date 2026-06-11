@@ -49,6 +49,21 @@ internal sealed class UpdateDashboardHandler(
             dashboard.LayoutConfiguration = request.LayoutConfiguration;
         }
 
+        // Default is exclusive per user — clear it on this user's other dashboards in the same save
+        if (request.IsDefault)
+        {
+            var otherDefaults = await context.Dashboards
+                .Where(x => x.CreatedByUserId == dashboard.CreatedByUserId)
+                .Where(x => x.Id != dashboard.Id)
+                .Where(x => x.IsDefault)
+                .ToListAsync(cancellationToken);
+
+            foreach (var other in otherDefaults)
+            {
+                other.IsDefault = false;
+            }
+        }
+
         await context.SaveChangesAsync(cancellationToken);
 
         return Unit.Value;

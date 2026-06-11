@@ -579,9 +579,10 @@ public class AiActorService : IAiActorServiceExtended
             query = query.Where(x => x.DataSourceId == dataSourceId.Value);
         }
 
-        if (!includeArchived)
+        // The global soft-delete filter excludes archived actors by default; opt back in explicitly.
+        if (includeArchived)
         {
-            query = query.Where(x => x.ArchivedTime == null);
+            query = query.IgnoreQueryFilters();
         }
 
         return await query

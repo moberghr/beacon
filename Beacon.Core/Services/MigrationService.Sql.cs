@@ -37,17 +37,27 @@ internal partial class MigrationService
             // Parse schema and table name
             var (schema, table) = ParseSchemaAndTableName(tableName);
 
+            // Identifiers appear as string literals here, but are still whitelist-validated (§1.10);
+            // embedded single quotes are doubled defence-in-depth.
+            if (schema != null)
+            {
+                SqlIdentifierGuard.Validate(schema, "schema");
+            }
+            SqlIdentifierGuard.Validate(table, "table");
+            var schemaLiteral = schema?.Replace("'", "''");
+            var tableLiteral = table.Replace("'", "''");
+
             var checkQuery = engineType switch
             {
                 DatabaseEngineType.PostgreSQL => schema != null
-                    ? $"SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = '{schema}' AND table_name = '{table}')"
-                    : $"SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = '{table}')",
+                    ? $"SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = '{schemaLiteral}' AND table_name = '{tableLiteral}')"
+                    : $"SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = '{tableLiteral}')",
                 DatabaseEngineType.MySQL => schema != null
-                    ? $"SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = '{schema}' AND table_name = '{table}'"
-                    : $"SELECT COUNT(*) FROM information_schema.tables WHERE table_name = '{table}' AND table_schema = DATABASE()",
+                    ? $"SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = '{schemaLiteral}' AND table_name = '{tableLiteral}'"
+                    : $"SELECT COUNT(*) FROM information_schema.tables WHERE table_name = '{tableLiteral}' AND table_schema = DATABASE()",
                 DatabaseEngineType.MSSQL => schema != null
-                    ? $"SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = '{schema}' AND TABLE_NAME = '{table}'"
-                    : $"SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = '{table}'",
+                    ? $"SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = '{schemaLiteral}' AND TABLE_NAME = '{tableLiteral}'"
+                    : $"SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = '{tableLiteral}'",
                 _ => throw new NotSupportedException($"Database engine type '{engineType}' is not supported")
             };
 
@@ -78,7 +88,7 @@ internal partial class MigrationService
     {
         try
         {
-            var truncateQuery = $"TRUNCATE TABLE {tableName}";
+            var truncateQuery = $"TRUNCATE TABLE {ValidateTable(tableName)}";
             await connection.ExecuteAsync(truncateQuery, transaction: transaction);
             logger.LogInformation("Truncated table {Table}", tableName);
         }
@@ -224,7 +234,7 @@ internal partial class MigrationService
                 {
                     if (engineType != DatabaseEngineType.PostgreSQL) // PostgreSQL auto-drops temp tables
                     {
-                        await connection.ExecuteAsync($"DROP TABLE IF EXISTS {tempTableName}", transaction: transaction);
+                        await connection.ExecuteAsync($"DROP TABLE IF EXISTS {SqlIdentifierGuard.Validate(tempTableName, "temp table")}", transaction: transaction);
                     }
                 }
                 catch (Exception ex)
@@ -255,10 +265,10 @@ internal partial class MigrationService
             }
 
             var columns = data.First().Keys.Where(k => !string.IsNullOrWhiteSpace(k)).ToList();
-            var quotedColumns = string.Join(", ", columns.Select(c => $"\"{c}\""));
+            var quotedColumns = string.Join(", ", columns.Select(x => QuoteIdentifier(x, DatabaseEngineType.PostgreSQL)));
 
             // Use PostgreSQL COPY for fast bulk insert
-            var copyCommand = $"COPY {tableName} ({quotedColumns}) FROM STDIN (FORMAT BINARY)";
+            var copyCommand = $"COPY {ValidateTable(tableName)} ({quotedColumns}) FROM STDIN (FORMAT BINARY)";
 
             await using var import = await npgsqlConnection.BeginBinaryImportAsync(copyCommand);
 
@@ -332,8 +342,9 @@ internal partial class MigrationService
             var tempTableName = $"temp_{Guid.NewGuid():N}";
 
             // Step 1: Create temp table
-            var quotedColumns = string.Join(", ", columns.Select(c => $"\"{c}\""));
-            var createTempQuery = $"CREATE TEMP TABLE {tempTableName} AS SELECT {quotedColumns} FROM {tableName} LIMIT 0";
+            var quotedColumns = string.Join(", ", columns.Select(x => QuoteIdentifier(x, DatabaseEngineType.PostgreSQL)));
+            var validatedTable = ValidateTable(tableName);
+            var createTempQuery = $"CREATE TEMP TABLE {tempTableName} AS SELECT {quotedColumns} FROM {validatedTable} LIMIT 0";
             await connection.ExecuteAsync(createTempQuery, transaction: transaction);
 
             // Step 2: Bulk insert into temp table using COPY
@@ -355,13 +366,14 @@ internal partial class MigrationService
 
             // Step 3: Merge from temp table to destination
             var nonKeyColumns = columns.Except(primaryKeyColumns).ToList();
-            var quotedPrimaryKeys = string.Join(", ", primaryKeyColumns.Select(pk => $"\"{pk}\""));
+            var quotedPrimaryKeys = string.Join(", ", primaryKeyColumns.Select(x => QuoteIdentifier(x, DatabaseEngineType.PostgreSQL)));
             var updateSet = nonKeyColumns.Any()
-                ? string.Join(", ", nonKeyColumns.Select(c => $"\"{c}\" = EXCLUDED.\"{c}\""))
-                : $"\"{primaryKeyColumns.First()}\" = EXCLUDED.\"{primaryKeyColumns.First()}\"";
+                ? string.Join(", ", nonKeyColumns.Select(x =>
+                    $"{QuoteIdentifier(x, DatabaseEngineType.PostgreSQL)} = EXCLUDED.{QuoteIdentifier(x, DatabaseEngineType.PostgreSQL)}"))
+                : $"{QuoteIdentifier(primaryKeyColumns.First(), DatabaseEngineType.PostgreSQL)} = EXCLUDED.{QuoteIdentifier(primaryKeyColumns.First(), DatabaseEngineType.PostgreSQL)}";
 
             var mergeQuery = $@"
-INSERT INTO {tableName} ({quotedColumns})
+INSERT INTO {validatedTable} ({quotedColumns})
 SELECT {quotedColumns} FROM {tempTableName}
 ON CONFLICT ({quotedPrimaryKeys})
 DO UPDATE SET {updateSet}";
@@ -448,9 +460,13 @@ DO UPDATE SET {updateSet}";
             {
                 try
                 {
+                    foreach (var key in row.Keys)
+                    {
+                        SqlIdentifierGuard.Validate(key, "column");
+                    }
                     var columns = string.Join(", ", row.Keys);
-                    var parameters = string.Join(", ", row.Keys.Select(k => $"@{k}"));
-                    var insertQuery = $"INSERT INTO {tableName} ({columns}) VALUES ({parameters})";
+                    var parameters = string.Join(", ", row.Keys.Select(x => $"@{x}"));
+                    var insertQuery = $"INSERT INTO {ValidateTable(tableName)} ({columns}) VALUES ({parameters})";
 
                     await connection.ExecuteAsync(insertQuery, row, transaction);
                     rowsWritten++;
@@ -517,12 +533,15 @@ DO UPDATE SET {updateSet}";
 
     private async Task CreateTempTable(DbConnection connection, DbTransaction transaction, string tempTableName, string sourceTableName, DatabaseEngineType engineType)
     {
+        SqlIdentifierGuard.Validate(tempTableName, "temp table");
+        var validatedSource = ValidateTable(sourceTableName);
+
         var createQuery = engineType switch
         {
             // PostgreSQL: Don't quote temp table name - let it be lowercase
-            DatabaseEngineType.PostgreSQL => $"CREATE TEMP TABLE {tempTableName} AS SELECT * FROM {sourceTableName} LIMIT 0",
-            DatabaseEngineType.MySQL => $"CREATE TEMPORARY TABLE {tempTableName} LIKE {sourceTableName}",
-            DatabaseEngineType.MSSQL => $"SELECT * INTO {tempTableName} FROM {sourceTableName} WHERE 1=0",
+            DatabaseEngineType.PostgreSQL => $"CREATE TEMP TABLE {tempTableName} AS SELECT * FROM {validatedSource} LIMIT 0",
+            DatabaseEngineType.MySQL => $"CREATE TEMPORARY TABLE {tempTableName} LIKE {validatedSource}",
+            DatabaseEngineType.MSSQL => $"SELECT * INTO {tempTableName} FROM {validatedSource} WHERE 1=0",
             _ => throw new NotSupportedException($"Database engine type '{engineType}' is not supported")
         };
 
@@ -552,19 +571,21 @@ DO UPDATE SET {updateSet}";
     private string BuildPostgreSqlMerge(string destinationTable, string sourceTable, List<string> columns, List<string> primaryKeyColumns, List<string> nonKeyColumns)
     {
         // Quote identifiers to handle case-sensitive and reserved words
-        var quotedColumns = columns.Select(c => $"\"{c}\"").ToList();
+        var quotedColumns = columns.Select(x => QuoteIdentifier(x, DatabaseEngineType.PostgreSQL)).ToList();
         var columnList = string.Join(", ", quotedColumns);
-        var quotedPrimaryKeys = primaryKeyColumns.Select(pk => $"\"{pk}\"").ToList();
+        var quotedPrimaryKeys = primaryKeyColumns.Select(x => QuoteIdentifier(x, DatabaseEngineType.PostgreSQL)).ToList();
 
         var updateSet = nonKeyColumns.Any()
-            ? string.Join(", ", nonKeyColumns.Select(c => $"\"{c}\" = EXCLUDED.\"{c}\""))
-            : $"\"{primaryKeyColumns.First()}\" = EXCLUDED.\"{primaryKeyColumns.First()}\""; // Dummy update if no non-key columns
+            ? string.Join(", ", nonKeyColumns.Select(x =>
+                $"{QuoteIdentifier(x, DatabaseEngineType.PostgreSQL)} = EXCLUDED.{QuoteIdentifier(x, DatabaseEngineType.PostgreSQL)}"))
+            : $"{QuoteIdentifier(primaryKeyColumns.First(), DatabaseEngineType.PostgreSQL)} = EXCLUDED.{QuoteIdentifier(primaryKeyColumns.First(), DatabaseEngineType.PostgreSQL)}"; // Dummy update if no non-key columns
 
         // Quote table names properly
-        var quotedSourceTable = sourceTable.Contains(".") ? sourceTable : $"\"{sourceTable}\"";
+        var validatedDestination = ValidateTable(destinationTable);
+        var quotedSourceTable = sourceTable.Contains(".") ? ValidateTable(sourceTable) : QuoteIdentifier(sourceTable, DatabaseEngineType.PostgreSQL);
 
         return $@"
-INSERT INTO {destinationTable} ({columnList})
+INSERT INTO {validatedDestination} ({columnList})
 SELECT {columnList} FROM {quotedSourceTable}
 ON CONFLICT ({string.Join(", ", quotedPrimaryKeys)})
 DO UPDATE SET {updateSet}";
@@ -572,30 +593,48 @@ DO UPDATE SET {updateSet}";
 
     private string BuildMySqlMerge(string destinationTable, string sourceTable, List<string> columns, List<string> primaryKeyColumns, List<string> nonKeyColumns)
     {
+        foreach (var x in columns)
+        {
+            SqlIdentifierGuard.Validate(x, "column");
+        }
+        var validatedDestination = ValidateTable(destinationTable);
+        var validatedSource = ValidateTable(sourceTable);
+
         var columnList = string.Join(", ", columns);
-        var sourceColumns = string.Join(", ", columns.Select(c => $"s.{c}"));
+        var sourceColumns = string.Join(", ", columns.Select(x => $"s.{x}"));
         var updateSet = nonKeyColumns.Any()
-            ? string.Join(", ", nonKeyColumns.Select(c => $"{c} = VALUES({c})"))
+            ? string.Join(", ", nonKeyColumns.Select(x => $"{x} = VALUES({x})"))
             : primaryKeyColumns.First() + " = " + primaryKeyColumns.First(); // Dummy update
 
         return $@"
-            INSERT INTO {destinationTable} ({columnList})
-            SELECT {columnList} FROM {sourceTable}
+            INSERT INTO {validatedDestination} ({columnList})
+            SELECT {columnList} FROM {validatedSource}
             ON DUPLICATE KEY UPDATE {updateSet}";
     }
 
     private string BuildSqlServerMerge(string destinationTable, string sourceTable, List<string> columns, List<string> primaryKeyColumns, List<string> nonKeyColumns)
     {
-        var keyConditions = string.Join(" AND ", primaryKeyColumns.Select(pk => $"target.{pk} = source.{pk}"));
+        foreach (var x in columns)
+        {
+            SqlIdentifierGuard.Validate(x, "column");
+        }
+        foreach (var x in primaryKeyColumns)
+        {
+            SqlIdentifierGuard.Validate(x, "column");
+        }
+        var validatedDestination = ValidateTable(destinationTable);
+        var validatedSource = ValidateTable(sourceTable);
+
+        var keyConditions = string.Join(" AND ", primaryKeyColumns.Select(x => $"target.{x} = source.{x}"));
         var insertColumns = string.Join(", ", columns);
-        var insertValues = string.Join(", ", columns.Select(c => $"source.{c}"));
+        var insertValues = string.Join(", ", columns.Select(x => $"source.{x}"));
         var updateSet = nonKeyColumns.Any()
-            ? string.Join(", ", nonKeyColumns.Select(c => $"target.{c} = source.{c}"))
+            ? string.Join(", ", nonKeyColumns.Select(x => $"target.{x} = source.{x}"))
             : $"target.{primaryKeyColumns.First()} = source.{primaryKeyColumns.First()}"; // Dummy update
 
         return $@"
-            MERGE {destinationTable} AS target
-            USING {sourceTable} AS source
+            MERGE {validatedDestination} AS target
+            USING {validatedSource} AS source
             ON {keyConditions}
             WHEN MATCHED THEN
                 UPDATE SET {updateSet}
@@ -672,6 +711,48 @@ DO UPDATE SET {updateSet}";
             logger.LogError(ex, "Failed to retrieve primary key columns for table {Table}", tableName);
             return new List<string>();
         }
+    }
+
+    // §1.10 — Identifiers (schema / table / column names) cannot be parameterized, so every
+    // identifier interpolated into SQL text below is whitelist-validated via SqlIdentifierGuard
+    // before it reaches a query string. Where an identifier is wrapped in quotes, the embedded
+    // quote char is doubled as defence-in-depth.
+
+    private static string QuoteIdentifier(string identifier, DatabaseEngineType engineType)
+    {
+        SqlIdentifierGuard.Validate(identifier, "identifier");
+
+        return engineType switch
+        {
+            DatabaseEngineType.PostgreSQL => $"\"{SqlIdentifierGuard.EscapeQuote(identifier, '"')}\"",
+            DatabaseEngineType.MSSQL => $"[{identifier.Replace("]", "]]")}]",
+            DatabaseEngineType.MySQL => $"`{SqlIdentifierGuard.EscapeQuote(identifier, '`')}`",
+            _ => identifier
+        };
+    }
+
+    private static string ValidateAndQuoteTable(string tableName, DatabaseEngineType engineType)
+    {
+        var parts = tableName.Split('.', 2);
+        if (parts.Length == 2)
+        {
+            return $"{QuoteIdentifier(parts[0], engineType)}.{QuoteIdentifier(parts[1], engineType)}";
+        }
+
+        return QuoteIdentifier(tableName, engineType);
+    }
+
+    private static string ValidateTable(string tableName)
+    {
+        var parts = tableName.Split('.', 2);
+        if (parts.Length == 2)
+        {
+            SqlIdentifierGuard.Validate(parts[0], "schema");
+            SqlIdentifierGuard.Validate(parts[1], "table");
+            return tableName;
+        }
+
+        return SqlIdentifierGuard.Validate(tableName, "table");
     }
 
     private static string GetFullExceptionMessage(Exception ex)

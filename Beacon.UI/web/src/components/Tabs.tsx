@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { KeyboardEvent, ReactNode } from 'react';
 import { cn } from '@/lib/cn';
 
 export interface TabDef<K extends string> {
@@ -19,15 +19,27 @@ interface TabsProps<K extends string> {
  * (typically for action buttons aligned to the right of the tab strip).
  */
 export function Tabs<K extends string>({ tabs, active, onChange, trailing }: TabsProps<K>) {
+  function onKeyDown(e: KeyboardEvent, index: number) {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault();
+    const delta = e.key === 'ArrowRight' ? 1 : -1;
+    const next = (index + delta + tabs.length) % tabs.length;
+    onChange(tabs[next].key);
+  }
+
   return (
-    <div className="flex items-stretch border-b border-border">
-      {tabs.map(t => {
+    <div role="tablist" className="flex items-stretch border-b border-border">
+      {tabs.map((t, i) => {
         const isActive = t.key === active;
         return (
           <button
             key={t.key}
             type="button"
+            role="tab"
+            aria-selected={isActive}
+            tabIndex={isActive ? 0 : -1}
             onClick={() => onChange(t.key)}
+            onKeyDown={e => onKeyDown(e, i)}
             className={cn(
               'inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium transition border-b-2 -mb-px',
               isActive
