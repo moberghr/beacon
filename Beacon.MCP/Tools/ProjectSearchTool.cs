@@ -34,6 +34,9 @@ internal sealed class ProjectSearchTool(
         var resolveError = ToolHelper.ResolveProjectId(projectContext, sessionManager, project_id, out var projectId);
         if (resolveError != null) return ToolHelper.Error(resolveError);
 
+        // No McpSignalService call here: McpQuerySignal models the SQL query-learning loop
+        // (generated SQL, intent, routing, validation/execution outcomes). This read-only catalog
+        // search produces none of those signals, so a signal would only add empty rows. Audit-only.
         try
         {
             var results = await knowledgeGraph.SearchProjectAsync(query, projectId, maxResults, cancellationToken);

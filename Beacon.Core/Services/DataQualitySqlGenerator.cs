@@ -33,7 +33,7 @@ internal class DataQualitySqlGenerator : IDataQualitySqlGenerator
     {
         var schema = config.GetString("schema");
         var table = config.GetString("table");
-        var column = config.GetString("column");
+        var column = SqlIdentifierGuard.Validate(config.GetString("column"), "column");
         var maxAgeMinutes = config.GetInt("maxAgeMinutes");
         var qualifiedTable = QualifyTable(schema, table, engineType);
 
@@ -65,7 +65,7 @@ internal class DataQualitySqlGenerator : IDataQualitySqlGenerator
     {
         var schema = config.GetString("schema");
         var table = config.GetString("table");
-        var column = config.GetString("column");
+        var column = SqlIdentifierGuard.Validate(config.GetString("column"), "column");
         var qualifiedTable = QualifyTable(schema, table, engineType);
 
         return engineType switch
@@ -87,7 +87,7 @@ internal class DataQualitySqlGenerator : IDataQualitySqlGenerator
     {
         var schema = config.GetString("schema");
         var table = config.GetString("table");
-        var column = config.GetString("column");
+        var column = SqlIdentifierGuard.Validate(config.GetString("column"), "column");
         var qualifiedTable = QualifyTable(schema, table, engineType);
 
         return engineType switch
@@ -106,10 +106,10 @@ internal class DataQualitySqlGenerator : IDataQualitySqlGenerator
     {
         var schema = config.GetString("schema");
         var table = config.GetString("table");
-        var column = config.GetString("column");
+        var column = SqlIdentifierGuard.Validate(config.GetString("column"), "column");
         var refSchema = config.GetStringOrDefault("referenceSchema", schema);
         var refTable = config.GetString("referenceTable");
-        var refColumn = config.GetString("referenceColumn");
+        var refColumn = SqlIdentifierGuard.Validate(config.GetString("referenceColumn"), "column");
 
         var qualifiedTable = QualifyTable(schema, table, engineType);
         var qualifiedRefTable = QualifyTable(refSchema, refTable, engineType);
@@ -185,6 +185,9 @@ internal class DataQualitySqlGenerator : IDataQualitySqlGenerator
 
     private static string QualifyTable(string schema, string table, DatabaseEngineType engineType)
     {
+        SqlIdentifierGuard.Validate(schema, "schema");
+        SqlIdentifierGuard.Validate(table, "table");
+
         return engineType switch
         {
             DatabaseEngineType.PostgreSQL => $"\"{schema}\".\"{table}\"",
@@ -196,6 +199,8 @@ internal class DataQualitySqlGenerator : IDataQualitySqlGenerator
 
     private static string QuoteColumn(string column, DatabaseEngineType engineType)
     {
+        SqlIdentifierGuard.Validate(column, "column");
+
         return engineType switch
         {
             DatabaseEngineType.PostgreSQL => $"\"{column}\"",
@@ -203,6 +208,16 @@ internal class DataQualitySqlGenerator : IDataQualitySqlGenerator
             DatabaseEngineType.MySQL => $"`{column}`",
             _ => column
         };
+    }
+
+    private static string ValidateNumeric(string value, string property)
+    {
+        if (!decimal.TryParse(value, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out _))
+        {
+            throw new InvalidOperationException($"Rule config property '{property}' must be numeric.");
+        }
+
+        return value;
     }
 
     private static string EscapeSqlString(string value) => value.Replace("'", "''");

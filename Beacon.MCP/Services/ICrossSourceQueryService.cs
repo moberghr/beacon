@@ -12,5 +12,6 @@ internal interface ICrossSourceQueryService
         string question,
         McpSettingsData settings,
         bool execute,
+        McpSignalBuilder signal,
         CancellationToken ct);
 }

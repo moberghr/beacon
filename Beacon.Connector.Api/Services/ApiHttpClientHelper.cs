@@ -12,16 +12,20 @@ public static class ApiHttpClientHelper
     {
         var url = BuildUrl(config.BaseUrl, query.Path, query.Parameters);
 
+        // Enforce a read-only verb whitelist. Only GET/HEAD/OPTIONS are allowed by
+        // default; POST is permitted solely when the connection explicitly opts in
+        // for search-style endpoints. Mutating verbs (PUT/DELETE/PATCH) and any other
+        // arbitrary method are rejected — never forwarded verbatim.
         var method = query.Method.ToUpperInvariant() switch
         {
             "GET" => HttpMethod.Get,
-            "POST" => HttpMethod.Post,
-            "PUT" => HttpMethod.Put,
-            "DELETE" => HttpMethod.Delete,
-            "PATCH" => HttpMethod.Patch,
             "HEAD" => HttpMethod.Head,
-            "OPTIONS" => new HttpMethod("OPTIONS"),
-            _ => new HttpMethod(query.Method)
+            "OPTIONS" => HttpMethod.Options,
+            "POST" when config.AllowPostQueries => HttpMethod.Post,
+            "POST" => throw new InvalidOperationException(
+                "POST queries are disabled for this API data source. Enable AllowPostQueries for search-style endpoints."),
+            _ => throw new InvalidOperationException(
+                $"HTTP method '{query.Method}' is not permitted. Only read-only verbs (GET/HEAD/OPTIONS) are allowed.")
         };
 
         var request = new HttpRequestMessage(method, url);
@@ -99,6 +103,14 @@ public static class ApiHttpClientHelper
             }
         }
 
+        // Guard against host injection (e.g. an absolute URL or `@evil.com/x` smuggled
+        // through the path). The resolved path must be server-relative.
+        if (!resolvedPath.StartsWith('/'))
+        {
+            throw new InvalidOperationException(
+                $"Endpoint path must be a server-relative path starting with '/'. Got: '{resolvedPath}'.");
+        }
+
         var url = baseUrl.TrimEnd('/') + resolvedPath;
 
         // Add query parameters
@@ -108,6 +120,16 @@ public static class ApiHttpClientHelper
                 parameters.Query.Select(kvp =>
                     $"{Uri.EscapeDataString(kvp.Key)}={Uri.EscapeDataString(kvp.Value)}"));
             url += "?" + queryString;
+        }
+
+        // Verify the composed URL still targets the configured host — defends against
+        // path-based host injection slipping past the prefix check.
+        var configuredHost = new Uri(baseUrl).Host;
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var builtUri) ||
+            !string.Equals(builtUri.Host, configuredHost, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"Resolved request URL host does not match the configured base URL host '{configuredHost}'.");
         }
 
         return url;

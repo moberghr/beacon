@@ -1,15 +1,33 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Beacon.Core.Authorization;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Services;
 
 namespace Beacon.Core.Handlers.Dashboards.GetDashboardPermissions;
 
 internal sealed class GetDashboardPermissionsHandler(
-    IDbContextFactory<BeaconContext> contextFactory) : IRequestHandler<GetDashboardPermissionsQuery, List<DashboardPermissionData>>
+    IDbContextFactory<BeaconContext> contextFactory,
+    IDashboardService dashboardService,
+    IBeaconUserContext userContext) : IRequestHandler<GetDashboardPermissionsQuery, List<DashboardPermissionData>>
 {
     public async Task<List<DashboardPermissionData>> Handle(GetDashboardPermissionsQuery request, CancellationToken cancellationToken)
     {
+        // Only an owner/admin of the dashboard may read its access-control list.
+        // Owner is treated as Admin inside UserHasPermissionAsync.
+        var userId = userContext.UserId ?? string.Empty;
+        var hasPermission = await dashboardService.UserHasPermissionAsync(
+            request.DashboardId,
+            userId,
+            DashboardPermissionLevel.Admin,
+            cancellationToken);
+
+        if (!hasPermission)
+        {
+            throw new InvalidOperationException("Only dashboard owner or admin can view permissions");
+        }
+
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         var permissions = await context.DashboardPermissions

@@ -19,6 +19,7 @@ export function Seg<T extends string>({
 }) {
   return (
     <div
+      role="radiogroup"
       className={cn(
         'inline-flex items-center bg-surface-2 border border-border rounded-sm p-0.5 text-xs',
         className,
@@ -28,6 +29,8 @@ export function Seg<T extends string>({
         <button
           key={o.value}
           type="button"
+          role="radio"
+          aria-checked={o.value === value}
           onClick={() => onChange(o.value)}
           className={cn(
             'px-2.5 py-1 rounded-xs font-medium transition',

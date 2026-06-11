@@ -75,7 +75,7 @@ public class JwtExternalApiAuthenticationProvider : IBeaconAuthenticationProvide
 
             // Extract claims and build AuthenticatedUser
             var jwtToken = _tokenHandler.ReadJwtToken(token);
-            var user = BuildAuthenticatedUser(jwtToken, token);
+            var user = BuildAuthenticatedUser(jwtToken);
 
             return AuthenticationResult.Succeeded(user);
         }
@@ -123,7 +123,7 @@ public class JwtExternalApiAuthenticationProvider : IBeaconAuthenticationProvide
                 return AuthenticationResult.Failed("Invalid token format.");
             }
 
-            var user = BuildAuthenticatedUser(jwtToken, token);
+            var user = BuildAuthenticatedUser(jwtToken);
             return AuthenticationResult.Succeeded(user);
         }
         catch (SecurityTokenExpiredException)
@@ -182,10 +182,10 @@ public class JwtExternalApiAuthenticationProvider : IBeaconAuthenticationProvide
         }
         else
         {
-            // No signing key configured - allow unsigned tokens (not recommended for production)
-            parameters.ValidateIssuerSigningKey = false;
-            parameters.SignatureValidator = (token, _) =>
-                _tokenHandler.ReadJwtToken(token);
+            // Fail closed: without a signing key or JWKS endpoint we cannot verify the token
+            // signature, so we refuse to validate rather than installing a pass-through validator.
+            _logger.LogError("JWT validation requires a SigningKey or JwksEndpoint, but neither is configured.");
+            throw new SecurityTokenException("No signing key configured.");
         }
 
         return parameters;
@@ -208,7 +208,7 @@ public class JwtExternalApiAuthenticationProvider : IBeaconAuthenticationProvide
         }
     }
 
-    private AuthenticatedUser BuildAuthenticatedUser(JwtSecurityToken jwtToken, string rawToken)
+    private AuthenticatedUser BuildAuthenticatedUser(JwtSecurityToken jwtToken)
     {
         var claims = jwtToken.Claims.ToList();
         var mapping = _options.ClaimsMapping;
@@ -240,9 +240,6 @@ public class JwtExternalApiAuthenticationProvider : IBeaconAuthenticationProvide
             .Where(c => !standardClaims.Contains(c.Type))
             .GroupBy(c => c.Type)
             .ToDictionary(g => g.Key, g => g.First().Value);
-
-        // Store the raw token for potential downstream use
-        additionalClaims["jwt_token"] = rawToken;
 
         return new AuthenticatedUser
         {

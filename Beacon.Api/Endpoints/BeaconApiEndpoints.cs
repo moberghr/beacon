@@ -9,7 +9,17 @@ public static class BeaconApiEndpoints
     public const string AuthPolicyName = "BeaconApi";
     public const string AdminPolicyName = "BeaconApiAdmin";
 
-    private static readonly string[] SafeMethods = ["GET", "HEAD", "OPTIONS", "TRACE"];
+    /// <summary>
+    /// Requires the <c>Execute</c> (or <c>Admin</c>) scope for API-key callers (§1.4).
+    /// Interactive cookie/OIDC sessions carry no <c>scope</c> claim and are not scope-gated —
+    /// they are already a full authenticated session governed by role. Only the scoped
+    /// API-key identity minted by <c>ApiKeyAuthMiddleware</c> is constrained here.
+    /// </summary>
+    public const string ExecuteScopePolicyName = "BeaconApiExecute";
+
+    private const string ApiKeyAuthMethod = "api_key";
+
+    private static readonly string[] WriteScopes = ["Execute", "Admin"];
 
     public static IServiceCollection AddBeaconApiAuthorization(this IServiceCollection services)
     {
@@ -26,6 +36,25 @@ public static class BeaconApiEndpoints
             options.AddPolicy(AdminPolicyName, new AuthorizationPolicyBuilder()
                 .RequireAuthenticatedUser()
                 .RequireRole("Admin")
+                .Build());
+
+            // §1.4 — API keys carry scopes; enforce the write scope on mutating endpoints.
+            // A non-API-key (cookie/OIDC) caller has no auth_method=api_key claim and is
+            // therefore allowed through; an API-key caller must present Execute or Admin.
+            options.AddPolicy(ExecuteScopePolicyName, new AuthorizationPolicyBuilder()
+                .RequireAuthenticatedUser()
+                .RequireAssertion(context =>
+                {
+                    var isApiKey = context.User.HasClaim("auth_method", ApiKeyAuthMethod);
+                    if (!isApiKey)
+                    {
+                        return true;
+                    }
+
+                    return context.User
+                        .FindAll("scope")
+                        .Any(x => WriteScopes.Contains(x.Value));
+                })
                 .Build());
         });
 

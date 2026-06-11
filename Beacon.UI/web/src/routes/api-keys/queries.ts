@@ -3,6 +3,11 @@ import { beaconApi } from '@/api/client';
 import { createSimpleMutation } from '@/lib/mutations';
 import type { ApiKeyEntry, CreateApiKeyCommand, CreateApiKeyResult } from '@/api/generated/beacon-api';
 
+// FOLLOW-UP (unwrap<T>() boundary cleanup): the generated `ApiKeyEntry` types
+// date fields as `Date`, but the wire payload deserializes them as strings (no
+// reviver). The accurate fix is a local strict interface (string dates) bridged
+// via `unwrap<T>()` at the queryFn — see `routes/mcp/queries.ts` for the pattern.
+// Deferred here (and in approvals/, migration-jobs/) to avoid a wide type cascade.
 export type { ApiKeyEntry, CreateApiKeyResult };
 
 const KEYS = ['api-keys'] as const;

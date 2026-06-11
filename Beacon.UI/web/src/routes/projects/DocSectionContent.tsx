@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { marked } from 'marked';
+import DOMPurify from 'dompurify';
 import { MermaidDiagram } from '@/components/ui/MermaidDiagram';
 
 interface DocSectionContentProps {
@@ -13,6 +14,13 @@ interface Block {
 }
 
 const FENCE_RE = /```mermaid\s*\n([\s\S]*?)```/g;
+
+function escapeHtml(raw: string): string {
+  return raw
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
 
 function splitContent(raw: string): Block[] {
   const blocks: Block[] = [];
@@ -42,9 +50,10 @@ function splitContent(raw: string): Block[] {
 function MarkdownBlock({ content }: { content: string }) {
   const html = useMemo(() => {
     try {
-      return marked.parse(content, { async: false }) as string;
+      return DOMPurify.sanitize(marked.parse(content, { async: false }) as string);
     } catch {
-      return `<pre>${content}</pre>`;
+      // Render the raw source as escaped text — never inject unsanitized markup.
+      return `<pre>${escapeHtml(content)}</pre>`;
     }
   }, [content]);
 

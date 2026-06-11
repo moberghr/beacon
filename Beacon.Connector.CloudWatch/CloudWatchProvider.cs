@@ -87,7 +87,7 @@ public class CloudWatchProvider(
 
             if (queryType == CloudWatchQueryType.LogsInsights)
             {
-                return await ExecuteLogsInsightsQueryAsync(client, config, query, parameters, stopwatch, cancellationToken);
+                return await ExecuteLogsInsightsQueryAsync(client, config, dataSource.Id, query, parameters, stopwatch, cancellationToken);
             }
             else
             {
@@ -126,35 +126,38 @@ public class CloudWatchProvider(
             if (config.LogGroups.Any())
             {
                 // Standard CloudWatch Logs fields that are always available
+                // Standard fields are always present, but CloudWatch does not expose
+                // sample values or counts without running a probe query. Report the
+                // field names with empty samples rather than fabricating data.
                 logFields.AddRange(new[]
                 {
                     new LogFieldMetadata
                     {
                         FieldName = "@timestamp",
                         DataType = "timestamp",
-                        SampleCount = 1000,
-                        SampleValues = new List<string> { "2024-01-26T10:30:00.000Z" }
+                        SampleCount = 0,
+                        SampleValues = new List<string>()
                     },
                     new LogFieldMetadata
                     {
                         FieldName = "@message",
                         DataType = "string",
-                        SampleCount = 1000,
-                        SampleValues = new List<string> { "Log message text" }
+                        SampleCount = 0,
+                        SampleValues = new List<string>()
                     },
                     new LogFieldMetadata
                     {
                         FieldName = "@logStream",
                         DataType = "string",
-                        SampleCount = 1000,
-                        SampleValues = config.LogGroups.Select(lg => $"stream-for-{lg}").ToList()
+                        SampleCount = 0,
+                        SampleValues = new List<string>()
                     },
                     new LogFieldMetadata
                     {
                         FieldName = "@log",
                         DataType = "string",
-                        SampleCount = 1000,
-                        SampleValues = config.LogGroups
+                        SampleCount = 0,
+                        SampleValues = new List<string>()
                     }
                 });
 
@@ -240,6 +243,7 @@ public class CloudWatchProvider(
     private async Task<ProviderQueryResult> ExecuteLogsInsightsQueryAsync(
         AmazonCloudWatchLogsClient client,
         CloudWatchConfiguration config,
+        int dataSourceId,
         string query,
         Dictionary<string, object?> parameters,
         Stopwatch stopwatch,
@@ -268,8 +272,9 @@ public class CloudWatchProvider(
             EndTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
         };
 
-        logger.LogInformation("Starting CloudWatch Logs Insights query. LogGroups: {LogGroups}, Query: {Query}",
-            string.Join(", ", config.LogGroups), processedQuery);
+        logger.LogInformation(
+            "Starting CloudWatch Logs Insights query for data source {DataSourceId}. LogGroupCount: {LogGroupCount}, QueryLength: {QueryLength}",
+            dataSourceId, config.LogGroups.Count, processedQuery.Length);
 
         StartQueryResponse startQueryResponse;
         try
@@ -296,14 +301,16 @@ public class CloudWatchProvider(
 
         logger.LogInformation("Started CloudWatch Logs Insights query {QueryId}", queryId);
 
-        // Poll for results
-        var timeoutSeconds = config.QueryTimeoutSeconds;
+        // Poll for results. Track elapsed time in milliseconds so the sub-second
+        // poll interval can't be truncated to zero (an integer-division bug that
+        // previously made the timeout unreachable and the loop effectively infinite).
+        var timeoutMs = config.QueryTimeoutSeconds * 1000;
         var pollIntervalMs = 500;
-        var elapsedSeconds = 0;
+        var elapsedMs = 0;
 
         GetQueryResultsResponse? queryResults = null;
 
-        while (elapsedSeconds < timeoutSeconds)
+        while (elapsedMs < timeoutMs)
         {
             var getResultsRequest = new GetQueryResultsRequest { QueryId = queryId };
             queryResults = await client.GetQueryResultsAsync(getResultsRequest, cancellationToken);
@@ -319,12 +326,12 @@ public class CloudWatchProvider(
             }
 
             await Task.Delay(pollIntervalMs, cancellationToken);
-            elapsedSeconds += pollIntervalMs / 1000;
+            elapsedMs += pollIntervalMs;
         }
 
         if (queryResults?.Status != QueryStatus.Complete)
         {
-            throw new BeaconException($"CloudWatch query {queryId} timed out after {timeoutSeconds} seconds");
+            throw new BeaconException($"CloudWatch query {queryId} timed out after {config.QueryTimeoutSeconds} seconds");
         }
 
         // Convert CloudWatch results to normalized format
@@ -401,6 +408,9 @@ public class CloudWatchProvider(
 
     private static CloudWatchQueryType DetectQueryType(string query)
     {
+        // NOTE: today both branches resolve to LogsInsights (Metrics queries are not
+        // yet implemented) and the time range is hardcoded to the last hour upstream.
+        // Kept as-is intentionally; revisit when Metrics support / custom ranges land.
         // Logs Insights queries typically contain these keywords
         var logsInsightsKeywords = new[] { "fields", "@timestamp", "@message", "filter", "stats", "sort" };
 

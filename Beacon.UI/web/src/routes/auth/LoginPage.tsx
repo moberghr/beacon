@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -20,10 +20,24 @@ interface LoginResponse {
   redirectUrl?: string | null;
 }
 
+/**
+ * Guards a redirect target against open-redirect: only same-origin relative
+ * paths are allowed. `//evil.com` and `https://evil.com` are rejected.
+ */
+function safeRelativePath(path: string | null | undefined): string | null {
+  if (typeof path !== 'string') return null;
+  if (!path.startsWith('/') || path.startsWith('//')) return null;
+  return path;
+}
+
 export default function LoginPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [params] = useSearchParams();
   const ssoError = params.get('ssoError');
+  const returnTo = safeRelativePath(
+    (location.state as { returnTo?: string } | null)?.returnTo,
+  );
   const auth = useAuth();
   const [serverError, setServerError] = useState<string | null>(
     ssoError ? 'Single sign-on failed. Please try again or sign in with username and password.' : null,
@@ -37,9 +51,9 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (auth.data?.isAuthenticated) {
-      navigate('/home', { replace: true });
+      navigate(returnTo ?? '/home', { replace: true });
     }
-  }, [auth.data?.isAuthenticated, navigate]);
+  }, [auth.data?.isAuthenticated, navigate, returnTo]);
 
   async function onSubmit(values: FormValues) {
     setServerError(null);
@@ -56,7 +70,10 @@ export default function LoginPage() {
         setServerError(result.error || 'Invalid username or password.');
         return;
       }
-      window.location.href = result.redirectUrl || '/home';
+      // Prefer the deep-link the user originally requested, then the
+      // server-supplied redirect, then home — both guarded to same-origin
+      // relative paths to block open-redirect.
+      window.location.href = returnTo ?? safeRelativePath(result.redirectUrl) ?? '/home';
     } catch (e) {
       setServerError(extractLoginError(e));
     }
