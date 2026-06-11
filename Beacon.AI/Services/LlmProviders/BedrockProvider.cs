@@ -247,10 +247,14 @@ public class BedrockProvider : ILlmProvider
 
         using var reader = new StreamReader(response.Body);
         var responseBody = await reader.ReadToEndAsync(cancellationToken);
-        var result = JsonSerializer.Deserialize<LlamaBedrockResponse>(responseBody);
+        var result = JsonSerializer.Deserialize<LlamaBedrockResponse>(responseBody,
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
 
         if (result == null)
             throw new AiServiceException("Failed to parse Bedrock Llama API response");
+
+        if (result.Generation == null)
+            throw new AiServiceException("Bedrock Llama API response did not contain a generation");
 
         // Calculate costs (approximate token counts)
         var inputTokens = prompt.Length / 4; // Rough estimate
@@ -340,9 +344,16 @@ public class BedrockProvider : ILlmProvider
     // Response models for Llama
     private class LlamaBedrockResponse
     {
+        [JsonPropertyName("generation")]
         public string Generation { get; set; } = null!;
-        public string PromptTokenCount { get; set; } = null!;
-        public string GenerationTokenCount { get; set; } = null!;
-        public string StopReason { get; set; } = null!;
+
+        [JsonPropertyName("prompt_token_count")]
+        public int PromptTokenCount { get; set; }
+
+        [JsonPropertyName("generation_token_count")]
+        public int GenerationTokenCount { get; set; }
+
+        [JsonPropertyName("stop_reason")]
+        public string? StopReason { get; set; }
     }
 }

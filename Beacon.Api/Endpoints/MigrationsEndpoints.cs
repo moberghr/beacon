@@ -17,15 +17,18 @@ internal static class MigrationsEndpoints
 
         migrations.MapPost("/jobs", ([FromBody] CreateMigrationJobCommand cmd, IMediator m, CancellationToken ct) =>
                 m.Send(cmd, ct))
-            .WithName("CreateMigrationJob");
+            .WithName("CreateMigrationJob")
+            .RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
 
         migrations.MapPost("/jobs/{id:int}/run", (int id, IMediator m, CancellationToken ct) =>
                 m.Send(new RunMigrationJobCommand(id), ct))
-            .WithName("RunMigrationJob");
+            .WithName("RunMigrationJob")
+            .RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
 
         migrations.MapDelete("/jobs/{id:int}", (int id, [FromQuery] bool? forceDelete, IMediator m, CancellationToken ct) =>
                 m.Send(new DeleteMigrationJobCommand(id, forceDelete ?? false), ct))
-            .WithName("DeleteMigrationJob");
+            .WithName("DeleteMigrationJob")
+            .RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
 
         migrations.MapGet("/executions", (
                 [FromQuery] int? migrationJobId,

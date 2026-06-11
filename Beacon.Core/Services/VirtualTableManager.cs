@@ -159,8 +159,8 @@ public class VirtualTableManager : IDisposable
 
         return $@"{cteName} AS (
     -- Data from {sourceProject.Name} ({sourceProject.DatabaseEngine}) - {data.Count} rows
-    SELECT {string.Join(", ", columns.Select(c => $"[{c}]"))}
-    FROM (VALUES {string.Join(",\n           ", valueRows)}) AS t({string.Join(", ", columns.Select(c => $"[{c}]"))})
+    SELECT {string.Join(", ", columns.Select(x => QuoteColumn(x, DatabaseEngineType.MSSQL)))}
+    FROM (VALUES {string.Join(",\n           ", valueRows)}) AS t({string.Join(", ", columns.Select(x => QuoteColumn(x, DatabaseEngineType.MSSQL)))})
 )";
     }
 
@@ -181,8 +181,8 @@ public class VirtualTableManager : IDisposable
 
         return $@"{cteName} AS (
     -- Data from {sourceProject.Name} ({sourceProject.DatabaseEngine}) - {data.Count} rows
-    SELECT {string.Join(", ", columns.Select(c => $"\"{c}\""))}
-    FROM (VALUES {string.Join(",\n           ", valueRows)}) AS t({string.Join(", ", columns.Select(c => $"\"{c}\""))})
+    SELECT {string.Join(", ", columns.Select(x => QuoteColumn(x, DatabaseEngineType.PostgreSQL)))}
+    FROM (VALUES {string.Join(",\n           ", valueRows)}) AS t({string.Join(", ", columns.Select(x => QuoteColumn(x, DatabaseEngineType.PostgreSQL)))})
 )";
     }
 
@@ -203,9 +203,25 @@ public class VirtualTableManager : IDisposable
 
         return $@"{cteName} AS (
     -- Data from {sourceProject.Name} ({sourceProject.DatabaseEngine}) - {data.Count} rows
-    SELECT {string.Join(", ", columns.Select(c => $"`{c}`"))}
-    FROM (VALUES {string.Join(",\n           ", valueRows)}) AS t({string.Join(", ", columns.Select(c => $"`{c}`"))})
+    SELECT {string.Join(", ", columns.Select(x => QuoteColumn(x, DatabaseEngineType.MySQL)))}
+    FROM (VALUES {string.Join(",\n           ", valueRows)}) AS t({string.Join(", ", columns.Select(x => QuoteColumn(x, DatabaseEngineType.MySQL)))})
 )";
+    }
+
+    // §1.10 — Column names are interpolated into the CTE column lists below and cannot be
+    // parameterized, so each is whitelist-validated via SqlIdentifierGuard before quoting and the
+    // embedded quote char is doubled per dialect as defence-in-depth.
+    private static string QuoteColumn(string column, DatabaseEngineType engineType)
+    {
+        SqlIdentifierGuard.Validate(column, "column");
+
+        return engineType switch
+        {
+            DatabaseEngineType.PostgreSQL => $"\"{SqlIdentifierGuard.EscapeQuote(column, '"')}\"",
+            DatabaseEngineType.MSSQL => $"[{column.Replace("]", "]]")}]",
+            DatabaseEngineType.MySQL => $"`{SqlIdentifierGuard.EscapeQuote(column, '`')}`",
+            _ => column
+        };
     }
 
     // Enhanced formatting methods that handle cross-database data type differences

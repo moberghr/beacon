@@ -14,6 +14,9 @@ internal sealed class RejectDocumentationPatchHandler(IDbContextFactory<BeaconCo
         var patch = await context.McpDocumentationPatches.FindAsync([request.PatchId], cancellationToken)
             ?? throw new InvalidOperationException($"Patch {request.PatchId} not found");
 
+        if (patch.Status != McpDocPatchStatus.Proposed)
+            throw new InvalidOperationException($"Patch {request.PatchId} is already {patch.Status}");
+
         patch.Status = McpDocPatchStatus.Rejected;
         patch.AppliedByUserId = request.RejectedByUserId;
         patch.AppliedAt = DateTime.UtcNow;

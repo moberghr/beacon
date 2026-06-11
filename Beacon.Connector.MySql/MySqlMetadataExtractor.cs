@@ -85,7 +85,8 @@ public class MySqlMetadataExtractor : IDatabaseMetadataExtractor
                         ForeignKeyTable: hasFk ? fkInfo.TableName : null,
                         ForeignKeyColumn: hasFk ? fkInfo.ColumnName : null,
                         DefaultValue: c.column_default?.ToString(),
-                        MaxLength: c.character_maximum_length as int?,
+                        // CHARACTER_MAXIMUM_LENGTH is boxed as long, so `as int?` is always null — convert explicitly.
+                        MaxLength: c.character_maximum_length == null ? (int?)null : Convert.ToInt32(c.character_maximum_length),
                         Description: null
                     );
                 }).ToList();

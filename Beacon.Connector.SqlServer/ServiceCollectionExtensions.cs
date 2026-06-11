@@ -1,4 +1,4 @@
-using System.Data.SqlClient;
+using Microsoft.Data.SqlClient;
 using Beacon.Core;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Helpers;

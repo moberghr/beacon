@@ -16,6 +16,7 @@ import {
 } from '@/components/beacon';
 import { Tabs } from '@/components/Tabs';
 import { useIsAdmin } from '@/auth/useAuth';
+import { unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
 import { useProjectsQuery } from '@/routes/projects/queries';
 import {
@@ -84,14 +85,18 @@ function McpSettingsForm() {
   }, [data, form]);
 
   function onSubmit(values: FormValues) {
+    // Blank/whitespace-only nullable text fields must round-trip back to null so
+    // the backend's `?? default` fallback keeps working — saving '' would wipe
+    // the default Ask system prompt and tool descriptions.
+    const orNull = (s: string | null) => (s && s.trim() !== '' ? s : null);
     const payload: McpSettingsData = {
-      askSystemPrompt: values.askSystemPrompt,
-      globalInstruction: values.globalInstruction,
-      getContextDescription: values.getContextDescription,
-      queryDescription: values.queryDescription,
-      getDocumentationDescription: values.getDocumentationDescription,
-      askDescription: values.askDescription,
-      searchDescription: values.searchDescription,
+      askSystemPrompt: orNull(values.askSystemPrompt),
+      globalInstruction: orNull(values.globalInstruction),
+      getContextDescription: orNull(values.getContextDescription),
+      queryDescription: orNull(values.queryDescription),
+      getDocumentationDescription: orNull(values.getDocumentationDescription),
+      askDescription: orNull(values.askDescription),
+      searchDescription: orNull(values.searchDescription),
       maxRowLimit: values.maxRowLimit,
       enforceReadOnly: values.enforceReadOnly,
       enablePiiDetection: values.enablePiiDetection,
@@ -267,8 +272,8 @@ function ProjectContextPreview() {
 
   const contextQuery = useQuery({
     queryKey: ['project-mcp-context', selectedProjectId],
-    queryFn: () =>
-      beaconApi().getProjectMcpContext(selectedProjectId as number) as unknown as Promise<{ context: string }>,
+    queryFn: async () =>
+      unwrap<{ context: string }>(await beaconApi().getProjectMcpContext(selectedProjectId as number)),
     enabled: selectedProjectId !== undefined,
   });
 

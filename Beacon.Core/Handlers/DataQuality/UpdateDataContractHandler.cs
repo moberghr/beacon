@@ -17,6 +17,11 @@ internal sealed class UpdateDataContractHandler(
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
+        // The rule-result purge below runs as raw SQL (ExecuteDeleteAsync) outside the change
+        // tracker, so it would commit immediately and wipe history even if the subsequent save
+        // failed. Wrap the purge + rewrite + save in one explicit transaction so they're atomic.
+        await using var tx = await context.Database.BeginTransactionAsync(cancellationToken);
+
         var contract = await context.DataContracts
             .Include(c => c.Rules)
             .Include(c => c.Recipients)
@@ -72,6 +77,7 @@ internal sealed class UpdateDataContractHandler(
         }
 
         await context.SaveChangesAsync(cancellationToken);
+        await tx.CommitAsync(cancellationToken);
 
         if (contract.IsEnabled)
         {

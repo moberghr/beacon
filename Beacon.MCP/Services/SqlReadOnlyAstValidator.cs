@@ -44,6 +44,29 @@ internal sealed class SqlReadOnlyAstValidator(ILogger<SqlReadOnlyAstValidator> l
             {
                 return $"Only SELECT queries are permitted. Found: {statement.GetType().Name}.";
             }
+
+            // SELECT ... INTO <table> parses as a Select but materializes a new table in both
+            // PostgreSQL and SQL Server — reject it (§1.5 read-only).
+            var intoError = RejectSelectInto(statement);
+            if (intoError != null)
+            {
+                return intoError;
+            }
+        }
+
+        return null;
+    }
+
+    private static string? RejectSelectInto(Statement statement)
+    {
+        if (statement is not Statement.Select select)
+        {
+            return null;
+        }
+
+        if (select.Query.Body is SetExpression.SelectExpression { Select.Into: not null })
+        {
+            return "SELECT ... INTO is not allowed because it creates a table. Submit a read-only SELECT.";
         }
 
         return null;

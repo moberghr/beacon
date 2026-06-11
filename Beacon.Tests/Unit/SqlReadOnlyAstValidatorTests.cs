@@ -72,6 +72,15 @@ public class SqlReadOnlyAstValidatorTests
         _validator.Validate("DELETE FROM orders", dialect).Should().NotBeNullOrWhiteSpace();
     }
 
+    [TestCase("PostgreSQL")]
+    [TestCase("MSSQL")]
+    public void Validate_SelectInto_IsRejected(string dialect)
+    {
+        // SELECT ... INTO creates a table in both PostgreSQL and SQL Server — it parses as a
+        // SELECT statement but is a write, so the AST validator must reject it.
+        _validator.Validate("SELECT * INTO evil FROM orders", dialect).Should().NotBeNullOrWhiteSpace();
+    }
+
     [Test]
     public void Validate_UnparseableSql_IsAllowedThrough()
     {

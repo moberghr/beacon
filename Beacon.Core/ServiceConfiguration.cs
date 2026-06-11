@@ -35,6 +35,9 @@ public static class ServiceConfiguration
         beaconConfiguration(configurationOptions);
         configurationOptions.ValidateCore();
 
+        // Fail fast if JWT authentication is enabled without a way to verify token signatures.
+        configurationOptions.Authentication.Jwt?.Validate();
+
         // Register configuration for access by adapters and other services
         services.AddSingleton(configurationOptions);
 
@@ -84,6 +87,10 @@ public static class ServiceConfiguration
                 "Then add to appsettings.json: { \"Beacon\": { \"EncryptionKey\": \"your-generated-key\" } }");
         }
         services.AddSingleton<IEncryptionService>(new EncryptionService(encryptionKey));
+
+        // One-time secret re-encryption cleanup (decrypt-then-encrypt onto the authenticated v2 format).
+        // TODO: invoke once post-deploy (e.g. resolve SecretReEncryptionService and call ReEncryptAllAsync).
+        services.TryAddTransient<SecretReEncryptionService>();
 
         services.AddSingleton<IAdapter, TeamsAdapter>();
         services.AddSingleton<IAdapter, SlackAdapter>();
