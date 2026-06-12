@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { AlertTriangle, Inbox, Plus, RefreshCw, X } from 'lucide-react';
@@ -6,7 +6,6 @@ import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Button, Card, Input, PageHeader, Pill } from '@/components/beacon';
-import { describeError } from '@/lib/api';
 import { formatNumber } from '@/lib/format';
 import {
   useDeleteSubscription,
@@ -20,7 +19,10 @@ const GRID_TEMPLATE = '0.6fr 0.6fr 1.6fr 1.4fr 1.6fr 0.8fr 60px';
 export default function SubscriptionsListPage() {
   const navigate = useNavigate();
   const [search, setSearch] = useState('');
-  const { data, isLoading, isError, error, refetch } = useSubscriptionsQuery(search);
+  // Debounce before the term enters the query key — one request per pause,
+  // not per keystroke.
+  const debouncedSearch = useDebouncedValue(search, 300);
+  const { data, isLoading, isError, error, refetch } = useSubscriptionsQuery(debouncedSearch);
   const deleteMutation = useDeleteSubscription();
 
   const [adding, setAdding] = useState(false);
@@ -88,8 +90,8 @@ export default function SubscriptionsListPage() {
       await deleteMutation.mutateAsync(deleting.id);
       toast.success(`Deleted subscription #${deleting.id}`);
       setDeleting(null);
-    } catch (err) {
-            toast.error(describeError(err, 'Delete failed'));
+    } catch {
+      // useDeleteSubscription (createSimpleMutation) already toasts the error.
     }
   };
 
@@ -172,4 +174,13 @@ export default function SubscriptionsListPage() {
       />
     </div>
   );
+}
+
+function useDebouncedValue<T>(value: T, delayMs: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = window.setTimeout(() => setDebounced(value), delayMs);
+    return () => window.clearTimeout(t);
+  }, [value, delayMs]);
+  return debounced;
 }

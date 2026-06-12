@@ -1,10 +1,9 @@
 import { Link } from 'react-router-dom';
 import { AlertTriangle, Clock } from 'lucide-react';
-import type { QueryVersionSummary } from '@/api/generated/beacon-api';
 import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { formatDateTime, formatNumber } from '@/lib/format';
-import { useQueryVersionsQuery } from '../queries';
+import { useQueryVersionsQuery, type QueryVersionSummary } from '../queries';
 
 interface VersionsTabProps {
   queryId: number;
@@ -70,7 +69,7 @@ export function VersionsTab({ queryId }: VersionsTabProps) {
     <DataTable
       columns={columns}
       rows={versions}
-      rowKey={(v, idx) => v.id ?? `idx-${idx}`}
+      rowKey={v => v.id}
       gridTemplate={GRID_TEMPLATE}
       className="rounded-none border-0 shadow-none"
       empty={

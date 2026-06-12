@@ -1,4 +1,4 @@
-import { PARAMETER_TYPE, type ParameterTypeId } from '../queries';
+import { ParameterType } from '@/lib/enums';
 
 /**
  * Shape every page consumes when working with a query parameter. Both
@@ -8,9 +8,15 @@ import { PARAMETER_TYPE, type ParameterTypeId } from '../queries';
  */
 export interface DetectedParameter {
   name: string;
-  type: ParameterTypeId;
+  type: ParameterType;
   description: string | null;
   placeholder: string | null;
+  /**
+   * True when the parameter was added explicitly via the "add parameter"
+   * dialog rather than detected from a `{name}` placeholder. Manual entries
+   * survive rescans even while their placeholder isn't (yet) in the SQL.
+   */
+  isManual?: boolean;
 }
 
 /**
@@ -26,6 +32,10 @@ const PARAM_REGEX = /\{(\w+)\}/g;
  * (`type`/`description`/`placeholder`) of any existing entry, in the order
  * the placeholders first appear in the SQL. New placeholders default to
  * String with `{name}` as the placeholder text.
+ *
+ * Manually added parameters (`isManual: true`) whose placeholder isn't in
+ * the SQL yet are preserved and appended after the detected ones — only
+ * previously-detected parameters are dropped when their placeholder goes.
  *
  * Pure — call freely from React state setters.
  */
@@ -46,12 +56,14 @@ export function detectParameters<P extends DetectedParameter = DetectedParameter
   }
 
   const byName = new Map(existing.map((p) => [p.name, p]));
-  return detected.map((name) =>
+  const result = detected.map((name) =>
     (byName.get(name) ?? ({
       name,
-      type: PARAMETER_TYPE.String,
+      type: ParameterType.String,
       description: null,
       placeholder: `{${name}}`,
     } as P)),
   );
+  const manualUnreferenced = existing.filter((p) => p.isManual && !seen.has(p.name));
+  return [...result, ...manualUnreferenced];
 }

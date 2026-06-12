@@ -4,7 +4,6 @@ import { RefreshCw, Plus, Users, AlertTriangle } from 'lucide-react';
 import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { Button, Pill, Card, CardBody, Input, PageHeader } from '@/components/beacon';
-import { describeError } from '@/lib/api';
 import { formatDateTime, formatNumber } from '@/lib/format';
 import { useToggleUserEnabled, useUsersQuery, type UserEntry } from './queries';
 import { UserDialog } from './UserDialog';
@@ -30,8 +29,8 @@ export default function UsersListPage() {
     try {
       await toggle.mutateAsync(user.id);
       toast.success(`${user.userName} is now ${user.isEnabled ? 'disabled' : 'enabled'}`);
-    } catch (err) {
-            toast.error(describeError(err, 'Toggle failed'));
+    } catch {
+      // createSimpleMutation already surfaced the error toast.
     }
   };
 

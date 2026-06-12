@@ -5,7 +5,6 @@ import { z } from 'zod';
 import { toast } from 'sonner';
 import { Dialog } from '@/components/ui/Dialog';
 import { Button, Field, Textarea } from '@/components/beacon';
-import { describeError } from '@/lib/api';
 import { useResolveTask } from './queries';
 
 const SCHEMA = z.object({
@@ -45,8 +44,8 @@ export function ResolveTaskDialog({ open, taskId, onClose }: ResolveTaskDialogPr
       });
       toast.success('Task resolved');
       onClose();
-    } catch (err) {
-            toast.error(describeError(err, 'Resolve failed'));
+    } catch {
+      // useResolveTask (createSimpleMutation) already toasts the error.
     }
   });
 

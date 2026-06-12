@@ -84,8 +84,8 @@ export default function DataSourceDetailPage() {
       await deleteMutation.mutateAsync(entry.id);
       toast.success(`Deleted data source '${entry.name}'`);
       navigate('/data-sources');
-    } catch (err) {
-            toast.error(describeError(err, 'Delete failed'));
+    } catch {
+      // Error toast already raised by the delete mutation hook.
     }
   };
 
@@ -211,7 +211,7 @@ function OverviewTab({ entry, metadataLoading }: OverviewProps) {
 }
 
 function SchemaTab({ query }: { query: ReturnType<typeof useDataSourceMetadataQuery> }) {
-  const [selected, setSelected] = useState<TableMetadataDto | null>(null);
+  const [selected, setSelected] = useState<{ schemaName: string; tableName: string } | null>(null);
 
   if (query.isLoading) {
     return <CardBody><span className="text-text-muted">Loading schema…</span></CardBody>;
@@ -243,7 +243,13 @@ function SchemaTab({ query }: { query: ReturnType<typeof useDataSourceMetadataQu
     );
   }
 
-  const active = selected ?? tables[0];
+  // Resolve the selection against the freshest snapshot — after a metadata
+  // refresh the table objects are replaced, and a removed table must not keep
+  // rendering from a stale reference. Falls back to the first table if gone.
+  const active =
+    (selected
+      ? tables.find(t => t.schemaName === selected.schemaName && t.tableName === selected.tableName)
+      : undefined) ?? tables[0];
 
   return (
     <CardBody flush className="grid grid-cols-[260px_1fr] gap-4">
@@ -255,7 +261,7 @@ function SchemaTab({ query }: { query: ReturnType<typeof useDataSourceMetadataQu
             <button
               key={key}
               type="button"
-              onClick={() => setSelected(t)}
+              onClick={() => setSelected({ schemaName: t.schemaName, tableName: t.tableName })}
               className={`w-full text-left px-2.5 py-1.5 rounded-sm transition flex items-center gap-1.5 ${
                 isActive ? 'bg-surface-2 font-semibold text-text' : 'text-text-muted hover:bg-surface-2 hover:text-text'
               }`}

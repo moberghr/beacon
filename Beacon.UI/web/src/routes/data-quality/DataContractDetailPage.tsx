@@ -5,11 +5,9 @@ import { PageHeader, Button, Card, KPI, KPIGrid, Pill } from '@/components/beaco
 import { EmptyState } from '@/components/data/EmptyState';
 import { Tabs } from '@/components/Tabs';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { DataContractRuleType, DataContractSeverity } from '@/lib/enums';
 import { formatDateTime } from '@/lib/format';
 import {
-  DataContractRuleType,
-  DataContractSeverity,
-  describeContractError,
   scoreTone,
   useDataContract,
   useDeleteContract,
@@ -85,22 +83,22 @@ export default function DataContractDetailPage() {
   const latest = evaluations[0];
 
   function handleEvaluate() {
+    // No onError toast — useEvaluateContract (createSimpleMutation) already toasts.
     evaluateMutation.mutate(undefined, {
       onSuccess: r =>
         toast.success(
           `Evaluation complete: ${r.overallScore.toFixed(1)}% (${r.passedRules}/${r.totalRules} passed)`,
         ),
-      onError: err => toast.error(describeContractError(err, 'Evaluation failed')),
     });
   }
 
   function handleDelete() {
+    // No onError toast — useDeleteContract (createSimpleMutation) already toasts.
     deleteMutation.mutate(id, {
       onSuccess: () => {
         toast.success('Contract deleted.');
         navigate('/data-quality');
       },
-      onError: err => toast.error(describeContractError(err, 'Delete failed')),
     });
   }
 

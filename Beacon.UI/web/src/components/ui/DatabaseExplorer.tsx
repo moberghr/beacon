@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { ChevronDown, Database, Box } from 'lucide-react';
 import { Input } from '@/components/beacon';
 import { cn } from '@/lib/cn';
@@ -41,6 +41,8 @@ function groupBySchema(tables: TableMetadataDto[]): SchemaGroup[] {
 const rowBase =
   'flex items-center gap-1.5 px-2 py-1 text-xs cursor-pointer select-none hover:bg-surface-2';
 
+const EMPTY_TABLES: TableMetadataDto[] = [];
+
 /**
  * Read-only schema/tables panel rendered to the LEFT of a Monaco editor.
  * Click a table → inserts `<schema>.<table>` at the editor cursor via
@@ -50,9 +52,10 @@ export function DatabaseExplorer({ dataSourceId, onInsert, className }: Database
   const [collapsedSchemas, setCollapsedSchemas] = useState<Set<string>>(new Set());
   const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState('');
+  const idPrefix = useId();
 
   const query = useDataSourceMetadataQuery(dataSourceId);
-  const tables = query.data?.tables ?? [];
+  const tables = query.data?.tables ?? EMPTY_TABLES;
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -66,17 +69,20 @@ export function DatabaseExplorer({ dataSourceId, onInsert, className }: Database
 
   const groups = useMemo(() => groupBySchema(filtered), [filtered]);
 
-  const initializedRef = useRef(false);
+  // Re-initialize per data source: collapse all schemas and clear expanded
+  // tables whenever metadata for a new dataSourceId arrives.
+  const initializedForRef = useRef<number | null>(null);
   useEffect(() => {
-    if (initializedRef.current) return;
+    if (dataSourceId == null || initializedForRef.current === dataSourceId) return;
     if (tables.length === 0) return;
     const schemas = new Set<string>();
     for (const t of tables) {
       schemas.add(t.schemaName || 'default');
     }
     setCollapsedSchemas(schemas);
-    initializedRef.current = true;
-  }, [tables]);
+    setExpandedTables(new Set());
+    initializedForRef.current = dataSourceId;
+  }, [dataSourceId, tables]);
 
   if (dataSourceId == null || dataSourceId <= 0) {
     return null;
@@ -147,21 +153,19 @@ export function DatabaseExplorer({ dataSourceId, onInsert, className }: Database
         {!query.isLoading && !query.isError && groups.length > 0 && (
           <div>
             {groups.map(group => {
-              const collapsed = collapsedSchemas.has(group.schema);
+              // While a filter is active, auto-expand matching schemas without
+              // touching the user's persisted collapse state.
+              const searchActive = search.trim().length > 0;
+              const collapsed = !searchActive && collapsedSchemas.has(group.schema);
+              const schemaPanelId = `${idPrefix}-schema-${group.schema}`;
               return (
                 <div key={group.schema} className="mt-1 first:mt-0">
-                  <div
-                    className={rowBase}
-                    role="button"
-                    tabIndex={0}
+                  <button
+                    type="button"
+                    className={cn(rowBase, 'w-full text-left')}
                     aria-expanded={!collapsed}
+                    aria-controls={collapsed ? undefined : schemaPanelId}
                     onClick={() => toggleSchema(group.schema)}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        toggleSchema(group.schema);
-                      }
-                    }}
                   >
                     <ChevronDown
                       size={11}
@@ -172,11 +176,13 @@ export function DatabaseExplorer({ dataSourceId, onInsert, className }: Database
                     <span className="ml-auto text-text-subtle mono">
                       {group.tables.length}
                     </span>
-                  </div>
-                  {!collapsed &&
-                    group.tables.map(table => {
+                  </button>
+                  {!collapsed && (
+                    <div id={schemaPanelId}>
+                    {group.tables.map(table => {
                       const fqn = `${table.schemaName}.${table.tableName}`;
                       const expanded = expandedTables.has(fqn);
+                      const columnsPanelId = `${idPrefix}-cols-${fqn}`;
                       const tooltip =
                         table.columns
                           .slice(0, 3)
@@ -184,53 +190,41 @@ export function DatabaseExplorer({ dataSourceId, onInsert, className }: Database
                           .join('\n') || 'no columns';
                       return (
                         <div key={fqn}>
-                          <div
-                            className={cn(rowBase, 'pl-5')}
-                            title={tooltip}
-                            role="button"
-                            tabIndex={0}
-                            onClick={() => onInsert(fqn)}
-                            onDoubleClick={() => toggleTable(fqn)}
-                            onKeyDown={e => {
-                              if (e.key === 'Enter') {
-                                e.preventDefault();
-                                onInsert(fqn);
-                              } else if (e.key === ' ') {
-                                e.preventDefault();
-                                toggleTable(fqn);
+                          <div className="flex items-center pl-5 pr-2 hover:bg-surface-2">
+                            <button
+                              type="button"
+                              aria-expanded={expanded}
+                              aria-controls={expanded ? columnsPanelId : undefined}
+                              aria-label={
+                                expanded
+                                  ? `Collapse ${table.tableName} columns`
+                                  : `Expand ${table.tableName} columns`
                               }
-                            }}
-                          >
-                            <span
-                              role="button"
-                              tabIndex={0}
-                              aria-label={expanded ? 'Collapse table columns' : 'Expand table columns'}
-                              onClick={e => {
-                                e.stopPropagation();
-                                toggleTable(fqn);
-                              }}
-                              onKeyDown={e => {
-                                if (e.key === 'Enter' || e.key === ' ') {
-                                  e.stopPropagation();
-                                  e.preventDefault();
-                                  toggleTable(fqn);
-                                }
-                              }}
-                              className="inline-flex"
+                              onClick={() => toggleTable(fqn)}
+                              className="inline-flex shrink-0 py-1 text-text-muted hover:text-text"
                             >
                               <ChevronDown
                                 size={9}
                                 className={cn('transition-transform', !expanded && '-rotate-90')}
                               />
-                            </span>
-                            <Box size={10} className="text-text-muted" />
-                            <span>{table.tableName}</span>
-                            <span className="ml-auto mono text-text-subtle">
-                              {table.columns.length}
-                            </span>
+                            </button>
+                            <button
+                              type="button"
+                              title={tooltip}
+                              onClick={() => onInsert(fqn)}
+                              onDoubleClick={() => toggleTable(fqn)}
+                              className="flex-1 min-w-0 flex items-center gap-1.5 px-1.5 py-1 text-xs cursor-pointer select-none text-left"
+                            >
+                              <Box size={10} className="text-text-muted" />
+                              <span>{table.tableName}</span>
+                              <span className="ml-auto mono text-text-subtle">
+                                {table.columns.length}
+                              </span>
+                            </button>
                           </div>
-                          {expanded &&
-                            table.columns.map(col => (
+                          {expanded && (
+                            <div id={columnsPanelId}>
+                            {table.columns.map(col => (
                               <div
                                 key={col.columnName}
                                 className={cn(rowBase, 'pl-9')}
@@ -251,9 +245,13 @@ export function DatabaseExplorer({ dataSourceId, onInsert, className }: Database
                                 </span>
                               </div>
                             ))}
+                            </div>
+                          )}
                         </div>
                       );
                     })}
+                    </div>
+                  )}
                 </div>
               );
             })}

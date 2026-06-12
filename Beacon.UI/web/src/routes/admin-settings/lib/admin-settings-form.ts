@@ -1,10 +1,7 @@
 import { z } from 'zod';
+import { AiProvider, BedrockAuthMode } from '@/lib/enums';
 import {
-  AiProvider,
-  BedrockAuthMode,
   type AdminSettingsView,
-  type AiProviderId,
-  type BedrockAuthModeId,
   type UpdateAdminSettingsPayload,
   type TestLlmConnectionPayload,
 } from '../queries';
@@ -92,7 +89,7 @@ export function settingsToForm(s: AdminSettingsView | undefined): AdminSettingsF
   }
   return {
     baseUrl: s.baseUrl ?? '',
-    llmProvider: (s.llmProvider ?? AiProvider.OpenAI) as AiProviderId,
+    llmProvider: (s.llmProvider ?? AiProvider.OpenAI) as AiProvider,
     llmModel: s.llmModel ?? '',
     llmFastModel: s.llmFastModel ?? '',
     llmRegion: s.llmRegion ?? '',
@@ -115,11 +112,11 @@ export function settingsToForm(s: AdminSettingsView | undefined): AdminSettingsF
 export function formToUpdatePayload(values: AdminSettingsFormValues): UpdateAdminSettingsPayload {
   return {
     baseUrl: emptyToNull(values.baseUrl),
-    llmProvider: values.llmProvider as AiProviderId,
+    llmProvider: values.llmProvider as AiProvider,
     llmModel: emptyToNull(values.llmModel),
     llmFastModel: emptyToNull(values.llmFastModel),
     llmRegion: emptyToNull(values.llmRegion),
-    llmBedrockAuthMode: values.llmBedrockAuthMode as BedrockAuthModeId,
+    llmBedrockAuthMode: values.llmBedrockAuthMode as BedrockAuthMode,
     llmApiKey: secretToNull(values.llmApiKey),
     llmEndpoint: emptyToNull(values.llmEndpoint),
     llmSessionToken: secretToNull(values.llmSessionToken),
@@ -138,10 +135,10 @@ export function formToUpdatePayload(values: AdminSettingsFormValues): UpdateAdmi
  */
 export function formToTestPayload(values: AdminSettingsFormValues): TestLlmConnectionPayload {
   return {
-    llmProvider: values.llmProvider as AiProviderId,
+    llmProvider: values.llmProvider as AiProvider,
     llmModel: emptyToNull(values.llmModel),
     llmRegion: emptyToNull(values.llmRegion),
-    llmBedrockAuthMode: values.llmBedrockAuthMode as BedrockAuthModeId,
+    llmBedrockAuthMode: values.llmBedrockAuthMode as BedrockAuthMode,
     llmApiKey: secretToNull(values.llmApiKey),
     llmEndpoint: emptyToNull(values.llmEndpoint),
     llmSessionToken: secretToNull(values.llmSessionToken),

@@ -1,14 +1,61 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
 import { createSimpleMutation } from '@/lib/mutations';
-import type { ApprovalRequestSummary, ApprovalRequestDetail } from '@/api/generated/beacon-api';
+import type { ApprovalStatus } from '@/lib/enums';
 
-export type { ApprovalRequestSummary, ApprovalRequestDetail };
+// Local strict mirrors of the generated approval DTOs — dates are strings on
+// the wire (see `unwrap` docs in @/lib/api).
 
-export enum ApprovalStatus {
-  Pending = 0,
-  Approved = 1,
-  Rejected = 2,
+export interface ApprovalRequestSummary {
+  id: number;
+  queryId: number;
+  queryName: string;
+  versionNumber: number;
+  status: ApprovalStatus;
+  requestedByUserName: string | null;
+  createdTime: string;
+  changeSummary: string | null;
+}
+
+export interface QueryVersionDetail {
+  id: number;
+  versionNumber: number;
+  label: string | null;
+  status: number;
+  name: string;
+  description: string | null;
+  finalQuery: string | null;
+  createdTime: string;
+  createdByUserId: string | null;
+  changeSource: string | null;
+  changeReason: string | null;
+}
+
+export interface QueryVersionDiff {
+  versionA: QueryVersionDetail | null;
+  versionB: QueryVersionDetail | null;
+  nameChanged: boolean;
+  descriptionChanged: boolean;
+  finalQueryChanged: boolean;
+}
+
+export interface ApprovalRequestDetail {
+  id: number;
+  queryId: number;
+  queryName: string;
+  queryVersionId: number;
+  status: ApprovalStatus;
+  requestedByUserId: string | null;
+  requestedByUserName: string | null;
+  reviewedByUserName: string | null;
+  reviewedAt: string | null;
+  reviewComment: string | null;
+  changeSummary: string | null;
+  createdTime: string;
+  proposedVersion: QueryVersionDetail;
+  currentActiveVersion: QueryVersionDetail | null;
+  autoDiff: QueryVersionDiff | null;
 }
 
 const PENDING_KEY = ['approvals', 'pending'] as const;
@@ -17,14 +64,16 @@ const DETAIL_KEY = (id: number | undefined) => ['approvals', 'detail', id] as co
 export function usePendingApprovalsQuery() {
   return useQuery({
     queryKey: PENDING_KEY,
-    queryFn: () => beaconApi().getPendingApprovals(undefined),
+    queryFn: async () =>
+      unwrap<ApprovalRequestSummary[]>(await beaconApi().getPendingApprovals(undefined)),
   });
 }
 
 export function useApprovalDetailQuery(id: number | undefined) {
   return useQuery({
     queryKey: DETAIL_KEY(id),
-    queryFn: () => beaconApi().getApprovalDetail(id as number),
+    queryFn: async () =>
+      unwrap<ApprovalRequestDetail>(await beaconApi().getApprovalDetail(id as number)),
     enabled: typeof id === 'number' && Number.isFinite(id),
   });
 }

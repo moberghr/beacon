@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
+import type { MigrationStatus } from '@/lib/enums';
 import { createSimpleMutation } from '@/lib/mutations';
 
 export interface MigrationJobListItem {
@@ -34,7 +35,7 @@ export function useMigrationJobsQuery() {
 
 export interface RunMigrationJobResult {
   executionId: number;
-  status: number;
+  status: MigrationStatus;
   sourceRowsRead: number;
   destinationRowsWritten: number;
   rowsFailed: number;
@@ -48,7 +49,9 @@ export function useRunMigrationJob() {
       qc,
       mutationFn: async ({ id }) =>
         unwrap<RunMigrationJobResult>(await beaconApi().runMigrationJob(id)),
-      invalidate: (vars) => [MIGRATION_JOBS_KEY, ['migration-executions', vars.id]],
+      // Invalidate the prefix so both the job detail (['migration-executions', id])
+      // and the Migration History page (['migration-executions']) refresh.
+      invalidate: [MIGRATION_JOBS_KEY, ['migration-executions']],
       errorFallback: 'Run migration job failed',
     }),
   );

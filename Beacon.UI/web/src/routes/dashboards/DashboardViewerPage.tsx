@@ -4,8 +4,8 @@ import { PageHeader, Button, Card, Pill } from '@/components/beacon';
 import { EmptyState } from '@/components/data/EmptyState';
 import { MermaidDiagram } from '@/components/ui/MermaidDiagram';
 import { formatDateTime } from '@/lib/format';
-import type { DashboardWidgetData } from '@/api/generated/beacon-api';
-import { useDashboardQuery, WIDGET_TYPE, WIDGET_TYPE_LABEL } from './queries';
+import { useDashboardQuery, WIDGET_TYPE_LABEL, type DashboardWidget } from './queries';
+import { WidgetType } from '@/lib/enums';
 
 export default function DashboardViewerPage() {
   const params = useParams<{ id: string }>();
@@ -55,14 +55,14 @@ export default function DashboardViewerPage() {
 
       {!isError && (data?.widgets?.length ?? 0) > 0 && (
         <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(280px,1fr))]">
-          {data!.widgets!.map(w => <WidgetCard key={w.id} widget={w} />)}
+          {data!.widgets!.map((w, idx) => <WidgetCard key={w.id ?? idx} widget={w} />)}
         </div>
       )}
     </div>
   );
 }
 
-function WidgetCard({ widget }: { widget: DashboardWidgetData }) {
+function WidgetCard({ widget }: { widget: DashboardWidget }) {
   const label = WIDGET_TYPE_LABEL[widget.widgetType ?? 0] ?? 'Widget';
   return (
     <Card className="p-4 min-h-[160px]">
@@ -78,11 +78,11 @@ function WidgetCard({ widget }: { widget: DashboardWidgetData }) {
   );
 }
 
-function WidgetBody({ widget }: { widget: DashboardWidgetData }) {
+function WidgetBody({ widget }: { widget: DashboardWidget }) {
   const type = widget.widgetType ?? 0;
   const cfg = parseConfig(widget.configurationJson);
 
-  if (type === WIDGET_TYPE.KpiCard) {
+  if (type === WidgetType.KpiCard) {
     return (
       <div className="grid place-items-center min-h-[80px]">
         <div className="text-3xl font-bold text-text">
@@ -93,19 +93,19 @@ function WidgetBody({ widget }: { widget: DashboardWidgetData }) {
     );
   }
 
-  if (type === WIDGET_TYPE.Table) {
+  if (type === WidgetType.Table) {
     return <TableWidget cfg={cfg} />;
   }
 
-  if (type === WIDGET_TYPE.Chart) {
+  if (type === WidgetType.LineChart || type === WidgetType.BarChart || type === WidgetType.PieChart) {
     return <ChartWidget cfg={cfg} />;
   }
 
-  if (type === WIDGET_TYPE.Gauge) {
+  if (type === WidgetType.Gauge) {
     return <GaugeWidget cfg={cfg} />;
   }
 
-  if (type === WIDGET_TYPE.Mermaid) {
+  if (type === WidgetType.Mermaid) {
     return <MermaidWidget cfg={cfg} />;
   }
 

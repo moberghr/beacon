@@ -6,14 +6,14 @@ import { PageHeader, Button, Pill } from '@/components/beacon';
 import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { describeError } from '@/lib/api';
+import { MigrationMode } from '@/lib/enums';
 import { formatDateTime, formatNumber } from '@/lib/format';
 import {
   useMigrationJobsQuery,
   useDeleteMigrationJob,
   type MigrationJobListItem,
 } from './queries';
-import { MIGRATION_MODE_LABEL, type MigrationModeId } from '@/routes/migration-history/queries';
+import { MIGRATION_MODE_LABEL } from '@/routes/migration-history/queries';
 
 const GRID_TEMPLATE = '0.5fr 1.4fr 1.4fr 1fr 0.7fr 0.6fr 1.1fr 60px';
 
@@ -44,7 +44,7 @@ export default function MigrationJobsListPage() {
     {
       key: 'mode',
       header: 'Mode',
-      render: r => <Pill>{MIGRATION_MODE_LABEL[r.mode as MigrationModeId] ?? r.mode}</Pill>,
+      render: r => <Pill>{MIGRATION_MODE_LABEL[r.mode as MigrationMode] ?? r.mode}</Pill>,
     },
     {
       key: 'enabled',
@@ -89,8 +89,8 @@ export default function MigrationJobsListPage() {
       }
       toast.success('Migration job deleted');
       setDeleting(null);
-    } catch (e) {
-      toast.error(describeError(e, 'Failed to delete migration job'));
+    } catch {
+      // useDeleteMigrationJob (createSimpleMutation) already toasts the error.
     }
   }
 

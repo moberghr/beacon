@@ -157,7 +157,14 @@ export default function McpPlaygroundPage() {
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
             </Select>
-            <Select value={tool} onChange={e => setTool(e.target.value)}>
+            <Select
+              value={toolNames.length === 0 ? '' : tool}
+              onChange={e => setTool(e.target.value)}
+              disabled={toolNames.length === 0}
+            >
+              {toolNames.length === 0 && (
+                <option value="" disabled>Loading tools…</option>
+              )}
               {toolNames.map(t => (
                 <option key={t} value={t}>{t}</option>
               ))}
@@ -175,6 +182,7 @@ export default function McpPlaygroundPage() {
 
       <div
         ref={chatRef}
+        aria-live="polite"
         className="flex-1 overflow-y-auto p-4 flex flex-col gap-3 bg-surface-2 border border-border rounded-md"
       >
         {messages.length === 0 ? (

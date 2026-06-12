@@ -7,10 +7,22 @@ import { z } from 'zod';
 import { toast } from 'sonner';
 import { Database, Folder, GitBranch } from 'lucide-react';
 import { beaconApi } from '@/api/client';
-import type { CreateProjectCommand, CreateProjectResult } from '@/api/generated/beacon-api';
 import { Button, Card, CardBody, Field, Input, PageHeader, Textarea } from '@/components/beacon';
-import { describeError } from '@/lib/api';
+import { describeError, unwrap } from '@/lib/api';
 import { useDataSourcesQuery } from '@/routes/data-sources/queries';
+
+// Local strict mirrors of the loose generated DTOs (see `unwrap` in '@/lib/api').
+interface CreateProjectPayload {
+  name: string;
+  description: string | null;
+  dataSourceIds: number[];
+  repositoryUrls: string[];
+  accessToken: string | null;
+}
+
+interface CreateProjectResult {
+  projectId: number;
+}
 
 const SCHEMA = z.object({
   name: z.string().trim().min(1, 'Name is required').max(200),
@@ -34,8 +46,9 @@ function splitLines(s: string): string[] {
 
 function useCreateProject() {
   const qc = useQueryClient();
-  return useMutation<CreateProjectResult, unknown, CreateProjectCommand>({
-    mutationFn: values => beaconApi().createProject(values),
+  return useMutation<CreateProjectResult, unknown, CreateProjectPayload>({
+    mutationFn: async values =>
+      unwrap<CreateProjectResult>(await beaconApi().createProject(values as never)),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['projects'] }),
   });
 }

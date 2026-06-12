@@ -1,4 +1,5 @@
 import type { Key, ReactNode } from 'react';
+import { Inbox } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { EmptyState } from './EmptyState';
 
@@ -39,7 +40,7 @@ export function DataTable<T>({
     <div
       role="table"
       aria-label={ariaLabel ?? 'Data table'}
-      aria-rowcount={rows.length}
+      aria-rowcount={rows.length + 1}
       className={cn(
         'bg-surface border border-border rounded-md overflow-hidden shadow-sm',
         className,
@@ -60,7 +61,7 @@ export function DataTable<T>({
       {rows.length === 0
         ? empty ?? (
             <EmptyState
-              icon={<span className="mono text-base">∅</span>}
+              icon={<Inbox />}
               title="Nothing here yet"
               description="Items will appear once they're created."
             />
@@ -74,7 +75,21 @@ export function DataTable<T>({
                 onRowClick && 'cursor-pointer hover:bg-surface-2',
               )}
               style={{ gridTemplateColumns: gridTemplate }}
-              onClick={onRowClick ? () => onRowClick(row) : undefined}
+              onClick={
+                onRowClick
+                  ? e => {
+                      // Ignore clicks on interactive content inside cells —
+                      // the cell control owns that click, not the row.
+                      const interactive = (e.target as HTMLElement).closest(
+                        'button, a, input, select, textarea, [role="button"]',
+                      );
+                      if (interactive && e.currentTarget.contains(interactive)) {
+                        return;
+                      }
+                      onRowClick(row);
+                    }
+                  : undefined
+              }
               tabIndex={onRowClick ? 0 : undefined}
               onKeyDown={
                 onRowClick

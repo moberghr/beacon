@@ -5,9 +5,8 @@ import { z } from 'zod';
 import { toast } from 'sonner';
 import { Dialog } from '@/components/ui/Dialog';
 import { Button, Field, Input, Select, Textarea } from '@/components/beacon';
-import { describeError } from '@/lib/api';
+import { NotificationType } from '@/lib/enums';
 import {
-  NotificationTypeId,
   NOTIFICATION_TYPE_LABEL,
   useCreateRecipient,
   useUpdateRecipient,
@@ -36,15 +35,15 @@ const NOTIFICATION_TYPE_ENTRIES: Array<[number, string]> =
 
 function destinationLabel(type: number): string {
   switch (type) {
-    case NotificationTypeId.Email:
+    case NotificationType.Email:
       return 'Email address';
-    case NotificationTypeId.Slack:
+    case NotificationType.Slack:
       return 'Slack webhook URL';
-    case NotificationTypeId.Teams:
+    case NotificationType.Teams:
       return 'Teams webhook URL';
-    case NotificationTypeId.Webhook:
+    case NotificationType.Webhook:
       return 'Webhook URL';
-    case NotificationTypeId.Jira:
+    case NotificationType.Jira:
       return 'Jira connection string';
     default:
       return 'Destination';
@@ -53,15 +52,15 @@ function destinationLabel(type: number): string {
 
 function destinationHint(type: number): string {
   switch (type) {
-    case NotificationTypeId.Email:
+    case NotificationType.Email:
       return 'Where Beacon will send the alert email.';
-    case NotificationTypeId.Slack:
+    case NotificationType.Slack:
       return 'Slack incoming webhook URL.';
-    case NotificationTypeId.Teams:
+    case NotificationType.Teams:
       return 'Microsoft Teams incoming webhook URL.';
-    case NotificationTypeId.Webhook:
+    case NotificationType.Webhook:
       return 'Beacon will POST a JSON payload to this URL.';
-    case NotificationTypeId.Jira:
+    case NotificationType.Jira:
       return 'Format: domain;project-key;email;api-key';
     default:
       return '';
@@ -83,7 +82,7 @@ export function RecipientDialog({ open, onClose, recipient }: RecipientDialogPro
       name: '',
       description: '',
       destination: '',
-      notificationType: NotificationTypeId.Email,
+      notificationType: NotificationType.Email,
       headersJson: '',
       bodyTemplate: '',
     },
@@ -98,7 +97,7 @@ export function RecipientDialog({ open, onClose, recipient }: RecipientDialogPro
       name: recipient?.name ?? '',
       description: recipient?.description ?? '',
       destination: recipient?.destination ?? '',
-      notificationType: (recipient?.notificationType as NotificationTypeId) ?? NotificationTypeId.Email,
+      notificationType: (recipient?.notificationType as NotificationType) ?? NotificationType.Email,
       headersJson: recipient?.headersJson ?? '',
       bodyTemplate: recipient?.bodyTemplate ?? '',
     });
@@ -111,7 +110,7 @@ export function RecipientDialog({ open, onClose, recipient }: RecipientDialogPro
       name: values.name,
       description: values.description?.trim() ? values.description.trim() : null,
       destination: values.destination,
-      notificationType: values.notificationType as NotificationTypeId,
+      notificationType: values.notificationType as NotificationType,
       headersJson: values.headersJson?.trim() ? values.headersJson.trim() : null,
       bodyTemplate: values.bodyTemplate?.trim() ? values.bodyTemplate.trim() : null,
     };
@@ -125,12 +124,12 @@ export function RecipientDialog({ open, onClose, recipient }: RecipientDialogPro
         toast.success(`Created recipient '${payload.name}'`);
       }
       onClose();
-    } catch (err) {
-            toast.error(describeError(err, 'Request failed'));
+    } catch {
+      // useCreate/UpdateRecipient (createSimpleMutation) already toast the error.
     }
   });
 
-  const isWebhook = Number(notificationType) === NotificationTypeId.Webhook;
+  const isWebhook = Number(notificationType) === NotificationType.Webhook;
 
   return (
     <Dialog

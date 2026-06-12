@@ -1,23 +1,23 @@
 import { useState } from 'react';
-import type { MigrationExecutionDto } from '@/api/generated/beacon-api';
 import { AlertTriangle, ArrowLeftRight, Plus, RefreshCw } from 'lucide-react';
 import { PageHeader, Button, Pill, type PillProps } from '@/components/beacon';
 import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
+import { MigrationStatus } from '@/lib/enums';
 import { formatDateTime, formatNumber } from '@/lib/format';
-import { useMigrationExecutionsQuery } from './queries';
+import { useMigrationExecutionsQuery, type MigrationExecutionEntry } from './queries';
 import { CreateMigrationJobDialog } from './CreateMigrationJobDialog';
 
-const STATUS_PILL: Record<number, { label: string; tone: PillProps['tone'] }> = {
-  1: { label: 'Queued', tone: 'neutral' },
-  2: { label: 'Running', tone: 'info' },
-  3: { label: 'Completed', tone: 'ok' },
-  4: { label: 'Failed', tone: 'crit' },
-  5: { label: 'Cancelled', tone: 'neutral' },
-  6: { label: 'Partial', tone: 'warn' },
+const STATUS_PILL: Record<MigrationStatus, { label: string; tone: PillProps['tone'] }> = {
+  [MigrationStatus.Queued]: { label: 'Queued', tone: 'neutral' },
+  [MigrationStatus.Running]: { label: 'Running', tone: 'info' },
+  [MigrationStatus.Completed]: { label: 'Completed', tone: 'ok' },
+  [MigrationStatus.Failed]: { label: 'Failed', tone: 'crit' },
+  [MigrationStatus.Cancelled]: { label: 'Cancelled', tone: 'neutral' },
+  [MigrationStatus.PartialSuccess]: { label: 'Partial', tone: 'warn' },
 };
 
-const COLUMNS: Column<MigrationExecutionDto>[] = [
+const COLUMNS: Column<MigrationExecutionEntry>[] = [
   {
     key: 'started',
     header: 'Started',

@@ -6,7 +6,6 @@ import { toast } from 'sonner';
 import { AlertTriangle } from 'lucide-react';
 import { Dialog } from '@/components/ui/Dialog';
 import { Button, Banner, Field, Input } from '@/components/beacon';
-import { describeError } from '@/lib/api';
 import { useCreateApiKey } from './queries';
 
 const SCOPES = ['Read', 'Execute', 'Admin'] as const;
@@ -59,6 +58,9 @@ export function GenerateApiKeyDialog({ open, onClose }: GenerateApiKeyDialogProp
   const handleClose = () => {
     setPlainKey(null);
     setCopied(false);
+    // Drop the mutation result too — otherwise the raw key lingers in
+    // react-query's mutation state after the dialog closes (§1.3).
+    create.reset();
     onClose();
   };
 
@@ -83,8 +85,9 @@ export function GenerateApiKeyDialog({ open, onClose }: GenerateApiKeyDialogProp
       });
       setPlainKey(result.plainTextKey);
       toast.success('API key generated');
-    } catch (err) {
-            toast.error(describeError(err, 'Generate failed'));
+    } catch {
+      // createSimpleMutation already surfaced the error toast — keep the
+      // dialog open so the user can retry.
     }
   });
 

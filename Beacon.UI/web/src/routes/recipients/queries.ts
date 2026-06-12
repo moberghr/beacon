@@ -1,23 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
+import { NotificationType } from '@/lib/enums';
 import { createSimpleMutation } from '@/lib/mutations';
 
-export const NotificationTypeId = {
-  Teams: 1,
-  Email: 2,
-  Jira: 3,
-  Slack: 4,
-  Webhook: 5,
-} as const;
-export type NotificationTypeId = (typeof NotificationTypeId)[keyof typeof NotificationTypeId];
-
 export const NOTIFICATION_TYPE_LABEL: Record<number, string> = {
-  1: 'Teams',
-  2: 'Email',
-  3: 'Jira',
-  4: 'Slack',
-  5: 'Webhook',
+  [NotificationType.Teams]: 'Teams',
+  [NotificationType.Email]: 'Email',
+  [NotificationType.Jira]: 'Jira',
+  [NotificationType.Slack]: 'Slack',
+  [NotificationType.Webhook]: 'Webhook',
 };
 
 export interface RecipientEntry {
@@ -39,7 +31,7 @@ export interface RecipientFormValues {
   name: string;
   description: string | null;
   destination: string;
-  notificationType: NotificationTypeId;
+  notificationType: NotificationType;
   headersJson: string | null;
   bodyTemplate: string | null;
 }

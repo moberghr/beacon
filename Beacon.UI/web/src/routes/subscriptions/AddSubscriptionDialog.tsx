@@ -5,7 +5,6 @@ import { z } from 'zod';
 import { toast } from 'sonner';
 import { ChevronRight } from 'lucide-react';
 import { StepperDialog, type StepperDialogStep } from '@/components/ui/StepperDialog';
-import { describeError } from '@/lib/api';
 import { Field, Input, Pill } from '@/components/beacon';
 import { cn } from '@/lib/cn';
 import { useRecipientsQuery, NOTIFICATION_TYPE_LABEL } from '@/routes/recipients/queries';
@@ -96,8 +95,8 @@ export function AddSubscriptionDialog({ open, onClose, initialQueryId }: AddSubs
       });
       toast.success('Subscription created');
       onClose();
-    } catch (err) {
-            toast.error(describeError(err, 'Request failed'));
+    } catch {
+      // useCreateSubscription (createSimpleMutation) already toasts the error.
     }
   };
 

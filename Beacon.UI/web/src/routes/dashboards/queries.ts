@@ -1,29 +1,94 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { beaconApi } from '@/api/client';
+import { unwrap } from '@/lib/api';
 import { createSimpleMutation } from '@/lib/mutations';
-import type {
-  DashboardListData,
-  DashboardDetailsData,
-  DashboardWidgetData,
-  AddWidgetBody,
-  CreateDashboardResult,
-} from '@/api/generated/beacon-api';
+import { WidgetType } from '@/lib/enums';
+
+// Local strict mirrors of the loose generated DTOs (see `unwrap` in
+// '@/lib/api'). Dates are strings on the wire.
+
+export interface DashboardListItem {
+  id: number;
+  name: string;
+  description: string | null;
+  isShared: boolean;
+  isDefault: boolean;
+  widgetCount: number;
+  createdTime: string;
+  isOwner: boolean;
+  createdByUserName: string | null;
+}
+
+export interface DashboardsPageResult {
+  data: DashboardListItem[];
+  totalCount: number | null;
+}
+
+export interface DashboardWidget {
+  id: number;
+  title: string;
+  widgetType: number;
+  configurationJson: string;
+  positionX: number;
+  positionY: number;
+  width: number;
+  height: number;
+  sortOrder: number;
+  refreshIntervalSeconds: number | null;
+}
+
+export interface DashboardDetail {
+  id: number;
+  name: string;
+  description: string | null;
+  isShared: boolean;
+  isDefault: boolean;
+  refreshIntervalSeconds: number | null;
+  createdTime: string;
+  widgets: DashboardWidget[];
+}
+
+export interface AddWidgetPayload {
+  title: string;
+  widgetType: number;
+  configurationJson: string;
+  positionX: number | null;
+  positionY: number | null;
+  width: number | null;
+  height: number | null;
+  refreshIntervalSeconds: number | null;
+}
+
+export interface CreateDashboardResult {
+  dashboardId: number;
+}
 
 const DASHBOARDS_KEY = ['dashboards'] as const;
 const dashboardKey = (id: number) => ['dashboard', id] as const;
 
-export function useDashboardsQuery(searchKeyword?: string) {
+export const DASHBOARDS_PAGE_SIZE = 50;
+
+export function useDashboardsQuery(searchKeyword?: string, page = 0) {
   return useQuery({
-    queryKey: [...DASHBOARDS_KEY, searchKeyword ?? ''],
+    queryKey: [...DASHBOARDS_KEY, searchKeyword ?? '', page],
     queryFn: async () =>
-      beaconApi().getDashboards(undefined, undefined, searchKeyword || undefined, 0, 200),
+      unwrap<DashboardsPageResult>(
+        await beaconApi().getDashboards(
+          undefined,
+          undefined,
+          searchKeyword || undefined,
+          page,
+          DASHBOARDS_PAGE_SIZE,
+        ),
+      ),
+    placeholderData: keepPreviousData,
   });
 }
 
 export function useDashboardQuery(id: number | undefined) {
   return useQuery({
     queryKey: id ? dashboardKey(id) : ['dashboard', 'none'],
-    queryFn: async () => beaconApi().getDashboard(id!),
+    queryFn: async () => unwrap<DashboardDetail>(await beaconApi().getDashboard(id!)),
     enabled: id !== undefined && id > 0,
   });
 }
@@ -45,41 +110,35 @@ export function useCreateDashboard() {
   return useMutation(
     createSimpleMutation<{ name: string; description?: string | null; isShared: boolean }, CreateDashboardResult>({
       qc,
-      mutationFn: (values) =>
-        beaconApi().createDashboard({
+      mutationFn: async (values) =>
+        unwrap<CreateDashboardResult>(await beaconApi().createDashboard({
           name: values.name,
           description: values.description ?? null,
           isShared: values.isShared,
           refreshIntervalSeconds: null,
-        } as never),
+        } as never)),
       invalidate: [DASHBOARDS_KEY],
       errorFallback: 'Failed to create dashboard',
     }),
   );
 }
 
-export const WIDGET_TYPE = {
-  KpiCard: 1,
-  Chart: 2,
-  Table: 3,
-  Gauge: 4,
-  Mermaid: 5,
-} as const;
-
 export const WIDGET_TYPE_LABEL: Record<number, string> = {
-  1: 'KPI card',
-  2: 'Chart',
-  3: 'Table',
-  4: 'Gauge',
-  5: 'Diagram',
+  [WidgetType.KpiCard]: 'KPI card',
+  [WidgetType.LineChart]: 'Line chart',
+  [WidgetType.BarChart]: 'Bar chart',
+  [WidgetType.PieChart]: 'Pie chart',
+  [WidgetType.Table]: 'Table',
+  [WidgetType.Gauge]: 'Gauge',
+  [WidgetType.Mermaid]: 'Diagram',
 };
 
 export function useAddWidget(dashboardId: number) {
   const qc = useQueryClient();
   return useMutation(
-    createSimpleMutation<AddWidgetBody, unknown>({
+    createSimpleMutation<AddWidgetPayload, unknown>({
       qc,
-      mutationFn: (body) => beaconApi().addWidget(dashboardId, body),
+      mutationFn: (body) => beaconApi().addWidget(dashboardId, body as never),
       invalidate: [dashboardKey(dashboardId)],
       successMsg: 'Widget added',
       errorFallback: 'Failed to add widget',
@@ -99,5 +158,3 @@ export function useDeleteWidget(dashboardId: number) {
     }),
   );
 }
-
-export type { DashboardListData, DashboardDetailsData, DashboardWidgetData, AddWidgetBody };

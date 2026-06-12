@@ -2,7 +2,6 @@ import { useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
 import { toast } from 'sonner';
 import { ArrowLeftRight, Database, Layers, RefreshCw } from 'lucide-react';
 import {
@@ -15,55 +14,15 @@ import {
   Select,
   Textarea,
 } from '@/components/beacon';
-import { describeError } from '@/lib/api';
 import { useDataSourcesQuery, type DataSourceEntry } from '@/routes/data-sources/queries';
+import { useCreateMigrationJob } from '@/routes/migration-history/queries';
 import {
-  MIGRATION_MODE,
-  MIGRATION_MODE_LABEL,
-  useCreateMigrationJob,
-  type CreateMigrationJobPayload,
-  type MigrationModeId,
-} from '@/routes/migration-history/queries';
-
-const SCHEMA = z.object({
-  name: z.string().trim().min(1, 'Name is required').max(200),
-  description: z.string().trim().min(1, 'Description is required').max(1000),
-  dataSourceId: z.number().int().min(1, 'Pick a source data source'),
-  queryText: z.string().trim().min(1, 'Source SQL is required'),
-  destinationDataSourceId: z.number().int().min(1, 'Pick a destination data source'),
-  destinationTable: z.string().trim().min(1, 'Destination table is required').max(200),
-  mode: z.number().int().min(1).max(3),
-  isEnabled: z.boolean(),
-  schedule: z.string(),
-  maxRetries: z.number().int().min(0).max(10),
-  timeoutMinutes: z.number().int().min(1).max(1440),
-  validateBeforeExecution: z.boolean(),
-  transformationScript: z.string(),
-});
-
-type FormValues = z.infer<typeof SCHEMA>;
-
-const DEFAULTS: FormValues = {
-  name: '',
-  description: '',
-  dataSourceId: 0,
-  queryText: '',
-  destinationDataSourceId: 0,
-  destinationTable: '',
-  mode: MIGRATION_MODE.Insert,
-  isEnabled: true,
-  schedule: '',
-  maxRetries: 3,
-  timeoutMinutes: 30,
-  validateBeforeExecution: true,
-  transformationScript: '',
-};
-
-const MODE_OPTIONS: ReadonlyArray<{ value: MigrationModeId; label: string }> = [
-  { value: MIGRATION_MODE.Insert, label: MIGRATION_MODE_LABEL[MIGRATION_MODE.Insert] },
-  { value: MIGRATION_MODE.Upsert, label: MIGRATION_MODE_LABEL[MIGRATION_MODE.Upsert] },
-  { value: MIGRATION_MODE.Truncate, label: MIGRATION_MODE_LABEL[MIGRATION_MODE.Truncate] },
-];
+  MIGRATION_JOB_DEFAULTS,
+  MIGRATION_JOB_SCHEMA,
+  MODE_OPTIONS,
+  toCreateMigrationJobPayload,
+  type MigrationJobFormValues,
+} from './migrationJobForm';
 
 const REQ = <span className="text-crit">*</span>;
 
@@ -81,38 +40,23 @@ export default function NewMigrationJobPage() {
     register,
     handleSubmit,
     formState: { errors, isSubmitting },
-  } = useForm<FormValues>({
-    resolver: zodResolver(SCHEMA),
-    defaultValues: DEFAULTS,
+  } = useForm<MigrationJobFormValues>({
+    resolver: zodResolver(MIGRATION_JOB_SCHEMA),
+    defaultValues: MIGRATION_JOB_DEFAULTS,
     mode: 'onTouched',
   });
 
   const onSubmit = handleSubmit(async v => {
-    const payload: CreateMigrationJobPayload = {
-      name: v.name.trim(),
-      description: v.description.trim(),
-      dataSourceId: v.dataSourceId,
-      queryText: v.queryText,
-      destinationDataSourceId: v.destinationDataSourceId,
-      destinationTable: v.destinationTable.trim(),
-      mode: v.mode as MigrationModeId,
-      isEnabled: v.isEnabled,
-      schedule: v.schedule.trim() === '' ? null : v.schedule.trim(),
-      maxRetries: v.maxRetries,
-      timeoutMinutes: v.timeoutMinutes,
-      validateBeforeExecution: v.validateBeforeExecution,
-      transformationScript: v.transformationScript.trim() === '' ? null : v.transformationScript,
-    };
     try {
-      const result = await createMutation.mutateAsync(payload);
+      const result = await createMutation.mutateAsync(toCreateMigrationJobPayload(v));
       if (!result.success) {
         toast.error(result.errorMessage ?? 'Failed to create migration job.');
         return;
       }
       toast.success('Migration job created.');
       navigate(`/migration-jobs/${result.migrationJobId}`);
-    } catch (err) {
-            toast.error(describeError(err, 'Request failed'));
+    } catch {
+      // useCreateMigrationJob (createSimpleMutation) already toasts the error.
     }
   });
 

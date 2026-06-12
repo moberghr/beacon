@@ -15,7 +15,7 @@ export class BeaconApiClient {
 
     constructor(baseUrl?: string, http?: { fetch(url: RequestInfo, init?: RequestInit): Promise<Response> }) {
         this.http = http ? http : window as any;
-        this.baseUrl = baseUrl ?? "http://localhost:5000/";
+        this.baseUrl = baseUrl ?? "https://localhost:7187/";
     }
 
     /**
@@ -162,14 +162,13 @@ export class BeaconApiClient {
     /**
      * @return OK
      */
-    health(): Promise<HealthResponse> {
+    health(): Promise<void> {
         let url_ = this.baseUrl + "/beacon/api/health";
         url_ = url_.replace(/[?&]$/, "");
 
         let options_: RequestInit = {
             method: "GET",
             headers: {
-                "Accept": "application/json"
             }
         };
 
@@ -178,21 +177,19 @@ export class BeaconApiClient {
         });
     }
 
-    protected processHealth(response: Response): Promise<HealthResponse> {
+    protected processHealth(response: Response): Promise<void> {
         const status = response.status;
         let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
         if (status === 200) {
             return response.text().then((_responseText) => {
-            let result200: any = null;
-            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as HealthResponse;
-            return result200;
+            return;
             });
         } else if (status !== 200 && status !== 204) {
             return response.text().then((_responseText) => {
             return throwException("An unexpected server error occurred.", status, _responseText, _headers);
             });
         }
-        return Promise.resolve<HealthResponse>(null as any);
+        return Promise.resolve<void>(null as any);
     }
 
     /**
@@ -1413,7 +1410,7 @@ export class BeaconApiClient {
      * @param maxResults (optional) 
      * @return OK
      */
-    getQueryChangeHistory(id: number, stepId: number | undefined, changeSource: number | undefined, fromDate: Date | undefined, toDate: Date | undefined, maxResults: number | undefined): Promise<GetQueryChangeHistoryResult> {
+    getQueryChangeHistory(id: number, stepId: number | undefined, changeSource: ChangeSource | undefined, fromDate: Date | undefined, toDate: Date | undefined, maxResults: number | undefined): Promise<GetQueryChangeHistoryResult> {
         let url_ = this.baseUrl + "/beacon/api/queries/{id}/change-history?";
         if (id === undefined || id === null)
             throw new Error("The parameter 'id' must be defined.");
@@ -2815,7 +2812,7 @@ export class BeaconApiClient {
      * @param tableName (optional) 
      * @return OK
      */
-    getLearnedPatterns(projectId: number | undefined, dataSourceId: number | undefined, status: number | undefined, patternType: number | undefined, tableName: string | undefined): Promise<GetLearnedPatternsResult> {
+    getLearnedPatterns(projectId: number | undefined, dataSourceId: number | undefined, status: McpPatternStatus | undefined, patternType: McpPatternType | undefined, tableName: string | undefined): Promise<GetLearnedPatternsResult> {
         let url_ = this.baseUrl + "/beacon/api/mcp/learned-patterns?";
         if (projectId === null)
             throw new Error("The parameter 'projectId' cannot be null.");
@@ -2913,7 +2910,7 @@ export class BeaconApiClient {
      * @param status (optional) 
      * @return OK
      */
-    getDocumentationPatches(projectId: number | undefined, status: number | undefined): Promise<GetDocumentationPatchesResult> {
+    getDocumentationPatches(projectId: number | undefined, status: McpDocPatchStatus | undefined): Promise<GetDocumentationPatchesResult> {
         let url_ = this.baseUrl + "/beacon/api/mcp/documentation-patches?";
         if (projectId === null)
             throw new Error("The parameter 'projectId' cannot be null.");
@@ -3694,7 +3691,7 @@ export class BeaconApiClient {
      * @param subscriptionId (optional) 
      * @return OK
      */
-    getNotifications(page: number | undefined, pageSize: number | undefined, status: number | undefined, subscriptionId: number | undefined): Promise<GetNotificationsResult> {
+    getNotifications(page: number | undefined, pageSize: number | undefined, status: NotificationStatus | undefined, subscriptionId: number | undefined): Promise<GetNotificationsResult> {
         let url_ = this.baseUrl + "/beacon/api/notifications?";
         if (page === null)
             throw new Error("The parameter 'page' cannot be null.");
@@ -3795,7 +3792,7 @@ export class BeaconApiClient {
      * @param timeRangeDays (optional) 
      * @return OK
      */
-    getControlTowerStatistics(dataSourceId: number | undefined, folderId: number | undefined, healthStatus: number | undefined, hasUnresolvedTasks: boolean | undefined, searchKeyword: string | undefined, timeRangeDays: number | undefined): Promise<GetControlTowerStatisticsResult> {
+    getControlTowerStatistics(dataSourceId: number | undefined, folderId: number | undefined, healthStatus: HealthStatus | undefined, hasUnresolvedTasks: boolean | undefined, searchKeyword: string | undefined, timeRangeDays: number | undefined): Promise<GetControlTowerStatisticsResult> {
         let url_ = this.baseUrl + "/beacon/api/control-tower/statistics?";
         if (dataSourceId === null)
             throw new Error("The parameter 'dataSourceId' cannot be null.");
@@ -3864,7 +3861,7 @@ export class BeaconApiClient {
      * @param sortBy (optional) 
      * @return OK
      */
-    getControlTowerHealth(page: number | undefined, pageSize: number | undefined, dataSourceId: number | undefined, folderId: number | undefined, healthStatus: number | undefined, hasUnresolvedTasks: boolean | undefined, searchKeyword: string | undefined, timeRangeDays: number | undefined, sortBy: number | undefined): Promise<GetControlTowerHealthResult> {
+    getControlTowerHealth(page: number | undefined, pageSize: number | undefined, dataSourceId: number | undefined, folderId: number | undefined, healthStatus: HealthStatus | undefined, hasUnresolvedTasks: boolean | undefined, searchKeyword: string | undefined, timeRangeDays: number | undefined, sortBy: ControlTowerSortBy | undefined): Promise<GetControlTowerHealthResult> {
         let url_ = this.baseUrl + "/beacon/api/control-tower/health?";
         if (page === null)
             throw new Error("The parameter 'page' cannot be null.");
@@ -4145,7 +4142,7 @@ export class BeaconApiClient {
      * @param take (optional) 
      * @return OK
      */
-    getMigrationExecutions(migrationJobId: number | undefined, status: number | undefined, startDate: Date | undefined, endDate: Date | undefined, skip: number | undefined, take: number | undefined): Promise<GetMigrationExecutionsResult> {
+    getMigrationExecutions(migrationJobId: number | undefined, status: MigrationStatus | undefined, startDate: Date | undefined, endDate: Date | undefined, skip: number | undefined, take: number | undefined): Promise<GetMigrationExecutionsResult> {
         let url_ = this.baseUrl + "/beacon/api/migrations/executions?";
         if (migrationJobId === null)
             throw new Error("The parameter 'migrationJobId' cannot be null.");
@@ -6016,7 +6013,7 @@ export interface AddTaskCommentResult {
 
 export interface AddWidgetBody {
     title: string;
-    widgetType: number;
+    widgetType: WidgetType;
     configurationJson: string;
     positionX: number | null;
     positionY: number | null;
@@ -6045,14 +6042,14 @@ export interface AdminSettingHistoryEntry {
 
 export interface AdminSettingsView {
     baseUrl: string | null;
-    llmProvider: number | null;
+    llmProvider: AiProvider | null;
     llmApiKeySet: boolean;
     llmEndpointSet: boolean;
     llmRegion: string | null;
     llmSessionTokenSet: boolean;
     llmAwsAccessKeyIdSet: boolean;
     llmAwsSecretAccessKeySet: boolean;
-    llmBedrockAuthMode: number;
+    llmBedrockAuthMode: BedrockAuthMode;
     llmModel: string | null;
     llmFastModel: string | null;
     llmMaxConcurrentRequests: number;
@@ -6063,9 +6060,18 @@ export interface AdminSettingsView {
     [key: string]: any;
 }
 
+export enum AiActorActionType {
+    CreateQuery = 1,
+    CreateSubscription = 2,
+    RefineQuery = 3,
+    ArchiveQuery = 4,
+    ArchiveSubscription = 5,
+    SendNotification = 6,
+}
+
 export interface AiActorExecutionInfo {
     executionId?: number;
-    phase?: number;
+    phase?: AiActorExecutionPhase;
     startedAt?: Date;
     completedAt?: Date | null;
     queriesCreated?: number;
@@ -6078,13 +6084,22 @@ export interface AiActorExecutionInfo {
     [key: string]: any;
 }
 
+export enum AiActorExecutionPhase {
+    Analyzing = 1,
+    Planning = 2,
+    Executing = 3,
+    Notifying = 4,
+    Completed = 5,
+    Failed = 6,
+}
+
 export interface AiActorListItem {
     actorId?: number;
     name?: string;
     instructions?: string;
     dataSourceId?: number;
     dataSourceName?: string;
-    status?: number;
+    status?: AiActorStatus;
     thinkCount?: number;
     lastThinkTime?: Date | null;
     totalCost?: number;
@@ -6111,6 +6126,15 @@ export interface AiActorPlanRevisionBody {
     [key: string]: any;
 }
 
+export enum AiActorPlanStatus {
+    PendingApproval = 1,
+    Executing = 2,
+    Executed = 3,
+    Rejected = 4,
+    Expired = 5,
+    RevisionRequested = 6,
+}
+
 export interface AiActorQueryInfo {
     queryId?: number;
     name?: string;
@@ -6123,15 +6147,30 @@ export interface AiActorQueryInfo {
     [key: string]: any;
 }
 
+export enum AiActorStatus {
+    Draft = 1,
+    Active = 2,
+    Paused = 3,
+    Failed = 4,
+    Archived = 5,
+}
+
 export interface AiActorSubscriptionInfo {
     subscriptionId?: number;
     queryId?: number;
     queryName?: string;
     cronExpression?: string;
-    notificationTrigger?: number;
+    notificationTrigger?: NotificationTrigger;
     createdTime?: Date;
 
     [key: string]: any;
+}
+
+export enum AiProvider {
+    OpenAI = 0,
+    Claude = 1,
+    AzureOpenAI = 2,
+    Bedrock = 3,
 }
 
 export interface AnomalyChartPointDto {
@@ -6143,6 +6182,18 @@ export interface AnomalyChartPointDto {
     queryExecutionHistoryId: number | null;
 
     [key: string]: any;
+}
+
+export enum AnomalyDetectionMethod {
+    StandardDeviation = 1,
+    IQR = 2,
+    PercentageChange = 3,
+}
+
+export enum AnomalySensitivity {
+    Low = 1,
+    Medium = 2,
+    High = 3,
 }
 
 export interface AnomalySparklinePoint {
@@ -6170,7 +6221,7 @@ export interface ApprovalRequestDetail {
     queryId?: number;
     queryName?: string;
     queryVersionId?: number;
-    status?: number;
+    status?: ApprovalStatus;
     requestedByUserId?: string | null;
     requestedByUserName?: string | null;
     reviewedByUserName?: string | null;
@@ -6190,12 +6241,18 @@ export interface ApprovalRequestSummary {
     queryId?: number;
     queryName?: string;
     versionNumber?: number;
-    status?: number;
+    status?: ApprovalStatus;
     requestedByUserName?: string | null;
     createdTime?: Date;
     changeSummary?: string | null;
 
     [key: string]: any;
+}
+
+export enum ApprovalStatus {
+    Pending = 1,
+    Approved = 2,
+    Rejected = 3,
 }
 
 export interface ApproveAiActorPlanResult {
@@ -6232,11 +6289,23 @@ export interface AssignTaskBody {
     [key: string]: any;
 }
 
+export enum BedrockAuthMode {
+    IamRole = 0,
+    AccessKey = 1,
+    TemporaryCredentials = 2,
+}
+
 export interface ChangeOwnPasswordCommand {
     currentPassword: string;
     newPassword: string;
 
     [key: string]: any;
+}
+
+export enum ChangeSource {
+    User = 1,
+    AiActor = 2,
+    Import = 3,
 }
 
 export interface CloneDashboardBody {
@@ -6276,7 +6345,7 @@ export interface ControlTowerAnomaly {
 export interface ControlTowerExecutionItem {
     executionId?: number;
     createdTime?: Date;
-    notificationStatus?: number;
+    notificationStatus?: NotificationStatus;
     resultCount?: number;
     executionTimeMs?: number;
     errorMessage?: string | null;
@@ -6289,10 +6358,20 @@ export interface ControlTowerOpenTask {
     createdTime?: Date;
     snoozedUntil?: Date | null;
     latestResultCount?: number;
-    priority?: number;
+    priority?: TaskPriority;
     assigneeUserId?: string | null;
 
     [key: string]: any;
+}
+
+export enum ControlTowerSortBy {
+    WorstFirst = 0,
+    Name = 1,
+    SuccessRate = 2,
+    Executions = 3,
+    OpenTasks = 4,
+    Anomalies = 5,
+    LastExecution = 6,
 }
 
 export interface ControlTowerStatistics {
@@ -6328,13 +6407,13 @@ export interface ControlTowerSubscriptionHealthData {
     queryName?: string;
     dataSourceName?: string | null;
     folderPath?: string | null;
-    healthStatus?: number;
+    healthStatus?: HealthStatus;
     totalExecutions?: number;
     successfulExecutions?: number;
     failedExecutions?: number;
     successRate?: number;
     lastExecutionTime?: Date | null;
-    lastExecutionStatus?: number | null;
+    lastExecutionStatus?: NotificationStatus2 | null;
     lastResultCount?: number | null;
     unresolvedTaskCount?: number;
     totalTaskCount?: number;
@@ -6367,7 +6446,7 @@ export interface CreateAiActorCommand {
 export interface CreateAiActorResult {
     actorId?: number;
     name?: string;
-    status?: number;
+    status?: AiActorStatus;
     dataSourceId?: number;
     createdTime?: Date;
 
@@ -6429,8 +6508,8 @@ export interface CreateDataContractResult {
 
 export interface CreateDataSourceCommand {
     name: string;
-    dataSourceType: number;
-    databaseEngineType: number | null;
+    dataSourceType: DataSourceType;
+    databaseEngineType: DatabaseEngineType | null;
     connectionString: string;
     metadataLoadingEnabled: boolean;
     metadataMaxTables: number;
@@ -6476,7 +6555,7 @@ export interface CreateMigrationJobCommand {
     queryText: string;
     destinationDataSourceId: number;
     destinationTable: string;
-    mode?: number;
+    mode?: MigrationMode2;
     isEnabled?: boolean;
     schedule?: string | null;
     maxRetries?: number;
@@ -6617,7 +6696,7 @@ export interface DashboardDetailsData {
     layoutConfiguration?: string | null;
     createdTime?: Date;
     widgets?: DashboardWidgetData[];
-    userPermissionLevel?: number | null;
+    userPermissionLevel?: DashboardPermissionLevel | null;
 
     [key: string]: any;
 }
@@ -6640,10 +6719,22 @@ export interface DashboardPermissionData {
     id?: number;
     userId?: string;
     userName?: string;
-    permissionLevel?: number;
+    permissionLevel?: DashboardPermissionLevel2;
     grantedAt?: Date;
 
     [key: string]: any;
+}
+
+export enum DashboardPermissionLevel {
+    View = 1,
+    Edit = 2,
+    Admin = 3,
+}
+
+export enum DashboardPermissionLevel2 {
+    View = 1,
+    Edit = 2,
+    Admin = 3,
 }
 
 export interface DashboardsListData {
@@ -6656,7 +6747,7 @@ export interface DashboardsListData {
 export interface DashboardWidgetData {
     id?: number;
     title?: string;
-    widgetType?: number;
+    widgetType?: WidgetType;
     configurationJson?: string;
     positionX?: number;
     positionY?: number;
@@ -6668,9 +6759,27 @@ export interface DashboardWidgetData {
     [key: string]: any;
 }
 
+export enum DatabaseEngineType {
+    PostgreSQL = 1,
+    MSSQL = 2,
+    MySQL = 3,
+    SQLite = 4,
+    AzureSynapse = 5,
+    Snowflake = 6,
+}
+
+export enum DatabaseEngineType2 {
+    PostgreSQL = 1,
+    MSSQL = 2,
+    MySQL = 3,
+    SQLite = 4,
+    AzureSynapse = 5,
+    Snowflake = 6,
+}
+
 export interface DatabaseMetadataSnapshot {
     dataSourceId: number;
-    databaseEngineType: number | null;
+    databaseEngineType: DatabaseEngineType | null;
     tables: TableMetadataDto[];
     refreshedAt: Date;
 
@@ -6702,7 +6811,7 @@ export interface DataContractRecipientData {
     id?: number;
     name?: string;
     destination?: string;
-    notificationType?: number;
+    notificationType?: NotificationType;
 
     [key: string]: any;
 }
@@ -6711,14 +6820,32 @@ export interface DataContractRuleData {
     id?: number;
     name?: string;
     description?: string | null;
-    ruleType?: number;
+    ruleType?: DataContractRuleType;
     columnName?: string | null;
     configuration?: string;
-    severity?: number;
+    severity?: DataContractSeverity;
     weight?: number;
     isEnabled?: boolean;
 
     [key: string]: any;
+}
+
+export enum DataContractRuleType {
+    Freshness = 1,
+    Volume = 2,
+    NullRate = 3,
+    Uniqueness = 4,
+    Referential = 5,
+    Range = 6,
+    Pattern = 7,
+    CustomSql = 8,
+}
+
+export enum DataContractSeverity {
+    Critical = 1,
+    High = 2,
+    Medium = 3,
+    Low = 4,
 }
 
 export interface DataQualityEvaluationData {
@@ -6769,10 +6896,16 @@ export interface DataQualityScoreData {
     tableName?: string;
     score?: number;
     evaluatedAt?: Date;
-    trendDirection?: number;
+    trendDirection?: DataQualityTrendDirection;
     previousScore?: number | null;
 
     [key: string]: any;
+}
+
+export enum DataQualityTrendDirection {
+    Improving = 1,
+    Stable = 2,
+    Degrading = 3,
 }
 
 export interface DataSourceEntry {
@@ -6787,6 +6920,17 @@ export interface DataSourceEntry {
     [key: string]: any;
 }
 
+export enum DataSourceType {
+    Database = 1,
+    CloudWatch = 2,
+    Prometheus = 3,
+    Datadog = 4,
+    ElasticSearch = 5,
+    Databricks = 6,
+    BigQuery = 7,
+    Api = 8,
+}
+
 export interface DeleteMigrationJobResult {
     success: boolean;
     errorMessage: string | null;
@@ -6798,13 +6942,13 @@ export interface DocumentationPatchEntry {
     id?: number;
     projectId?: number;
     dataSourceId?: number;
-    targetType?: number;
+    targetType?: McpDocPatchTarget;
     targetIdentifier?: string;
     currentContent?: string | null;
     proposedContent?: string;
     reasoning?: string;
     supportingSignalCount?: number;
-    status?: number;
+    status?: McpDocPatchStatus;
     createdTime?: Date;
     appliedAt?: Date | null;
 
@@ -6814,7 +6958,7 @@ export interface DocumentationPatchEntry {
 export interface ExecuteAiActorThinkCycleResult {
     success?: boolean;
     executionId?: number;
-    phase?: number;
+    phase?: AiActorExecutionPhase;
     decisionSummary?: string | null;
     findings?: string[];
     queriesAnalyzed?: number;
@@ -6832,7 +6976,7 @@ export interface ExecuteAiActorThinkCycleResult {
 }
 
 export interface ExecutedActionInfo {
-    actionType?: number;
+    actionType?: AiActorActionType;
     reasoning?: string | null;
     success?: boolean;
     errorMessage?: string | null;
@@ -6856,6 +7000,11 @@ export interface ExecutionTimeDataPoint {
     [key: string]: any;
 }
 
+export enum FileType {
+    Csv = 1,
+    Xlsx = 2,
+}
+
 export interface GenerateProjectDocumentationResult {
     jobId: string;
 
@@ -6876,7 +7025,7 @@ export interface GetAiActorDetailsResult {
     additionalContext?: string | null;
     dataSourceId?: number;
     dataSourceName?: string;
-    status?: number;
+    status?: AiActorStatus;
     maxQueries?: number;
     maxSubscriptionsPerQuery?: number;
     requiresApproval?: boolean;
@@ -6906,7 +7055,7 @@ export interface GetAiActorPlanResult {
     planId?: number;
     actorId?: number;
     actorName?: string;
-    status?: number;
+    status?: AiActorPlanStatus;
     userInstruction?: string | null;
     analysis?: string;
     findings?: string[];
@@ -7168,10 +7317,11 @@ export interface GetUsersResult {
     [key: string]: any;
 }
 
-export interface HealthResponse {
-    status: string;
-
-    [key: string]: any;
+export enum HealthStatus {
+    Green = 1,
+    Amber = 2,
+    Red = 3,
+    Stalled = 4,
 }
 
 export interface HomeActivityItem {
@@ -7222,13 +7372,13 @@ export interface LearnedPatternEntry {
     schemaName?: string;
     tableName?: string;
     columnName?: string | null;
-    patternType?: number;
+    patternType?: McpPatternType;
     patternContent?: string;
     exampleQuestion?: string | null;
     exampleSql?: string | null;
     signalCount?: number;
     confidence?: number;
-    status?: number;
+    status?: McpPatternStatus;
     createdTime?: Date;
     lastRefreshedAt?: Date | null;
 
@@ -7258,6 +7408,34 @@ export interface LoginRequest {
     [key: string]: any;
 }
 
+export enum McpDocPatchStatus {
+    Proposed = 0,
+    Applied = 1,
+    Rejected = 2,
+}
+
+export enum McpDocPatchTarget {
+    ColumnDescription = 0,
+    TableDescription = 1,
+    DocumentationSection = 2,
+}
+
+export enum McpPatternStatus {
+    Pending = 0,
+    Approved = 1,
+    Rejected = 2,
+    AutoApproved = 3,
+}
+
+export enum McpPatternType {
+    CommonQuery = 0,
+    ColumnClarification = 1,
+    JoinPattern = 2,
+    SchemaCorrection = 3,
+    BusinessTermMapping = 4,
+    DocumentationGap = 5,
+}
+
 export interface McpSettingsData {
     askSystemPrompt?: string | null;
     globalInstruction?: string | null;
@@ -7285,7 +7463,7 @@ export interface MigrationExecutionDto {
     migrationJobName: string;
     startedAt: Date;
     completedAt: Date | null;
-    status: number;
+    status: MigrationStatus;
     sourceRowsRead: number;
     destinationRowsWritten: number;
     rowsSkipped: number;
@@ -7308,12 +7486,33 @@ export interface MigrationJobListItem {
     destinationDataSourceId: number;
     destinationDataSourceName: string;
     destinationTable: string;
-    mode: number;
+    mode: MigrationMode;
     isEnabled: boolean;
     schedule: string | null;
     createdTime: Date;
 
     [key: string]: any;
+}
+
+export enum MigrationMode {
+    Insert = 1,
+    Upsert = 2,
+    Truncate = 3,
+}
+
+export enum MigrationMode2 {
+    Insert = 1,
+    Upsert = 2,
+    Truncate = 3,
+}
+
+export enum MigrationStatus {
+    Queued = 1,
+    Running = 2,
+    Completed = 3,
+    Failed = 4,
+    Cancelled = 5,
+    PartialSuccess = 6,
 }
 
 export interface MoveQueryToFolderRequest {
@@ -7328,8 +7527,8 @@ export interface NotificationDetailEntry {
     queryName: string;
     subscriptionId: number;
     recipientName: string;
-    type: number;
-    status: number;
+    type: NotificationType;
+    status: NotificationStatus;
     createdTime: Date;
     sentAt: Date;
     executionTimeMs: number;
@@ -7343,7 +7542,7 @@ export interface NotificationEntry {
     id: number;
     subscriptionId: number;
     queryName: string;
-    status: number;
+    status: NotificationStatus;
     resultCount: number;
     executionTimeMs: number;
     createdTime: Date;
@@ -7365,11 +7564,51 @@ export interface NotificationStatisticsEntry {
     [key: string]: any;
 }
 
+export enum NotificationStatus {
+    Created = 1,
+    NotificationSent = 2,
+    NotificationSilenced = 3,
+    NoResults = 4,
+    Timeout = 5,
+    BelowThreshold = 6,
+    Failed = 7,
+}
+
+export enum NotificationStatus2 {
+    Created = 1,
+    NotificationSent = 2,
+    NotificationSilenced = 3,
+    NoResults = 4,
+    Timeout = 5,
+    BelowThreshold = 6,
+    Failed = 7,
+}
+
+export enum NotificationTrigger {
+    OnResultCountChange = 1,
+    Always = 2,
+    OnResultCountIncrease = 3,
+}
+
+export enum NotificationType {
+    Teams = 1,
+    Email = 2,
+    Jira = 3,
+    Slack = 4,
+    Webhook = 5,
+}
+
 export interface PagedListOfQueryData {
     totalCount?: number | null;
     items?: QueryData[];
 
     [key: string]: any;
+}
+
+export enum ParameterType {
+    Number = 1,
+    DateTime = 2,
+    String = 3,
 }
 
 export interface ParameterValue {
@@ -7436,12 +7675,23 @@ export interface ProjectDetailEntry {
 
 export interface ProjectDocSectionEntry {
     id: number;
-    sectionType: number;
+    sectionType: ProjectDocSectionType;
     title: string;
     content: string;
     sortOrder: number;
 
     [key: string]: any;
+}
+
+export enum ProjectDocSectionType {
+    ProjectOverview = 0,
+    BusinessDomains = 1,
+    DataModel = 2,
+    DataFlows = 3,
+    CodeLineage = 4,
+    DataQuality = 5,
+    ApiDocumentation = 6,
+    Glossary = 7,
 }
 
 export interface ProjectDocumentationDetailEntry {
@@ -7499,7 +7749,7 @@ export interface ProjectSummaryEntry {
 }
 
 export interface ProposedAction {
-    actionType?: number;
+    actionType?: AiActorActionType;
     reasoning?: string;
     parameters?: any;
     currentSql?: string | null;
@@ -7524,7 +7774,7 @@ export interface QueryChangeHistoryItem {
     previousSql?: string;
     newSql?: string;
     changeReason?: string | null;
-    changeSource?: number;
+    changeSource?: ChangeSource;
     changedAt?: Date;
 
     [key: string]: any;
@@ -7545,7 +7795,7 @@ export interface QueryData {
     isCrossDataSource?: boolean;
     isCrossDatabase?: boolean;
     dataSourceNames?: string[] | null;
-    databaseEngines?: number[] | null;
+    databaseEngines?: DatabaseEngineType2[] | null;
     aiActorId?: number | null;
     aiActorName?: string | null;
     sqlValue?: string;
@@ -7579,7 +7829,7 @@ export interface QueryDetailsData {
     isCrossDataSource?: boolean;
     isCrossDatabase?: boolean;
     dataSourceNames?: string[] | null;
-    databaseEngines?: number[] | null;
+    databaseEngines?: DatabaseEngineType2[] | null;
     sqlValue?: string | null;
     dataSourceName?: string | null;
     parameters?: QueryParameterData[] | null;
@@ -7597,7 +7847,7 @@ export interface QueryExecutionResult {
     isCrossDataSource?: boolean;
     isCrossDatabase?: boolean;
     dataSourcesInvolved?: string[];
-    databaseEnginesUsed?: number[];
+    databaseEnginesUsed?: DatabaseEngineType2[];
     executionTimeByDataSource?: { [key: string]: number; };
 
     [key: string]: any;
@@ -7618,7 +7868,7 @@ export interface QueryFolderData {
 
 export interface QueryParameterData {
     name: string;
-    type: number;
+    type: ParameterType;
     description: string;
     placeholder: string;
 
@@ -7652,8 +7902,8 @@ export interface QueryStepData {
     sqlValue?: string;
     dataSourceId?: number;
     dataSourceName?: string;
-    dataSourceType?: number;
-    databaseEngineType?: number | null;
+    dataSourceType?: DataSourceType;
+    databaseEngineType?: DatabaseEngineType | null;
     databaseEngineDescription?: string | null;
     parameters?: QueryStepParameterData[];
 
@@ -7662,7 +7912,7 @@ export interface QueryStepData {
 
 export interface QueryStepParameterData {
     name?: string;
-    type?: number;
+    type?: ParameterType;
     description?: string | null;
     placeholder?: string | null;
 
@@ -7671,7 +7921,7 @@ export interface QueryStepParameterData {
 
 export interface QueryStepParameterSnapshot {
     name?: string;
-    type?: number;
+    type?: ParameterType;
     description?: string | null;
     placeholder?: string | null;
 
@@ -7684,7 +7934,7 @@ export interface QueryStepResult {
     sqlQuery?: string;
     dataSourceName?: string;
     databaseEngine?: string;
-    databaseEngineType?: number;
+    databaseEngineType?: DatabaseEngineType2;
     previewResults?: any[];
     allResults?: any[];
     totalRows?: number;
@@ -7723,7 +7973,7 @@ export interface QueryVersionDetail {
     id?: number;
     versionNumber?: number;
     label?: string | null;
-    status?: number;
+    status?: QueryVersionStatus;
     name?: string;
     description?: string | null;
     finalQuery?: string | null;
@@ -7740,7 +7990,7 @@ export interface QueryVersionDetail2 {
     id?: number;
     versionNumber?: number;
     label?: string | null;
-    status?: number;
+    status?: QueryVersionStatus;
     name?: string;
     description?: string | null;
     finalQuery?: string | null;
@@ -7775,11 +8025,18 @@ export interface QueryVersionDiff2 {
     [key: string]: any;
 }
 
+export enum QueryVersionStatus {
+    Active = 1,
+    Archived = 2,
+    PendingApproval = 3,
+    Rejected = 4,
+}
+
 export interface QueryVersionSummary {
     id?: number;
     versionNumber?: number;
     label?: string | null;
-    status?: number;
+    status?: QueryVersionStatus;
     name?: string;
     createdTime?: Date;
     createdByUserId?: string | null;
@@ -7795,7 +8052,7 @@ export interface RecipientData {
     name?: string;
     description?: string | null;
     destination?: string;
-    notificationType?: number;
+    notificationType?: NotificationType;
     headersJson?: string | null;
     bodyTemplate?: string | null;
 
@@ -7824,7 +8081,7 @@ export interface RefineAiActorBody {
 export interface RefineAiActorResult {
     success?: boolean;
     executionId?: number;
-    phase?: number;
+    phase?: AiActorExecutionPhase;
     decisionSummary?: string | null;
     queriesCreated?: number;
     queriesRefined?: number;
@@ -7903,7 +8160,7 @@ export interface RunMcpToolResult {
 
 export interface RunMigrationJobResult {
     executionId: number;
-    status: number;
+    status: MigrationStatus;
     sourceRowsRead: number;
     destinationRowsWritten: number;
     rowsFailed: number;
@@ -7926,14 +8183,14 @@ export interface SetSubscriptionSlaBody {
 }
 
 export interface SetTaskPriorityBody {
-    priority: number;
+    priority: TaskPriority;
 
     [key: string]: any;
 }
 
 export interface ShareDashboardBody {
     userId: string;
-    permissionLevel: number;
+    permissionLevel: DashboardPermissionLevel2;
 
     [key: string]: any;
 }
@@ -7946,11 +8203,18 @@ export interface SnoozeTaskBody {
 
 export interface StepDiff {
     stepOrder?: number;
-    diffType?: number;
+    diffType?: StepDiffType;
     stepA?: QueryStepSnapshot2 | null;
     stepB?: QueryStepSnapshot2 | null;
 
     [key: string]: any;
+}
+
+export enum StepDiffType {
+    Unchanged = 0,
+    Modified = 1,
+    Added = 2,
+    Removed = 3,
 }
 
 export interface SubscriptionDetail {
@@ -7966,12 +8230,12 @@ export interface SubscriptionDetail {
     maxRows: number | null;
     minimumRowCount: number | null;
     includeAttachment: boolean;
-    resultAttachmentType: number | null;
+    resultAttachmentType: FileType | null;
     showQuery: boolean;
     timeoutSeconds: number | null;
     storeResults: boolean;
     createTasks: boolean;
-    notificationTrigger: number;
+    notificationTrigger: NotificationTrigger;
     parameters: SubscriptionDetailParameter[];
     recipients: SubscriptionDetailRecipient[];
     anomalyConfig: SubscriptionDetailAnomalyConfig | null;
@@ -7981,8 +8245,8 @@ export interface SubscriptionDetail {
 
 export interface SubscriptionDetailAnomalyConfig {
     enabled: boolean;
-    detectionMethod: number;
-    sensitivity: number;
+    detectionMethod: AnomalyDetectionMethod;
+    sensitivity: AnomalySensitivity;
     lookbackDays: number;
     alertOnIncrease: boolean;
     alertOnDecrease: boolean;
@@ -8003,7 +8267,7 @@ export interface SubscriptionDetailRecipient {
     name: string;
     description: string | null;
     destination: string;
-    notificationType: number;
+    notificationType: NotificationType;
 
     [key: string]: any;
 }
@@ -8078,7 +8342,7 @@ export interface TaskDetailResult {
     aiActorName: string | null;
     lastExecutionAt: Date | null;
     cronExpression: string | null;
-    priority: number;
+    priority: TaskPriority;
     assigneeUserId: string | null;
     assigneeUserName: string | null;
     snoozedUntil: Date | null;
@@ -8126,6 +8390,13 @@ export interface TaskExecutionsResult {
     [key: string]: any;
 }
 
+export enum TaskPriority {
+    Critical = 1,
+    High = 2,
+    Normal = 3,
+    Low = 4,
+}
+
 export interface TaskRelatedItem {
     id: number;
     createdAt: Date;
@@ -8159,8 +8430,8 @@ export interface TaskResultHistoryResult {
 
 export interface TestDataSourceConnectionCommand {
     name: string | null;
-    dataSourceType: number;
-    databaseEngineType: number | null;
+    dataSourceType: DataSourceType;
+    databaseEngineType: DatabaseEngineType | null;
     connectionString: string;
 
     [key: string]: any;
@@ -8174,10 +8445,10 @@ export interface TestDataSourceConnectionResult {
 }
 
 export interface TestLlmConnectionCommand {
-    llmProvider: number | null;
+    llmProvider: AiProvider | null;
     llmModel: string | null;
     llmRegion: string | null;
-    llmBedrockAuthMode: number;
+    llmBedrockAuthMode: BedrockAuthMode;
     llmApiKey: string | null;
     llmEndpoint: string | null;
     llmSessionToken: string | null;
@@ -8215,11 +8486,11 @@ export interface ToggleQueryLockResult {
 
 export interface UpdateAdminSettingsCommand {
     baseUrl: string | null;
-    llmProvider: number | null;
+    llmProvider: AiProvider | null;
     llmModel: string | null;
     llmFastModel: string | null;
     llmRegion: string | null;
-    llmBedrockAuthMode: number;
+    llmBedrockAuthMode: BedrockAuthMode;
     llmApiKey: string | null;
     llmEndpoint: string | null;
     llmSessionToken: string | null;
@@ -8273,7 +8544,7 @@ export interface UpdateMcpSettingsBody {
 }
 
 export interface UpdatePatternStatusBody {
-    newStatus: number;
+    newStatus: McpPatternStatus;
 
     [key: string]: any;
 }
@@ -8348,6 +8619,16 @@ export interface UserSettingsView {
     roles: string[];
 
     [key: string]: any;
+}
+
+export enum WidgetType {
+    KpiCard = 1,
+    LineChart = 2,
+    BarChart = 3,
+    PieChart = 4,
+    Table = 5,
+    Gauge = 6,
+    Mermaid = 7,
 }
 
 export class ApiException extends Error {

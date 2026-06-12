@@ -1,14 +1,52 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
+import { ChangeSource, ParameterType } from '@/lib/enums';
 import { createSimpleMutation } from '@/lib/mutations';
 
 // ---------- Versions ----------
 
+/** Wire-aligned with `QueryVersionSummary` on the backend; dates arrive as strings. */
+export interface QueryVersionSummary {
+  id: number;
+  versionNumber: number;
+  label: string | null;
+  name: string;
+  createdTime: string;
+  createdByUserId: string | null;
+  changeSource: string | null;
+  changeReason: string | null;
+  stepCount: number;
+}
+
+export interface QueryVersionStepSnapshot {
+  stepOrder: number;
+  sqlValue: string;
+  dataSourceId: number;
+  dataSourceName: string;
+  name: string | null;
+  description: string | null;
+}
+
+export interface QueryVersionDetail {
+  id: number;
+  versionNumber: number;
+  label: string | null;
+  name: string;
+  description: string | null;
+  finalQuery: string | null;
+  createdTime: string;
+  createdByUserId: string | null;
+  changeSource: string | null;
+  changeReason: string | null;
+  steps: QueryVersionStepSnapshot[];
+}
+
 export function useQueryVersionsQuery(queryId: number | undefined) {
   return useQuery({
     queryKey: ['queries', queryId, 'versions'],
-    queryFn: () => beaconApi().getQueryVersions(queryId as number),
+    queryFn: async () =>
+      unwrap<QueryVersionSummary[]>(await beaconApi().getQueryVersions(queryId as number)),
     enabled: typeof queryId === 'number' && Number.isFinite(queryId),
   });
 }
@@ -16,7 +54,8 @@ export function useQueryVersionsQuery(queryId: number | undefined) {
 export function useQueryVersionDetailQuery(versionId: number | undefined) {
   return useQuery({
     queryKey: ['query-version', versionId],
-    queryFn: () => beaconApi().getQueryVersionDetail(versionId as number),
+    queryFn: async () =>
+      unwrap<QueryVersionDetail>(await beaconApi().getQueryVersionDetail(versionId as number)),
     enabled: typeof versionId === 'number' && Number.isFinite(versionId),
   });
 }
@@ -214,14 +253,10 @@ export function useQueryChangeHistoryQuery(
   });
 }
 
-/**
- * Wire-aligned with `Beacon.Core.Data.Enums.ChangeSource`.
- *  1 = User, 2 = AiActor, 3 = Import.
- */
 export const CHANGE_SOURCE_LABEL: Record<number, string> = {
-  1: 'user',
-  2: 'AI actor',
-  3: 'import',
+  [ChangeSource.User]: 'user',
+  [ChangeSource.AiActor]: 'AI actor',
+  [ChangeSource.Import]: 'import',
 };
 
 // ---------- Editor: parameter type, save, preview ----------
@@ -230,17 +265,10 @@ export const CHANGE_SOURCE_LABEL: Record<number, string> = {
 // `UpdateQuery` / `ExecuteQueryPreview` / `ExecuteStepPreview` handlers
 // added in Phase 3 Batch 5f.
 
-export const PARAMETER_TYPE = {
-  Number: 1,
-  DateTime: 2,
-  String: 3,
-} as const;
-export type ParameterTypeId = typeof PARAMETER_TYPE[keyof typeof PARAMETER_TYPE];
-
-export const PARAMETER_TYPE_LABEL: Record<ParameterTypeId, string> = {
-  [PARAMETER_TYPE.Number]: 'Number',
-  [PARAMETER_TYPE.DateTime]: 'DateTime',
-  [PARAMETER_TYPE.String]: 'String',
+export const PARAMETER_TYPE_LABEL: Record<ParameterType, string> = {
+  [ParameterType.Number]: 'Number',
+  [ParameterType.DateTime]: 'DateTime',
+  [ParameterType.String]: 'String',
 };
 
 /**
@@ -250,7 +278,7 @@ export const PARAMETER_TYPE_LABEL: Record<ParameterTypeId, string> = {
  */
 export interface UpdateQueryStepParameterPayload {
   name: string;
-  type: ParameterTypeId;
+  type: ParameterType;
   description: string | null;
   placeholder: string | null;
 }
@@ -282,14 +310,23 @@ export interface UpdateQueryResult {
   success: boolean;
 }
 
-export function useUpdateQueryMutation(id: number | undefined) {
+/**
+ * The target id comes from `payload.queryId` (mutation variables), not from a
+ * hook argument — so a freshly created query can be updated in the same render
+ * pass without waiting for state to propagate (NewQueryPage save flow).
+ */
+export function useUpdateQueryMutation() {
   const qc = useQueryClient();
   return useMutation(
     createSimpleMutation<UpdateQueryPayload, UpdateQueryResult>({
       qc,
       mutationFn: async (payload) =>
-        unwrap<UpdateQueryResult>(await beaconApi().updateQuery(id as number, payload as never)),
-      invalidate: [['query', id], ['queries', id, 'versions']],
+        unwrap<UpdateQueryResult>(await beaconApi().updateQuery(payload.queryId, payload as never)),
+      invalidate: (vars) => [
+        ['query', vars.queryId],
+        ['queries', vars.queryId, 'versions'],
+        ['queries', 'list'],
+      ],
       successMsg: 'Query saved',
       errorFallback: 'Save failed',
     }),
@@ -411,6 +448,7 @@ export function useQueriesListQuery(params: QueriesListParams = {}) {
         params.page ?? 1,
         params.pageSize ?? 50,
       )),
+    placeholderData: keepPreviousData,
   });
 }
 

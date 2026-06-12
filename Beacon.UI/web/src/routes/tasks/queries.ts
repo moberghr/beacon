@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
+import type { TaskPriority } from '@/lib/enums';
 import { createSimpleMutation } from '@/lib/mutations';
 
 export interface TaskEntry {
@@ -24,11 +25,6 @@ export interface GetTasksResult {
   totalCount: number;
 }
 
-/**
- * Wire-aligned with `Beacon.Core.Data.Enums.TaskPriority` (numeric).
- *  1 = Critical, 2 = High, 3 = Normal, 4 = Low.
- */
-export type TaskPriority = 1 | 2 | 3 | 4;
 
 export interface TaskDetail {
   id: number;

@@ -21,7 +21,7 @@ import type {
   SubscriptionExecutionEntry,
 } from '../queries';
 import { NOTIFICATION_STATUS_LABEL } from '../queries';
-import { NotificationStatus } from '@/routes/control-tower/api';
+import { NotificationStatus } from '@/lib/enums';
 import type { SubscriptionTabKey } from './SubscriptionTabsCard';
 
 interface RightRailProps {
@@ -125,7 +125,7 @@ export function RightRail({ subscription, executions, onSelectTab }: RightRailPr
               return (
                 <>
                   <CheckRow
-                    tone={latest.status === 2 ? 'ok' : latest.status === 5 || latest.status === 7 ? 'warn' : 'pending'}
+                    tone={latest.status === NotificationStatus.NotificationSent ? 'ok' : latest.status === NotificationStatus.Timeout || latest.status === NotificationStatus.Failed ? 'warn' : 'pending'}
                     title={NOTIFICATION_STATUS_LABEL[latest.status] ?? 'unknown'}
                     detail={`${latest.resultCount.toLocaleString()} result${latest.resultCount === 1 ? '' : 's'} · ${Math.round(latest.executionTimeMs)} ms`}
                   />

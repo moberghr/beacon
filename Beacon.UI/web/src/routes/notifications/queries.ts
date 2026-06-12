@@ -1,11 +1,34 @@
 import { useQuery } from '@tanstack/react-query';
 import { unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
+import type { NotificationStatus } from '@/lib/enums';
+
+// Local strict mirror of the generated `NotificationEntry` — dates are
+// strings on the wire (see `unwrap` docs in @/lib/api).
+export interface NotificationEntry {
+  id: number;
+  subscriptionId: number;
+  queryName: string;
+  status: NotificationStatus;
+  resultCount: number;
+  executionTimeMs: number;
+  createdTime: string;
+  aiActorId: number | null;
+  aiActorName: string | null;
+  comment: string | null;
+  recipientNames: string[];
+}
+
+interface GetNotificationsResult {
+  entries: NotificationEntry[];
+  totalCount: number;
+}
 
 export function useNotificationsQuery() {
   return useQuery({
     queryKey: ['notifications'],
-    queryFn: () => beaconApi().getNotifications(0, 100, undefined, undefined),
+    queryFn: async () =>
+      unwrap<GetNotificationsResult>(await beaconApi().getNotifications(0, 100, undefined, undefined)),
   });
 }
 

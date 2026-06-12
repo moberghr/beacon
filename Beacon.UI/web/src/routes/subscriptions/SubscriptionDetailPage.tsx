@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { AlertTriangle } from 'lucide-react';
 import { EmptyState } from '@/components/data/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -22,6 +22,7 @@ import { SubscriptionSaveBar } from './parts/SubscriptionSaveBar';
 
 export default function SubscriptionDetailPage() {
   const params = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const id = Number(params.id);
   const validId = Number.isFinite(id) ? id : undefined;
 
@@ -126,7 +127,11 @@ export default function SubscriptionDetailPage() {
         busy={archive.isPending}
         onConfirm={() => {
           archive.mutate(undefined, {
-            onSuccess: () => setConfirmingArchive(false),
+            onSuccess: () => {
+              setConfirmingArchive(false);
+              // The detail route now 404s — return to the list.
+              navigate('/subscriptions');
+            },
             onError: () => setConfirmingArchive(false),
           });
         }}
