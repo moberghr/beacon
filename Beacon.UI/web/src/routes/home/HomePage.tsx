@@ -44,8 +44,9 @@ import { MigrationOverviewCard, TaskMgmtCard } from './sections';
 
 // ── Time range helpers ────────────────────────────────────────────────────────
 
+// The trends API granularity is days — a sub-day range can't be honest, so
+// the smallest option is 24H (days: 1).
 const RANGES = [
-  { label: '1H', days: 1 },
   { label: '24H', days: 1 },
   { label: '7D', days: 7 },
   { label: '30D', days: 30 },
@@ -56,6 +57,7 @@ type RangeLabel = (typeof RANGES)[number]['label'];
 function relativeTime(ts: string): string {
   const diffMs = Date.now() - new Date(ts).getTime();
   const secs = Math.floor(diffMs / 1000);
+  if (secs < 0) return 'now'; // future timestamp (clock skew) — never render "-3s"
   if (secs < 60) return `${secs}s`;
   const mins = Math.floor(secs / 60);
   if (mins < 60) return `${mins}m`;
@@ -83,6 +85,7 @@ export default function HomePage() {
   const [perfMetric, setPerfMetric] = useState<PerfMetric>('avg');
 
   const days = useMemo(() => RANGES.find(r => r.label === activeRange)?.days ?? 30, [activeRange]);
+  const rangeText = days === 1 ? 'last 24 hours' : `last ${days} days`;
 
   const { data: auth } = useAuth();
   const { data: trends, isLoading: trendsLoading, refetch: refetchTrends } = useHomeTrendsQuery(days);
@@ -104,6 +107,16 @@ export default function HomePage() {
   const anomaliesAck = trends?.anomaliesAcknowledged ?? 0;
   const perfBuckets = trends?.perfBuckets ?? [];
 
+  // Derive the system pill from the execution uptime ticks already loaded —
+  // never hardcode a "Healthy" badge.
+  const systemHealth = uptime?.ticks?.some(t => t === 'crit')
+    ? { tone: 'crit' as const, label: 'Issues' }
+    : uptime?.ticks?.some(t => t === 'warn')
+      ? { tone: 'warn' as const, label: 'Degraded' }
+      : uptime?.ticks
+        ? { tone: 'ok' as const, label: 'Healthy' }
+        : null;
+
   const firstName = auth?.displayName?.split(' ')[0]?.toLowerCase() ?? 'there';
 
   return (
@@ -114,7 +127,7 @@ export default function HomePage() {
         meta={{
           executions30d: trends?.queryExecutions30d ?? 0,
           anomalies: anomaliesOpen,
-          p50ms: trends ? Math.round(trends.avgExecutionMs) : 0,
+          avgMs: trends ? Math.round(trends.avgExecutionMs) : 0,
         }}
         actions={
           <>
@@ -160,10 +173,10 @@ export default function HomePage() {
           value={dash(trends?.queryExecutions30d != null ? formatNumber(trends.queryExecutions30d) : null)}
           delta={trends ? fmtPct(trends.queryExecutionsDelta) : undefined}
           deltaDir={trends && trends.queryExecutionsDelta >= 0 ? 'up' : 'down'}
-          sub={`last ${days} days`}
+          sub={rangeText}
           spark={
             !trendsLoading && trends?.queriesSpark ? (
-              <Sparkline points={trends.queriesSpark} color="oklch(60% 0.13 240)" />
+              <Sparkline points={trends.queriesSpark} color="var(--info)" />
             ) : undefined
           }
         />
@@ -176,7 +189,7 @@ export default function HomePage() {
           sub={`${trends?.recipientsCount ?? '—'} recipients`}
           spark={
             !trendsLoading && trends?.notificationsSpark ? (
-              <Sparkline points={trends.notificationsSpark} color="oklch(70% 0.15 70)" />
+              <Sparkline points={trends.notificationsSpark} color="var(--warn)" />
             ) : undefined
           }
         />
@@ -194,7 +207,7 @@ export default function HomePage() {
           }
           spark={
             !trendsLoading && trends?.anomaliesSpark ? (
-              <Sparkline points={trends.anomaliesSpark} color="oklch(60% 0.19 25)" />
+              <Sparkline points={trends.anomaliesSpark} color="var(--crit)" />
             ) : undefined
           }
         />
@@ -214,7 +227,7 @@ export default function HomePage() {
         <HomeKpi
           dot="ok"
           label="Fastest query"
-          value={trends?.fastestQueryMs ? Math.round(trends.fastestQueryMs).toLocaleString() : '—'}
+          value={trends?.fastestQueryMs != null ? Math.round(trends.fastestQueryMs).toLocaleString() : '—'}
           unit="ms"
           sub={
             trends?.fastestQueryName ? (
@@ -227,7 +240,7 @@ export default function HomePage() {
         <HomeKpi
           dot="warn"
           label="Slowest query"
-          value={trends?.slowestQueryMs ? Math.round(trends.slowestQueryMs).toLocaleString() : '—'}
+          value={trends?.slowestQueryMs != null ? Math.round(trends.slowestQueryMs).toLocaleString() : '—'}
           unit="ms"
           sub={
             trends?.slowestQueryName ? (
@@ -245,13 +258,13 @@ export default function HomePage() {
           <CardHead>
             <TrendingUp className="size-3.5 text-text-muted" />
             <CardTitle>Activity trends</CardTitle>
-            <CardSub>last {days} days</CardSub>
+            <CardSub>{rangeText}</CardSub>
             <CardActions>
               <span className="inline-flex items-center gap-1.5 text-xs text-text-muted">
                 <span className="size-2 rounded-xs bg-brand-500" /> Queries
               </span>
               <span className="inline-flex items-center gap-1.5 text-xs text-text-muted">
-                <span className="size-2 rounded-xs" style={{ background: 'oklch(70% 0.15 70)' }} />
+                <span className="size-2 rounded-xs bg-warn" />
                 Notifications
               </span>
             </CardActions>
@@ -261,7 +274,7 @@ export default function HomePage() {
               days={days}
               series={[
                 { name: 'Queries', color: 'var(--brand-500)', data: trends?.queryTrend30d ?? [] },
-                { name: 'Notifs', color: 'oklch(70% 0.15 70)', data: trends?.notificationsTrend30d ?? [] },
+                { name: 'Notifs', color: 'var(--warn)', data: trends?.notificationsTrend30d ?? [] },
               ]}
             />
           </CardBody>
@@ -272,9 +285,11 @@ export default function HomePage() {
             <Layers className="size-3.5 text-text-muted" />
             <CardTitle>System overview</CardTitle>
             <CardActions>
-              <Pill tone="ok" dot>
-                Healthy
-              </Pill>
+              {systemHealth && (
+                <Pill tone={systemHealth.tone} dot>
+                  {systemHealth.label}
+                </Pill>
+              )}
             </CardActions>
           </CardHead>
           <div>
@@ -317,7 +332,7 @@ export default function HomePage() {
             <Zap className="size-3.5 text-text-muted" />
             <CardTitle>Query execution performance</CardTitle>
             <CardSub>
-              last {days} days · all sources
+              {rangeText} · all sources
             </CardSub>
             <CardActions>
               <Seg
@@ -369,9 +384,9 @@ export default function HomePage() {
               </div>
             )}
             {!activityLoading &&
-              activity?.items.map((item: HomeActivityItem) => (
+              activity?.items.map((item: HomeActivityItem, idx) => (
                 <FeedItem
-                  key={`${item.timestamp}-${item.title}`}
+                  key={`${item.timestamp}-${item.title}-${idx}`}
                   tone={item.tone}
                   Icon={feedIconMap[item.icon] ?? Info}
                   title={item.title}

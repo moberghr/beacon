@@ -22,11 +22,12 @@ interface LoginResponse {
 
 /**
  * Guards a redirect target against open-redirect: only same-origin relative
- * paths are allowed. `//evil.com` and `https://evil.com` are rejected.
+ * paths are allowed. `//evil.com`, `/\evil.com` (browsers treat `\` as `/`),
+ * and `https://evil.com` are rejected.
  */
 function safeRelativePath(path: string | null | undefined): string | null {
   if (typeof path !== 'string') return null;
-  if (!path.startsWith('/') || path.startsWith('//')) return null;
+  if (!path.startsWith('/') || path.startsWith('//') || path.startsWith('/\\')) return null;
   return path;
 }
 

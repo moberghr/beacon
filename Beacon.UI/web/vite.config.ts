@@ -39,7 +39,9 @@ export default defineConfig({
   build: {
     outDir: '../wwwroot',
     emptyOutDir: true,
-    sourcemap: true,
+    // 'hidden' emits .map files for tooling but omits the sourceMappingURL
+    // reference from the served JS, so maps aren't exposed to production users.
+    sourcemap: 'hidden',
   },
   server: {
     port: 5173,

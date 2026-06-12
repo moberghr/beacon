@@ -13,7 +13,7 @@ interface SetupStatusResponse {
 const SCHEMA = z
   .object({
     userName: z.string().trim().min(1, 'Username is required'),
-    email: z.string().trim().optional().or(z.literal('')),
+    email: z.union([z.literal(''), z.email('Invalid email').max(200)]).optional(),
     displayName: z.string().trim().optional().or(z.literal('')),
     password: z.string().min(8, 'Password must be at least 8 characters'),
     confirmPassword: z.string().min(1, 'Please confirm the password'),
@@ -165,6 +165,7 @@ export default function SetupPage() {
                   {...register('email')}
                 />
               </div>
+              {errors.email && <span className="login__field-error">{errors.email.message}</span>}
             </label>
 
             <label className="login__field">

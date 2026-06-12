@@ -30,8 +30,6 @@ export function QueryHero({ query, onExecute, onAddSubscription }: QueryHeroProp
           <span className="eyebrow-sep">/</span>
           <span className="mono normal-case tracking-normal">#{query.id}</span>
           <span className="eyebrow-sep">·</span>
-          <Pill tone="ok" dot>ACTIVE</Pill>
-          <span className="eyebrow-sep">·</span>
           <Pill className="mono normal-case tracking-normal">{stepLabel.toUpperCase()}</Pill>
           <span className="eyebrow-sep">·</span>
           <Pill dot>{sourceLabel.toUpperCase()}</Pill>

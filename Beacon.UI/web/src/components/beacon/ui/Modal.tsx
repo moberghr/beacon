@@ -1,10 +1,13 @@
 import * as React from 'react';
+import { createPortal } from 'react-dom';
+import { X } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { Kbd } from './Kbd';
 
 /**
  * Beacon dialog. Pair <Modal> with <ModalHeader> + <ModalBody> + <ModalFooter>.
  * Esc closes. Focus moves into the panel on open and is trapped while open.
+ * Renders via portal to document.body; body scroll is locked while open.
  */
 export function Modal({
   open,
@@ -24,14 +27,24 @@ export function Modal({
 }) {
   const panelRef = React.useRef<HTMLDivElement>(null);
 
+  // Latest onClose without invalidating the effect — callers passing fresh
+  // arrows shouldn't steal focus from inputs on every keystroke.
+  const onCloseRef = React.useRef(onClose);
+  React.useEffect(() => {
+    onCloseRef.current = onClose;
+  });
+
   React.useEffect(() => {
     if (!open) return;
 
     const previouslyFocused = document.activeElement;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
 
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        onClose();
+        e.stopPropagation();
+        onCloseRef.current();
         return;
       }
       if (e.key === 'Tab') {
@@ -57,23 +70,30 @@ export function Modal({
         }
       }
     };
-    window.addEventListener('keydown', onKey);
+    document.addEventListener('keydown', onKey);
 
     requestAnimationFrame(() => panelRef.current?.focus());
 
     return () => {
-      window.removeEventListener('keydown', onKey);
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = previousOverflow;
       if (previouslyFocused instanceof HTMLElement) {
         previouslyFocused.focus();
       }
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 
-  return (
+  const onScrimMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.target === e.currentTarget) {
+      onClose();
+    }
+  };
+
+  return createPortal(
     <div
-      onClick={onClose}
+      onMouseDown={onScrimMouseDown}
       className="fixed inset-0 z-50 grid place-items-start justify-center pt-[8vh] px-4 bg-black/35 backdrop-blur-sm"
     >
       <div
@@ -82,7 +102,6 @@ export function Modal({
         aria-modal="true"
         aria-label={ariaLabel}
         tabIndex={-1}
-        onClick={e => e.stopPropagation()}
         style={{ width: '100%', maxWidth: width }}
         className={cn(
           'bg-surface border border-border rounded-lg shadow-pop overflow-hidden flex flex-col max-h-[84vh] outline-none',
@@ -91,7 +110,8 @@ export function Modal({
       >
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -112,6 +132,7 @@ export function ModalHeader({
   variant?: 'signal' | 'nodes';
   onClose?: () => void;
 }) {
+  const gridId = React.useId();
   return (
     <div className="relative isolate overflow-hidden border-b border-border bg-gradient-to-b from-surface to-surface-2">
       <svg
@@ -119,11 +140,11 @@ export function ModalHeader({
         aria-hidden
       >
         <defs>
-          <pattern id="ph-grid" width="24" height="24" patternUnits="userSpaceOnUse">
+          <pattern id={gridId} width="24" height="24" patternUnits="userSpaceOnUse">
             <path d="M 24 0 L 0 0 0 24" fill="none" stroke="currentColor" strokeWidth="0.5" />
           </pattern>
         </defs>
-        <rect width="100%" height="100%" fill="url(#ph-grid)" />
+        <rect width="100%" height="100%" fill={`url(#${gridId})`} />
       </svg>
 
       {variant === 'signal' && <span className="beacon-beam" aria-hidden />}
@@ -162,11 +183,12 @@ export function ModalHeader({
         </div>
         {onClose && (
           <button
+            type="button"
             onClick={onClose}
             className="shrink-0 -mr-1 -mt-1 size-8 grid place-items-center rounded-sm text-text-muted hover:bg-surface-2 hover:text-text"
             aria-label="Close"
           >
-            ✕
+            <X size={16} />
           </button>
         )}
       </div>

@@ -9,13 +9,15 @@ import {
 
 const REFETCH_INTERVAL_MS = 30_000;
 
-export function useControlTowerQuery(filters: ControlTowerFilters) {
+export const CONTROL_TOWER_PAGE_SIZE = 50;
+
+export function useControlTowerQuery(filters: ControlTowerFilters, page = 0) {
   return useQuery({
-    queryKey: ['control-tower', filters],
+    queryKey: ['control-tower', filters, page],
     queryFn: async () => {
       const [stats, health] = await Promise.all([
         fetchControlTowerStatistics(filters),
-        fetchControlTowerHealth(filters),
+        fetchControlTowerHealth(filters, page, CONTROL_TOWER_PAGE_SIZE),
       ]);
       return { stats, entries: health.entries, totalCount: health.totalCount };
     },

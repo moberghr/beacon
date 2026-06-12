@@ -5,7 +5,12 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "allowSyntheticDefaultImports": true,
-    "strict": true
+    "strict": true,
+    // `composite` forces emit; route it into node_modules/.tmp so `tsc -b`
+    // never drops a stale vite.config.js next to vite.config.ts (Vite would
+    // load the compiled .js instead of the .ts source).
+    "outDir": "./node_modules/.tmp/tsconfig.node",
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.node.tsbuildinfo"
   },
   "include": ["vite.config.ts"]
 }

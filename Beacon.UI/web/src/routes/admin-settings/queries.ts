@@ -1,48 +1,32 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
+import { AiProvider, BedrockAuthMode } from '@/lib/enums';
 import { createSimpleMutation } from '@/lib/mutations';
 
-// Mirrors Beacon.Core.Data.Enums.AiProvider
-export const AiProvider = {
-  OpenAI: 0,
-  Claude: 1,
-  AzureOpenAI: 2,
-  Bedrock: 3,
-} as const;
-export type AiProviderId = (typeof AiProvider)[keyof typeof AiProvider];
-
 export const AI_PROVIDER_LABEL: Record<number, string> = {
-  0: 'OpenAI',
-  1: 'Anthropic',
-  2: 'Azure OpenAI',
-  3: 'AWS Bedrock',
+  [AiProvider.OpenAI]: 'OpenAI',
+  [AiProvider.Claude]: 'Anthropic',
+  [AiProvider.AzureOpenAI]: 'Azure OpenAI',
+  [AiProvider.Bedrock]: 'AWS Bedrock',
 };
 
-// Mirrors Beacon.Core.Data.Enums.BedrockAuthMode
-export const BedrockAuthMode = {
-  IamRole: 0,
-  AccessKey: 1,
-  TemporaryCredentials: 2,
-} as const;
-export type BedrockAuthModeId = (typeof BedrockAuthMode)[keyof typeof BedrockAuthMode];
-
 export const BEDROCK_AUTH_MODE_LABEL: Record<number, string> = {
-  0: 'IAM role',
-  1: 'Access keys',
-  2: 'Temporary credentials',
+  [BedrockAuthMode.IamRole]: 'IAM role',
+  [BedrockAuthMode.AccessKey]: 'Access keys',
+  [BedrockAuthMode.TemporaryCredentials]: 'Temporary credentials',
 };
 
 export interface AdminSettingsView {
   baseUrl: string | null;
-  llmProvider: AiProviderId | null;
+  llmProvider: AiProvider | null;
   llmApiKeySet: boolean;
   llmEndpointSet: boolean;
   llmRegion: string | null;
   llmSessionTokenSet: boolean;
   llmAwsAccessKeyIdSet: boolean;
   llmAwsSecretAccessKeySet: boolean;
-  llmBedrockAuthMode: BedrockAuthModeId;
+  llmBedrockAuthMode: BedrockAuthMode;
   llmModel: string | null;
   llmFastModel: string | null;
   llmMaxConcurrentRequests: number;
@@ -66,11 +50,11 @@ interface GetAdminSettingsResult {
 
 export interface UpdateAdminSettingsPayload {
   baseUrl: string | null;
-  llmProvider: AiProviderId | null;
+  llmProvider: AiProvider | null;
   llmModel: string | null;
   llmFastModel: string | null;
   llmRegion: string | null;
-  llmBedrockAuthMode: BedrockAuthModeId;
+  llmBedrockAuthMode: BedrockAuthMode;
   // null = leave unchanged, string = replace
   llmApiKey: string | null;
   llmEndpoint: string | null;
@@ -84,10 +68,10 @@ export interface UpdateAdminSettingsPayload {
 }
 
 export interface TestLlmConnectionPayload {
-  llmProvider: AiProviderId | null;
+  llmProvider: AiProvider | null;
   llmModel: string | null;
   llmRegion: string | null;
-  llmBedrockAuthMode: BedrockAuthModeId;
+  llmBedrockAuthMode: BedrockAuthMode;
   llmApiKey: string | null;
   llmEndpoint: string | null;
   llmSessionToken: string | null;
@@ -187,7 +171,7 @@ export const AWS_REGIONS: ModelOption[] = [
   { id: 'ap-northeast-1', label: 'ap-northeast-1 — Tokyo' },
 ];
 
-export function modelsForProvider(provider: AiProviderId | null): ModelOption[] {
+export function modelsForProvider(provider: AiProvider | null): ModelOption[] {
   switch (provider) {
     case AiProvider.OpenAI:
       return OPENAI_MODELS;

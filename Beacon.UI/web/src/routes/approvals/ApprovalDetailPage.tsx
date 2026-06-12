@@ -21,27 +21,24 @@ import {
   type PillProps,
   Textarea,
 } from '@/components/beacon';
-import { describeError } from '@/lib/api';
+import { ApprovalStatus } from '@/lib/enums';
 import { formatDateTime } from '@/lib/format';
 import {
-  ApprovalStatus,
   useApprovalDetailQuery,
   useApproveQueryChange,
   useRejectQueryChange,
 } from './queries';
 
-const STATUS_LABEL: Record<number, string> = {
-  0: 'Pending',
-  1: 'Approved',
-  2: 'Rejected',
-  3: 'Cancelled',
+const STATUS_LABEL: Record<ApprovalStatus, string> = {
+  [ApprovalStatus.Pending]: 'Pending',
+  [ApprovalStatus.Approved]: 'Approved',
+  [ApprovalStatus.Rejected]: 'Rejected',
 };
 
-const STATUS_TONE: Record<number, PillProps['tone']> = {
-  0: 'neutral',
-  1: 'ok',
-  2: 'crit',
-  3: 'neutral',
+const STATUS_TONE: Record<ApprovalStatus, PillProps['tone']> = {
+  [ApprovalStatus.Pending]: 'neutral',
+  [ApprovalStatus.Approved]: 'ok',
+  [ApprovalStatus.Rejected]: 'crit',
 };
 
 export default function ApprovalDetailPage() {
@@ -74,8 +71,8 @@ export default function ApprovalDetailPage() {
         toast.success('Approval rejected');
       }
       navigate('/approvals');
-    } catch (err) {
-            toast.error(describeError(err, 'Action failed'));
+    } catch {
+      // useApprove/RejectQueryChange (createSimpleMutation) already toast the error.
     }
   };
 
@@ -133,14 +130,14 @@ export default function ApprovalDetailPage() {
                 </dd>
                 <dt className="text-text-muted">Status</dt>
                 <dd>
-                  <Pill tone={STATUS_TONE[data.status ?? 0] ?? 'neutral'}>
-                    {STATUS_LABEL[data.status ?? 0] ?? `status ${data.status}`}
+                  <Pill tone={STATUS_TONE[data.status] ?? 'neutral'}>
+                    {STATUS_LABEL[data.status] ?? `status ${data.status}`}
                   </Pill>
                 </dd>
                 <dt className="text-text-muted">Submitted by</dt>
                 <dd>{data.requestedByUserName ?? <span className="text-text-muted">Unknown</span>}</dd>
                 <dt className="text-text-muted">Submitted at</dt>
-                <dd className="mono">{data.createdTime ? formatDateTime(data.createdTime as unknown as string) : '—'}</dd>
+                <dd className="mono">{data.createdTime ? formatDateTime(data.createdTime) : '—'}</dd>
                 {data.reviewedByUserName && (
                   <>
                     <dt className="text-text-muted">Reviewed by</dt>
@@ -150,7 +147,7 @@ export default function ApprovalDetailPage() {
                 {data.reviewedAt && (
                   <>
                     <dt className="text-text-muted">Reviewed at</dt>
-                    <dd className="mono">{formatDateTime(data.reviewedAt as unknown as string)}</dd>
+                    <dd className="mono">{formatDateTime(data.reviewedAt)}</dd>
                   </>
                 )}
                 {data.reviewComment && (

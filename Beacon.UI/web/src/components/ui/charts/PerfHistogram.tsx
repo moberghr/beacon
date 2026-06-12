@@ -17,8 +17,9 @@ export interface PerfHistogramProps {
 /**
  * Bar chart of query-execution latency per bucket. The selected metric
  * (`avg`/`p50`/`p95`/`p99`) drives the bar height; a dashed warning
- * line marks ~65% of the displayed max. Renders an empty-state message
- * when there are no buckets.
+ * line marks the worst per-bucket p95 ("p95 peak"). Bars exceeding the
+ * reference are warn-colored, bars beyond 1.5× the reference are crit.
+ * Renders an empty-state message when there are no buckets.
  */
 export function PerfHistogram({ buckets, metric = 'avg', height = 200 }: PerfHistogramProps) {
   if (!buckets || buckets.length === 0) {
@@ -44,7 +45,9 @@ export function PerfHistogram({ buckets, metric = 'avg', height = 200 }: PerfHis
   const values = buckets.map(getValue);
   const max = Math.max(...values, 1);
   const bw = innerW / buckets.length;
-  const p95Line = max * 0.65;
+  // Honest reference: the worst per-bucket p95 in the window. Only drawn
+  // when it falls inside the displayed range.
+  const p95Line = Math.max(...buckets.map(b => b.p95Ms), 0);
 
   return (
     <svg viewBox={`0 0 ${w} ${h}`} width="100%" height={h} className="block">
@@ -76,9 +79,9 @@ export function PerfHistogram({ buckets, metric = 'avg', height = 200 }: PerfHis
         const x = pad.left + i * bw + 2;
         const y = pad.top + innerH - bh;
         const color =
-          b.p99Ms > 0 && val === b.p99Ms && metric === 'p99'
+          p95Line > 0 && val > p95Line * 1.5
             ? 'var(--crit)'
-            : b.p95Ms > 0 && val === b.p95Ms && metric === 'p95'
+            : p95Line > 0 && val > p95Line
               ? 'var(--warn)'
               : 'var(--brand-500)';
         return (
@@ -99,7 +102,7 @@ export function PerfHistogram({ buckets, metric = 'avg', height = 200 }: PerfHis
           </g>
         );
       })}
-      {max > 0 && (
+      {p95Line > 0 && p95Line <= max && (
         <>
           <line
             x1={pad.left}
@@ -118,7 +121,7 @@ export function PerfHistogram({ buckets, metric = 'avg', height = 200 }: PerfHis
             fontFamily="var(--font-mono)"
             textAnchor="end"
           >
-            p95 · {Math.round(p95Line)}ms
+            p95 peak · {Math.round(p95Line)}ms
           </text>
         </>
       )}

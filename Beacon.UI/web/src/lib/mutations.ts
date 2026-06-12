@@ -19,6 +19,10 @@ export interface CreateSimpleMutationParams<TVars, TData> {
  * success/error handling: invalidate the listed query keys, surface a
  * success toast, and route every thrown value through `describeError`
  * for a consistent error toast. Pass to `useMutation(...)` directly.
+ *
+ * Contract: the hook owns error toasting — callers must NOT toast again in
+ * their own catch blocks; catch only to stop unhandled rejections or run
+ * cleanup. Toasting at the call site produces duplicate error toasts.
  */
 export function createSimpleMutation<TVars, TData>(
   params: CreateSimpleMutationParams<TVars, TData>,

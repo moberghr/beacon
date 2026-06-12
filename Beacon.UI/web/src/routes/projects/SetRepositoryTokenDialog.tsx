@@ -5,7 +5,6 @@ import { z } from 'zod';
 import { toast } from 'sonner';
 import { Dialog } from '@/components/ui/Dialog';
 import { Button, Field, Input } from '@/components/beacon';
-import { describeError } from '@/lib/api';
 import { useUpdateRepositoryToken } from './queries';
 
 const SCHEMA = z.object({
@@ -47,8 +46,8 @@ export function SetRepositoryTokenDialog({ open, onClose, repository }: Props) {
       await update.mutateAsync({ repoId: repository.id, accessToken: values.accessToken });
       toast.success(`Updated token for '${repository.name}'`);
       onClose();
-    } catch (err) {
-            toast.error(describeError(err, 'Update failed'));
+    } catch {
+      // Error toast already raised by the mutation hook.
     }
   });
 

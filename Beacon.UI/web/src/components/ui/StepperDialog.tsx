@@ -114,7 +114,7 @@ export function StepperDialog<TForm extends FieldValues>({
             <div
               key={step.id}
               hidden={index !== current}
-              role="tabpanel"
+              role="group"
               aria-labelledby={`step-${step.id}`}
             >
               {step.render({ stepIndex: index, isActive: index === current })}

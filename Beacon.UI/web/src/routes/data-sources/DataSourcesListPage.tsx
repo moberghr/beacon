@@ -7,7 +7,6 @@ import { Button, Pill } from '@/components/beacon';
 import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { describeError } from '@/lib/api';
 import { formatNumber } from '@/lib/format';
 import {
   useDataSourcesQuery,
@@ -79,8 +78,8 @@ export default function DataSourcesListPage() {
       await deleteMutation.mutateAsync(deleting.id);
       toast.success(`Deleted data source '${deleting.name}'`);
       setDeleting(null);
-    } catch (err) {
-            toast.error(describeError(err, 'Delete failed'));
+    } catch {
+      // Error toast already raised by the delete mutation hook.
     }
   };
 

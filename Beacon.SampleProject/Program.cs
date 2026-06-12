@@ -18,6 +18,8 @@ using Beacon.Connector.BigQuery;
 using Beacon.MCP;
 using Beacon.Api.Endpoints;
 using Beacon.Api.Hubs;
+using Beacon.Api.OpenApi;
+using Microsoft.AspNetCore.OpenApi;
 using Beacon.Api.SignalR;
 using Beacon.SampleProject.Authentication;
 using Beacon.SampleProject.Middleware;
@@ -141,7 +143,17 @@ builder.Services.AddBeaconMcp();
 
 // Step 5: REST API surface for the React shell.
 // OpenAPI document is emitted at /openapi/v1.json (consumed by NSwag for TS codegen).
-builder.Services.AddOpenApi();
+// Enums stay integers on the wire; the transformer + reference-id hook emit named
+// component schemas so the generated TS client carries the real backend enum values.
+builder.Services.AddOpenApi(options =>
+{
+    options.CreateSchemaReferenceId = x =>
+    {
+        var type = Nullable.GetUnderlyingType(x.Type) ?? x.Type;
+        return type.IsEnum ? type.Name : OpenApiOptions.CreateDefaultSchemaReferenceId(x);
+    };
+    options.AddSchemaTransformer<EnumSchemaTransformer>();
+});
 builder.Services.AddAntiforgery(options =>
 {
     options.HeaderName = "X-XSRF-TOKEN";

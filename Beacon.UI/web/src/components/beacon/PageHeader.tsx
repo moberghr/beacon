@@ -31,6 +31,7 @@ export function PageHeader({
   actions,
   className,
 }: PageHeaderProps) {
+  const gridId = React.useId();
   return (
     <header
       className={cn(
@@ -44,11 +45,11 @@ export function PageHeader({
         aria-hidden
       >
         <defs>
-          <pattern id="page-grid" width="28" height="28" patternUnits="userSpaceOnUse">
+          <pattern id={gridId} width="28" height="28" patternUnits="userSpaceOnUse">
             <path d="M 28 0 L 0 0 0 28" fill="none" stroke="currentColor" strokeWidth="0.5" />
           </pattern>
         </defs>
-        <rect width="100%" height="100%" fill="url(#page-grid)" />
+        <rect width="100%" height="100%" fill={`url(#${gridId})`} />
       </svg>
 
       {variant === 'signal' && <span className="beacon-beam" aria-hidden />}

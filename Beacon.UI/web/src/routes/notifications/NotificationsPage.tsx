@@ -1,20 +1,20 @@
 import { useNavigate } from 'react-router-dom';
 import { AlertTriangle, Bell, RefreshCw } from 'lucide-react';
-import type { NotificationEntry } from '@/api/generated/beacon-api';
 import { Button, PageHeader, Pill, type PillProps } from '@/components/beacon';
 import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
+import { NotificationStatus } from '@/lib/enums';
 import { formatDateTime, formatNumber } from '@/lib/format';
-import { useNotificationsQuery } from './queries';
+import { useNotificationsQuery, type NotificationEntry } from './queries';
 
 const STATUS_LABELS: Record<number, { label: string; tone: PillProps['tone'] }> = {
-  1: { label: 'Created', tone: 'neutral' },
-  2: { label: 'Sent', tone: 'ok' },
-  3: { label: 'Silenced', tone: 'neutral' },
-  4: { label: 'No results', tone: 'warn' },
-  5: { label: 'Timeout', tone: 'crit' },
-  6: { label: 'Below threshold', tone: 'neutral' },
-  7: { label: 'Failed', tone: 'crit' },
+  [NotificationStatus.Created]: { label: 'Created', tone: 'neutral' },
+  [NotificationStatus.NotificationSent]: { label: 'Sent', tone: 'ok' },
+  [NotificationStatus.NotificationSilenced]: { label: 'Silenced', tone: 'neutral' },
+  [NotificationStatus.NoResults]: { label: 'No results', tone: 'warn' },
+  [NotificationStatus.Timeout]: { label: 'Timeout', tone: 'crit' },
+  [NotificationStatus.BelowThreshold]: { label: 'Below threshold', tone: 'neutral' },
+  [NotificationStatus.Failed]: { label: 'Failed', tone: 'crit' },
 };
 
 const COLUMNS: Column<NotificationEntry>[] = [

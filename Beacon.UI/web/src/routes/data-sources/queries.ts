@@ -1,36 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
+import { DatabaseEngineType, type DataSourceType } from '@/lib/enums';
 import { createSimpleMutation } from '@/lib/mutations';
 
-// DataSourceType / DatabaseEngineType values mirror Beacon.Core.Data.Enums.
-// Backend serialises enums as ints by default — keep these constants aligned.
-export const DATA_SOURCE_TYPE = {
-  Database: 1,
-  CloudWatch: 2,
-  Databricks: 6,
-  BigQuery: 7,
-  Api: 8,
-} as const;
-export type DataSourceTypeId = typeof DATA_SOURCE_TYPE[keyof typeof DATA_SOURCE_TYPE];
-
-export const DATABASE_ENGINE = {
-  PostgreSQL: 1,
-  MSSQL: 2,
-  MySQL: 3,
-  SQLite: 4,
-  AzureSynapse: 5,
-  Snowflake: 6,
-} as const;
-export type DatabaseEngineId = typeof DATABASE_ENGINE[keyof typeof DATABASE_ENGINE];
-
-export const DATABASE_ENGINE_LABEL: Record<DatabaseEngineId, string> = {
-  [DATABASE_ENGINE.PostgreSQL]: 'PostgreSQL',
-  [DATABASE_ENGINE.MSSQL]: 'SQL Server',
-  [DATABASE_ENGINE.MySQL]: 'MySQL',
-  [DATABASE_ENGINE.SQLite]: 'SQLite',
-  [DATABASE_ENGINE.AzureSynapse]: 'Azure Synapse',
-  [DATABASE_ENGINE.Snowflake]: 'Snowflake',
+export const DATABASE_ENGINE_LABEL: Record<DatabaseEngineType, string> = {
+  [DatabaseEngineType.PostgreSQL]: 'PostgreSQL',
+  [DatabaseEngineType.MSSQL]: 'SQL Server',
+  [DatabaseEngineType.MySQL]: 'MySQL',
+  [DatabaseEngineType.SQLite]: 'SQLite',
+  [DatabaseEngineType.AzureSynapse]: 'Azure Synapse',
+  [DatabaseEngineType.Snowflake]: 'Snowflake',
 };
 
 export interface DataSourceEntry {
@@ -59,8 +39,8 @@ export function useDataSourcesQuery() {
 
 export interface CreateDataSourcePayload {
   name: string;
-  dataSourceType: DataSourceTypeId;
-  databaseEngineType: DatabaseEngineId | null;
+  dataSourceType: DataSourceType;
+  databaseEngineType: DatabaseEngineType | null;
   connectionString: string;
   metadataLoadingEnabled: boolean;
   metadataMaxTables: number;
@@ -72,8 +52,8 @@ export interface CreateDataSourcePayload {
 
 export interface TestDataSourceConnectionPayload {
   name: string | null;
-  dataSourceType: DataSourceTypeId;
-  databaseEngineType: DatabaseEngineId | null;
+  dataSourceType: DataSourceType;
+  databaseEngineType: DatabaseEngineType | null;
   connectionString: string;
 }
 

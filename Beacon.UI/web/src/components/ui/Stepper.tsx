@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { Check } from 'lucide-react';
 import { cn } from '@/lib/cn';
 
 export interface StepperStep {
@@ -48,10 +49,12 @@ export function Stepper({ steps, current, onStepClick, className }: StepperProps
         const content: ReactNode = (
           <>
             <span className={bulletCls} aria-hidden>
-              {isDone ? '✓' : index + 1}
+              {isDone ? <Check size={12} /> : index + 1}
             </span>
             <span className="flex flex-col min-w-0">
-              <span className={titleCls}>{step.title}</span>
+              <span id={`step-${step.id}`} className={titleCls}>
+                {step.title}
+              </span>
               {step.description && (
                 <span className="text-xs text-text-subtle truncate">{step.description}</span>
               )}
@@ -76,9 +79,7 @@ export function Stepper({ steps, current, onStepClick, className }: StepperProps
                 {content}
               </button>
             ) : (
-              <div className={stepCls} aria-disabled={!isActive}>
-                {content}
-              </div>
+              <div className={stepCls}>{content}</div>
             )}
             {index < steps.length - 1 && (
               <div

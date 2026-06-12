@@ -1,3 +1,5 @@
+import { useId } from 'react';
+
 export interface LineSeries {
   name: string;
   color: string;
@@ -17,6 +19,7 @@ export interface LineChartProps {
  * `viewBox` fixes the aspect ratio.
  */
 export function LineChart({ series, height = 240, days = 30 }: LineChartProps) {
+  const uid = useId();
   const w = 1000;
   const h = height;
   const pad = { top: 16, right: 16, bottom: 28, left: 38 };
@@ -71,9 +74,9 @@ export function LineChart({ series, height = 240, days = 30 }: LineChartProps) {
           {`d-${days - 1 - i}`}
         </text>
       ))}
-      {series.map((s) => {
+      {series.map((s, seriesIndex) => {
         const safeData = s.data.length > 0 ? s.data : Array(days).fill(0);
-        const id = 'lg-' + s.name.replace(/\s/g, '');
+        const id = `${uid}-lg-${seriesIndex}`;
         const d = safeData.map((v, i) => (i ? 'L' : 'M') + xAt(i) + ' ' + yAt(v)).join(' ');
         const area = d + ` L ${xAt(safeData.length - 1)} ${pad.top + innerH} L ${xAt(0)} ${pad.top + innerH} Z`;
         return (

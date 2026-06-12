@@ -44,7 +44,7 @@ export interface ButtonProps
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant, size, icon, children, ...props }, ref) => (
-    <button ref={ref} className={cn(button({ variant, size }), className)} {...props}>
+    <button ref={ref} type="button" className={cn(button({ variant, size }), className)} {...props}>
       {icon && <span className="shrink-0 [&>svg]:size-3.5">{icon}</span>}
       {children}
     </button>

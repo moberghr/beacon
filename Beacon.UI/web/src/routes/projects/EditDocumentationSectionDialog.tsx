@@ -3,11 +3,9 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import type { ProjectDocSectionEntry } from '@/api/generated/beacon-api';
 import { Dialog } from '@/components/ui/Dialog';
 import { Button, Field, Textarea } from '@/components/beacon';
-import { describeError } from '@/lib/api';
-import { useUpdateDocumentationSection } from './queries';
+import { useUpdateDocumentationSection, type ProjectDocSectionEntry } from './queries';
 
 const SCHEMA = z.object({
   content: z.string().max(50_000),
@@ -47,8 +45,8 @@ export function EditDocumentationSectionDialog({ open, onClose, section, project
       await update.mutateAsync({ sectionId: section.id, content: values.content, projectId });
       toast.success(`Updated section '${section.title}'`);
       onClose();
-    } catch (err) {
-            toast.error(describeError(err, 'Update failed'));
+    } catch {
+      // Error toast already raised by the mutation hook.
     }
   });
 

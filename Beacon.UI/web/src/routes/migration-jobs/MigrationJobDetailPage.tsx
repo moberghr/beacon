@@ -4,43 +4,43 @@ import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { AlertTriangle, ArrowLeftRight, Layers, Play, RefreshCw, X } from 'lucide-react';
 import { beaconApi } from '@/api/client';
-import type { MigrationExecutionDto } from '@/api/generated/beacon-api';
 import { PageHeader, Button, Card, CardBody, KPI, KPIGrid, Pill } from '@/components/beacon';
 import { Tabs, type TabDef } from '@/components/Tabs';
 import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { describeError } from '@/lib/api';
+import { unwrap } from '@/lib/api';
+import { MigrationMode, MigrationStatus } from '@/lib/enums';
 import { formatDateTime, formatNumber, formatRelativeTime } from '@/lib/format';
 import {
   useMigrationJobsQuery,
   useDeleteMigrationJob,
   useRunMigrationJob,
 } from './queries';
-import { MIGRATION_MODE_LABEL } from '@/routes/migration-history/queries';
+import {
+  MIGRATION_MODE_LABEL,
+  type GetMigrationExecutionsResult,
+  type MigrationExecutionEntry,
+} from '@/routes/migration-history/queries';
 
 type TabKey = 'overview' | 'executions';
 
-export enum MigrationExecutionStatus {
-  Queued = 0,
-  Running = 1,
-  Succeeded = 2,
-  Failed = 3,
-  Cancelled = 4,
-}
-
-const EXECUTION_STATUS_LABEL: Record<number, string> = {
-  [MigrationExecutionStatus.Queued]: 'Queued',
-  [MigrationExecutionStatus.Running]: 'Running',
-  [MigrationExecutionStatus.Succeeded]: 'Succeeded',
-  [MigrationExecutionStatus.Failed]: 'Failed',
-  [MigrationExecutionStatus.Cancelled]: 'Cancelled',
+const EXECUTION_STATUS_LABEL: Record<MigrationStatus, string> = {
+  [MigrationStatus.Queued]: 'Queued',
+  [MigrationStatus.Running]: 'Running',
+  [MigrationStatus.Completed]: 'Completed',
+  [MigrationStatus.Failed]: 'Failed',
+  [MigrationStatus.Cancelled]: 'Cancelled',
+  [MigrationStatus.PartialSuccess]: 'Partial success',
 };
 
 function useJobExecutionsQuery(jobId: number | null) {
   return useQuery({
     queryKey: ['migration-executions', jobId] as const,
-    queryFn: () => beaconApi().getMigrationExecutions(jobId!, undefined, undefined, undefined, 0, 50),
+    queryFn: async () =>
+      unwrap<GetMigrationExecutionsResult>(
+        await beaconApi().getMigrationExecutions(jobId!, undefined, undefined, undefined, 0, 50),
+      ),
     enabled: jobId != null && Number.isFinite(jobId),
   });
 }
@@ -95,19 +95,25 @@ export default function MigrationJobDetailPage() {
   const handleRun = async () => {
     try {
       const result = await runMutation.mutateAsync({ id: job.id });
-      if (result.status === MigrationExecutionStatus.Failed) {
+      if (result.status === MigrationStatus.Failed) {
         toast.error(result.errorMessage ?? 'Migration failed');
         return;
       }
-      if (result.status === MigrationExecutionStatus.Succeeded) {
+      if (result.status === MigrationStatus.PartialSuccess) {
+        toast.warning(
+          `Migration finished with partial success — ${formatNumber(result.sourceRowsRead)} read, ${formatNumber(result.destinationRowsWritten)} written, ${formatNumber(result.rowsFailed)} failed`,
+        );
+        return;
+      }
+      if (result.status === MigrationStatus.Completed) {
         toast.success(
           `Migration succeeded — ${formatNumber(result.sourceRowsRead)} read, ${formatNumber(result.destinationRowsWritten)} written`,
         );
         return;
       }
       toast.success(`Migration finished with status ${EXECUTION_STATUS_LABEL[result.status] ?? result.status}`);
-    } catch (err) {
-            toast.error(describeError(err, 'Unknown error'));
+    } catch {
+      // useRunMigrationJob (createSimpleMutation) already toasts the error.
     }
   };
 
@@ -120,15 +126,15 @@ export default function MigrationJobDetailPage() {
       }
       toast.success('Migration job deleted');
       navigate('/migration-jobs');
-    } catch (err) {
-            toast.error(describeError(err, 'Unknown error'));
+    } catch {
+      // useDeleteMigrationJob (createSimpleMutation) already toasts the error.
     }
   };
 
   const execs = executions.data?.executions ?? [];
   const lastExec = execs[0];
-  const successCount = execs.filter(e => e.status === MigrationExecutionStatus.Succeeded).length;
-  const failedCount = execs.filter(e => e.status === MigrationExecutionStatus.Failed).length;
+  const successCount = execs.filter(e => e.status === MigrationStatus.Completed).length;
+  const failedCount = execs.filter(e => e.status === MigrationStatus.Failed).length;
 
   const tabs: TabDef<TabKey>[] = [
     { key: 'overview', label: <><Layers className="size-3.5" /> Overview</> },
@@ -184,12 +190,12 @@ export default function MigrationJobDetailPage() {
           dot={job.isEnabled ? 'ok' : 'warn'}
           label="Status"
           value={job.isEnabled ? 'Enabled' : 'Paused'}
-          sub={MIGRATION_MODE_LABEL[job.mode as 1 | 2 | 3] ?? `mode ${job.mode}`}
+          sub={MIGRATION_MODE_LABEL[job.mode as MigrationMode] ?? `mode ${job.mode}`}
         />
         <KPI
           dot="brand"
           label="Last run"
-          value={lastExec ? formatRelativeTime(lastExec.startedAt as unknown as string) : '—'}
+          value={lastExec ? formatRelativeTime(lastExec.startedAt) : '—'}
           sub={lastExec ? EXECUTION_STATUS_LABEL[lastExec.status] ?? '—' : 'never'}
         />
         <KPI dot="ok" label="Successes" value={formatNumber(successCount)} sub={`of last ${execs.length}`} />
@@ -255,7 +261,7 @@ function OverviewTab({ job }: { job: OverviewJob }) {
           <span className="mono">{job.destinationTable}</span>
         </dd>
         <dt className="text-text-muted">Mode</dt>
-        <dd><Pill>{MIGRATION_MODE_LABEL[job.mode as 1 | 2 | 3] ?? job.mode}</Pill></dd>
+        <dd><Pill>{MIGRATION_MODE_LABEL[job.mode as MigrationMode] ?? job.mode}</Pill></dd>
         <dt className="text-text-muted">Schedule</dt>
         <dd>
           {job.schedule
@@ -276,19 +282,19 @@ function OverviewTab({ job }: { job: OverviewJob }) {
 const EXEC_GRID = '0.6fr 1fr 0.8fr 1fr 1fr 0.7fr 0.8fr';
 
 function ExecutionsTab({ executions, isLoading, isError, error }: {
-  executions: MigrationExecutionDto[];
+  executions: MigrationExecutionEntry[];
   isLoading: boolean;
   isError: boolean;
   error: unknown;
 }) {
-  const columns: Column<MigrationExecutionDto>[] = [
+  const columns: Column<MigrationExecutionEntry>[] = [
     { key: 'id', header: 'Id', render: r => <span className="mono text-text-muted">#{r.id}</span> },
     {
       key: 'started',
       header: 'Started',
       render: r => (
-        <span title={formatDateTime(r.startedAt as unknown as string)}>
-          {formatRelativeTime(r.startedAt as unknown as string)}
+        <span title={formatDateTime(r.startedAt)}>
+          {formatRelativeTime(r.startedAt)}
         </span>
       ),
     },
@@ -297,8 +303,9 @@ function ExecutionsTab({ executions, isLoading, isError, error }: {
       header: 'Status',
       render: r => {
         const label = EXECUTION_STATUS_LABEL[r.status] ?? `status ${r.status}`;
-        if (r.status === MigrationExecutionStatus.Succeeded) return <Pill tone="ok">{label}</Pill>;
-        if (r.status === MigrationExecutionStatus.Failed) return <Pill tone="crit">{label}</Pill>;
+        if (r.status === MigrationStatus.Completed) return <Pill tone="ok">{label}</Pill>;
+        if (r.status === MigrationStatus.Failed) return <Pill tone="crit">{label}</Pill>;
+        if (r.status === MigrationStatus.PartialSuccess) return <Pill tone="warn">{label}</Pill>;
         return <Pill>{label}</Pill>;
       },
     },

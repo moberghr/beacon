@@ -54,6 +54,7 @@ export function InputPromptDialog({
   }, [open, initialValue]);
 
   const handleSubmit = () => {
+    if (busy) return;
     const validationError = validate?.(value) ?? null;
     if (validationError !== null) {
       setError(validationError);

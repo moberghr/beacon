@@ -4,11 +4,12 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Dialog } from '@/components/ui/Dialog';
 import { Button, Field, Input } from '@/components/beacon';
-import { PARAMETER_TYPE, type ParameterTypeId, type ParameterValueInput } from '../queries';
+import { ParameterType } from '@/lib/enums';
+import { type ParameterValueInput } from '../queries';
 
 interface ParameterDescriptor {
   name: string;
-  type: ParameterTypeId;
+  type: ParameterType;
   description?: string | null;
 }
 
@@ -89,9 +90,9 @@ export function StepParameterDialog({
           <div className="flex flex-col gap-3">
             {parameters.map(p => {
               const inputType =
-                p.type === PARAMETER_TYPE.Number
+                p.type === ParameterType.Number
                   ? 'number'
-                  : p.type === PARAMETER_TYPE.DateTime
+                  : p.type === ParameterType.DateTime
                     ? 'datetime-local'
                     : 'text';
               return (

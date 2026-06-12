@@ -4,11 +4,11 @@ import { AlertTriangle, ArrowLeftRight, Layers, RefreshCw } from 'lucide-react';
 import { Card, CardBody, Button, PageHeader, Pill } from '@/components/beacon';
 import { EmptyState } from '@/components/data/EmptyState';
 import { formatDateTime } from '@/lib/format';
-import type { QueryStepSnapshot } from '@/api/generated/beacon-api';
 import {
   useQueryDetailQuery,
   useQueryVersionDetailQuery,
   useRestoreQueryVersion,
+  type QueryVersionStepSnapshot,
 } from './queries';
 
 export default function QueryVersionDetailPage() {
@@ -48,9 +48,13 @@ export default function QueryVersionDetailPage() {
   const current = currentQuery.data;
 
   const handleRestore = async () => {
-    await restoreMutation.mutateAsync(versionIdNum);
-    setRestoreConfirm(false);
-    navigate(`/queries/${queryId}`);
+    try {
+      await restoreMutation.mutateAsync(versionIdNum);
+      setRestoreConfirm(false);
+      navigate(`/queries/${queryId}`);
+    } catch {
+      // Error toast already raised by the restore mutation hook.
+    }
   };
 
   return (
@@ -179,9 +183,9 @@ interface StepBlockStep {
   sqlValue?: string | null;
 }
 
-function StepBlock({ step }: { step: StepBlockStep | QueryStepSnapshot; label?: string }) {
-  const name = (step as StepBlockStep).stepName ?? (step as QueryStepSnapshot).name ?? `Step ${step.stepOrder}`;
-  const sql = (step as StepBlockStep).sqlValue ?? (step as QueryStepSnapshot).sqlValue ?? '';
+function StepBlock({ step }: { step: StepBlockStep | QueryVersionStepSnapshot; label?: string }) {
+  const name = (step as StepBlockStep).stepName ?? (step as QueryVersionStepSnapshot).name ?? `Step ${step.stepOrder}`;
+  const sql = step.sqlValue ?? '';
 
   return (
     <div className="mb-2.5">

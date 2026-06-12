@@ -55,4 +55,38 @@ describe('DataTable accessibility', () => {
     expect(onRowClick).toHaveBeenCalledTimes(2);
     expect(onRowClick).toHaveBeenCalledWith(rows[0]);
   });
+
+  it('does not fire onRowClick for clicks on interactive cell content', () => {
+    const onRowClick = vi.fn();
+    const onCellAction = vi.fn();
+    const columnsWithAction: Column<Row>[] = [
+      ...columns,
+      {
+        key: 'action',
+        header: 'Action',
+        render: () => (
+          <button type="button" onClick={onCellAction}>
+            Delete
+          </button>
+        ),
+      },
+    ];
+    render(
+      <DataTable
+        columns={columnsWithAction}
+        rows={rows}
+        rowKey={r => r.id}
+        gridTemplate="1fr 1fr 1fr"
+        onRowClick={onRowClick}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Delete' })[0]);
+    expect(onCellAction).toHaveBeenCalledTimes(1);
+    expect(onRowClick).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByText('Alpha'));
+    expect(onRowClick).toHaveBeenCalledTimes(1);
+    expect(onRowClick).toHaveBeenCalledWith(rows[0]);
+  });
 });
