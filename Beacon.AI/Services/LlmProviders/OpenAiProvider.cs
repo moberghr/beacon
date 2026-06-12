@@ -67,7 +67,8 @@ public class OpenAiProvider : ILlmProvider
             OutputTokens = usage.OutputTokenCount,
             Cost = inputCost + outputCost,
             Model = _model,
-            PromptCacheHit = false
+            PromptCacheHit = false,
+            Truncated = response.Value.FinishReason == ChatFinishReason.Length
         };
     }
 

@@ -95,9 +95,9 @@ internal class SubscriptionService(
             await anomalyDetectionService.SaveAnomalyConfigAsync(subscriptionData.AnomalyConfig, cancellationToken);
         }
 
-        var query = context.Queries
+        var query = await context.Queries
             .Where(x => x.Id == subscriptionData.QueryId)
-            .FirstOrDefault()
+            .FirstOrDefaultAsync(cancellationToken)
             ?? throw new InvalidOperationException($"Query {subscriptionData.QueryId} not found.");
 
         beaconScheduler.AddOrUpdate(subscription.Id, $"{query.Name}: {subscription.Id}", subscription.CronExpression);
@@ -178,6 +178,7 @@ internal class SubscriptionService(
 
         var subscription = await context.Subscriptions
             .Include(x => x.Parameters)
+            .Include(x => x.Recipients)
             .Where(x => x.Id == subscriptionData.SubscriptionId)
             .FirstOrDefaultAsync(cancellationToken)
             ?? throw new InvalidOperationException($"Subscription {subscriptionData.SubscriptionId} not found.");
@@ -218,7 +219,31 @@ internal class SubscriptionService(
         subscription.StoreResults = subscriptionData.StoreResults;
         subscription.CreateTasks = subscriptionData.CreateTasks;
         subscription.NotificationTrigger = subscriptionData.NotificationTrigger;
-        subscription.Recipients = recipients;
+
+        // Reconcile the loaded join collection instead of replacing it,
+        // so EF only inserts/deletes the join rows that actually changed.
+        var selectedRecipientIds = recipients
+            .Select(x => x.Id)
+            .ToList();
+
+        var removedRecipients = subscription.Recipients
+            .Where(x => !selectedRecipientIds.Contains(x.Id))
+            .ToList();
+
+        foreach (var removedRecipient in removedRecipients)
+        {
+            subscription.Recipients.Remove(removedRecipient);
+        }
+
+        var existingRecipientIds = subscription.Recipients
+            .Select(x => x.Id)
+            .ToList();
+
+        var addedRecipients = recipients
+            .Where(x => !existingRecipientIds.Contains(x.Id))
+            .ToList();
+
+        subscription.Recipients.AddRange(addedRecipients);
 
         foreach (var subscriptionParameter in subscription.Parameters)
         {
@@ -237,9 +262,9 @@ internal class SubscriptionService(
             await anomalyDetectionService.SaveAnomalyConfigAsync(subscriptionData.AnomalyConfig, cancellationToken);
         }
 
-        var query = context.Queries
+        var query = await context.Queries
             .Where(x => x.Id == subscription.QueryId)
-            .FirstOrDefault()
+            .FirstOrDefaultAsync(cancellationToken)
             ?? throw new InvalidOperationException($"Query {subscription.QueryId} not found.");
 
         if (shouldUpdateHangfire)

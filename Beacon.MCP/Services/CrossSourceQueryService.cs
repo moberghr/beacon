@@ -18,12 +18,13 @@ internal sealed class CrossSourceQueryService(
     IDataSourceProviderFactory providerFactory,
     IQueryGuardrailService guardrailService,
     SqlReadOnlyAstValidator readOnlyAstValidator,
+    SqlSchemaValidator schemaValidator,
     IKnowledgeGraphService knowledgeGraph,
     ISqlGenerationService sqlGenerationService,
     ILoggerFactory loggerFactory,
     ILogger<CrossSourceQueryService> logger) : ICrossSourceQueryService
 {
-    public async Task<string> ExecuteAsync(
+    public async Task<(string Text, bool Succeeded)> ExecuteAsync(
         ILlmProvider llmProvider,
         List<RoutedSource> sources,
         string question,
@@ -33,6 +34,7 @@ internal sealed class CrossSourceQueryService(
         CancellationToken ct)
     {
         var text = "";
+        var failedSources = new List<(string Name, string Reason)>();
 
         var sourceQueries = new List<(RoutedSource Source, string Sql, string SchemaContext)>();
         foreach (var source in sources)
@@ -41,18 +43,56 @@ internal sealed class CrossSourceQueryService(
 
             var sqlResult = await sqlGenerationService.GenerateAsync(
                 llmProvider, smartContext.FullContext, question, settings, ct);
+            var sql = sqlResult.Sql;
 
-            sourceQueries.Add((source, sqlResult.Sql, smartContext.FullContext));
+            // Pre-execution schema validation with one bounded repair, mirroring the single-source flow
+            var schemaCheck = schemaValidator.Validate(sql, smartContext.SchemaCatalog, smartContext.DatabaseDialect);
+            if (!schemaCheck.IsValid)
+            {
+                signal.SetSchemaValidationFailed(schemaCheck.Error!);
+                logger.LogInformation("Schema pre-validation failed for {DataSourceName}, retrying. Error: {Error}",
+                    source.DataSourceName, schemaCheck.Error);
 
-            text += $"### Source: {source.DataSourceName}\n```sql\n{sqlResult.Sql}\n```\n\n";
+                var systemPrompt = settings.AskSystemPrompt ?? "You are a SQL expert. Return ONLY the SQL query.";
+                var retriedSql = await sqlGenerationService.RetryWithErrorAsync(
+                    llmProvider, systemPrompt, sql, schemaCheck.Error!, smartContext.FullContext, null, question, ct);
+
+                var retryValid = retriedSql != null
+                    && schemaValidator.Validate(retriedSql, smartContext.SchemaCatalog, smartContext.DatabaseDialect).IsValid;
+                if (retriedSql != null)
+                {
+                    signal.SetRetry(retriedSql, retryValid);
+                }
+
+                if (!retryValid)
+                {
+                    failedSources.Add((source.DataSourceName, $"Schema validation failed: {schemaCheck.Error}"));
+                    text += $"### Source: {source.DataSourceName}\n**Schema Validation Error:** {schemaCheck.Error}\n\n";
+                    continue;
+                }
+
+                sql = retriedSql!;
+            }
+
+            sourceQueries.Add((source, sql, smartContext.FullContext));
+
+            text += $"### Source: {source.DataSourceName}\n```sql\n{sql}\n```\n\n";
         }
 
         if (!execute)
         {
-            return text + "*Execution skipped (execute=false)*\n";
+            text += FormatFailedSourcesNote(failedSources);
+
+            return (text + "*Execution skipped (execute=false)*\n", sourceQueries.Count > 0);
+        }
+
+        if (sourceQueries.Count == 0)
+        {
+            return (text + FormatFailedSourcesNote(failedSources), false);
         }
 
         using var memDb = new InMemoryDatabaseManager(loggerFactory.CreateLogger<InMemoryDatabaseManager>());
+        var anyExecuted = false;
 
         for (var i = 0; i < sourceQueries.Count; i++)
         {
@@ -66,9 +106,9 @@ internal sealed class CrossSourceQueryService(
 
             if (!validation.IsValid)
             {
+                failedSources.Add((source.DataSourceName, validation.Error ?? "Validation failed"));
                 text += $"**Validation Error for {source.DataSourceName}:** {validation.Error}\n";
-
-                return text;
+                continue;
             }
 
             await using var context = await contextFactory.CreateDbContextAsync(ct);
@@ -83,9 +123,9 @@ internal sealed class CrossSourceQueryService(
                 var astError = readOnlyAstValidator.Validate(sql, dataSource.DatabaseEngineType?.ToString());
                 if (astError != null)
                 {
+                    failedSources.Add((source.DataSourceName, astError));
                     text += $"**Validation Error for {source.DataSourceName}:** {astError}\n";
-
-                    return text;
+                    continue;
                 }
             }
 
@@ -100,10 +140,12 @@ internal sealed class CrossSourceQueryService(
 
             if (!result.Success)
             {
+                failedSources.Add((source.DataSourceName, result.ErrorMessage ?? "Execution failed"));
                 text += $"**Execution Error for {source.DataSourceName}:** {result.ErrorMessage}\n";
-
-                return text;
+                continue;
             }
+
+            anyExecuted = true;
 
             if (result.Rows?.Count > 0)
             {
@@ -121,6 +163,13 @@ internal sealed class CrossSourceQueryService(
                 text += $"**{source.DataSourceName}:** No results\n";
             }
         }
+
+        if (!anyExecuted)
+        {
+            return (text + FormatFailedSourcesNote(failedSources), false);
+        }
+
+        text += FormatFailedSourcesNote(failedSources);
 
         var analysis = memDb.AnalyzeDatabase();
         var tablesInfo = string.Join("\n", analysis.Tables.Values.Select(x =>
@@ -158,7 +207,7 @@ internal sealed class CrossSourceQueryService(
             {
                 text += $"**Validation Error for join query:** {joinAstError}\n";
 
-                return text;
+                return (text, false);
             }
         }
 
@@ -167,8 +216,11 @@ internal sealed class CrossSourceQueryService(
         if (timedOut)
         {
             text += "**Error:** Join query timed out.\n";
+
+            return (text, false);
         }
-        else if (joinResults.Count > 0)
+
+        if (joinResults.Count > 0)
         {
             text += $"### Final Results ({joinResults.Count} rows, {execTimeMs:F0}ms)\n\n";
             text += ToolHelper.FormatResultsAsMarkdown(joinResults);
@@ -178,7 +230,23 @@ internal sealed class CrossSourceQueryService(
             text += "No results from join query.\n";
         }
 
-        return text;
+        return (text, true);
+    }
+
+    private static string FormatFailedSourcesNote(List<(string Name, string Reason)> failedSources)
+    {
+        if (failedSources.Count == 0)
+        {
+            return "";
+        }
+
+        var note = "\n**Note:** The following sources failed and were excluded from the cross-source result:\n";
+        foreach (var (name, reason) in failedSources)
+        {
+            note += $"- {name}: {reason}\n";
+        }
+
+        return note + "\n";
     }
 
     private async Task<string> DryRunWithRepairAsync(

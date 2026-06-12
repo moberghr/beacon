@@ -85,8 +85,13 @@ public class ClaudeProvider : ILlmProvider
                 OutputTokens = result.Usage.OutputTokens,
                 Cost = totalCost,
                 Model = result.Model,
-                PromptCacheHit = promptCacheHit
+                PromptCacheHit = promptCacheHit,
+                Truncated = result.StopReason == "max_tokens"
             };
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex) when (ex is not AiServiceException)
         {
@@ -106,6 +111,9 @@ public class ClaudeProvider : ILlmProvider
 
         [JsonPropertyName("usage")]
         public UsageInfo? Usage { get; set; }
+
+        [JsonPropertyName("stop_reason")]
+        public string? StopReason { get; set; }
     }
 
     private class ContentBlock

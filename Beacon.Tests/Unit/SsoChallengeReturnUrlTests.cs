@@ -19,6 +19,14 @@ public class SsoChallengeReturnUrlTests
         LoginEndpoints.IsSafeReturnUrl(url, BasePath).Should().BeTrue();
     }
 
+    [TestCase("/projects")]
+    [TestCase("/other-app/dashboard")]
+    public void IsSafeReturnUrl_LocalPathOutsideBase_IsAccepted(string url)
+    {
+        LoginEndpoints.IsSafeReturnUrl(url, BasePath)
+            .Should().BeTrue("UI routes live at the root post-cutover, so any local root-relative URL is a valid deep-link");
+    }
+
     [TestCase(null)]
     [TestCase("")]
     [TestCase("  ")]
@@ -27,8 +35,6 @@ public class SsoChallengeReturnUrlTests
     [TestCase("//evil.example/dashboard")]
     [TestCase("/\\evil.example")]
     [TestCase("javascript:alert(1)")]
-    [TestCase("/other-app/dashboard")]
-    [TestCase("/beacon.evil/dashboard")]
     [TestCase("dashboard")]
     public void IsSafeReturnUrl_UnsafeInput_IsRejected(string? url)
     {

@@ -99,6 +99,13 @@ const SCHEMA = z.discriminatedUnion('kind', [
 ]);
 
 type FormValues = z.infer<typeof SCHEMA>;
+type ApiFormValues = z.infer<typeof apiSchema>;
+
+// RHF's `Path<FormValues>` only exposes fields common to every union branch
+// ('kind', 'name'). Branch-specific fields need a cast — constrain it to the
+// branch's own FieldPath so a schema rename breaks the build instead of
+// silently registering a dead path.
+const apiPath = <P extends FieldPath<ApiFormValues>>(p: P) => p as unknown as FieldPath<FormValues>;
 
 const DEFAULTS: FormValues = {
   kind: 'Database',
@@ -280,8 +287,7 @@ export function AddDataSourceDialog({ open, onClose }: AddDataSourceDialogProps)
   }, [open, reset]);
 
   const kind = watch('kind');
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const authType = ((watch as any)('authType') as 'none' | 'apiKey' | 'bearer' | 'basic' | undefined) ?? 'none';
+  const authType = (watch(apiPath('authType')) as ApiFormValues['authType'] | undefined) ?? 'none';
 
   // Switch the form's discriminator without losing already-typed name.
   const switchKind = (next: FormValues['kind']) => {
@@ -560,7 +566,7 @@ export function AddDataSourceDialog({ open, onClose }: AddDataSourceDialogProps)
               <DsField label="Base URL" required name="baseUrl" placeholder="https://api.example.com" register={register} errors={errors} />
               <DsField label="OpenAPI spec URL" required name="specUrl" placeholder="https://api.example.com/openapi.json" register={register} errors={errors} />
               <BField label="Authentication">
-                <Select {...register('authType' as never)}>
+                <Select {...register(apiPath('authType'))}>
                   <option value="none">None</option>
                   <option value="apiKey">API key</option>
                   <option value="bearer">Bearer token</option>

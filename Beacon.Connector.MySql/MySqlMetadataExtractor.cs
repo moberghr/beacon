@@ -32,7 +32,7 @@ public class MySqlMetadataExtractor : IDatabaseMetadataExtractor
             WHERE TABLE_SCHEMA = @DatabaseName
             ORDER BY TABLE_SCHEMA, TABLE_NAME, ORDINAL_POSITION";
 
-        var columnsData = (await connection.QueryAsync(tablesQuery, new { DatabaseName = databaseName }, commandTimeout: 180)).AsList();
+        var columnsData = (await connection.QueryAsync(new CommandDefinition(tablesQuery, new { DatabaseName = databaseName }, commandTimeout: 180, cancellationToken: cancellationToken))).AsList();
 
         const string foreignKeysQuery = @"
             SELECT
@@ -45,7 +45,7 @@ public class MySqlMetadataExtractor : IDatabaseMetadataExtractor
             WHERE TABLE_SCHEMA = @DatabaseName
               AND REFERENCED_TABLE_NAME IS NOT NULL";
 
-        var foreignKeys = (await connection.QueryAsync(foreignKeysQuery, new { DatabaseName = databaseName }, commandTimeout: 180)).AsList();
+        var foreignKeys = (await connection.QueryAsync(new CommandDefinition(foreignKeysQuery, new { DatabaseName = databaseName }, commandTimeout: 180, cancellationToken: cancellationToken))).AsList();
         var fkLookup = foreignKeys
             .GroupBy(fk => $"{fk.table_schema}.{fk.table_name}.{fk.column_name}")
             .ToDictionary(
@@ -64,7 +64,7 @@ public class MySqlMetadataExtractor : IDatabaseMetadataExtractor
             WHERE TABLE_SCHEMA = @DatabaseName
             GROUP BY TABLE_SCHEMA, TABLE_NAME, INDEX_NAME, NON_UNIQUE";
 
-        var indexesData = (await connection.QueryAsync(indexesQuery, new { DatabaseName = databaseName }, commandTimeout: 180)).AsList();
+        var indexesData = (await connection.QueryAsync(new CommandDefinition(indexesQuery, new { DatabaseName = databaseName }, commandTimeout: 180, cancellationToken: cancellationToken))).AsList();
 
         var tables = columnsData
             .GroupBy(c => new { schema = (string)c.table_schema, table = (string)c.table_name })

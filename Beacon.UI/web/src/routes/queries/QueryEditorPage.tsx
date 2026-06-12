@@ -180,6 +180,16 @@ export default function QueryEditorPage() {
     return map;
   }, [dataSourceOptions]);
 
+  const detailSnapshot = useMemo(
+    () => (detail.data ? JSON.stringify(fromDetail(detail.data)) : null),
+    [detail.data],
+  );
+
+  const dirty = useMemo(
+    () => state != null && detailSnapshot != null && JSON.stringify(state) !== detailSnapshot,
+    [state, detailSnapshot],
+  );
+
   if (!Number.isFinite(id)) {
     return (
       <div className="flex flex-col gap-5 p-7">
@@ -280,10 +290,20 @@ export default function QueryEditorPage() {
     });
   };
 
-  const saveIfDirty = async () => {
+  // Save, then re-seed local state from the refetched detail so server-assigned
+  // ids (new steps start as stepId 0) land in state and `dirty` resets.
+  const save = async () => {
     if (validId == null) return;
-    if (!dirty) return;
     await update.mutateAsync(toPayload(state, validId));
+    const fresh = await detail.refetch();
+    if (fresh.data) {
+      setState(fromDetail(fresh.data));
+    }
+  };
+
+  const saveIfDirty = async () => {
+    if (!dirty) return;
+    await save();
   };
 
   const onPreviewStep = async (step: EditorStep) => {
@@ -315,11 +335,8 @@ export default function QueryEditorPage() {
   };
 
   const onSave = async () => {
-    if (validId == null) return;
-    await update.mutateAsync(toPayload(state, validId));
+    await save();
   };
-
-  const dirty = detail.data ? JSON.stringify(state) !== JSON.stringify(fromDetail(detail.data)) : false;
 
   return (
     <div className="flex flex-col gap-5 p-7" data-screen-label="03b Query Editor">

@@ -45,7 +45,7 @@ public class LlmRequestQueue
             {
                 return await provider.CompleteAsync(request, cancellationToken);
             }
-            catch (Exception ex) when (IsRetryable(ex) && attempt < _maxRetries - 1)
+            catch (Exception ex) when (!cancellationToken.IsCancellationRequested && IsRetryable(ex) && attempt < _maxRetries - 1)
             {
                 lastException = ex;
                 var delay = CalculateExponentialBackoff(attempt);

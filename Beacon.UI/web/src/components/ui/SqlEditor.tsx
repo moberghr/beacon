@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import type { DatabaseMetadataSnapshot } from '@/routes/data-sources/queries';
 
 // Monaco is heavy — keep it out of the main bundle. The default `loading`
@@ -76,10 +76,13 @@ interface CompletionState {
 }
 
 // Monaco accumulates completion providers across page navigations if we
-// register on every mount — keep one global registration keyed by language
-// and refresh the snapshot via a module-scope ref.
+// register on every mount — keep one global registration keyed by language.
+// Each mounted editor registers its own snapshot keyed by its model URI so
+// multiple editors on one page (e.g. one per query step) don't clobber each
+// other; the fallback ref covers models that haven't registered yet.
 let providerRegistered = false;
-const completionRef: { current: CompletionState } = {
+const completionStates = new Map<string, CompletionState>();
+const fallbackCompletionState: { current: CompletionState } = {
   current: { metadata: null, parameterNames: [], crossStepResultCount: 0 },
 };
 
@@ -129,6 +132,7 @@ function registerSqlCompletionProvider(monaco: MonacoLikeNamespace) {
           endColumn: number;
         }) => string;
         getLineContent: (line: number) => string;
+        uri?: { toString(): string };
       };
 
       const word = m.getWordUntilPosition(position);
@@ -142,7 +146,9 @@ function registerSqlCompletionProvider(monaco: MonacoLikeNamespace) {
       const lineText = m.getLineContent(position.lineNumber);
       const beforeCursor = lineText.slice(0, position.column - 1);
 
-      const { metadata, parameterNames, crossStepResultCount } = completionRef.current;
+      const modelUri = m.uri?.toString();
+      const { metadata, parameterNames, crossStepResultCount } =
+        (modelUri ? completionStates.get(modelUri) : undefined) ?? fallbackCompletionState.current;
       const tables = metadata?.tables ?? [];
       const suggestions: unknown[] = [];
 
@@ -268,9 +274,10 @@ function registerSqlCompletionProvider(monaco: MonacoLikeNamespace) {
  * resolves.
  *
  * Completion provider is registered once globally per language and reads
- * the latest props snapshot from a module-scope ref — that prevents
- * accumulating providers across page navigations and keeps suggestions
- * fresh without re-registering on every prop change.
+ * the latest props snapshot from a module-scope map keyed by model URI —
+ * that prevents accumulating providers across page navigations, keeps
+ * suggestions fresh without re-registering on every prop change, and lets
+ * multiple editors on one page keep independent metadata.
  */
 export function SqlEditor({
   value,
@@ -283,15 +290,31 @@ export function SqlEditor({
   crossStepResultCount = 0,
   onEditorReady,
 }: SqlEditorProps) {
-  // Keep the ref in sync with the latest props so the global completion
-  // provider can pull the freshest snapshot on each invocation.
+  // Register this editor's snapshot under its model URI so the global
+  // completion provider resolves the right metadata per editor instance.
+  // The fallback covers the window before the model URI is known.
+  const [modelUri, setModelUri] = useState<string | null>(null);
+
   useEffect(() => {
-    completionRef.current = {
+    const snapshot: CompletionState = {
       metadata,
       parameterNames,
       crossStepResultCount,
     };
-  }, [metadata, parameterNames, crossStepResultCount]);
+    fallbackCompletionState.current = snapshot;
+    if (modelUri) {
+      completionStates.set(modelUri, snapshot);
+    }
+  }, [metadata, parameterNames, crossStepResultCount, modelUri]);
+
+  useEffect(() => {
+    if (!modelUri) {
+      return;
+    }
+    return () => {
+      completionStates.delete(modelUri);
+    };
+  }, [modelUri]);
 
   const onEditorReadyRef = useRef(onEditorReady);
   useEffect(() => {
@@ -317,6 +340,10 @@ export function SqlEditor({
           path={id}
           onMount={(editor, monaco) => {
             registerSqlCompletionProvider(monaco as unknown as MonacoLikeNamespace);
+            const model = (editor as unknown as {
+              getModel?: () => { uri?: { toString(): string } } | null;
+            }).getModel?.();
+            setModelUri(model?.uri?.toString() ?? null);
             const cb = onEditorReadyRef.current;
             if (cb) {
               cb(editor as unknown as MonacoEditorLike);

@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
+import { Button } from '@/components/beacon';
 import { useAuth } from './useAuth';
 
 interface RequireAuthProps {
@@ -13,7 +14,7 @@ interface RequireAuthProps {
  * deep-link the user back to where they were going.
  */
 export function RequireAuth({ children }: RequireAuthProps) {
-  const { data, isLoading, isError } = useAuth();
+  const { data, isLoading, isError, refetch } = useAuth();
   const location = useLocation();
 
   if (isLoading) {
@@ -27,7 +28,10 @@ export function RequireAuth({ children }: RequireAuthProps) {
   if (isError) {
     return (
       <div className="grid place-items-center h-full">
-        <span className="text-crit text-sm">Failed to load authentication state.</span>
+        <div className="flex flex-col items-center gap-3">
+          <span className="text-crit text-sm">Failed to load authentication state.</span>
+          <Button type="button" onClick={() => refetch()}>Retry</Button>
+        </div>
       </div>
     );
   }

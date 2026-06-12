@@ -220,37 +220,29 @@ internal partial class QueryService(IDbContextFactory<BeaconContext> contextFact
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
+        // Build the full object graph (query + steps + parameters via navigation
+        // collections) so EF assigns the generated keys in a single SaveChanges.
         var query = new Query
         {
             Name = queryData.Name,
             Description = queryData.Description,
-            FinalQuery = queryData.FinalQuery
+            FinalQuery = queryData.FinalQuery,
+            Steps = queryData.Steps
+                .Select(x =>
+                    new QueryStep
+                    {
+                        QueryId = 0, // Fixed up from the Steps navigation on save
+                        DataSourceId = x.DataSourceId,
+                        StepOrder = x.StepOrder,
+                        Name = x.Name,
+                        Description = x.Description,
+                        SqlValue = x.SqlValue,
+                        Parameters = ParameterEntityFactory.CreateQueryStepParameters(x.Parameters, 0)
+                    })
+                .ToList()
         };
 
         context.Queries.Add(query);
-        await context.SaveChangesAsync(cancellationToken); // Save to get query ID
-
-        // Create query steps
-        foreach (var stepData in queryData.Steps)
-        {
-            var queryStep = new QueryStep
-            {
-                QueryId = query.Id,
-                DataSourceId = stepData.DataSourceId,
-                StepOrder = stepData.StepOrder,
-                Name = stepData.Name,
-                Description = stepData.Description,
-                SqlValue = stepData.SqlValue
-            };
-
-            context.QuerySteps.Add(queryStep);
-            await context.SaveChangesAsync(cancellationToken); // Save to get step ID
-
-            // Create step parameters
-            var parameters = ParameterEntityFactory.CreateQueryStepParameters(stepData.Parameters, queryStep.Id);
-            context.QueryStepParameters.AddRange(parameters);
-        }
-
         await context.SaveChangesAsync(cancellationToken);
 
         return new BaseResponse

@@ -23,6 +23,22 @@ internal static class HomeTrendsBuilders
     }
 
     /// <summary>
+    /// Aligns pre-aggregated per-day counts to buckets across the last
+    /// <paramref name="numDays"/> days, returning the bucket counts in
+    /// chronological order (oldest → today).
+    /// </summary>
+    public static List<int> BuildDailyCounts(IReadOnlyDictionary<DateTime, int> countsByDay, int numDays, DateTime now)
+    {
+        var result = new List<int>(numDays);
+        for (var i = numDays - 1; i >= 0; i--)
+        {
+            var day = now.AddDays(-i).Date;
+            result.Add(countsByDay.GetValueOrDefault(day));
+        }
+        return result;
+    }
+
+    /// <summary>
     /// Bucketizes query-execution durations per day into avg/p50/p95/p99.
     /// </summary>
     public static List<HomePerfBucket> BuildPerfBuckets(

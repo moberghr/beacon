@@ -150,7 +150,7 @@ public class InMemoryDatabaseManager : IDisposable
 
             return (results, executionTimeMs, false);
         }
-        catch (TaskCanceledException)
+        catch (OperationCanceledException)
         {
             stopwatch.Stop();
             var executionTimeMs = stopwatch.Elapsed.TotalMilliseconds;
