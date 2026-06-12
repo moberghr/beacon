@@ -126,8 +126,10 @@ internal sealed class ProjectAskTool(
                     text += $"- **{source.DataSourceName}** (ID: {source.DataSourceId}): {source.Reason}\n";
                 text += "\n";
 
-                text += await crossSourceQueryService.ExecuteAsync(
+                var (crossText, crossSucceeded) = await crossSourceQueryService.ExecuteAsync(
                     llmProvider, routing.Sources, question, settings, execute, signal, cancellationToken);
+                text += crossText;
+                askSucceeded = crossSucceeded;
             }
 
             sw.Stop();
