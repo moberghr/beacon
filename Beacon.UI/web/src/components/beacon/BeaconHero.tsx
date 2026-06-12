@@ -18,7 +18,7 @@ export interface BeaconHeroProps {
   meta: {
     executions30d: number;
     anomalies: number;
-    p50ms: number;
+    avgMs: number;
   };
   actions?: React.ReactNode;
   className?: string;
@@ -26,19 +26,33 @@ export interface BeaconHeroProps {
 
 const defaultTicks: NonNullable<BeaconHeroProps['ticks']> = Array.from({ length: 24 }, () => 'muted');
 
-export function BeaconHero({
-  user = 'there',
-  ticks = defaultTicks,
-  meta,
-  actions,
-  className,
-}: BeaconHeroProps) {
+/** 1 Hz clock, scoped to leaf components so the hero doesn't re-render every second. */
+function useNow(): Date {
   const [now, setNow] = React.useState(() => new Date());
   React.useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(t);
   }, []);
+  return now;
+}
 
+function HeroEyebrowClock() {
+  const now = useNow();
+  const dateStr = now
+    .toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+    .toUpperCase();
+  const ts = now.toISOString().slice(11, 19);
+  return (
+    <>
+      <span className="mono normal-case tracking-normal">{dateStr}</span>
+      <span className="eyebrow-sep">·</span>
+      <span className="mono normal-case tracking-normal">{ts} UTC</span>
+    </>
+  );
+}
+
+function HeroGreeting({ user }: { user: string }) {
+  const now = useNow();
   const greet =
     now.getHours() < 5
       ? 'Up late'
@@ -47,10 +61,28 @@ export function BeaconHero({
         : now.getHours() < 18
           ? 'Good afternoon'
           : 'Good evening';
-  const dateStr = now
-    .toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
-    .toUpperCase();
-  const ts = now.toISOString().slice(11, 19);
+  return (
+    <>
+      {greet}, {user}.
+    </>
+  );
+}
+
+function HeroSeconds() {
+  const now = useNow();
+  return <>{now.getSeconds().toString().padStart(2, '0')}s</>;
+}
+
+export function BeaconHero({
+  user = 'there',
+  ticks = defaultTicks,
+  meta,
+  actions,
+  className,
+}: BeaconHeroProps) {
+  const gridId = React.useId();
+  const radialId = React.useId();
+  const attention = ticks.includes('crit') || meta.anomalies > 0;
 
   return (
     <section
@@ -63,10 +95,10 @@ export function BeaconHero({
       <div className="absolute inset-0 pointer-events-none z-0 text-border-strong" aria-hidden>
         <svg viewBox="0 0 600 200" preserveAspectRatio="none" width="100%" height="100%">
           <defs>
-            <pattern id="bh-grid" width="24" height="24" patternUnits="userSpaceOnUse">
+            <pattern id={gridId} width="24" height="24" patternUnits="userSpaceOnUse">
               <path d="M 24 0 L 0 0 0 24" fill="none" stroke="currentColor" strokeWidth="0.5" />
             </pattern>
-            <radialGradient id="bh-radial" cx="0" cy="0.5" r="1">
+            <radialGradient id={radialId} cx="0" cy="0.5" r="1">
               <stop offset="0%" stopColor="var(--brand-500)" stopOpacity="0.08" />
               <stop offset="60%" stopColor="var(--brand-500)" stopOpacity="0" />
             </radialGradient>
@@ -74,10 +106,10 @@ export function BeaconHero({
           <rect
             width="600"
             height="200"
-            fill="url(#bh-grid)"
+            fill={`url(#${gridId})`}
             className="opacity-[0.18] text-text-subtle"
           />
-          <rect width="600" height="200" fill="url(#bh-radial)" />
+          <rect width="600" height="200" fill={`url(#${radialId})`} />
           <g className="beacon-rings">
             <circle
               cx="0"
@@ -111,9 +143,7 @@ export function BeaconHero({
       <div className="relative z-10 px-7 py-6 grid gap-7 items-center grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto]">
         <div className="min-w-0">
           <div className="eyebrow mb-2.5 flex-wrap">
-            <span className="mono normal-case tracking-normal">{dateStr}</span>
-            <span className="eyebrow-sep">·</span>
-            <span className="mono normal-case tracking-normal">{ts} UTC</span>
+            <HeroEyebrowClock />
             <span className="eyebrow-sep">·</span>
             <span className="inline-flex items-center gap-1.5">
               <span className="size-1.5 rounded-full bg-ok animate-beacon-pulse" />
@@ -123,12 +153,12 @@ export function BeaconHero({
 
           <h1 className="m-0 font-semibold tracking-tighter leading-[1.05]">
             <span className="block text-sm font-medium text-text-muted mb-1.5">
-              {greet}, {user}.
+              <HeroGreeting user={user} />
             </span>
             <span className="inline-flex flex-wrap items-baseline gap-x-[0.35em] text-[32px] text-text">
-              <span>Everything is</span>
+              <span>{attention ? 'Signals need' : 'Everything is'}</span>
               <span className="relative inline-block italic font-semibold text-brand-700 dark:text-brand-300">
-                nominal
+                {attention ? 'attention' : 'nominal'}
                 <svg
                   className="beacon-underline"
                   viewBox="0 0 220 14"
@@ -151,8 +181,8 @@ export function BeaconHero({
           <p className="mt-3.5 mb-0 text-text-muted text-sm">
             <span>{meta.executions30d.toLocaleString()} queries executed in the last 30 days · </span>
             <span className="mono">{meta.anomalies} anomalies </span>
-            <span>· p50 </span>
-            <span className="mono">{meta.p50ms} ms</span>
+            <span>· avg </span>
+            <span className="mono">{meta.avgMs} ms</span>
           </p>
         </div>
 
@@ -164,7 +194,7 @@ export function BeaconHero({
             <div className="flex items-center justify-between text-2xs font-semibold tracking-eyebrow text-text-muted mb-1.5">
               <span>SYSTEM · LAST 24H</span>
               <span className="mono normal-case tracking-normal">
-                {now.getSeconds().toString().padStart(2, '0')}s
+                <HeroSeconds />
               </span>
             </div>
             <div className="flex items-end gap-0.5 h-[22px]">
@@ -178,7 +208,6 @@ export function BeaconHero({
                     t === 'crit' && 'bg-crit h-[100%]',
                     t === 'muted' && 'bg-border h-[40%] opacity-60',
                   )}
-                  style={{ animationDelay: `${i * 30}ms` }}
                   title={tickTitle(t, i, ticks.length)}
                 />
               ))}

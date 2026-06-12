@@ -13,10 +13,8 @@ import {
 } from '@/components/beacon';
 import { EmptyState } from '@/components/data/EmptyState';
 import { Tabs } from '@/components/Tabs';
+import { McpDocPatchStatus, McpPatternStatus } from '@/lib/enums';
 import {
-  describeMcpError,
-  McpDocPatchStatus,
-  McpPatternStatus,
   PATCH_STATUS_LABEL,
   PATTERN_STATUS_LABEL,
   PATTERN_TYPE_LABEL,
@@ -56,12 +54,12 @@ export default function McpLearningPage() {
     [patterns, statusFilter, typeFilter],
   );
 
+  // Error toasts come from createSimpleMutation — no onError here (single-toast rule).
   function handleUpdatePattern(id: number, status: number) {
     updatePattern.mutate(
       { patternId: id, newStatus: status },
       {
         onSuccess: () => toast.success(status === McpPatternStatus.Approved ? 'Pattern approved.' : 'Pattern rejected.'),
-        onError: err => toast.error(describeMcpError(err, 'Update failed')),
       },
     );
   }
@@ -69,14 +67,12 @@ export default function McpLearningPage() {
   function handleApply(id: number) {
     applyPatch.mutate(id, {
       onSuccess: () => toast.success('Patch applied.'),
-      onError: err => toast.error(describeMcpError(err, 'Apply failed')),
     });
   }
 
   function handleReject(id: number) {
     rejectPatch.mutate(id, {
       onSuccess: () => toast.success('Patch rejected.'),
-      onError: err => toast.error(describeMcpError(err, 'Reject failed')),
     });
   }
 
@@ -286,7 +282,14 @@ export default function McpLearningPage() {
         )}
 
         {tab === 'problems' && (
-          stats && stats.problemTables.length === 0 ? (
+          statsQ.isLoading ? (
+            <p className="text-text-muted">Loading problem tables…</p>
+          ) : !stats ? (
+            <EmptyState
+              title="Stats unavailable"
+              description="Learning stats failed to load — retry above."
+            />
+          ) : stats.problemTables.length === 0 ? (
             <EmptyState title="No problem tables" description="No tables with high error rates detected." />
           ) : (
             <table className="w-full text-sm">
@@ -299,7 +302,7 @@ export default function McpLearningPage() {
                 </tr>
               </thead>
               <tbody>
-                {stats?.problemTables.map((p, i) => (
+                {stats.problemTables.map((p, i) => (
                   <tr key={i} className="border-b border-border last:border-b-0">
                     <td className="px-2 py-2">{p.tablesUsed}</td>
                     <td className="px-2 py-2">{p.totalQueries}</td>

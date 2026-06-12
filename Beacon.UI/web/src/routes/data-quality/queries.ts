@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { describeError, unwrap } from '@/lib/api';
+import { unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
 import { createSimpleMutation } from '@/lib/mutations';
 
@@ -92,24 +92,6 @@ export interface DataQualityEvaluationData {
   ruleResults: DataQualityRuleResultData[];
 }
 
-export const DataContractRuleType = {
-  Volume: 0,
-  Freshness: 1,
-  NullRate: 2,
-  Uniqueness: 3,
-  Referential: 4,
-  Range: 5,
-  Pattern: 6,
-  CustomSql: 7,
-} as const;
-
-export const DataContractSeverity = {
-  Low: 0,
-  Medium: 1,
-  High: 2,
-  Critical: 3,
-} as const;
-
 export const DATA_QUALITY_OVERVIEW_KEY = ['data-quality', 'overview'] as const;
 export const DATA_CONTRACTS_KEY = ['data-quality', 'contracts'] as const;
 export const dataContractKey = (id: number) => ['data-quality', 'contract', id] as const;
@@ -123,7 +105,7 @@ export function useDataQualityOverview() {
   return useQuery({
     queryKey: DATA_QUALITY_OVERVIEW_KEY,
     queryFn: async () =>
-      (await beaconApi().getDataQualityOverview(undefined)) as DataQualityOverviewData[],
+      unwrap<DataQualityOverviewData[]>(await beaconApi().getDataQualityOverview(undefined)),
   });
 }
 
@@ -216,12 +198,8 @@ export function useUpdateContract(id: number) {
     createSimpleMutation<Omit<CreateContractPayload, 'dataSourceId'> & { dataSourceId: number }, void>({
       qc,
       mutationFn: (payload) => beaconApi().updateDataContract(id, payload as never),
-      invalidate: [DATA_CONTRACTS_KEY, dataContractKey(id)],
+      invalidate: [DATA_CONTRACTS_KEY, dataContractKey(id), DATA_QUALITY_OVERVIEW_KEY],
       errorFallback: 'Update contract failed',
     }),
   );
-}
-
-export function describeContractError(err: unknown, fallback: string): string {
-  return describeError(err, fallback);
 }

@@ -7,11 +7,8 @@ import {
   formToTestPayload,
   type AdminSettingsFormValues,
 } from './admin-settings-form';
-import {
-  AiProvider,
-  BedrockAuthMode,
-  type AdminSettingsView,
-} from '../queries';
+import { AiProvider, BedrockAuthMode } from '@/lib/enums';
+import { type AdminSettingsView } from '../queries';
 
 describe('emptyToNull', () => {
   it.each([

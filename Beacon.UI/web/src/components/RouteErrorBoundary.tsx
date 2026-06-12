@@ -1,20 +1,37 @@
 import { Component, type ReactNode } from 'react';
+import { useLocation } from 'react-router-dom';
 import { AlertTriangle, RotateCcw } from 'lucide-react';
 import { Button, Card, CardBody } from '@/components/beacon';
 
 interface Props {
   children: ReactNode;
+  locationKey: string;
 }
 
 interface State {
   error: Error | null;
+  lastLocationKey: string;
 }
 
-export class RouteErrorBoundary extends Component<Props, State> {
-  state: State = { error: null };
+/** Wires the current pathname into the class boundary so navigating to a
+ * different path clears a caught error instead of trapping the user on it. */
+export function RouteErrorBoundary({ children }: { children: ReactNode }) {
+  const location = useLocation();
+  return <ErrorBoundary locationKey={location.pathname}>{children}</ErrorBoundary>;
+}
 
-  static getDerivedStateFromError(error: Error): State {
+class ErrorBoundary extends Component<Props, State> {
+  state: State = { error: null, lastLocationKey: this.props.locationKey };
+
+  static getDerivedStateFromError(error: Error): Partial<State> {
     return { error };
+  }
+
+  static getDerivedStateFromProps(props: Props, state: State): Partial<State> | null {
+    if (props.locationKey !== state.lastLocationKey) {
+      return { error: null, lastLocationKey: props.locationKey };
+    }
+    return null;
   }
 
   componentDidCatch(error: Error): void {

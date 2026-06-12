@@ -59,7 +59,6 @@ function MarkdownBlock({ content }: { content: string }) {
 
   return (
     <div
-      // eslint-disable-next-line react/no-danger
       dangerouslySetInnerHTML={{ __html: html }}
       style={{
         fontSize: 14,

@@ -11,11 +11,11 @@ import {
 } from 'lucide-react';
 import { Button, Input, PageHeader, Pill, type PillProps } from '@/components/beacon';
 import { useAuth } from '@/auth/useAuth';
+import { TaskPriority } from '@/lib/enums';
 import {
   useAssignTask,
   useSnoozeTask,
   type TaskDetail,
-  type TaskPriority,
 } from '../queries';
 
 interface TaskHeroProps {
@@ -27,17 +27,17 @@ interface TaskHeroProps {
 }
 
 const PRIORITY_LABEL: Record<TaskPriority, string> = {
-  1: 'P1 · CRITICAL',
-  2: 'P2 · HIGH',
-  3: 'P3 · NORMAL',
-  4: 'P4 · LOW',
+  [TaskPriority.Critical]: 'P1 · CRITICAL',
+  [TaskPriority.High]: 'P2 · HIGH',
+  [TaskPriority.Normal]: 'P3 · NORMAL',
+  [TaskPriority.Low]: 'P4 · LOW',
 };
 
 const PRIORITY_TONE: Record<TaskPriority, PillProps['tone']> = {
-  1: 'crit',
-  2: 'warn',
-  3: 'neutral',
-  4: 'ok',
+  [TaskPriority.Critical]: 'crit',
+  [TaskPriority.High]: 'warn',
+  [TaskPriority.Normal]: 'neutral',
+  [TaskPriority.Low]: 'ok',
 };
 
 /**
@@ -114,7 +114,12 @@ export function TaskHero({
               open={assignOpen}
               onOpenChange={setAssignOpen}
               trigger={
-                <Button icon={<Users />} onClick={() => setAssignOpen(o => !o)}>
+                <Button
+                  icon={<Users />}
+                  aria-haspopup="menu"
+                  aria-expanded={assignOpen}
+                  onClick={() => setAssignOpen(o => !o)}
+                >
                   {assignedToMe ? 'Unassign me' : task.assigneeUserName ? 'Reassign' : 'Assign'}
                 </Button>
               }
@@ -149,7 +154,12 @@ export function TaskHero({
               open={snoozeOpen}
               onOpenChange={setSnoozeOpen}
               trigger={
-                <Button icon={<Bell />} onClick={() => setSnoozeOpen(o => !o)}>
+                <Button
+                  icon={<Bell />}
+                  aria-haspopup="menu"
+                  aria-expanded={snoozeOpen}
+                  onClick={() => setSnoozeOpen(o => !o)}
+                >
                   {snoozedNow ? 'Snoozed' : 'Snooze'}
                 </Button>
               }
@@ -234,6 +244,8 @@ function Popover({
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
@@ -245,11 +257,39 @@ function Popover({
     return () => window.removeEventListener('mousedown', handler);
   }, [open, onOpenChange]);
 
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        onOpenChange(false);
+        // Return focus to the trigger button.
+        ref.current?.querySelector<HTMLElement>('button')?.focus();
+        return;
+      }
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        const items = Array.from(
+          menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? [],
+        ).filter(x => !x.disabled);
+        if (items.length === 0) return;
+        e.preventDefault();
+        const idx = items.indexOf(document.activeElement as HTMLButtonElement);
+        const next = e.key === 'ArrowDown'
+          ? (idx + 1) % items.length
+          : (idx - 1 + items.length) % items.length;
+        items[next]?.focus();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [open, onOpenChange]);
+
   return (
     <div ref={ref} className="relative inline-block">
       {trigger}
       {open && (
         <div
+          ref={menuRef}
           role="menu"
           className="absolute top-[calc(100%+4px)] right-0 z-30 min-w-[220px] p-1 bg-surface border border-border rounded-sm shadow-pop"
         >
@@ -274,6 +314,7 @@ function PopItem({
   return (
     <button
       type="button"
+      role="menuitem"
       onClick={onClick}
       disabled={disabled}
       className="flex items-center gap-2 w-full bg-transparent border-0 px-2.5 py-1.5 text-left text-sm text-text rounded-xs hover:bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed"

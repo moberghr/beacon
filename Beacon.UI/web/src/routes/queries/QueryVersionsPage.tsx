@@ -1,11 +1,10 @@
 import { useNavigate, useParams } from 'react-router-dom';
 import { AlertTriangle, ChevronRight, Layers } from 'lucide-react';
-import type { QueryVersionSummary } from '@/api/generated/beacon-api';
 import { PageHeader } from '@/components/beacon';
 import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { formatDateTime, formatNumber } from '@/lib/format';
-import { useQueryVersionsQuery } from './queries';
+import { useQueryVersionsQuery, type QueryVersionSummary } from './queries';
 
 const COLUMNS: Column<QueryVersionSummary>[] = [
   {
@@ -90,9 +89,9 @@ export default function QueryVersionsPage() {
         <DataTable
           columns={COLUMNS}
           rows={versions}
-          rowKey={(v, idx) => v.id ?? `idx-${idx}`}
+          rowKey={v => v.id}
           gridTemplate={GRID_TEMPLATE}
-          onRowClick={v => v.id && navigate(`/queries/${queryId}/versions/${v.id}`)}
+          onRowClick={v => navigate(`/queries/${queryId}/versions/${v.id}`)}
           empty={
             <EmptyState
               icon={<Layers size={20} />}

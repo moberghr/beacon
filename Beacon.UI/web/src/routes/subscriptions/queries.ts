@@ -1,6 +1,13 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
+import {
+  AnomalyDetectionMethod,
+  AnomalySensitivity,
+  FileType,
+  NotificationStatus,
+  NotificationTrigger,
+} from '@/lib/enums';
 import { createSimpleMutation } from '@/lib/mutations';
 
 export interface SubscriptionEntry {
@@ -39,6 +46,7 @@ export function useSubscriptionsQuery(search?: string) {
     queryKey: [...SUBSCRIPTIONS_KEY, search ?? null],
     queryFn: async () =>
       unwrap<GetSubscriptionsResult>(await beaconApi().getSubscriptions(search?.trim() || undefined)),
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -77,8 +85,8 @@ export function useDeleteSubscription() {
 /**
  * Wire-aligned with `Beacon.Core.Handlers.Subscriptions.SubscriptionDetail`.
  * Enum fields (`notificationTrigger`, `resultAttachmentType`, anomaly enums)
- * serialize as numeric ids — see `routes/recipients/queries.ts` for the
- * `NotificationTypeId` mapping that mirrors `Beacon.Core.Data.Enums`.
+ * serialize as numeric ids — see the generated enums re-exported from
+ * `@/lib/enums`.
  */
 export interface SubscriptionDetailRecipient {
   id: number;
@@ -271,34 +279,34 @@ export function useRemoveSubscriptionRecipient(id: number | undefined) {
 // ---------- Enum maps (mirror Beacon.Core.Data.Enums) ----------
 
 export const NOTIFICATION_TRIGGER_LABEL: Record<number, { label: string; description: string }> = {
-  1: { label: 'On change', description: 'When result count changes' },
-  2: { label: 'Always', description: 'Every execution' },
-  3: { label: 'On increase', description: 'When result count increases' },
+  [NotificationTrigger.OnResultCountChange]: { label: 'On change', description: 'When result count changes' },
+  [NotificationTrigger.Always]: { label: 'Always', description: 'Every execution' },
+  [NotificationTrigger.OnResultCountIncrease]: { label: 'On increase', description: 'When result count increases' },
 };
 
 export const NOTIFICATION_STATUS_LABEL: Record<number, string> = {
-  1: 'Created',
-  2: 'Sent',
-  3: 'Silenced',
-  4: 'No results',
-  5: 'Timeout',
-  6: 'Below threshold',
-  7: 'Failed',
+  [NotificationStatus.Created]: 'Created',
+  [NotificationStatus.NotificationSent]: 'Sent',
+  [NotificationStatus.NotificationSilenced]: 'Silenced',
+  [NotificationStatus.NoResults]: 'No results',
+  [NotificationStatus.Timeout]: 'Timeout',
+  [NotificationStatus.BelowThreshold]: 'Below threshold',
+  [NotificationStatus.Failed]: 'Failed',
 };
 
 export const FILE_TYPE_LABEL: Record<number, string> = {
-  1: 'CSV',
-  2: 'XLSX',
+  [FileType.Csv]: 'CSV',
+  [FileType.Xlsx]: 'XLSX',
 };
 
 export const ANOMALY_DETECTION_METHOD_LABEL: Record<number, string> = {
-  1: 'Standard deviation',
-  2: 'IQR',
-  3: 'Percentage change',
+  [AnomalyDetectionMethod.StandardDeviation]: 'Standard deviation',
+  [AnomalyDetectionMethod.IQR]: 'IQR',
+  [AnomalyDetectionMethod.PercentageChange]: 'Percentage change',
 };
 
 export const ANOMALY_SENSITIVITY_LABEL: Record<number, string> = {
-  1: 'Low',
-  2: 'Medium',
-  3: 'High',
+  [AnomalySensitivity.Low]: 'Low',
+  [AnomalySensitivity.Medium]: 'Medium',
+  [AnomalySensitivity.High]: 'High',
 };

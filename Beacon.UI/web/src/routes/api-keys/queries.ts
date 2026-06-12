@@ -1,30 +1,52 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
 import { createSimpleMutation } from '@/lib/mutations';
-import type { ApiKeyEntry, CreateApiKeyCommand, CreateApiKeyResult } from '@/api/generated/beacon-api';
 
-// FOLLOW-UP (unwrap<T>() boundary cleanup): the generated `ApiKeyEntry` types
-// date fields as `Date`, but the wire payload deserializes them as strings (no
-// reviver). The accurate fix is a local strict interface (string dates) bridged
-// via `unwrap<T>()` at the queryFn — see `routes/mcp/queries.ts` for the pattern.
-// Deferred here (and in approvals/, migration-jobs/) to avoid a wide type cascade.
-export type { ApiKeyEntry, CreateApiKeyResult };
+// Local strict interfaces bridged via unwrap<T>() — the generated `ApiKeyEntry`
+// types date fields as `Date`, but the wire payload deserializes them as
+// strings (no reviver). See src/lib/api.ts.
+export interface ApiKeyEntry {
+  id: number;
+  name: string;
+  prefix: string;
+  scopes: string[];
+  createdAt: string;
+  lastUsedAt: string | null;
+  expiresAt: string | null;
+  isActive: boolean;
+}
+
+interface GetApiKeysResult {
+  entries: ApiKeyEntry[];
+}
+
+export interface CreateApiKeyPayload {
+  name: string;
+  scopes: string[];
+  allowedProjectIds: number[] | null;
+  expiresAt: Date | null;
+}
+
+export interface CreateApiKeyResult {
+  plainTextKey: string;
+}
 
 const KEYS = ['api-keys'] as const;
 
 export function useApiKeysQuery() {
   return useQuery({
     queryKey: KEYS,
-    queryFn: () => beaconApi().getApiKeys(),
+    queryFn: async () => unwrap<GetApiKeysResult>(await beaconApi().getApiKeys()),
   });
 }
 
 export function useCreateApiKey() {
   const qc = useQueryClient();
   return useMutation(
-    createSimpleMutation<CreateApiKeyCommand, CreateApiKeyResult>({
+    createSimpleMutation<CreateApiKeyPayload, CreateApiKeyResult>({
       qc,
-      mutationFn: (body) => beaconApi().createApiKey(body),
+      mutationFn: async (body) => unwrap<CreateApiKeyResult>(await beaconApi().createApiKey(body)),
       invalidate: [KEYS],
       errorFallback: 'Create API key failed',
     }),

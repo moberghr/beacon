@@ -1,11 +1,12 @@
+import { useEffect, useId, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertTriangle, ArrowRight, Loader2, X } from 'lucide-react';
 import { Pill, Card } from '@/components/beacon';
 import { EmptyState } from '@/components/data/EmptyState';
 import { formatDateTime, formatNumber, formatRelativeTime } from '@/lib/format';
 import { useControlTowerSubscriptionDetail } from './queries';
+import { NotificationStatus } from '@/lib/enums';
 import {
-  NotificationStatus,
   type ControlTowerExecutionItem,
   type ControlTowerSubscriptionHealthData,
 } from './api';
@@ -68,6 +69,27 @@ export function SubscriptionDetailPanel({
     row.subscriptionId,
     timeRangeDays,
   );
+  const titleId = useId();
+  const panelRef = useRef<HTMLElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  useEffect(() => {
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    panelRef.current?.focus();
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        onCloseRef.current();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      previouslyFocused?.focus();
+    };
+  }, []);
 
   return (
     <div
@@ -75,7 +97,12 @@ export function SubscriptionDetailPanel({
       onClick={onClose}
     >
       <aside
-        className="bg-surface border-l border-border w-full max-w-[640px] h-full overflow-y-auto shadow-pop"
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        className="bg-surface border-l border-border w-full max-w-[640px] h-full overflow-y-auto shadow-pop outline-none"
         onClick={e => e.stopPropagation()}
       >
         <header className="sticky top-0 bg-surface border-b border-border px-5 py-4 flex items-start gap-3 z-10">
@@ -83,7 +110,7 @@ export function SubscriptionDetailPanel({
             <div className="text-2xs font-semibold uppercase tracking-eyebrow text-text-muted mb-1">
               Subscription · #{row.subscriptionId}
             </div>
-            <h2 className="text-lg font-semibold leading-tight tracking-tight truncate">
+            <h2 id={titleId} className="text-lg font-semibold leading-tight tracking-tight truncate">
               {row.queryName}
             </h2>
             {row.folderPath && (
@@ -97,6 +124,7 @@ export function SubscriptionDetailPanel({
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
             aria-label="Close"
             className="shrink-0 size-8 grid place-items-center rounded-sm text-text-muted hover:bg-surface-2 hover:text-text"

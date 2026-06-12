@@ -1,29 +1,51 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
+import { MigrationMode, type MigrationStatus } from '@/lib/enums';
 import { createSimpleMutation } from '@/lib/mutations';
+
+// Local strict mirror of the generated `MigrationExecutionDto` — dates are
+// strings on the wire (see `unwrap` docs in @/lib/api).
+export interface MigrationExecutionEntry {
+  id: number;
+  migrationJobId: number;
+  migrationJobName: string;
+  startedAt: string;
+  completedAt: string | null;
+  status: MigrationStatus;
+  sourceRowsRead: number;
+  destinationRowsWritten: number;
+  rowsSkipped: number;
+  rowsFailed: number;
+  executionDuration: string;
+  rowsPerSecond: number;
+  errorMessage: string | null;
+  retryAttempt: number;
+  isRetry: boolean;
+}
+
+export interface GetMigrationExecutionsResult {
+  executions: MigrationExecutionEntry[];
+  totalCount: number;
+  hasMore: boolean;
+}
 
 const MIGRATION_EXECUTIONS_KEY = ['migration-executions'] as const;
 
 export function useMigrationExecutionsQuery() {
   return useQuery({
     queryKey: MIGRATION_EXECUTIONS_KEY,
-    queryFn: () =>
-      beaconApi().getMigrationExecutions(undefined, undefined, undefined, undefined, 0, 100),
+    queryFn: async () =>
+      unwrap<GetMigrationExecutionsResult>(
+        await beaconApi().getMigrationExecutions(undefined, undefined, undefined, undefined, 0, 100),
+      ),
   });
 }
 
-// Mirrors Beacon.Core.Data.Enums.MigrationMode.
-export const MIGRATION_MODE = {
-  Insert: 1,
-  Upsert: 2,
-  Truncate: 3,
-} as const;
-export type MigrationModeId = typeof MIGRATION_MODE[keyof typeof MIGRATION_MODE];
-
-export const MIGRATION_MODE_LABEL: Record<MigrationModeId, string> = {
-  [MIGRATION_MODE.Insert]: 'Insert only',
-  [MIGRATION_MODE.Upsert]: 'Insert or update',
-  [MIGRATION_MODE.Truncate]: 'Truncate & insert',
+export const MIGRATION_MODE_LABEL: Record<MigrationMode, string> = {
+  [MigrationMode.Insert]: 'Insert only',
+  [MigrationMode.Upsert]: 'Insert or update',
+  [MigrationMode.Truncate]: 'Truncate & insert',
 };
 
 export interface CreateMigrationJobPayload {
@@ -33,7 +55,7 @@ export interface CreateMigrationJobPayload {
   queryText: string;
   destinationDataSourceId: number;
   destinationTable: string;
-  mode: MigrationModeId;
+  mode: MigrationMode;
   isEnabled: boolean;
   schedule: string | null;
   maxRetries: number;

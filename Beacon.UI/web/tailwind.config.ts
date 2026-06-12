@@ -3,7 +3,7 @@ import type { Config } from 'tailwindcss';
 /**
  * Beacon — Tailwind config.
  *
- * Colors reference CSS variables defined in `src/styles-beacon.css` so light/dark
+ * Colors reference CSS variables defined in `src/index.css` so light/dark
  * mode + runtime tweaks keep working. Switch theme via
  *   document.documentElement.dataset.theme = 'dark'.
  */

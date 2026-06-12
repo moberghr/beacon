@@ -1,11 +1,10 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { AlertTriangle, ChevronRight, Folder, Plus, RefreshCw } from 'lucide-react';
-import type { ProjectSummaryEntry } from '@/api/generated/beacon-api';
 import { Button, PageHeader } from '@/components/beacon';
 import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { formatRelativeTime, formatNumber } from '@/lib/format';
-import { useProjectsQuery } from './queries';
+import { useProjectsQuery, type ProjectSummaryEntry } from './queries';
 
 const COLUMNS: Column<ProjectSummaryEntry>[] = [
   {

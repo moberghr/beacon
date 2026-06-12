@@ -1,69 +1,29 @@
 import { useEffect, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
 import { toast } from 'sonner';
 import { StepperDialog, type StepperDialogStep } from '@/components/ui/StepperDialog';
 import { Field, Input, Select, Textarea } from '@/components/beacon';
-import { describeError } from '@/lib/api';
 import { useDataSourcesQuery, type DataSourceEntry } from '@/routes/data-sources/queries';
+import { MigrationMode } from '@/lib/enums';
 import {
-  MIGRATION_MODE,
-  MIGRATION_MODE_LABEL,
-  useCreateMigrationJob,
-  type MigrationModeId,
-  type CreateMigrationJobPayload,
-} from './queries';
+  MIGRATION_JOB_DEFAULTS,
+  MIGRATION_JOB_SCHEMA,
+  MODE_OPTIONS,
+  toCreateMigrationJobPayload,
+  type MigrationJobFormValues,
+} from '@/routes/migration-jobs/migrationJobForm';
+import { MIGRATION_MODE_LABEL, useCreateMigrationJob } from './queries';
 
 // ---------------------------------------------------------------------------
-// Schema — Phase 3 Batch 5e ships the core single-step flow. The Blazor page
-// supports a multi-step query-builder; that is deferred — the backend accepts
-// plain SQL via QueryText (legacy path) which we mirror here.
+// Phase 3 Batch 5e ships the core single-step flow. The Blazor page supports
+// a multi-step query-builder; that is deferred — the backend accepts plain
+// SQL via QueryText (legacy path) which we mirror here. The schema, defaults
+// and payload mapping are shared with NewMigrationJobPage via
+// migrationJobForm.ts.
 // ---------------------------------------------------------------------------
 
-const SCHEMA = z.object({
-  name: z.string().trim().min(1, 'Name is required').max(200),
-  description: z.string().trim().min(1, 'Description is required').max(1000),
-  dataSourceId: z.number({ message: 'Pick a source data source' })
-    .int()
-    .min(1, 'Pick a source data source'),
-  queryText: z.string().trim().min(1, 'Source SQL is required'),
-  destinationDataSourceId: z.number({ message: 'Pick a destination data source' })
-    .int()
-    .min(1, 'Pick a destination data source'),
-  destinationTable: z.string().trim().min(1, 'Destination table is required').max(200),
-  mode: z.number().int().min(1).max(3),
-  isEnabled: z.boolean(),
-  schedule: z.string(),
-  maxRetries: z.number().int().min(0).max(10),
-  timeoutMinutes: z.number().int().min(1).max(1440),
-  validateBeforeExecution: z.boolean(),
-  transformationScript: z.string(),
-});
-
-type FormValues = z.infer<typeof SCHEMA>;
-
-const DEFAULTS: FormValues = {
-  name: '',
-  description: '',
-  dataSourceId: 0,
-  queryText: '',
-  destinationDataSourceId: 0,
-  destinationTable: '',
-  mode: MIGRATION_MODE.Insert,
-  isEnabled: true,
-  schedule: '',
-  maxRetries: 3,
-  timeoutMinutes: 30,
-  validateBeforeExecution: true,
-  transformationScript: '',
-};
-
-const MODE_OPTIONS: ReadonlyArray<{ value: MigrationModeId; label: string }> = [
-  { value: MIGRATION_MODE.Insert, label: MIGRATION_MODE_LABEL[MIGRATION_MODE.Insert] },
-  { value: MIGRATION_MODE.Upsert, label: MIGRATION_MODE_LABEL[MIGRATION_MODE.Upsert] },
-  { value: MIGRATION_MODE.Truncate, label: MIGRATION_MODE_LABEL[MIGRATION_MODE.Truncate] },
-];
+type FormValues = MigrationJobFormValues;
 
 const REQ = <span className="text-crit">*</span>;
 
@@ -77,15 +37,15 @@ export function CreateMigrationJobDialog({ open, onClose }: CreateMigrationJobDi
   const createMutation = useCreateMigrationJob();
 
   const form = useForm<FormValues>({
-    resolver: zodResolver(SCHEMA),
-    defaultValues: DEFAULTS,
+    resolver: zodResolver(MIGRATION_JOB_SCHEMA),
+    defaultValues: MIGRATION_JOB_DEFAULTS,
     mode: 'onTouched',
   });
   const { register, watch, reset, formState: { errors }, getValues } = form;
 
   useEffect(() => {
     if (!open) return;
-    reset(DEFAULTS);
+    reset(MIGRATION_JOB_DEFAULTS);
   }, [open, reset]);
 
   const dbSources: DataSourceEntry[] = useMemo(
@@ -101,33 +61,16 @@ export function CreateMigrationJobDialog({ open, onClose }: CreateMigrationJobDi
     dbSources.find(x => x.id === id)?.name ?? '—';
 
   const onFinish = async () => {
-    const v = getValues();
-    const payload: CreateMigrationJobPayload = {
-      name: v.name.trim(),
-      description: v.description.trim(),
-      dataSourceId: v.dataSourceId,
-      queryText: v.queryText,
-      destinationDataSourceId: v.destinationDataSourceId,
-      destinationTable: v.destinationTable.trim(),
-      mode: v.mode as MigrationModeId,
-      isEnabled: v.isEnabled,
-      schedule: v.schedule.trim() === '' ? null : v.schedule.trim(),
-      maxRetries: v.maxRetries,
-      timeoutMinutes: v.timeoutMinutes,
-      validateBeforeExecution: v.validateBeforeExecution,
-      transformationScript: v.transformationScript.trim() === '' ? null : v.transformationScript,
-    };
-
     try {
-      const result = await createMutation.mutateAsync(payload);
+      const result = await createMutation.mutateAsync(toCreateMigrationJobPayload(getValues()));
       if (!result.success) {
         toast.error(result.errorMessage ?? 'Failed to create migration job.');
         return;
       }
       toast.success('Migration job created.');
       onClose();
-    } catch (err) {
-            toast.error(describeError(err, 'Request failed'));
+    } catch {
+      // useCreateMigrationJob (createSimpleMutation) already toasts the error.
     }
   };
 
@@ -335,7 +278,7 @@ export function CreateMigrationJobDialog({ open, onClose }: CreateMigrationJobDi
               {v.destinationTable && <> · <span className="mono">{v.destinationTable}</span></>}
             </dd>
             <dt className="text-text-muted">Mode</dt>
-            <dd>{MIGRATION_MODE_LABEL[mode as MigrationModeId] ?? mode}</dd>
+            <dd>{MIGRATION_MODE_LABEL[mode as MigrationMode] ?? mode}</dd>
             <dt className="text-text-muted">Schedule</dt>
             <dd>
               {v.schedule.trim() === ''

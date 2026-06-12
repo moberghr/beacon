@@ -6,17 +6,14 @@ import { toast } from 'sonner';
 import { AlertTriangle } from 'lucide-react';
 import { EmptyState } from '@/components/data/EmptyState';
 import { Button, Card, CardBody, Field, Input, PageHeader } from '@/components/beacon';
-import { describeError } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 import { useIsAdmin } from '@/auth/useAuth';
+import { AiProvider, type BedrockAuthMode } from '@/lib/enums';
 import {
-  AiProvider,
   modelsForProvider,
   useAdminSettingsQuery,
   useUpdateAdminSettings,
   useTestLlmConnection,
-  type AiProviderId,
-  type BedrockAuthModeId,
 } from './queries';
 import {
   ADMIN_SETTINGS_SCHEMA,
@@ -89,15 +86,15 @@ function AdminSettingsForm() {
     reset(defaults);
   }, [defaults, reset]);
 
-  const provider = useWatch({ control, name: 'llmProvider' }) as AiProviderId;
-  const bedrockAuthMode = useWatch({ control, name: 'llmBedrockAuthMode' }) as BedrockAuthModeId;
+  const provider = useWatch({ control, name: 'llmProvider' }) as AiProvider;
+  const bedrockAuthMode = useWatch({ control, name: 'llmBedrockAuthMode' }) as BedrockAuthMode;
 
   const onSubmit = handleSubmit(async values => {
     try {
       await updateMutation.mutateAsync(formToUpdatePayload(values));
       toast.success('Admin settings saved');
-    } catch (err) {
-      toast.error(describeError(err, 'Save failed'));
+    } catch {
+      // createSimpleMutation already surfaced the error toast
     }
   });
 
@@ -105,8 +102,8 @@ function AdminSettingsForm() {
     testMutation.reset();
     try {
       await testMutation.mutateAsync(formToTestPayload(getValues()));
-    } catch (err) {
-      toast.error(describeError(err, 'Test failed'));
+    } catch {
+      // createSimpleMutation already surfaced the error toast
     }
   }
 
@@ -158,7 +155,7 @@ function AdminSettingsForm() {
             name="llmProvider"
             render={({ field }) => (
               <ProviderPicker
-                value={field.value as AiProviderId}
+                value={field.value as AiProvider}
                 onChange={next => {
                   field.onChange(next);
                   applyProviderDefaults(next, getValues, setValue);
@@ -174,8 +171,7 @@ function AdminSettingsForm() {
               register={register}
               errors={errors}
               modelKnown={settings?.llmApiKeySet ?? false}
-              currentModel={settings?.llmModel ?? null}
-              currentFastModel={settings?.llmFastModel ?? null}
+              control={control}
               setValue={setValue}
             />
           )}
@@ -184,8 +180,7 @@ function AdminSettingsForm() {
               register={register}
               errors={errors}
               apiKeySet={settings?.llmApiKeySet ?? false}
-              currentModel={settings?.llmModel ?? null}
-              currentFastModel={settings?.llmFastModel ?? null}
+              control={control}
               setValue={setValue}
             />
           )}
@@ -204,8 +199,6 @@ function AdminSettingsForm() {
               authMode={bedrockAuthMode}
               control={control}
               setValue={setValue}
-              currentModel={settings?.llmModel ?? null}
-              currentFastModel={settings?.llmFastModel ?? null}
               accessKeySet={settings?.llmAwsAccessKeyIdSet ?? false}
               secretKeySet={settings?.llmAwsSecretAccessKeySet ?? false}
               sessionTokenSet={settings?.llmSessionTokenSet ?? false}
@@ -280,7 +273,7 @@ function AdminSettingsForm() {
 }
 
 function applyProviderDefaults(
-  provider: AiProviderId,
+  provider: AiProvider,
   getValues: () => FormValues,
   setValue: (name: keyof FormValues, value: never, opts?: { shouldDirty?: boolean }) => void,
 ) {

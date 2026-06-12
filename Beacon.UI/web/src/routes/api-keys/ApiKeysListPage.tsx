@@ -5,7 +5,6 @@ import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Button, Pill, Card, Banner, PageHeader } from '@/components/beacon';
-import { describeError } from '@/lib/api';
 import { formatDateTime, formatNumber } from '@/lib/format';
 import { useApiKeysQuery, useRevokeApiKey, type ApiKeyEntry } from './queries';
 import { GenerateApiKeyDialog } from './GenerateApiKeyDialog';
@@ -52,13 +51,13 @@ export default function ApiKeysListPage() {
     {
       key: 'created',
       header: 'Created',
-      render: k => <span className="text-text-muted">{formatDateTime(k.createdAt as unknown as string)}</span>,
+      render: k => <span className="text-text-muted">{formatDateTime(k.createdAt)}</span>,
     },
     {
       key: 'lastUsed',
       header: 'Last used',
       render: k => k.lastUsedAt
-        ? <span className="text-text-muted">{formatDateTime(k.lastUsedAt as unknown as string)}</span>
+        ? <span className="text-text-muted">{formatDateTime(k.lastUsedAt)}</span>
         : <span className="text-text-muted">Never</span>,
     },
     {
@@ -66,11 +65,11 @@ export default function ApiKeysListPage() {
       header: 'Expires',
       render: k => {
         if (!k.expiresAt) return <span className="text-text-muted">Never</span>;
-        const date = new Date(k.expiresAt as unknown as string);
+        const date = new Date(k.expiresAt);
         const expired = !Number.isNaN(date.getTime()) && date < new Date();
         return expired
           ? <Pill tone="crit">Expired</Pill>
-          : <Pill>{formatDateTime(k.expiresAt as unknown as string)}</Pill>;
+          : <Pill>{formatDateTime(k.expiresAt)}</Pill>;
       },
     },
     {
@@ -104,8 +103,9 @@ export default function ApiKeysListPage() {
       await revoke.mutateAsync(revoking.id);
       toast.success(`Revoked '${revoking.name}'`);
       setRevoking(null);
-    } catch (err) {
-            toast.error(describeError(err, 'Revoke failed'));
+    } catch {
+      // createSimpleMutation already surfaced the error toast — keep the
+      // confirm dialog open so the user can retry.
     }
   };
 

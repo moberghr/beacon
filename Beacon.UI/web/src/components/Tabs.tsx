@@ -1,4 +1,4 @@
-import type { KeyboardEvent, ReactNode } from 'react';
+import { useRef, type KeyboardEvent, type ReactNode } from 'react';
 import { cn } from '@/lib/cn';
 
 export interface TabDef<K extends string> {
@@ -19,12 +19,25 @@ interface TabsProps<K extends string> {
  * (typically for action buttons aligned to the right of the tab strip).
  */
 export function Tabs<K extends string>({ tabs, active, onChange, trailing }: TabsProps<K>) {
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
+
+  function selectAndFocus(index: number) {
+    onChange(tabs[index].key);
+    tabRefs.current[index]?.focus();
+  }
+
   function onKeyDown(e: KeyboardEvent, index: number) {
-    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
-    e.preventDefault();
-    const delta = e.key === 'ArrowRight' ? 1 : -1;
-    const next = (index + delta + tabs.length) % tabs.length;
-    onChange(tabs[next].key);
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      e.preventDefault();
+      const delta = e.key === 'ArrowRight' ? 1 : -1;
+      selectAndFocus((index + delta + tabs.length) % tabs.length);
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      selectAndFocus(0);
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      selectAndFocus(tabs.length - 1);
+    }
   }
 
   return (
@@ -34,6 +47,9 @@ export function Tabs<K extends string>({ tabs, active, onChange, trailing }: Tab
         return (
           <button
             key={t.key}
+            ref={el => {
+              tabRefs.current[i] = el;
+            }}
             type="button"
             role="tab"
             aria-selected={isActive}

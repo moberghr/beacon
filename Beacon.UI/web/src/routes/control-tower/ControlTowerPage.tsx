@@ -4,6 +4,8 @@ import {
   AlertTriangle,
   ArrowDown,
   ArrowUp,
+  ChevronLeft,
+  ChevronRight,
   ListChecks,
   RefreshCw,
   Search,
@@ -24,15 +26,14 @@ import {
   type SegOption,
 } from '@/components/beacon';
 import { formatNumber, formatPercentage, formatRelativeTime } from '@/lib/format';
+import { ControlTowerSortBy, HealthStatus, NotificationStatus } from '@/lib/enums';
 import {
-  ControlTowerSortBy,
-  HealthStatus,
-  NotificationStatus,
   type AnomalySparklinePoint,
   type ControlTowerFilters,
   type ControlTowerSubscriptionHealthData,
 } from './api';
 import {
+  CONTROL_TOWER_PAGE_SIZE,
   useControlTowerQuery,
   useQueryFolders,
 } from './queries';
@@ -117,7 +118,7 @@ function SortHeader({
 }: {
   label: string;
   column: SortColumn;
-  sort: { column: SortColumn; direction: SortDirection };
+  sort: { column: SortColumn | null; direction: SortDirection };
   setSort: (s: { column: SortColumn; direction: SortDirection }) => void;
   align?: 'left' | 'right';
 }) {
@@ -141,11 +142,6 @@ function SortHeader({
   );
 }
 
-const DEFAULT_FILTERS: ControlTowerFilters = {
-  timeRangeDays: 30,
-  sortBy: ControlTowerSortBy.WorstFirst,
-};
-
 export default function ControlTowerPage() {
   const [searchInput, setSearchInput] = useState('');
   const [searchKeyword, setSearchKeyword] = useState<string | undefined>();
@@ -153,28 +149,36 @@ export default function ControlTowerPage() {
   const [healthFilter, setHealthFilter] = useState<string>('all');
   const [onlyOpenTasks, setOnlyOpenTasks] = useState(false);
   const [timeRange, setTimeRange] = useState<string>('30');
-  const [sort, setSort] = useState<{ column: SortColumn; direction: SortDirection }>({
-    column: 'name',
+  // `column: null` means "no user-chosen sort" — the API then sorts worst-first,
+  // which is the intended default for an operations view.
+  const [sort, setSort] = useState<{ column: SortColumn | null; direction: SortDirection }>({
+    column: null,
     direction: 'asc',
   });
+  const [page, setPage] = useState(0);
   // Store the id, not a row snapshot — rows go stale across the 30s refetch.
   const [selectedSubscriptionId, setSelectedSubscriptionId] = useState<number | null>(null);
 
   const filters = useMemo<ControlTowerFilters>(
     () => ({
-      ...DEFAULT_FILTERS,
       searchKeyword,
       folderId,
       healthStatus: healthFilter === 'all' ? undefined : (Number(healthFilter) as HealthStatus),
       hasUnresolvedTasks: onlyOpenTasks ? true : undefined,
       timeRangeDays: Number(timeRange),
-      sortBy: SORT_TO_API[sort.column],
+      sortBy: sort.column == null ? ControlTowerSortBy.WorstFirst : SORT_TO_API[sort.column],
     }),
     [searchKeyword, folderId, healthFilter, onlyOpenTasks, timeRange, sort.column],
   );
 
-  const { data, isLoading, isFetching, isError, error, refetch } = useControlTowerQuery(filters);
+  // Filters define a new result set — page 0 is the only valid start.
+  useEffect(() => {
+    setPage(0);
+  }, [filters]);
+
+  const { data, isLoading, isFetching, isError, error, refetch } = useControlTowerQuery(filters, page);
   const { data: folders } = useQueryFolders();
+  const totalPages = Math.max(1, Math.ceil((data?.totalCount ?? 0) / CONTROL_TOWER_PAGE_SIZE));
 
   const stats = data?.stats;
   const entries = data?.entries ?? [];
@@ -194,12 +198,19 @@ export default function ControlTowerPage() {
     }
   }, [data, selectedSubscriptionId]);
 
-  // Client-side sort overlay for direction + columns the API can't sort on.
+  // Client-side sort overlay for direction + tie-breaking. NOTE: this sorts
+  // only within the currently fetched page — the API's `sortBy` drives the
+  // server-side order that decides which rows land on each page.
   const sortedEntries = useMemo(() => {
+    const column = sort.column;
+    if (column == null) {
+      // No user-chosen sort — keep the server's worst-first order.
+      return entries;
+    }
     const list = [...entries];
     const dir = sort.direction === 'asc' ? 1 : -1;
     list.sort((a, b) => {
-      switch (sort.column) {
+      switch (column) {
         case 'name':
           return a.queryName.localeCompare(b.queryName) * dir;
         case 'successRate':
@@ -476,6 +487,27 @@ export default function ControlTowerPage() {
                 />
               }
             />
+            {totalPages > 1 && (
+              <div className="flex items-center justify-end gap-2 p-3 border-t border-border text-xs text-text-muted">
+                <Button
+                  size="sm"
+                  icon={<ChevronLeft />}
+                  onClick={() => setPage(p => Math.max(0, p - 1))}
+                  disabled={page <= 0}
+                >
+                  Prev
+                </Button>
+                <span className="tabular-nums">Page {page + 1} of {totalPages}</span>
+                <Button
+                  size="sm"
+                  icon={<ChevronRight />}
+                  onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+                  disabled={page >= totalPages - 1}
+                >
+                  Next
+                </Button>
+              </div>
+            )}
           </Card>
         </>
       )}

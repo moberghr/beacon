@@ -11,19 +11,19 @@ import {
   Select,
 } from '@/components/beacon';
 import { useAuth } from '@/auth/useAuth';
+import { TaskPriority } from '@/lib/enums';
 import { formatDateTime } from '@/lib/format';
 import {
   useAssignTask,
   useSetTaskPriority,
   type TaskDetail,
-  type TaskPriority,
 } from '../queries';
 
 const PRIORITY_OPTIONS: { value: TaskPriority; label: string }[] = [
-  { value: 1, label: 'P1 — Critical' },
-  { value: 2, label: 'P2 — High' },
-  { value: 3, label: 'P3 — Normal' },
-  { value: 4, label: 'P4 — Low' },
+  { value: TaskPriority.Critical, label: 'P1 — Critical' },
+  { value: TaskPriority.High, label: 'P2 — High' },
+  { value: TaskPriority.Normal, label: 'P3 — Normal' },
+  { value: TaskPriority.Low, label: 'P4 — Low' },
 ];
 
 export function TaskInfoCard({ task }: { task: TaskDetail }) {

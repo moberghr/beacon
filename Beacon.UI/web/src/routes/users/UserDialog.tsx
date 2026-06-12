@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { toast } from 'sonner';
 import { Dialog } from '@/components/ui/Dialog';
 import { Button, Field, Input } from '@/components/beacon';
-import { ApiError, describeError } from '@/lib/api';
+import { ApiError } from '@/lib/api';
 import {
   useCreateExternalUser,
   useCreateInternalUser,
@@ -161,19 +161,20 @@ function CreateInternalForm({ onClose }: { onClose: () => void }) {
           return;
         }
       }
-            toast.error(describeError(err, 'Create failed'));
+      // createSimpleMutation already surfaced the error toast.
     }
   });
 
   return (
     <form onSubmit={onSubmit} noValidate className="flex flex-col gap-3">
-      <FieldText label="Username" required register={register('userName')} error={errors.userName?.message} />
+      <FieldText label="Username" required autoComplete="username" register={register('userName')} error={errors.userName?.message} />
       <FieldText label="Email" type="email" register={register('email')} error={errors.email?.message} placeholder="optional" />
       <FieldText label="Display name" register={register('displayName')} placeholder="optional" />
       <FieldText
         label="Password"
         required
         type="password"
+        autoComplete="new-password"
         register={register('password')}
         error={errors.password?.message}
         help="At least 8 characters, with uppercase, lowercase, digit, and special character."
@@ -228,8 +229,8 @@ function CreateExternalForm({ onClose }: { onClose: () => void }) {
       });
       toast.success(`Created user '${values.userName}'`);
       onClose();
-    } catch (err) {
-            toast.error(describeError(err, 'Create failed'));
+    } catch {
+      // createSimpleMutation already surfaced the error toast.
     }
   });
 
@@ -303,8 +304,8 @@ function EditUserForm({ open, user, onClose }: { open: boolean; user: UserEntry;
       });
       toast.success(`Updated user '${values.userName}'`);
       onClose();
-    } catch (err) {
-            toast.error(describeError(err, 'Update failed'));
+    } catch {
+      // createSimpleMutation already surfaced the error toast.
     }
   });
 
@@ -347,9 +348,10 @@ interface FieldTextProps {
   placeholder?: string;
   help?: string;
   error?: string;
+  autoComplete?: string;
 }
 
-function FieldText({ label, register, required, type = 'text', placeholder, help, error }: FieldTextProps) {
+function FieldText({ label, register, required, type = 'text', placeholder, help, error, autoComplete = 'off' }: FieldTextProps) {
   return (
     <Field
       label={required ? <>{label} <span className="text-crit">*</span></> : label}
@@ -357,7 +359,7 @@ function FieldText({ label, register, required, type = 'text', placeholder, help
     >
       <Input
         type={type}
-        autoComplete="off"
+        autoComplete={autoComplete}
         placeholder={placeholder}
         aria-invalid={!!error}
         {...register}

@@ -37,7 +37,7 @@ export default function ApprovalsListPage() {
       key: 'submittedAt',
       header: 'Submitted at',
       render: a => a.createdTime
-        ? <span title={formatDateTime(a.createdTime as unknown as string)}>{formatRelativeTime(a.createdTime as unknown as string)}</span>
+        ? <span title={formatDateTime(a.createdTime)}>{formatRelativeTime(a.createdTime)}</span>
         : <span className="text-text-muted">—</span>,
     },
     {
@@ -54,7 +54,7 @@ export default function ApprovalsListPage() {
         <Button
           variant="primary"
           size="sm"
-          onClick={e => { e.stopPropagation(); setReviewing(a.id ?? null); }}
+          onClick={e => { e.stopPropagation(); setReviewing(a.id); }}
         >
           Review
         </Button>
@@ -93,9 +93,9 @@ export default function ApprovalsListPage() {
         <DataTable
           columns={columns}
           rows={entries}
-          rowKey={a => a.id ?? 0}
+          rowKey={a => a.id}
           gridTemplate={GRID_TEMPLATE}
-          onRowClick={a => a.id && navigate(`/approvals/${a.id}`)}
+          onRowClick={a => navigate(`/approvals/${a.id}`)}
           empty={
             <EmptyState
               icon={<Check />}

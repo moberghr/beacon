@@ -9,34 +9,101 @@ import {
 } from './hub';
 
 /**
- * Lazily-initialized singleton hub connection. We share one connection across
- * the React app so multiple subscribers don't open separate WebSockets. The
- * connection is created on first subscribe; we never explicitly stop it (the
- * page unload tears it down).
+ * Lazily-initialized singleton hub connection shared across the React app so
+ * multiple subscribers don't open separate WebSockets. Subscribers register in
+ * a module-level set; whenever a (re)connection is established every live
+ * subscriber is re-attached, so long-lived pages keep receiving realtime
+ * events even after SignalR's automatic reconnect gives up and the connection
+ * has to be rebuilt from scratch.
  */
 let hubPromise: Promise<BeaconHub> | undefined;
 let hubFailureToastShown = false;
+let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
 
-function getHub(): Promise<BeaconHub> {
-  if (hubPromise === undefined) {
-    hubPromise = connectBeaconHub()
-      .then(hub => {
-        // When automatic reconnect exhausts, the connection is dead for good.
-        // Drop the cached promise so the next subscriber creates a fresh one.
-        hub.onClosed(() => {
-          hubPromise = undefined;
-          // eslint-disable-next-line no-console
-          console.warn('[beacon-hub] connection closed permanently — will reconnect on next subscription');
-        });
-        return hub;
-      })
-      .catch(err => {
-        // Reset so a subsequent subscribe attempt can retry.
-        hubPromise = undefined;
-        throw err;
-      });
+const RECONNECT_DELAY_MS = 15_000;
+
+interface HubSubscriber {
+  attach: (hub: BeaconHub) => () => void;
+  unsubscribe?: () => void;
+}
+
+const subscribers = new Set<HubSubscriber>();
+
+function ensureConnected(): void {
+  if (hubPromise !== undefined) {
+    // Already connected (or connecting) — attach any subscribers added since.
+    hubPromise.then(attachPendingSubscribers).catch(() => {
+      // Connection failures are handled by the initiating ensureConnected call.
+    });
+    return;
   }
-  return hubPromise;
+
+  hubPromise = connectBeaconHub().then(hub => {
+    // When automatic reconnect exhausts, the connection is dead for good.
+    // Drop the cached promise, mark every subscriber detached, and schedule
+    // a fresh connection so already-mounted pages recover.
+    hub.onClosed(() => {
+      console.warn('[beacon-hub] connection closed permanently — scheduling reconnect');
+      hubPromise = undefined;
+      for (const subscriber of subscribers) {
+        subscriber.unsubscribe = undefined;
+      }
+      scheduleReconnect();
+    });
+    return hub;
+  });
+
+  hubPromise
+    .then(attachPendingSubscribers)
+    .catch(err => {
+      // Hub is non-essential — log but don't crash the page. Reset so a
+      // later subscribe (or the scheduled retry) can attempt a fresh connect.
+      hubPromise = undefined;
+      console.warn('[beacon-hub] failed to connect', err);
+      if (!hubFailureToastShown) {
+        hubFailureToastShown = true;
+        toast.warning('Realtime updates unavailable', {
+          description: 'Lists won’t refresh automatically until the connection recovers. Use the refresh button to pull latest data.',
+        });
+      }
+      scheduleReconnect();
+    });
+}
+
+function attachPendingSubscribers(hub: BeaconHub): void {
+  for (const subscriber of subscribers) {
+    if (subscriber.unsubscribe === undefined) {
+      subscriber.unsubscribe = subscriber.attach(hub);
+    }
+  }
+}
+
+function scheduleReconnect(): void {
+  if (reconnectTimer !== undefined || subscribers.size === 0) {
+    return;
+  }
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = undefined;
+    if (subscribers.size > 0) {
+      ensureConnected();
+    }
+  }, RECONNECT_DELAY_MS);
+}
+
+/**
+ * Register a subscriber that is (re)attached to every hub connection for as
+ * long as it stays registered. Returns a removal function — StrictMode-safe
+ * because a removed subscriber is skipped when the pending attach resolves.
+ */
+function addSubscriber(attach: (hub: BeaconHub) => () => void): () => void {
+  const subscriber: HubSubscriber = { attach };
+  subscribers.add(subscriber);
+  ensureConnected();
+  return () => {
+    subscribers.delete(subscriber);
+    subscriber.unsubscribe?.();
+    subscriber.unsubscribe = undefined;
+  };
 }
 
 type EventMap = {
@@ -73,39 +140,18 @@ export function useHubEvent<E extends keyof EventMap>(
   const handlerRef = useRef(handler);
   handlerRef.current = handler;
 
-  useEffect(() => {
-    let unsubscribe: (() => void) | undefined;
-    let cancelled = false;
-
-    getHub()
-      .then(hub => {
-        if (cancelled) {
-          return;
-        }
+  useEffect(
+    () =>
+      addSubscriber(hub => {
         const method = METHOD_BY_EVENT[event];
         // The hub methods all share the shape `(handler) => unsubscribe`.
         const subscribe = hub[method] as unknown as (
           h: (payload: EventMap[E]) => void,
         ) => () => void;
-        unsubscribe = subscribe(payload => handlerRef.current(payload));
-      })
-      .catch(err => {
-        // Hub is non-essential — log but don't crash the page.
-        // eslint-disable-next-line no-console
-        console.warn('[beacon-hub] failed to subscribe', event, err);
-        if (!hubFailureToastShown) {
-          hubFailureToastShown = true;
-          toast.warning('Realtime updates unavailable', {
-            description: 'Lists won’t refresh automatically until the connection recovers. Use the refresh button to pull latest data.',
-          });
-        }
-      });
-
-    return () => {
-      cancelled = true;
-      unsubscribe?.();
-    };
-  }, [event]);
+        return subscribe(payload => handlerRef.current(payload));
+      }),
+    [event],
+  );
 }
 
 /**
@@ -117,24 +163,5 @@ export function useHubReconnected(handler: () => void) {
   const handlerRef = useRef(handler);
   handlerRef.current = handler;
 
-  useEffect(() => {
-    let unsubscribe: (() => void) | undefined;
-    let cancelled = false;
-
-    getHub()
-      .then(hub => {
-        if (cancelled) {
-          return;
-        }
-        unsubscribe = hub.onReconnected(() => handlerRef.current());
-      })
-      .catch(() => {
-        // Connection failures are already surfaced by the subscribe path.
-      });
-
-    return () => {
-      cancelled = true;
-      unsubscribe?.();
-    };
-  }, []);
+  useEffect(() => addSubscriber(hub => hub.onReconnected(() => handlerRef.current())), []);
 }

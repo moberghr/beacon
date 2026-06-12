@@ -301,10 +301,14 @@ export function SqlEditor({
       parameterNames,
       crossStepResultCount,
     };
-    fallbackCompletionState.current = snapshot;
     if (modelUri) {
+      // Registered editors only ever write their own per-URI slot — never
+      // the shared fallback, which other (unregistered) editors rely on.
       completionStates.set(modelUri, snapshot);
+      return;
     }
+    // Only the pre-registration window may seed the shared fallback.
+    fallbackCompletionState.current = snapshot;
   }, [metadata, parameterNames, crossStepResultCount, modelUri]);
 
   useEffect(() => {

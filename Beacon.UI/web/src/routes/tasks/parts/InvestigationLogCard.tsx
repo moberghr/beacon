@@ -11,7 +11,6 @@ import {
   Textarea,
 } from '@/components/beacon';
 import { useAuth } from '@/auth/useAuth';
-import { describeError } from '@/lib/api';
 import { formatRelativeTime } from '@/lib/format';
 import { useAddTaskComment, useTaskCommentsQuery } from '../queries';
 
@@ -33,8 +32,8 @@ export function InvestigationLogCard({ taskId, textareaId }: { taskId: number; t
       await add.mutateAsync(trimmed);
       setContent('');
       toast.success('Note posted');
-    } catch (err) {
-            toast.error(describeError(err, 'Post failed'));
+    } catch {
+      // useAddTaskComment (createSimpleMutation) already toasts the error.
     }
   };
 

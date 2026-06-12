@@ -88,6 +88,7 @@ function SlaEditor({
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState<string>(currentValue != null ? String(currentValue) : '');
   const wrap = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const setSla = useSetSubscriptionSla(subscriptionId, taskId);
 
   useEffect(() => {
@@ -99,8 +100,18 @@ function SlaEditor({
     const onClickOut = (e: MouseEvent) => {
       if (wrap.current && !wrap.current.contains(e.target as Node)) setOpen(false);
     };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      setOpen(false);
+      triggerRef.current?.focus();
+    };
     window.addEventListener('mousedown', onClickOut);
-    return () => window.removeEventListener('mousedown', onClickOut);
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('mousedown', onClickOut);
+      window.removeEventListener('keydown', onKeyDown);
+    };
   }, [open]);
 
   if (!isAdmin) return null;
@@ -120,9 +131,12 @@ function SlaEditor({
   return (
     <div ref={wrap} className="relative">
       <Button
+        ref={triggerRef}
         variant="ghost"
         size="sm"
         title="Edit SLA"
+        aria-haspopup="dialog"
+        aria-expanded={open}
         onClick={() => setOpen(o => !o)}
         icon={<Settings />}
       />

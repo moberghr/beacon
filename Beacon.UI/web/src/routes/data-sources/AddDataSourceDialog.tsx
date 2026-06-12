@@ -13,14 +13,12 @@ import {
   Select,
   Textarea,
 } from '@/components/beacon';
+import { DatabaseEngineType, DataSourceType } from '@/lib/enums';
 import {
-  DATA_SOURCE_TYPE,
-  DATABASE_ENGINE,
   DATABASE_ENGINE_LABEL,
   useCreateDataSource,
   useTestDataSourceConnection,
   type CreateDataSourcePayload,
-  type DatabaseEngineId,
 } from './queries';
 
 // ---------------------------------------------------------------------------
@@ -110,7 +108,7 @@ const apiPath = <P extends FieldPath<ApiFormValues>>(p: P) => p as unknown as Fi
 const DEFAULTS: FormValues = {
   kind: 'Database',
   name: '',
-  engine: DATABASE_ENGINE.PostgreSQL,
+  engine: DatabaseEngineType.PostgreSQL,
   connectionString: '',
   metadataLoadingEnabled: true,
   metadataMaxTables: 0,
@@ -128,12 +126,12 @@ const KIND_OPTIONS: ReadonlyArray<{ value: FormValues['kind']; label: string }> 
   { value: 'Api', label: 'API (OpenAPI)' },
 ];
 
-const ENGINE_OPTIONS: ReadonlyArray<{ value: DatabaseEngineId; label: string }> = [
-  { value: DATABASE_ENGINE.PostgreSQL, label: DATABASE_ENGINE_LABEL[DATABASE_ENGINE.PostgreSQL] },
-  { value: DATABASE_ENGINE.MSSQL, label: DATABASE_ENGINE_LABEL[DATABASE_ENGINE.MSSQL] },
-  { value: DATABASE_ENGINE.MySQL, label: DATABASE_ENGINE_LABEL[DATABASE_ENGINE.MySQL] },
-  { value: DATABASE_ENGINE.AzureSynapse, label: DATABASE_ENGINE_LABEL[DATABASE_ENGINE.AzureSynapse] },
-  { value: DATABASE_ENGINE.Snowflake, label: DATABASE_ENGINE_LABEL[DATABASE_ENGINE.Snowflake] },
+const ENGINE_OPTIONS: ReadonlyArray<{ value: DatabaseEngineType; label: string }> = [
+  { value: DatabaseEngineType.PostgreSQL, label: DATABASE_ENGINE_LABEL[DatabaseEngineType.PostgreSQL] },
+  { value: DatabaseEngineType.MSSQL, label: DATABASE_ENGINE_LABEL[DatabaseEngineType.MSSQL] },
+  { value: DatabaseEngineType.MySQL, label: DATABASE_ENGINE_LABEL[DatabaseEngineType.MySQL] },
+  { value: DatabaseEngineType.AzureSynapse, label: DATABASE_ENGINE_LABEL[DatabaseEngineType.AzureSynapse] },
+  { value: DatabaseEngineType.Snowflake, label: DATABASE_ENGINE_LABEL[DatabaseEngineType.Snowflake] },
 ];
 
 // ---------------------------------------------------------------------------
@@ -148,7 +146,7 @@ const splitCsv = (s: string): string[] =>
 
 interface BuiltPayload {
   dataSourceType: number;
-  databaseEngineType: DatabaseEngineId | null;
+  databaseEngineType: DatabaseEngineType | null;
   connectionString: string;
 }
 
@@ -156,13 +154,13 @@ function buildPayload(v: FormValues): BuiltPayload {
   switch (v.kind) {
     case 'Database':
       return {
-        dataSourceType: DATA_SOURCE_TYPE.Database,
-        databaseEngineType: v.engine as DatabaseEngineId,
+        dataSourceType: DataSourceType.Database,
+        databaseEngineType: v.engine as DatabaseEngineType,
         connectionString: v.connectionString,
       };
     case 'CloudWatch':
       return {
-        dataSourceType: DATA_SOURCE_TYPE.CloudWatch,
+        dataSourceType: DataSourceType.CloudWatch,
         databaseEngineType: null,
         connectionString: JSON.stringify({
           Region: v.region,
@@ -175,7 +173,7 @@ function buildPayload(v: FormValues): BuiltPayload {
       };
     case 'Databricks':
       return {
-        dataSourceType: DATA_SOURCE_TYPE.Databricks,
+        dataSourceType: DataSourceType.Databricks,
         databaseEngineType: null,
         connectionString: JSON.stringify({
           Host: v.host,
@@ -188,7 +186,7 @@ function buildPayload(v: FormValues): BuiltPayload {
       };
     case 'BigQuery':
       return {
-        dataSourceType: DATA_SOURCE_TYPE.BigQuery,
+        dataSourceType: DataSourceType.BigQuery,
         databaseEngineType: null,
         connectionString: JSON.stringify({
           ProjectId: v.projectId,
@@ -234,7 +232,7 @@ function buildPayload(v: FormValues): BuiltPayload {
       const include = splitCsv(v.includePatterns);
       const exclude = splitCsv(v.excludePatterns);
       return {
-        dataSourceType: DATA_SOURCE_TYPE.Api,
+        dataSourceType: DataSourceType.Api,
         databaseEngineType: null,
         connectionString: JSON.stringify({
           BaseUrl: v.baseUrl,
@@ -298,7 +296,7 @@ export function AddDataSourceDialog({ open, onClose }: AddDataSourceDialogProps)
         reset({
           kind: 'Database',
           name: currentName,
-          engine: DATABASE_ENGINE.PostgreSQL,
+          engine: DatabaseEngineType.PostgreSQL,
           connectionString: '',
           metadataLoadingEnabled: true,
           metadataMaxTables: 0,
@@ -406,8 +404,8 @@ export function AddDataSourceDialog({ open, onClose }: AddDataSourceDialogProps)
       }
       toast.success(result.message ?? 'Data source created.');
       onClose();
-    } catch (err) {
-            toast.error(describeError(err, 'Request failed'));
+    } catch {
+      // Error toast already raised by the create mutation hook.
     }
   };
 

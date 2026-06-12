@@ -3,6 +3,7 @@ import { Clock } from 'lucide-react';
 import { Pill, type PillProps } from '@/components/beacon';
 import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
+import { NotificationStatus } from '@/lib/enums';
 import { formatDateTime } from '@/lib/format';
 import {
   NOTIFICATION_STATUS_LABEL,
@@ -60,9 +61,9 @@ const GRID_TEMPLATE = '1.4fr 1.2fr 0.8fr 1fr';
 
 function pillTone(status: number): PillProps['tone'] {
   switch (status) {
-    case 2: return 'ok';
-    case 5: case 7: return 'warn';
-    case 3: return 'neutral';
+    case NotificationStatus.NotificationSent: return 'ok';
+    case NotificationStatus.Timeout: case NotificationStatus.Failed: return 'warn';
+    case NotificationStatus.NotificationSilenced: return 'neutral';
     default: return 'info';
   }
 }

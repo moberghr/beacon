@@ -1,4 +1,4 @@
-import { ensureAntiforgeryPrimed, readCookie } from './csrf';
+import { beaconFetch } from './csrf';
 
 export { ensureAntiforgeryPrimed } from './csrf';
 
@@ -10,31 +10,26 @@ export async function fetchJson<T>(path: string, init?: RequestInit): Promise<T>
   headers.set('Accept', 'application/json');
   if (isMutation) {
     headers.set('Content-Type', headers.get('Content-Type') ?? 'application/json');
-    if (readCookie('XSRF-TOKEN') === null) {
-      await ensureAntiforgeryPrimed();
-    }
-    const csrf = readCookie('XSRF-TOKEN');
-    if (csrf !== null) {
-      headers.set('X-XSRF-TOKEN', csrf);
-    }
   }
 
-  const response = await fetch(path, {
+  // CSRF priming, header attachment, and the antiforgery-mismatch retry all
+  // live in `beaconFetch` — the same wrapper the generated NSwag client uses.
+  const response = await beaconFetch(path, {
     ...init,
     method,
     headers,
-    credentials: 'include',
   });
 
   if (!response.ok) {
     throw new ApiError(response.status, await safeText(response));
   }
 
-  if (response.status === 204) {
+  // 204s and empty-bodied 2xx responses have nothing to parse.
+  const text = await safeText(response);
+  if (text === '') {
     return undefined as T;
   }
-
-  return (await response.json()) as T;
+  return JSON.parse(text) as T;
 }
 
 async function safeText(response: Response): Promise<string> {
