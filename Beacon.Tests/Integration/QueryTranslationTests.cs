@@ -248,6 +248,40 @@ public class QueryTranslationTests : QueryTranslationTestBase
             }));
     }
 
+    [Test]
+    public void DataSourceKnowledge_SchemaTableCounts_Translates()
+    {
+        AssertQueryTranslates(ctx => ctx.DatabaseMetadata
+            .Where(x => x.DataSourceId == 1)
+            .GroupBy(x => x.SchemaName)
+            .Select(x => new { SchemaName = x.Key, TableCount = x.Count() }));
+    }
+
+    [Test]
+    public void DataSourceKnowledge_SchemaQualityAverages_Translates()
+    {
+        AssertQueryTranslates(ctx => ctx.DataQualityScores
+            .Where(x => x.DataSourceId == 1)
+            .GroupBy(x => x.SchemaName)
+            .Select(x => new
+            {
+                SchemaName = x.Key,
+                AverageScore = x.Average(y => (double?)y.Score),
+                ScoreCount = x.Count()
+            }));
+    }
+
+    [Test]
+    public void TablesContext_NameFilterPushdown_Translates()
+    {
+        var nameList = new List<string> { "orders", "public.users" };
+
+        AssertQueryTranslates(ctx => ctx.DatabaseMetadata
+            .Where(m => m.DataSourceId == 1)
+            .Where(m => nameList.Contains(m.TableName.ToLower())
+                || nameList.Contains((m.SchemaName + "." + m.TableName).ToLower())));
+    }
+
     private static int CountJsonArrayElements(string json)
     {
         // Mirrors the private helper in AiActorService. EF Core treats this as a

@@ -132,12 +132,18 @@ internal sealed class KnowledgeGraphService(
             .FirstOrDefaultAsync(ct)
             ?? throw new InvalidOperationException($"Data source {dataSourceId} not found");
 
-        var tables = await context.DatabaseMetadata
-            .Where(m => m.DataSourceId == dataSourceId)
+        // Aggregate server-side — materializing every metadata/quality row here made each
+        // `ask` pay for full-catalog loads per data source.
+        var schemaTableCounts = await context.DatabaseMetadata
+            .Where(x => x.DataSourceId == dataSourceId)
+            .GroupBy(x => x.SchemaName)
+            .Select(x => new { SchemaName = x.Key, TableCount = x.Count() })
             .ToListAsync(ct);
 
-        var qualityScores = await context.DataQualityScores
-            .Where(q => q.DataSourceId == dataSourceId)
+        var schemaQuality = await context.DataQualityScores
+            .Where(x => x.DataSourceId == dataSourceId)
+            .GroupBy(x => x.SchemaName)
+            .Select(x => new { SchemaName = x.Key, AverageScore = x.Average(y => (double?)y.Score), ScoreCount = x.Count() })
             .ToListAsync(ct);
 
         var codeRefCount = await context.CodeReferences
@@ -147,14 +153,18 @@ internal sealed class KnowledgeGraphService(
             .AnyAsync(d => d.Project.DataSources.Any(ds => ds.DataSourceId == dataSourceId), ct);
 
         // DataQualityScore property is Score, not OverallScore
-        var schemas = tables
-            .GroupBy(t => t.SchemaName)
-            .Select(g => new SchemaOverview(
-                g.Key,
-                g.Count(),
-                qualityScores.Where(q => q.SchemaName == g.Key).Select(q => (double?)q.Score).Average()
+        var schemas = schemaTableCounts
+            .Select(x => new SchemaOverview(
+                x.SchemaName,
+                x.TableCount,
+                schemaQuality
+                    .Where(y => y.SchemaName == x.SchemaName)
+                    .Select(y => y.AverageScore)
+                    .FirstOrDefault()
             ))
             .ToList();
+
+        var totalScoreCount = schemaQuality.Sum(x => x.ScoreCount);
 
         return new DataSourceKnowledge
         {
@@ -164,8 +174,10 @@ internal sealed class KnowledgeGraphService(
             DatabaseEngine = dataSource.DataSourceType == DataSourceType.Api
                 ? ConnectorRegistry.GetDisplayName(DataSourceType.Api)
                 : dataSource.DatabaseEngineType?.ToString(),
-            TableCount = tables.Count,
-            OverallQualityScore = qualityScores.Count != 0 ? qualityScores.Average(q => q.Score) : null,
+            TableCount = schemaTableCounts.Sum(x => x.TableCount),
+            OverallQualityScore = totalScoreCount != 0
+                ? schemaQuality.Sum(x => (x.AverageScore ?? 0) * x.ScoreCount) / totalScoreCount
+                : null,
             CodeReferenceCount = codeRefCount,
             HasDocumentation = hasDoc,
             Schemas = schemas
@@ -781,10 +793,17 @@ internal sealed class KnowledgeGraphService(
             ?? throw new InvalidOperationException($"Data source {dataSourceId} not found");
 
         var isApi = dataSource.DataSourceType == DataSourceType.Api;
-        var nameSet = tableNames.Select(n => n.ToLower()).ToHashSet();
+        var nameList = tableNames
+            .Select(x => x.ToLower())
+            .Distinct()
+            .ToList();
 
-        var tables = await context.DatabaseMetadata
+        // Match by table name or schema.table, case-insensitive, filtered in SQL so only the
+        // requested tables (not the whole catalog) are materialized.
+        var matched = await context.DatabaseMetadata
             .Where(m => m.DataSourceId == dataSourceId)
+            .Where(m => nameList.Contains(m.TableName.ToLower())
+                || nameList.Contains((m.SchemaName + "." + m.TableName).ToLower()))
             .Select(m => new
             {
                 m.SchemaName,
@@ -797,12 +816,6 @@ internal sealed class KnowledgeGraphService(
                 )).ToList()
             })
             .ToListAsync(ct);
-
-        // Match by table name or schema.table
-        var matched = tables.Where(t =>
-            nameSet.Contains(t.TableName.ToLower()) ||
-            nameSet.Contains($"{t.SchemaName}.{t.TableName}".ToLower()))
-            .ToList();
 
         var sb = new StringBuilder();
         sb.AppendLine("# Table Schemas\n");
