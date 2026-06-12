@@ -435,6 +435,63 @@ const controlTowerHandlers = [
       ],
       totalCount: 2,
     })),
+  http.get('/beacon/api/control-tower/subscriptions/:id/detail', ({ params }) =>
+    HttpResponse.json({
+      detail: {
+        subscriptionId: Number(params.id),
+        queryName: Number(params.id) === 2 ? 'Demo: Cross-Source Revenue Join' : 'Demo: Daily Order Count',
+        queryId: Number(params.id),
+        folderPath: null,
+        cronExpression: '0 7 * * *',
+        timeRangeDays: 30,
+        recentExecutions: [
+          {
+            executionId: 901,
+            createdTime: iso(0, 2),
+            notificationStatus: NotificationStatus.NotificationSent,
+            resultCount: 42,
+            executionTimeMs: 412,
+            errorMessage: null,
+          },
+          {
+            executionId: 900,
+            createdTime: iso(1),
+            notificationStatus: NotificationStatus.NoResults,
+            resultCount: 0,
+            executionTimeMs: 388,
+            errorMessage: null,
+          },
+          {
+            executionId: 899,
+            createdTime: iso(2),
+            notificationStatus: NotificationStatus.Failed,
+            resultCount: 0,
+            executionTimeMs: 5012,
+            errorMessage: 'Mock error: connection timeout to Demo Warehouse.',
+          },
+        ],
+        openTasks: [
+          {
+            taskId: 31,
+            createdTime: iso(1),
+            snoozedUntil: null,
+            latestResultCount: 42,
+            priority: 2,
+            assigneeUserId: null,
+          },
+        ],
+        recentAnomalies: [
+          {
+            anomalyId: 11,
+            detectedTime: iso(1),
+            severity: 'High',
+            currentValue: 138,
+            explanation: 'Mock anomaly: +38% vs baseline.',
+            acknowledged: false,
+          },
+        ],
+      },
+    })),
 ];
 
 // ---------- migrations (honest empty) -----------------------------------------
