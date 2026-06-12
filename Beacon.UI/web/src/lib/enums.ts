@@ -29,6 +29,7 @@ export {
   NotificationTrigger,
   NotificationType,
   ParameterType,
+  QueryVersionStatus,
   TaskPriority,
   WidgetType,
 } from '@/api/generated/beacon-api';
