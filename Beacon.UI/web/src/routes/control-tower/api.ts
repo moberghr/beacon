@@ -4,40 +4,14 @@
  * DTOs in Beacon.Core/Models/ControlTower and drive the UI's enum/lookup logic).
  *
  * The strict types are kept local rather than imported from the generated client
- * because the generated DTOs make every field optional and type enums as `number`,
- * which would break the `Record<HealthStatus, …>` / `Record<NotificationStatus, …>`
- * lookups and the required-field access throughout the Control Tower UI.
+ * because the generated DTOs make every field optional, which would break the
+ * required-field access throughout the Control Tower UI. Enums come from the
+ * generated client via '@/lib/enums'.
  */
 
 import { beaconApi } from '@/api/client';
 import { unwrap } from '@/lib/api';
-
-export enum HealthStatus {
-  Green = 1,
-  Amber = 2,
-  Red = 3,
-  Stalled = 4,
-}
-
-export enum NotificationStatus {
-  Created = 1,
-  NotificationSent = 2,
-  NotificationSilenced = 3,
-  NoResults = 4,
-  Timeout = 5,
-  BelowThreshold = 6,
-  Failed = 7,
-}
-
-export enum ControlTowerSortBy {
-  WorstFirst = 0,
-  Name = 1,
-  SuccessRate = 2,
-  Executions = 3,
-  OpenTasks = 4,
-  Anomalies = 5,
-  LastExecution = 6,
-}
+import type { ControlTowerSortBy, HealthStatus, NotificationStatus } from '@/lib/enums';
 
 export interface AnomalySparklinePoint {
   date: string;

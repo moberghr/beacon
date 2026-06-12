@@ -6,8 +6,7 @@ import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { formatDateTime, formatNumber } from '@/lib/format';
 import { useDataSourcesQuery } from '@/routes/data-sources/queries';
-import type { AiActorListItem } from '@/api/generated/beacon-api';
-import { useAiActorsQuery, ACTOR_STATUS_LABEL } from './queries';
+import { useAiActorsQuery, ACTOR_STATUS_LABEL, type AiActorListItem } from './queries';
 import { CreateAiActorDialog } from './CreateAiActorDialog';
 
 const GRID_TEMPLATE = '0.6fr 1.6fr 2fr 1fr 0.7fr 1fr 1fr';

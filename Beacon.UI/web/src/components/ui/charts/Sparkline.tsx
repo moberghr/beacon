@@ -1,3 +1,5 @@
+import { useId } from 'react';
+
 export interface SparklineProps {
   points: number[];
   color?: string;
@@ -17,6 +19,7 @@ export function Sparkline({
   width = 88,
   height = 28,
 }: SparklineProps) {
+  const id = useId();
   if (!points || points.length === 0) {
     return <svg width={width} height={height} />;
   }
@@ -27,7 +30,6 @@ export function Sparkline({
   const coords = points.map((v, i) => [i * step, height - ((v - min) / range) * (height - 4) - 2]);
   const d = coords.map((c, i) => (i ? 'L' : 'M') + c[0].toFixed(1) + ' ' + c[1].toFixed(1)).join(' ');
   const area = d + ` L ${width} ${height} L 0 ${height} Z`;
-  const id = 'sg-' + color.replace(/[^a-z0-9]/gi, '').slice(0, 8) + '-' + points.length;
   return (
     <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" width={width} height={height}>
       <defs>

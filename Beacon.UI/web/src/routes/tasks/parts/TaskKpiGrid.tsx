@@ -27,7 +27,7 @@ export function TaskKpiGrid({
         dot="ok"
         label="Executions"
         value={executionCount.toLocaleString()}
-        sub={executionCount === 1 ? '1 succeeded' : `${executionCount} runs`}
+        sub={executionCount === 1 ? '1 run' : `${executionCount} runs`}
       />
       <KPI
         dot="warn"

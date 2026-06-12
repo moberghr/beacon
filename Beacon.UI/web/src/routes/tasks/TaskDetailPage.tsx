@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { AlertTriangle } from 'lucide-react';
 import { EmptyState } from '@/components/data/EmptyState';
 import { useAuth } from '@/auth/useAuth';
@@ -30,7 +30,6 @@ const COMMENT_TEXTAREA_ID = 'investigation-log-textarea';
 export default function TaskDetailPage() {
   const params = useParams<{ id: string }>();
   const id = Number(params.id);
-  const navigate = useNavigate();
   const [resolveOpen, setResolveOpen] = useState(false);
   const [tab, setTab] = useState<TabKey>('activity');
 
@@ -189,10 +188,7 @@ export default function TaskDetailPage() {
       <ResolveTaskDialog
         open={resolveOpen}
         taskId={task.id}
-        onClose={() => {
-          setResolveOpen(false);
-          navigate(`/tasks/${task.id}`, { replace: true });
-        }}
+        onClose={() => setResolveOpen(false)}
       />
     </div>
   );

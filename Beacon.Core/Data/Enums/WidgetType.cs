@@ -7,5 +7,6 @@ public enum WidgetType
     BarChart = 3,
     PieChart = 4,
     Table = 5,
-    Gauge = 6
+    Gauge = 6,
+    Mermaid = 7
 }

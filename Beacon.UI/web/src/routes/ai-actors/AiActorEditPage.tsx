@@ -4,12 +4,23 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { AlertTriangle, BookOpen, Bot, Layers } from 'lucide-react';
 import { beaconApi } from '@/api/client';
-import type { RefineAiActorResult, PauseAiActorResult, ResumeAiActorResult } from '@/api/generated/beacon-api';
 import { Button, Card, CardBody, Field, PageHeader, Textarea } from '@/components/beacon';
 import { EmptyState } from '@/components/data/EmptyState';
-import { describeError } from '@/lib/api';
+import { describeError, unwrap } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 import { useAiActorDetailsQuery, ACTOR_STATUS_LABEL } from './queries';
+
+// Local strict result shapes bridged via unwrap<T>() — only the fields this
+// page consumes. See src/lib/api.ts.
+interface RefineAiActorResult {
+  success: boolean;
+  errorMessage: string | null;
+}
+
+interface ActorStateChangeResult {
+  success: boolean;
+  actorId: number;
+}
 
 const STATUS = {
   Draft: 0,
@@ -22,7 +33,8 @@ const STATUS = {
 function useRefineActor() {
   const qc = useQueryClient();
   return useMutation<RefineAiActorResult, unknown, { id: number; feedback: string }>({
-    mutationFn: ({ id, feedback }) => beaconApi().refineAiActor(id, { feedback }),
+    mutationFn: async ({ id, feedback }) =>
+      unwrap<RefineAiActorResult>(await beaconApi().refineAiActor(id, { feedback })),
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ['ai-actor', vars.id] });
     },
@@ -31,16 +43,16 @@ function useRefineActor() {
 
 function usePauseActor() {
   const qc = useQueryClient();
-  return useMutation<PauseAiActorResult, unknown, number>({
-    mutationFn: id => beaconApi().pauseAiActor(id),
+  return useMutation<ActorStateChangeResult, unknown, number>({
+    mutationFn: async id => unwrap<ActorStateChangeResult>(await beaconApi().pauseAiActor(id)),
     onSuccess: (_data, id) => qc.invalidateQueries({ queryKey: ['ai-actor', id] }),
   });
 }
 
 function useResumeActor() {
   const qc = useQueryClient();
-  return useMutation<ResumeAiActorResult, unknown, number>({
-    mutationFn: id => beaconApi().resumeAiActor(id),
+  return useMutation<ActorStateChangeResult, unknown, number>({
+    mutationFn: async id => unwrap<ActorStateChangeResult>(await beaconApi().resumeAiActor(id)),
     onSuccess: (_data, id) => qc.invalidateQueries({ queryKey: ['ai-actor', id] }),
   });
 }
@@ -86,7 +98,7 @@ export default function AiActorEditPage() {
         toast.error(result.errorMessage ?? 'Refinement failed');
       }
     } catch (err) {
-            toast.error(describeError(err, 'Request failed'));
+      toast.error(describeError(err, 'Request failed'));
     }
   };
 
@@ -100,7 +112,7 @@ export default function AiActorEditPage() {
         toast.success('Actor paused');
       }
     } catch (err) {
-            toast.error(describeError(err, 'Request failed'));
+      toast.error(describeError(err, 'Request failed'));
     }
   };
 

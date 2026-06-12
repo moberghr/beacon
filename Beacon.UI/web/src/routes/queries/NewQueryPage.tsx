@@ -30,13 +30,12 @@ import {
   Kbd,
 } from '@/components/beacon';
 import { InputPromptDialog } from '@/components/ui/InputPromptDialog';
-import { NewStepEditorWithExplorer } from './new/NewStepEditorWithExplorer';
+import { StepEditorWithExplorer } from './parts/StepEditorWithExplorer';
 import { InfoRow, CheckRow, type CheckTone } from './new/atoms';
 import { useDataSourcesQuery } from '@/routes/data-sources/queries';
+import { ParameterType } from '@/lib/enums';
 import {
-  PARAMETER_TYPE,
   PARAMETER_TYPE_LABEL,
-  type ParameterTypeId,
   type UpdateQueryStepPayload,
   type UpdateQueryStepParameterPayload,
   useCreateQuery,
@@ -56,9 +55,10 @@ interface DraftStep {
 
 interface DraftParameter {
   name: string;
-  type: ParameterTypeId;
+  type: ParameterType;
   description: string | null;
   placeholder: string | null;
+  isManual?: boolean;
 }
 
 import { detectParameters } from './helpers/parameters';
@@ -107,7 +107,9 @@ export default function NewQueryPage() {
   const dataSources = useDataSourcesQuery();
   const create = useCreateQuery();
   const [createdId, setCreatedId] = useState<number | null>(null);
-  const update = useUpdateQueryMutation(createdId ?? undefined);
+  // Takes the target id from the payload, so updating the just-created query
+  // works in the same render pass (no stale-closure id).
+  const update = useUpdateQueryMutation();
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -228,9 +230,10 @@ export default function NewQueryPage() {
             ...s.parameters,
             {
               name: cleaned,
-              type: PARAMETER_TYPE.String,
+              type: ParameterType.String,
               description: null,
               placeholder: `{${cleaned}}`,
+              isManual: true,
             },
           ],
         };
@@ -492,8 +495,9 @@ export default function NewQueryPage() {
                               </>
                             )}
                           </div>
-                          <NewStepEditorWithExplorer
-                            draftId={step.draftId}
+                          <StepEditorWithExplorer
+                            editorId={`new-step-${step.draftId}-sql`}
+                            height={280}
                             dataSourceId={step.dataSourceId}
                             sqlValue={step.sqlValue}
                             onSqlChange={sql => onSqlChange(step.draftId, sql)}
@@ -524,7 +528,7 @@ export default function NewQueryPage() {
                                 <select
                                   value={p.type}
                                   onChange={e => {
-                                    const nextType = Number(e.target.value) as ParameterTypeId;
+                                    const nextType = Number(e.target.value) as ParameterType;
                                     updateStep(step.draftId, {
                                       parameters: step.parameters.map(x =>
                                         x.name === p.name ? { ...x, type: nextType } : x,

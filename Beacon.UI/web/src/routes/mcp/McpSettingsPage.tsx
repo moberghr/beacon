@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useForm } from 'react-hook-form';
+import { useForm, type FieldErrors } from 'react-hook-form';
 import { useQuery } from '@tanstack/react-query';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -20,7 +20,6 @@ import { unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
 import { useProjectsQuery } from '@/routes/projects/queries';
 import {
-  describeMcpError,
   useMcpSettings,
   useUpdateMcpSettings,
   type McpSettingsData,
@@ -46,6 +45,27 @@ const SCHEMA = z.object({
 
 type FormValues = z.infer<typeof SCHEMA>;
 type TabKey = 'prompt' | 'tools' | 'guardrails' | 'context';
+
+// Which tab each form field lives on — used to surface the tab containing the
+// first validation error on a failed submit (errors on a hidden tab would
+// otherwise make Save look silently dead).
+const FIELD_TAB: Record<keyof FormValues, TabKey> = {
+  askSystemPrompt: 'prompt',
+  globalInstruction: 'prompt',
+  getContextDescription: 'tools',
+  queryDescription: 'tools',
+  getDocumentationDescription: 'tools',
+  askDescription: 'tools',
+  searchDescription: 'tools',
+  maxRowLimit: 'guardrails',
+  enforceReadOnly: 'guardrails',
+  enablePiiDetection: 'guardrails',
+  customPiiPatternsText: 'guardrails',
+  enableLearning: 'guardrails',
+  learningAutoApproveThreshold: 'guardrails',
+  learningInjectionBudgetChars: 'guardrails',
+  learningSignalRetentionDays: 'guardrails',
+};
 
 export default function McpSettingsPage() {
   const isAdmin = useIsAdmin();
@@ -84,6 +104,8 @@ function McpSettingsForm() {
     if (data) form.reset(settingsToForm(data));
   }, [data, form]);
 
+  const { errors } = form.formState;
+
   function onSubmit(values: FormValues) {
     // Blank/whitespace-only nullable text fields must round-trip back to null so
     // the backend's `?? default` fallback keeps working — saving '' would wipe
@@ -113,8 +135,15 @@ function McpSettingsForm() {
     };
     updateMutation.mutate(payload, {
       onSuccess: () => toast.success('MCP settings saved.'),
-      onError: err => toast.error(describeMcpError(err, 'Save failed')),
     });
+  }
+
+  function onInvalid(errs: FieldErrors<FormValues>) {
+    const firstField = Object.keys(errs)[0] as keyof FormValues | undefined;
+    if (firstField && FIELD_TAB[firstField]) {
+      setTab(FIELD_TAB[firstField]);
+    }
+    toast.error('Fix the validation errors before saving.');
   }
 
   if (isLoading) {
@@ -135,7 +164,7 @@ function McpSettingsForm() {
 
   return (
     <div className="flex flex-col gap-5 p-7">
-      <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-4">
+      <form onSubmit={form.handleSubmit(onSubmit, onInvalid)} className="flex flex-col gap-4">
         <PageHeader
           variant="signal"
           eyebrow="MCP"
@@ -203,11 +232,15 @@ function McpSettingsForm() {
 
           {tab === 'guardrails' && (
             <div className="flex flex-col gap-3">
-              <Field label="Max row limit">
+              <Field
+                label="Max row limit"
+                hint={errors.maxRowLimit?.message ? <span className="text-crit">{errors.maxRowLimit.message}</span> : undefined}
+              >
                 <Input
                   type="number"
                   min={1}
                   max={100000}
+                  aria-invalid={!!errors.maxRowLimit}
                   {...form.register('maxRowLimit', { valueAsNumber: true })}
                 />
               </Field>
@@ -233,26 +266,38 @@ function McpSettingsForm() {
                 <input type="checkbox" {...form.register('enableLearning')} />
                 Enable learning
               </label>
-              <Field label="Auto-approve threshold (0–1)">
+              <Field
+                label="Auto-approve threshold (0–1)"
+                hint={errors.learningAutoApproveThreshold?.message ? <span className="text-crit">{errors.learningAutoApproveThreshold.message}</span> : undefined}
+              >
                 <Input
                   type="number"
                   step={0.05}
                   min={0}
                   max={1}
+                  aria-invalid={!!errors.learningAutoApproveThreshold}
                   {...form.register('learningAutoApproveThreshold', { valueAsNumber: true })}
                 />
               </Field>
-              <Field label="Injection budget (chars)">
+              <Field
+                label="Injection budget (chars)"
+                hint={errors.learningInjectionBudgetChars?.message ? <span className="text-crit">{errors.learningInjectionBudgetChars.message}</span> : undefined}
+              >
                 <Input
                   type="number"
                   min={0}
+                  aria-invalid={!!errors.learningInjectionBudgetChars}
                   {...form.register('learningInjectionBudgetChars', { valueAsNumber: true })}
                 />
               </Field>
-              <Field label="Signal retention (days)">
+              <Field
+                label="Signal retention (days)"
+                hint={errors.learningSignalRetentionDays?.message ? <span className="text-crit">{errors.learningSignalRetentionDays.message}</span> : undefined}
+              >
                 <Input
                   type="number"
                   min={0}
+                  aria-invalid={!!errors.learningSignalRetentionDays}
                   {...form.register('learningSignalRetentionDays', { valueAsNumber: true })}
                 />
               </Field>

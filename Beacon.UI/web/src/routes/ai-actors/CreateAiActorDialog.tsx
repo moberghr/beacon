@@ -2,10 +2,8 @@ import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { toast } from 'sonner';
 import { StepperDialog, type StepperDialogStep } from '@/components/ui/StepperDialog';
 import { Field, Input, Select, Textarea } from '@/components/beacon';
-import { describeError } from '@/lib/api';
 import { useDataSourcesQuery } from '@/routes/data-sources/queries';
 import { useCreateAiActor } from './queries';
 
@@ -37,7 +35,7 @@ interface CreateAiActorDialogProps {
 
 export function CreateAiActorDialog({ open, onClose, initialDataSourceId }: CreateAiActorDialogProps) {
   const dsQuery = useDataSourcesQuery();
-  const createMutation = useCreateAiActor(initialDataSourceId);
+  const createMutation = useCreateAiActor();
 
   const form = useForm<FormValues>({
     resolver: zodResolver(SCHEMA),
@@ -70,8 +68,9 @@ export function CreateAiActorDialog({ open, onClose, initialDataSourceId }: Crea
         activateImmediately: v.activateImmediately,
       });
       onClose();
-    } catch (err) {
-            toast.error(describeError(err, 'Request failed'));
+    } catch {
+      // createSimpleMutation already surfaced the error toast — keep the
+      // dialog open so the user can retry.
     }
   };
 

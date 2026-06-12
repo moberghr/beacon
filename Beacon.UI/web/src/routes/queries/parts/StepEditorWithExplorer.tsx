@@ -1,31 +1,34 @@
 import { useRef } from 'react';
 import { SqlEditor, type MonacoEditorLike } from '@/components/ui/SqlEditor';
 import { DatabaseExplorer } from '@/components/ui/DatabaseExplorer';
-import { useDataSourceMetadataQuery } from '../../data-sources/queries';
+import { useDataSourceMetadataQuery } from '@/routes/data-sources/queries';
 
-export interface NewStepEditorWithExplorerProps {
-  draftId: number;
+export interface StepEditorWithExplorerProps {
+  /** Unique DOM id for the underlying Monaco editor instance. */
+  editorId: string;
   dataSourceId: number;
   sqlValue: string;
   onSqlChange: (sql: string) => void;
   parameterNames: string[];
   crossStepResultCount: number;
+  height?: number;
 }
 
 /**
- * SQL editor + schema explorer pair used inside the multi-step
- * "create query" flow. Owns its own Monaco ref so the explorer can
- * insert text at the editor cursor. Schema metadata is fetched lazily
- * per data source (TanStack Query handles dedupe + caching).
+ * SQL editor + schema explorer pair shared by the query editor and the
+ * "create query" flow. Owns its own Monaco ref so the explorer can insert
+ * text at the editor cursor. Schema metadata is fetched lazily per data
+ * source (TanStack Query handles dedupe + caching).
  */
-export function NewStepEditorWithExplorer({
-  draftId,
+export function StepEditorWithExplorer({
+  editorId,
   dataSourceId,
   sqlValue,
   onSqlChange,
   parameterNames,
   crossStepResultCount,
-}: NewStepEditorWithExplorerProps) {
+  height = 320,
+}: StepEditorWithExplorerProps) {
   const editorRef = useRef<MonacoEditorLike | null>(null);
   const metadataQuery = useDataSourceMetadataQuery(dataSourceId > 0 ? dataSourceId : null);
 
@@ -54,14 +57,14 @@ export function NewStepEditorWithExplorer({
       <DatabaseExplorer dataSourceId={dataSourceId} onInsert={insertAtCursor} />
       <div className="min-w-0 flex flex-col">
         <SqlEditor
-          id={`new-step-${draftId}-sql`}
-          height={280}
+          id={editorId}
+          height={height}
           value={sqlValue}
           onChange={onSqlChange}
           metadata={metadataQuery.data ?? null}
           parameterNames={parameterNames}
           crossStepResultCount={crossStepResultCount}
-          onEditorReady={(editor) => {
+          onEditorReady={editor => {
             editorRef.current = editor;
           }}
         />

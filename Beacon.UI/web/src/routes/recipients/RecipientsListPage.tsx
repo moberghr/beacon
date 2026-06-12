@@ -5,7 +5,6 @@ import { Button, PageHeader, Pill } from '@/components/beacon';
 import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { describeError } from '@/lib/api';
 import { formatNumber } from '@/lib/format';
 import {
   NOTIFICATION_TYPE_LABEL,
@@ -85,8 +84,8 @@ export default function RecipientsListPage() {
       await deleteMutation.mutateAsync(deleting.id);
       toast.success(`Deleted recipient '${deleting.name}'`);
       setDeleting(null);
-    } catch (err) {
-            toast.error(describeError(err, 'Delete failed'));
+    } catch {
+      // useDeleteRecipient (createSimpleMutation) already toasts the error.
     }
   };
 

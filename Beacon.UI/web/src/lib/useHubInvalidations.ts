@@ -11,7 +11,7 @@ type HubEventName = 'ApprovalUpdated' | 'JobStatusChanged' | 'NotificationCreate
  */
 const INVALIDATIONS: Record<HubEventName, ReadonlyArray<QueryKey>> = {
   ApprovalUpdated: [['approvals']],
-  JobStatusChanged: [['control-tower']],
+  JobStatusChanged: [['control-tower'], ['migration-jobs'], ['migration-executions']],
   NotificationCreated: [['control-tower'], ['notifications']],
 };
 

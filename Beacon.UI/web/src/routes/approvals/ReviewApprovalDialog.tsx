@@ -1,11 +1,10 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
 import { Dialog } from '@/components/ui/Dialog';
 import { Button, Field, Textarea } from '@/components/beacon';
-import { describeError } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 import {
   useApprovalDetailQuery,
@@ -30,6 +29,10 @@ export function ReviewApprovalDialog({ open, approvalId, onClose }: ReviewApprov
   const approve = useApproveQueryChange();
   const reject = useRejectQueryChange();
 
+  // Both footer buttons submit the form so the comment always passes RHF/zod
+  // validation (max 2000 chars); the clicked button records the intent here.
+  const actionRef = useRef<'approve' | 'reject'>('approve');
+
   const {
     register,
     handleSubmit,
@@ -44,11 +47,11 @@ export function ReviewApprovalDialog({ open, approvalId, onClose }: ReviewApprov
     if (open) reset({ comment: '' });
   }, [open, approvalId, reset]);
 
-  const handleAction = async (action: 'approve' | 'reject') => {
+  const onSubmit = handleSubmit(async values => {
     if (approvalId == null) return;
-    const comment = (document.getElementById('approval-comment') as HTMLTextAreaElement | null)?.value.trim() || null;
+    const comment = values.comment?.trim() || null;
     try {
-      if (action === 'approve') {
+      if (actionRef.current === 'approve') {
         await approve.mutateAsync({ id: approvalId, comment });
         toast.success('Approval granted');
       } else {
@@ -56,12 +59,10 @@ export function ReviewApprovalDialog({ open, approvalId, onClose }: ReviewApprov
         toast.success('Approval rejected');
       }
       onClose();
-    } catch (err) {
-            toast.error(describeError(err, 'Action failed'));
+    } catch {
+      // useApprove/RejectQueryChange (createSimpleMutation) already toast the error.
     }
-  };
-
-  const onSubmit = handleSubmit(() => handleAction('approve'));
+  });
 
   const data = detail.data;
   const proposedSql = data?.proposedVersion?.finalQuery;
@@ -78,8 +79,10 @@ export function ReviewApprovalDialog({ open, approvalId, onClose }: ReviewApprov
         <>
           <Button onClick={onClose} disabled={busy}>Cancel</Button>
           <Button
+            type="submit"
+            form="review-approval-form"
             variant="danger"
-            onClick={() => handleAction('reject')}
+            onClick={() => { actionRef.current = 'reject'; }}
             disabled={busy || data == null}
           >
             {reject.isPending ? 'Rejecting…' : 'Reject'}
@@ -88,6 +91,7 @@ export function ReviewApprovalDialog({ open, approvalId, onClose }: ReviewApprov
             type="submit"
             form="review-approval-form"
             variant="primary"
+            onClick={() => { actionRef.current = 'approve'; }}
             disabled={busy || data == null}
           >
             {approve.isPending ? 'Approving…' : 'Approve'}
@@ -112,7 +116,7 @@ export function ReviewApprovalDialog({ open, approvalId, onClose }: ReviewApprov
               />
               <KV
                 label="Submitted at"
-                value={data.createdTime ? formatDateTime(data.createdTime as unknown as string) : '—'}
+                value={data.createdTime ? formatDateTime(data.createdTime) : '—'}
               />
               <KV
                 label="Change summary"

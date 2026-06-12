@@ -6,7 +6,6 @@ import { PageHeader, Button, Card, Pill } from '@/components/beacon';
 import { EmptyState } from '@/components/data/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import {
-  describeContractError,
   scoreTone,
   useDataContracts,
   useDataQualityOverview,
@@ -32,12 +31,12 @@ export default function DataQualityPage() {
     if (!deleteTarget) return;
     const name = deleteTarget.name;
     const id = deleteTarget.id;
+    // No onError toast — useDeleteContract (createSimpleMutation) already toasts.
     deleteMutation.mutate(id, {
       onSuccess: () => {
         toast.success(`Deleted contract "${name}".`);
         setDeleteTarget(null);
       },
-      onError: err => toast.error(describeContractError(err, 'Delete failed')),
     });
   }
 

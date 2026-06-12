@@ -1,5 +1,5 @@
 // Beacon sidebar — Tailwind + Beacon design system.
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   Home as IconHome,
@@ -112,6 +112,8 @@ export function Sidebar() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const menuPopRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -121,15 +123,42 @@ export function Sidebar() {
       }
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setMenuOpen(false);
+      if (e.key === 'Escape') {
+        setMenuOpen(false);
+        triggerRef.current?.focus();
+      }
     };
     document.addEventListener('mousedown', onDown);
     document.addEventListener('keydown', onKey);
+    // Move focus into the menu on open.
+    const items = menuPopRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]');
+    items?.[0]?.focus();
     return () => {
       document.removeEventListener('mousedown', onDown);
       document.removeEventListener('keydown', onKey);
     };
   }, [menuOpen]);
+
+  const onMenuKeyDown = (e: ReactKeyboardEvent) => {
+    const items = Array.from(
+      menuPopRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [],
+    );
+    if (items.length === 0) return;
+    const currentIndex = items.indexOf(document.activeElement as HTMLElement);
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      items[(currentIndex + 1) % items.length].focus();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      items[(currentIndex - 1 + items.length) % items.length].focus();
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      items[0].focus();
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      items[items.length - 1].focus();
+    }
+  };
 
   const handleSignOut = async () => {
     if (signingOut) return;
@@ -194,12 +223,15 @@ export function Sidebar() {
       <div className="border-t border-border px-2 py-2 relative" ref={menuRef}>
         {menuOpen && (
           <div
+            ref={menuPopRef}
             role="menu"
+            onKeyDown={onMenuKeyDown}
             className="absolute bottom-full left-2 right-2 mb-1 rounded-sm border border-border bg-surface shadow-lg py-1 z-50"
           >
             <Link
               to="/settings"
               role="menuitem"
+              tabIndex={-1}
               onClick={() => setMenuOpen(false)}
               className="flex items-center gap-2 px-2.5 py-1.5 text-sm text-text hover:bg-surface-2"
             >
@@ -209,6 +241,7 @@ export function Sidebar() {
             <button
               type="button"
               role="menuitem"
+              tabIndex={-1}
               onClick={handleSignOut}
               disabled={signingOut}
               className="w-full flex items-center gap-2 px-2.5 py-1.5 text-sm text-text hover:bg-surface-2 disabled:opacity-60 text-left"
@@ -219,6 +252,7 @@ export function Sidebar() {
           </div>
         )}
         <button
+          ref={triggerRef}
           type="button"
           aria-haspopup="menu"
           aria-expanded={menuOpen}

@@ -3,25 +3,19 @@ import { Link, useParams } from 'react-router-dom';
 import { AlertTriangle, Bell } from 'lucide-react';
 import { Card, CardBody, PageHeader, Pill, type PillProps } from '@/components/beacon';
 import { EmptyState } from '@/components/data/EmptyState';
+import { NotificationStatus } from '@/lib/enums';
 import { formatDateTime, formatNumber } from '@/lib/format';
+import { NOTIFICATION_TYPE_LABEL } from '@/routes/recipients/queries';
 import { useNotificationDetailQuery } from './queries';
 
 const STATUS_LABELS: Record<number, { label: string; tone: PillProps['tone'] }> = {
-  1: { label: 'Created', tone: 'neutral' },
-  2: { label: 'Sent', tone: 'ok' },
-  3: { label: 'Silenced', tone: 'neutral' },
-  4: { label: 'No results', tone: 'warn' },
-  5: { label: 'Timeout', tone: 'crit' },
-  6: { label: 'Below threshold', tone: 'neutral' },
-  7: { label: 'Failed', tone: 'crit' },
-};
-
-const TYPE_LABELS: Record<number, string> = {
-  1: 'Teams',
-  2: 'Email',
-  3: 'Jira',
-  4: 'Slack',
-  5: 'Webhook',
+  [NotificationStatus.Created]: { label: 'Created', tone: 'neutral' },
+  [NotificationStatus.NotificationSent]: { label: 'Sent', tone: 'ok' },
+  [NotificationStatus.NotificationSilenced]: { label: 'Silenced', tone: 'neutral' },
+  [NotificationStatus.NoResults]: { label: 'No results', tone: 'warn' },
+  [NotificationStatus.Timeout]: { label: 'Timeout', tone: 'crit' },
+  [NotificationStatus.BelowThreshold]: { label: 'Below threshold', tone: 'neutral' },
+  [NotificationStatus.Failed]: { label: 'Failed', tone: 'crit' },
 };
 
 interface ParsedResults {
@@ -99,7 +93,7 @@ export default function NotificationDetailPage() {
   }
 
   const status = STATUS_LABELS[entry.status] ?? { label: String(entry.status), tone: 'neutral' as const };
-  const typeLabel = TYPE_LABELS[entry.type] ?? String(entry.type);
+  const typeLabel = NOTIFICATION_TYPE_LABEL[entry.type] ?? String(entry.type);
 
   return (
     <div className="flex flex-col gap-5 p-7">

@@ -26,13 +26,19 @@ interface BuildBadgeProps {
  * agree on what's deployed.
  */
 export function BuildBadge({ className }: BuildBadgeProps) {
-  const date = formatBuildDate(BUILD_DATE);
+  // Build-time env vars may be missing (e.g. dev shells without git) —
+  // fall back to a "dev" badge instead of rendering "undefined · undefined".
+  if (!COMMIT_SHA && !BUILD_DATE) {
+    return <span className={cn('text-2xs mono text-text-subtle', className)}>dev</span>;
+  }
+  const sha = COMMIT_SHA || 'dev';
+  const date = BUILD_DATE ? formatBuildDate(BUILD_DATE) : 'unknown';
   return (
     <span
       className={cn('text-2xs mono text-text-subtle', className)}
-      title={`Build ${COMMIT_SHA} · ${BUILD_DATE}`}
+      title={`Build ${sha} · ${BUILD_DATE || 'unknown build date'}`}
     >
-      {COMMIT_SHA} · {date}
+      {sha} · {date}
     </span>
   );
 }

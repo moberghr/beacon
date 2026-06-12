@@ -1,29 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { describeError, unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
+import { McpDocPatchStatus, McpPatternStatus, McpPatternType } from '@/lib/enums';
 import { createSimpleMutation } from '@/lib/mutations';
-
-// Mirror enums from Beacon.Core.Data.Enums
-export const McpPatternStatus = {
-  Pending: 0,
-  Approved: 1,
-  Rejected: 2,
-  AutoApproved: 3,
-} as const;
-
-export const McpPatternType = {
-  CommonQuery: 0,
-  TableUsage: 1,
-  ColumnHint: 2,
-  JoinPattern: 3,
-  ValueDictionary: 4,
-} as const;
-
-export const McpDocPatchStatus = {
-  Proposed: 0,
-  Applied: 1,
-  Rejected: 2,
-} as const;
 
 export const PATTERN_STATUS_LABEL: Record<number, string> = {
   [McpPatternStatus.Pending]: 'Pending',
@@ -34,10 +13,11 @@ export const PATTERN_STATUS_LABEL: Record<number, string> = {
 
 export const PATTERN_TYPE_LABEL: Record<number, string> = {
   [McpPatternType.CommonQuery]: 'Common query',
-  [McpPatternType.TableUsage]: 'Table usage',
-  [McpPatternType.ColumnHint]: 'Column hint',
+  [McpPatternType.ColumnClarification]: 'Column clarification',
   [McpPatternType.JoinPattern]: 'Join pattern',
-  [McpPatternType.ValueDictionary]: 'Value dictionary',
+  [McpPatternType.SchemaCorrection]: 'Schema correction',
+  [McpPatternType.BusinessTermMapping]: 'Business term mapping',
+  [McpPatternType.DocumentationGap]: 'Documentation gap',
 };
 
 export const PATCH_STATUS_LABEL: Record<number, string> = {

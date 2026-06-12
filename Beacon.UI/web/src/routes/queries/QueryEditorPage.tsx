@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   AlertTriangle,
@@ -26,16 +26,10 @@ import {
   Select,
 } from '@/components/beacon';
 import { EmptyState } from '@/components/data/EmptyState';
-import { SqlEditor, type MonacoEditorLike } from '@/components/ui/SqlEditor';
-import { DatabaseExplorer } from '@/components/ui/DatabaseExplorer';
+import { useDataSourcesQuery } from '@/routes/data-sources/queries';
+import { ParameterType } from '@/lib/enums';
 import {
-  useDataSourceMetadataQuery,
-  useDataSourcesQuery,
-} from '@/routes/data-sources/queries';
-import {
-  PARAMETER_TYPE,
   PARAMETER_TYPE_LABEL,
-  type ParameterTypeId,
   type ParameterValueInput,
   type QueryDetail,
   type QueryStep,
@@ -50,6 +44,7 @@ import {
 } from './queries';
 import { StepParameterDialog } from './parts/StepParameterDialog';
 import { PreviewResultsCard } from './parts/PreviewResultsCard';
+import { StepEditorWithExplorer } from './parts/StepEditorWithExplorer';
 import { detectParameters as detectParametersShared } from './helpers/parameters';
 
 interface EditorState {
@@ -75,7 +70,7 @@ interface EditorStep {
 
 interface EditorParameter {
   name: string;
-  type: ParameterTypeId;
+  type: ParameterType;
   description: string | null;
   placeholder: string | null;
 }
@@ -109,7 +104,7 @@ function stepFromWire(s: QueryStep): EditorStep {
     databaseEngineType: s.databaseEngineType,
     parameters: s.parameters.map(p => ({
       name: p.name,
-      type: (p.type as ParameterTypeId) ?? PARAMETER_TYPE.String,
+      type: (p.type as ParameterType) ?? ParameterType.String,
       description: p.description,
       placeholder: p.placeholder,
     })),
@@ -152,7 +147,7 @@ export default function QueryEditorPage() {
 
   const detail = useQueryDetailQuery(validId);
   const dataSources = useDataSourcesQuery();
-  const update = useUpdateQueryMutation(validId);
+  const update = useUpdateQueryMutation();
   const previewStep = usePreviewStepMutation(validId);
   const previewQuery = usePreviewQueryMutation(validId);
 
@@ -291,13 +286,17 @@ export default function QueryEditorPage() {
   };
 
   // Save, then re-seed local state from the refetched detail so server-assigned
-  // ids (new steps start as stepId 0) land in state and `dirty` resets.
+  // ids (new steps start as stepId 0) land in state and `dirty` resets. If the
+  // user kept typing during the round-trip the state object identity changed —
+  // skip the reset in that case so their keystrokes aren't discarded.
   const save = async () => {
     if (validId == null) return;
+    const stateAtSave = state;
     await update.mutateAsync(toPayload(state, validId));
     const fresh = await detail.refetch();
     if (fresh.data) {
-      setState(fromDetail(fresh.data));
+      const freshState = fromDetail(fresh.data);
+      setState(prev => (prev === stateAtSave ? freshState : prev));
     }
   };
 
@@ -311,31 +310,47 @@ export default function QueryEditorPage() {
       setParamDialog({ stepOrder: step.stepOrder, parameters: step.parameters });
       return;
     }
-    await saveIfDirty();
-    const result = await previewStep.mutateAsync({ stepOrder: step.stepOrder });
-    setStepResult(result);
-    setQueryResult(null);
+    try {
+      await saveIfDirty();
+      const result = await previewStep.mutateAsync({ stepOrder: step.stepOrder });
+      setStepResult(result);
+      setQueryResult(null);
+    } catch {
+      // Error toasts already raised by the mutation hooks.
+    }
   };
 
   const onParamSubmit = async (values: ParameterValueInput[]) => {
     if (!paramDialog) return;
     const stepOrder = paramDialog.stepOrder;
     setParamDialog(null);
-    await saveIfDirty();
-    const result = await previewStep.mutateAsync({ stepOrder, parameters: values });
-    setStepResult(result);
-    setQueryResult(null);
+    try {
+      await saveIfDirty();
+      const result = await previewStep.mutateAsync({ stepOrder, parameters: values });
+      setStepResult(result);
+      setQueryResult(null);
+    } catch {
+      // Error toasts already raised by the mutation hooks.
+    }
   };
 
   const onRunQuery = async () => {
-    await saveIfDirty();
-    const result = await previewQuery.mutateAsync();
-    setQueryResult(result);
-    setStepResult(null);
+    try {
+      await saveIfDirty();
+      const result = await previewQuery.mutateAsync();
+      setQueryResult(result);
+      setStepResult(null);
+    } catch {
+      // Error toasts already raised by the mutation hooks.
+    }
   };
 
   const onSave = async () => {
-    await save();
+    try {
+      await save();
+    } catch {
+      // Error toast already raised by the update mutation hook.
+    }
   };
 
   return (
@@ -471,7 +486,7 @@ export default function QueryEditorPage() {
                           )}
                         </div>
                         <StepEditorWithExplorer
-                          stepOrder={step.stepOrder}
+                          editorId={`step-${step.stepOrder}-sql`}
                           dataSourceId={step.dataSourceId}
                           sqlValue={step.sqlValue}
                           onSqlChange={sql => onSqlChange(step.stepOrder, sql)}
@@ -500,7 +515,7 @@ export default function QueryEditorPage() {
                                   className="mt-1.5 text-xs"
                                   value={p.type}
                                   onChange={e => {
-                                    const nextType = Number(e.target.value) as ParameterTypeId;
+                                    const nextType = Number(e.target.value) as ParameterType;
                                     updateStep(step.stepOrder, {
                                       parameters: step.parameters.map(x =>
                                         x.name === p.name ? { ...x, type: nextType } : x,
@@ -590,67 +605,6 @@ export default function QueryEditorPage() {
         onClose={() => setParamDialog(null)}
         onSubmit={onParamSubmit}
       />
-    </div>
-  );
-}
-
-interface StepEditorWithExplorerProps {
-  stepOrder: number;
-  dataSourceId: number;
-  sqlValue: string;
-  onSqlChange: (sql: string) => void;
-  parameterNames: string[];
-  crossStepResultCount: number;
-}
-
-function StepEditorWithExplorer({
-  stepOrder,
-  dataSourceId,
-  sqlValue,
-  onSqlChange,
-  parameterNames,
-  crossStepResultCount,
-}: StepEditorWithExplorerProps) {
-  const editorRef = useRef<MonacoEditorLike | null>(null);
-  const metadataQuery = useDataSourceMetadataQuery(dataSourceId);
-
-  const insertAtCursor = (text: string) => {
-    const editor = editorRef.current;
-    if (!editor) return;
-    const position = editor.getPosition();
-    if (!position) return;
-    editor.executeEdits('database-explorer', [
-      {
-        range: {
-          startLineNumber: position.lineNumber,
-          startColumn: position.column,
-          endLineNumber: position.lineNumber,
-          endColumn: position.column,
-        },
-        text,
-        forceMoveMarkers: true,
-      },
-    ]);
-    editor.focus();
-  };
-
-  return (
-    <div className="grid gap-0 grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)]">
-      <DatabaseExplorer dataSourceId={dataSourceId} onInsert={insertAtCursor} />
-      <div className="min-w-0 flex flex-col">
-        <SqlEditor
-          id={`step-${stepOrder}-sql`}
-          height={320}
-          value={sqlValue}
-          onChange={onSqlChange}
-          metadata={metadataQuery.data ?? null}
-          parameterNames={parameterNames}
-          crossStepResultCount={crossStepResultCount}
-          onEditorReady={editor => {
-            editorRef.current = editor;
-          }}
-        />
-      </div>
     </div>
   );
 }

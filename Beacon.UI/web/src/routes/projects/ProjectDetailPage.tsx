@@ -1,11 +1,6 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { AlertTriangle, BookOpen, Bot, Database, Folder, GitBranch, Key, Layers } from 'lucide-react';
-import type {
-  ProjectRepositoryEntry,
-  ProjectDataSourceEntry,
-  ProjectDocSectionEntry,
-} from '@/api/generated/beacon-api';
 import { Button, Card, CardBody, KPI, KPIGrid, PageHeader } from '@/components/beacon';
 import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
@@ -14,6 +9,9 @@ import { formatNumber, formatRelativeTime, formatDateTime } from '@/lib/format';
 import {
   useProjectDetailQuery,
   useProjectDocumentationQuery,
+  type ProjectRepositoryEntry,
+  type ProjectDataSourceEntry,
+  type ProjectDocSectionEntry,
 } from './queries';
 import { SetRepositoryTokenDialog } from './SetRepositoryTokenDialog';
 import { EditDocumentationSectionDialog } from './EditDocumentationSectionDialog';
@@ -120,7 +118,9 @@ export default function ProjectDetailPage() {
             <DataTable
               columns={SOURCE_COLUMNS}
               rows={project.dataSources}
-              rowKey={r => r.name}
+              // ProjectDataSourceEntry carries no id on the wire — name+index
+              // keeps keys unique even if two sources share a name.
+              rowKey={(r, idx) => `${r.name}-${idx}`}
               gridTemplate="2fr 1fr 0.6fr"
               empty={
                 <EmptyState

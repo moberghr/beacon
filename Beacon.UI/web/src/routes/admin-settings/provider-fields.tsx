@@ -1,18 +1,15 @@
-import { useState, type ReactNode } from 'react';
-import { Controller, type Control, type FieldErrors, type UseFormRegister, type UseFormSetValue } from 'react-hook-form';
+import { useEffect, useState, type ReactNode } from 'react';
+import { Controller, useWatch, type Control, type FieldErrors, type UseFormRegister, type UseFormSetValue } from 'react-hook-form';
 import { Bot, CheckCircle2, Cloud, Loader2, Server, Sparkles, XCircle, type LucideIcon } from 'lucide-react';
 import { Banner, Button, Card, CardBody, Field, Input, Pill, Select, Seg } from '@/components/beacon';
 import { cn } from '@/lib/cn';
+import { AiProvider, BedrockAuthMode } from '@/lib/enums';
 import {
   AI_PROVIDER_LABEL,
-  AiProvider,
   AWS_REGIONS,
-  BedrockAuthMode,
   BEDROCK_AUTH_MODE_LABEL,
   modelsForProvider,
   type AdminSettingsView,
-  type AiProviderId,
-  type BedrockAuthModeId,
   type ModelOption,
 } from './queries';
 import type { FormValues } from './lib/admin-settings-form';
@@ -65,7 +62,7 @@ export function ActiveProviderBanner({ settings }: { settings: AdminSettingsView
 // ─── Provider picker ─────────────────────────────────────────────────
 
 const PROVIDER_CARDS: Array<{
-  id: AiProviderId;
+  id: AiProvider;
   icon: LucideIcon;
   title: string;
   blurb: string;
@@ -80,8 +77,8 @@ export function ProviderPicker({
   value,
   onChange,
 }: {
-  value: AiProviderId;
-  onChange: (id: AiProviderId) => void;
+  value: AiProvider;
+  onChange: (id: AiProvider) => void;
 }) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -130,15 +127,13 @@ export function OpenAiFields({
   register,
   errors,
   modelKnown,
-  currentModel,
-  currentFastModel,
+  control,
   setValue,
 }: {
   register: RegisterFn;
   errors: ErrorsObj;
   modelKnown: boolean;
-  currentModel: string | null;
-  currentFastModel: string | null;
+  control: ControlObj;
   setValue: SetValueFn;
 }) {
   return (
@@ -157,7 +152,7 @@ export function OpenAiFields({
         registerName="llmModel"
         register={register}
         setValue={setValue}
-        currentValue={currentModel}
+        control={control}
         errorMsg={errors.llmModel?.message}
       />
       <ModelPickerField
@@ -166,7 +161,7 @@ export function OpenAiFields({
         registerName="llmFastModel"
         register={register}
         setValue={setValue}
-        currentValue={currentFastModel}
+        control={control}
         errorMsg={errors.llmFastModel?.message}
         hint="Used for cheap/fast classification tasks."
       />
@@ -178,15 +173,13 @@ export function AnthropicFields({
   register,
   errors,
   apiKeySet,
-  currentModel,
-  currentFastModel,
+  control,
   setValue,
 }: {
   register: RegisterFn;
   errors: ErrorsObj;
   apiKeySet: boolean;
-  currentModel: string | null;
-  currentFastModel: string | null;
+  control: ControlObj;
   setValue: SetValueFn;
 }) {
   return (
@@ -205,7 +198,7 @@ export function AnthropicFields({
         registerName="llmModel"
         register={register}
         setValue={setValue}
-        currentValue={currentModel}
+        control={control}
         errorMsg={errors.llmModel?.message}
       />
       <ModelPickerField
@@ -214,7 +207,7 @@ export function AnthropicFields({
         registerName="llmFastModel"
         register={register}
         setValue={setValue}
-        currentValue={currentFastModel}
+        control={control}
         errorMsg={errors.llmFastModel?.message}
       />
     </div>
@@ -276,19 +269,15 @@ export function BedrockFields({
   authMode,
   control,
   setValue,
-  currentModel,
-  currentFastModel,
   accessKeySet,
   secretKeySet,
   sessionTokenSet,
 }: {
   register: RegisterFn;
   errors: ErrorsObj;
-  authMode: BedrockAuthModeId;
+  authMode: BedrockAuthMode;
   control: ControlObj;
   setValue: SetValueFn;
-  currentModel: string | null;
-  currentFastModel: string | null;
   accessKeySet: boolean;
   secretKeySet: boolean;
   sessionTokenSet: boolean;
@@ -296,14 +285,14 @@ export function BedrockFields({
   return (
     <div className="flex flex-col gap-3">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <RegionPickerField register={register} setValue={setValue} errorMsg={errors.llmRegion?.message} />
+        <RegionPickerField register={register} setValue={setValue} control={control} errorMsg={errors.llmRegion?.message} />
         <ModelPickerField
           label="Model"
           options={modelsForProvider(AiProvider.Bedrock)}
           registerName="llmModel"
           register={register}
           setValue={setValue}
-          currentValue={currentModel}
+          control={control}
           errorMsg={errors.llmModel?.message}
         />
         <ModelPickerField
@@ -312,7 +301,7 @@ export function BedrockFields({
           registerName="llmFastModel"
           register={register}
           setValue={setValue}
-          currentValue={currentFastModel}
+          control={control}
           errorMsg={errors.llmFastModel?.message}
           className="md:col-span-2"
         />
@@ -382,30 +371,50 @@ export function BedrockFields({
 
 // ─── Model + region picker (preset list + Custom input fallback) ─────
 
-function ModelPickerField({
+/**
+ * Controlled preset picker bound to the RHF value: what the select displays is
+ * always exactly what the form will save. An empty form value renders an
+ * explicit disabled placeholder; a non-preset value (stale cross-provider
+ * model, custom id) renders as a disabled "(custom)" option instead of
+ * silently displaying the first preset.
+ */
+export function ModelPickerField({
   label,
   options,
   registerName,
   register,
   setValue,
-  currentValue,
+  control,
   errorMsg,
   hint,
   className,
+  placeholder = 'Select a model…',
+  customPlaceholder = 'Custom model id',
 }: {
   label: string;
   options: ModelOption[];
-  registerName: 'llmModel' | 'llmFastModel';
+  registerName: 'llmModel' | 'llmFastModel' | 'llmRegion';
   register: RegisterFn;
   setValue: SetValueFn;
-  currentValue: string | null;
+  control: ControlObj;
   errorMsg?: string;
   hint?: string;
   className?: string;
+  placeholder?: string;
+  customPlaceholder?: string;
 }) {
-  const ids = options.map(x => x.id);
-  const initialKnown = currentValue !== null && ids.includes(currentValue);
-  const [mode, setMode] = useState<'preset' | 'custom'>(currentValue && !initialKnown ? 'custom' : 'preset');
+  const formValue = (useWatch({ control, name: registerName }) as string | undefined) ?? '';
+  const isPreset = options.some(x => x.id === formValue);
+  const [mode, setMode] = useState<'preset' | 'custom'>(formValue !== '' && !isPreset ? 'custom' : 'preset');
+
+  // A reset (settings load) or provider switch can put a non-preset value in
+  // the form while the preset select is shown — flip to the custom input so
+  // the value stays visible and editable.
+  useEffect(() => {
+    if (formValue !== '' && !options.some(x => x.id === formValue)) {
+      setMode('custom');
+    }
+  }, [formValue, options]);
 
   return (
     <Field
@@ -421,9 +430,14 @@ function ModelPickerField({
         <div className="flex gap-2">
           <Select
             className="mono flex-1"
-            defaultValue={currentValue ?? options[0]?.id ?? ''}
-            onChange={e => setValue(registerName, e.currentTarget.value as never, { shouldDirty: true })}
+            value={formValue}
+            onChange={e => setValue(registerName, e.currentTarget.value as never, { shouldDirty: true, shouldValidate: true })}
           >
+            {!isPreset && (
+              <option value={formValue} disabled>
+                {formValue === '' ? placeholder : `${formValue} (custom)`}
+              </option>
+            )}
             {options.map(o => (
               <option key={o.id} value={o.id}>
                 {o.label}{o.hint ? ` — ${o.hint}` : ''}
@@ -434,7 +448,7 @@ function ModelPickerField({
         </div>
       ) : (
         <div className="flex gap-2">
-          <Input className="mono flex-1" type="text" placeholder="Custom model id" {...register(registerName)} />
+          <Input className="mono flex-1" type="text" placeholder={customPlaceholder} {...register(registerName)} />
           <Button type="button" onClick={() => setMode('preset')}>Presets</Button>
         </div>
       )}
@@ -442,40 +456,29 @@ function ModelPickerField({
   );
 }
 
-function RegionPickerField({
+export function RegionPickerField({
   register,
   setValue,
+  control,
   errorMsg,
 }: {
   register: RegisterFn;
   setValue: SetValueFn;
+  control: ControlObj;
   errorMsg?: string;
 }) {
-  const [mode, setMode] = useState<'preset' | 'custom'>('preset');
   return (
-    <Field
+    <ModelPickerField
       label="Region"
-      hint={errorMsg ? <span className="text-crit">{errorMsg}</span> : undefined}
-    >
-      {mode === 'preset' ? (
-        <div className="flex gap-2">
-          <Select
-            className="mono flex-1"
-            onChange={e => setValue('llmRegion', e.currentTarget.value as never, { shouldDirty: true })}
-          >
-            {AWS_REGIONS.map(o => (
-              <option key={o.id} value={o.id}>{o.label}</option>
-            ))}
-          </Select>
-          <Button type="button" onClick={() => setMode('custom')}>Custom</Button>
-        </div>
-      ) : (
-        <div className="flex gap-2">
-          <Input className="mono flex-1" type="text" placeholder="custom-region-1" {...register('llmRegion')} />
-          <Button type="button" onClick={() => setMode('preset')}>Presets</Button>
-        </div>
-      )}
-    </Field>
+      options={AWS_REGIONS}
+      registerName="llmRegion"
+      register={register}
+      setValue={setValue}
+      control={control}
+      errorMsg={errorMsg}
+      placeholder="Select a region…"
+      customPlaceholder="custom-region-1"
+    />
   );
 }
 

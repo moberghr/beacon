@@ -2,7 +2,6 @@ import { useEffect, useMemo } from 'react';
 import { useFieldArray, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { toast } from 'sonner';
 import { Dialog } from '@/components/ui/Dialog';
 import {
   Button,
@@ -14,10 +13,8 @@ import {
 } from '@/components/beacon';
 import { useDataSourcesQuery } from '../data-sources/queries';
 import { useRecipientsQuery } from '../recipients/queries';
+import { DataContractRuleType, DataContractSeverity } from '@/lib/enums';
 import {
-  DataContractRuleType,
-  DataContractSeverity,
-  describeContractError,
   useCreateContract,
   useDataContract,
   useUpdateContract,
@@ -166,6 +163,14 @@ export function CreateDataContractDialog({ editContractId, onClose }: Props) {
 
   const submitting = createMutation.isPending || updateMutation.isPending;
 
+  // In edit mode the form must not render on blank DEFAULTS — submitting an
+  // unhydrated form would wipe the contract's rules and recipients. Gate on
+  // the detail query: spinner while pending, retry on failure, form only
+  // once data has arrived.
+  const editLoading = isEdit && existingQ.data == null && !existingQ.isError;
+  const editFailed = isEdit && existingQ.data == null && existingQ.isError;
+  const formReady = !isEdit || existingQ.data != null;
+
   const recipientOptions = useMemo(
     () => recipientsQ.data?.entries ?? [],
     [recipientsQ.data],
@@ -199,15 +204,14 @@ export function CreateDataContractDialog({ editContractId, onClose }: Props) {
       recipientIds: values.alertOnFailure ? values.recipientIds : null,
     };
 
+    // No onError toast — useCreate/UpdateContract (createSimpleMutation) already toast.
     if (isEdit) {
       updateMutation.mutate(payload, {
         onSuccess: () => onClose(true),
-        onError: err => toast.error(describeContractError(err, 'Update failed')),
       });
     } else {
       createMutation.mutate(payload, {
         onSuccess: () => onClose(true),
-        onError: err => toast.error(describeContractError(err, 'Create failed')),
       });
     }
   };
@@ -227,13 +231,30 @@ export function CreateDataContractDialog({ editContractId, onClose }: Props) {
             variant="primary"
             type="submit"
             form="data-contract-form"
-            disabled={!isValid || submitting}
+            disabled={!isValid || submitting || !formReady}
           >
             {submitting ? 'Saving…' : isEdit ? 'Update' : 'Create'}
           </Button>
         </>
       }
     >
+      {editLoading && (
+        <div className="text-text-muted py-6 text-center">Loading contract…</div>
+      )}
+
+      {editFailed && (
+        <div className="flex flex-col items-start gap-3 py-4">
+          <span className="text-sm text-crit">
+            Failed to load the contract
+            {existingQ.error instanceof Error ? ` — ${existingQ.error.message}` : ''}.
+          </span>
+          <Button type="button" onClick={() => existingQ.refetch()}>
+            Retry
+          </Button>
+        </div>
+      )}
+
+      {formReady && (
       <form id="data-contract-form" onSubmit={handleSubmit(onSubmit)}>
         <div className="flex flex-col gap-3">
           <Field label={<>Contract name {REQ}</>}>
@@ -379,6 +400,7 @@ export function CreateDataContractDialog({ editContractId, onClose }: Props) {
           ))}
         </div>
       </form>
+      )}
     </Dialog>
   );
 }

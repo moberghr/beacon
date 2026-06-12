@@ -12,23 +12,33 @@ import {
 } from '@/components/beacon';
 import { EmptyState } from '@/components/data/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import type { DashboardWidgetData } from '@/api/generated/beacon-api';
-import { useDashboardQuery, useAddWidget, useDeleteWidget, WIDGET_TYPE, WIDGET_TYPE_LABEL } from './queries';
+import {
+  useDashboardQuery,
+  useAddWidget,
+  useDeleteWidget,
+  WIDGET_TYPE_LABEL,
+  type DashboardWidget,
+} from './queries';
+import { WidgetType } from '@/lib/enums';
 
 const WIDGET_TYPE_OPTIONS = [
-  { value: WIDGET_TYPE.KpiCard, label: WIDGET_TYPE_LABEL[WIDGET_TYPE.KpiCard] },
-  { value: WIDGET_TYPE.Chart, label: WIDGET_TYPE_LABEL[WIDGET_TYPE.Chart] },
-  { value: WIDGET_TYPE.Table, label: WIDGET_TYPE_LABEL[WIDGET_TYPE.Table] },
-  { value: WIDGET_TYPE.Gauge, label: WIDGET_TYPE_LABEL[WIDGET_TYPE.Gauge] },
-  { value: WIDGET_TYPE.Mermaid, label: WIDGET_TYPE_LABEL[WIDGET_TYPE.Mermaid] },
+  { value: WidgetType.KpiCard, label: WIDGET_TYPE_LABEL[WidgetType.KpiCard] },
+  { value: WidgetType.LineChart, label: WIDGET_TYPE_LABEL[WidgetType.LineChart] },
+  { value: WidgetType.BarChart, label: WIDGET_TYPE_LABEL[WidgetType.BarChart] },
+  { value: WidgetType.PieChart, label: WIDGET_TYPE_LABEL[WidgetType.PieChart] },
+  { value: WidgetType.Table, label: WIDGET_TYPE_LABEL[WidgetType.Table] },
+  { value: WidgetType.Gauge, label: WIDGET_TYPE_LABEL[WidgetType.Gauge] },
+  { value: WidgetType.Mermaid, label: WIDGET_TYPE_LABEL[WidgetType.Mermaid] },
 ] as const;
 
 const DEFAULT_CONFIGS: Record<number, string> = {
-  [WIDGET_TYPE.KpiCard]: JSON.stringify({ value: 0, unit: '' }, null, 2),
-  [WIDGET_TYPE.Chart]: JSON.stringify({ chartType: 'bar', data: [] }, null, 2),
-  [WIDGET_TYPE.Table]: JSON.stringify({ columns: [], rows: [] }, null, 2),
-  [WIDGET_TYPE.Gauge]: JSON.stringify({ value: 0, max: 100, label: '' }, null, 2),
-  [WIDGET_TYPE.Mermaid]: JSON.stringify({ code: '' }, null, 2),
+  [WidgetType.KpiCard]: JSON.stringify({ value: 0, unit: '' }, null, 2),
+  [WidgetType.LineChart]: JSON.stringify({ chartType: 'line', data: [] }, null, 2),
+  [WidgetType.BarChart]: JSON.stringify({ chartType: 'bar', data: [] }, null, 2),
+  [WidgetType.PieChart]: JSON.stringify({ chartType: 'pie', data: [] }, null, 2),
+  [WidgetType.Table]: JSON.stringify({ columns: [], rows: [] }, null, 2),
+  [WidgetType.Gauge]: JSON.stringify({ value: 0, max: 100, label: '' }, null, 2),
+  [WidgetType.Mermaid]: JSON.stringify({ code: '' }, null, 2),
 };
 
 interface AddWidgetFormState {
@@ -43,8 +53,8 @@ interface AddWidgetFormState {
 
 const INITIAL_FORM: AddWidgetFormState = {
   title: '',
-  widgetType: WIDGET_TYPE.KpiCard,
-  configurationJson: DEFAULT_CONFIGS[WIDGET_TYPE.KpiCard],
+  widgetType: WidgetType.KpiCard,
+  configurationJson: DEFAULT_CONFIGS[WidgetType.KpiCard],
   positionX: 0,
   positionY: 0,
   width: 6,
@@ -87,29 +97,32 @@ export default function DashboardBuilderPage() {
     if (!form.title.trim()) return;
     if (!validateConfig(form.configurationJson)) return;
 
-    await addWidget.mutateAsync({
-      title: form.title.trim(),
-      widgetType: form.widgetType,
-      configurationJson: form.configurationJson,
-      positionX: form.positionX,
-      positionY: form.positionY,
-      width: form.width,
-      height: form.height,
-      refreshIntervalSeconds: null,
-    });
-    setShowAddForm(false);
-    setForm(INITIAL_FORM);
+    try {
+      await addWidget.mutateAsync({
+        title: form.title.trim(),
+        widgetType: form.widgetType,
+        configurationJson: form.configurationJson,
+        positionX: form.positionX,
+        positionY: form.positionY,
+        width: form.width,
+        height: form.height,
+        refreshIntervalSeconds: null,
+      });
+      setShowAddForm(false);
+      setForm(INITIAL_FORM);
+    } catch {
+      // Error toast already raised by the add-widget mutation hook.
+    }
   };
 
-  const [pendingDelete, setPendingDelete] = useState<DashboardWidgetData | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<DashboardWidget | null>(null);
 
-  const handleDeleteWidget = (w: DashboardWidgetData) => {
-    if (w.id == null) return;
+  const handleDeleteWidget = (w: DashboardWidget) => {
     setPendingDelete(w);
   };
 
   const confirmDeleteWidget = () => {
-    if (pendingDelete?.id != null) {
+    if (pendingDelete != null) {
       deleteWidget.mutate(pendingDelete.id);
     }
     setPendingDelete(null);
@@ -239,9 +252,9 @@ export default function DashboardBuilderPage() {
 
       {widgets.length > 0 && (
         <Card className="overflow-hidden">
-          {widgets.map((w, idx) => (
+          {widgets.map(w => (
             <div
-              key={w.id ?? idx}
+              key={w.id}
               className="grid grid-cols-[1fr_auto_auto_auto_auto_200px_auto] items-center gap-3 px-4 py-3 border-b border-border last:border-b-0"
             >
               <div>
