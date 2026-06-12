@@ -10,7 +10,7 @@
     <ProjectReference Include="..\Beacon.Core\Beacon.Core.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="Snowflake.Data" Version="4.4.0" />
+    <PackageReference Include="Snowflake.Data" Version="5.6.0" />
     <PackageReference Include="Dapper" Version="2.1.66" />
   </ItemGroup>
 </Project>
