@@ -26,9 +26,10 @@ public class SnowflakeMetadataExtractor : IDatabaseMetadataExtractor
                 CHARACTER_MAXIMUM_LENGTH AS character_maximum_length,
                 ORDINAL_POSITION AS ordinal_position
             FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_SCHEMA != 'INFORMATION_SCHEMA'
             ORDER BY TABLE_SCHEMA, TABLE_NAME, ORDINAL_POSITION";
 
-        var columnsData = (await connection.QueryAsync(tablesQuery, commandTimeout: 180)).AsList();
+        var columnsData = (await connection.QueryAsync(new CommandDefinition(tablesQuery, commandTimeout: 180, cancellationToken: cancellationToken))).AsList();
 
         // Snowflake INFORMATION_SCHEMA doesn't expose PK/FK info directly via simple queries in all cases
         // Use SHOW commands or TABLE_CONSTRAINTS
@@ -44,7 +45,7 @@ public class SnowflakeMetadataExtractor : IDatabaseMetadataExtractor
                 AND tc.TABLE_NAME = kcu.TABLE_NAME
             WHERE tc.CONSTRAINT_TYPE = 'PRIMARY KEY'";
 
-        var pkData = (await connection.QueryAsync(pkQuery, commandTimeout: 180)).AsList();
+        var pkData = (await connection.QueryAsync(new CommandDefinition(pkQuery, commandTimeout: 180, cancellationToken: cancellationToken))).AsList();
         var pkLookup = pkData
             .Select(pk => $"{pk.table_schema}.{pk.table_name}.{pk.column_name}")
             .ToHashSet();

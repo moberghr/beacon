@@ -172,32 +172,29 @@ public class AnomalyDetectionService : IAnomalyDetectionService
             existing.AlertOnDecrease = config.AlertOnDecrease;
             existing.MinimumDataPoints = config.MinimumDataPoints;
 
-            context.AnomalyConfigs.Update(existing);
+            await context.SaveChangesAsync(cancellationToken);
+
+            return existing.Id;
         }
-        else
+
+        // Create new configuration
+        var newConfig = new AnomalyConfig
         {
-            // Create new configuration
-            var newConfig = new AnomalyConfig
-            {
-                SubscriptionId = config.SubscriptionId,
-                Enabled = config.Enabled,
-                DetectionMethod = config.DetectionMethod,
-                Sensitivity = config.Sensitivity,
-                LookbackDays = config.LookbackDays,
-                AlertOnIncrease = config.AlertOnIncrease,
-                AlertOnDecrease = config.AlertOnDecrease,
-                MinimumDataPoints = config.MinimumDataPoints
-            };
+            SubscriptionId = config.SubscriptionId,
+            Enabled = config.Enabled,
+            DetectionMethod = config.DetectionMethod,
+            Sensitivity = config.Sensitivity,
+            LookbackDays = config.LookbackDays,
+            AlertOnIncrease = config.AlertOnIncrease,
+            AlertOnDecrease = config.AlertOnDecrease,
+            MinimumDataPoints = config.MinimumDataPoints
+        };
 
-            context.AnomalyConfigs.Add(newConfig);
-        }
-
+        context.AnomalyConfigs.Add(newConfig);
         await context.SaveChangesAsync(cancellationToken);
 
-        return existing?.Id ?? (await context.AnomalyConfigs
-            .Where(x => x.SubscriptionId == config.SubscriptionId)
-            .Select(x => x.Id)
-            .FirstAsync(cancellationToken));
+        // EF populates the generated key on SaveChanges — no re-query needed
+        return newConfig.Id;
     }
 
     public async Task DeleteAnomalyConfigAsync(
@@ -281,9 +278,12 @@ public class AnomalyDetectionService : IAnomalyDetectionService
         var rollingUpperThreshold = new List<decimal>();
         var rollingLowerThreshold = new List<decimal>();
 
-        // Get all baseline data for rolling calculation
+        // Get baseline data for rolling calculation, bounded to the earliest point any
+        // execution in the chart window can look back to (windowStart - lookback)
+        var baselineCutoff = cutoffDate.AddDays(-config.LookbackDays);
         var allBaselines = await context.AnomalyBaselines
             .Where(x => x.SubscriptionId == subscriptionId)
+            .Where(x => x.ExecutionTime >= baselineCutoff)
             .OrderBy(x => x.ExecutionTime)
             .Select(x => new { x.ExecutionTime, x.MetricValue })
             .ToListAsync(cancellationToken);

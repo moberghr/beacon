@@ -88,7 +88,10 @@ internal sealed class ProjectAskTool(
             var dataSources = await knowledgeGraph.GetProjectDataSourcesAsync(projectId, cancellationToken);
 
             if (dataSources.Count == 0)
-                return ToolHelper.Error("This project has no data sources configured.");
+            {
+                return await FailAsync(signal, sw, projectId, question,
+                    "This project has no data sources configured.", cancellationToken);
+            }
 
             // Route to the right data source(s)
             var routing = await dataSourceRouter.RouteAsync(llmProvider, dataSources, question, cancellationToken);
@@ -97,7 +100,12 @@ internal sealed class ProjectAskTool(
             var text = $"# Question: {question}\n\n";
 
             if (routing.Sources.Count == 0)
-                return ToolHelper.Error("Could not determine which data source to query for this question.");
+            {
+                return await FailAsync(signal, sw, projectId, question,
+                    "Could not determine which data source to query for this question.", cancellationToken);
+            }
+
+            var askSucceeded = true;
 
             // Generate and execute SQL
             if (routing.Sources.Count == 1)
@@ -106,9 +114,10 @@ internal sealed class ProjectAskTool(
                 text += $"## Data Source: {source.DataSourceName}\n";
                 text += $"**Reasoning:** {source.Reason}\n\n";
 
-                var sqlResult = await GenerateAndExecuteSqlAsync(
+                var (sqlText, sqlSucceeded) = await GenerateAndExecuteSqlAsync(
                     llmProvider, source.DataSourceId, question, settings, execute, signal, cancellationToken);
-                text += sqlResult;
+                text += sqlText;
+                askSucceeded = sqlSucceeded;
             }
             else
             {
@@ -117,12 +126,14 @@ internal sealed class ProjectAskTool(
                     text += $"- **{source.DataSourceName}** (ID: {source.DataSourceId}): {source.Reason}\n";
                 text += "\n";
 
-                text += await crossSourceQueryService.ExecuteAsync(
+                var (crossText, crossSucceeded) = await crossSourceQueryService.ExecuteAsync(
                     llmProvider, routing.Sources, question, settings, execute, signal, cancellationToken);
+                text += crossText;
+                askSucceeded = crossSucceeded;
             }
 
             sw.Stop();
-            signal.SetResult(null, (int)sw.ElapsedMilliseconds, true);
+            signal.SetResult(null, (int)sw.ElapsedMilliseconds, askSucceeded);
             await auditService.LogToolCallAsync(null, projectContext.UserId, "ask",
                 question, null, projectId, (int)sw.ElapsedMilliseconds, null, null, cancellationToken);
             await signalService.RecordSignalAsync(signal.Build(), cancellationToken);
@@ -141,7 +152,7 @@ internal sealed class ProjectAskTool(
     }
 
     // Internal for repair-flow tests (InternalsVisibleTo Beacon.Tests)
-    internal async Task<string> GenerateAndExecuteSqlAsync(
+    internal async Task<(string Text, bool Succeeded)> GenerateAndExecuteSqlAsync(
         ILlmProvider llmProvider,
         int dataSourceId,
         string question,
@@ -164,7 +175,7 @@ internal sealed class ProjectAskTool(
         {
             signal.SetExecutionFailed(validationError);
             text += $"**Validation Error:** {validationError}\n";
-            return text;
+            return (text, false);
         }
 
         // Explicit budget shared by ALL repair triggers (schema, dry-run, execution error, empty result)
@@ -188,17 +199,21 @@ internal sealed class ProjectAskTool(
             {
                 if (ValidateGeneratedSql(preValidationRetry, settings, smartContext.DatabaseDialect) == null)
                 {
-                    signal.SetRetry(preValidationRetry, true);
-                    text += $"*Initial query had schema errors ({schemaCheck.Error}), retried.*\n\n";
-                    text += $"### Corrected SQL\n```sql\n{preValidationRetry}\n```\n\n";
-                    generatedSql = preValidationRetry;
+                    var retrySchemaCheck = schemaValidator.Validate(preValidationRetry, smartContext.SchemaCatalog, smartContext.DatabaseDialect);
+                    signal.SetRetry(preValidationRetry, retrySchemaCheck.IsValid);
+                    if (retrySchemaCheck.IsValid)
+                    {
+                        text += $"*Initial query had schema errors ({schemaCheck.Error}), retried.*\n\n";
+                        text += $"### Corrected SQL\n```sql\n{preValidationRetry}\n```\n\n";
+                        generatedSql = preValidationRetry;
+                    }
                 }
             }
         }
 
         if (!execute)
         {
-            return text;
+            return (text, true);
         }
 
         // Dry-run through the provider (EXPLAIN / sp_describe_first_result_set) before real execution.
@@ -247,12 +262,12 @@ internal sealed class ProjectAskTool(
             {
                 if (ValidateGeneratedSql(retriedSql, settings, smartContext.DatabaseDialect) == null)
                 {
-                    signal.SetRetry(retriedSql, true);
+                    var retryExec = await queryExecutionService.ExecuteAsync(dataSourceId, retriedSql, 100, ct);
+                    signal.SetRetry(retriedSql, retryExec.IsSuccess);
                     text += $"*Initial query failed ({execResult.ErrorMessage}), retried with corrected SQL.*\n\n";
                     text += $"### Corrected SQL\n```sql\n{retriedSql}\n```\n\n";
-                    var retryExec = await queryExecutionService.ExecuteAsync(dataSourceId, retriedSql, 100, ct);
                     text += retryExec.FormattedResult ?? $"**Execution Error:** {retryExec.ErrorMessage}\n";
-                    return text;
+                    return (text, retryExec.IsSuccess);
                 }
             }
         }
@@ -280,7 +295,7 @@ internal sealed class ProjectAskTool(
                         text += "*Initial query returned zero rows, retried with corrected SQL.*\n\n";
                         text += $"### Corrected SQL\n```sql\n{emptyRetry}\n```\n\n";
                         text += retryExec.FormattedResult;
-                        return text;
+                        return (text, true);
                     }
 
                     signal.SetRetry(emptyRetry, false);
@@ -290,7 +305,7 @@ internal sealed class ProjectAskTool(
 
         text += execResult.FormattedResult ?? $"**Execution Error:** {execResult.ErrorMessage}\n";
 
-        return text;
+        return (text, execResult.IsSuccess);
     }
 
     private async Task<string?> TryDryRunAsync(int dataSourceId, string sql, CancellationToken ct)
@@ -344,6 +359,24 @@ internal sealed class ProjectAskTool(
             @"\b(how many|count|number of|total of|are there|is there|any\b|exists?|do we have|does .{1,40} have|has .{1,40} ever)\b",
             System.Text.RegularExpressions.RegexOptions.IgnoreCase,
             TimeSpan.FromSeconds(1));
+    }
+
+    // §9.5 — audit + signal must be recorded on every outcome, including pre-generation failures
+    private async Task<CallToolResult> FailAsync(
+        McpSignalBuilder signal,
+        Stopwatch sw,
+        int projectId,
+        string question,
+        string error,
+        CancellationToken cancellationToken)
+    {
+        sw.Stop();
+        signal.SetExecutionFailed(error);
+        signal.SetResult(null, (int)sw.ElapsedMilliseconds, false);
+        await auditService.LogToolCallAsync(null, projectContext.UserId, "ask",
+            question, null, projectId, (int)sw.ElapsedMilliseconds, null, error, cancellationToken);
+        await signalService.RecordSignalAsync(signal.Build(), cancellationToken);
+        return ToolHelper.Error(error);
     }
 
     private static bool SqlEquals(string left, string right)

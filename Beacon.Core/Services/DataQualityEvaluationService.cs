@@ -13,9 +13,9 @@ namespace Beacon.Core.Services;
 
 public interface IDataQualityEvaluationService
 {
-    Task<DataQualityEvaluationData> EvaluateContractAsync(int dataContractId);
-    Task<List<DataQualityScoreData>> GetLatestScoresAsync(int? dataSourceId);
-    Task<List<DataQualityEvaluationData>> GetEvaluationHistoryAsync(int dataContractId, int take = 20);
+    Task<DataQualityEvaluationData> EvaluateContractAsync(int dataContractId, CancellationToken cancellationToken = default);
+    Task<List<DataQualityScoreData>> GetLatestScoresAsync(int? dataSourceId, CancellationToken cancellationToken = default);
+    Task<List<DataQualityEvaluationData>> GetEvaluationHistoryAsync(int dataContractId, int take = 20, CancellationToken cancellationToken = default);
 }
 
 internal class DataQualityEvaluationService(
@@ -24,14 +24,15 @@ internal class DataQualityEvaluationService(
     IEncryptionService encryptionService,
     ILogger<DataQualityEvaluationService> logger) : IDataQualityEvaluationService
 {
-    public async Task<DataQualityEvaluationData> EvaluateContractAsync(int dataContractId)
+    public async Task<DataQualityEvaluationData> EvaluateContractAsync(int dataContractId, CancellationToken cancellationToken = default)
     {
-        await using var context = await contextFactory.CreateDbContextAsync();
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         var contract = await context.DataContracts
             .Include(c => c.Rules)
             .Include(c => c.DataSource)
-            .FirstOrDefaultAsync(c => c.Id == dataContractId)
+            .Where(c => c.Id == dataContractId)
+            .FirstOrDefaultAsync(cancellationToken)
             ?? throw new Models.BeaconException($"Data contract {dataContractId} not found");
 
         if (contract.DataSource.DatabaseEngineType == null)
@@ -46,7 +47,7 @@ internal class DataQualityEvaluationService(
 
         foreach (var rule in enabledRules)
         {
-            var result = await EvaluateRuleAsync(rule, contract, engineType, connectionString);
+            var result = await EvaluateRuleAsync(rule, contract, engineType, connectionString, cancellationToken);
             ruleResults.Add(result);
         }
 
@@ -68,17 +69,17 @@ internal class DataQualityEvaluationService(
         };
 
         context.DataQualityEvaluations.Add(evaluation);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(cancellationToken);
 
         // Upsert DataQualityScore
-        await UpsertScoreAsync(context, contract, overallScore);
+        await UpsertScoreAsync(context, contract, overallScore, cancellationToken);
 
         return MapEvaluation(evaluation, enabledRules);
     }
 
-    public async Task<List<DataQualityScoreData>> GetLatestScoresAsync(int? dataSourceId)
+    public async Task<List<DataQualityScoreData>> GetLatestScoresAsync(int? dataSourceId, CancellationToken cancellationToken = default)
     {
-        await using var context = await contextFactory.CreateDbContextAsync();
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         var query = context.DataQualityScores.AsQueryable();
 
@@ -98,12 +99,12 @@ internal class DataQualityEvaluationService(
                 TrendDirection = s.TrendDirection,
                 PreviousScore = s.PreviousScore
             })
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
     }
 
-    public async Task<List<DataQualityEvaluationData>> GetEvaluationHistoryAsync(int dataContractId, int take = 20)
+    public async Task<List<DataQualityEvaluationData>> GetEvaluationHistoryAsync(int dataContractId, int take = 20, CancellationToken cancellationToken = default)
     {
-        await using var context = await contextFactory.CreateDbContextAsync();
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         var evaluations = await context.DataQualityEvaluations
             .Where(e => e.DataContractId == dataContractId)
@@ -132,7 +133,7 @@ internal class DataQualityEvaluationService(
                     ExecutionTimeMs = r.ExecutionTimeMs
                 }).ToList()
             })
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
 
         return evaluations;
     }
@@ -141,7 +142,8 @@ internal class DataQualityEvaluationService(
         DataContractRule rule,
         DataContract contract,
         DatabaseEngineType engineType,
-        string connectionString)
+        string connectionString,
+        CancellationToken cancellationToken)
     {
         var ruleStopwatch = Stopwatch.StartNew();
 
@@ -165,9 +167,14 @@ internal class DataQualityEvaluationService(
             var sql = sqlGenerator.GenerateSql(enrichedRule, engineType);
 
             using var connection = DbConnectionFactory.CreateConnection(engineType, connectionString);
-            await connection.OpenAsync();
+            await connection.OpenAsync(cancellationToken);
 
-            var row = await connection.QueryFirstOrDefaultAsync<dynamic>(sql, commandTimeout: 60);
+            var commandDefinition = new CommandDefinition(
+                commandText: sql,
+                commandTimeout: 60,
+                cancellationToken: cancellationToken);
+
+            var row = await connection.QueryFirstOrDefaultAsync<dynamic>(commandDefinition);
             ruleStopwatch.Stop();
 
             return InterpretResult(rule, row, ruleStopwatch.Elapsed.TotalMilliseconds);
@@ -205,7 +212,7 @@ internal class DataQualityEvaluationService(
         }
 
         var dict = (IDictionary<string, object>)row;
-        var config = JsonDocument.Parse(rule.Configuration);
+        using var config = JsonDocument.Parse(rule.Configuration);
 
         switch (rule.RuleType)
         {
@@ -402,13 +409,13 @@ internal class DataQualityEvaluationService(
         _ => 1
     };
 
-    private static async Task UpsertScoreAsync(BeaconContext context, DataContract contract, double score)
+    private static async Task UpsertScoreAsync(BeaconContext context, DataContract contract, double score, CancellationToken cancellationToken)
     {
         var existing = await context.DataQualityScores
-            .FirstOrDefaultAsync(s =>
-                s.DataSourceId == contract.DataSourceId &&
-                s.SchemaName == contract.SchemaName &&
-                s.TableName == contract.TableName);
+            .Where(s => s.DataSourceId == contract.DataSourceId)
+            .Where(s => s.SchemaName == contract.SchemaName)
+            .Where(s => s.TableName == contract.TableName)
+            .FirstOrDefaultAsync(cancellationToken);
 
         if (existing != null)
         {
@@ -430,7 +437,7 @@ internal class DataQualityEvaluationService(
             });
         }
 
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(cancellationToken);
     }
 
     private static DataQualityTrendDirection DetermineTrend(double? previousScore, double currentScore)
@@ -445,7 +452,7 @@ internal class DataQualityEvaluationService(
 
     private static string EnrichConfig(string configJson, string schema, string table)
     {
-        var doc = JsonDocument.Parse(configJson);
+        using var doc = JsonDocument.Parse(configJson);
         var dict = new Dictionary<string, JsonElement>();
 
         foreach (var prop in doc.RootElement.EnumerateObject())

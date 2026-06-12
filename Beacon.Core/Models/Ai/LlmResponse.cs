@@ -13,5 +13,8 @@ public record LlmResponse
     public decimal Cost { get; init; }
     public bool PromptCacheHit { get; init; }
 
+    /// <summary>True when the provider stopped generating because the max-token limit was hit.</summary>
+    public bool Truncated { get; init; }
+
     public int TotalTokens => InputTokens + OutputTokens;
 }

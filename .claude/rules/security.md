@@ -26,7 +26,7 @@
 
 §1.8 **Cookie config:** `Beacon.Auth` cookie uses `HttpOnly = true`, `SameSite = Lax`, `SecurePolicy = SameAsRequest`. Do not weaken any of these flags.
 
-§1.9 **Middleware order is load-bearing:** `ApiKeyAuthMiddleware` → `UseAuthentication` → `UseAuthorization` → `BeaconCookieAuthMiddleware` → `LoginFormAuthMiddleware`. Reordering breaks API-key-only callers and the Blazor login redirect.
+§1.9 **Middleware order is load-bearing:** `ApiKeyAuthMiddleware` → `JwtBearerAuthMiddleware` → `UseAuthentication` → `BeaconCookieAuthMiddleware` → `UseAuthorization` → `LoginFormAuthMiddleware`. `BeaconCookieAuthMiddleware` must populate `context.User` from the `Beacon.Auth` cookie BEFORE `UseAuthorization` evaluates policies, otherwise the first authorization check on a cookie session sees an unauthenticated user. Reordering also breaks API-key-only callers and the login redirect.
 
 ## SQL safety
 

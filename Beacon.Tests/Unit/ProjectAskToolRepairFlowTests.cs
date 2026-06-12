@@ -74,7 +74,7 @@ public class ProjectAskToolRepairFlowTests
             .ReturnsAsync(new QueryExecutionResult("### Results (3 rows)\n", null, 3, true));
 
         var signal = new McpSignalBuilder();
-        var text = await CreateTool().GenerateAndExecuteSqlAsync(
+        var (text, _) = await CreateTool().GenerateAndExecuteSqlAsync(
             _llmProvider.Object, DataSourceId, Question, _settings, execute: true, signal, CancellationToken.None);
 
         text.Should().Contain("failed dry-run validation");
@@ -101,7 +101,7 @@ public class ProjectAskToolRepairFlowTests
             .ReturnsAsync(new QueryExecutionResult("### Results (5 rows)\n", null, 5, true));
 
         var signal = new McpSignalBuilder();
-        var text = await CreateTool().GenerateAndExecuteSqlAsync(
+        var (text, _) = await CreateTool().GenerateAndExecuteSqlAsync(
             _llmProvider.Object, DataSourceId, NonCountQuestion, _settings, execute: true, signal, CancellationToken.None);
 
         text.Should().Contain("returned zero rows, retried");
@@ -124,7 +124,7 @@ public class ProjectAskToolRepairFlowTests
             .ReturnsAsync(GeneratedSql + ";");
 
         var signal = new McpSignalBuilder();
-        var text = await CreateTool().GenerateAndExecuteSqlAsync(
+        var (text, _) = await CreateTool().GenerateAndExecuteSqlAsync(
             _llmProvider.Object, DataSourceId, NonCountQuestion, _settings, execute: true, signal, CancellationToken.None);
 
         text.Should().Contain("No results returned.");
@@ -148,7 +148,7 @@ public class ProjectAskToolRepairFlowTests
             .ReturnsAsync(new QueryExecutionResult("No results returned.\n", null, 0, true));
 
         var signal = new McpSignalBuilder();
-        var text = await CreateTool().GenerateAndExecuteSqlAsync(
+        var (text, _) = await CreateTool().GenerateAndExecuteSqlAsync(
             _llmProvider.Object, DataSourceId, NonCountQuestion, _settings, execute: true, signal, CancellationToken.None);
 
         text.Should().Contain("No results returned.");
@@ -173,7 +173,7 @@ public class ProjectAskToolRepairFlowTests
             .ReturnsAsync(new QueryExecutionResult(null, "execution error", 0, false));
 
         var signal = new McpSignalBuilder();
-        var text = await CreateTool().GenerateAndExecuteSqlAsync(
+        var (text, _) = await CreateTool().GenerateAndExecuteSqlAsync(
             _llmProvider.Object, DataSourceId, Question, _settings, execute: true, signal, CancellationToken.None);
 
         _sqlGeneration.Verify(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(),
@@ -191,7 +191,7 @@ public class ProjectAskToolRepairFlowTests
             .ReturnsAsync(new QueryExecutionResult("No results returned.\n", null, 0, true));
 
         var signal = new McpSignalBuilder();
-        var text = await CreateTool().GenerateAndExecuteSqlAsync(
+        var (text, _) = await CreateTool().GenerateAndExecuteSqlAsync(
             _llmProvider.Object, DataSourceId, Question, _settings, execute: true, signal, CancellationToken.None);
 
         text.Should().Contain("No results returned.");
@@ -215,7 +215,7 @@ public class ProjectAskToolRepairFlowTests
     public async Task ExecuteFalse_SkipsDryRunAndExecution()
     {
         var signal = new McpSignalBuilder();
-        var text = await CreateTool().GenerateAndExecuteSqlAsync(
+        var (text, _) = await CreateTool().GenerateAndExecuteSqlAsync(
             _llmProvider.Object, DataSourceId, Question, _settings, execute: false, signal, CancellationToken.None);
 
         text.Should().Contain(GeneratedSql);
@@ -234,7 +234,7 @@ public class ProjectAskToolRepairFlowTests
             .ReturnsAsync(new QueryExecutionResult("### Results (2 rows)\n", null, 2, true));
 
         var signal = new McpSignalBuilder();
-        var text = await CreateTool().GenerateAndExecuteSqlAsync(
+        var (text, _) = await CreateTool().GenerateAndExecuteSqlAsync(
             _llmProvider.Object, DataSourceId, Question, _settings, execute: true, signal, CancellationToken.None);
 
         text.Should().Contain("### Results (2 rows)");

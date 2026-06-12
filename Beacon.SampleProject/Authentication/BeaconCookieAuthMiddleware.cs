@@ -12,6 +12,14 @@ internal sealed class BeaconCookieAuthMiddleware(RequestDelegate next)
 {
     public async Task InvokeAsync(HttpContext context)
     {
+        // An earlier middleware (e.g. ApiKeyAuthMiddleware) may already have authenticated the
+        // request with a directly-assigned principal — don't overwrite it (it carries scope claims).
+        if (context.User.Identity?.IsAuthenticated == true)
+        {
+            await next(context);
+            return;
+        }
+
         var result = await context.AuthenticateAsync(CookieAuthenticationDefaults.AuthenticationScheme);
         if (result.Succeeded)
         {

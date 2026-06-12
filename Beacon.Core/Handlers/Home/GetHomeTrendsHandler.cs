@@ -53,13 +53,20 @@ internal sealed class GetHomeTrendsHandler(IDbContextFactory<BeaconContext> cont
             ? Math.Round((decimal)(queryExecutions30d - execsPrior) / execsPrior * 100, 1)
             : 0m;
 
-        // Sparkline: daily counts over last 14 days
-        var execDates14 = await context.QueryExecutionHistory
+        // Sparkline: daily counts over last 14 days, aggregated server-side
+        var execDaily14 = await context.QueryExecutionHistory
             .Where(x => x.CreatedTime >= now.AddDays(-14))
-            .Select(x => x.CreatedTime.Date)
+            .GroupBy(x => x.CreatedTime.Date)
+            .Select(x =>
+                new
+                {
+                    Date = x.Key,
+                    Count = x.Count()
+                })
             .ToListAsync(cancellationToken);
 
-        var queriesSpark = HomeTrendsBuilders.BuildDailyCounts(execDates14, 14, now);
+        var queriesSpark = HomeTrendsBuilders.BuildDailyCounts(
+            execDaily14.ToDictionary(x => x.Date, x => x.Count), 14, now);
 
         // 30-day trend for line chart
         var execDates30 = execsCurrent
@@ -135,9 +142,16 @@ internal sealed class GetHomeTrendsHandler(IDbContextFactory<BeaconContext> cont
         var perfBuckets = HomeTrendsBuilders.BuildPerfBuckets(execsWithTime, days, now);
 
         // ── Notifications ──────────────────────────────────────────────
-        var notificationsCurrent = await context.Notifications
+        // Per-day counts aggregated server-side; the window total derives from them.
+        var notifDaily = await context.Notifications
             .Where(x => x.SentAt >= windowStart)
-            .Select(x => x.SentAt)
+            .GroupBy(x => x.SentAt.Date)
+            .Select(x =>
+                new
+                {
+                    Date = x.Key,
+                    Count = x.Count()
+                })
             .ToListAsync(cancellationToken);
 
         var notificationsPrior = await context.Notifications
@@ -145,21 +159,25 @@ internal sealed class GetHomeTrendsHandler(IDbContextFactory<BeaconContext> cont
             .Where(x => x.SentAt < windowStart)
             .CountAsync(cancellationToken);
 
-        var notificationsSent30d = notificationsCurrent.Count;
+        var notificationsSent30d = notifDaily.Sum(x => x.Count);
         var notificationsDelta = notificationsSent30d - notificationsPrior;
 
-        var notifDates14 = await context.Notifications
+        var notifDaily14 = await context.Notifications
             .Where(x => x.SentAt >= now.AddDays(-14))
-            .Select(x => x.SentAt.Date)
+            .GroupBy(x => x.SentAt.Date)
+            .Select(x =>
+                new
+                {
+                    Date = x.Key,
+                    Count = x.Count()
+                })
             .ToListAsync(cancellationToken);
 
-        var notificationsSpark = HomeTrendsBuilders.BuildDailyCounts(notifDates14, 14, now);
+        var notificationsSpark = HomeTrendsBuilders.BuildDailyCounts(
+            notifDaily14.ToDictionary(x => x.Date, x => x.Count), 14, now);
 
-        var notifDates30 = notificationsCurrent
-            .Select(x => x.Date)
-            .ToList();
-
-        var notificationsTrend30d = HomeTrendsBuilders.BuildDailyCounts(notifDates30, days, now);
+        var notificationsTrend30d = HomeTrendsBuilders.BuildDailyCounts(
+            notifDaily.ToDictionary(x => x.Date, x => x.Count), days, now);
 
         // ── Anomalies ──────────────────────────────────────────────────
         // Using AnomalyEvent: open = not Acknowledged, acknowledged = Acknowledged

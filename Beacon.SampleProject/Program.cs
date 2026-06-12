@@ -23,7 +23,9 @@ using Beacon.SampleProject.Authentication;
 using Beacon.SampleProject.Middleware;
 using Beacon.SampleProject.Services;
 using Beacon.UI;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
+using System.Net;
 using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -51,7 +53,7 @@ builder.Services.AddHangfire(hangfireConfiguration => hangfireConfiguration
     .UseRecommendedSerializerSettings()
     .UseFilter(new AutomaticRetryAttribute { Attempts = 0 })
     .UsePostgreSqlStorage(
-        builder.Configuration.GetConnectionString("BeaconContext"),
+        x => x.UseNpgsqlConnection(builder.Configuration.GetConnectionString("BeaconContext")),
         new PostgreSqlStorageOptions
         {
             PrepareSchemaIfNecessary = true,
@@ -73,7 +75,7 @@ builder.Services.AddBeaconHostInfrastructure();
 builder.Services.AddBeaconServices(builder.Configuration, options =>
     {
         options.AddBeaconScheduler<BeaconScheduler>();
-        options.BaseUrl = "https://localhost:7187"; // For notification links
+        options.BaseUrl = builder.Configuration["Beacon:BaseUrl"] ?? "https://localhost:7187"; // For notification links
         options.UseAI = true;
 
         options.AddEmailAdapter<BeaconMailSender>();
@@ -175,12 +177,42 @@ var app = builder.Build();
 // MIDDLEWARE PIPELINE
 // ============================================================================
 
+// Behind a reverse proxy (TLS termination, load balancer) the per-IP rate limiter and
+// SameAsRequest cookie security key off the proxy's address/scheme unless forwarded
+// headers are honored. Opt-in via config so direct-exposed deployments aren't spoofable.
+if (app.Configuration.GetValue<bool>("Beacon:ForwardedHeaders:Enabled"))
+{
+    var forwardedOptions = new ForwardedHeadersOptions
+    {
+        ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
+    };
+
+    // Only trust explicitly configured proxies; an empty list trusts none and the
+    // headers are ignored, which fails safe.
+    forwardedOptions.KnownProxies.Clear();
+    forwardedOptions.KnownNetworks.Clear();
+    foreach (var proxy in app.Configuration.GetSection("Beacon:ForwardedHeaders:KnownProxies").Get<string[]>() ?? [])
+    {
+        if (IPAddress.TryParse(proxy, out var address))
+        {
+            forwardedOptions.KnownProxies.Add(address);
+        }
+    }
+
+    app.UseForwardedHeaders(forwardedOptions);
+}
+
 // Skip HTTPS redirect for MCP endpoints (allows local dev tools to connect over HTTP)
 app.UseWhen(
     context => !context.Request.Path.StartsWithSegments("/beacon/mcp"),
     appBuilder => appBuilder.UseHttpsRedirection());
 
 app.UseStaticFiles();
+
+// Convert exceptions thrown inside /beacon/api/* into RFC 7807 problem+json responses.
+// Must sit BEFORE the auth/antiforgery/rate-limiter middlewares so their exceptions are
+// also translated instead of surfacing as raw 500s.
+app.UseApiExceptionHandler("/beacon/api");
 
 // API key auth must run before cookie auth to prevent redirect for MCP clients
 app.UseMiddleware<ApiKeyAuthMiddleware>();
@@ -218,9 +250,6 @@ app.UseRateLimiter();
 
 // OpenAPI document at /openapi/v1.json - consumed by NSwag for React TS codegen.
 app.MapOpenApi();
-
-// Convert exceptions thrown inside /beacon/api/* into RFC 7807 problem+json responses.
-app.UseApiExceptionHandler("/beacon/api");
 
 // REST API surface for the React shell. Adds /beacon/api/{health, auth/me, auth/permissions, csrf}.
 app.MapBeaconApi();

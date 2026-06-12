@@ -9,7 +9,7 @@ internal sealed class EvaluateDataContractHandler(
 {
     public async Task<DataQualityEvaluationData> Handle(EvaluateDataContractCommand request, CancellationToken cancellationToken)
     {
-        return await evaluationService.EvaluateContractAsync(request.DataContractId);
+        return await evaluationService.EvaluateContractAsync(request.DataContractId, cancellationToken);
     }
 }
 

@@ -19,6 +19,8 @@ public class ApiProvider(
     JsonResponseTabularizer tabularizer,
     ILogger<ApiProvider> logger) : IDataSourceProvider
 {
+    private const long MaxResponseBytes = 50 * 1024 * 1024;
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true
@@ -44,7 +46,7 @@ public class ApiProvider(
             var request = new HttpRequestMessage(HttpMethod.Get, config.OpenApiSpecUrl);
             ApiHttpClientHelper.ApplyAuth(request, config.Auth);
 
-            var response = await client.SendAsync(request, cancellationToken);
+            using var response = await client.SendAsync(request, cancellationToken);
             response.EnsureSuccessStatusCode();
 
             stopwatch.Stop();
@@ -85,22 +87,30 @@ public class ApiProvider(
 
         try
         {
+            if (parameters is { Count: > 0 })
+            {
+                throw new NotSupportedException("The API connector does not support SQL parameters; encode values in the query definition's path/query parameters instead.");
+            }
+
             var config = ParseConfiguration(dataSource);
             var queryDef = JsonSerializer.Deserialize<ApiQueryDefinition>(query, JsonOptions)
                 ?? throw new BeaconException("Failed to parse API query definition");
 
             var client = httpClientFactory.CreateClient();
             client.Timeout = TimeSpan.FromSeconds(config.TimeoutSeconds);
+            // CreateClient() hands out a fresh HttpClient per call, so capping the buffer here
+            // doesn't affect other consumers of the factory's shared handler.
+            client.MaxResponseContentBufferSize = MaxResponseBytes;
 
             var request = ApiHttpClientHelper.CreateRequest(config, queryDef);
 
             logger.LogInformation("Executing API query: {Method} {Path}", queryDef.Method, queryDef.Path);
 
-            var response = await client.SendAsync(request, cancellationToken);
+            using var response = await client.SendAsync(request, cancellationToken);
             response.EnsureSuccessStatusCode();
 
             var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
-            var rows = tabularizer.Tabularize(responseBody, queryDef.ResultMapping);
+            var rows = tabularizer.Tabularize(responseBody, queryDef.ResultMapping, out var truncated, out var totalAvailable);
 
             stopwatch.Stop();
 
@@ -117,7 +127,9 @@ public class ApiProvider(
                 {
                     ["Method"] = queryDef.Method,
                     ["Path"] = queryDef.Path,
-                    ["StatusCode"] = (int)response.StatusCode
+                    ["StatusCode"] = (int)response.StatusCode,
+                    ["Truncated"] = truncated,
+                    ["TotalAvailable"] = totalAvailable
                 }
             };
         }

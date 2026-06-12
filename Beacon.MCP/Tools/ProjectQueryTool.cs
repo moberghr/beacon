@@ -98,7 +98,15 @@ internal sealed class ProjectQueryTool(
                     CustomPiiPatterns = settings.CustomPiiPatterns.Count > 0 ? settings.CustomPiiPatterns : null
                 });
                 if (!validation.IsValid)
+                {
+                    sw.Stop();
+                    signal.SetExecutionFailed(validation.Error ?? "Query validation failed");
+                    signal.SetResult(null, (int)sw.ElapsedMilliseconds, false);
+                    await auditService.LogToolCallAsync(null, projectContext.UserId, "query",
+                        sql, datasource_id, projectId, (int)sw.ElapsedMilliseconds, null, validation.Error, cancellationToken);
+                    await signalService.RecordSignalAsync(signal.Build(), cancellationToken);
                     return ToolHelper.Error($"Query validation failed: {validation.Error}");
+                }
 
                 // AST-based read-only defense-in-depth on top of the regex guardrail (§1.5)
                 if (settings.EnforceReadOnly)

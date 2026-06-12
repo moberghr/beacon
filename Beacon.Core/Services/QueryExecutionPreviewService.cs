@@ -8,7 +8,7 @@ public interface IQueryExecutionPreviewService
     Task<QueryExecutionResult?> ExecuteQueryPreview(int queryId, CancellationToken cancellationToken);
     Task<QueryStepResult?> ExecuteStepPreview(int queryId, int stepOrder, CancellationToken cancellationToken);
     Task<QueryStepResult?> ExecuteStepPreview(int queryId, int stepOrder, List<ParameterValue>? parameters, CancellationToken cancellationToken);
-    Task<QueryExecutionResult?> ExecuteTemporaryQueryPreview(QueryData queryData, CancellationToken cancellationToken);
+    Task<QueryExecutionResult?> ExecuteTemporaryQueryPreview(QueryData queryData, CancellationToken cancellationToken, List<ParameterValue>? parameters = null);
     Task<QueryStepResult?> ExecuteTemporaryStepPreview(QueryData queryData, int stepOrder, List<ParameterValue>? parameters, CancellationToken cancellationToken);
 }
 
@@ -77,7 +77,7 @@ internal sealed class QueryExecutionPreviewService : IQueryExecutionPreviewServi
         }
     }
 
-    public async Task<QueryExecutionResult?> ExecuteTemporaryQueryPreview(QueryData queryData, CancellationToken cancellationToken)
+    public async Task<QueryExecutionResult?> ExecuteTemporaryQueryPreview(QueryData queryData, CancellationToken cancellationToken, List<ParameterValue>? parameters = null)
     {
         int? tempQueryId = null;
         try
@@ -114,7 +114,7 @@ internal sealed class QueryExecutionPreviewService : IQueryExecutionPreviewServi
             tempQueryId = createdQuery.QueryId;
 
             // Execute the query
-            return await _queryService.ExecuteQueryAdvanced(createdQuery.QueryId.Value, cancellationToken: cancellationToken);
+            return await _queryService.ExecuteQueryAdvanced(createdQuery.QueryId.Value, parameters: parameters, cancellationToken: cancellationToken);
         }
         finally
         {
