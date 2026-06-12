@@ -23,7 +23,9 @@ using Beacon.SampleProject.Authentication;
 using Beacon.SampleProject.Middleware;
 using Beacon.SampleProject.Services;
 using Beacon.UI;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
+using System.Net;
 using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -51,7 +53,7 @@ builder.Services.AddHangfire(hangfireConfiguration => hangfireConfiguration
     .UseRecommendedSerializerSettings()
     .UseFilter(new AutomaticRetryAttribute { Attempts = 0 })
     .UsePostgreSqlStorage(
-        builder.Configuration.GetConnectionString("BeaconContext"),
+        x => x.UseNpgsqlConnection(builder.Configuration.GetConnectionString("BeaconContext")),
         new PostgreSqlStorageOptions
         {
             PrepareSchemaIfNecessary = true,
@@ -174,6 +176,31 @@ var app = builder.Build();
 // ============================================================================
 // MIDDLEWARE PIPELINE
 // ============================================================================
+
+// Behind a reverse proxy (TLS termination, load balancer) the per-IP rate limiter and
+// SameAsRequest cookie security key off the proxy's address/scheme unless forwarded
+// headers are honored. Opt-in via config so direct-exposed deployments aren't spoofable.
+if (app.Configuration.GetValue<bool>("Beacon:ForwardedHeaders:Enabled"))
+{
+    var forwardedOptions = new ForwardedHeadersOptions
+    {
+        ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
+    };
+
+    // Only trust explicitly configured proxies; an empty list trusts none and the
+    // headers are ignored, which fails safe.
+    forwardedOptions.KnownProxies.Clear();
+    forwardedOptions.KnownNetworks.Clear();
+    foreach (var proxy in app.Configuration.GetSection("Beacon:ForwardedHeaders:KnownProxies").Get<string[]>() ?? [])
+    {
+        if (IPAddress.TryParse(proxy, out var address))
+        {
+            forwardedOptions.KnownProxies.Add(address);
+        }
+    }
+
+    app.UseForwardedHeaders(forwardedOptions);
+}
 
 // Skip HTTPS redirect for MCP endpoints (allows local dev tools to connect over HTTP)
 app.UseWhen(
