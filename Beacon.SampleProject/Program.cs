@@ -32,6 +32,18 @@ using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Fail fast if a production deployment is still using the placeholder encryption key shipped in
+// appsettings.json for local dev. With that publicly-known key, every secret encrypted at rest
+// (connection strings, API keys) would be trivially decryptable.
+if (builder.Environment.IsProduction()
+    && builder.Configuration["Beacon:EncryptionKey"] == Beacon.Core.ServiceConfiguration.DefaultEncryptionKey)
+{
+    throw new InvalidOperationException(
+        "Beacon:EncryptionKey is set to the built-in placeholder value in Production. " +
+        "Generate a unique key (openssl rand -base64 32) and supply it via an environment " +
+        "variable or secret store — never the committed appsettings.json default.");
+}
+
 // Configure Kestrel server limits for long-running AI operations
 builder.WebHost.ConfigureKestrel(serverOptions =>
 {
