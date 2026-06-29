@@ -26,6 +26,14 @@ namespace Beacon.Core;
 public static class ServiceConfiguration
 {
     /// <summary>
+    /// The placeholder encryption key shipped in Beacon.SampleProject/appsettings.json for local dev.
+    /// The composition root rejects this value in Production (see Program.cs) so it can never protect
+    /// real secrets at rest.
+    /// </summary>
+    public const string DefaultEncryptionKey = "DefaultKey_ChangeInProduction_MustBe32CharsLong!";
+
+
+    /// <summary>
     /// Adds core Beacon services (without UI components).
     /// Chain with .UsePostgreSql() or .UseSqlServer() to configure the database provider.
     /// </summary>
@@ -86,6 +94,7 @@ public static class ServiceConfiguration
                 Environment.NewLine +
                 "Then add to appsettings.json: { \"Beacon\": { \"EncryptionKey\": \"your-generated-key\" } }");
         }
+
         services.AddSingleton<IEncryptionService>(new EncryptionService(encryptionKey));
 
         // One-time secret re-encryption cleanup (decrypt-then-encrypt onto the authenticated v2 format).

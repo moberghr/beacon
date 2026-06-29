@@ -7,7 +7,7 @@ namespace Beacon.SampleProject.Authentication;
 
 public sealed class ApiKeyAuthMiddleware(RequestDelegate next)
 {
-    public async Task InvokeAsync(HttpContext context, IApiKeyService apiKeyService)
+    public async Task InvokeAsync(HttpContext context, IApiKeyService apiKeyService, ILogger<ApiKeyAuthMiddleware> logger)
     {
         // Skip if already authenticated
         if (context.User?.Identity?.IsAuthenticated == true)
@@ -36,8 +36,17 @@ public sealed class ApiKeyAuthMiddleware(RequestDelegate next)
             return;
         }
 
-        // Update last used (fire and forget)
-        _ = apiKeyService.UpdateLastUsedAsync(credential.Id);
+        // Update last-used timestamp. Non-critical bookkeeping: a failure here must never block
+        // authentication, and it must not run as fire-and-forget on the request-scoped service
+        // (the scope — and its DbContext — can dispose before the write completes).
+        try
+        {
+            await apiKeyService.UpdateLastUsedAsync(credential.Id, context.RequestAborted);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to update last-used timestamp for API key {ApiKeyId}.", credential.Id);
+        }
 
         // Build claims identity from API key
         var claims = new List<Claim>
