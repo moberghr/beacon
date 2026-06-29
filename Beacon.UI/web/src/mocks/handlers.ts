@@ -36,6 +36,8 @@
  * - mcp: settings, tools, learning-stats, learned-patterns, documentation-patches
  * - control-tower: statistics, health, subscriptions/:id/detail
  * - migrations: jobs, executions (honest empties)
+ * - admin: api-keys, users, users/roles, admin-settings, user-settings
+ * - data-quality: overview, contracts
  * - catch-alls: 404 GET / 400 mutations / 503 hub negotiate
  */
 import { http, HttpResponse } from 'msw';
@@ -44,6 +46,7 @@ import {
   AnomalyDetectionMethod,
   AnomalySensitivity,
   ApprovalStatus,
+  BedrockAuthMode,
   ChangeSource,
   DatabaseEngineType,
   DataSourceType,
@@ -1106,6 +1109,91 @@ const migrationHandlers = [
     HttpResponse.json({ executions: [], totalCount: 0 })),
 ];
 
+// ---------- admin / users / settings / data-quality --------------------------
+
+const adminHandlers = [
+  // API keys list (raw key only ever returned once on create — list omits it).
+  http.get('/beacon/api/api-keys', () =>
+    HttpResponse.json({
+      entries: [
+        {
+          id: 1,
+          name: 'Demo CI Key',
+          prefix: 'sk-sem_demo',
+          scopes: ['Read', 'Execute'],
+          createdAt: '2026-06-01T09:00:00Z',
+          lastUsedAt: '2026-06-24T14:30:00Z',
+          expiresAt: null,
+          isActive: true,
+        },
+      ],
+    })),
+
+  // Users + roles (admin user management).
+  http.get('/beacon/api/users', () =>
+    HttpResponse.json({
+      entries: [
+        {
+          id: 1,
+          userName: 'mock.admin',
+          email: 'mock.admin@example.test',
+          displayName: 'Mock Admin',
+          isInternalUser: true,
+          isSuperAdmin: true,
+          isEnabled: true,
+          lastLoginAt: '2026-06-25T08:00:00Z',
+          roles: [{ id: 1, name: 'Admin', level: 100 }],
+        },
+      ],
+    })),
+  http.get('/beacon/api/users/roles', () =>
+    HttpResponse.json({
+      entries: [
+        { id: 1, name: 'Admin', description: 'Full access', level: 100, isSystemRole: true },
+        { id: 2, name: 'Member', description: 'Standard access', level: 10, isSystemRole: true },
+      ],
+    })),
+
+  // Admin (LLM provider) settings — no secrets are ever returned, only "*Set" booleans.
+  http.get('/beacon/api/admin-settings', () =>
+    HttpResponse.json({
+      settings: {
+        baseUrl: 'https://demo.beacon.test',
+        llmProvider: null,
+        llmApiKeySet: false,
+        llmEndpointSet: false,
+        llmRegion: null,
+        llmSessionTokenSet: false,
+        llmAwsAccessKeyIdSet: false,
+        llmAwsSecretAccessKeySet: false,
+        llmBedrockAuthMode: BedrockAuthMode.IamRole,
+        llmModel: null,
+        llmFastModel: null,
+        llmMaxConcurrentRequests: 4,
+        llmTokensPerMinute: 100000,
+        llmRequestsPerMinute: 60,
+        llmMonthlyBudget: 0,
+      },
+      history: [],
+    })),
+
+  // Current-user settings (profile self-service).
+  http.get('/beacon/api/user-settings', () =>
+    HttpResponse.json({
+      user: {
+        userName: 'mock.admin',
+        email: 'mock.admin@example.test',
+        displayName: 'Mock Admin',
+        isInternalUser: true,
+        roles: ['Admin'],
+      },
+    })),
+
+  // Data quality (overview + contracts are top-level arrays).
+  http.get('/beacon/api/data-quality/overview', () => HttpResponse.json([])),
+  http.get('/beacon/api/data-quality/contracts', () => HttpResponse.json([])),
+];
+
 // ---------- catch-alls (keep LAST) --------------------------------------------
 
 const fallbackHandlers = [
@@ -1135,5 +1223,6 @@ export const handlers = [
   ...mcpHandlers,
   ...controlTowerHandlers,
   ...migrationHandlers,
+  ...adminHandlers,
   ...fallbackHandlers,
 ];
