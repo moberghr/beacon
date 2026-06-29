@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace Beacon.MCP.Services;
 
@@ -70,8 +71,17 @@ internal static class ProjectContextFactory
             var allowedProjectsClaim = user.FindFirst("allowed_projects");
             if (allowedProjectsClaim != null && !string.IsNullOrEmpty(allowedProjectsClaim.Value))
             {
-                try { ctx.AllowedProjectIds = JsonSerializer.Deserialize<List<int>>(allowedProjectsClaim.Value); }
-                catch { /* ignore malformed claims */ }
+                try
+                {
+                    ctx.AllowedProjectIds = JsonSerializer.Deserialize<List<int>>(allowedProjectsClaim.Value);
+                }
+                catch (JsonException ex)
+                {
+                    // Malformed claim: leave AllowedProjectIds null (no project restriction is derived
+                    // from it) but record it — a corrupt restriction claim is a security-relevant event.
+                    sp.GetService<ILogger<McpProjectContext>>()?
+                        .LogWarning(ex, "Failed to parse 'allowed_projects' claim for user {UserId}; ignoring it.", ctx.UserId);
+                }
             }
 
             // Restore active project from session manager
