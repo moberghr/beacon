@@ -35,8 +35,12 @@ internal static class ToolHelper
             if (context.AllowedProjectIds != null && !context.AllowedProjectIds.Contains(requestedProjectId.Value))
                 return $"Access denied: your API key does not have access to project {requestedProjectId.Value}.";
 
+            // An explicit per-call project_id is resolved into the request-scoped context ONLY.
+            // It must NOT be written back to the shared (user+apiKey) session state: a concurrent
+            // call on the same key that omits project_id would otherwise read this value and
+            // execute against the wrong project. Sticky state is reserved for the single-project
+            // auto-resolve below, which is unambiguous.
             projectId = requestedProjectId.Value;
-            state.ActiveProjectId = projectId;
             context.ActiveProjectId = projectId;
             return null;
         }

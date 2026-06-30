@@ -90,6 +90,7 @@ const authHandlers = [
       isAuthenticated: true,
       roles: ['Admin'],
     })),
+  http.get('/beacon/api/auth/sso', () => HttpResponse.json({ enabled: false })),
   http.post('/beacon/api/auth/logout', () => new HttpResponse(null, { status: 204 })),
 ];
 

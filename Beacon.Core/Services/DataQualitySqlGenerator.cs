@@ -144,11 +144,13 @@ internal class DataQualitySqlGenerator : IDataQualitySqlGenerator
         var conditions = new List<string>();
         if (min != null)
         {
+            ValidateNumeric(min, "min");
             var quotedCol = QuoteColumn(column, engineType);
             conditions.Add($"{quotedCol} < {min}");
         }
         if (max != null)
         {
+            ValidateNumeric(max, "max");
             var quotedCol = QuoteColumn(column, engineType);
             conditions.Add($"{quotedCol} > {max}");
         }
