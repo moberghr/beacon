@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="32 22 232 76" preserveAspectRatio="xMidYMid meet">
+  <defs>
+    <linearGradient id="beamL76" x1="1" y1="0" x2="0" y2="0">
+      <stop offset="0%" stop-color="#34D399" stop-opacity="1"/>
+      <stop offset="60%" stop-color="#10B981" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#10B981" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="beamR76" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#34D399" stop-opacity="1"/>
+      <stop offset="60%" stop-color="#10B981" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#10B981" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="core76" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0%" stop-color="#ECFDF5"/>
+      <stop offset="60%" stop-color="#34D399"/>
+      <stop offset="100%" stop-color="#047857"/>
+    </radialGradient>
+    <linearGradient id="wordmark76" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#10B981"/>
+      <stop offset="100%" stop-color="#047857"/>
+    </linearGradient>
+    <filter id="coreGlow76" x="-75%" y="-75%" width="250%" height="250%">
+      <feGaussianBlur stdDeviation="4.5" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <g transform="translate(176,57)">
+    <path d="M0 0 L-84 -9 L-84 9 Z" fill="url(#beamL76)"/>
+    <path d="M0 0 L84 -9 L84 9 Z" fill="url(#beamR76)"/>
+    <circle r="16" fill="url(#core76)" filter="url(#coreGlow76)"/>
+    <circle r="5" fill="#FFFFFF" opacity="0.9"/>
+  </g>
+  <text x="40" y="72" font-family="'Inter','SF Pro Display','Segoe UI',system-ui,sans-serif"
+        font-weight="700" font-size="44" fill="url(#wordmark76)" letter-spacing="1.5"
+        textLength="120" lengthAdjust="spacingAndGlyphs">BEAC</text>
+  <text x="194" y="72" font-family="'Inter','SF Pro Display','Segoe UI',system-ui,sans-serif"
+        font-weight="700" font-size="44" fill="url(#wordmark76)" letter-spacing="1.5">N</text>
+</svg>
