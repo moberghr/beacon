@@ -194,7 +194,9 @@
   --info-bg: oklch(96% 0.03 240);
 
   /* Surfaces */
-  --bg:            var(--n-50);
+  /* Soft grey canvas (~#f4f5f7) against pure-white cards for more depth — Figma polish.
+     Dark theme keeps its own --bg below. */
+  --bg:            var(--n-100);
   --surface:       var(--n-0);
   --surface-2:     var(--n-25);
   --border:        var(--n-150);
