@@ -42,32 +42,38 @@ internal sealed class ProjectQueryTool(
         CancellationToken cancellationToken = default)
     {
         var sw = Stopwatch.StartNew();
-        var resolveError = ToolHelper.ResolveProjectId(projectContext, sessionManager, project_id, out var projectId);
-        if (resolveError != null) return ToolHelper.Error(resolveError);
-
-        // Resolve data source by name or ID
-        if (datasource_id == null && string.IsNullOrEmpty(datasource_name))
-            return ToolHelper.Error("Provide either datasource_name or datasource_id.");
-
-        if (datasource_id == null && !string.IsNullOrEmpty(datasource_name))
-        {
-            var (resolvedId, nameError) = await ToolHelper.ResolveDataSourceByNameAsync(contextFactory, projectId, datasource_name, cancellationToken);
-            if (nameError != null) return ToolHelper.Error(nameError);
-            datasource_id = resolvedId;
-        }
-
-        var projectError = await ToolHelper.ValidateDataSourceInProjectAsync(contextFactory, projectId, datasource_id!.Value, cancellationToken);
-        if (projectError != null) return ToolHelper.Error(projectError);
-
-        var settings = await settingsProvider.GetSettingsAsync(cancellationToken);
-        var maxRows = Math.Min(max_rows ?? 100, settings.MaxRowLimit);
 
         var signal = new McpSignalBuilder()
             .SetTool("query")
             .SetQuestion(sql ?? api_query ?? "")
-            .SetProjectId(projectId)
-            .SetDataSourceId(datasource_id)
             .SetUserId(projectContext.UserId);
+
+        var resolveError = ToolHelper.ResolveProjectId(projectContext, sessionManager, project_id, out var projectId);
+        if (resolveError != null)
+            return await FailAsync(signal, sw, null, null, sql ?? api_query, resolveError, cancellationToken);
+
+        signal.SetProjectId(projectId);
+
+        // Resolve data source by name or ID
+        if (datasource_id == null && string.IsNullOrEmpty(datasource_name))
+            return await FailAsync(signal, sw, projectId, null, sql ?? api_query, "Provide either datasource_name or datasource_id.", cancellationToken);
+
+        if (datasource_id == null && !string.IsNullOrEmpty(datasource_name))
+        {
+            var (resolvedId, nameError) = await ToolHelper.ResolveDataSourceByNameAsync(contextFactory, projectId, datasource_name, cancellationToken);
+            if (nameError != null)
+                return await FailAsync(signal, sw, projectId, null, sql ?? api_query, nameError, cancellationToken);
+            datasource_id = resolvedId;
+        }
+
+        signal.SetDataSourceId(datasource_id);
+
+        var projectError = await ToolHelper.ValidateDataSourceInProjectAsync(contextFactory, projectId, datasource_id!.Value, cancellationToken);
+        if (projectError != null)
+            return await FailAsync(signal, sw, projectId, datasource_id, sql ?? api_query, projectError, cancellationToken);
+
+        var settings = await settingsProvider.GetSettingsAsync(cancellationToken);
+        var maxRows = Math.Min(max_rows ?? 100, settings.MaxRowLimit);
 
         try
         {
@@ -82,12 +88,14 @@ internal sealed class ProjectQueryTool(
             {
                 queryText = api_query ?? sql ?? "";
                 if (string.IsNullOrEmpty(queryText))
-                    return ToolHelper.Error("Missing required parameter: api_query (JSON query definition for API data sources)");
+                    return await FailAsync(signal, sw, projectId, datasource_id, sql ?? api_query,
+                        "Missing required parameter: api_query (JSON query definition for API data sources)", cancellationToken);
             }
             else
             {
                 if (string.IsNullOrEmpty(sql))
-                    return ToolHelper.Error("Missing required parameter: sql");
+                    return await FailAsync(signal, sw, projectId, datasource_id, sql ?? api_query,
+                        "Missing required parameter: sql", cancellationToken);
 
                 signal.SetGeneratedSql(sql, SqlParsingHelper.ExtractTableNamesFromSql(sql));
 
@@ -165,5 +173,26 @@ internal sealed class ProjectQueryTool(
             await signalService.RecordSignalAsync(signal.Build(), CancellationToken.None);
             return ToolHelper.Error($"Query execution failed: {ex.Message}");
         }
+    }
+
+    // §1.7 / §9.5 — audit + signal must be recorded on every outcome, including the early-exit
+    // failures that occur before the main execution path (project/data-source resolution, access
+    // denied, missing input). Mirrors ProjectAskTool.FailAsync.
+    private async Task<CallToolResult> FailAsync(
+        McpSignalBuilder signal,
+        Stopwatch sw,
+        int? projectId,
+        int? dataSourceId,
+        string? queryText,
+        string error,
+        CancellationToken cancellationToken)
+    {
+        sw.Stop();
+        signal.SetExecutionFailed(error);
+        signal.SetResult(null, (int)sw.ElapsedMilliseconds, false);
+        await auditService.LogToolCallAsync(null, projectContext.UserId, "query",
+            queryText, dataSourceId, projectId, (int)sw.ElapsedMilliseconds, null, error, cancellationToken);
+        await signalService.RecordSignalAsync(signal.Build(), cancellationToken);
+        return ToolHelper.Error(error);
     }
 }

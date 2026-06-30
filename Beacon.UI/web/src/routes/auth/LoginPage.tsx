@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
+import { useQuery } from '@tanstack/react-query';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { User, Lock, ShieldCheck } from 'lucide-react';
@@ -40,6 +41,15 @@ export default function LoginPage() {
     (location.state as { returnTo?: string } | null)?.returnTo,
   );
   const auth = useAuth();
+  // SSO is only offered when the backend has OIDC configured. The flag is read pre-auth
+  // (anonymous endpoint); the button stays hidden until it resolves true, so we never show a
+  // link that would 404 against an SSO-disabled deployment.
+  const ssoConfig = useQuery({
+    queryKey: ['auth', 'sso-config'],
+    queryFn: () => fetchJson<{ enabled: boolean }>('/beacon/api/auth/sso'),
+    staleTime: Infinity,
+  });
+  const ssoEnabled = ssoConfig.data?.enabled === true;
   const [serverError, setServerError] = useState<string | null>(
     ssoError ? 'Single sign-on failed. Please try again or sign in with username and password.' : null,
   );
@@ -110,16 +120,20 @@ export default function LoginPage() {
     >
       {serverError && <AuthAlert tone="error">{serverError}</AuthAlert>}
 
-      <div className="login__sso">
-        <a href="/beacon/api/auth/sso/challenge" className="login__sso-btn">
-          <ShieldCheck size={16} />
-          Continue with single sign-on
-        </a>
-      </div>
+      {ssoEnabled && (
+        <>
+          <div className="login__sso">
+            <a href="/beacon/api/auth/sso/challenge" className="login__sso-btn">
+              <ShieldCheck size={16} />
+              Continue with single sign-on
+            </a>
+          </div>
 
-      <div className="login__divider">
-        <span>or sign in with username</span>
-      </div>
+          <div className="login__divider">
+            <span>or sign in with username</span>
+          </div>
+        </>
+      )}
 
       <form className="login__form" onSubmit={handleSubmit(onSubmit)} noValidate autoComplete="on">
         <label className="login__field">

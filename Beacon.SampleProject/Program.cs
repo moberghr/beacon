@@ -74,7 +74,12 @@ builder.Services.AddHangfire(hangfireConfiguration => hangfireConfiguration
             QueuePollInterval = TimeSpan.FromSeconds(1),
         }));
 
-builder.Services.AddHangfireServer();
+// Cap the worker count explicitly. The Hangfire default is 20 × ProcessorCount (e.g. 160 on an
+// 8-core host); each scheduled-query job opens a BeaconContext plus a downstream connector
+// connection, so the default would exhaust the Npgsql pool (default 100) at scale and — with
+// retries disabled (Attempts = 0) — turn pool-timeout failures into terminal job failures.
+builder.Services.AddHangfireServer(options =>
+    options.WorkerCount = Math.Min(Environment.ProcessorCount * 2, 20));
 
 // Host-level identity + SignalR plumbing (claims transformer, Hangfire → SignalR bridge,
 // SignalR user-id provider). Registered together via AuthServiceExtensions (§2.12).
@@ -226,10 +231,19 @@ if (app.Configuration.GetValue<bool>("Beacon:ForwardedHeaders:Enabled"))
     app.UseForwardedHeaders(forwardedOptions);
 }
 
-// Skip HTTPS redirect for MCP endpoints (allows local dev tools to connect over HTTP)
-app.UseWhen(
-    context => !context.Request.Path.StartsWithSegments("/beacon/mcp"),
-    appBuilder => appBuilder.UseHttpsRedirection());
+// In development, skip HTTPS redirect for MCP endpoints so local tools can connect over HTTP.
+// In production, HTTPS redirection applies everywhere — including /beacon/mcp, which carries
+// API keys in the Authorization header and must never transit plaintext.
+if (app.Environment.IsDevelopment())
+{
+    app.UseWhen(
+        context => !context.Request.Path.StartsWithSegments("/beacon/mcp"),
+        appBuilder => appBuilder.UseHttpsRedirection());
+}
+else
+{
+    app.UseHttpsRedirection();
+}
 
 app.UseStaticFiles();
 
