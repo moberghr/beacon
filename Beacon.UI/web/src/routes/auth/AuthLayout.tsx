@@ -94,7 +94,7 @@ export function AuthLayout({
 
         <div className="login__aside-content">
           <div className="login__brand">
-            <span className="beacon-logo-dot" aria-hidden />
+            <img src="/beacon-mark.svg" alt="" aria-hidden className="login__brand-mark" />
             <span className="login__brand-name">Beacon</span>
             <span className="login__brand-ver">v2.4</span>
           </div>

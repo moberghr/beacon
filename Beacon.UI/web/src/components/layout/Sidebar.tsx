@@ -178,7 +178,7 @@ export function Sidebar() {
     <aside className="sticky top-0 h-screen flex flex-col border-r border-border bg-surface">
       <div className="flex items-center justify-between px-4 py-3.5 border-b border-border">
         <div className="flex items-center gap-2 font-semibold tracking-tightish">
-          <span className="beacon-logo-dot" aria-hidden="true" />
+          <img src="/beacon-mark.svg" alt="" aria-hidden="true" className="w-[22px] h-[22px]" />
           <span>Beacon</span>
         </div>
         <BuildBadge />

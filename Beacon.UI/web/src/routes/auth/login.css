@@ -93,6 +93,10 @@
   align-items: center;
   gap: 12px;
 }
+.login__brand-mark {
+  width: 28px;
+  height: 28px;
+}
 .login__brand-name {
   font-size: 18px;
   font-weight: 600;
