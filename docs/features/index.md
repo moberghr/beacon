@@ -27,7 +27,18 @@ Deliver query results via Email, Microsoft Teams, Slack, or Jira. Configure reci
 Extract, transform, and load data between databases using multi-step ETL pipelines. Support for cross-database migrations with scheduling and retry capabilities.
 
 ### [MCP Server](mcp-server)
-Connect AI assistants (Claude, Cursor, Windsurf) to your data through the Model Context Protocol. Natural language queries, schema search, and documentation — all project-scoped with API key authentication and a self-improving learning loop.
+Connect AI assistants (Claude, Cursor, Windsurf) to your data through the Model Context Protocol. Natural language queries, schema search, and documentation — all project-scoped with API key authentication, M-Schema-grounded SQL generation, AST read-only validation, and a self-improving learning loop.
+
+## Operations & Quality
+
+### [Control Tower](control-tower)
+A real-time operations view across every scheduled check: health buckets, success rates, anomaly sparklines, and open-task counts — auto-refreshing.
+
+### [Tasks](tasks)
+Alerting tasks created automatically when a check finds problems, tracked through to resolution and auto-resolved when the data recovers.
+
+### [Data Quality](data-quality)
+Define data contracts and evaluate them on a schedule, with scoring and evaluation history.
 
 ## Advanced Features
 
@@ -43,8 +54,14 @@ Secure your Beacon installation with flexible authorization. Support for role-ba
 ### [Anomaly Detection](anomaly-detection)
 Statistical anomaly detection that learns baselines from historical execution data and alerts on unusual patterns.
 
+### [API Keys](api-keys)
+Scoped API keys (`Read`, `Execute`, `Admin`) with optional per-project restrictions and expiry — SHA256-hashed at rest, shown exactly once.
+
 ### [AI Integration (Experimental)](ai-integration)
 Auto-generate data source documentation with ERD diagrams and turn natural language into SQL alerts using a runtime-swappable LLM provider.
+
+### [AI Actors (Experimental)](ai-actors)
+LLM-driven monitoring agents whose plans pass through a human approval workflow before anything executes.
 
 ## Quick Links
 
