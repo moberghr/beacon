@@ -37,10 +37,7 @@ internal sealed class ProjectGetDocumentationTool(
         var resolveError = ToolHelper.ResolveProjectId(projectContext, sessionManager, project_id, out var projectId);
         if (resolveError != null) return ToolHelper.Error(resolveError);
 
-        // No McpSignalService call here: McpQuerySignal models the SQL query-learning loop
-        // (generated SQL, intent, routing, validation/execution outcomes). This read-only
-        // documentation fetch produces none of those signals, so a signal would only add empty
-        // rows. Audit-only.
+        // No McpSignalService call here (audit-only) — see GetContextTool for the full rationale.
         try
         {
             // If no data source specified, return full project documentation

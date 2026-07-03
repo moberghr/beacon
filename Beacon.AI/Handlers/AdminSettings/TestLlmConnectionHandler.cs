@@ -8,7 +8,7 @@ namespace Beacon.AI.Handlers.AdminSettings;
 /// AI-side implementation of <see cref="ILlmConnectionTester"/>. Builds an ephemeral provider
 /// from the supplied parameters and runs a single tiny prompt — never mutates the live provider.
 /// </summary>
-public sealed class LlmConnectionTester : ILlmConnectionTester
+public sealed class LlmConnectionTester(LlmRequestQueue requestQueue) : ILlmConnectionTester
 {
     private const string PingPrompt = "Respond with the single word OK.";
     private const int PingMaxTokens = 16;
@@ -42,7 +42,10 @@ public sealed class LlmConnectionTester : ILlmConnectionTester
         var stopwatch = Stopwatch.StartNew();
         try
         {
-            var response = await provider.CompleteAsync(
+            // Route through LlmRequestQueue (§6.1) so the ephemeral test provider is subject to the
+            // same concurrency limit and retry policy as every other LLM call.
+            var response = await requestQueue.EnqueueRequestAsync(
+                provider,
                 new LlmRequest
                 {
                     Messages = [new ChatMessage(ConversationRole.User, PingPrompt)],

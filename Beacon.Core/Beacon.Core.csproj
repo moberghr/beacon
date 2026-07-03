@@ -46,6 +46,7 @@
 		<PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="9.0.11" />
 		<PackageReference Include="Microsoft.Extensions.Http" Version="9.0.11" />
 		<PackageReference Include="Refit" Version="9.0.2" />
+		<PackageReference Include="SqlParserCS" Version="0.6.5" />
 		<PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.11" />
 		<PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.3.1" />
 		<PackageReference Include="Microsoft.IdentityModel.Tokens" Version="8.3.1" />

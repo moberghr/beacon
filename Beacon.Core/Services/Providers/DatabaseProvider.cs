@@ -7,11 +7,13 @@ using Beacon.Core.Data.Enums;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Providers;
+using Beacon.Core.Services.Validation;
 
 namespace Beacon.Core.Services.Providers;
 
 internal class DatabaseProvider(
     IEncryptionService encryptionService,
+    SqlReadOnlyAstValidator readOnlyValidator,
     ILogger<DatabaseProvider> logger) : IDataSourceProvider
 {
     public DataSourceType SupportedType => DataSourceType.Database;
@@ -152,6 +154,18 @@ internal class DatabaseProvider(
                 };
             }
 
+            // Read-only enforcement (§1.5): reject anything that is not a single SELECT before the
+            // engine-specific syntax dry-run below.
+            var readOnlyError = readOnlyValidator.Validate(query, ResolveDialect(dataSource.DatabaseEngineType.Value));
+            if (readOnlyError != null)
+            {
+                return new QueryValidationResult
+                {
+                    IsValid = false,
+                    Errors = new List<string> { readOnlyError }
+                };
+            }
+
             // Basic validation: try to prepare the query without executing
             var connectionString = encryptionService.Decrypt(dataSource.EncryptedConnectionData);
             await using var connection = DbConnectionFactory.CreateConnection(
@@ -198,6 +212,19 @@ internal class DatabaseProvider(
                 Errors = new List<string> { ex.Message }
             };
         }
+    }
+
+    private static string ResolveDialect(DatabaseEngineType engineType)
+    {
+        return engineType switch
+        {
+            DatabaseEngineType.PostgreSQL => "postgresql",
+            DatabaseEngineType.MySQL => "mysql",
+            DatabaseEngineType.MSSQL => "sqlserver",
+            DatabaseEngineType.AzureSynapse => "azuresynapse",
+            DatabaseEngineType.Snowflake => "snowflake",
+            _ => ""
+        };
     }
 
     private static List<Dictionary<string, object?>> ConvertDapperResultsToRows(IList<dynamic> dapperResults)

@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useForm, type FieldErrors } from 'react-hook-form';
 import { useQuery } from '@tanstack/react-query';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -15,7 +14,7 @@ import {
   Textarea,
 } from '@/components/beacon';
 import { Tabs } from '@/components/Tabs';
-import { useIsAdmin } from '@/auth/useAuth';
+import { useRequireAdmin } from '@/auth/useRequireAdmin';
 import { unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
 import { useProjectsQuery } from '@/routes/projects/queries';
@@ -68,15 +67,7 @@ const FIELD_TAB: Record<keyof FormValues, TabKey> = {
 };
 
 export default function McpSettingsPage() {
-  const isAdmin = useIsAdmin();
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    if (isAdmin === false) {
-      toast.error('Admin role required.');
-      navigate('/home', { replace: true });
-    }
-  }, [isAdmin, navigate]);
+  const isAdmin = useRequireAdmin();
 
   if (isAdmin === undefined) {
     return (

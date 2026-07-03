@@ -15,6 +15,7 @@ using Beacon.Core.Models.Queries;
 using Beacon.Core.Models.QueryExecutionHistory;
 using Beacon.Core.Models.Recipients;
 using Beacon.Core.Models.Subscriptions;
+using Beacon.Core.Services.Validation;
 using Beacon.Core.Validators;
 
 namespace Beacon.Core.Services;
@@ -177,7 +178,7 @@ public class GetQueriesRequest : SortedListRequest
     public string? SearchTerm { get; set; }
 }
 
-internal partial class QueryService(IDbContextFactory<BeaconContext> contextFactory, IEncryptionService encryptionService, IManualQueryExecutionLogger queryExecutionLogger, ILogger<QueryService> logger, ILoggerFactory loggerFactory, IQueryVersionService queryVersionService, BeaconConfiguration beaconConfiguration, IBeaconUserContext userContext) : IQueryService
+internal partial class QueryService(IDbContextFactory<BeaconContext> contextFactory, IEncryptionService encryptionService, IManualQueryExecutionLogger queryExecutionLogger, ILogger<QueryService> logger, ILoggerFactory loggerFactory, IQueryVersionService queryVersionService, BeaconConfiguration beaconConfiguration, IBeaconUserContext userContext, SqlReadOnlyAstValidator readOnlyAstValidator) : IQueryService
 {
     public async Task<BaseResponse> CreateQuery(QueryData queryData, CancellationToken cancellationToken)
     {
@@ -402,11 +403,11 @@ internal partial class QueryService(IDbContextFactory<BeaconContext> contextFact
         var executionTimeStats = await context.QueryExecutionHistory
             .Where(x => x.Subscription.QueryId == queryId && x.ExecutionTimeMs > 0)
             .GroupBy(x => 1)
-            .Select(g => new
+            .Select(x => new
             {
-                AvgExecutionTimeMs = g.Average(h => h.ExecutionTimeMs),
-                MinExecutionTimeMs = g.Min(h => h.ExecutionTimeMs),
-                MaxExecutionTimeMs = g.Max(h => h.ExecutionTimeMs)
+                AvgExecutionTimeMs = x.Average(y => y.ExecutionTimeMs),
+                MinExecutionTimeMs = x.Min(y => y.ExecutionTimeMs),
+                MaxExecutionTimeMs = x.Max(y => y.ExecutionTimeMs)
             })
             .FirstOrDefaultAsync(cancellationToken);
 
@@ -414,12 +415,12 @@ internal partial class QueryService(IDbContextFactory<BeaconContext> contextFact
         var executionTimeHistory = await context.QueryExecutionHistory
             .Where(x => x.Subscription.QueryId == queryId && x.CreatedTime >= cutoffDate && x.ExecutionTimeMs > 0)
             .GroupBy(x => x.CreatedTime.Date)
-            .Select(g => new ExecutionTimeDataPoint
+            .Select(x => new ExecutionTimeDataPoint
             {
-                Date = g.Key,
-                AvgExecutionTimeMs = g.Average(h => h.ExecutionTimeMs),
-                MinExecutionTimeMs = g.Min(h => h.ExecutionTimeMs),
-                MaxExecutionTimeMs = g.Max(h => h.ExecutionTimeMs)
+                Date = x.Key,
+                AvgExecutionTimeMs = x.Average(y => y.ExecutionTimeMs),
+                MinExecutionTimeMs = x.Min(y => y.ExecutionTimeMs),
+                MaxExecutionTimeMs = x.Max(y => y.ExecutionTimeMs)
             })
             .OrderBy(x => x.Date)
             .ToListAsync(cancellationToken);

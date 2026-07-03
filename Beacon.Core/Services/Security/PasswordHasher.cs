@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using Microsoft.Extensions.Logging;
 
 namespace Beacon.Core.Services.Security;
 
@@ -6,7 +7,7 @@ namespace Beacon.Core.Services.Security;
 /// Password hasher using PBKDF2 with SHA256.
 /// Uses 100,000 iterations and 256-bit output as recommended by OWASP.
 /// </summary>
-internal class PasswordHasher : IPasswordHasher
+internal class PasswordHasher(ILogger<PasswordHasher> logger) : IPasswordHasher
 {
     private const int SaltSize = 32; // 256 bits
     private const int HashSize = 32; // 256 bits
@@ -53,8 +54,11 @@ internal class PasswordHasher : IPasswordHasher
             // Use constant-time comparison to prevent timing attacks
             return CryptographicOperations.FixedTimeEquals(computedHashBytes, storedHashBytes);
         }
-        catch
+        catch (Exception ex) when (ex is FormatException or ArgumentException)
         {
+            // Malformed stored hash/salt (bad Base64, wrong length) verifies as "wrong password" and
+            // permanently locks the user out — log so support can diagnose rather than fail silently.
+            logger.LogWarning(ex, "Stored credential material is malformed and could not be verified.");
             return false;
         }
     }

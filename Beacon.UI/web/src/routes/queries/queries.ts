@@ -308,6 +308,8 @@ export interface UpdateQueryPayload {
 export interface UpdateQueryResult {
   queryId: number;
   success: boolean;
+  /** Backend outcome message — e.g. "Changes submitted for approval" when the approval workflow intercepts the edit. */
+  message?: string | null;
 }
 
 /**
@@ -327,7 +329,9 @@ export function useUpdateQueryMutation() {
         ['queries', vars.queryId, 'versions'],
         ['queries', 'list'],
       ],
-      successMsg: 'Query saved',
+      // Prefer the backend message so an approval-intercepted edit reads "Changes submitted for
+      // approval" instead of a misleading "Query saved" while the editor reverts to the stored SQL.
+      successMsg: (_, data) => data.message || 'Query saved',
       errorFallback: 'Save failed',
     }),
   );

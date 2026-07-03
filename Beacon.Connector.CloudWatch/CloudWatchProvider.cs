@@ -85,14 +85,22 @@ public class CloudWatchProvider(
             // Detect query type
             var queryType = DetectQueryType(query);
 
-            if (queryType == CloudWatchQueryType.LogsInsights)
+            if (queryType != CloudWatchQueryType.LogsInsights)
             {
-                return await ExecuteLogsInsightsQueryAsync(client, config, dataSource.Id, query, parameters, stopwatch, cancellationToken);
+                // Metrics queries are not supported yet — return a clean, actionable failure rather
+                // than throwing, so the caller surfaces the reason instead of a generic error.
+                stopwatch.Stop();
+                return new ProviderQueryResult
+                {
+                    Rows = new List<Dictionary<string, object?>>(),
+                    TotalRows = 0,
+                    ExecutionTimeMs = stopwatch.Elapsed.TotalMilliseconds,
+                    Success = false,
+                    ErrorMessage = "CloudWatch Metrics queries are not supported yet. Use a Logs Insights query."
+                };
             }
-            else
-            {
-                throw new NotImplementedException("CloudWatch Metrics queries are not yet implemented");
-            }
+
+            return await ExecuteLogsInsightsQueryAsync(client, config, dataSource.Id, query, parameters, stopwatch, cancellationToken);
         }
         catch (Exception ex)
         {

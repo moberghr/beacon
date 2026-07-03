@@ -144,11 +144,13 @@ internal class DataQualitySqlGenerator : IDataQualitySqlGenerator
         var conditions = new List<string>();
         if (min != null)
         {
+            ValidateNumeric(min, "min");
             var quotedCol = QuoteColumn(column, engineType);
             conditions.Add($"{quotedCol} < {min}");
         }
         if (max != null)
         {
+            ValidateNumeric(max, "max");
             var quotedCol = QuoteColumn(column, engineType);
             conditions.Add($"{quotedCol} > {max}");
         }
@@ -162,7 +164,7 @@ internal class DataQualitySqlGenerator : IDataQualitySqlGenerator
     {
         var schema = config.GetString("schema");
         var table = config.GetString("table");
-        var column = config.GetString("column");
+        var column = SqlIdentifierGuard.Validate(config.GetString("column"), "column");
         var pattern = config.GetString("pattern");
         var qualifiedTable = QualifyTable(schema, table, engineType);
 

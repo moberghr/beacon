@@ -6,6 +6,7 @@ using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Services.Providers;
 using Beacon.Core.Services.Security;
+using Beacon.Core.Services.Validation;
 
 namespace Beacon.AI.Services.SemanticSearch;
 
@@ -18,6 +19,7 @@ internal sealed class SemanticSearchService(
     IKnowledgeGraphService knowledgeGraphService,
     ILlmProvider llmProvider,
     IQueryGuardrailService guardrailService,
+    SqlReadOnlyAstValidator readOnlyAstValidator,
     IDataSourceProviderFactory providerFactory,
     ILogger<SemanticSearchService> logger) : ISemanticSearchService
 {
@@ -83,11 +85,12 @@ internal sealed class SemanticSearchService(
                     "The model did not produce a recognisable SQL query");
             }
 
+            // Never log the raw generated SQL — it may embed user question text / column names (§1.11).
             logger.LogInformation(
-                "SQL generated for DataSource {DataSourceId}: {Sql}",
-                dataSourceId, generatedSql);
+                "SQL generated for DataSource {DataSourceId} ({SqlLength} chars)",
+                dataSourceId, generatedSql.Length);
 
-            // 3. Validate query with guardrails
+            // 3. Validate query with the regex guardrail (write-op + PII column detection)
             var validation = guardrailService.ValidateQuery(generatedSql, new QueryGuardrailOptions
             {
                 ReadOnly = true,
@@ -102,6 +105,17 @@ internal sealed class SemanticSearchService(
                     explanation,
                     null,
                     $"Generated query failed safety validation: {validation.Error}");
+            }
+
+            // AST-based read-only enforcement as defense-in-depth on top of the regex guardrail (§1.5).
+            var astError = readOnlyAstValidator.Validate(generatedSql);
+            if (astError != null)
+            {
+                return new SemanticSearchResult(
+                    generatedSql,
+                    explanation,
+                    null,
+                    $"Generated query failed safety validation: {astError}");
             }
 
             if (!execute)

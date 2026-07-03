@@ -4,7 +4,7 @@
 
 ## Stack
 
-§4.1 **Framework set:** NUnit 4 + Moq + FluentAssertions + bUnit. All tests live in `Beacon.Tests/`. Do NOT introduce xUnit, MSTest, NSubstitute, or FakeItEasy.
+§4.1 **Framework set:** NUnit 4 + Moq + FluentAssertions. All tests live in `Beacon.Tests/`. Do NOT introduce xUnit, MSTest, NSubstitute, or FakeItEasy.
 
 §4.2 **Test project target:** `net9.0`, matches the rest of the solution.
 
@@ -20,14 +20,12 @@
 
 ## Forbidden test infrastructure
 
-§4.7 **NEVER use `UseInMemoryDatabase`** — it doesn't catch provider-specific translation issues, which is the whole reason these tests exist.
-
-⚠️ **Inconsistency:** `Beacon.Tests/Beacon.Tests.csproj` still references `Microsoft.EntityFrameworkCore.InMemory` (9.0.4). The package is dead weight today — do NOT use it in new tests; remove the reference next time `Beacon.Tests.csproj` is touched for an unrelated reason.
+§4.7 **NEVER use `UseInMemoryDatabase`** — it doesn't catch provider-specific translation issues, which is the whole reason these tests exist. The `Microsoft.EntityFrameworkCore.InMemory` package is not referenced and must not be re-added. To exercise code that calls async EF operators through a context without a real DB, back a mocked `DbSet<T>` with the async-queryable doubles in `Beacon.Tests/Common/TestAsyncQueryable.cs` (see `QueryServiceReadOnlyGateTests`).
 
 ## Other tests
 
 §4.8 **Unit tests:** pure logic, validators, mapping, branching rules — NUnit + Moq + FluentAssertions.
 
-§4.9 **bUnit for Razor components.** Test rendered HTML and event interactions, not Blazor runtime internals.
+§4.9 _(removed — no Razor/Blazor UI remains after the Phase 3 cutover, so bUnit is no longer part of the stack. The UI is the React app; frontend tests use Vitest + RTL + MSW under `Beacon.UI/web/src`.)_
 
 §4.10 **Assertions must be meaningful.** `result.Should().NotBeNull()` alone is not a test — assert structure or values that prove the behavior under test.

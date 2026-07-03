@@ -24,7 +24,9 @@ internal sealed class McpSignalService(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Failed to record MCP query signal");
+            // §1.7/§9.5 — signal recording is non-optional. Swallow so a transient DB issue doesn't fail
+            // the tool call, but log at Error so a sustained outage of the learning loop is visible.
+            logger.LogError(ex, "Failed to record MCP query signal");
         }
     }
 }

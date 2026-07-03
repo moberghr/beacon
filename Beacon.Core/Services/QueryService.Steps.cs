@@ -14,6 +14,7 @@ using Beacon.Core.Models.Queries;
 using Beacon.Core.Models.QueryExecutionHistory;
 using Beacon.Core.Models.Recipients;
 using Beacon.Core.Models.Subscriptions;
+using Beacon.Core.Services.Validation;
 using Beacon.Core.Validators;
 
 namespace Beacon.Core.Services;
@@ -24,6 +25,14 @@ internal partial class QueryService
     public async Task<BaseResponse> AddQueryStep(int queryId, QueryStepData stepData, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        // AST read-only gate: query-builder steps must be read-only SELECTs (§1.5).
+        var dialect = await ResolveDataSourceDialect(context, stepData.DataSourceId, cancellationToken);
+        var rejection = readOnlyAstValidator.Validate(stepData.SqlValue, dialect);
+        if (rejection != null)
+        {
+            throw new InvalidOperationException(rejection);
+        }
 
         // Stage parameters on the navigation collection so the step and its
         // parameters commit together in a single SaveChanges (§5.7).
@@ -51,6 +60,14 @@ internal partial class QueryService
     public async Task<BaseResponse> UpdateQueryStep(int queryId, int stepOrder, QueryStepData stepData, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        // AST read-only gate: query-builder steps must be read-only SELECTs (§1.5).
+        var dialect = await ResolveDataSourceDialect(context, stepData.DataSourceId, cancellationToken);
+        var rejection = readOnlyAstValidator.Validate(stepData.SqlValue, dialect);
+        if (rejection != null)
+        {
+            throw new InvalidOperationException(rejection);
+        }
 
         var queryStep = await context.QuerySteps
             .Include(s => s.Parameters)
@@ -217,6 +234,14 @@ internal partial class QueryService
         if (!step.DataSource.DatabaseEngineType.HasValue)
             throw new BeaconException($"Data source {step.DataSourceId} is not a database type");
 
+        // Defense-in-depth: reject non-read-only SQL even for steps persisted before the
+        // AddQueryStep/UpdateQueryStep gate shipped (§1.5). Runs before any DB round-trip.
+        var rejection = readOnlyAstValidator.Validate(step.SqlValue, step.DataSource.DatabaseEngineType?.ToString());
+        if (rejection != null)
+        {
+            throw new InvalidOperationException(rejection);
+        }
+
         var stepParameters = ExtractStepParameters(step, parameters);
         var (parameterizedSql, sqlParameters) = QueryHelper.PrepareParameterizedQuery(step.SqlValue, stepParameters);
 
@@ -308,6 +333,16 @@ internal partial class QueryService
                 Value = value
             };
         }).ToList();
+    }
+
+    private async Task<string?> ResolveDataSourceDialect(BeaconContext context, int dataSourceId, CancellationToken cancellationToken)
+    {
+        var engineType = await context.DataSources
+            .Where(x => x.Id == dataSourceId)
+            .Select(x => x.DatabaseEngineType)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return engineType?.ToString();
     }
 
 }

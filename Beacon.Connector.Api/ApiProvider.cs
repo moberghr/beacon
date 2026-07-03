@@ -96,6 +96,14 @@ public class ApiProvider(
             var queryDef = JsonSerializer.Deserialize<ApiQueryDefinition>(query, JsonOptions)
                 ?? throw new BeaconException("Failed to parse API query definition");
 
+            // Read-only enforcement (§1.5) at the connector execution level — fail closed here so no
+            // caller can execute a mutating verb by skipping ValidateQueryAsync.
+            if (!IsReadOnlyMethod(queryDef.Method))
+            {
+                throw new BeaconException(
+                    $"HTTP method '{queryDef.Method}' is not permitted. Only read-only verbs (GET, HEAD, OPTIONS) are allowed.");
+            }
+
             var client = httpClientFactory.CreateClient();
             client.Timeout = TimeSpan.FromSeconds(config.TimeoutSeconds);
             // CreateClient() hands out a fresh HttpClient per call, so capping the buffer here
@@ -201,11 +209,12 @@ public class ApiProvider(
                 if (string.IsNullOrWhiteSpace(queryDef.ResultMapping?.ArrayPath))
                     errors.Add("Result mapping arrayPath is required");
 
-                var validMethods = new[] { "GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS" };
-                if (!string.IsNullOrWhiteSpace(queryDef.Method) &&
-                    !validMethods.Contains(queryDef.Method.ToUpperInvariant()))
+                // Read-only enforcement (§1.5): only safe/read HTTP verbs are executable. Mutating verbs
+                // (POST/PUT/DELETE/PATCH) are rejected outright rather than whitelisted. The same check
+                // is enforced fail-closed in ExecuteQueryAsync so validation cannot be skipped.
+                if (!string.IsNullOrWhiteSpace(queryDef.Method) && !IsReadOnlyMethod(queryDef.Method))
                 {
-                    warnings.Add($"Unusual HTTP method: {queryDef.Method}");
+                    errors.Add($"HTTP method '{queryDef.Method}' is not permitted. Only read-only verbs (GET, HEAD, OPTIONS) are allowed.");
                 }
             }
         }
@@ -221,6 +230,11 @@ public class ApiProvider(
             Warnings = warnings
         });
     }
+
+    private static readonly string[] ReadOnlyMethods = ["GET", "HEAD", "OPTIONS"];
+
+    private static bool IsReadOnlyMethod(string? method) =>
+        !string.IsNullOrWhiteSpace(method) && ReadOnlyMethods.Contains(method.ToUpperInvariant());
 
     private ApiConnectionConfig ParseConfiguration(DataSource dataSource)
     {

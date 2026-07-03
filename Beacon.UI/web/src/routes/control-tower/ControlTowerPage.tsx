@@ -207,6 +207,12 @@ export default function ControlTowerPage() {
       // No user-chosen sort — keep the server's worst-first order.
       return entries;
     }
+    // The client-side overlay reorders only the current page. When the result spans multiple pages
+    // the server order (driven by `sortBy`) decides which rows land on each page, so re-sorting a
+    // single page would surface the wrong rows in the wrong order. Defer entirely to the server then.
+    if (totalPages > 1) {
+      return entries;
+    }
     const list = [...entries];
     const dir = sort.direction === 'asc' ? 1 : -1;
     list.sort((a, b) => {

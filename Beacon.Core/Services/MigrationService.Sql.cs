@@ -220,8 +220,9 @@ internal partial class MigrationService
                 }
                 catch (Exception mergeEx)
                 {
-                    logger.LogError(mergeEx, "Merge query failed. Query: {Query}", mergeQuery);
-                    throw new InvalidOperationException($"Merge query failed: {mergeEx.Message}. Query: {mergeQuery}", mergeEx);
+                    // §1.11 — log identifiers, not the generated SQL body.
+                    logger.LogError(mergeEx, "Merge query failed for table {Table}", tableName);
+                    throw new InvalidOperationException($"Merge query failed for table '{tableName}': {mergeEx.Message}", mergeEx);
                 }
 
                 logger.LogInformation("Bulk upserted {RowCount} rows into {Table} via temp table", data.Count, tableName);

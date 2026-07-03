@@ -1,12 +1,22 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
+import { useQuery } from '@tanstack/react-query';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { User, Lock, ShieldCheck } from 'lucide-react';
 import { ApiError, describeError, fetchJson } from '@/lib/api';
 import { useAuth } from '@/auth/useAuth';
-import { AuthLayout, AuthAlert, EmphasisWord } from './AuthLayout';
+import {
+  AuthLayout,
+  AuthAlert,
+  EmphasisWord,
+  AuthLabel,
+  AuthField,
+  AuthFieldError,
+  AuthSubmit,
+  AuthSpinner,
+} from './AuthLayout';
 
 const SCHEMA = z.object({
   username: z.string().trim().min(1, 'Username is required'),
@@ -40,6 +50,15 @@ export default function LoginPage() {
     (location.state as { returnTo?: string } | null)?.returnTo,
   );
   const auth = useAuth();
+  // SSO is only offered when the backend has OIDC configured. The flag is read pre-auth
+  // (anonymous endpoint); the button stays hidden until it resolves true, so we never show a
+  // link that would 404 against an SSO-disabled deployment.
+  const ssoConfig = useQuery({
+    queryKey: ['auth', 'sso-config'],
+    queryFn: () => fetchJson<{ enabled: boolean }>('/beacon/api/auth/sso'),
+    staleTime: Infinity,
+  });
+  const ssoEnabled = ssoConfig.data?.enabled === true;
   const [serverError, setServerError] = useState<string | null>(
     ssoError ? 'Single sign-on failed. Please try again or sign in with username and password.' : null,
   );
@@ -110,70 +129,68 @@ export default function LoginPage() {
     >
       {serverError && <AuthAlert tone="error">{serverError}</AuthAlert>}
 
-      <div className="login__sso">
-        <a href="/beacon/api/auth/sso/challenge" className="login__sso-btn">
-          <ShieldCheck size={16} />
-          Continue with single sign-on
-        </a>
-      </div>
-
-      <div className="login__divider">
-        <span>or sign in with username</span>
-      </div>
-
-      <form className="login__form" onSubmit={handleSubmit(onSubmit)} noValidate autoComplete="on">
-        <label className="login__field">
-          <span className="login__label">Username</span>
-          <div className="login__input">
-            <User size={14} className="login__input-icon" />
-            <input
-              type="text"
-              autoComplete="username"
-              placeholder="you@moberg.hr"
-              disabled={isSubmitting}
-              {...register('username')}
-            />
-          </div>
-          {errors.username && <span className="login__field-error">{errors.username.message}</span>}
-        </label>
-
-        <label className="login__field">
-          <span className="login__label">Password</span>
-          <div className="login__input">
-            <Lock size={14} className="login__input-icon" />
-            <input
-              type={showPassword ? 'text' : 'password'}
-              autoComplete="current-password"
-              placeholder="••••••••"
-              disabled={isSubmitting}
-              {...register('password')}
-            />
-            <button
-              type="button"
-              className="login__reveal"
-              onClick={() => setShowPassword((s) => !s)}
-              aria-label={showPassword ? 'Hide password' : 'Show password'}
+      {ssoEnabled && (
+        <>
+          <div className="mb-4 grid grid-cols-1 gap-2">
+            <a
+              href="/beacon/api/auth/sso/challenge"
+              className="inline-flex items-center justify-center gap-2.5 rounded-sm border border-border-strong bg-surface px-3 py-2.5 text-[13.5px] font-medium text-text no-underline transition-colors hover:border-text-subtle hover:bg-surface-2"
             >
-              {showPassword ? 'Hide' : 'Show'}
-            </button>
+              <ShieldCheck size={16} />
+              Continue with single sign-on
+            </a>
           </div>
-          {errors.password && <span className="login__field-error">{errors.password.message}</span>}
+
+          <div className="relative my-5 flex items-center gap-3 text-xs font-medium uppercase tracking-wide text-text-subtle">
+            <span className="h-px flex-1 bg-border" />
+            <span>or sign in with username</span>
+            <span className="h-px flex-1 bg-border" />
+          </div>
+        </>
+      )}
+
+      <form className="flex flex-col gap-3.5" onSubmit={handleSubmit(onSubmit)} noValidate autoComplete="on">
+        <label className="flex flex-col gap-1.5">
+          <AuthLabel>Username</AuthLabel>
+          <AuthField
+            icon={<User size={14} />}
+            type="text"
+            autoComplete="username"
+            placeholder="you@moberg.hr"
+            disabled={isSubmitting}
+            {...register('username')}
+          />
+          {errors.username && <AuthFieldError>{errors.username.message}</AuthFieldError>}
         </label>
 
-        <button type="submit" className="login__submit" disabled={isSubmitting}>
+        <label className="flex flex-col gap-1.5">
+          <AuthLabel>Password</AuthLabel>
+          <AuthField
+            icon={<Lock size={14} />}
+            type={showPassword ? 'text' : 'password'}
+            autoComplete="current-password"
+            placeholder="••••••••"
+            disabled={isSubmitting}
+            reveal={{ shown: showPassword, onToggle: () => setShowPassword((s) => !s) }}
+            {...register('password')}
+          />
+          {errors.password && <AuthFieldError>{errors.password.message}</AuthFieldError>}
+        </label>
+
+        <AuthSubmit disabled={isSubmitting}>
           {isSubmitting ? (
             <>
-              <span className="login__spinner" /> Verifying…
+              <AuthSpinner /> Verifying…
             </>
           ) : (
             <>
               Sign in
-              <span className="login__submit-kbd">
-                <span className="kbd">↵</span>
+              <span className="rounded-xs border border-white/25 bg-white/[0.18] px-1.5 py-px mono text-2xs text-white">
+                ↵
               </span>
             </>
           )}
-        </button>
+        </AuthSubmit>
       </form>
     </AuthLayout>
   );
