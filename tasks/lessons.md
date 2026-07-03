@@ -59,3 +59,13 @@
 **Rule:** Treat this single failure as the known baseline until the harness registers a default challenge scheme; do not block unrelated merges on it, and do not silently include a fix in unrelated work.
 
 **When it applies:** Interpreting `dotnet test` results on this repo (expect N-1 passes until fixed).
+
+## A "read-only" AST validator needs to be re-attacked from every angle SQL offers a side door (2026-07-03)
+
+**What happened:** `SqlReadOnlyAstValidator` (added to gate query-builder steps and 5 SQL connectors against writes) shipped with two separate bypasses found only at review time, not at implementation time: (1) a data-modifying CTE — `WITH x AS (INSERT ... RETURNING id) SELECT * FROM x` — parses as `Statement.Select` and passed unchecked; (2) `EXPLAIN ANALYZE INSERT/UPDATE/DELETE ...` parses as `Statement.Explain` and was accepted unconditionally without inspecting the wrapped statement — on PostgreSQL/MySQL/Databricks this actually executes the write. Both were caught by dedicated adversarial review passes (`compliance-reviewer`, then `silent-failure-hunter`), not by the implementer or by initial test-writing.
+
+**Rule:** When adding an AST-based SQL allow-list gate (SELECT-only, read-only enforcement), explicitly enumerate and test every AST node type that can WRAP or CONTAIN another statement, not just the top-level statement type: CTEs (`WITH`), set operations (`UNION`/`INTERSECT`/`EXCEPT`), parenthesized subqueries, and `EXPLAIN`/`EXPLAIN ANALYZE`. A validator that checks only `statement is Statement.Select` and stops is not done — walk the whole tree recursively. Also: flip "parser can't parse it" to fail-closed (reject), not fail-open (allow) — the fail-open assumption is often inherited from a context where a different validator was the actual authority and stops being safe the moment this validator becomes the sole gate somewhere else.
+
+**Why it matters:** Both bugs were real, exploitable fail-opens in a security control this repo explicitly ships to prevent writes through the query-builder and SQL connectors. Neither would have been caught by "does it compile and pass the happy-path test" — they required someone deliberately trying to think like an attacker with SQL knowledge of parser edge cases.
+
+**When it applies:** Any time a new or modified SQL-parsing/allow-list validator is added anywhere in Beacon (MCP tools, connectors, query builder). Before considering such a validator done, explicitly test: CTEs wrapping DML, UNION arms hiding a mutation, EXPLAIN wrapping DML, and parse-failure behavior. Route it through at least one adversarial review pass (`compliance-reviewer` and/or `silent-failure-hunter`) before merge — this class of bug reliably survives a first implementation pass.

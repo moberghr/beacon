@@ -1,7 +1,7 @@
-import { useEffect, useId, useRef } from 'react';
+import { useId } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertTriangle, ArrowRight, Loader2, X } from 'lucide-react';
-import { Pill, Card } from '@/components/beacon';
+import { Pill, Card, Modal } from '@/components/beacon';
 import { EmptyState } from '@/components/data/EmptyState';
 import { formatDateTime, formatNumber, formatRelativeTime } from '@/lib/format';
 import { useControlTowerSubscriptionDetail } from './queries';
@@ -70,41 +70,10 @@ export function SubscriptionDetailPanel({
     timeRangeDays,
   );
   const titleId = useId();
-  const panelRef = useRef<HTMLElement>(null);
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
-
-  useEffect(() => {
-    const previouslyFocused = document.activeElement as HTMLElement | null;
-    panelRef.current?.focus();
-
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        onCloseRef.current();
-      }
-    };
-    document.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.removeEventListener('keydown', onKeyDown);
-      previouslyFocused?.focus();
-    };
-  }, []);
 
   return (
-    <div
-      className="fixed inset-0 z-40 bg-black/35 backdrop-blur-sm flex justify-end"
-      onClick={onClose}
-    >
-      <aside
-        ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        tabIndex={-1}
-        className="bg-surface border-l border-border w-full max-w-[640px] h-full overflow-y-auto shadow-pop outline-none"
-        onClick={e => e.stopPropagation()}
-      >
+    <Modal open onClose={onClose} width={640} ariaLabel={row.queryName} className="max-h-[90vh]">
+      <div className="overflow-y-auto flex-1">
         <header className="sticky top-0 bg-surface border-b border-border px-5 py-4 flex items-start gap-3 z-10">
           <div className="flex-1 min-w-0">
             <div className="text-2xs font-semibold uppercase tracking-eyebrow text-text-muted mb-1">
@@ -259,7 +228,7 @@ export function SubscriptionDetailPanel({
             </>
           )}
         </div>
-      </aside>
-    </div>
+      </div>
+    </Modal>
   );
 }

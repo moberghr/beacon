@@ -132,9 +132,11 @@ internal sealed class QueryGuardrailService : IQueryGuardrailService
                     return true;
                 }
             }
-            catch
+            catch (Exception ex) when (ex is ArgumentException or RegexMatchTimeoutException)
             {
-                // Invalid regex pattern — skip
+                // Fail CLOSED: if a custom pattern can't be evaluated, treat the column as PII rather
+                // than risk leaking it. Patterns are validated at write time, so this is defensive.
+                return true;
             }
         }
 

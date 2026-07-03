@@ -16,6 +16,7 @@ using Beacon.Core.Data;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Embed;
 using Beacon.Core.Services.Shared;
+using Beacon.Core.Services.Validation;
 using Microsoft.Extensions.Options;
 using Beacon.Core.Worker;
 using Beacon.Core.Worker.Repositories;
@@ -97,10 +98,6 @@ public static class ServiceConfiguration
 
         services.AddSingleton<IEncryptionService>(new EncryptionService(encryptionKey));
 
-        // One-time secret re-encryption cleanup (decrypt-then-encrypt onto the authenticated v2 format).
-        // TODO: invoke once post-deploy (e.g. resolve SecretReEncryptionService and call ReEncryptAllAsync).
-        services.TryAddTransient<SecretReEncryptionService>();
-
         services.AddSingleton<IAdapter, TeamsAdapter>();
         services.AddSingleton<IAdapter, SlackAdapter>();
         if (configurationOptions.EmailAdapter != null)
@@ -158,6 +155,10 @@ public static class ServiceConfiguration
 
         // Query guardrail service (always registered — enforces read-only access and PII detection)
         services.TryAddTransient<Services.Security.IQueryGuardrailService, Services.Security.QueryGuardrailService>();
+
+        // AST-based read-only validator (defense-in-depth after the regex guardrail; §1.5).
+        // Shared by MCP tools, query-builder step persistence, and step execution.
+        services.TryAddSingleton<SqlReadOnlyAstValidator>();
 
         // Rate limiter (singleton so the in-memory sliding windows are shared across requests)
         services.TryAddSingleton<Services.Security.RateLimiter>();

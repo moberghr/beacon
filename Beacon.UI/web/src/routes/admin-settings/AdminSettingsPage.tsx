@@ -1,5 +1,4 @@
 import { useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useForm, Controller, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { toast } from 'sonner';
@@ -7,7 +6,7 @@ import { AlertTriangle } from 'lucide-react';
 import { EmptyState } from '@/components/data/EmptyState';
 import { Button, Card, CardBody, Field, Input, PageHeader } from '@/components/beacon';
 import { formatDateTime } from '@/lib/format';
-import { useIsAdmin } from '@/auth/useAuth';
+import { useRequireAdmin } from '@/auth/useRequireAdmin';
 import { AiProvider, type BedrockAuthMode } from '@/lib/enums';
 import {
   modelsForProvider,
@@ -34,15 +33,7 @@ import {
 } from './provider-fields';
 
 export default function AdminSettingsPage() {
-  const isAdmin = useIsAdmin();
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    if (isAdmin === false) {
-      toast.error('Admin role required.');
-      navigate('/home', { replace: true });
-    }
-  }, [isAdmin, navigate]);
+  const isAdmin = useRequireAdmin();
 
   if (isAdmin === undefined) {
     return (

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Logging;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Models;
@@ -15,7 +16,8 @@ public interface IMcpSettingsProvider
 
 internal sealed class McpSettingsProvider(
     IDbContextFactory<BeaconContext> contextFactory,
-    IMemoryCache cache) : IMcpSettingsProvider
+    IMemoryCache cache,
+    ILogger<McpSettingsProvider> logger) : IMcpSettingsProvider
 {
     private const string CacheKey = "McpSettings";
     private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(5);
@@ -38,7 +40,7 @@ internal sealed class McpSettingsProvider(
         cache.Remove(CacheKey);
     }
 
-    private static McpSettingsData MapToData(McpSettings entity)
+    private McpSettingsData MapToData(McpSettings entity)
     {
         List<string> piiPatterns = [];
         if (!string.IsNullOrWhiteSpace(entity.CustomPiiPatterns))
@@ -47,9 +49,11 @@ internal sealed class McpSettingsProvider(
             {
                 piiPatterns = JsonSerializer.Deserialize<List<string>>(entity.CustomPiiPatterns) ?? [];
             }
-            catch
+            catch (JsonException ex)
             {
-                // Invalid JSON — treat as empty
+                // A corrupt row silently drops ALL custom PII patterns for every consumer; make the
+                // misconfiguration discoverable rather than degrading protection invisibly.
+                logger.LogError(ex, "Failed to deserialize CustomPiiPatterns for MCP settings row {SettingsId}; custom PII patterns are disabled until fixed.", entity.Id);
             }
         }
 

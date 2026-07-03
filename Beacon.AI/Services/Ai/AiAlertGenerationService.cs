@@ -10,6 +10,7 @@ using Beacon.Core.Models.Ai;
 using Beacon.Core.Models.Metadata;
 using Beacon.AI.Services.LlmProviders;
 using Beacon.Core.Services.Shared;
+using Beacon.Core.Services.Validation;
 
 namespace Beacon.AI.Services.Ai;
 
@@ -18,17 +19,20 @@ public class AiAlertGenerationService : IAiAlertGenerationService
     private readonly ILlmProvider _llmProvider;
     private readonly IDatabaseMetadataService _metadataService;
     private readonly IDbContextFactory<BeaconContext> _contextFactory;
+    private readonly SqlReadOnlyAstValidator _readOnlyAstValidator;
     private readonly ILogger<AiAlertGenerationService> _logger;
 
     public AiAlertGenerationService(
         ILlmProvider llmProvider,
         IDatabaseMetadataService metadataService,
         IDbContextFactory<BeaconContext> contextFactory,
+        SqlReadOnlyAstValidator readOnlyAstValidator,
         ILogger<AiAlertGenerationService> logger)
     {
         _llmProvider = llmProvider;
         _metadataService = metadataService;
         _contextFactory = contextFactory;
+        _readOnlyAstValidator = readOnlyAstValidator;
         _logger = logger;
     }
 
@@ -177,16 +181,32 @@ public class AiAlertGenerationService : IAiAlertGenerationService
         return alertConfig;
     }
 
-    public Task<bool> ValidateQuerySyntaxAsync(
+    public async Task<bool> ValidateQuerySyntaxAsync(
         int dataSourceId,
         string sql,
         CancellationToken cancellationToken = default)
     {
-        // Connector-side syntax validation is deferred — the SQL is currently validated
-        // when it executes against the target engine, which surfaces the same errors with
-        // accurate engine-specific messages. An upfront EXPLAIN pass can land later.
-        _logger.LogDebug("Skipping upfront SQL validation for data source {DataSourceId}; relying on execution-time checks.", dataSourceId);
-        return Task.FromResult(true);
+        if (string.IsNullOrWhiteSpace(sql))
+        {
+            return false;
+        }
+
+        using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
+
+        var engine = await context.DataSources
+            .Where(x => x.Id == dataSourceId)
+            .Select(x => x.DatabaseEngineType)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        // AST-based read-only enforcement: reject non-SELECT / multi-statement / SELECT ... INTO SQL.
+        var astError = _readOnlyAstValidator.Validate(sql, engine?.ToString());
+        if (astError != null)
+        {
+            _logger.LogWarning("Generated alert SQL rejected for data source {DataSourceId}: {Reason}", dataSourceId, astError);
+            return false;
+        }
+
+        return true;
     }
 
     public async Task<AiAlertConfiguration> ApproveAndActivateAlertAsync(

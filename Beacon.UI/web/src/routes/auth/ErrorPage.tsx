@@ -1,4 +1,4 @@
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Button } from '@/components/beacon';
 
 export default function ErrorPage() {
@@ -15,9 +15,9 @@ export default function ErrorPage() {
             Request id: <strong>{requestId}</strong>
           </p>
         )}
-        <a href="/home" className="block mt-4">
+        <Link to="/home" className="block mt-4">
           <Button variant="primary" className="w-full justify-center">Back to home</Button>
-        </a>
+        </Link>
       </div>
     </div>
   );

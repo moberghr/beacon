@@ -75,7 +75,21 @@ export class ApiError extends Error {
  */
 export function describeError(err: unknown, fallback: string): string {
   if (err instanceof ApiError) {
-    return err.body || `${fallback} (${err.status})`;
+    // The API emits RFC 7807 application/problem+json; surface the human-readable
+    // `detail`/`title` rather than dumping the raw JSON body into the toast.
+    if (err.body) {
+      try {
+        const problem = JSON.parse(err.body) as { detail?: string; title?: string };
+        const message = problem.detail || problem.title;
+        if (message) {
+          return message;
+        }
+      } catch {
+        // Body was not JSON — fall through to the raw body.
+      }
+      return err.body;
+    }
+    return `${fallback} (${err.status})`;
   }
   if (err instanceof Error) {
     return err.message;
