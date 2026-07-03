@@ -1,4 +1,13 @@
+<div align="center">
+
+<img src="docs/assets/images/beacon-mark.svg" width="88" alt="Beacon logo" />
+
 # Beacon
+
+**The database monitoring platform built for the AI era.**
+
+Semantic alerts, cross-database orchestration, and a governed MCP server —
+so your team *and* your AI assistants can watch, query, and move data safely.
 
 [![NuGet](https://img.shields.io/badge/NuGet-available-blue)](https://www.nuget.org/)
 [![Documentation](https://img.shields.io/badge/docs-github.io-blue)](https://mibu.github.io/semantico)
@@ -6,46 +15,70 @@
 [![.NET](https://img.shields.io/badge/.NET-9.0-purple)](https://dotnet.microsoft.com/)
 [![React](https://img.shields.io/badge/React-18-61dafb)](https://react.dev/)
 
-## Semantic Database Monitoring & Orchestration
+[Documentation](https://mibu.github.io/semantico) ·
+[Quick Start](#-quick-start) ·
+[MCP Server](#-the-mcp-server-give-your-ai-assistant-safe-hands) ·
+[Embed via NuGet](#-embed-beacon-in-your-own-app) ·
+[Licensing](LICENSING.md)
 
-**Transform your database monitoring through intelligent queries, flexible alerting, and cross-database orchestration**
+<br/>
 
-**Beacon** is a .NET 9 platform for semantic alerts, notifications, and data orchestration across your databases. Monitor data quality, enforce business rules, automate reporting, and orchestrate ETL workflows across PostgreSQL, SQL Server, MySQL, BigQuery, Snowflake, Databricks, Azure Synapse, AWS CloudWatch, and REST APIs — through a modern React UI, a REST API, and a built-in MCP server for AI assistants.
+<img src="docs/assets/images/screenshots/home-dark.png" alt="Beacon home dashboard (dark theme)" width="100%" />
 
-Beacon ships in two forms:
+<sub>Shown with sample data from Beacon's built-in mock mode (`npm run dev:mock`).</sub>
 
-- **A self-hostable application** — clone this repo and run the `Beacon.SampleProject` host, which serves the React single-page app at the root URL `/`.
-- **NuGet packages** — embed Beacon into your own ASP.NET Core application.
+</div>
 
-## 🎯 Core Capabilities
+---
 
-### 🔍 Query Monitoring
-Create semantic SQL queries to monitor data quality, business rules, and database health with multi-step execution.
+## What is Beacon?
 
-### 🔔 Smart Alerting
-Deliver notifications via Email, Microsoft Teams, Slack, or Jira with rich formatting and complete result attachments.
+Beacon is a **.NET 9 platform for semantic database monitoring, alerting, and data orchestration**. Point it at your databases — PostgreSQL, SQL Server, MySQL, BigQuery, Snowflake, Databricks, Azure Synapse, AWS CloudWatch, or any REST API — and it becomes the operations layer on top of them:
 
-### 🤖 AI-Powered Features
-Automatic data-source documentation, natural-language alert creation, and intelligent anomaly detection — with a runtime-swappable LLM provider.
+- **Watch** — scheduled SQL checks catch data-quality issues, broken business rules, and unhealthy databases before your users do.
+- **Alert** — results delivered to Email, Microsoft Teams, Slack, Jira, or webhooks, with full datasets attached.
+- **Move** — auditable ETL jobs (Insert / Upsert / Truncate / Sync) across different database engines.
+- **Serve AI** — a built-in, production-hardened **MCP server** gives Claude, ChatGPT, and any MCP client read-only, PII-aware, fully audited access to your data.
 
-### 🔌 MCP Server
-A built-in Model Context Protocol server gives AI assistants read-only, audited, PII-aware access to your data.
+It ships in two forms: a **self-hostable application** (clone and run) and **NuGet packages** you embed into your own ASP.NET Core application.
 
-### 🔄 Data Migration
-Orchestrate ETL workflows with Insert, Upsert, Truncate, and Sync modes across different database engines.
+## Why teams pick Beacon
 
-### 🔗 Cross-Database Joins
-Query across multiple engines simultaneously via in-memory SQLite virtual tables.
+| | What you get |
+|---|---|
+| 🧠 **AI-grade SQL accuracy** | Natural-language questions become SQL grounded in an **M-Schema context with real sample values**, validated by a **multi-dialect AST parser**, and self-corrected through a **dry-run repair loop** — not a naive prompt-to-SQL pipe. |
+| 🔁 **A self-improving MCP server** | Every MCP query records a usage signal — intent, generated SQL, routing, outcome, timing. A **learning loop** turns those signals into approved schema clarifications and documentation patches, so answers get better with use. |
+| 🔐 **Security as a default, not an add-on** | AES-256-GCM–encrypted connection strings, SHA256-hashed scoped API keys shown exactly once, read-only enforcement at the connector level, PII detection and masking, login rate limiting, antiforgery, OIDC/SSO, JWT for MCP clients. |
+| 🔗 **Cross-database queries** | Chain query steps across engines and join the results in in-memory SQLite (`@@result1`, `@@result2`) — no data warehouse required. |
+| 📦 **Embeddable** | `AddBeaconServices()` drops the whole platform — UI, API, MCP server, scheduler — into your existing ASP.NET Core host. Your app, your auth, your domain. |
+| 🔄 **Runtime-swappable LLM** | OpenAI, Anthropic Claude, Azure OpenAI, or AWS Bedrock — hot-swappable from admin settings without a restart, behind a concurrency-limited request queue with usage tracking. |
 
-### 📋 Task Management & Anomaly Detection
-Automatic alerting tasks with lifecycle tracking, statistical anomaly detection, and intelligent auto-resolution.
+## See it
 
-### 🔐 Authorization & Access Control
-Cookie sessions, pluggable authentication providers, OIDC/SSO, JWT for MCP clients, and scoped API keys.
+<table>
+  <tr>
+    <td width="50%">
+      <img src="docs/assets/images/screenshots/control-tower-dark.png" alt="Control Tower — real-time subscription health" />
+      <p align="center"><b>Control Tower</b> — real-time health across every scheduled check, auto-refreshing.</p>
+    </td>
+    <td width="50%">
+      <img src="docs/assets/images/screenshots/mcp-learning-dark.png" alt="MCP Learning — the server learns from usage" />
+      <p align="center"><b>MCP Learning</b> — review learned schema patterns and documentation patches, approve or reject.</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img src="docs/assets/images/screenshots/query-editor-light.png" alt="Multi-step query editor with database explorer" />
+      <p align="center"><b>Query editor</b> — Monaco SQL editing, database explorer, typed parameters, step preview.</p>
+    </td>
+    <td width="50%">
+      <img src="docs/assets/images/screenshots/home-light.png" alt="Home dashboard in light theme" />
+      <p align="center"><b>Light & dark themes</b> — a full design system, not a CSS filter.</p>
+    </td>
+  </tr>
+</table>
 
-## 🚀 Quick Start (run the app)
-
-The fastest way to see Beacon is to run the host project and the React dev server.
+## 🚀 Quick Start
 
 **Prerequisites:** .NET 9 SDK, Node.js 18+, and a PostgreSQL database. Set a connection string and a 32-character encryption key in `Beacon.SampleProject/appsettings.json` (or user-secrets / environment variables):
 
@@ -68,9 +101,9 @@ dotnet run --project Beacon.SampleProject --no-launch-profile
 npm run dev --prefix Beacon.UI/web
 ```
 
-Open **http://localhost:5173** (Vite dev server, proxies `/beacon/api`, `/beacon/mcp`, and `/hangfire` to Kestrel). On first run, Beacon applies its EF Core migrations and walks you through **first-run admin setup** to create the initial user — there are no hardcoded credentials.
+Open **http://localhost:5173**. On first run, Beacon applies its EF Core migrations and walks you through **first-run admin setup** — there are no hardcoded credentials.
 
-Useful endpoints:
+> **No backend handy?** `npm run dev:mock --prefix Beacon.UI/web` runs the full UI against realistic in-browser mock data (MSW) — the same mode used for the screenshots above.
 
 | URL | What |
 |---|---|
@@ -81,9 +114,47 @@ Useful endpoints:
 | `/beacon/api/hub` | SignalR hub (real-time events) |
 | `/hangfire` | Hangfire dashboard (admin only) |
 
-📚 [View the detailed quick start guide →](https://mibu.github.io/semantico/getting-started/quick-start)
+📚 [Detailed quick start guide →](https://mibu.github.io/semantico/getting-started/quick-start)
 
-## 🏗️ System Architecture
+## 🔌 The MCP server: give your AI assistant safe hands
+
+Beacon ships a **Model Context Protocol** server over Streamable HTTP at `/beacon/mcp`. It exposes five tools —
+
+| Tool | What it does |
+|---|---|
+| `get_context` | Project overview: data sources, schemas, tables, quality scores, documentation status |
+| `ask` | Natural-language question → intent classification → data-source routing → grounded SQL → guarded execution |
+| `query` | Direct SQL (SELECT-only, enforced) against a specific data source |
+| `search` | Full-text search over schemas and documentation |
+| `get_documentation` | AI-generated documentation at project / data-source / table level |
+
+— and every call passes through the same guardrail stack:
+
+```
+Natural language question
+        │
+        ▼
+M-Schema grounding ──── schema + column types + REAL sample values in the LLM context
+        │
+        ▼
+AST read-only validation ── SQL parsed per dialect; DML/DDL, stacked queries,
+        │                    comment-hidden writes rejected before execution
+        ▼
+Dry-run repair loop ──── failed SQL retried with the error + refreshed schema;
+        │                 truncated repairs rejected
+        ▼
+Row limits + PII masking ── configurable caps; emails, SSNs, tokens, credit
+        │                    cards masked (`a***z`), custom patterns supported
+        ▼
+Audit + usage signal ──── every invocation logged (user, SQL, timing, rows,
+                           outcome) and fed to the learning loop
+```
+
+Authentication: cookie session, **scoped API key**, or **JWT bearer** (OIDC) — MCP access is never anonymous.
+
+📚 [MCP server documentation →](https://mibu.github.io/semantico/features/mcp-server)
+
+## 🏗️ Architecture
 
 Beacon follows a CQRS (MediatR) core where all project references converge on `Beacon.Core`:
 
@@ -131,9 +202,7 @@ graph TB
     style Infrastructure fill:#fce4ec
 ```
 
-### Query Execution Flow
-
-Multi-step queries with cross-database capabilities:
+### Query execution: multi-step, cross-database
 
 ```mermaid
 sequenceDiagram
@@ -143,7 +212,6 @@ sequenceDiagram
     participant VirtualTableManager
     participant PostgreSQL
     participant SQLServer
-    participant MySQL
     participant NotificationService
     participant Adapter
 
@@ -167,123 +235,62 @@ sequenceDiagram
     Adapter-->>User: Notification Delivered
 ```
 
-### Data Migration Flow
+## ✨ Feature tour
 
-ETL orchestration with multiple migration modes:
+### 🔍 Semantic query monitoring
+- Multi-step queries with result chaining (`@@result1`, `@@result2`, …) and cross-engine joins
+- Typed parameters (`{startDate}`, `{userId}`) with automatic detection and validation
+- Monaco SQL editor with a live database explorer; query versioning with full history
+- Execution history and audit trail on every run
 
-```mermaid
-flowchart LR
-    subgraph Source["Source Extraction"]
-        Q1[Query Step 1<br/>PostgreSQL]
-        Q2[Query Step 2<br/>SQL Server]
-        Q3[Query Step 3<br/>MySQL]
-    end
+### ⏱️ Scheduling & automation
+- Cron scheduling via Hangfire on PostgreSQL (1-second poll; blind retries disabled by design)
+- Pluggable scheduler through the `IBeaconScheduler` interface
+- Real-time job status over SignalR (`JobStatusChanged`, `NotificationCreated`, `ApprovalUpdated`)
 
-    subgraph Transform["Transformation"]
-        VT[In-Memory SQLite<br/>Cross-DB Join]
-        Enrich[Data Enrichment<br/>Business Logic]
-    end
+### 🔔 Multi-channel notifications
+- **Email** with HTML tables + CSV/Excel attachments (full datasets, no row caps)
+- **Microsoft Teams** Adaptive Cards, **Slack** rich Table Blocks, **Jira** issue creation, **webhooks**
+- Recipient management with per-subscription routing
 
-    subgraph Load["Load Operations"]
-        Insert[Insert Only<br/>New Records]
-        Upsert[Upsert<br/>Insert + Update]
-        Truncate[Truncate Load<br/>Full Refresh]
-        Sync[Sync Delete<br/>Perfect Mirror]
-    end
-
-    subgraph Destination["Destination"]
-        Target[(Target Database<br/>Any Engine)]
-    end
-
-    Q1 --> VT
-    Q2 --> VT
-    Q3 --> VT
-    VT --> Enrich
-    Enrich --> Insert
-    Enrich --> Upsert
-    Enrich --> Truncate
-    Enrich --> Sync
-    Insert --> Target
-    Upsert --> Target
-    Truncate --> Target
-    Sync --> Target
-
-    style Source fill:#e3f2fd
-    style Transform fill:#f3e5f5
-    style Load fill:#fff3e0
-    style Destination fill:#e8f5e9
-```
-
-## ✨ Key Features
-
-### 🔍 Semantic Query Monitoring
-- Multi-step query execution with result chaining (`@@result1`, `@@result2`, …)
-- Dynamic parameter substitution (`@@user_id`, `@@date`)
-- Query preview and execution history with full audit trail
-
-### ⏱️ Scheduling & Automation
-- Cron expression support (every few minutes to monthly)
-- Hangfire on PostgreSQL (1-second poll; automatic retry disabled by default)
-- Pluggable scheduler via the `IBeaconScheduler` interface (`BeaconScheduler` is the Hangfire-backed implementation)
-
-### 🔔 Multi-Channel Notifications
-- **Email** with HTML table + CSV/Excel attachment
-- **Microsoft Teams** with Adaptive Cards
-- **Slack** with rich Table Blocks
-- **Jira** issue creation and updates
-- Full result attachments (unlimited rows)
-
-### 🤖 AI-Powered Features (Experimental)
-- **Automatic Documentation**: AI analyzes schemas and generates comprehensive documentation (export as Markdown, HTML with ERD diagrams, or PDF)
-- **Natural Language Alerts**: Create complex queries from plain-English descriptions
-- **Smart Insights**: AI-assisted data analysis and recommendations
-- Runtime-swappable LLM provider (OpenAI, Anthropic Claude, Azure OpenAI, AWS Bedrock); all calls go through a concurrency-limited request queue
-
-⚠️ **Note:** AI features are experimental and may produce incorrect or incomplete results. Always review AI-generated content before use.
-
-### 🔌 MCP Server
-- Streamable HTTP transport at `/beacon/mcp` (auth required)
-- **Read-only enforced** at the connector level; PII detection and row limits on by default
-- Every invocation recorded by an audit service and a usage-signal service that powers a self-improving "learning loop"
-
-### 🔐 Authorization & Access Control
-- Cookie sessions (`Beacon.Auth`: `HttpOnly`, `SameSite=Lax`)
-- Pluggable authentication via `IBeaconAuthenticationProvider` (database, OIDC/SSO, custom)
-- JWT bearer authentication for MCP clients
-- Scoped API keys (`Read`, `Execute`, `Admin`) with optional project restrictions — SHA256-hashed at rest, shown once
-- Role-based access control with first-run admin setup
-
-### 🔍 Anomaly Detection
-- Statistical methods (standard deviation, IQR, percentage change)
-- Baseline learning from historical data, configurable thresholds, real-time alerting
-
-### 💾 Multi-Database Support
-- 9 connectors: PostgreSQL, SQL Server, MySQL, BigQuery, Snowflake, Databricks, Azure Synapse, AWS CloudWatch, REST API
-- Cross-database joins via in-memory SQLite virtual tables
-- Database metadata introspection with caching
-- **Encrypted connection strings** (AES-256) with a mandatory encryption key
-
-### 🔄 Data Migration (ETL)
-- 4 migration modes: Insert, Upsert, Truncate, Sync
-- Bulk operations (EFCore.BulkExtensions) with row-level error tracking
-- Atomic transactions with rollback on failure, plus execution metrics
-
-### 💻 Developer Experience
-- React UI with a typed OpenAPI fetch client (NSwag, `npm run codegen`)
-- SQL editor, database explorer, parameter validation, real-time updates via SignalR
-
-### 📋 Task Management
-- Automatic task creation from subscriptions with `CreateTasks` enabled
-- Auto-resolution when a query returns 0 results
+### 📋 Alerting tasks & anomaly detection
+- Subscriptions can open **tasks** automatically when a check finds problems; auto-resolved when a later run returns clean
+- Statistical anomaly detection: **Z-score (standard deviation)**, **IQR**, and **percentage change**, with baseline learning and per-metric sensitivity
 - Trend charts, comments, related-task discovery, manual resolution with notes
 
-[Explore all features →](https://mibu.github.io/semantico/features/)
+### 🔄 Data migration (ETL)
+- Four modes: **Insert**, **Upsert**, **Truncate Load**, **Sync** (perfect mirror)
+- Bulk operations via `EFCore.BulkExtensions` with row-level error tracking
+- Atomic transactions with rollback, execution metrics, and full history
 
-## 📦 Installation (embed via NuGet)
+### 🤖 AI features (experimental)
+- **Auto-documentation**: AI analyzes your schemas and writes docs — export as Markdown, HTML with ERD diagrams, or PDF
+- **Natural-language alerts**: describe the check in English, get a working query
+- **AI actors**: LLM-driven monitoring agents whose plans go through a human **approval workflow** before execution
+- Runtime-swappable provider (OpenAI / Anthropic / Azure OpenAI / AWS Bedrock) behind a rate-limited queue with budget tracking
 
-If you prefer to embed Beacon in your own ASP.NET Core host instead of running `Beacon.SampleProject`, install the packages you need.
+> ⚠️ AI features are experimental. Review AI-generated content before relying on it.
 
-### Packages
+### 🔐 Security & governance
+
+| Layer | Mechanism |
+|---|---|
+| Secrets at rest | Connection strings encrypted with **AES-256-GCM** (authenticated, per-value nonce); mandatory `Beacon:EncryptionKey` |
+| API keys | **SHA256-hashed**, scoped (`Read` / `Execute` / `Admin`), optional per-project restriction, expiry — raw key shown exactly once |
+| Sessions | `HttpOnly`, `SameSite` cookies; antiforgery tokens on state-changing requests; login rate limiting (10/min per IP) |
+| SSO | OIDC (any compliant provider) with configurable role mapping; JWT bearer for MCP clients |
+| MCP execution | Read-only enforced at the connector **and** AST level; PII detection & masking; row limits; complete audit trail |
+| Deployment | Opt-in forwarded-headers support with proxy whitelisting for reverse-proxy setups |
+
+### 💻 Developer experience
+- React 18 + Vite + TypeScript + Tailwind UI with a typed OpenAPI client (`npm run codegen`, NSwag)
+- **Mock mode** (`npm run dev:mock`) — full UI without a backend, powered by MSW
+- 27 REST endpoint areas, one MediatR handler per endpoint, OpenAPI contract-tested in CI
+- 150+ backend tests (NUnit) including EF Core → SQL translation tests; Vitest + RTL + MSW on the frontend
+
+## 📦 Embed Beacon in your own app
+
+Prefer Beacon inside your existing ASP.NET Core host? Install the packages you need:
 
 | Package | Purpose |
 |---|---|
@@ -295,16 +302,11 @@ If you prefer to embed Beacon in your own ASP.NET Core host instead of running `
 | `Beacon.AI` | LLM integration, auto-documentation, anomaly detection (optional) |
 | `Beacon.Connector.*` | One per engine: `PostgreSql`, `SqlServer`, `MySql`, `BigQuery`, `Snowflake`, `Databricks`, `AzureSynapse`, `CloudWatch`, `Api` |
 
-**For PostgreSQL (recommended):**
 ```bash
 dotnet add package Beacon.Core.PostgreSql
 dotnet add package Beacon.UI
 dotnet add package Beacon.Connector.PostgreSql
 ```
-
-### Basic Setup
-
-Add to your ASP.NET Core `Program.cs`:
 
 ```csharp
 using Beacon.Core;
@@ -325,7 +327,7 @@ builder.Services.AddBeaconServices(builder.Configuration, options =>
         options.AddAuthenticationProvider<DatabaseAuthenticationProvider>();
     })
     .AddPostgreSqlConnector()
-    // .AddSqlServerConnector().AddMySqlConnector().AddBigQueryConnector() ... (add the engines you need)
+    // .AddSqlServerConnector().AddMySqlConnector().AddBigQueryConnector() ...
     .UsePostgreSql(builder.Configuration.GetConnectionString("BeaconContext")!, "beacon");
 
 // 2. Auth (cookie scheme for the React shell at root /)
@@ -342,140 +344,71 @@ var app = builder.Build();
 app.UseHttpsRedirection();
 app.UseStaticFiles();
 
-// Auth pipeline (order matters)
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.MapOpenApi();                       // /openapi/v1.json
-app.MapBeaconApi();                     // /beacon/api/*
-app.MapMcp("/beacon/mcp").RequireAuthorization();   // MCP server
-app.MapBeaconUi();                      // React SPA at root /
+app.MapOpenApi();                                    // /openapi/v1.json
+app.MapBeaconApi();                                  // /beacon/api/*
+app.MapMcp("/beacon/mcp").RequireAuthorization();    // MCP server
+app.MapBeaconUi();                                   // React SPA at root /
 
 app.Run();
 ```
 
 > `Beacon.SampleProject/Program.cs` is the canonical, fully-wired reference (Hangfire, SignalR, OIDC, JWT-for-MCP, rate limiting, antiforgery, and the load-bearing middleware order). Start from it when embedding.
 
-Add connection strings and the encryption key to `appsettings.json`:
-
-```json
-{
-  "ConnectionStrings": {
-    "BeaconContext": "Host=localhost;Database=beacon;Username=postgres;Password=yourpassword"
-  },
-  "Beacon": {
-    "EncryptionKey": "your-secure-32-character-key-here",
-    "LLM": {
-      "Provider": "OpenAI",
-      "ApiKey": "your-openai-api-key",
-      "Model": "gpt-4o",
-      "Limits": {
-        "MaxConcurrentRequests": 5,
-        "RequestsPerMinute": 60
-      }
-    }
-  }
-}
-```
-
 **Generate a secure encryption key:**
 ```bash
 openssl rand -base64 32
 ```
 
-⚠️ **Important:** The `EncryptionKey` is **required** — it encrypts connection strings and other sensitive data at rest. AI configuration is optional and experimental.
+📚 [Detailed installation guide →](https://mibu.github.io/semantico/getting-started/installation) · [Configuration reference →](https://mibu.github.io/semantico/getting-started/configuration)
 
-📚 [View the detailed installation guide →](https://mibu.github.io/semantico/getting-started/installation)
-
-## 🧱 Project Layout
+## 🧱 Project layout
 
 | Project | Role |
 |---|---|
 | `Beacon.Core` | Domain, CQRS handlers, services, EF model — everything points here |
 | `Beacon.Core.PostgreSql` / `Beacon.Core.SqlServer` | Provider-specific `BeaconContext` + EF migrations |
-| `Beacon.AI` | LLM integration, auto-documentation, anomaly detection, NL → query |
-| `Beacon.MCP` | MCP server (tools + resources) for AI assistants |
+| `Beacon.AI` | LLM integration, auto-documentation, anomaly detection, NL → SQL |
+| `Beacon.MCP` | MCP server: tools, resources, guardrails, learning loop |
 | `Beacon.Api` | REST minimal-API endpoints + OpenAPI for the React shell |
 | `Beacon.UI` | React SPA (`web/`) shipped as a Razor Class Library, served at `/` |
 | `Beacon.SampleProject` | Host / composition root (Kestrel, DI wiring, Hangfire, middleware, auth) |
 | `Beacon.Connector.*` | Data-source connectors for the 9 supported engines |
 | `Beacon.Tests` | NUnit 4 + Moq + FluentAssertions; EF translation tests via `NpgsqlTestContext` |
 
-## 🛠️ Technology Stack
+## 🛠️ Technology stack
 
-### Framework & Runtime
-- .NET 9.0 / C# 13 / ASP.NET Core 9.0 (Kestrel, self-hosted)
-
-### User Interface
-- React 18 + Vite 5 + TypeScript
-- Tailwind CSS v3.4 + Beacon design-system primitives
-- React Router; SignalR client for real-time updates; NSwag-generated typed API client
-
-### Data Access
-- Entity Framework Core 9 (PostgreSQL + SQL Server, dual migrations)
-- Dapper (hot paths) + EFCore.BulkExtensions (bulk operations)
-
-### Database Drivers / Connectors
-- Npgsql, Microsoft.Data.SqlClient, MySqlConnector
-- BigQuery, Snowflake, Databricks, Azure Synapse, AWS CloudWatch, generic REST API
-
-### Background Jobs
-- Hangfire on PostgreSQL (`IBeaconScheduler` abstraction); Cronos for cron parsing
-
-### AI & Machine Learning
-- OpenAI / Anthropic Claude / Azure OpenAI / AWS Bedrock (runtime-swappable)
-- Concurrency-limited request queue with cost/usage tracking
-
-### Document Generation
-- QuestPDF (PDF), Markdig (Markdown), Mermaid (ERD diagrams)
-
-### Integrations
-- Atlassian.SDK (Jira), AdaptiveCards (Teams), ClosedXML (Excel), CsvHelper (CSV)
+**Runtime** — .NET 9 / C# 13 / ASP.NET Core (Kestrel, self-hosted) ·
+**UI** — React 18, Vite, TypeScript, Tailwind CSS, Radix UI, TanStack Query/Table, Monaco, SignalR ·
+**Data** — EF Core 9 (dual-provider migrations), Dapper hot paths, EFCore.BulkExtensions ·
+**Jobs** — Hangfire on PostgreSQL ·
+**AI** — OpenAI / Anthropic / Azure OpenAI / AWS Bedrock via a swappable provider abstraction ·
+**Documents** — QuestPDF, Markdig, Mermaid ERDs, ClosedXML, CsvHelper ·
+**Integrations** — Jira (Atlassian.SDK), Teams Adaptive Cards, Slack
 
 ## 🔧 Requirements
 
-- **.NET 9.0** SDK or later
-- **Node.js 18+** (to build the React UI when developing or self-hosting)
+- **.NET 9 SDK** and **Node.js 18+** (for building the React UI)
 - **PostgreSQL 12+** or **SQL Server 2019+** for Beacon's metadata database
-- **Encryption key** (32-character key for AES-256) — **required**
-- **(Optional)** LLM API key (OpenAI, Anthropic, Azure OpenAI, or AWS Bedrock) for AI features
-- **(Optional)** SMTP/email provider for email notifications
+- **32-character encryption key** (`Beacon:EncryptionKey`) — required
+- *(Optional)* LLM API key for AI features · SMTP provider for email notifications
 
-## 🚦 Getting Started
+## 🤝 Support & contributing
 
-### Step 1: Connect Data Sources
-Add your databases or APIs with encrypted connection strings.
+- **Issues** — [report bugs or request features](https://github.com/MiBu/semantico/issues)
+- **Discussions** — [ask questions and share ideas](https://github.com/MiBu/semantico/discussions)
+- **Contributing** — contributions require signing the [CLA](CLA.md)
 
-### Step 2: Create Semantic Queries
-Write SQL to monitor data quality, enforce business rules, or extract data for migration.
+## 📄 License
 
-### Step 3: Schedule & Automate
-Create subscriptions with cron schedules and configure notification recipients.
+Beacon is **dual-licensed**: the free [GNU AGPL v3.0](LICENSE) **or** a paid commercial license.
 
-### Step 4: Track & Resolve
-Enable task creation to track issues, add comments, and manage the resolution lifecycle.
-
-## 🤝 Support and Contributing
-
-- **Issues** — [Report bugs or request features](https://github.com/MiBu/semantico/issues)
-- **Discussions** — [Ask questions and share ideas](https://github.com/MiBu/semantico/discussions)
+Use it under the AGPLv3 — including its §13 network/SaaS source-disclosure requirement — at no cost, or [contact us for a commercial license](LICENSING.md) to use Beacon without copyleft obligations. See [LICENSING.md](LICENSING.md) for the full comparison.
 
 ---
 
-## 📚 Resources
-
-**Documentation**: [https://mibu.github.io/semantico](https://mibu.github.io/semantico)
-**Repository**: [https://github.com/MiBu/semantico](https://github.com/MiBu/semantico)
-**Version**: 1.0
-**Copyright**: © 2026 Moberg d.o.o.
-
-## License
-
-Beacon is **dual-licensed**: the free [GNU AGPL v3.0](LICENSE) **or** a paid
-commercial license. Use under the AGPLv3 (including its §13 network/SaaS
-source-disclosure requirement), or [contact us for a commercial license](LICENSING.md)
-to use Beacon without the copyleft obligations. Contributions require signing the
-[CLA](CLA.md). See [LICENSING.md](LICENSING.md) for details.
-
-Thank you for choosing Beacon! We hope you find it invaluable for managing your database monitoring, alerting, and orchestration needs.
-</content>
+<div align="center">
+<sub>© 2026 Moberg d.o.o. · <a href="https://mibu.github.io/semantico">Documentation</a> · <a href="LICENSING.md">Licensing</a></sub>
+</div>

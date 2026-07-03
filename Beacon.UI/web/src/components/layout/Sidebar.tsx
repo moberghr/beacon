@@ -49,7 +49,7 @@ const SECTIONS: NavSection[] = [
     items: [
       { name: 'Home', Icon: IconHome, slug: 'home' },
       { name: 'Control Tower', Icon: IconTower, slug: 'control-tower' },
-      // Dashboards hidden — feature unfinished, will be redesigned (see UNFINISHED.md).
+      // Dashboards hidden — feature unfinished, will be redesigned (see internal/UNFINISHED.md).
     ],
   },
   {

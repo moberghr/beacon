@@ -2,7 +2,7 @@
 layout: default
 title: Admin Settings
 parent: Features
-nav_order: 10
+nav_order: 17
 ---
 
 # Admin Settings
@@ -216,8 +216,13 @@ This interface lives in `Beacon.Core` so that `AppSettingsService` can call it w
 
 Settings are cached in memory for 1 hour to minimize database queries. The cache is invalidated immediately when settings are saved via the Admin Settings UI.
 
+## MCP Settings
+
+MCP server behavior has its own admin page at `/mcp-settings`: custom tool descriptions, the SQL-generation system prompt, a global instruction injected into every `ask` request, max row limits, read-only enforcement, and PII detection with custom patterns. See the [MCP Server Guide](mcp-server#configuration) for details. Like LLM settings, MCP settings apply immediately — no restart required.
+
 ## See Also
 
 - [AI Integration](ai-integration) - AI features that use LLM configuration
+- [MCP Server](mcp-server) - MCP settings, guardrails, and the learning loop
 - [User Management](user-management) - Role-based access to Admin Settings
 - [Configuration Guide](../getting-started/configuration) - Startup configuration reference
