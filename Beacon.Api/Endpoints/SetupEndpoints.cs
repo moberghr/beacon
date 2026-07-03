@@ -1,9 +1,10 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
-using Microsoft.Extensions.Logging;
+using Beacon.Core.Handlers.Setup;
 using Beacon.Core.Models.UserManagement;
 using Beacon.Core.Services;
+using MediatR;
 
 namespace Beacon.Api.Endpoints;
 
@@ -25,40 +26,28 @@ public static class SetupEndpoints
 
         // Create super admin
         group.MapPost("/superadmin", async (
-            IUserManagementService userService,
-            IRoleService roleService,
-            ILoggerFactory loggerFactory,
             CreateSuperAdminRequest request,
+            IMediator m,
             CancellationToken ct) =>
         {
-            // Ensure this is actually first run
-            var isFirstRun = await userService.IsFirstRunAsync(ct);
-            if (!isFirstRun)
+            var result = await m.Send(new CreateSuperAdminCommand(request), ct);
+            if (result.Failed)
             {
-                return Results.BadRequest(new { error = "Setup has already been completed." });
-            }
-
-            try
-            {
-                // Ensure system roles exist
-                await roleService.SeedSystemRolesAsync(ct);
-
-                // Create super admin
-                var user = await userService.CreateSuperAdminAsync(request, ct);
-                return Results.Ok(new
-                {
-                    success = true,
-                    userId = user.Id,
-                    message = "Super admin created successfully. You can now log in."
-                });
-            }
-            catch (Exception ex)
-            {
-                var logger = loggerFactory.CreateLogger("Beacon.Api.Endpoints.SetupEndpoints");
-                logger.LogError(ex, "First-run super admin setup failed.");
                 return Results.Text("Setup failed. Check server logs.", statusCode: StatusCodes.Status500InternalServerError);
             }
-        }).AllowAnonymous();
+
+            if (!result.Success)
+            {
+                return Results.BadRequest(new { error = result.Error });
+            }
+
+            return Results.Ok(new
+            {
+                success = true,
+                userId = result.UserId,
+                message = result.Message
+            });
+        }).WithName("CreateSuperAdmin").AllowAnonymous();
 
         // Get available roles (for setup reference)
         group.MapGet("/roles", async (IRoleService roleService, CancellationToken ct) =>

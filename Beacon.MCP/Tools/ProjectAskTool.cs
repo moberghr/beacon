@@ -8,6 +8,7 @@ using Beacon.AI.Services.LlmProviders;
 using Beacon.AI.Services.Mcp;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Security;
+using Beacon.Core.Services.Validation;
 using Beacon.MCP.Services;
 
 namespace Beacon.MCP.Tools;
@@ -45,27 +46,27 @@ internal sealed class ProjectAskTool(
     {
         var sw = Stopwatch.StartNew();
 
-        if (string.IsNullOrEmpty(question))
-            return ToolHelper.Error("Missing required parameter: question");
-
-        var resolveError = ToolHelper.ResolveProjectId(projectContext, sessionManager, project_id, out var projectId);
-        if (resolveError != null) return ToolHelper.Error(resolveError);
-
         var signal = new McpSignalBuilder()
             .SetTool("ask")
-            .SetQuestion(question)
-            .SetProjectId(projectId)
+            .SetQuestion(question ?? "")
             .SetUserId(projectContext.UserId);
+
+        if (string.IsNullOrEmpty(question))
+            return await FailAsync(signal, sw, null, question ?? "", "Missing required parameter: question", cancellationToken);
+
+        var resolveError = ToolHelper.ResolveProjectId(projectContext, sessionManager, project_id, out var projectId);
+        if (resolveError != null)
+            return await FailAsync(signal, sw, null, question, resolveError, cancellationToken);
+
+        signal.SetProjectId(projectId);
 
         try
         {
             var llmProvider = serviceProvider.GetService(typeof(ILlmProvider)) as ILlmProvider;
             if (llmProvider == null)
             {
-                sw.Stop();
-                await auditService.LogToolCallAsync(null, projectContext.UserId, "ask",
-                    question, null, projectId, (int)sw.ElapsedMilliseconds, null, "LLM not configured", CancellationToken.None);
-                return ToolHelper.Error("AI features not configured. Add LLM configuration to use the 'ask' tool.");
+                return await FailAsync(signal, sw, projectId, question,
+                    "AI features not configured. Add LLM configuration to use the 'ask' tool.", CancellationToken.None);
             }
 
             var settings = await settingsProvider.GetSettingsAsync(cancellationToken);
@@ -365,7 +366,7 @@ internal sealed class ProjectAskTool(
     private async Task<CallToolResult> FailAsync(
         McpSignalBuilder signal,
         Stopwatch sw,
-        int projectId,
+        int? projectId,
         string question,
         string error,
         CancellationToken cancellationToken)

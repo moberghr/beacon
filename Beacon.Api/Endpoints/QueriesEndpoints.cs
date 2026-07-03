@@ -89,9 +89,12 @@ internal static class QueriesEndpoints
                 m.Send(new UpdateQueryCommand { QueryId = id, Query = body }, ct))
             .WithName("UpdateQuery");
 
+        // SQL-executing endpoints: require the Execute (or Admin) scope for API-key callers (§1.4).
+        // Interactive cookie/OIDC sessions carry no scope claim and pass through, governed by role.
         queries.MapPost("/{id:int}/preview", (int id, IMediator m, CancellationToken ct) =>
                 m.Send(new ExecuteQueryPreviewCommand { QueryId = id }, ct))
-            .WithName("ExecuteQueryPreview");
+            .WithName("ExecuteQueryPreview")
+            .RequireAuthorization(BeaconApiEndpoints.ExecuteScopePolicyName);
 
         queries.MapPost("/{id:int}/steps/{stepOrder:int}/preview", (
                 int id,
@@ -105,7 +108,8 @@ internal static class QueriesEndpoints
                     StepOrder = stepOrder,
                     Parameters = body?.Parameters,
                 }, ct))
-            .WithName("ExecuteStepPreview");
+            .WithName("ExecuteStepPreview")
+            .RequireAuthorization(BeaconApiEndpoints.ExecuteScopePolicyName);
 
         return group;
     }

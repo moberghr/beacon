@@ -68,19 +68,27 @@ internal static class ProjectContextFactory
             var apiKeyIdClaim = user.FindFirst("api_key_id");
             ctx.ApiKeyId = apiKeyIdClaim != null && int.TryParse(apiKeyIdClaim.Value, out var akid) ? akid : null;
 
+            // Fail CLOSED by default: absent/empty restriction claim denies all projects (empty list),
+            // never null. Null would be read downstream as "unrestricted" for explicit project_id
+            // requests (see ResolveProjectId), which is a fail-open security bug.
+            ctx.AllowedProjectIds = [];
+
             var allowedProjectsClaim = user.FindFirst("allowed_projects");
             if (allowedProjectsClaim != null && !string.IsNullOrEmpty(allowedProjectsClaim.Value))
             {
                 try
                 {
-                    ctx.AllowedProjectIds = JsonSerializer.Deserialize<List<int>>(allowedProjectsClaim.Value);
+                    // A null deserialization result (e.g. literal "null") also fails closed to an empty list.
+                    ctx.AllowedProjectIds = JsonSerializer.Deserialize<List<int>>(allowedProjectsClaim.Value) ?? [];
                 }
                 catch (JsonException ex)
                 {
-                    // Malformed claim: leave AllowedProjectIds null (no project restriction is derived
-                    // from it) but record it — a corrupt restriction claim is a security-relevant event.
+                    // Fail CLOSED: a malformed restriction claim must deny all projects (empty list), not
+                    // fall through to null — downstream ResolveProjectId treats null as "unrestricted"
+                    // for explicit project_id requests, which would be a fail-open security bug.
+                    ctx.AllowedProjectIds = [];
                     sp.GetService<ILogger<McpProjectContext>>()?
-                        .LogWarning(ex, "Failed to parse 'allowed_projects' claim for user {UserId}; ignoring it.", ctx.UserId);
+                        .LogWarning(ex, "Failed to parse 'allowed_projects' claim for user {UserId}; denying all project access.", ctx.UserId);
                 }
             }
 

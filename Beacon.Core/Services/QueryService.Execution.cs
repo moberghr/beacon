@@ -189,29 +189,64 @@ internal partial class QueryService
         }
         else
         {
-            // Handle multi-step updates
+            // Handle multi-step updates — sync the full step set: update matched steps, create new
+            // ones (StepId == 0 or unmatched), and delete steps the caller removed. Matching only by
+            // StepId silently dropped added steps, ignored deletions, and never persisted StepOrder.
+            var incomingStepIds = queryData.Steps
+                .Where(x => x.StepId != 0)
+                .Select(x => x.StepId)
+                .ToHashSet();
+
+            var removedSteps = query.Steps
+                .Where(x => !incomingStepIds.Contains(x.Id))
+                .ToList();
+
+            foreach (var removed in removedSteps)
+            {
+                foreach (var param in removed.Parameters.ToList())
+                {
+                    context.QueryStepParameters.Remove(param);
+                }
+                context.QuerySteps.Remove(removed);
+            }
+
             foreach (var stepData in queryData.Steps)
             {
                 QueryValidator.CheckForFlaggedWords(stepData.SqlValue);
 
-                var step = query.Steps.FirstOrDefault(s => s.Id == stepData.StepId);
-                if (step != null)
+                var step = stepData.StepId != 0
+                    ? query.Steps.FirstOrDefault(x => x.Id == stepData.StepId)
+                    : null;
+
+                if (step == null)
                 {
-                    step.DataSourceId = stepData.DataSourceId;
-                    step.Name = stepData.Name;
-                    step.Description = stepData.Description;
-                    step.SqlValue = stepData.SqlValue;
-
-                    // Remove existing parameters
-                    foreach (var param in step.Parameters.ToList())
+                    step = new QueryStep
                     {
-                        context.QueryStepParameters.Remove(param);
-                    }
-
-                    // Add new parameters
-                    var stepParams = ParameterEntityFactory.CreateQueryStepParameters(stepData.Parameters, step.Id);
-                    context.QueryStepParameters.AddRange(stepParams);
+                        QueryId = query.Id,
+                        DataSourceId = stepData.DataSourceId,
+                        StepOrder = stepData.StepOrder,
+                        Name = stepData.Name,
+                        Description = stepData.Description,
+                        SqlValue = stepData.SqlValue,
+                        Parameters = ParameterEntityFactory.CreateQueryStepParameters(stepData.Parameters, 0)
+                    };
+                    context.QuerySteps.Add(step);
+                    continue;
                 }
+
+                step.DataSourceId = stepData.DataSourceId;
+                step.StepOrder = stepData.StepOrder;
+                step.Name = stepData.Name;
+                step.Description = stepData.Description;
+                step.SqlValue = stepData.SqlValue;
+
+                foreach (var param in step.Parameters.ToList())
+                {
+                    context.QueryStepParameters.Remove(param);
+                }
+
+                var stepParams = ParameterEntityFactory.CreateQueryStepParameters(stepData.Parameters, step.Id);
+                context.QueryStepParameters.AddRange(stepParams);
             }
         }
 

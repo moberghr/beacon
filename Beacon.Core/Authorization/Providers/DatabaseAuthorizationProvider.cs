@@ -28,7 +28,7 @@ public class DatabaseAuthorizationProvider(
             return true;
 
         // Viewers (level 1) and above can read
-        return user.Roles.Any(r => r.Level >= RoleService.RoleLevels.Viewer);
+        return user.Roles.Any(x => x.Level >= RoleService.RoleLevels.Viewer);
     }
 
     /// <summary>
@@ -45,7 +45,7 @@ public class DatabaseAuthorizationProvider(
             return true;
 
         // Editors (level 2) and above can write
-        return user.Roles.Any(r => r.Level >= RoleService.RoleLevels.Editor);
+        return user.Roles.Any(x => x.Level >= RoleService.RoleLevels.Editor);
     }
 
     /// <summary>
@@ -65,7 +65,7 @@ public class DatabaseAuthorizationProvider(
         if (user.IsSuperAdmin)
             return AuthorizationResult.Success();
 
-        var maxLevel = user.Roles.Any() ? user.Roles.Max(r => r.Level) : 0;
+        var maxLevel = user.Roles.Any() ? user.Roles.Max(x => x.Level) : 0;
 
         return action switch
         {
@@ -114,7 +114,7 @@ public class DatabaseAuthorizationProvider(
         if (user.IsSuperAdmin)
             return AuthorizationResult.Success();
 
-        var maxLevel = user.Roles.Any() ? user.Roles.Max(r => r.Level) : 0;
+        var maxLevel = user.Roles.Any() ? user.Roles.Max(x => x.Level) : 0;
 
         // Creating new resources requires Editor level
         if (action == PermissionAction.Create)

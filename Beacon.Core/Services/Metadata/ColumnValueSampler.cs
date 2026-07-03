@@ -182,9 +182,11 @@ internal sealed class ColumnValueSampler(
                         return true;
                     }
                 }
-                catch
+                catch (Exception ex) when (ex is ArgumentException or RegexMatchTimeoutException)
                 {
-                    // Invalid regex pattern — skip
+                    // Fail CLOSED: an unusable custom pattern means we can't clear this value, so
+                    // treat it as PII and drop the sample rather than risk persisting a leak.
+                    return true;
                 }
             }
         }
@@ -204,20 +206,17 @@ internal sealed class ColumnValueSampler(
 
     internal static string BuildSampleQuery(DatabaseEngineType engineType, string schemaName, string tableName)
     {
+        var schema = SqlIdentifierGuard.Validate(schemaName, "schema");
+        var table = SqlIdentifierGuard.Validate(tableName, "table");
         return engineType switch
         {
             DatabaseEngineType.MSSQL or DatabaseEngineType.AzureSynapse =>
-                $"SELECT TOP {SampleRowCount} * FROM [{Escape(schemaName, ']')}].[{Escape(tableName, ']')}]",
+                $"SELECT TOP {SampleRowCount} * FROM [{SqlIdentifierGuard.EscapeQuote(schema, ']')}].[{SqlIdentifierGuard.EscapeQuote(table, ']')}]",
             DatabaseEngineType.MySQL =>
-                $"SELECT * FROM `{Escape(schemaName, '`')}`.`{Escape(tableName, '`')}` LIMIT {SampleRowCount}",
+                $"SELECT * FROM `{SqlIdentifierGuard.EscapeQuote(schema, '`')}`.`{SqlIdentifierGuard.EscapeQuote(table, '`')}` LIMIT {SampleRowCount}",
             _ =>
-                $"SELECT * FROM \"{Escape(schemaName, '"')}\".\"{Escape(tableName, '"')}\" LIMIT {SampleRowCount}"
+                $"SELECT * FROM \"{SqlIdentifierGuard.EscapeQuote(schema, '"')}\".\"{SqlIdentifierGuard.EscapeQuote(table, '"')}\" LIMIT {SampleRowCount}"
         };
-    }
-
-    private static string Escape(string identifier, char quoteChar)
-    {
-        return identifier.Replace(quoteChar.ToString(), new string(quoteChar, 2));
     }
 
     internal static string? FormatValue(object value)

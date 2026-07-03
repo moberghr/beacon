@@ -1,10 +1,21 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { User, Mail, IdCard, Lock, ShieldCheck, ArrowRight } from 'lucide-react';
 import { describeError, fetchJson } from '@/lib/api';
-import { AuthLayout, AuthAlert, EmphasisWord } from './AuthLayout';
+import {
+  AuthLayout,
+  AuthAlert,
+  EmphasisWord,
+  AuthLabel,
+  AuthField,
+  AuthFieldError,
+  AuthSubmit,
+  AuthSpinner,
+  authLinkButtonClass,
+} from './AuthLayout';
 
 interface SetupStatusResponse {
   isSetupComplete: boolean;
@@ -122,14 +133,10 @@ export default function SetupPage() {
               ? 'Super admin account created. You can now sign in.'
               : 'This Beacon installation has already been set up.'}
           </AuthAlert>
-          <a
-            href="/login"
-            className="login__submit"
-            style={{ textDecoration: 'none', marginTop: 16 }}
-          >
+          <Link to="/login" className={authLinkButtonClass()}>
             Go to sign in
             <ArrowRight size={14} />
-          </a>
+          </Link>
         </>
       )}
 
@@ -137,100 +144,81 @@ export default function SetupPage() {
         <>
           {serverError && <AuthAlert tone="error">{serverError}</AuthAlert>}
 
-          <form className="login__form" onSubmit={handleSubmit(onSubmit)} noValidate autoComplete="on">
-            <label className="login__field">
-              <span className="login__label">Username *</span>
-              <div className="login__input">
-                <User size={14} className="login__input-icon" />
-                <input
-                  type="text"
-                  autoComplete="username"
-                  placeholder="admin"
-                  disabled={isSubmitting}
-                  {...register('userName')}
-                />
-              </div>
-              {errors.userName && <span className="login__field-error">{errors.userName.message}</span>}
+          <form className="flex flex-col gap-3.5" onSubmit={handleSubmit(onSubmit)} noValidate autoComplete="on">
+            <label className="flex flex-col gap-1.5">
+              <AuthLabel>Username *</AuthLabel>
+              <AuthField
+                icon={<User size={14} />}
+                type="text"
+                autoComplete="username"
+                placeholder="admin"
+                disabled={isSubmitting}
+                {...register('userName')}
+              />
+              {errors.userName && <AuthFieldError>{errors.userName.message}</AuthFieldError>}
             </label>
 
-            <label className="login__field">
-              <span className="login__label">Email · optional</span>
-              <div className="login__input">
-                <Mail size={14} className="login__input-icon" />
-                <input
-                  type="email"
-                  autoComplete="email"
-                  placeholder="admin@moberg.hr"
-                  disabled={isSubmitting}
-                  {...register('email')}
-                />
-              </div>
-              {errors.email && <span className="login__field-error">{errors.email.message}</span>}
+            <label className="flex flex-col gap-1.5">
+              <AuthLabel>Email · optional</AuthLabel>
+              <AuthField
+                icon={<Mail size={14} />}
+                type="email"
+                autoComplete="email"
+                placeholder="admin@moberg.hr"
+                disabled={isSubmitting}
+                {...register('email')}
+              />
+              {errors.email && <AuthFieldError>{errors.email.message}</AuthFieldError>}
             </label>
 
-            <label className="login__field">
-              <span className="login__label">Display name · optional</span>
-              <div className="login__input">
-                <IdCard size={14} className="login__input-icon" />
-                <input
-                  type="text"
-                  autoComplete="name"
-                  placeholder="Admin"
-                  disabled={isSubmitting}
-                  {...register('displayName')}
-                />
-              </div>
+            <label className="flex flex-col gap-1.5">
+              <AuthLabel>Display name · optional</AuthLabel>
+              <AuthField
+                icon={<IdCard size={14} />}
+                type="text"
+                autoComplete="name"
+                placeholder="Admin"
+                disabled={isSubmitting}
+                {...register('displayName')}
+              />
             </label>
 
-            <label className="login__field">
-              <span className="login__label-row">
-                <span className="login__label">Password *</span>
-                <span className="login__forgot" style={{ cursor: 'default' }}>
-                  min 8 chars
-                </span>
+            <label className="flex flex-col gap-1.5">
+              <span className="flex items-baseline justify-between">
+                <AuthLabel>Password *</AuthLabel>
+                <span className="cursor-default text-xs font-medium text-brand-600">min 8 chars</span>
               </span>
-              <div className="login__input">
-                <Lock size={14} className="login__input-icon" />
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  autoComplete="new-password"
-                  placeholder="••••••••"
-                  disabled={isSubmitting}
-                  {...register('password')}
-                />
-                <button
-                  type="button"
-                  className="login__reveal"
-                  onClick={() => setShowPassword((s) => !s)}
-                  aria-label={showPassword ? 'Hide password' : 'Show password'}
-                >
-                  {showPassword ? 'Hide' : 'Show'}
-                </button>
-              </div>
-              {errors.password && <span className="login__field-error">{errors.password.message}</span>}
+              <AuthField
+                icon={<Lock size={14} />}
+                type={showPassword ? 'text' : 'password'}
+                autoComplete="new-password"
+                placeholder="••••••••"
+                disabled={isSubmitting}
+                reveal={{ shown: showPassword, onToggle: () => setShowPassword((s) => !s) }}
+                {...register('password')}
+              />
+              {errors.password && <AuthFieldError>{errors.password.message}</AuthFieldError>}
             </label>
 
-            <label className="login__field">
-              <span className="login__label">Confirm password *</span>
-              <div className="login__input">
-                <ShieldCheck size={14} className="login__input-icon" />
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  autoComplete="new-password"
-                  placeholder="••••••••"
-                  disabled={isSubmitting}
-                  {...register('confirmPassword')}
-                />
-              </div>
+            <label className="flex flex-col gap-1.5">
+              <AuthLabel>Confirm password *</AuthLabel>
+              <AuthField
+                icon={<ShieldCheck size={14} />}
+                type={showPassword ? 'text' : 'password'}
+                autoComplete="new-password"
+                placeholder="••••••••"
+                disabled={isSubmitting}
+                {...register('confirmPassword')}
+              />
               {errors.confirmPassword && (
-                <span className="login__field-error">{errors.confirmPassword.message}</span>
+                <AuthFieldError>{errors.confirmPassword.message}</AuthFieldError>
               )}
             </label>
 
-            <button type="submit" className="login__submit" disabled={isSubmitting}>
+            <AuthSubmit disabled={isSubmitting}>
               {isSubmitting ? (
                 <>
-                  <span className="login__spinner" /> Provisioning…
+                  <AuthSpinner /> Provisioning…
                 </>
               ) : (
                 <>
@@ -238,7 +226,7 @@ export default function SetupPage() {
                   <ArrowRight size={14} />
                 </>
               )}
-            </button>
+            </AuthSubmit>
           </form>
         </>
       )}

@@ -43,7 +43,7 @@ export function KPI({
         </span>
       </div>
       <div className="flex items-baseline gap-1 mt-0.5">
-        <span className="text-[26px] font-semibold leading-none tracking-tighter">{value}</span>
+        <span className="text-[30px] font-semibold leading-none tracking-tighter">{value}</span>
         {unit && <span className="text-sm text-text-muted">{unit}</span>}
       </div>
       {sub && <div className="text-xs text-text-muted mt-0.5">{sub}</div>}
@@ -54,7 +54,7 @@ export function KPI({
 export function KPIGrid({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn('grid gap-3 grid-cols-[repeat(auto-fit,minmax(180px,1fr))]', className)}
+      className={cn('grid gap-4 grid-cols-[repeat(auto-fit,minmax(180px,1fr))]', className)}
       {...props}
     />
   );

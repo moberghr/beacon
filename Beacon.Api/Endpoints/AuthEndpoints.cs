@@ -1,5 +1,7 @@
 using System.Security.Claims;
+using Beacon.Core.Authentication;
 using Beacon.Core.Authorization;
+using Microsoft.Extensions.Options;
 
 namespace Beacon.Api.Endpoints;
 
@@ -13,12 +15,22 @@ internal static class AuthEndpoints
             .WithName("GetCurrentUser")
             .WithTags("Auth");
 
+        // Anonymous: the login page reads this pre-auth to decide whether to offer SSO.
+        group.MapGet("/auth/sso", GetSsoConfig)
+            .AllowAnonymous()
+            .DisableAntiforgery()
+            .WithName("GetSsoConfig")
+            .WithTags("Auth");
+
         group.MapGet("/auth/permissions", GetCurrentPermissions)
             .WithName("GetCurrentPermissions")
             .WithTags("Auth");
 
         return group;
     }
+
+    private static SsoConfigResponse GetSsoConfig(IOptions<OidcAuthenticationOptions> oidcOptions)
+        => new(oidcOptions.Value.Enabled);
 
     private static CurrentUserResponse GetCurrentUser(IBeaconUserContext userContext, HttpContext httpContext)
     {
@@ -65,3 +77,5 @@ internal sealed record CurrentUserResponse(
 }
 
 internal sealed record CurrentPermissionsResponse(bool CanRead, bool CanWrite);
+
+internal sealed record SsoConfigResponse(bool Enabled);

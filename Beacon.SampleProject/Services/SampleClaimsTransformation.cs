@@ -7,46 +7,66 @@ namespace Beacon.SampleProject.Services;
 
 /// <summary>
 /// Transforms claims after authentication to add Beacon role claims.
-/// This example assigns roles based on username for demonstration purposes.
-/// In production, you would query your database or external service.
+/// The role is resolved from the Beacon user store by username — never inferred
+/// from the username string itself — so self-registration cannot grant privileges.
 /// </summary>
-public class SampleClaimsTransformation : IClaimsTransformation
+public class SampleClaimsTransformation(IUserManagementService userService) : IClaimsTransformation
 {
-    public Task<ClaimsPrincipal> TransformAsync(ClaimsPrincipal principal)
+    public async Task<ClaimsPrincipal> TransformAsync(ClaimsPrincipal principal)
     {
         if (principal.Identity is not ClaimsIdentity identity || !identity.IsAuthenticated)
         {
-            return Task.FromResult(principal);
+            return principal;
         }
 
         var username = identity.Name;
 
-        // Add Beacon user claims
-        if (!identity.HasClaim(c => c.Type == BeaconClaims.UserId))
+        if (!identity.HasClaim(x => x.Type == BeaconClaims.UserId))
         {
             identity.AddClaim(new Claim(BeaconClaims.UserId, username ?? "unknown"));
         }
 
-        if (!identity.HasClaim(c => c.Type == BeaconClaims.UserName))
+        if (!identity.HasClaim(x => x.Type == BeaconClaims.UserName))
         {
             identity.AddClaim(new Claim(BeaconClaims.UserName, username ?? "unknown"));
         }
 
-        // Assign roles based on username (for demo purposes)
-        // In production, you would query your database or external service
-        if (!identity.HasClaim(c => c.Type == BeaconClaims.Role))
+        if (identity.HasClaim(x => x.Type == BeaconClaims.Role) || string.IsNullOrWhiteSpace(username))
         {
-            var role = username?.ToLowerInvariant() switch
-            {
-                "admin" => RoleService.RoleNames.Admin,
-                "editor" => RoleService.RoleNames.Editor,
-                "viewer" => RoleService.RoleNames.Viewer,
-                _ => RoleService.RoleNames.Viewer,
-            };
-
-            identity.AddClaim(new Claim(BeaconClaims.Role, role));
+            return principal;
         }
 
-        return Task.FromResult(principal);
+        var user = await userService.GetUserByUserNameAsync(username);
+        if (user == null || !user.IsEnabled)
+        {
+            return principal;
+        }
+
+        var role = ResolveRole(user);
+        identity.AddClaim(new Claim(BeaconClaims.Role, role));
+
+        return principal;
+    }
+
+    private static string ResolveRole(Beacon.Core.Models.UserManagement.BeaconUserData user)
+    {
+        if (user.IsSuperAdmin)
+        {
+            return RoleService.RoleNames.Admin;
+        }
+
+        var maxLevel = user.Roles.Any() ? user.Roles.Max(x => x.Level) : 0;
+
+        if (maxLevel >= RoleService.RoleLevels.Admin)
+        {
+            return RoleService.RoleNames.Admin;
+        }
+
+        if (maxLevel >= RoleService.RoleLevels.Editor)
+        {
+            return RoleService.RoleNames.Editor;
+        }
+
+        return RoleService.RoleNames.Viewer;
     }
 }

@@ -18,6 +18,6 @@
 
 8. **No fake / seed / demo data in UI pages.** Pages start empty; data comes from real sources. Hardcoded sample rows in `.razor` are an automatic flag.
 
-9. **Tests added for new public methods / handlers.** Non-trivial LINQ → translation test in `QueryTranslationTests.cs`. Pure logic → NUnit unit test. UI → bUnit. NEVER `UseInMemoryDatabase`.
+9. **Tests added for new public methods / handlers.** Non-trivial LINQ → translation test in `QueryTranslationTests.cs`. Pure logic → NUnit unit test. React UI → Vitest + RTL. NEVER `UseInMemoryDatabase`.
 
 10. **Build + format clean.** `dotnet build --property WarningLevel=0` passes, `dotnet format --verify-no-changes` passes, no new warnings introduced.

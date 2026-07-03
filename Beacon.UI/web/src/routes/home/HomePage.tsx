@@ -28,7 +28,6 @@ import {
   Pill,
   KPIGrid,
   Seg,
-  Kbd,
 } from '@/components/beacon';
 import { formatNumber } from '@/lib/format';
 import { useAuth } from '@/auth/useAuth';
@@ -402,13 +401,6 @@ export default function HomePage() {
       <div className="grid gap-5 lg:grid-cols-2 items-stretch">
         <MigrationOverviewCard />
         <TaskMgmtCard />
-      </div>
-
-      <div className="flex items-center justify-between text-xs mono text-text-subtle pt-1">
-        <span>Beacon</span>
-        <span>
-          Press <Kbd>⌘</Kbd> <Kbd>K</Kbd> to search
-        </span>
       </div>
     </div>
   );

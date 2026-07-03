@@ -28,6 +28,7 @@ internal sealed class UpdateQueryHandler(IQueryService queryService)
         {
             QueryId = request.QueryId,
             Success = true,
+            Message = response.Message,
         };
     }
 }
@@ -44,4 +45,10 @@ public record UpdateQueryResult
     public required int QueryId { get; init; }
 
     public required bool Success { get; init; }
+
+    /// <summary>
+    /// Human-readable outcome — e.g. "Saved successfully" or "Changes submitted for approval" when
+    /// the approval workflow intercepts the edit. The UI surfaces this instead of a fixed message.
+    /// </summary>
+    public string? Message { get; init; }
 }
