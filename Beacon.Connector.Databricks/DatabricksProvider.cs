@@ -10,12 +10,14 @@ using Beacon.Core.Models;
 using Beacon.Core.Models.Providers;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Providers;
+using Beacon.Core.Services.Validation;
 
 namespace Beacon.Connector.Databricks;
 
 public class DatabricksProvider(
     IHttpClientFactory httpClientFactory,
     IEncryptionService encryptionService,
+    SqlReadOnlyAstValidator readOnlyValidator,
     ILogger<DatabricksProvider> logger) : IDataSourceProvider
 {
     private const int MaxResultRows = 10000;
@@ -179,10 +181,24 @@ public class DatabricksProvider(
 
     public Task<QueryValidationResult> ValidateQueryAsync(DataSource dataSource, string query, CancellationToken cancellationToken = default)
     {
+        var errors = new List<string>();
+
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            errors.Add("Query cannot be empty");
+        }
+
+        // Read-only enforcement (§1.5): reject anything that is not a single SELECT.
+        var readOnlyError = readOnlyValidator.Validate(query, "databricks");
+        if (readOnlyError != null)
+        {
+            errors.Add(readOnlyError);
+        }
+
         return Task.FromResult(new QueryValidationResult
         {
-            IsValid = !string.IsNullOrWhiteSpace(query),
-            Errors = string.IsNullOrWhiteSpace(query) ? new List<string> { "Query cannot be empty" } : new List<string>()
+            IsValid = errors.Count == 0,
+            Errors = errors
         });
     }
 

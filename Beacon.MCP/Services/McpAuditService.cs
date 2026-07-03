@@ -31,7 +31,9 @@ internal sealed class McpAuditService(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Failed to log MCP audit entry");
+            // §1.7 — audit logging is non-optional. Swallow so a transient DB issue doesn't fail the
+            // tool call, but log at Error so a sustained audit-sink outage is operationally visible.
+            logger.LogError(ex, "Failed to log MCP audit entry for tool {Tool}", tool);
         }
     }
 
@@ -70,7 +72,7 @@ internal sealed class McpAuditService(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Failed to update MCP session activity");
+            logger.LogWarning(ex, "Failed to update MCP session activity for session {SessionId}", sessionId);
         }
     }
 }

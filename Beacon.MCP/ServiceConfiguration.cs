@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using ModelContextProtocol.Server;
 using Beacon.Core.Services;
+using Beacon.Core.Services.Validation;
 using Beacon.MCP.Services;
 using Beacon.MCP.Tools;
 
@@ -32,8 +33,7 @@ public static class ServiceConfiguration
         // SQL schema validator (pre-execution column check)
         services.AddSingleton<SqlSchemaValidator>();
 
-        // AST read-only validator (defense-in-depth on top of the regex guardrail, §1.5)
-        services.AddSingleton<SqlReadOnlyAstValidator>();
+        // AST read-only validator is registered by Beacon.Core (relocated to Beacon.Core.Services.Validation, §1.5)
 
         // Query execution
         services.TryAddTransient<IQueryExecutionService, QueryExecutionService>();

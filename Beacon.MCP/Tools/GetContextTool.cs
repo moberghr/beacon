@@ -32,6 +32,8 @@ internal sealed class GetContextTool(
         // No McpSignalService call here: McpQuerySignal models the SQL query-learning loop
         // (generated SQL, intent, routing, validation/execution outcomes). This read-only project
         // overview produces none of those signals, so a signal would only add empty rows. Audit-only.
+        // This is the canonical explanation for the read-only project tools; ProjectSearchTool and
+        // ProjectGetDocumentationTool point here rather than repeating it.
         try
         {
             await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);

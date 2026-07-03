@@ -79,4 +79,38 @@ public class DataQualitySqlGeneratorTests
 
         act.Should().Throw<InvalidOperationException>();
     }
+
+    private static DataContractRule PatternRule(string configJson) =>
+        new()
+        {
+            Name = "pattern",
+            RuleType = DataContractRuleType.Pattern,
+            Configuration = configJson,
+        };
+
+    // §1.10 — the Pattern rule interpolates the column identifier directly, so it must be
+    // whitelist-validated exactly like the other rule types (regression guard for the fix).
+    [TestCase("amount; DROP TABLE orders")]
+    [TestCase("col FROM users--")]
+    [TestCase("secret FROM users")]
+    public void GenerateSql_PatternRule_NonIdentifierColumn_IsRejected(string maliciousColumn)
+    {
+        var config = $$"""{"schema":"public","table":"orders","column":"{{maliciousColumn}}","pattern":"^[0-9]+$"}""";
+        var rule = PatternRule(config);
+
+        var act = () => _generator.GenerateSql(rule, DatabaseEngineType.PostgreSQL);
+
+        act.Should().Throw<InvalidOperationException>();
+    }
+
+    [Test]
+    public void GenerateSql_PatternRule_ValidColumn_QuotesIdentifierAndEscapesPattern()
+    {
+        var rule = PatternRule("""{"schema":"public","table":"orders","column":"code","pattern":"^A'B$"}""");
+
+        var sql = _generator.GenerateSql(rule, DatabaseEngineType.PostgreSQL);
+
+        sql.Should().Contain("\"code\" !~");
+        sql.Should().Contain("'^A''B$'");
+    }
 }

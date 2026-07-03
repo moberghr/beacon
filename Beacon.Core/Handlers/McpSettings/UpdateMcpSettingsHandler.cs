@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Data;
@@ -14,6 +15,23 @@ internal sealed class UpdateMcpSettingsHandler(
 {
     public async Task Handle(UpdateMcpSettingsCommand request, CancellationToken cancellationToken)
     {
+        var data = request.Data;
+
+        // Reject invalid custom PII regexes at write time (before touching the DB) so an unparseable
+        // pattern can never be persisted and later silently skipped in the detection hot paths
+        // (fail-open PII leak).
+        foreach (var pattern in data.CustomPiiPatterns)
+        {
+            try
+            {
+                _ = Regex.Match(string.Empty, pattern, RegexOptions.None, TimeSpan.FromSeconds(1));
+            }
+            catch (ArgumentException ex)
+            {
+                throw new InvalidOperationException($"Custom PII pattern is not a valid regular expression: {ex.Message}");
+            }
+        }
+
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
         var entity = await context.McpSettings.FirstOrDefaultAsync(cancellationToken);
 
@@ -23,7 +41,6 @@ internal sealed class UpdateMcpSettingsHandler(
             context.McpSettings.Add(entity);
         }
 
-        var data = request.Data;
         entity.AskSystemPrompt = data.AskSystemPrompt;
         entity.GlobalInstruction = data.GlobalInstruction;
         entity.GetContextDescription = data.GetContextDescription;

@@ -33,6 +33,9 @@ public static class AuthServiceExtensions
         // Register user context (always available)
         services.TryAddScoped<IBeaconUserContext, HttpContextUserContext>();
 
+        // Resolves the current principal's internal BeaconUser.Id for audit columns (§1.7 / §9.5).
+        services.TryAddScoped<IActorUserResolver, ActorUserResolver>();
+
         // Register authentication service
         services.TryAddScoped<IBeaconAuthenticationService, BeaconAuthenticationService>();
 
@@ -212,7 +215,12 @@ public static class AuthServiceExtensions
     {
         context.Response.StatusCode = statusCode;
         context.Response.ContentType = "application/problem+json";
-        var payload = $"{{\"type\":\"about:blank\",\"title\":\"{title}\",\"status\":{statusCode}}}";
+        var payload = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            type = "about:blank",
+            title,
+            status = statusCode
+        });
         await context.Response.WriteAsync(payload, context.HttpContext.RequestAborted);
     }
 }

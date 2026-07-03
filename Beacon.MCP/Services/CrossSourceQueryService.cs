@@ -9,6 +9,7 @@ using Beacon.Core.Models;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Providers;
 using Beacon.Core.Services.Security;
+using Beacon.Core.Services.Validation;
 using Beacon.MCP.Tools;
 
 namespace Beacon.MCP.Services;
@@ -198,8 +199,23 @@ internal sealed class CrossSourceQueryService(
 
         text += $"\n### Join Query\n```sql\n{translatedSql}\n```\n\n";
 
-        // The join SQL is LLM-generated from the user's question — validate read-only before running it
-        // against the in-memory SQLite store (defense-in-depth, §1.5).
+        // The join SQL is LLM-generated from the user's question — run the same regex guardrail (write-op
+        // + PII pattern detection) applied to each per-source query above, so the final join is not a gap.
+        var joinGuardrail = guardrailService.ValidateQuery(translatedSql, new QueryGuardrailOptions
+        {
+            ReadOnly = settings.EnforceReadOnly,
+            DetectPii = settings.EnablePiiDetection,
+            CustomPiiPatterns = settings.CustomPiiPatterns.Count > 0 ? settings.CustomPiiPatterns : null
+        });
+
+        if (!joinGuardrail.IsValid)
+        {
+            text += $"**Validation Error for join query:** {joinGuardrail.Error}\n";
+
+            return (text, false);
+        }
+
+        // AST read-only enforcement before running it against the in-memory SQLite store (defense-in-depth, §1.5).
         if (settings.EnforceReadOnly)
         {
             var joinAstError = readOnlyAstValidator.Validate(translatedSql, "SQLite");

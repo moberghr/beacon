@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Protocol;
@@ -17,6 +18,18 @@ internal sealed class McpPlaygroundService(IServiceProvider serviceProvider) : I
         using var scope = serviceProvider.CreateScope();
         var sp = scope.ServiceProvider;
 
+        var httpUser = sp.GetRequiredService<IHttpContextAccessor>().HttpContext?.User;
+
+        // §1.4 — An API-key caller is confined to the projects in its 'allowed_projects' claim.
+        // The playground path bypasses the MCP transport's context factory, so the same restriction
+        // must be enforced here; otherwise a scoped key could target any project via the request body.
+        // Cookie/OIDC sessions carry no such claim and are not project-scoped (role-gated only).
+        if (httpUser != null && !IsProjectAllowedForCaller(httpUser, projectId))
+        {
+            return new McpPlaygroundResult(
+                $"Access denied: your API key does not have access to project {projectId}.", true);
+        }
+
         // Set up project context directly (bypasses the MCP transport's context factory since this
         // is a UI request). UserId is still attributed from the authenticated HttpContext so audit /
         // signal entries are not recorded against a null user (§1.7, §9.5).
@@ -24,7 +37,6 @@ internal sealed class McpPlaygroundService(IServiceProvider serviceProvider) : I
         context.ActiveProjectId = projectId;
         context.AllowedProjectIds = [projectId];
 
-        var httpUser = sp.GetRequiredService<IHttpContextAccessor>().HttpContext?.User;
         if (httpUser != null)
         {
             var userIdClaim = httpUser.FindFirst(ClaimTypes.NameIdentifier);
@@ -79,6 +91,33 @@ internal sealed class McpPlaygroundService(IServiceProvider serviceProvider) : I
         catch (Exception ex)
         {
             return new McpPlaygroundResult($"Error: {ex.Message}", true);
+        }
+    }
+
+    // Mirrors ProjectContextFactory's fail-closed reading of the API-key 'allowed_projects' claim.
+    // Returns true for callers that are not API keys (cookie/OIDC) — they are not project-scoped.
+    private static bool IsProjectAllowedForCaller(ClaimsPrincipal user, int projectId)
+    {
+        var isApiKey = user.HasClaim("auth_method", "api_key");
+        if (!isApiKey)
+        {
+            return true;
+        }
+
+        var allowedProjectsClaim = user.FindFirst("allowed_projects");
+        if (allowedProjectsClaim == null || string.IsNullOrEmpty(allowedProjectsClaim.Value))
+        {
+            return false;
+        }
+
+        try
+        {
+            var allowed = JsonSerializer.Deserialize<List<int>>(allowedProjectsClaim.Value);
+            return allowed != null && allowed.Contains(projectId);
+        }
+        catch (JsonException)
+        {
+            return false;
         }
     }
 }

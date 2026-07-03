@@ -282,6 +282,120 @@ public class QueryTranslationTests : QueryTranslationTestBase
                 || nameList.Contains((m.SchemaName + "." + m.TableName).ToLower())));
     }
 
+    // ─── Home trends (GetHomeTrendsHandler) ──────────────────────────
+
+    /// <summary>
+    /// Mirrors the per-day query-execution GroupBy in <c>GetHomeTrendsHandler</c>
+    /// (<c>GroupBy(x => x.CreatedTime.Date)</c>). Grouping on a translated <c>date_trunc</c>-style
+    /// key is a common Npgsql translation trap.
+    /// </summary>
+    [Test]
+    public void GetHomeTrends_ExecDailyGroupByDate_Translates()
+    {
+        var now = DateTime.UtcNow;
+
+        AssertQueryTranslates(ctx => ctx.QueryExecutionHistory
+            .Where(x => x.CreatedTime >= now.AddDays(-14))
+            .GroupBy(x => x.CreatedTime.Date)
+            .Select(x =>
+                new
+                {
+                    Date = x.Key,
+                    Count = x.Count()
+                }));
+    }
+
+    /// <summary>
+    /// Mirrors the per-day notification GroupBy in <c>GetHomeTrendsHandler</c>
+    /// (<c>GroupBy(x => x.SentAt.Date)</c>).
+    /// </summary>
+    [Test]
+    public void GetHomeTrends_NotifDailyGroupByDate_Translates()
+    {
+        var now = DateTime.UtcNow;
+        var windowStart = now.AddDays(-30);
+
+        AssertQueryTranslates(ctx => ctx.Notifications
+            .Where(x => x.SentAt >= windowStart)
+            .GroupBy(x => x.SentAt.Date)
+            .Select(x =>
+                new
+                {
+                    Date = x.Key,
+                    Count = x.Count()
+                }));
+    }
+
+    // ─── MCP learning stats (GetLearningStatsHandler) ────────────────
+
+    /// <summary>
+    /// Mirrors the problem-tables aggregation in <c>GetLearningStatsHandler.GetProblemTablesAsync</c>.
+    /// Groups by a nullable <c>TablesUsed</c> column (with a null filter + <c>!</c> key), counts total
+    /// and error rows, filters the grouped result by count, and orders by a computed error ratio —
+    /// an unusual GROUP BY / HAVING / ORDER BY shape that must survive Npgsql translation.
+    /// </summary>
+    [Test]
+    public void GetLearningStats_ProblemTablesGroupBy_Translates()
+    {
+        AssertQueryTranslates(ctx => ctx.McpQuerySignals
+            .Where(s => s.ProjectId == 1)
+            .Where(s => s.TablesUsed != null)
+            .GroupBy(s => s.TablesUsed!)
+            .Select(g => new
+            {
+                Tables = g.Key,
+                Total = g.Count(),
+                Errors = g.Count(s => !s.IsSuccessful)
+            })
+            .Where(g => g.Total >= 3)
+            .OrderByDescending(g => (double)g.Errors / g.Total)
+            .Take(10));
+    }
+
+    // ─── Data quality overview (GetDataQualityOverviewHandler) ───────
+
+    /// <summary>
+    /// Mirrors the enabled-contract counts GroupBy in <c>GetDataQualityOverviewHandler</c>
+    /// (<c>GroupBy(c => c.DataSourceId)</c> over enabled contracts).
+    /// </summary>
+    [Test]
+    public void GetDataQualityOverview_ContractCountsGroupBy_Translates()
+    {
+        AssertQueryTranslates(ctx => ctx.DataContracts
+            .Where(c => c.IsEnabled)
+            .GroupBy(c => c.DataSourceId)
+            .Select(g => new
+            {
+                DataSourceId = g.Key,
+                Count = g.Count()
+            }));
+    }
+
+    /// <summary>
+    /// Mirrors the scores projection in <c>GetDataQualityOverviewHandler</c> that feeds the
+    /// in-memory anonymous multi-key GroupBy (<c>new { DataSourceId, DataSourceName }</c>).
+    /// The server-side portion is the projection including the joined <c>DataSource.Name</c>;
+    /// this guards that the JOIN + projection translate.
+    /// </summary>
+    [Test]
+    public void GetDataQualityOverview_ScoresProjection_Translates()
+    {
+        AssertQueryTranslates(ctx => ctx.DataQualityScores
+            .Where(s => s.DataSourceId == 1)
+            .Select(s => new
+            {
+                s.DataSourceId,
+                DataSourceName = s.DataSource.Name,
+                s.SchemaName,
+                s.TableName,
+                s.Score,
+                s.EvaluatedAt,
+                s.TrendDirection,
+                s.PreviousScore,
+                s.Id
+            }));
+    }
+
     private static int CountJsonArrayElements(string json)
     {
         // Mirrors the private helper in AiActorService. EF Core treats this as a

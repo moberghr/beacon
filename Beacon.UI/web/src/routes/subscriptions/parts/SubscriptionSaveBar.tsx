@@ -1,6 +1,6 @@
 import { RefreshCw, Zap } from 'lucide-react';
 import { Button, Pill } from '@/components/beacon';
-import type { SubscriptionDetail } from '../queries';
+import { SubscriptionStatus, type SubscriptionDetail } from '../queries';
 
 interface SubscriptionSaveBarProps {
   subscription: SubscriptionDetail;
@@ -23,7 +23,7 @@ export function SubscriptionSaveBar({
   onTest,
   onArchive,
 }: SubscriptionSaveBarProps) {
-  const isActive = subscription.status === 'Active';
+  const isActive = subscription.status === SubscriptionStatus.Active;
   return (
     <div className="flex items-center gap-2 px-5 py-3 border-t border-border bg-surface-2 rounded-md">
       <span className="flex items-center gap-2 text-xs text-text-muted">

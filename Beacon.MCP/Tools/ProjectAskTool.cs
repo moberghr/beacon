@@ -8,6 +8,7 @@ using Beacon.AI.Services.LlmProviders;
 using Beacon.AI.Services.Mcp;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Security;
+using Beacon.Core.Services.Validation;
 using Beacon.MCP.Services;
 
 namespace Beacon.MCP.Tools;

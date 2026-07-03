@@ -4,7 +4,7 @@ import type { CurrentUser } from '@/auth/useAuth';
 
 export const AUTH_QUERY_KEY = ['auth', 'me'] as const;
 
-const UNAUTHENTICATED_USER: CurrentUser = {
+export const UNAUTHENTICATED_USER: CurrentUser = {
   userId: null,
   displayName: null,
   email: null,

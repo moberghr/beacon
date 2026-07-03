@@ -164,7 +164,7 @@ internal class DataQualitySqlGenerator : IDataQualitySqlGenerator
     {
         var schema = config.GetString("schema");
         var table = config.GetString("table");
-        var column = config.GetString("column");
+        var column = SqlIdentifierGuard.Validate(config.GetString("column"), "column");
         var pattern = config.GetString("pattern");
         var qualifiedTable = QualifyTable(schema, table, engineType);
 

@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 import { RefreshCw, Zap } from 'lucide-react';
 import { Button, PageHeader, Pill } from '@/components/beacon';
 import { formatDateTime } from '@/lib/format';
-import type { SubscriptionDetail } from '../queries';
+import { SubscriptionStatus, type SubscriptionDetail } from '../queries';
 
 interface SubscriptionHeroProps {
   subscription: SubscriptionDetail;
@@ -23,7 +23,7 @@ export function SubscriptionHero({
   onTest,
   onArchive,
 }: SubscriptionHeroProps) {
-  const isActive = subscription.status === 'Active';
+  const isActive = subscription.status === SubscriptionStatus.Active;
 
   return (
     <PageHeader

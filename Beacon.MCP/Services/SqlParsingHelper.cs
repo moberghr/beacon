@@ -1,4 +1,4 @@
-using System.Text.RegularExpressions;
+using Beacon.Core.Helpers;
 
 namespace Beacon.MCP.Services;
 
@@ -16,18 +16,7 @@ internal static class SqlParsingHelper
 
     internal static List<string> ExtractTableNamesFromSql(string sql)
     {
-        var tables = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var pattern = @"(?:FROM|JOIN)\s+(?:""?(\w+)""?\.)?""?(\w+)""?";
-        foreach (Match match in Regex.Matches(sql, pattern, RegexOptions.IgnoreCase))
-        {
-            var schema = match.Groups[1].Value;
-            var table = match.Groups[2].Value;
-            if (table.Equals("SELECT", StringComparison.OrdinalIgnoreCase) ||
-                table.Equals("LATERAL", StringComparison.OrdinalIgnoreCase))
-                continue;
-            tables.Add(string.IsNullOrEmpty(schema) ? table : $"{schema}.{table}");
-        }
-        return [.. tables];
+        return SqlTableNameExtractor.ExtractTableNames(sql);
     }
 
     internal static string CleanSqlResponse(string content)

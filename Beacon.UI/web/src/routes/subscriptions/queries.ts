@@ -111,11 +111,23 @@ export interface SubscriptionDetailAnomalyConfig {
   minimumDataPoints: number;
 }
 
+/**
+ * Backend emits this as a computed string (`ArchivedTime.HasValue ? "Archived" : "Active"`
+ * in `SubscriptionService`) — there is no backend enum to import for it, so this
+ * union + constant is the single source of truth for the two allowed values on the
+ * frontend. Compare against `SubscriptionStatus.Active` instead of a bare string literal.
+ */
+export const SubscriptionStatus = {
+  Active: 'Active',
+  Archived: 'Archived',
+} as const;
+export type SubscriptionStatus = (typeof SubscriptionStatus)[keyof typeof SubscriptionStatus];
+
 export interface SubscriptionDetail {
   id: number;
   queryId: number;
   queryName: string;
-  status: string;
+  status: SubscriptionStatus;
   cronExpression: string;
   cronDescription: string;
   cronNextAt: string | null;

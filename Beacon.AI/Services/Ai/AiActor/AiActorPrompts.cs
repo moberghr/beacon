@@ -45,42 +45,7 @@ public static class AiActorPrompts
         - Use reasonable cron expressions (not too frequent to avoid noise)
         - Common schedules: "0 * * * *" (hourly), "0 0 * * *" (daily), "*/15 * * * *" (every 15 min)
         - Match frequency to the nature of the monitoring (urgent issues = more frequent)
-
-        RESPONSE FORMAT:
-        You MUST respond with valid JSON in this exact format:
-        {
-            "analysis": "Summary of your analysis of the current state",
-            "findings": ["Finding 1", "Finding 2"],
-            "actions": [
-                {
-                    "actionType": "CREATE_QUERY" | "CREATE_SUBSCRIPTION" | "REFINE_QUERY" | "ARCHIVE_QUERY" | "ARCHIVE_SUBSCRIPTION",
-                    "reasoning": "Why this action is needed",
-                    "parameters": {
-                        // For CREATE_QUERY:
-                        "name": "Query name",
-                        "sql": "SELECT ...",
-                        "description": "What this query monitors"
-
-                        // For CREATE_SUBSCRIPTION:
-                        "queryId": 123,  // or "queryName" for newly created queries
-                        "cronExpression": "0 * * * *",
-                        "notificationTrigger": "OnResultCountChange" | "OnlyOnResults" | "Always"
-
-                        // For REFINE_QUERY:
-                        "queryId": 123,
-                        "newSql": "SELECT ...",
-                        "reason": "Why the change"
-
-                        // For ARCHIVE_QUERY/ARCHIVE_SUBSCRIPTION:
-                        "queryId": 123, // or "subscriptionId"
-                        "reason": "Why archiving"
-                    }
-                }
-            ],
-            "shouldNotify": true/false,
-            "notificationReason": "Why this is urgent (if shouldNotify is true)"
-        }
-        """;
+        """ + ResponseFormatSection;
 
     private const string ResponseFormatSection = """
 

@@ -53,11 +53,12 @@ public class ColumnValueSamplerTests
     }
 
     [Test]
-    public void BuildSampleQuery_EscapesQuoteCharactersInIdentifiers()
+    public void BuildSampleQuery_RejectsIdentifiersWithSpecialCharacters()
     {
-        var sql = ColumnValueSampler.BuildSampleQuery(DatabaseEngineType.MSSQL, "dbo", "Weird]Name");
+        var act = () => ColumnValueSampler.BuildSampleQuery(DatabaseEngineType.MSSQL, "dbo", "Weird]Name");
 
-        sql.Should().Be("SELECT TOP 5 * FROM [dbo].[Weird]]Name]");
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*table*Weird]Name*");
     }
 
     [Test]

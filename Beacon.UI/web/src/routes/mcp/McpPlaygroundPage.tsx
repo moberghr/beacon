@@ -107,7 +107,11 @@ export default function McpPlaygroundPage() {
             ...prev,
             { id: messageIdRef.current++, isUser: false, text: r.text, toolName: tool, isError: r.isError, durationMs: ms },
           ]);
-          setText('');
+          // Don't wipe the SQL the user is iterating on. The `query` tool's textarea stays editable
+          // during the run, so clearing it on success would discard in-progress edits.
+          if (tool !== 'query') {
+            setText('');
+          }
         },
         onError: err => {
           setMessages(prev => [

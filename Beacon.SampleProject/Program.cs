@@ -16,6 +16,7 @@ using Beacon.Connector.Databricks;
 using Beacon.Connector.Api;
 using Beacon.Connector.BigQuery;
 using Beacon.MCP;
+using Beacon.Api;
 using Beacon.Api.Endpoints;
 using Beacon.Api.Hubs;
 using Beacon.Api.OpenApi;
@@ -199,6 +200,7 @@ builder.Services.AddRateLimiter(options =>
 
 builder.Services.AddSignalR();
 // (IUserIdProvider registered via AddBeaconHostInfrastructure above.)
+builder.Services.AddBeaconApiServices();
 
 var app = builder.Build();
 

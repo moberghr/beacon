@@ -1,4 +1,7 @@
+using System.Security.Claims;
 using FluentAssertions;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 using NUnit.Framework;
 using Beacon.MCP.Services;
 using Beacon.MCP.Tools;
@@ -80,5 +83,60 @@ public class McpProjectResolutionTests
 
         error.Should().Contain("No projects");
         projectId.Should().Be(0);
+    }
+
+    // --- B7 fail-closed: ProjectContextFactory.Create must never produce a null AllowedProjectIds ---
+
+    private static IServiceProvider BuildProvider(params Claim[] claims)
+    {
+        var httpContext = new DefaultHttpContext
+        {
+            User = new ClaimsPrincipal(new ClaimsIdentity(claims, authenticationType: "test"))
+        };
+
+        var services = new ServiceCollection();
+        services.AddSingleton<McpProjectContext>();
+        services.AddSingleton<McpProjectContextManager>();
+        services.AddSingleton<IHttpContextAccessor>(new HttpContextAccessor { HttpContext = httpContext });
+
+        return services.BuildServiceProvider();
+    }
+
+    [Test]
+    public void Create_AbsentAllowedProjectsClaim_FailsClosedToEmptyList()
+    {
+        var ctx = ProjectContextFactory.Create(BuildProvider(new Claim(ClaimTypes.NameIdentifier, "1")));
+
+        ctx.AllowedProjectIds.Should().NotBeNull();
+        ctx.AllowedProjectIds.Should().BeEmpty();
+    }
+
+    [Test]
+    public void Create_EmptyJsonArrayClaim_FailsClosedToEmptyList()
+    {
+        var ctx = ProjectContextFactory.Create(BuildProvider(new Claim("allowed_projects", "[]")));
+
+        ctx.AllowedProjectIds.Should().NotBeNull();
+        ctx.AllowedProjectIds.Should().BeEmpty();
+    }
+
+    [Test]
+    public void Create_MalformedJsonClaim_FailsClosedToEmptyList_NoThrow()
+    {
+        IProjectContext ctx = null!;
+
+        var act = () => ctx = ProjectContextFactory.Create(BuildProvider(new Claim("allowed_projects", "{not json")));
+
+        act.Should().NotThrow();
+        ctx.AllowedProjectIds.Should().NotBeNull();
+        ctx.AllowedProjectIds.Should().BeEmpty();
+    }
+
+    [Test]
+    public void Create_ValidPopulatedClaim_IsParsed()
+    {
+        var ctx = ProjectContextFactory.Create(BuildProvider(new Claim("allowed_projects", "[5,6,7]")));
+
+        ctx.AllowedProjectIds.Should().BeEquivalentTo(new[] { 5, 6, 7 });
     }
 }

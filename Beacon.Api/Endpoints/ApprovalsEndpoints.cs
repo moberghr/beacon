@@ -1,11 +1,9 @@
 using System.Security.Claims;
 using Beacon.Core.Handlers.Approvals;
 using Beacon.Core.Models.Queries;
-using Beacon.Api.Hubs;
 using MediatR;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.SignalR;
 
 namespace Beacon.Api.Endpoints;
 
@@ -29,7 +27,6 @@ internal static class ApprovalsEndpoints
             int id,
             ApproveRejectRequest body,
             IMediator m,
-            IHubContext<BeaconHub> hub,
             HttpContext http,
             CancellationToken ct) =>
         {
@@ -41,16 +38,14 @@ internal static class ApprovalsEndpoints
                 ReviewerName = userName,
                 Comment = body.Comment,
             }, ct);
-            var detail = await m.Send(new GetApprovalDetailQuery { RequestId = id }, ct);
-            await PublishApprovalUpdated(hub, userId, detail?.RequestedByUserId, id, "approved", ct);
             return TypedResults.NoContent();
-        }).WithName("ApproveQueryChange");
+        }).WithName("ApproveQueryChange")
+            .RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
 
         approvals.MapPost("/{id:int}/reject", async (
             int id,
             ApproveRejectRequest body,
             IMediator m,
-            IHubContext<BeaconHub> hub,
             HttpContext http,
             CancellationToken ct) =>
         {
@@ -62,10 +57,9 @@ internal static class ApprovalsEndpoints
                 ReviewerName = userName,
                 Comment = body.Comment,
             }, ct);
-            var detail = await m.Send(new GetApprovalDetailQuery { RequestId = id }, ct);
-            await PublishApprovalUpdated(hub, userId, detail?.RequestedByUserId, id, "rejected", ct);
             return TypedResults.NoContent();
-        }).WithName("RejectQueryChange");
+        }).WithName("RejectQueryChange")
+            .RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
 
         return group;
     }
@@ -77,37 +71,6 @@ internal static class ApprovalsEndpoints
             ?? context.User.FindFirst("preferred_username")?.Value
             ?? context.User.Identity?.Name;
         return (userId, userName);
-    }
-
-    private static async Task PublishApprovalUpdated(
-        IHubContext<BeaconHub> hub,
-        string? reviewerUserId,
-        string? requesterUserId,
-        int approvalId,
-        string status,
-        CancellationToken ct)
-    {
-        // Targeted push: notify the reviewer (so other tabs they have open update)
-        // and the requester (so they see the approval/rejection live). All other
-        // connected clients are intentionally NOT notified — broadcast was overkill.
-        var payload = new ApprovalUpdatedEvent(approvalId, status);
-        var recipients = new List<string>(2);
-        if (!string.IsNullOrEmpty(reviewerUserId))
-        {
-            recipients.Add(reviewerUserId);
-        }
-
-        if (!string.IsNullOrEmpty(requesterUserId) && requesterUserId != reviewerUserId)
-        {
-            recipients.Add(requesterUserId);
-        }
-
-        if (recipients.Count == 0)
-        {
-            return;
-        }
-
-        await hub.Clients.Users(recipients).SendAsync(BeaconHubEventNames.ApprovalUpdated, payload, ct);
     }
 }
 

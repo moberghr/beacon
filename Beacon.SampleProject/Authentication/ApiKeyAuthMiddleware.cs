@@ -60,7 +60,22 @@ public sealed class ApiKeyAuthMiddleware(RequestDelegate next)
         // Add scope claims
         if (credential.Scopes != null)
         {
-            var scopes = JsonSerializer.Deserialize<string[]>(credential.Scopes);
+            string[]? scopes;
+            try
+            {
+                scopes = JsonSerializer.Deserialize<string[]>(credential.Scopes);
+            }
+            catch (JsonException ex)
+            {
+                logger.LogWarning(ex, "Malformed scopes JSON for API key {ApiKeyId}.", credential.Id);
+                await Results.Problem(
+                    title: "Unauthorized",
+                    detail: "Invalid or expired API key.",
+                    statusCode: StatusCodes.Status401Unauthorized)
+                    .ExecuteAsync(context);
+                return;
+            }
+
             if (scopes != null)
             {
                 foreach (var scope in scopes)

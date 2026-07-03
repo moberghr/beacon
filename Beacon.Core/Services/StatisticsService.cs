@@ -74,13 +74,13 @@ internal class StatisticsService(IDbContextFactory<BeaconContext> contextFactory
         var topSubscriptions = await context.QueryExecutionHistory
             .Where(h => h.CreatedTime >= thirtyDaysAgo)
             .GroupBy(h => new { h.SubscriptionId, h.Subscription.Query.Name })
-            .Select(g => new TopSubscriptionItem
+            .Select(x => new TopSubscriptionItem
             {
-                SubscriptionId = g.Key.SubscriptionId,
-                SubscriptionName = g.Key.Name,
-                ExecutionCount = g.Count(),
-                NotificationCount = g.Count(h => h.NotificationStatus == NotificationStatus.NotificationSent),
-                LastExecuted = g.Max(h => h.CreatedTime)
+                SubscriptionId = x.Key.SubscriptionId,
+                SubscriptionName = x.Key.Name,
+                ExecutionCount = x.Count(),
+                NotificationCount = x.Count(y => y.NotificationStatus == NotificationStatus.NotificationSent),
+                LastExecuted = x.Max(y => y.CreatedTime)
             })
             .OrderByDescending(s => s.ExecutionCount)
             .Take(5)
@@ -90,11 +90,11 @@ internal class StatisticsService(IDbContextFactory<BeaconContext> contextFactory
         var executionTimeStats = await context.QueryExecutionHistory
             .Where(h => h.ExecutionTimeMs > 0)
             .GroupBy(x => 1)
-            .Select(g => new
+            .Select(x => new
             {
-                AvgExecutionTimeMs = g.Average(h => h.ExecutionTimeMs),
-                MinExecutionTimeMs = g.Min(h => h.ExecutionTimeMs),
-                MaxExecutionTimeMs = g.Max(h => h.ExecutionTimeMs)
+                AvgExecutionTimeMs = x.Average(y => y.ExecutionTimeMs),
+                MinExecutionTimeMs = x.Min(y => y.ExecutionTimeMs),
+                MaxExecutionTimeMs = x.Max(y => y.ExecutionTimeMs)
             })
             .FirstOrDefaultAsync(cancellationToken);
 
@@ -102,12 +102,12 @@ internal class StatisticsService(IDbContextFactory<BeaconContext> contextFactory
         var executionTimeHistory = await context.QueryExecutionHistory
             .Where(h => h.CreatedTime >= thirtyDaysAgo && h.ExecutionTimeMs > 0)
             .GroupBy(h => h.CreatedTime.Date)
-            .Select(g => new ExecutionTimeDataPoint
+            .Select(x => new ExecutionTimeDataPoint
             {
-                Date = g.Key,
-                AvgExecutionTimeMs = g.Average(h => h.ExecutionTimeMs),
-                MinExecutionTimeMs = g.Min(h => h.ExecutionTimeMs),
-                MaxExecutionTimeMs = g.Max(h => h.ExecutionTimeMs)
+                Date = x.Key,
+                AvgExecutionTimeMs = x.Average(y => y.ExecutionTimeMs),
+                MinExecutionTimeMs = x.Min(y => y.ExecutionTimeMs),
+                MaxExecutionTimeMs = x.Max(y => y.ExecutionTimeMs)
             })
             .OrderBy(x => x.Date)
             .ToListAsync(cancellationToken);
