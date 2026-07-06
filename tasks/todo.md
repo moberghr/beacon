@@ -8,7 +8,7 @@ Plan: `docs/plans/2026-07-01-audit-remediation.md`
 
 - [x] **B1 — Read-only core fix:** relocate `SqlReadOnlyAstValidator` MCP→Core; gate `AddQueryStep`/`UpdateQueryStep`/`ExecuteStep` ✓ build + 212/212 tests
 - [x] **B2 — Connector read-only fixes:** `ApiProvider` reject mutating verbs; Databricks/BigQuery real statement check; `DatabaseProvider` statement-type check for 5 SQL connectors ✓ build + 212/212 tests
-- [x] **B3 — Auth security:** remove hardcoded SMTP credential; remove admin-username escalation (`SampleClaimsTransformation` + `SampleAuthorizationProvider`) ✓ build + 212/212 tests — ⚠️ credential still needs manual rotation
+- [x] **B3 — Auth security:** remove hardcoded SMTP credential; remove admin-username escalation (`SampleClaimsTransformation` + `SampleAuthorizationProvider`) ✓ build + 212/212 tests
 - [x] **B4 — MCP/AI security:** fail-closed project scope; stop logging full SQL; route `TestLlmConnectionHandler` through `LlmRequestQueue`; real `ValidateQuerySyntaxAsync`; guardrail on cross-source joined SQL ✓ build + 212/212 tests
 - [x] **B5 — Backend cleanup:** remove `SecretReEncryptionService`; `SqlIdentifierGuard` in `ColumnValueSampler`; lambda naming; dedupe table-name regex + prompt fragment + tool comment; clean 401 on malformed scopes JSON; `JsonSerializer` in `WriteJsonStatusAsync`; `IBeaconScheduler` verified already correct ✓ build + 217/217 tests
 - [x] **B6 — Endpoint thinning:** `SetupEndpoints`, `McpEndpoints`, `ApprovalsEndpoints` → thin `mediator.Send()` only ✓ build + 217/217 tests
@@ -26,7 +26,7 @@ Plan: `docs/plans/2026-07-01-audit-remediation.md`
 - [x] `npm run build` + Vitest green — 79/79 tests
 - [x] Lessons captured in `tasks/lessons.md` (Phase 7) — AST-validator adversarial-review lesson added
 - [ ] Manual smoke test (recommended before merge, not run in this session): write-query rejection via query builder UI + MCP tool call, auth pages light/dark visual check
-- [ ] **Manual follow-up required (not code, security-critical):** rotate leaked SMTP credential (`dev@netgiro.is`) in the mail provider account — treat as already compromised
+- [x] **Manual follow-up (security):** credential rotation for the formerly committed SMTP account — tracked internally as part of the 2026-07 history purge (see internal runbook), no longer tracked in this file
 - [ ] Optional follow-up (non-blocking, flagged by reviewers): add tests for `SqlTableNameExtractor`, `BeaconMailSender` config guards, `ActorUserResolver`/`CreateSuperAdminHandler`/`SignalRApprovalNotifier` branch logic; centralize SQLite dialect-string mapping across `DatabaseProvider.cs`/`QueryService.Steps.cs`; minor Modal `aria-labelledby` tightening on `SubscriptionDetailPanel`
 
 ---
