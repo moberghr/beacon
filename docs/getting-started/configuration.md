@@ -539,8 +539,15 @@ public interface IBeaconScheduler
     // optional — data-quality contract evaluation schedules
     void AddOrUpdateDataQualityJob(int contractId, string contractName, string cron);
     void RemoveDataQualityJob(int contractId, string contractName);
+
+    // optional — fire-and-forget background work used by the AI features;
+    // returns the job id (used to correlate JobStatusChanged push events)
+    string EnqueueProjectDocumentation(int projectId, int userId, string? notifyUserId);
+    string EnqueueAiActorThinkCycle(int actorId, int subscriptionId);
 }
 ```
+
+The optional members have default implementations that throw, so hosts that don't use data-quality contracts or AI features only implement the two subscription methods.
 
 Beacon calls `AddOrUpdate` whenever a subscription is created or its cron changes, and `Remove` when it's deleted or disabled. Your implementation maps those calls onto recurring jobs that invoke `IJobService.ExecuteQuery(subscriptionId)` on the cron schedule.
 
