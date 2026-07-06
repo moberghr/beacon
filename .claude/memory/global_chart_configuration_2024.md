@@ -6,7 +6,7 @@ Created a centralized `ChartHelper` class to provide consistent chart configurat
 ## Key Changes
 
 ### 1. Created ChartHelper Class
-**File**: Beacon.UI/Helpers/ChartHelper.cs (NEW)
+**File**: src/Beacon.UI/Helpers/ChartHelper.cs (NEW)
 
 **Purpose**: Centralized chart configuration for consistent styling
 
@@ -41,7 +41,7 @@ For multi-series charts:
 Alias for multi-series options (used in anomaly detection charts)
 
 ### 2. Updated TaskDetails.razor
-**File**: Beacon.UI/Components/Pages/Tasks/TaskDetails.razor
+**File**: src/Beacon.UI/Components/Pages/Tasks/TaskDetails.razor
 
 **Changes**:
 1. Added `@using Beacon.UI.Helpers`
@@ -71,7 +71,7 @@ Alias for multi-series options (used in anomaly detection charts)
    ```
 
 ### 3. Updated SubscriptionDetails.razor
-**File**: Beacon.UI/Components/Pages/Subscriptions/SubscriptionDetails.razor
+**File**: src/Beacon.UI/Components/Pages/Subscriptions/SubscriptionDetails.razor
 
 **Changes**:
 1. Added `@using Beacon.UI.Helpers` (line 10)
@@ -197,13 +197,13 @@ options.ChartPalette = new[] { "#new_color1", "#new_color2", ... };
 
 ## Files Modified
 
-1. **NEW**: Beacon.UI/Helpers/ChartHelper.cs (~70 lines)
-2. **Modified**: Beacon.UI/Components/Pages/Tasks/TaskDetails.razor
+1. **NEW**: src/Beacon.UI/Helpers/ChartHelper.cs (~70 lines)
+2. **Modified**: src/Beacon.UI/Components/Pages/Tasks/TaskDetails.razor
    - Added using statement
    - Updated 2 charts to use helper
    - Added _anomalyAxisChartOptions field
    - Simplified chart configuration methods
-3. **Modified**: Beacon.UI/Components/Pages/Subscriptions/SubscriptionDetails.razor
+3. **Modified**: src/Beacon.UI/Components/Pages/Subscriptions/SubscriptionDetails.razor
    - Added using statement
    - Updated chart to use helper
    - Added _anomalyAxisChartOptions field (NEW - now has 45° rotation!)

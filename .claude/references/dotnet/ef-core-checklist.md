@@ -28,6 +28,6 @@ Project-level reminders for reviewing and writing EF Core code.
 
 ## Project-specific note (Beacon)
 
-This repo also uses Dapper alongside EF Core for metadata extraction (`*MetadataExtractor.cs`), bulk operations (`Beacon.Core/Helpers/BulkHelpers.cs`), migration tooling (`Beacon.Core/Services/MigrationService.cs`), and connector job repositories (`JobRepository.cs`). Do not migrate Dapper queries to EF Core unless explicitly asked.
+This repo also uses Dapper alongside EF Core for metadata extraction (`*MetadataExtractor.cs`), bulk operations (`src/Beacon.Core/Helpers/BulkHelpers.cs`), migration tooling (`src/Beacon.Core/Services/MigrationService.cs`), and connector job repositories (`JobRepository.cs`). Do not migrate Dapper queries to EF Core unless explicitly asked.
 
 <!-- Customized by setup-bootstrap on 2026-05-04. Detected: EF Core + Dapper coexistence. -->

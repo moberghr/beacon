@@ -6,7 +6,7 @@ Added execution time metrics and historical data to both the Dashboard (Home pag
 ## Backend Changes
 
 ### 1. Extended QueryStatisticsModels.cs
-**File**: Beacon.Core/Models/QueryExecutionHistory/QueryStatisticsModels.cs
+**File**: src/Beacon.Core/Models/QueryExecutionHistory/QueryStatisticsModels.cs
 
 **Added to DashboardStatisticsData**:
 ```csharp
@@ -29,7 +29,7 @@ public class ExecutionTimeDataPoint
 ```
 
 ### 2. Updated StatisticsService
-**File**: Beacon.Core/Services/StatisticsService.cs
+**File**: src/Beacon.Core/Services/StatisticsService.cs
 
 **Added Calculations** (lines 89-112):
 ```csharp
@@ -68,7 +68,7 @@ ExecutionTimeHistory = executionTimeHistory
 ```
 
 ### 3. Extended QueryDetailsData
-**File**: Beacon.Core/Services/QueryService.cs
+**File**: src/Beacon.Core/Services/QueryService.cs
 
 **Added Using Statement** (line 17):
 ```csharp
@@ -85,7 +85,7 @@ public List<ExecutionTimeDataPoint> ExecutionTimeHistory { get; set; } = new();
 ```
 
 ### 4. Updated QueryService.GetQueryDetails()
-**File**: Beacon.Core/Services/QueryService.cs
+**File**: src/Beacon.Core/Services/QueryService.cs
 
 **Added Calculations** (lines 380-409):
 ```csharp

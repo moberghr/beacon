@@ -68,7 +68,7 @@ app.MapBeaconUi();                // React SPA at root /
 ```
 
 {: .note }
-> The React SPA is served at the **root URL `/`** by the `Beacon.UI` Razor Class Library (it builds from `Beacon.UI/web` into `Beacon.UI/wwwroot`). The REST API lives under `/beacon/api/*`, the MCP server at `/beacon/mcp`, the SignalR hub at `/beacon/api/hub`, and the OpenAPI document at `/openapi/v1.json`.
+> The React SPA is served at the **root URL `/`** by the `Beacon.UI` Razor Class Library (it builds from `src/Beacon.UI/web` into `src/Beacon.UI/wwwroot`). The REST API lives under `/beacon/api/*`, the MCP server at `/beacon/mcp`, the SignalR hub at `/beacon/api/hub`, and the OpenAPI document at `/openapi/v1.json`.
 
 ## Base URL Configuration
 

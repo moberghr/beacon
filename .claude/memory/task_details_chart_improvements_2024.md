@@ -6,7 +6,7 @@ Updated the TaskDetails page charts to make them taller and ensure all X-axis la
 ## Changes Made
 
 ### 1. Result Count Progression Chart
-**File**: Beacon.UI/Components/Pages/Tasks/TaskDetails.razor (Line 118)
+**File**: src/Beacon.UI/Components/Pages/Tasks/TaskDetails.razor (Line 118)
 
 **Before**:
 ```razor
@@ -22,7 +22,7 @@ Height="400px"
 - Already had `_axisChartOptions.XAxisLabelRotation = 45` set in PrepareChartData()
 
 ### 2. Anomaly Detection Chart
-**File**: Beacon.UI/Components/Pages/Tasks/TaskDetails.razor (Line 163)
+**File**: src/Beacon.UI/Components/Pages/Tasks/TaskDetails.razor (Line 163)
 
 **Before**:
 ```razor
@@ -46,7 +46,7 @@ Height="400px"
 ```
 
 ### 3. Added AxisChartOptions Field
-**File**: Beacon.UI/Components/Pages/Tasks/TaskDetails.razor (Line 458)
+**File**: src/Beacon.UI/Components/Pages/Tasks/TaskDetails.razor (Line 458)
 
 **Added**:
 ```csharp
@@ -54,7 +54,7 @@ private AxisChartOptions _anomalyAxisChartOptions = new();
 ```
 
 ### 4. Configured X-Axis Rotation for Anomaly Chart
-**File**: Beacon.UI/Components/Pages/Tasks/TaskDetails.razor (Line 616)
+**File**: src/Beacon.UI/Components/Pages/Tasks/TaskDetails.razor (Line 616)
 
 **Added to PrepareAnomalyChart() method**:
 ```csharp
@@ -95,7 +95,7 @@ The `XAxisLabelRotation = 45` property rotates labels 45 degrees clockwise, whic
 
 ## Files Modified
 
-**Beacon.UI/Components/Pages/Tasks/TaskDetails.razor**:
+**src/Beacon.UI/Components/Pages/Tasks/TaskDetails.razor**:
 - Line 122: Changed chart height from 250px to 400px
 - Line 167: Changed chart height from 300px to 400px
 - Line 169: Added `AxisChartOptions="@_anomalyAxisChartOptions"`

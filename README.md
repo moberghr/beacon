@@ -80,7 +80,7 @@ It ships in two forms: a **self-hostable application** (clone and run) and **NuG
 
 ## 🚀 Quick Start
 
-**Prerequisites:** .NET 9 SDK, Node.js 18+, and a PostgreSQL database. Set a connection string and a 32-character encryption key in `Beacon.SampleProject/appsettings.json` (or user-secrets / environment variables):
+**Prerequisites:** .NET 9 SDK, Node.js 18+, and a PostgreSQL database. Set a connection string and a 32-character encryption key in `src/Beacon.SampleProject/appsettings.json` (or user-secrets / environment variables):
 
 ```json
 {
@@ -98,12 +98,12 @@ It ships in two forms: a **self-hostable application** (clone and run) and **NuG
 dotnet run --project Beacon.SampleProject --no-launch-profile
 
 # 2. In another terminal, start the React dev server (Vite) — http://localhost:5173
-npm run dev --prefix Beacon.UI/web
+npm run dev --prefix src/Beacon.UI/web
 ```
 
 Open **http://localhost:5173**. On first run, Beacon applies its EF Core migrations and walks you through **first-run admin setup** — there are no hardcoded credentials.
 
-> **No backend handy?** `npm run dev:mock --prefix Beacon.UI/web` runs the full UI against realistic in-browser mock data (MSW) — the same mode used for the screenshots above.
+> **No backend handy?** `npm run dev:mock --prefix src/Beacon.UI/web` runs the full UI against realistic in-browser mock data (MSW) — the same mode used for the screenshots above.
 
 | URL | What |
 |---|---|
@@ -353,7 +353,7 @@ app.MapBeaconUi();                                   // React SPA at root /
 app.Run();
 ```
 
-> `Beacon.SampleProject/Program.cs` is the canonical, fully-wired reference (scheduler wiring, SignalR, OIDC, JWT-for-MCP, rate limiting, antiforgery, and the load-bearing middleware order). Start from it when embedding. Scheduling goes through the `IBeaconScheduler` abstraction — implement it with the job runner of your choice, e.g. [Moberg Warp](https://moberghr.github.io/warp/).
+> `src/Beacon.SampleProject/Program.cs` is the canonical, fully-wired reference (scheduler wiring, SignalR, OIDC, JWT-for-MCP, rate limiting, antiforgery, and the load-bearing middleware order). Start from it when embedding. Scheduling goes through the `IBeaconScheduler` abstraction — implement it with the job runner of your choice, e.g. [Moberg Warp](https://moberghr.github.io/warp/).
 
 **Generate a secure encryption key:**
 ```bash

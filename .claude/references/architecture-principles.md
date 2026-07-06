@@ -54,9 +54,9 @@ Core.{Pg,Sql}        → Core
 - No `UseInMemoryDatabase` in tests.
 
 ⚠️ **Inconsistency: `Result<>` pattern.** New handlers throw exceptions for failure (per the design intent), but the following files still use a legacy `Result<>` shape:
-- `Beacon.Core/Adapters/Shared/TemplateValidator.cs`
-- `Beacon.Core/Authorization/Providers/{Default,Database,RoleBased}AuthorizationProvider.cs`
-- `Beacon.Core/Authentication/Providers/{Hybrid,JwtExternalApi}AuthenticationProvider.cs`
+- `src/Beacon.Core/Adapters/Shared/TemplateValidator.cs`
+- `src/Beacon.Core/Authorization/Providers/{Default,Database,RoleBased}AuthorizationProvider.cs`
+- `src/Beacon.Core/Authentication/Providers/{Hybrid,JwtExternalApi}AuthenticationProvider.cs`
 - A handful of `Beacon.AI` services: `ProjectDocumentationService`, `SemanticSearchService`, `AiActor*Service`.
 
 Leave existing code alone; do not propagate to new handlers.
@@ -64,7 +64,7 @@ Leave existing code alone; do not propagate to new handlers.
 ## Data layer
 
 - **Two providers, one schema.** `BeaconContext` is abstract; `PostgreSqlBeaconContext` adds `UseSnakeCaseNamingConvention()`, `SqlServerBeaconContext` does not.
-- **Dual migrations.** `Beacon.Core.PostgreSql/Migrations/` and `Beacon.Core.SqlServer/Migrations/` both move forward when entities change.
+- **Dual migrations.** `src/Beacon.Core.PostgreSql/Migrations/` and `src/Beacon.Core.SqlServer/Migrations/` both move forward when entities change.
 - **Fluent API only.** All entity configuration in `OnModelCreating` via private `Configure{Domain}Entities()` partials; no data annotations, no `IEntityTypeConfiguration<T>` classes.
 - **Dapper alongside EF Core** for metadata extraction (`*MetadataExtractor.cs`), bulk operations, migration tooling, and connector job repositories. This is intentional — high-volume / introspection-heavy paths use Dapper, transactional CRUD uses EF Core.
 
@@ -85,7 +85,7 @@ Leave existing code alone; do not propagate to new handlers.
 
 ## Testing
 
-- Primary strategy: **EF Core LINQ → SQL translation tests** via `ToQueryString()` against `NpgsqlTestContext` (no real DB). See `Beacon.Tests/Integration/QueryTranslationTests.cs`.
+- Primary strategy: **EF Core LINQ → SQL translation tests** via `ToQueryString()` against `NpgsqlTestContext` (no real DB). See `src/Beacon.Tests/Integration/QueryTranslationTests.cs`.
 - NUnit 4 + Moq + FluentAssertions + bUnit. No xUnit, no NSubstitute.
 
 ⚠️ **Inconsistency:** `Beacon.Tests.csproj` references `Microsoft.EntityFrameworkCore.InMemory 9.0.4` even though the project standard forbids `UseInMemoryDatabase`. The package is dead weight; remove on next unrelated edit.

@@ -183,7 +183,7 @@ Scheduler → JobService.ExecuteQuery()
 ## File Locations
 
 ```
-Beacon.Core/
+src/Beacon.Core/
 ├── Data/Entities/                    # Entity classes
 ├── Data/Enums/                       # NotificationType, MigrationMode, etc.
 ├── Services/                         # Business logic
@@ -194,7 +194,7 @@ Beacon.Core/
 │   └── Jira/JiraAdapter.cs
 └── ServiceConfiguration.cs           # DI setup
 
-Beacon.UI/Components/
+src/Beacon.UI/Components/
 ├── Layout/MainLayout.razor           # App layout
 ├── Pages/                            # Feature pages
 └── Custom/                           # Reusable components

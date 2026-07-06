@@ -44,7 +44,7 @@ In this guide, you'll:
 4. On later runs, sign in at the `/login` route with the account you created.
 
 {: .note }
-> If you're developing the frontend, run the Vite dev server with `npm run dev --prefix Beacon.UI/web` and open http://localhost:5173 — it proxies API calls to the running host.
+> If you're developing the frontend, run the Vite dev server with `npm run dev --prefix src/Beacon.UI/web` and open http://localhost:5173 — it proxies API calls to the running host.
 
 ## Step 2: Add a Data Source
 
@@ -341,7 +341,7 @@ Expose Beacon to AI agents over the Model Context Protocol
 ### App Not Accessible
 
 - Verify the host is running and reachable at the root URL `/`
-- If developing the frontend, confirm the Vite dev server is running, or that `Beacon.UI/wwwroot` was rebuilt
+- If developing the frontend, confirm the Vite dev server is running, or that `src/Beacon.UI/wwwroot` was rebuilt
 - Check the browser console for errors
 
 ## Need Help?

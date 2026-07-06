@@ -4,9 +4,9 @@
 
 ## CQRS via MediatR
 
-§2.1 **Every UI action goes through `IMediator.Send()`.** Query/command records and handlers live in `Beacon.Core/Handlers/` and `Beacon.AI/Handlers/`. Each project registers its own assembly via `services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(...))`.
+§2.1 **Every UI action goes through `IMediator.Send()`.** Query/command records and handlers live in `src/Beacon.Core/Handlers/` and `src/Beacon.AI/Handlers/`. Each project registers its own assembly via `services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(...))`.
 
-§2.1.1 **One MediatR handler = one HTTP endpoint.** Every `IRequest` / `IRequest<TResult>` must be reachable via `/beacon/api/*` exposed in `Beacon.SampleProject/Endpoints/{Area}Endpoints.cs`. Endpoints stay thin — accept path/body, call `mediator.Send(...)`, return the result. CI's `OpenApiContractTests.EveryMediatRHandlerIsExposedViaHttp` enforces this.
+§2.1.1 **One MediatR handler = one HTTP endpoint.** Every `IRequest` / `IRequest<TResult>` must be reachable via `/beacon/api/*` exposed in `src/Beacon.SampleProject/Endpoints/{Area}Endpoints.cs`. Endpoints stay thin — accept path/body, call `mediator.Send(...)`, return the result. CI's `OpenApiContractTests.EveryMediatRHandlerIsExposedViaHttp` enforces this.
 
 §2.2 **Handler file convention — one slice per file.** The handler class, request record, and result record all live in the same file. Handler is `internal sealed class` using primary-constructor injection.
 
@@ -36,7 +36,7 @@ Connector.*          → Core
 Core.PostgreSql/Sql  → Core
 ```
 
-§2.5 _(removed — `Beacon.UI` and `Beacon.Web` were both deleted in the Phase 3 cutover. The host is `Beacon.SampleProject`; the UI is the React app at `Beacon.SampleProject/web/`.)_
+§2.5 _(removed — `Beacon.UI` and `Beacon.Web` were both deleted in the Phase 3 cutover. The host is `Beacon.SampleProject`; the UI is the React app at `src/Beacon.SampleProject/web/`.)_
 
 ## What this codebase deliberately does NOT use
 
@@ -46,13 +46,13 @@ Core.PostgreSql/Sql  → Core
 
 §2.8 **No AutoMapper / Mapster.** All mapping is manual via `.Select()` or inline property assignment.
 
-§2.9 **No Result pattern in new code.** Throw `InvalidOperationException` for business-rule violations; throw `BeaconException` (or a derivative) for domain-specific errors. ⚠️ **Inconsistency:** `Beacon.Core/Adapters/Shared/TemplateValidator.cs` and the auth providers (`Beacon.Core/Authorization/Providers/*`, `Beacon.Core/Authentication/Providers/Hybrid*`, `Jwt*`) still use a `Result<>` shape — leave existing code alone, but do NOT propagate the pattern to new handlers.
+§2.9 **No Result pattern in new code.** Throw `InvalidOperationException` for business-rule violations; throw `BeaconException` (or a derivative) for domain-specific errors. ⚠️ **Inconsistency:** `src/Beacon.Core/Adapters/Shared/TemplateValidator.cs` and the auth providers (`src/Beacon.Core/Authorization/Providers/*`, `src/Beacon.Core/Authentication/Providers/Hybrid*`, `Jwt*`) still use a `Result<>` shape — leave existing code alone, but do NOT propagate the pattern to new handlers.
 
 ## DI conventions
 
 §2.10 **Builder pattern for stack registration.** `BeaconBuilder` enables fluent chaining. Connectors register via `Add{Engine}Connector()` extension methods on `BeaconBuilder`. Do not bypass with raw `services.Add*` for connector wiring.
 
-§2.11 **Connector/Provider pattern.** Data sources implement `IDataSourceProvider` and register with `ConnectorRegistry`. See `Beacon.Connector.PostgreSql/ServiceCollectionExtensions.cs` for the canonical example.
+§2.11 **Connector/Provider pattern.** Data sources implement `IDataSourceProvider` and register with `ConnectorRegistry`. See `src/Beacon.Connector.PostgreSql/ServiceCollectionExtensions.cs` for the canonical example.
 
 §2.12 **DI registration per project.** Each project has `ServiceConfiguration.cs` (Core, AI, MCP) or `ServiceCollectionExtensions.cs` (Connectors, DB providers). NEVER register services inline in `Program.cs`.
 
@@ -64,4 +64,4 @@ Core.PostgreSql/Sql  → Core
 
 ## Background work
 
-§2.15 **All recurring / scheduled work uses Hangfire + PostgreSQL storage.** Recurring jobs are registered in `Beacon.SampleProject/Program.cs`. Do NOT use `BackgroundService` or `IHostedService`.
+§2.15 **All recurring / scheduled work uses Hangfire + PostgreSQL storage.** Recurring jobs are registered in `src/Beacon.SampleProject/Program.cs`. Do NOT use `BackgroundService` or `IHostedService`.

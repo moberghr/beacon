@@ -75,7 +75,7 @@ Extracted colorful CSS styles from SubscriptionDetails.razor to the shared beaco
 
 ## Files Modified
 
-**Beacon.UI/wwwroot/css/beacon-styles.css**
+**src/Beacon.UI/wwwroot/css/beacon-styles.css**
 - Added "Additional Colorful Styles" section (~175 lines)
 - Hero metric card color variants (blue, purple, orange, red)
 - Status badge variants (success, error)
@@ -83,7 +83,7 @@ Extracted colorful CSS styles from SubscriptionDetails.razor to the shared beaco
 - Timeline, chart, recipient card styles
 - Anomaly badge and tab content styles
 
-**Beacon.UI/Components/Pages/Subscriptions/SubscriptionDetails.razor**
+**src/Beacon.UI/Components/Pages/Subscriptions/SubscriptionDetails.razor**
 - Removed ~123 lines of inline CSS
 - Updated class names to use shared styles
 - No inline CSS remaining

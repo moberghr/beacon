@@ -10,7 +10,7 @@ Notification adapters implement the `IAdapter` interface to deliver query result
 
 ### IAdapter Interface
 
-**File:** `Beacon.Core/Adapters/IAdapter.cs`
+**File:** `src/Beacon.Core/Adapters/IAdapter.cs`
 
 ```csharp
 internal interface IAdapter
@@ -27,7 +27,7 @@ internal interface IAdapter
 
 ### AdapterFactory
 
-**File:** `Beacon.Core/Adapters/AdapterFactory.cs`
+**File:** `src/Beacon.Core/Adapters/AdapterFactory.cs`
 
 ```csharp
 internal class AdapterFactory
@@ -49,7 +49,7 @@ internal class AdapterFactory
 
 ### Service Registration
 
-**File:** `Beacon.Core/ServiceConfiguration.cs`
+**File:** `src/Beacon.Core/ServiceConfiguration.cs`
 
 ```csharp
 // Register all adapters as singletons
@@ -66,7 +66,7 @@ services.AddSingleton<AdapterFactory>();
 
 ## RecipientQueryResult
 
-**File:** `Beacon.Core/Adapters/RecipientQueryResult.cs`
+**File:** `src/Beacon.Core/Adapters/RecipientQueryResult.cs`
 
 DTO passed to all adapters containing:
 
@@ -84,7 +84,7 @@ public class RecipientQueryResult
 
 ## Slack Adapter
 
-**File:** `Beacon.Core/Adapters/Slack/SlackAdapter.cs`
+**File:** `src/Beacon.Core/Adapters/Slack/SlackAdapter.cs`
 **NotificationType:** `Slack = 4`
 
 ### Features
@@ -172,7 +172,7 @@ internal class SlackAdapter(IHttpClientFactory httpClientFactory, BeaconConfigur
 
 ## Teams Adapter
 
-**File:** `Beacon.Core/Adapters/Teams/TeamsAdapter.cs`
+**File:** `src/Beacon.Core/Adapters/Teams/TeamsAdapter.cs`
 **NotificationType:** `Teams = 1`
 
 ### Features
@@ -237,7 +237,7 @@ internal class TeamsAdapter(IHttpClientFactory httpClientFactory, BeaconConfigur
 
 ## Email Adapter
 
-**File:** `Beacon.Core/Adapters/Email/EmailAdapter.cs`
+**File:** `src/Beacon.Core/Adapters/Email/EmailAdapter.cs`
 **NotificationType:** `Email = 2`
 
 ### Features
@@ -290,7 +290,7 @@ public class EmailConfiguration
 
 ## Jira Adapter
 
-**File:** `Beacon.Core/Adapters/Jira/JiraAdapter.cs`
+**File:** `src/Beacon.Core/Adapters/Jira/JiraAdapter.cs`
 **NotificationType:** `Jira = 3`
 
 ### Features
@@ -389,7 +389,7 @@ internal class NewChannelAdapter(IHttpClientFactory httpClientFactory, BeaconCon
 2. **Add to NotificationType enum:**
 
 ```csharp
-// Beacon.Core/Data/Enums/NotificationType.cs
+// src/Beacon.Core/Data/Enums/NotificationType.cs
 public enum NotificationType
 {
     Teams = 1,
@@ -428,7 +428,7 @@ private string GetDestinationLabel() => Recipient.NotificationType switch
 
 ### BeaconConfiguration
 
-**File:** `Beacon.Core/BeaconConfiguration.cs`
+**File:** `src/Beacon.Core/BeaconConfiguration.cs`
 
 ```csharp
 public class BeaconConfiguration

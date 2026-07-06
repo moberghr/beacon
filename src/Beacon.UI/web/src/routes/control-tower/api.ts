@@ -1,7 +1,7 @@
 /**
  * Control Tower API wrappers. These call the generated NSwag client and assert
  * the loose generated payloads into the strict types below (which mirror the C#
- * DTOs in Beacon.Core/Models/ControlTower and drive the UI's enum/lookup logic).
+ * DTOs in src/Beacon.Core/Models/ControlTower and drive the UI's enum/lookup logic).
  *
  * The strict types are kept local rather than imported from the generated client
  * because the generated DTOs make every field optional, which would break the

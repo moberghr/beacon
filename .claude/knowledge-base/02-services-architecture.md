@@ -16,7 +16,7 @@ Beacon follows Clean Architecture with services implementing business logic. All
 ## QueryService
 
 **Interface:** `IQueryService`
-**File:** `Beacon.Core/Services/QueryService.cs`
+**File:** `src/Beacon.Core/Services/QueryService.cs`
 
 ### Responsibilities
 - Query CRUD operations with multi-step support
@@ -94,7 +94,7 @@ var finalResult = await virtualTableManager.ExecuteFinalQueryWithInMemoryDatabas
 ## SubscriptionService
 
 **Interface:** `ISubscriptionService`
-**File:** `Beacon.Core/Services/SubscriptionService.cs`
+**File:** `src/Beacon.Core/Services/SubscriptionService.cs`
 
 ### Responsibilities
 - Subscription CRUD with cron schedule management
@@ -152,7 +152,7 @@ beaconScheduler.Remove(subscription.Id, $"{query.Name}: {subscription.Id}");
 ## NotificationService
 
 **Interface:** `INotificationService`
-**File:** `Beacon.Core/Services/NotificationService.cs`
+**File:** `src/Beacon.Core/Services/NotificationService.cs`
 
 ### Responsibilities
 - Dispatch notifications via adapters
@@ -200,7 +200,7 @@ var queryStats = await context.QueryExecutionHistory
 ## TaskService
 
 **Interface:** `ITaskService`
-**File:** `Beacon.Core/Services/TaskService.cs`
+**File:** `src/Beacon.Core/Services/TaskService.cs`
 
 ### Responsibilities
 - Task lifecycle management (create, update, resolve, reopen)
@@ -272,7 +272,7 @@ Return task.Id               Return task.Id
 ## RecipientService
 
 **Interface:** `IRecipientService`
-**File:** `Beacon.Core/Services/RecipientService.cs`
+**File:** `src/Beacon.Core/Services/RecipientService.cs`
 
 ### Responsibilities
 - Recipient CRUD operations
@@ -312,7 +312,7 @@ public async Task DeleteRecipient(int recipientId, CancellationToken cancellatio
 ## DataSourceService
 
 **Interface:** `IDataSourceService`
-**File:** `Beacon.Core/Services/DataSourceService.cs`
+**File:** `src/Beacon.Core/Services/DataSourceService.cs`
 
 ### Responsibilities
 - Data source CRUD with connection string encryption
@@ -350,7 +350,7 @@ var decryptedCs = encryptionService.Decrypt(dataSource.ConnectionString);
 ## MigrationService
 
 **Interface:** `IMigrationService`
-**File:** `Beacon.Core/Services/MigrationService.cs`
+**File:** `src/Beacon.Core/Services/MigrationService.cs`
 
 ### Responsibilities
 - Migration job CRUD
@@ -387,7 +387,7 @@ var decryptedCs = encryptionService.Decrypt(dataSource.ConnectionString);
 ## DatabaseMetadataService
 
 **Interface:** `IDatabaseMetadataService`
-**File:** `Beacon.Core/Services/DatabaseMetadataService.cs`
+**File:** `src/Beacon.Core/Services/DatabaseMetadataService.cs`
 
 ### Responsibilities
 - Database schema introspection
@@ -426,7 +426,7 @@ FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_CATALOG = @catalog
 ## CommentService
 
 **Interface:** `ICommentService`
-**File:** `Beacon.Core/Services/CommentService.cs`
+**File:** `src/Beacon.Core/Services/CommentService.cs`
 
 ### Responsibilities
 - Generic comment system for entities
@@ -473,7 +473,7 @@ var comments = await context.Comments
 ## Helper Classes
 
 ### QueryHelper
-**File:** `Beacon.Core/Helpers/QueryHelper.cs`
+**File:** `src/Beacon.Core/Helpers/QueryHelper.cs`
 
 ```csharp
 // Compile SQL with parameter substitution
@@ -481,7 +481,7 @@ public static string CompileSql(string sql, List<SubscriptionParameterData> para
 ```
 
 ### QueryValidator
-**File:** `Beacon.Core/Validators/QueryValidator.cs`
+**File:** `src/Beacon.Core/Validators/QueryValidator.cs`
 
 ```csharp
 // Check for dangerous SQL keywords (DROP, DELETE, TRUNCATE, etc.)
@@ -492,7 +492,7 @@ public static void CheckForParameters(string sql, List<QueryParameterData> param
 ```
 
 ### ParameterEntityFactory
-**File:** `Beacon.Core/Helpers/ParameterEntityFactory.cs`
+**File:** `src/Beacon.Core/Helpers/ParameterEntityFactory.cs`
 
 ```csharp
 // Create QueryStepParameter entities from DTOs

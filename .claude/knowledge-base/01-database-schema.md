@@ -7,7 +7,7 @@ The Beacon database supports a multi-step query execution and scheduling system 
 ## Base Classes
 
 ### BaseEntity
-**Location:** `Beacon.Core/Data/Entities/Base/BaseEntity.cs`
+**Location:** `src/Beacon.Core/Data/Entities/Base/BaseEntity.cs`
 
 ```csharp
 public abstract class BaseEntity
@@ -18,7 +18,7 @@ public abstract class BaseEntity
 ```
 
 ### ArchivableBaseEntity
-**Location:** `Beacon.Core/Data/Entities/Base/ArchivableBaseEntity.cs`
+**Location:** `src/Beacon.Core/Data/Entities/Base/ArchivableBaseEntity.cs`
 
 ```csharp
 public abstract class ArchivableBaseEntity : BaseEntity
@@ -53,7 +53,7 @@ public abstract class ArchivableBaseEntity : BaseEntity
 ## Core Entities
 
 ### Query (ArchivableBaseEntity)
-**File:** `Beacon.Core/Data/Entities/Query.cs`
+**File:** `src/Beacon.Core/Data/Entities/Query.cs`
 
 | Property | Type | Required | Notes |
 |----------|------|----------|-------|
@@ -75,7 +75,7 @@ public abstract class ArchivableBaseEntity : BaseEntity
 ---
 
 ### QueryStep (BaseEntity)
-**File:** `Beacon.Core/Data/Entities/QueryStep.cs`
+**File:** `src/Beacon.Core/Data/Entities/QueryStep.cs`
 
 | Property | Type | Required | Notes |
 |----------|------|----------|-------|
@@ -94,7 +94,7 @@ public abstract class ArchivableBaseEntity : BaseEntity
 ---
 
 ### QueryStepParameter (BaseEntity)
-**File:** `Beacon.Core/Data/Entities/QueryStepParameter.cs`
+**File:** `src/Beacon.Core/Data/Entities/QueryStepParameter.cs`
 
 | Property | Type | Required | Notes |
 |----------|------|----------|-------|
@@ -107,7 +107,7 @@ public abstract class ArchivableBaseEntity : BaseEntity
 ---
 
 ### DataSource (ArchivableBaseEntity)
-**File:** `Beacon.Core/Data/Entities/DataSource.cs`
+**File:** `src/Beacon.Core/Data/Entities/DataSource.cs`
 
 | Property | Type | Required | Notes |
 |----------|------|----------|-------|
@@ -123,7 +123,7 @@ public abstract class ArchivableBaseEntity : BaseEntity
 ---
 
 ### Subscription (ArchivableBaseEntity)
-**File:** `Beacon.Core/Data/Entities/Subscription.cs`
+**File:** `src/Beacon.Core/Data/Entities/Subscription.cs`
 
 | Property | Type | Required | Default | Notes |
 |----------|------|----------|---------|-------|
@@ -147,7 +147,7 @@ public abstract class ArchivableBaseEntity : BaseEntity
 ---
 
 ### Recipient (ArchivableBaseEntity)
-**File:** `Beacon.Core/Data/Entities/Recipient.cs`
+**File:** `src/Beacon.Core/Data/Entities/Recipient.cs`
 
 | Property | Type | Required | Notes |
 |----------|------|----------|-------|
@@ -165,7 +165,7 @@ public abstract class ArchivableBaseEntity : BaseEntity
 ---
 
 ### QueryExecutionHistory (BaseEntity)
-**File:** `Beacon.Core/Data/Entities/QueryExecutionHistory.cs`
+**File:** `src/Beacon.Core/Data/Entities/QueryExecutionHistory.cs`
 
 | Property | Type | Required | Notes |
 |----------|------|----------|-------|
@@ -183,7 +183,7 @@ public abstract class ArchivableBaseEntity : BaseEntity
 ---
 
 ### Notification (BaseEntity)
-**File:** `Beacon.Core/Data/Entities/Notification.cs`
+**File:** `src/Beacon.Core/Data/Entities/Notification.cs`
 
 | Property | Type | Required | Notes |
 |----------|------|----------|-------|
@@ -197,7 +197,7 @@ public abstract class ArchivableBaseEntity : BaseEntity
 ---
 
 ### QueryTask (ArchivableBaseEntity)
-**File:** `Beacon.Core/Data/Entities/QueryTask.cs`
+**File:** `src/Beacon.Core/Data/Entities/QueryTask.cs`
 
 | Property | Type | Required | Default | Notes |
 |----------|------|----------|---------|-------|
@@ -218,7 +218,7 @@ public abstract class ArchivableBaseEntity : BaseEntity
 ---
 
 ### Comment (BaseEntity)
-**File:** `Beacon.Core/Data/Entities/Comment.cs`
+**File:** `src/Beacon.Core/Data/Entities/Comment.cs`
 
 | Property | Type | Required | Notes |
 |----------|------|----------|-------|
@@ -235,7 +235,7 @@ public abstract class ArchivableBaseEntity : BaseEntity
 ## Data Migration Entities
 
 ### MigrationJob (ArchivableBaseEntity)
-**File:** `Beacon.Core/Data/Entities/DataMigration/MigrationJob.cs`
+**File:** `src/Beacon.Core/Data/Entities/DataMigration/MigrationJob.cs`
 
 | Property | Type | Required | Default | Notes |
 |----------|------|----------|---------|-------|
@@ -256,7 +256,7 @@ public abstract class ArchivableBaseEntity : BaseEntity
 ---
 
 ### MigrationExecutionHistory (BaseEntity)
-**File:** `Beacon.Core/Data/Entities/DataMigration/MigrationExecution.cs`
+**File:** `src/Beacon.Core/Data/Entities/DataMigration/MigrationExecution.cs`
 
 | Property | Type | Required | Notes |
 |----------|------|----------|-------|
@@ -278,7 +278,7 @@ public abstract class ArchivableBaseEntity : BaseEntity
 ## Database Metadata Entities
 
 ### DatabaseMetadata (ArchivableBaseEntity)
-**File:** `Beacon.Core/Data/Entities/Metadata/DatabaseMetadata.cs`
+**File:** `src/Beacon.Core/Data/Entities/Metadata/DatabaseMetadata.cs`
 
 | Property | Type | Required | Notes |
 |----------|------|----------|-------|
@@ -291,7 +291,7 @@ public abstract class ArchivableBaseEntity : BaseEntity
 **Unique Constraint:** (DataSourceId, SchemaName, TableName)
 
 ### ColumnMetadata (BaseEntity)
-**File:** `Beacon.Core/Data/Entities/Metadata/ColumnMetadata.cs`
+**File:** `src/Beacon.Core/Data/Entities/Metadata/ColumnMetadata.cs`
 
 | Property | Type | Required | Notes |
 |----------|------|----------|-------|
@@ -309,7 +309,7 @@ public abstract class ArchivableBaseEntity : BaseEntity
 | Description | string? | No | Column description (max 1000) |
 
 ### IndexMetadata (BaseEntity)
-**File:** `Beacon.Core/Data/Entities/Metadata/IndexMetadata.cs`
+**File:** `src/Beacon.Core/Data/Entities/Metadata/IndexMetadata.cs`
 
 | Property | Type | Required | Notes |
 |----------|------|----------|-------|
@@ -377,7 +377,7 @@ public abstract class ArchivableBaseEntity : BaseEntity
 
 ## Database Context
 
-**File:** `Beacon.Core/Data/BeaconContext.cs`
+**File:** `src/Beacon.Core/Data/BeaconContext.cs`
 
 **Default Schema:** `"beacon"` (configurable via constructor)
 

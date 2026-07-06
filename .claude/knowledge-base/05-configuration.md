@@ -93,7 +93,7 @@ app.Run();
 
 ### PostgreSQL
 
-**File:** `Beacon.Core.PostgreSql/ServiceCollectionExtensions.cs`
+**File:** `src/Beacon.Core.PostgreSql/ServiceCollectionExtensions.cs`
 
 ```csharp
 builder.Services.AddPostgreSqlBeacon(
@@ -119,7 +119,7 @@ builder.Services.AddSqlServerBeacon(
 
 ## BeaconConfiguration Options
 
-**File:** `Beacon.Core/ServiceConfiguration.cs`
+**File:** `src/Beacon.Core/ServiceConfiguration.cs`
 
 ```csharp
 public class BeaconConfiguration
@@ -145,7 +145,7 @@ public class BeaconConfiguration
 
 ## IBeaconScheduler Interface
 
-**File:** `Beacon.Core/Worker/IBeaconScheduler.cs`
+**File:** `src/Beacon.Core/Worker/IBeaconScheduler.cs`
 
 ```csharp
 public interface IBeaconScheduler
@@ -186,7 +186,7 @@ public class HangfireBeaconScheduler : IBeaconScheduler
 
 ## IEmailAdapter Interface
 
-**File:** `Beacon.Core/Adapters/Mail/IEmailAdapter.cs`
+**File:** `src/Beacon.Core/Adapters/Mail/IEmailAdapter.cs`
 
 ```csharp
 public interface IEmailAdapter
@@ -306,7 +306,7 @@ public interface IBeaconAuthorizationProvider
 
 ## Service Registration Summary
 
-**File:** `Beacon.Core/ServiceConfiguration.cs`
+**File:** `src/Beacon.Core/ServiceConfiguration.cs`
 
 ```csharp
 // Registered services (via TryAddTransient)
@@ -378,7 +378,7 @@ ServiceConfiguration.UseBeacon(app.Services, createSchema: true);
 
 ## Encryption Service
 
-**File:** `Beacon.Core/Services/EncryptionService.cs`
+**File:** `src/Beacon.Core/Services/EncryptionService.cs`
 
 Connection strings stored in DataSource entities are encrypted using AES encryption.
 
@@ -405,7 +405,7 @@ var connectionString = encryptionService.Decrypt(dataSource.ConnectionString);
 
 ```
 Beacon/
-├── Beacon.Core/                    # Core domain logic
+├── src/Beacon.Core/                    # Core domain logic
 │   ├── Data/
 │   │   ├── Entities/                  # Entity classes
 │   │   ├── Enums/                     # Enumerations
@@ -415,19 +415,19 @@ Beacon/
 │   ├── Worker/                        # Job execution
 │   └── ServiceConfiguration.cs        # DI registration
 │
-├── Beacon.Core.PostgreSql/         # PostgreSQL provider
+├── src/Beacon.Core.PostgreSql/         # PostgreSQL provider
 │   ├── Data/
 │   │   ├── PostgreSqlBeaconContext.cs
 │   │   └── Migrations/
 │   └── ServiceCollectionExtensions.cs
 │
-├── Beacon.Core.SqlServer/          # SQL Server provider
+├── src/Beacon.Core.SqlServer/          # SQL Server provider
 │   ├── Data/
 │   │   ├── SqlServerBeaconContext.cs
 │   │   └── Migrations/
 │   └── ServiceCollectionExtensions.cs
 │
-├── Beacon.UI/                      # Blazor UI components
+├── src/Beacon.UI/                      # Blazor UI components
 │   └── Components/
 │       ├── Layout/
 │       ├── Pages/
@@ -437,7 +437,7 @@ Beacon/
 │   ├── Authentication/
 │   └── Helpers.cs
 │
-└── Beacon.SampleProject/           # Example implementation
+└── src/Beacon.SampleProject/           # Example implementation
     ├── Program.cs
     └── Services/
         └── BeaconScheduler.cs

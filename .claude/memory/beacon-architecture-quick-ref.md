@@ -291,7 +291,7 @@ ServiceConfiguration.UseBeacon(app.Services);
 ## File Structure
 
 ```
-Beacon.Core/
+src/Beacon.Core/
 ├── Data/
 │   ├── Entities/                # EF Core entities
 │   ├── Enums/                   # Enums (NotificationType, MigrationMode, etc.)
@@ -310,13 +310,13 @@ Beacon.Core/
 │   └── Jira/JiraAdapter.cs      # Jira issue creation
 └── ServiceConfiguration.cs       # DI registration
 
-Beacon.Core.PostgreSql/
+src/Beacon.Core.PostgreSql/
 └── Migrations/                   # EF Core migrations for PostgreSQL
 
-Beacon.Core.SqlServer/
+src/Beacon.Core.SqlServer/
 └── Migrations/                   # EF Core migrations for SQL Server
 
-Beacon.UI/
+src/Beacon.UI/
 ├── Components/
 │   ├── Layout/                  # MainLayout, NavMenu
 │   ├── Pages/                   # Feature pages (Queries, Subscriptions, etc.)
@@ -326,7 +326,7 @@ Beacon.UI/
 Beacon.UI.AspNet/
 └── BeaconUIExtensions.cs     # UseBeaconUI() middleware
 
-Beacon.SampleProject/
+src/Beacon.SampleProject/
 └── Program.cs                   # Example implementation
 ```
 
@@ -539,5 +539,5 @@ dotnet ef migrations add MigrationName \
 
 - **GitHub**: https://github.com/moberghr/beacon
 - **Docs**: https://moberghr.github.io/beacon
-- **Sample Project**: Beacon.SampleProject/Program.cs
+- **Sample Project**: src/Beacon.SampleProject/Program.cs
 - **Architecture Docs**: docs/advanced/architecture.md

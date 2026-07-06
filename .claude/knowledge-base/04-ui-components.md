@@ -20,7 +20,7 @@ Beacon UI is built with Blazor Server and MudBlazor 8.0. It follows a component-
 
 ## Layout Structure
 
-**File:** `Beacon.UI/Components/Layout/MainLayout.razor`
+**File:** `src/Beacon.UI/Components/Layout/MainLayout.razor`
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -115,7 +115,7 @@ Components/Pages/
 
 ### SqlEditor
 
-**File:** `Beacon.UI/Components/Custom/SqlEditor.razor`
+**File:** `src/Beacon.UI/Components/Custom/SqlEditor.razor`
 
 Full-featured SQL editor with:
 - Syntax highlighting (Highlight.js)
@@ -139,7 +139,7 @@ Full-featured SQL editor with:
 
 ### QueryStepBuilder
 
-**File:** `Beacon.UI/Components/Custom/QueryStepBuilder.razor`
+**File:** `src/Beacon.UI/Components/Custom/QueryStepBuilder.razor`
 
 Multi-step query builder:
 - Add/remove/reorder steps
@@ -158,7 +158,7 @@ Multi-step query builder:
 
 ### FinalQueryEditor
 
-**File:** `Beacon.UI/Components/Custom/FinalQueryEditor.razor`
+**File:** `src/Beacon.UI/Components/Custom/FinalQueryEditor.razor`
 
 Editor for final query with @result references:
 - Shows available virtual tables (@result1, @result2, etc.)
@@ -175,7 +175,7 @@ Editor for final query with @result references:
 
 ### QueryFlowDiagram
 
-**File:** `Beacon.UI/Components/Custom/QueryFlowDiagram.razor`
+**File:** `src/Beacon.UI/Components/Custom/QueryFlowDiagram.razor`
 
 Mermaid.js visualization of query execution flow:
 - Shows each step with data source
@@ -201,7 +201,7 @@ graph TD
 
 ### DatabaseExplorer
 
-**File:** `Beacon.UI/Components/Custom/DatabaseExplorer.razor`
+**File:** `src/Beacon.UI/Components/Custom/DatabaseExplorer.razor`
 
 Tree view of database schema:
 - Schemas > Tables > Columns
@@ -218,7 +218,7 @@ Tree view of database schema:
 
 ### QueryResultsPreview
 
-**File:** `Beacon.UI/Components/Custom/QueryResultsPreview.razor`
+**File:** `src/Beacon.UI/Components/Custom/QueryResultsPreview.razor`
 
 Data grid for query results:
 - Paginated display
@@ -236,7 +236,7 @@ Data grid for query results:
 
 ### QueryExecutionResultsPreview
 
-**File:** `Beacon.UI/Components/Custom/QueryExecutionResultsPreview.razor`
+**File:** `src/Beacon.UI/Components/Custom/QueryExecutionResultsPreview.razor`
 
 Extended preview for execution history:
 - Full result JSON parsing
@@ -247,7 +247,7 @@ Extended preview for execution history:
 
 ### CronExpressionField
 
-**File:** `Beacon.UI/Components/Custom/CronExpressionField.razor`
+**File:** `src/Beacon.UI/Components/Custom/CronExpressionField.razor`
 
 Cron expression input with:
 - Validation via Cronos
@@ -272,7 +272,7 @@ Cron expression input with:
 
 ### ExecutionStatusChip
 
-**File:** `Beacon.UI/Components/Custom/ExecutionStatusChip.razor`
+**File:** `src/Beacon.UI/Components/Custom/ExecutionStatusChip.razor`
 
 Colored status indicator:
 
@@ -292,7 +292,7 @@ Colored status indicator:
 
 ### CodeHighlight
 
-**File:** `Beacon.UI/Components/Custom/CodeHighlight.razor`
+**File:** `src/Beacon.UI/Components/Custom/CodeHighlight.razor`
 
 SQL syntax highlighting using Highlight.js:
 
@@ -311,7 +311,7 @@ function highlightCode(element) {
 
 ### ParameterInputDialog
 
-**File:** `Beacon.UI/Components/Custom/ParameterInputDialog.razor`
+**File:** `src/Beacon.UI/Components/Custom/ParameterInputDialog.razor`
 
 Dynamic parameter input form:
 - Text/Number/DateTime inputs based on ParameterType
@@ -327,7 +327,7 @@ Dynamic parameter input form:
 
 ### ErrorDetailsDialog
 
-**File:** `Beacon.UI/Components/Custom/ErrorDetailsDialog.razor`
+**File:** `src/Beacon.UI/Components/Custom/ErrorDetailsDialog.razor`
 
 Error display dialog:
 - Stack trace
@@ -531,7 +531,7 @@ Snackbar.Add("Task created", Severity.Info, config =>
 
 ## JavaScript Interop Files
 
-**Location:** `Beacon.UI/wwwroot/`
+**Location:** `src/Beacon.UI/wwwroot/`
 
 | File | Purpose |
 |------|---------|
@@ -555,7 +555,7 @@ var result = await JS.InvokeAsync<string>("getEditorValue", editorId);
 
 ## UI Helper Classes
 
-**File:** `Beacon.UI/Components/UiHelpers.cs`
+**File:** `src/Beacon.UI/Components/UiHelpers.cs`
 
 ```csharp
 public static class UiHelpers

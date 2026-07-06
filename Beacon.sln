@@ -3,9 +3,9 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.6.33706.43
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Beacon.Core", "Beacon.Core\Beacon.Core.csproj", "{541E5738-AA0A-4CA4-8397-B0260F287E24}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Beacon.Core", "src\Beacon.Core\Beacon.Core.csproj", "{541E5738-AA0A-4CA4-8397-B0260F287E24}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Beacon.SampleProject", "Beacon.SampleProject\Beacon.SampleProject.csproj", "{C3BEF32C-0C1B-4348-8D9D-3DAF7A03392C}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Beacon.SampleProject", "src\Beacon.SampleProject\Beacon.SampleProject.csproj", "{C3BEF32C-0C1B-4348-8D9D-3DAF7A03392C}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Test", "Test", "{03B08263-40FB-4846-8ECD-21C47B6156D2}"
 EndProject
@@ -32,37 +32,37 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Specs", "Specs", "{73FCA82C
 		specs\001-data-migrator\spec.md = specs\001-data-migrator\spec.md
 	EndProjectSection
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Beacon.Core.PostgreSql", "Beacon.Core.PostgreSql\Beacon.Core.PostgreSql.csproj", "{3DD8C51A-0E31-4D33-AED7-0346144A79F4}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Beacon.Core.PostgreSql", "src\Beacon.Core.PostgreSql\Beacon.Core.PostgreSql.csproj", "{3DD8C51A-0E31-4D33-AED7-0346144A79F4}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Beacon.Core.SqlServer", "Beacon.Core.SqlServer\Beacon.Core.SqlServer.csproj", "{1406CB3F-D1CE-4E90-968B-76A7D5C41976}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Beacon.Core.SqlServer", "src\Beacon.Core.SqlServer\Beacon.Core.SqlServer.csproj", "{1406CB3F-D1CE-4E90-968B-76A7D5C41976}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Beacon.AI", "Beacon.AI\Beacon.AI.csproj", "{07697B03-4E31-469F-AB92-933A89081821}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Beacon.AI", "src\Beacon.AI\Beacon.AI.csproj", "{07697B03-4E31-469F-AB92-933A89081821}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Beacon.MCP", "Beacon.MCP\Beacon.MCP.csproj", "{6A39A5EE-6695-4DB7-B014-53B20DD02378}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Beacon.MCP", "src\Beacon.MCP\Beacon.MCP.csproj", "{6A39A5EE-6695-4DB7-B014-53B20DD02378}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Beacon.Connector.PostgreSql", "Beacon.Connector.PostgreSql\Beacon.Connector.PostgreSql.csproj", "{75895DBF-3246-4E7D-9B94-68A72970F46A}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Beacon.Connector.PostgreSql", "src\Beacon.Connector.PostgreSql\Beacon.Connector.PostgreSql.csproj", "{75895DBF-3246-4E7D-9B94-68A72970F46A}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Beacon.Connector.SqlServer", "Beacon.Connector.SqlServer\Beacon.Connector.SqlServer.csproj", "{1474D61D-2393-4931-B091-4E56DAA889B7}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Beacon.Connector.SqlServer", "src\Beacon.Connector.SqlServer\Beacon.Connector.SqlServer.csproj", "{1474D61D-2393-4931-B091-4E56DAA889B7}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Beacon.Connector.MySql", "Beacon.Connector.MySql\Beacon.Connector.MySql.csproj", "{6F16EA15-C227-490D-BA3A-A917079530FB}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Beacon.Connector.MySql", "src\Beacon.Connector.MySql\Beacon.Connector.MySql.csproj", "{6F16EA15-C227-490D-BA3A-A917079530FB}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Beacon.Connector.CloudWatch", "Beacon.Connector.CloudWatch\Beacon.Connector.CloudWatch.csproj", "{01BAC26A-4454-4778-844B-BAC48D561830}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Beacon.Connector.CloudWatch", "src\Beacon.Connector.CloudWatch\Beacon.Connector.CloudWatch.csproj", "{01BAC26A-4454-4778-844B-BAC48D561830}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Beacon.Connector.AzureSynapse", "Beacon.Connector.AzureSynapse\Beacon.Connector.AzureSynapse.csproj", "{35A95F21-7740-4405-8E56-9579B65EEACE}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Beacon.Connector.AzureSynapse", "src\Beacon.Connector.AzureSynapse\Beacon.Connector.AzureSynapse.csproj", "{35A95F21-7740-4405-8E56-9579B65EEACE}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Beacon.Connector.Snowflake", "Beacon.Connector.Snowflake\Beacon.Connector.Snowflake.csproj", "{3177681A-B423-46C7-8C8C-06CF3CA5F7D2}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Beacon.Connector.Snowflake", "src\Beacon.Connector.Snowflake\Beacon.Connector.Snowflake.csproj", "{3177681A-B423-46C7-8C8C-06CF3CA5F7D2}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Beacon.Connector.Databricks", "Beacon.Connector.Databricks\Beacon.Connector.Databricks.csproj", "{B5C9D468-01F2-4309-A6B2-01CC253AA409}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Beacon.Connector.Databricks", "src\Beacon.Connector.Databricks\Beacon.Connector.Databricks.csproj", "{B5C9D468-01F2-4309-A6B2-01CC253AA409}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Beacon.Connector.BigQuery", "Beacon.Connector.BigQuery\Beacon.Connector.BigQuery.csproj", "{6F4DCD8A-B010-4D6E-B162-D097A2561198}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Beacon.Connector.BigQuery", "src\Beacon.Connector.BigQuery\Beacon.Connector.BigQuery.csproj", "{6F4DCD8A-B010-4D6E-B162-D097A2561198}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Beacon.Connector.Api", "Beacon.Connector.Api\Beacon.Connector.Api.csproj", "{0595D101-16DA-4597-BD55-B2A2DDE12AA9}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Beacon.Connector.Api", "src\Beacon.Connector.Api\Beacon.Connector.Api.csproj", "{0595D101-16DA-4597-BD55-B2A2DDE12AA9}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Beacon.Api", "Beacon.Api\Beacon.Api.csproj", "{DB62BC68-DF61-40A8-858A-67AF90AD6F00}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Beacon.Api", "src\Beacon.Api\Beacon.Api.csproj", "{DB62BC68-DF61-40A8-858A-67AF90AD6F00}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Beacon.UI", "Beacon.UI\Beacon.UI.csproj", "{01ED7574-FEC3-4F0B-B02F-7BFDC8871CD0}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Beacon.UI", "src\Beacon.UI\Beacon.UI.csproj", "{01ED7574-FEC3-4F0B-B02F-7BFDC8871CD0}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Beacon.Tests", "Beacon.Tests\Beacon.Tests.csproj", "{D28B44D4-9B37-48E3-9EC9-EB4BBC4ECE81}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Beacon.Tests", "src\Beacon.Tests\Beacon.Tests.csproj", "{D28B44D4-9B37-48E3-9EC9-EB4BBC4ECE81}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
