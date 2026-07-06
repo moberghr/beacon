@@ -19,7 +19,9 @@ public class BeaconScheduler : IBeaconScheduler
     {
         _recurringJobManager.AddOrUpdate<IJobService>(
             CompileSubscriptionJobKey(subscriptionId, subscriptionName),
-            x => x.ExecuteQuery(subscriptionId, JobCancellationToken.Null),
+            // CancellationToken.None is a placeholder — Hangfire substitutes its
+            // shutdown-aware token for CancellationToken parameters at execution time.
+            x => x.ExecuteQuery(subscriptionId, CancellationToken.None),
             cron);
     }
 
@@ -32,7 +34,7 @@ public class BeaconScheduler : IBeaconScheduler
     {
         _recurringJobManager.AddOrUpdate<IJobService>(
             CompileDataQualityJobKey(contractId, contractName),
-            x => x.EvaluateDataContract(contractId, JobCancellationToken.Null),
+            x => x.EvaluateDataContract(contractId, CancellationToken.None),
             cron);
     }
 

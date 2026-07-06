@@ -4,7 +4,7 @@ using Hangfire.States;
 using Hangfire.Storage;
 using Microsoft.AspNetCore.SignalR;
 
-namespace Beacon.Api.SignalR;
+namespace Beacon.SampleProject.SignalR;
 
 /// <summary>
 /// Hangfire filter that publishes <see cref="BeaconHubEventNames.JobStatusChanged"/> events
