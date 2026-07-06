@@ -387,7 +387,7 @@ Get help and contribute to the project.
 
 ## Community and Support
 
-- **GitHub Repository**: [MiBu/semantico]({{ site.urls.github_repo }})
+- **GitHub Repository**: [moberghr/beacon]({{ site.urls.github_repo }})
 - **Report Issues**: [GitHub Issues]({{ site.urls.github_issues }})
 - **Discussions**: [GitHub Discussions]({{ site.urls.github_discussions }})
 
