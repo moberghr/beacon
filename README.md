@@ -10,12 +10,12 @@ Semantic alerts, cross-database orchestration, and a governed MCP server —
 so your team *and* your AI assistants can watch, query, and move data safely.
 
 [![NuGet](https://img.shields.io/badge/NuGet-available-blue)](https://www.nuget.org/)
-[![Documentation](https://img.shields.io/badge/docs-github.io-blue)](https://mibu.github.io/semantico)
+[![Documentation](https://img.shields.io/badge/docs-github.io-blue)](https://moberghr.github.io/beacon)
 [![License](https://img.shields.io/badge/license-AGPL--3.0%20or%20Commercial-blue)](LICENSING.md)
 [![.NET](https://img.shields.io/badge/.NET-9.0-purple)](https://dotnet.microsoft.com/)
 [![React](https://img.shields.io/badge/React-18-61dafb)](https://react.dev/)
 
-[Documentation](https://mibu.github.io/semantico) ·
+[Documentation](https://moberghr.github.io/beacon) ·
 [Quick Start](#-quick-start) ·
 [MCP Server](#-the-mcp-server-give-your-ai-assistant-safe-hands) ·
 [Embed via NuGet](#-embed-beacon-in-your-own-app) ·
@@ -113,7 +113,7 @@ Open **http://localhost:5173**. On first run, Beacon applies its EF Core migrati
 | `/beacon/mcp` | MCP server (Streamable HTTP, auth required) |
 | `/beacon/api/hub` | SignalR hub (real-time events) |
 
-📚 [Detailed quick start guide →](https://mibu.github.io/semantico/getting-started/quick-start)
+📚 [Detailed quick start guide →](https://moberghr.github.io/beacon/getting-started/quick-start)
 
 ## 🔌 The MCP server: give your AI assistant safe hands
 
@@ -151,7 +151,7 @@ Audit + usage signal ──── every invocation logged (user, SQL, timing, ro
 
 Authentication: cookie session, **scoped API key**, or **JWT bearer** (OIDC) — MCP access is never anonymous.
 
-📚 [MCP server documentation →](https://mibu.github.io/semantico/features/mcp-server)
+📚 [MCP server documentation →](https://moberghr.github.io/beacon/features/mcp-server)
 
 ## 🏗️ Architecture
 
@@ -360,7 +360,7 @@ app.Run();
 openssl rand -base64 32
 ```
 
-📚 [Detailed installation guide →](https://mibu.github.io/semantico/getting-started/installation) · [Configuration reference →](https://mibu.github.io/semantico/getting-started/configuration)
+📚 [Detailed installation guide →](https://moberghr.github.io/beacon/getting-started/installation) · [Configuration reference →](https://moberghr.github.io/beacon/getting-started/configuration)
 
 ## 🧱 Project layout
 
@@ -395,8 +395,8 @@ openssl rand -base64 32
 
 ## 🤝 Support & contributing
 
-- **Issues** — [report bugs or request features](https://github.com/MiBu/semantico/issues)
-- **Discussions** — [ask questions and share ideas](https://github.com/MiBu/semantico/discussions)
+- **Issues** — [report bugs or request features](https://github.com/moberghr/beacon/issues)
+- **Discussions** — [ask questions and share ideas](https://github.com/moberghr/beacon/discussions)
 - **Contributing** — contributions require signing the [CLA](CLA.md)
 
 ## 📄 License
@@ -408,5 +408,5 @@ Use it under the AGPLv3 — including its §13 network/SaaS source-disclosure re
 ---
 
 <div align="center">
-<sub>© 2026 Moberg d.o.o. · <a href="https://mibu.github.io/semantico">Documentation</a> · <a href="LICENSING.md">Licensing</a></sub>
+<sub>© 2026 Moberg d.o.o. · <a href="https://moberghr.github.io/beacon">Documentation</a> · <a href="LICENSING.md">Licensing</a></sub>
 </div>
