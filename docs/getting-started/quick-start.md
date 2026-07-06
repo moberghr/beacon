@@ -359,7 +359,7 @@ Connection strings, encryption, auth, AI, and scheduling
 </div>
 
 <div class="code-example" markdown="1">
-💬 **[GitHub Discussions](https://github.com/MiBu/semantico/discussions)**
+💬 **[GitHub Discussions](https://github.com/moberghr/beacon/discussions)**
 
 Ask questions and share ideas
 </div>

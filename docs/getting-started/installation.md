@@ -33,8 +33,8 @@ The `Beacon.SampleProject` host is the composition root. It self-hosts Kestrel, 
 ### A1. Clone the repository
 
 ```bash
-git clone https://github.com/MiBu/semantico.git
-cd semantico
+git clone https://github.com/moberghr/beacon.git
+cd beacon
 ```
 
 ### A2. Configure secrets
@@ -449,4 +449,4 @@ Now that Beacon is running:
 - 📚 [Configuration Guide](configuration) — detailed configuration options
 - 🚀 [Quick Start](quick-start) — create your first alert end to end
 - 🎓 [Features Overview](../features/) — complete feature documentation
-- 🐛 [Report Issues](https://github.com/MiBu/semantico/issues)
+- 🐛 [Report Issues](https://github.com/moberghr/beacon/issues)
