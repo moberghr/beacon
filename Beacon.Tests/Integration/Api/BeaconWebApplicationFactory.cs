@@ -18,16 +18,13 @@ public sealed class BeaconWebApplicationFactory : WebApplicationFactory<Program>
     {
         builder.UseEnvironment("Testing");
 
-        builder.ConfigureAppConfiguration((_, config) =>
+        // UseSetting (not ConfigureAppConfiguration) — with minimal hosting the app's own
+        // appsettings.json loads after factory-added configuration sources and would win;
+        // UseSetting values are applied on top of the app's configuration.
+        var testConnectionString = Environment.GetEnvironmentVariable(TestConnectionStringEnvVar);
+        if (!string.IsNullOrWhiteSpace(testConnectionString))
         {
-            var testConnectionString = Environment.GetEnvironmentVariable(TestConnectionStringEnvVar);
-            if (!string.IsNullOrWhiteSpace(testConnectionString))
-            {
-                config.AddInMemoryCollection(new Dictionary<string, string?>
-                {
-                    ["ConnectionStrings:BeaconContext"] = testConnectionString,
-                });
-            }
-        });
+            builder.UseSetting("ConnectionStrings:BeaconContext", testConnectionString);
+        }
     }
 }
