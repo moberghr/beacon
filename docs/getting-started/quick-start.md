@@ -197,7 +197,7 @@ A **subscription** schedules when your query runs and who gets notified.
 4. Click **Save**
 
 {: .note }
-> **Cron Help**: Use [crontab.guru](https://crontab.guru/) to build and verify cron expressions. Scheduling runs on Hangfire (1-second poll, automatic retries disabled).
+> **Cron Help**: Use [crontab.guru](https://crontab.guru/) to build and verify cron expressions.
 
 ## Step 6: Add a Recipient
 
@@ -336,7 +336,7 @@ Expose Beacon to AI agents over the Model Context Protocol
 
 - Verify the cron expression (use crontab.guru)
 - Confirm the subscription is enabled
-- Confirm the Hangfire server is running — check `/hangfire`
+- Confirm the scheduler's worker is running — check your job runner's dashboard or logs
 
 ### App Not Accessible
 

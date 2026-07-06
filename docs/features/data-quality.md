@@ -87,7 +87,7 @@ Each rule carries a **severity** and a **weight** — both feed the scoring math
 
 Evaluations run in two ways:
 
-1. **Scheduled** — every enabled contract gets a Hangfire recurring job driven by its cron expression. The job is created when you save an enabled contract, updated when you change the schedule, and removed when you disable or delete the contract.
+1. **Scheduled** — every enabled contract gets a recurring job (via the host's scheduler) driven by its cron expression. The job is created when you save an enabled contract, updated when you change the schedule, and removed when you disable or delete the contract.
 2. **On demand** — click **Evaluate now** on the contract detail page (or `POST /beacon/api/data-quality/contracts/{id}/evaluate`).
 
 During an evaluation, Beacon:
