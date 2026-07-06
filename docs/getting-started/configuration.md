@@ -201,25 +201,37 @@ builder.Services.AddBeaconOidcAuthentication(builder.Configuration);
 ```json
 {
   "Beacon": {
-    "Oidc": {
-      "Authority": "https://login.example.com",
-      "ClientId": "beacon",
-      "ClientSecret": "${OIDC_CLIENT_SECRET}"
+    "Authentication": {
+      "Oidc": {
+        "Enabled": true,
+        "Authority": "https://login.microsoftonline.com/{YOUR_TENANT_ID}/v2.0",
+        "ClientId": "{YOUR_CLIENT_ID}",
+        "ClientSecret": "${OIDC_CLIENT_SECRET}",
+        "CallbackPath": "/signin-oidc",
+        "Scopes": ["openid", "profile", "email"],
+        "DefaultRoleName": "Viewer",
+        "DisplayName": "Microsoft",
+        "McpJwksEndpoint": "https://login.microsoftonline.com/{YOUR_TENANT_ID}/discovery/v2.0/keys"
+      }
     }
   }
 }
 ```
 
+`DefaultRoleName` is the role assigned to first-time SSO users; `DisplayName` labels the SSO button on the login page.
+
 ### API Keys
 
-Beacon issues API keys for programmatic and MCP access:
+Beacon issues API keys for programmatic and MCP access — see the [API Keys Guide](../features/api-keys):
 
 - SHA256-hashed at rest; the raw key is shown **once** at creation
 - Carry scopes: `Read`, `Execute`, `Admin`
 - Support optional project restrictions
 - Authenticated by `ApiKeyAuthMiddleware`, which runs **before** `UseAuthentication`
 
-MCP clients may also use **JWT bearer** tokens.
+### JWT Bearer for MCP Clients
+
+MCP clients can also authenticate with **JWT bearer** tokens issued by your OIDC provider. When OIDC is enabled, set `McpJwksEndpoint` to the provider's JWKS (signing keys) URL — Beacon validates the token's signature, issuer, and audience against it. This lets AI assistants use the same identity provider as your users, without cookies or long-lived API keys.
 
 {: .note }
 > For complete user-management and provider documentation (external JWT setup, custom providers, roles), see the [User Management Guide](../features/user-management).
@@ -296,9 +308,7 @@ The LLM provider is **runtime-swappable** — it can be changed at runtime via A
 
 ### Supported Providers
 
-- **OpenAI**
-- **Anthropic Claude**
-- **Azure OpenAI**
+The `Provider` value is one of: `OpenAI`, `Claude` (Anthropic), `AzureOpenAI`, `Bedrock` (AWS).
 
 ### Basic Configuration
 
@@ -323,16 +333,19 @@ The LLM provider is **runtime-swappable** — it can be changed at runtime via A
       "Provider": "OpenAI",
       "ApiKey": "sk-your-api-key-here",
       "Model": "gpt-4o",
-      "BaseUrl": "https://api.openai.com/v1",
+      "FastModel": "gpt-4o-mini",
       "Limits": {
-        "MaxConcurrentRequests": 5,
-        "RequestsPerMinute": 60,
-        "MaxTokensPerRequest": 4000
+        "MaxConcurrentRequests": 50,
+        "TokensPerMinute": 80000,
+        "RequestsPerMinute": 1000,
+        "MonthlyBudget": 100.00
       }
     }
   }
 }
 ```
+
+`FastModel` is optional: Beacon routes simple, high-volume operations (classification, short summaries) to the fast model and reserves the main `Model` for complex generation. If omitted, sensible per-provider defaults are used (`gpt-4o-mini` for OpenAI, `claude-haiku-4-20250514` for Claude).
 
 ### Anthropic Claude
 
@@ -340,16 +353,17 @@ The LLM provider is **runtime-swappable** — it can be changed at runtime via A
 {
   "Beacon": {
     "LLM": {
-      "Provider": "Anthropic",
+      "Provider": "Claude",
       "ApiKey": "sk-ant-...",
-      "Model": "claude-3-5-sonnet-20241022",
-      "BaseUrl": "https://api.anthropic.com"
+      "Model": "claude-sonnet-4-20250514"
     }
   }
 }
 ```
 
 ### Azure OpenAI
+
+Azure requires the `Endpoint` of your resource; `Model` is your deployment name.
 
 ```json
 {
@@ -358,7 +372,24 @@ The LLM provider is **runtime-swappable** — it can be changed at runtime via A
       "Provider": "AzureOpenAI",
       "ApiKey": "your-azure-key",
       "Model": "your-deployment-name",
-      "BaseUrl": "https://your-resource.openai.azure.com"
+      "Endpoint": "https://your-resource.openai.azure.com"
+    }
+  }
+}
+```
+
+### AWS Bedrock
+
+Bedrock requires a `Region`. Credentials come either from the default AWS chain (IAM role, environment variables) — leave `ApiKey` empty — or explicitly as `"accessKey:secretKey"` (plus an optional `SessionToken` for temporary credentials).
+
+```json
+{
+  "Beacon": {
+    "LLM": {
+      "Provider": "Bedrock",
+      "ApiKey": "",
+      "Region": "eu-west-1",
+      "Model": "eu.anthropic.claude-sonnet-4-5-20250929-v1:0"
     }
   }
 }
@@ -368,11 +399,12 @@ The LLM provider is **runtime-swappable** — it can be changed at runtime via A
 
 The request queue caps concurrency and throughput:
 
-| Setting | Description | Default | Recommended |
-|---------|-------------|---------|-------------|
-| `MaxConcurrentRequests` | Max parallel AI requests | 5 | 3–10 based on tier |
-| `RequestsPerMinute` | Rate limit per minute | 60 | Match provider tier |
-| `MaxTokensPerRequest` | Max tokens per request | 4000 | 4000–8000 |
+| Setting | Description |
+|---------|-------------|
+| `MaxConcurrentRequests` | Max parallel AI requests |
+| `TokensPerMinute` | Token throughput cap |
+| `RequestsPerMinute` | Request rate cap — match your provider tier |
+| `MonthlyBudget` | Monthly spend cap (USD) tracked by the usage service |
 
 ### Production — Use Environment Variables
 
@@ -665,6 +697,34 @@ builder.Services.AddBeaconServices(builder.Configuration, options =>
 }
 ```
 
+## Metadata Loading (Large Databases)
+
+Beacon introspects the schemas of your monitored data sources to power the database explorer, documentation, and MCP context. For very large databases you can bound that work:
+
+```json
+{
+  "Beacon": {
+    "MetadataLoading": {
+      "Enabled": true,
+      "MaxTables": 500,
+      "MaxColumnsPerTable": 200,
+      "LoadTableNamesOnly": false,
+      "IncludeSchemas": ["public", "app"],
+      "ExcludeSchemas": ["information_schema", "pg_catalog"]
+    }
+  }
+}
+```
+
+| Setting | Description |
+|---------|-------------|
+| `Enabled` | Set `false` to disable metadata loading entirely |
+| `MaxTables` | Cap on tables loaded per data source (`0` = unlimited) |
+| `MaxColumnsPerTable` | Cap on columns loaded per table (`0` = unlimited) |
+| `LoadTableNamesOnly` | Load only table names, skipping columns |
+| `IncludeSchemas` | Whitelist — only load these schemas |
+| `ExcludeSchemas` | Blacklist — skip these schemas |
+
 ## Security
 
 ### Database User Permissions
@@ -706,6 +766,24 @@ builder.Configuration.AddAzureKeyVault(
     new DefaultAzureCredential());
 ```
 
+### Reverse Proxy / Forwarded Headers
+
+When Beacon runs behind a reverse proxy (nginx, Traefik, a cloud load balancer), enable forwarded-headers processing so rate limiting and redirects see the real client IP and scheme. It is **off by default** and trusts only the proxies you whitelist:
+
+```json
+{
+  "Beacon": {
+    "ForwardedHeaders": {
+      "Enabled": true,
+      "KnownProxies": ["10.0.0.5"]
+    }
+  }
+}
+```
+
+{: .warning }
+> Only enable this when a trusted proxy actually sits in front of Beacon, and always whitelist its address. Blindly trusting `X-Forwarded-For` lets clients spoof their IP past the login rate limiter.
+
 ## Logging
 
 ```json
@@ -735,10 +813,15 @@ builder.Configuration.AddAzureKeyVault(
     "EncryptionKey": "your-secure-32-byte-base64-key",
     "Schema": "beacon",
     "BaseUrl": "https://beacon.example.com",
+    "ForwardedHeaders": {
+      "Enabled": false,
+      "KnownProxies": []
+    },
     "LLM": {
       "Provider": "OpenAI",
       "ApiKey": "${LLM_API_KEY}",
-      "Model": "gpt-4o"
+      "Model": "gpt-4o",
+      "FastModel": "gpt-4o-mini"
     }
   },
   "Email": {

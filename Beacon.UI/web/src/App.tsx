@@ -123,7 +123,7 @@ export default function App() {
                   <Route path="/mcp-learning" element={lazyRoute(McpLearningPage)} />
                   <Route path="/mcp-settings" element={lazyRoute(McpSettingsPage)} />
                   {/*
-                    Dashboards are intentionally hidden pending a redesign (see UNFINISHED.md).
+                    Dashboards are intentionally hidden pending a redesign (see internal/UNFINISHED.md).
                     The route components still live under ./routes/dashboards/* for that future
                     work, but every dashboards path redirects to /home so direct-URL navigation
                     doesn't expose the unfinished feature.

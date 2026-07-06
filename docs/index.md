@@ -2,18 +2,22 @@
 layout: home
 title: Beacon
 nav_order: 1
-description: "Semantic database monitoring, alerting, and orchestration for .NET"
+description: "Semantic database monitoring, alerting, and orchestration for .NET — with a governed MCP server for AI assistants"
 permalink: /
 ---
 
-# Beacon
+# The database monitoring platform built for the AI era
 {: .fs-9 }
 
-Semantic database monitoring, alerting, and orchestration — with a modern React UI, a REST API, and a built-in MCP server.
+Semantic alerts, cross-database orchestration, and a governed MCP server — so your team *and* your AI assistants can watch, query, and move data safely.
 {: .fs-6 .fw-300 }
 
 [Get Started](getting-started/quick-start){: .btn .btn-primary .fs-5 .mb-4 .mb-md-0 .mr-2 }
 [View on GitHub]({{ site.urls.github_repo }}){: .btn .fs-5 .mb-4 .mb-md-0 }
+
+![Beacon home dashboard (dark theme)](assets/images/screenshots/home-dark.png)
+
+*Shown with sample data from Beacon's built-in mock mode (`npm run dev:mock`).*
 
 ---
 
@@ -27,13 +31,15 @@ Beacon is a .NET 9 platform that turns database monitoring into semantic queries
 Highlights:
 
 - **9 data sources**: PostgreSQL, SQL Server, MySQL, BigQuery, Snowflake, Databricks, Azure Synapse, AWS CloudWatch, and a generic REST API connector
-- **Flexible alerting**: Email, Microsoft Teams, Slack, and Jira notifications with cron scheduling (Hangfire)
-- **Query chaining**: Multi-step queries with cross-project and cross-database capabilities (in-memory SQLite joins)
-- **Full results as attachments**: Email notifications include complete datasets as CSV for Excel analysis
-- **Modern React UI**: React 18 + Vite + TypeScript + Tailwind CSS, served at `/`
-- **REST API + MCP server**: `/beacon/api/*` minimal APIs and a Streamable HTTP MCP server at `/beacon/mcp` for AI assistants
-- **AI-powered (experimental)**: auto-documentation, natural-language → SQL alerts, and statistical anomaly detection
-- **Schema-agnostic**: Multi-tenant support with runtime schema configuration
+- **Flexible alerting**: Email, Microsoft Teams, Slack, and Jira notifications with cron scheduling (Hangfire), plus automatic [alerting tasks](features/tasks) with lifecycle tracking
+- **Control Tower**: [real-time health](features/control-tower) across every scheduled check — success rates, anomalies, open tasks — in one auto-refreshing view
+- **Query chaining**: multi-step queries with cross-database joins via in-memory SQLite (`@@result1`, `@@result2`)
+- **Full results as attachments**: email notifications include complete datasets as CSV for Excel analysis
+- **Governed MCP server**: read-only enforced, PII-aware, fully audited access for AI assistants at `/beacon/mcp` — with **M-Schema-grounded SQL generation, AST validation, and a dry-run repair loop**
+- **A learning loop**: the MCP server records usage signals and turns them into approved schema clarifications and documentation patches — answers improve with use
+- **Modern React UI**: React 18 + Vite + TypeScript + Tailwind CSS with light & dark themes, served at `/`
+- **AI-powered (experimental)**: auto-documentation, natural-language → SQL alerts, statistical [anomaly detection](features/anomaly-detection), and [AI actors](features/ai-actors) gated by a human approval workflow
+- **Schema-agnostic**: multi-tenant support with runtime schema configuration
 
 ---
 
@@ -97,7 +103,6 @@ sequenceDiagram
     participant VirtualTableManager
     participant PostgreSQL
     participant SQLServer
-    participant MySQL
     participant NotificationService
     participant Adapter
 
@@ -176,9 +181,9 @@ flowchart LR
 
 **Problem**: Teams need to ensure data meets business rules and catch data quality issues early.
 
-**Solution**: Create queries that trigger alerts when data is invalid, missing, or violates constraints — orphaned records, null required fields, invalid state combinations. Also used by DBAs for database-health metrics (table size, connection count, replication lag).
+**Solution**: Create queries that trigger alerts when data is invalid, missing, or violates constraints — orphaned records, null required fields, invalid state combinations. Also used by DBAs for database-health metrics (table size, connection count, replication lag). Enable task creation to track every incident through to resolution.
 
-**Benefits**: Early detection, automated data-quality checks, prevent invalid states from reaching production.
+**Benefits**: Early detection, automated data-quality checks, a [Control Tower](features/control-tower) view of overall health.
 
 [Learn more about alerting →](features/subscriptions)
 
@@ -210,11 +215,11 @@ flowchart LR
 
 ### 🤖 AI Assistants via MCP
 
-**Problem**: AI assistants need safe, governed access to query your databases.
+**Problem**: AI assistants need safe, governed access to query your databases — and naive prompt-to-SQL pipes produce wrong answers.
 
-**Solution**: Beacon's built-in MCP server exposes read-only, PII-aware tools over Streamable HTTP at `/beacon/mcp`, with full audit and a self-improving learning loop.
+**Solution**: Beacon's built-in MCP server exposes read-only, PII-aware tools over Streamable HTTP at `/beacon/mcp`. SQL generation is grounded in an **M-Schema context with real sample values**, validated by a **multi-dialect AST parser**, and self-corrected through a **dry-run repair loop**. Every call is audited, and a **learning loop** turns usage signals into approved documentation improvements.
 
-**Benefits**: Read-only enforcement, row limits, audit trail, and usage-driven improvement.
+**Benefits**: Read-only enforcement, row limits, PII masking, audit trail, and accuracy that improves with use.
 
 [Learn more about the MCP server →](features/mcp-server)
 
@@ -233,6 +238,8 @@ npm run dev --prefix Beacon.UI/web
 ```
 
 Open `http://localhost:5173` (dev) or `http://localhost:5296` (served build). On first run, Beacon applies its EF Core migrations and walks you through first-run admin setup. Health check: `http://localhost:5296/beacon/api/health`.
+
+Want to explore the UI without any backend? `npm run dev:mock --prefix Beacon.UI/web` runs the full SPA against realistic in-browser mock data (MSW).
 
 ### Option B — Embed via NuGet
 
@@ -292,13 +299,21 @@ app.Run();
 - **[Data Migrations](features/data-migration)**: Orchestrate ETL with Insert/Upsert/Truncate/Sync
 - **[Anomaly Detection](features/anomaly-detection)**: Statistical baselines and deviation alerts
 
+### Operations & Quality
+
+- **[Control Tower](features/control-tower)**: Real-time health across all subscriptions
+- **[Tasks](features/tasks)**: Automatic alerting tasks with lifecycle tracking and auto-resolution
+- **[Data Quality](features/data-quality)**: Data contracts with scheduled evaluations and scoring
+
 ### Platform & Admin
 
 - **[User Management](features/user-management)**: Internal/external users, role-based access, first-run setup
-- **[Authorization](features/authorization)**: Pluggable auth providers, cookie sessions, OIDC/SSO, API keys
+- **[Authorization](features/authorization)**: Pluggable auth providers, cookie sessions, OIDC/SSO
+- **[API Keys](features/api-keys)**: Scoped, SHA256-hashed keys with per-project restrictions
 - **[Admin Settings](features/admin-settings)**: Runtime configuration, hot-swap LLM providers, audit trail
-- **[MCP Server](features/mcp-server)**: Read-only, audited database access for AI assistants
+- **[MCP Server](features/mcp-server)**: Read-only, audited database access for AI assistants — with playground and learning loop
 - **[AI Integration](features/ai-integration)** (experimental): Auto-documentation and NL → SQL alerts
+- **[AI Actors](features/ai-actors)** (experimental): LLM-driven monitoring agents with human approval gates
 
 ---
 
@@ -322,7 +337,7 @@ Explore all capabilities with detailed guides and examples.
 - [Data Sources](features/data-sources)
 - [Queries](features/queries)
 - [Subscriptions](features/subscriptions)
-- [Notifications](features/notifications)
+- [MCP Server](features/mcp-server)
 - [See all features →](features/)
 </div>
 
@@ -342,15 +357,18 @@ Get help and contribute to the project.
 | Feature | Description |
 |---------|-------------|
 | **9 Data Sources** | PostgreSQL, SQL Server, MySQL, BigQuery, Snowflake, Databricks, Azure Synapse, CloudWatch, REST API |
-| **React UI** | React 18 + Vite + TypeScript + Tailwind, served at `/` |
+| **React UI** | React 18 + Vite + TypeScript + Tailwind, light & dark themes, served at `/` |
 | **REST API** | `/beacon/api/*` minimal APIs (one endpoint per MediatR handler), OpenAPI at `/openapi/v1.json` |
 | **MCP Server** | Read-only, audited database access for AI assistants at `/beacon/mcp` |
+| **SQL Accuracy Stack** | M-Schema grounding with sample values, AST read-only validation, dry-run repair loop |
+| **MCP Learning Loop** | Usage signals become approved schema patterns and documentation patches |
+| **Control Tower** | Real-time subscription health with anomaly sparklines and open-task counts |
 | **Cron Scheduling** | Hangfire on PostgreSQL with flexible cron expressions |
 | **Multi-Step Queries** | Chain queries with result aggregation and cross-DB joins |
 | **Notifications** | Email (with CSV attachments), Teams, Slack, Jira delivery |
-| **Encrypted Secrets** | Connection strings encrypted at rest (AES-256); API keys SHA256-hashed |
+| **Alerting Tasks** | Auto-created from failed checks, auto-resolved when data recovers |
+| **Encrypted Secrets** | Connection strings encrypted at rest (AES-256-GCM); API keys SHA256-hashed |
 | **User Management** | Built-in users, roles, OIDC/SSO, API keys, first-run setup |
-| **Admin Settings** | Runtime config, hot-swap LLM providers, audit trail |
 | **Schema-Agnostic** | Multi-tenant deployments with runtime schema selection |
 | **Execution History** | Complete audit trail of all executions |
 
@@ -375,6 +393,4 @@ Get help and contribute to the project.
 
 ---
 
-**Built for .NET developers who need powerful database monitoring and alerting**
-</content>
-</invoke>
+**Built for .NET developers who need powerful database monitoring and alerting — and safe AI access to their data**
