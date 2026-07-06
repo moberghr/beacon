@@ -1,6 +1,6 @@
 # Site settings
 title: "Beacon Documentation"
-description: "Comprehensive documentation for Beacon - semantic database alerting and notification system"
+description: "Documentation for Beacon — semantic database monitoring, alerting, and orchestration for .NET, with a governed MCP server for AI assistants"
 baseurl: "/semantico" # Project path for GitHub Pages
 url: "https://mibu.github.io"
 
@@ -16,7 +16,7 @@ plugins:
 
 # Theme settings (just-the-docs)
 color_scheme: beacon  # Custom color scheme based on logo
-logo: "assets/images/logo.svg"
+logo: "assets/images/beacon-logo.svg"
 favicon_ico: "/favicon.svg"
 
 # Navigation
@@ -43,6 +43,8 @@ exclude:
   - README.md
   - node_modules/
   - vendor/
+  - plans/      # internal MTK implementation plans — not published
+  - specs/      # internal MTK feature specs — not published
 
 # Collections (optional for future use)
 collections_dir: collections

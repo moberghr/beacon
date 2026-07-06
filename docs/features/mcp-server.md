@@ -253,6 +253,17 @@ Both `McpAuditService` and `McpSignalService` fire on every tool invocation, inc
 
 ---
 
+## SQL Accuracy Stack
+
+Natural-language questions through the `ask` tool don't go through a naive prompt-to-SQL pipe. Every generated query passes a layered accuracy stack:
+
+1. **M-Schema grounding** — the LLM context contains a structured schema rendering (column name, type, nullability, description) *including real sample values* from each column, so filters match actual data formats (`'shipped'` vs `'SHIPPED'`).
+2. **AST read-only validation** — generated SQL is parsed into an abstract syntax tree with a dialect-aware parser (PostgreSQL, SQL Server, MySQL, BigQuery, Snowflake, Databricks). DML/DDL statements, stacked queries, and comment-hidden writes are rejected before anything reaches your database — defense-in-depth beyond the regex guardrail.
+3. **Dry-run repair loop** — if execution fails, the SQL is retried with the database error and a refreshed schema context; truncated or degenerate repairs are rejected rather than executed.
+4. **Row limits & PII masking** — results are capped and sensitive values (emails, phone numbers, SSNs, credit cards, tokens, and custom regex patterns) are masked (`a***z`) before leaving the server.
+
+---
+
 ## Learning Loop
 
 The MCP server is self-improving. `McpSignalService` records a usage signal for every tool invocation (which questions were asked, which data sources and tables were used, whether execution succeeded). Hangfire recurring jobs then process these signals:
@@ -274,6 +285,16 @@ Administrators can customize the MCP server behavior at **MCP Settings** in the 
 - **Max row limit** — Change the maximum rows returned (default: 1000)
 - **Read-only enforcement** — Toggle SELECT-only restriction
 - **PII detection** — Enable/disable and add custom PII regex patterns
+
+These settings are part of [Admin Settings](admin-settings); changes take effect without a restart.
+
+---
+
+## MCP Playground
+
+You don't need to wire up an external MCP client to try the server. The React UI ships an **MCP Playground** (`/mcp-playground`) where you select a project and ask questions interactively — the same tools, routing, guardrails, and audit trail as a real MCP session. Use it to validate documentation quality and tune the system prompt before pointing Claude or Cursor at your data.
+
+The companion **MCP Learning** page (`/mcp-learning`) shows the learning loop at work: usage signals, success rate, learned schema patterns awaiting approval, and proposed documentation patches you can apply or reject.
 
 ---
 
