@@ -266,7 +266,7 @@ Natural-language questions through the `ask` tool don't go through a naive promp
 
 ## Learning Loop
 
-The MCP server is self-improving. `McpSignalService` records a usage signal for every tool invocation (which questions were asked, which data sources and tables were used, whether execution succeeded). Hangfire recurring jobs then process these signals:
+The MCP server is self-improving. `McpSignalService` records a usage signal for every tool invocation (which questions were asked, which data sources and tables were used, whether execution succeeded). Recurring background jobs then process these signals:
 
 - **Pattern aggregation** runs every 6 hours, consolidating recorded signals into learned query patterns that improve routing and SQL generation for the `ask` tool.
 - **Signal cleanup** runs daily, removing old signals to keep the learning store compact.

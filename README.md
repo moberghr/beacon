@@ -112,7 +112,6 @@ Open **http://localhost:5173**. On first run, Beacon applies its EF Core migrati
 | `/openapi/v1.json` | OpenAPI document (drives the typed TS client) |
 | `/beacon/mcp` | MCP server (Streamable HTTP, auth required) |
 | `/beacon/api/hub` | SignalR hub (real-time events) |
-| `/hangfire` | Hangfire dashboard (admin only) |
 
 📚 [Detailed quick start guide →](https://mibu.github.io/semantico/getting-started/quick-start)
 
@@ -183,7 +182,7 @@ graph TB
 
     subgraph Infrastructure["Infrastructure Layer"]
         Meta[(Metadata DB<br/>PostgreSQL / SQL Server)] ~~~ Sources[(9 Data-Source<br/>Connectors)]
-        Scheduler[Hangfire<br/>on PostgreSQL] ~~~ SQLiteVM[In-Memory SQLite<br/>Cross-DB Joins]
+        Scheduler[IBeaconScheduler<br/>Pluggable Scheduler] ~~~ SQLiteVM[In-Memory SQLite<br/>Cross-DB Joins]
     end
 
     React --> Edge
@@ -207,7 +206,7 @@ graph TB
 ```mermaid
 sequenceDiagram
     participant User
-    participant Scheduler as Hangfire Scheduler
+    participant Scheduler as Beacon Scheduler
     participant QueryOrchestrator
     participant VirtualTableManager
     participant PostgreSQL
@@ -244,8 +243,7 @@ sequenceDiagram
 - Execution history and audit trail on every run
 
 ### ⏱️ Scheduling & automation
-- Cron scheduling via Hangfire on PostgreSQL (1-second poll; blind retries disabled by design)
-- Pluggable scheduler through the `IBeaconScheduler` interface
+- Cron scheduling through the pluggable `IBeaconScheduler` interface — bring your own job runner; [Moberg Warp](https://moberghr.github.io/warp/) is a great fit, and the sample host ships a working reference implementation
 - Real-time job status over SignalR (`JobStatusChanged`, `NotificationCreated`, `ApprovalUpdated`)
 
 ### 🔔 Multi-channel notifications
@@ -319,7 +317,7 @@ var builder = WebApplication.CreateBuilder(args);
 // 1. Core services + database provider + connectors
 builder.Services.AddBeaconServices(builder.Configuration, options =>
     {
-        options.AddBeaconScheduler<BeaconScheduler>();   // your IBeaconScheduler (Hangfire-backed)
+        options.AddBeaconScheduler<YourScheduler>();     // your IBeaconScheduler implementation
         options.BaseUrl = "https://your-domain.com";     // for notification deep-links
         options.UseAI = true;                            // optional (experimental)
         options.Authorization.Enabled = true;
@@ -355,7 +353,7 @@ app.MapBeaconUi();                                   // React SPA at root /
 app.Run();
 ```
 
-> `Beacon.SampleProject/Program.cs` is the canonical, fully-wired reference (Hangfire, SignalR, OIDC, JWT-for-MCP, rate limiting, antiforgery, and the load-bearing middleware order). Start from it when embedding.
+> `Beacon.SampleProject/Program.cs` is the canonical, fully-wired reference (scheduler wiring, SignalR, OIDC, JWT-for-MCP, rate limiting, antiforgery, and the load-bearing middleware order). Start from it when embedding. Scheduling goes through the `IBeaconScheduler` abstraction — implement it with the job runner of your choice, e.g. [Moberg Warp](https://moberghr.github.io/warp/).
 
 **Generate a secure encryption key:**
 ```bash
@@ -374,7 +372,7 @@ openssl rand -base64 32
 | `Beacon.MCP` | MCP server: tools, resources, guardrails, learning loop |
 | `Beacon.Api` | REST minimal-API endpoints + OpenAPI for the React shell |
 | `Beacon.UI` | React SPA (`web/`) shipped as a Razor Class Library, served at `/` |
-| `Beacon.SampleProject` | Host / composition root (Kestrel, DI wiring, Hangfire, middleware, auth) |
+| `Beacon.SampleProject` | Host / composition root (Kestrel, DI wiring, scheduler, middleware, auth) |
 | `Beacon.Connector.*` | Data-source connectors for the 9 supported engines |
 | `Beacon.Tests` | NUnit 4 + Moq + FluentAssertions; EF translation tests via `NpgsqlTestContext` |
 
@@ -383,7 +381,7 @@ openssl rand -base64 32
 **Runtime** — .NET 9 / C# 13 / ASP.NET Core (Kestrel, self-hosted) ·
 **UI** — React 18, Vite, TypeScript, Tailwind CSS, Radix UI, TanStack Query/Table, Monaco, SignalR ·
 **Data** — EF Core 9 (dual-provider migrations), Dapper hot paths, EFCore.BulkExtensions ·
-**Jobs** — Hangfire on PostgreSQL ·
+**Jobs** — pluggable via `IBeaconScheduler` (pair it with [Moberg Warp](https://moberghr.github.io/warp/)) ·
 **AI** — OpenAI / Anthropic / Azure OpenAI / AWS Bedrock via a swappable provider abstraction ·
 **Documents** — QuestPDF, Markdig, Mermaid ERDs, ClosedXML, CsvHelper ·
 **Integrations** — Jira (Atlassian.SDK), Teams Adaptive Cards, Slack

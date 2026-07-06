@@ -19,7 +19,7 @@ Both paths use the same configuration model (see the [Configuration Guide](confi
 Before you begin, ensure you have:
 
 - **.NET 9.0 SDK** or later
-- **PostgreSQL 12+** or **SQL Server 2019+** for Beacon's metadata database (PostgreSQL is also used for Hangfire job storage)
+- **PostgreSQL 12+** or **SQL Server 2019+** for Beacon's metadata database
 - **Node.js 18+** and npm — only needed to build or run the React frontend from source
 - **Visual Studio 2022**, **Rider**, or **VS Code** with C# support
 - An **encryption key** (`Beacon:EncryptionKey`) — required (see [Step 2](#step-2-generate-the-encryption-key))
@@ -28,7 +28,7 @@ Before you begin, ensure you have:
 
 ## Path A — Run the Self-Hostable Application
 
-The `Beacon.SampleProject` host is the composition root. It self-hosts Kestrel, serves the React SPA at the root URL `/`, exposes the REST API / MCP server / SignalR hub, and runs Hangfire.
+The `Beacon.SampleProject` host is the composition root. It self-hosts Kestrel, serves the React SPA at the root URL `/`, exposes the REST API / MCP server / SignalR hub, and includes a working scheduler implementation.
 
 ### A1. Clone the repository
 
@@ -69,14 +69,14 @@ curl http://localhost:5296/beacon/api/health
 
 ### A4. (Optional) Run the React dev server
 
-The host serves the pre-built SPA out of `Beacon.UI/wwwroot`. If you're working on the frontend, run the Vite dev server instead — it hot-reloads and proxies API/MCP/Hangfire calls to Kestrel:
+The host serves the pre-built SPA out of `Beacon.UI/wwwroot`. If you're working on the frontend, run the Vite dev server instead — it hot-reloads and proxies API/MCP calls to Kestrel:
 
 ```bash
 npm install --prefix Beacon.UI/web
 npm run dev --prefix Beacon.UI/web
 ```
 
-Vite serves the app on **http://localhost:5173** and proxies `/beacon/api`, `/beacon/mcp`, and `/hangfire` to Kestrel (port 5296 / 7187), so keep the API host from A3 running alongside it.
+Vite serves the app on **http://localhost:5173** and proxies `/beacon/api` and `/beacon/mcp` to Kestrel (port 5296 / 7187), so keep the API host from A3 running alongside it.
 
 Other frontend commands (run inside `Beacon.UI/web`):
 
@@ -95,7 +95,6 @@ Other frontend commands (run inside `Beacon.UI/web`):
 | **`/beacon/api/health`** | API health check |
 | **`/openapi/v1.json`** | OpenAPI document |
 | **`/beacon/mcp`** | MCP server (auth required) |
-| **`/hangfire`** | Hangfire dashboard (admin only) |
 
 On the **first run** Beacon walks you through a setup flow that creates the initial admin user. There are **no hardcoded credentials** — you set them during setup.
 
@@ -128,11 +127,9 @@ dotnet add package Beacon.Connector.Databricks
 dotnet add package Beacon.Connector.AzureSynapse
 dotnet add package Beacon.Connector.CloudWatch
 dotnet add package Beacon.Connector.Api
-
-# Hangfire (scheduler storage)
-dotnet add package Hangfire.AspNetCore
-dotnet add package Hangfire.PostgreSql   # or: Hangfire.SqlServer
 ```
+
+You will also need a job runner for scheduled work — see [B5](#b5-provide-a-scheduler-implementation).
 
 {: .note }
 > The `Beacon.Core.PostgreSql` / `Beacon.Core.SqlServer` provider you choose is for Beacon's **metadata** database. The data sources you **monitor** are wired separately via the connector packages, and you can mix any of the nine connectors regardless of which metadata provider you use.
@@ -168,8 +165,6 @@ See the [Configuration Guide](configuration) for AI/LLM, OIDC, email, and schedu
 This is the full host setup, modeled on `Beacon.SampleProject/Program.cs`:
 
 ```csharp
-using Hangfire;
-using Hangfire.PostgreSql;
 using Beacon.AI;
 using Beacon.Api;
 using Beacon.Core;
@@ -179,21 +174,7 @@ using Beacon.UI;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// 1. Hangfire (scheduler storage) on PostgreSQL
-builder.Services.AddHangfire((provider, config) => config
-    .SetDataCompatibilityLevel(CompatibilityLevel.Version_170)
-    .UseSimpleAssemblyNameTypeSerializer()
-    .UseRecommendedSerializerSettings()
-    .UseFilter(new AutomaticRetryAttribute { Attempts = 0 }) // retries disabled
-    .UsePostgreSqlStorage(
-        builder.Configuration.GetConnectionString("BeaconContext"),
-        new PostgreSqlStorageOptions
-        {
-            PrepareSchemaIfNecessary = true,
-            QueuePollInterval = TimeSpan.FromSeconds(1)
-        }));
-
-builder.Services.AddHangfireServer();
+// 1. Your job runner (see B5) — register it here, e.g. Moberg Warp's AddWarpWorker(...)
 
 // 2. Host identity + SignalR plumbing
 builder.Services.AddBeaconHostInfrastructure();
@@ -201,7 +182,7 @@ builder.Services.AddBeaconHostInfrastructure();
 // 3. Core services, scheduler, connectors, metadata provider
 builder.Services.AddBeaconServices(builder.Configuration, options =>
     {
-        options.AddBeaconScheduler<BeaconScheduler>();   // IBeaconScheduler (Hangfire-backed)
+        options.AddBeaconScheduler<BeaconScheduler>();   // your IBeaconScheduler (see B5)
         options.BaseUrl = "https://localhost:7187";
         options.UseAI = true;
         options.AddEmailAdapter<BeaconMailSender>();      // your IEmailAdapter impl
@@ -246,7 +227,6 @@ app.MapBeaconApi();               // /beacon/api/*
 app.MapLoginEndpoints("/beacon", beaconConfiguration);
 app.MapHub<BeaconHub>("/beacon/api/hub").RequireAuthorization();
 app.MapMcp("/beacon/mcp").RequireAuthorization();
-app.UseHangfireDashboard("/hangfire");
 app.MapBeaconUi();                // React SPA at root /
 
 app.Run();
@@ -260,7 +240,6 @@ app.Run();
 If you use SQL Server for Beacon's metadata instead of PostgreSQL:
 
 ```csharp
-using Hangfire.SqlServer;
 using Beacon.Core.SqlServer;
 
 // Metadata provider
@@ -271,9 +250,6 @@ builder.Services.AddBeaconServices(builder.Configuration, options =>
     // ... connectors ...
     .UseSqlServer(builder.Configuration.GetConnectionString("BeaconContext")!, "beacon");
 ```
-
-{: .note }
-> Hangfire job storage requires **PostgreSQL** in the canonical setup (`QueuePollInterval` 1s, retries disabled). The metadata database can be PostgreSQL or SQL Server.
 
 Update the connection string in `appsettings.json`:
 
@@ -287,43 +263,31 @@ Update the connection string in `appsettings.json`:
 
 ### B5. Provide a scheduler implementation
 
-Beacon schedules work through the `IBeaconScheduler` abstraction. The sample uses `BeaconScheduler`, a Hangfire-backed implementation. (Quartz.NET remains a valid alternative implementation of the same interface.)
+Beacon does not bundle a job runner — it schedules work through the `IBeaconScheduler` abstraction, so it plugs into whatever your host already uses. Beacon calls `AddOrUpdate` when a subscription is created or its cron changes, and `Remove` when it's deleted or disabled; your implementation maps those calls onto recurring jobs that invoke `IJobService.ExecuteQuery(subscriptionId)`.
 
 ```csharp
-using Hangfire;
 using Beacon.Core.Worker;
 
 namespace YourProject.Services;
 
 public class BeaconScheduler : IBeaconScheduler
 {
-    private readonly IRecurringJobManager _recurringJobManager;
-
-    public BeaconScheduler(IRecurringJobManager recurringJobManager)
-    {
-        _recurringJobManager = recurringJobManager;
-    }
-
     public void AddOrUpdate(int subscriptionId, string subscriptionName, string cron)
     {
-        _recurringJobManager.AddOrUpdate<IJobService>(
-            CompileSubscriptionJobKey(subscriptionId, subscriptionName),
-            x => x.ExecuteQuery(subscriptionId),
-            cron);
+        var jobKey = $"{subscriptionId} - {subscriptionName}";
+        // register/update a recurring job in your job runner that calls
+        // IJobService.ExecuteQuery(subscriptionId) on the given cron schedule
     }
 
     public void Remove(int subscriptionId, string subscriptionName)
     {
-        _recurringJobManager.RemoveIfExists(
-            CompileSubscriptionJobKey(subscriptionId, subscriptionName));
-    }
-
-    private static string CompileSubscriptionJobKey(int subscriptionId, string subscriptionName)
-    {
-        return $"{subscriptionId} - {subscriptionName}";
+        var jobKey = $"{subscriptionId} - {subscriptionName}";
+        // remove the recurring job
     }
 }
 ```
+
+Any job runner with cron/recurring support works. We recommend [Moberg Warp](https://moberghr.github.io/warp/): define an `IJob` that calls `IJobService.ExecuteQuery`, and map `AddOrUpdate`/`Remove` onto Warp's recurring-job APIs — you get retries, concurrency guards (`[Mutex]`), and a job dashboard out of the box. Quartz.NET is another valid choice, and `Beacon.SampleProject` ships a complete working reference implementation you can copy as a starting point.
 
 ### B6. (Optional) Extended timeouts for AI operations
 
@@ -357,7 +321,6 @@ On first run Beacon applies EF Core migrations, creates the `beacon` schema, and
 |---|---|
 | **`/`** | Beacon React SPA |
 | **`/login`** | Login form |
-| **`/hangfire`** | Hangfire dashboard (admin only) |
 
 ---
 
@@ -422,9 +385,10 @@ GRANT CREATE SCHEMA TO your_user;
 
 ### Jobs not executing
 
-1. Verify Hangfire is configured and `AddHangfireServer()` is called.
-2. Check the Hangfire dashboard at `/hangfire` for job status.
-3. Confirm the PostgreSQL connection used for Hangfire storage is reachable.
+1. Verify your job runner is registered and its worker is running.
+2. Check your scheduler's dashboard or logs for job status.
+3. Confirm the database or storage your job runner uses is reachable.
+4. Confirm your `IBeaconScheduler` implementation is registered via `options.AddBeaconScheduler<...>()`.
 
 ### SPA not loading at `/`
 
@@ -460,13 +424,13 @@ GRANT CREATE SCHEMA TO your_user;
 ### Performance
 
 - ✅ Configure database connection pooling.
-- ✅ Adjust the Hangfire worker count to match subscription load.
+- ✅ Adjust your job runner's worker count to match subscription load.
 - ✅ Set query timeouts appropriate to your workloads.
 
 ### Monitoring
 
 - ✅ Enable detailed logging for troubleshooting (no PII in logs).
-- ✅ Use the Hangfire dashboard to monitor job execution.
+- ✅ Use your job runner's dashboard to monitor job execution.
 - ✅ Track LLM token usage and cost if AI is enabled.
 
 ---

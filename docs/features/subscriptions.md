@@ -250,7 +250,7 @@ GROUP BY DATE(created_at)
 
 ### When Subscriptions Run
 
-Beacon schedules jobs through the `IBeaconScheduler` abstraction. The default implementation, `BeaconScheduler`, is backed by Hangfire on PostgreSQL (1-second poll, automatic retry disabled by default); Quartz.NET is supported as an alternative:
+Beacon schedules jobs through the `IBeaconScheduler` abstraction — the host supplies the job runner (we recommend [Moberg Warp](https://moberghr.github.io/warp/); Quartz.NET also works):
 - Cron expressions are evaluated according to your scheduler configuration
 - Execution timing depends on your scheduler implementation
 - Multiple subscriptions can execute concurrently (depending on scheduler worker configuration)
@@ -258,8 +258,7 @@ Beacon schedules jobs through the `IBeaconScheduler` abstraction. The default im
 ### Execution Order
 
 When multiple subscriptions trigger simultaneously:
-- Executions run in parallel (worker pool)
-- Default worker count: CPU core count
+- Executions run in parallel (your scheduler's worker pool)
 - Long-running queries don't block others
 
 ### Failure Handling
@@ -268,7 +267,7 @@ If a query execution fails:
 - Error is logged in execution history
 - Notification includes error message
 - Next scheduled execution still occurs
-- No automatic retries (prevent cascading failures)
+- Retry behavior is up to your scheduler implementation — we recommend leaving automatic retries off for query subscriptions to prevent cascading failures
 
 ## Monitoring Subscriptions
 
