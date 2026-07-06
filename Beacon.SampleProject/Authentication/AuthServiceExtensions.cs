@@ -9,6 +9,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Beacon.Api.SignalR;
+using Beacon.SampleProject.SignalR;
 using Beacon.Core;
 using Beacon.Core.Authentication;
 using Beacon.Core.Authentication.Providers;

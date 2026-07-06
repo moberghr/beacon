@@ -35,7 +35,6 @@
 		<PackageReference Include="CsvHelper" Version="33.1.0" />
 		<PackageReference Include="Dapper" Version="2.1.66" />
 		<PackageReference Include="EFCore.BulkExtensions" Version="9.0.2" />
-		<PackageReference Include="Hangfire.Core" Version="1.8.22" />
 		<PackageReference Include="MediatR" Version="12.4.1" />
 		<PackageReference Include="MessageCardModel" Version="1.1.5" />
 		<PackageReference Include="Microsoft.AspNetCore.DataProtection.EntityFrameworkCore" Version="9.0.2" />
