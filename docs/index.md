@@ -234,12 +234,12 @@ flowchart LR
 dotnet run --project Beacon.SampleProject --no-launch-profile
 
 # 2. Start the React dev server (Vite) — http://localhost:5173, proxies /beacon/api
-npm run dev --prefix Beacon.UI/web
+npm run dev --prefix src/Beacon.UI/web
 ```
 
 Open `http://localhost:5173` (dev) or `http://localhost:5296` (served build). On first run, Beacon applies its EF Core migrations and walks you through first-run admin setup. Health check: `http://localhost:5296/beacon/api/health`.
 
-Want to explore the UI without any backend? `npm run dev:mock --prefix Beacon.UI/web` runs the full SPA against realistic in-browser mock data (MSW).
+Want to explore the UI without any backend? `npm run dev:mock --prefix src/Beacon.UI/web` runs the full SPA against realistic in-browser mock data (MSW).
 
 ### Option B — Embed via NuGet
 

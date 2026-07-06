@@ -15,9 +15,9 @@ Goal: ship React equivalents for the last Blazor pages blocking removal of `Beac
 
 ## Backend additions
 
-- `Beacon.Core/Handlers/DataMigration/GetMigrationJobsHandler.cs` — new query, projects EF entity to `MigrationJobListItem` with both source/destination data-source names.
-- `Beacon.Core/Handlers/DataMigration/DeleteMigrationJobHandler.cs` — wraps the existing `IMigrationService.DeleteMigrationJob` and returns `(success, errorMessage)`.
-- `Beacon.SampleProject/Endpoints/MigrationsEndpoints.cs` — adds `GET /beacon/api/migrations/jobs` and `DELETE /beacon/api/migrations/jobs/{id}` (`forceDelete` query flag). Keeps the existing `POST /jobs` and `GET /executions`.
+- `src/Beacon.Core/Handlers/DataMigration/GetMigrationJobsHandler.cs` — new query, projects EF entity to `MigrationJobListItem` with both source/destination data-source names.
+- `src/Beacon.Core/Handlers/DataMigration/DeleteMigrationJobHandler.cs` — wraps the existing `IMigrationService.DeleteMigrationJob` and returns `(success, errorMessage)`.
+- `src/Beacon.SampleProject/Endpoints/MigrationsEndpoints.cs` — adds `GET /beacon/api/migrations/jobs` and `DELETE /beacon/api/migrations/jobs/{id}` (`forceDelete` query flag). Keeps the existing `POST /jobs` and `GET /executions`.
 
 All other endpoints (Dashboards CRUD, AI actors list/detail, auth/setup) already existed and the new pages call them via the generated client (`beaconApi()`).
 
@@ -41,42 +41,42 @@ Each deferral leaves either a "Coming soon" page or a clearly worded sub-section
 ## Files touched
 
 Backend (3):
-- `Beacon.Core/Handlers/DataMigration/GetMigrationJobsHandler.cs` (new)
-- `Beacon.Core/Handlers/DataMigration/DeleteMigrationJobHandler.cs` (new)
-- `Beacon.SampleProject/Endpoints/MigrationsEndpoints.cs` (added two endpoints)
+- `src/Beacon.Core/Handlers/DataMigration/GetMigrationJobsHandler.cs` (new)
+- `src/Beacon.Core/Handlers/DataMigration/DeleteMigrationJobHandler.cs` (new)
+- `src/Beacon.SampleProject/Endpoints/MigrationsEndpoints.cs` (added two endpoints)
 
 Frontend — new (12):
-- `Beacon.SampleProject/web/src/routes/dashboards/queries.ts`
-- `Beacon.SampleProject/web/src/routes/dashboards/DashboardsListPage.tsx`
-- `Beacon.SampleProject/web/src/routes/dashboards/DashboardViewerPage.tsx`
-- `Beacon.SampleProject/web/src/routes/dashboards/DashboardBuilderPage.tsx`
-- `Beacon.SampleProject/web/src/routes/ai-actors/queries.ts`
-- `Beacon.SampleProject/web/src/routes/ai-actors/AiActorsListPage.tsx`
-- `Beacon.SampleProject/web/src/routes/ai-actors/AiActorDetailPage.tsx`
-- `Beacon.SampleProject/web/src/routes/migration-jobs/queries.ts`
-- `Beacon.SampleProject/web/src/routes/migration-jobs/MigrationJobsListPage.tsx`
-- `Beacon.SampleProject/web/src/routes/auth/LoginPage.tsx`
-- `Beacon.SampleProject/web/src/routes/auth/LogoutPage.tsx`
-- `Beacon.SampleProject/web/src/routes/auth/SetupPage.tsx`
-- `Beacon.SampleProject/web/src/routes/auth/ErrorPage.tsx`
+- `src/Beacon.SampleProject/web/src/routes/dashboards/queries.ts`
+- `src/Beacon.SampleProject/web/src/routes/dashboards/DashboardsListPage.tsx`
+- `src/Beacon.SampleProject/web/src/routes/dashboards/DashboardViewerPage.tsx`
+- `src/Beacon.SampleProject/web/src/routes/dashboards/DashboardBuilderPage.tsx`
+- `src/Beacon.SampleProject/web/src/routes/ai-actors/queries.ts`
+- `src/Beacon.SampleProject/web/src/routes/ai-actors/AiActorsListPage.tsx`
+- `src/Beacon.SampleProject/web/src/routes/ai-actors/AiActorDetailPage.tsx`
+- `src/Beacon.SampleProject/web/src/routes/migration-jobs/queries.ts`
+- `src/Beacon.SampleProject/web/src/routes/migration-jobs/MigrationJobsListPage.tsx`
+- `src/Beacon.SampleProject/web/src/routes/auth/LoginPage.tsx`
+- `src/Beacon.SampleProject/web/src/routes/auth/LogoutPage.tsx`
+- `src/Beacon.SampleProject/web/src/routes/auth/SetupPage.tsx`
+- `src/Beacon.SampleProject/web/src/routes/auth/ErrorPage.tsx`
 
 Frontend — modified (3):
-- `Beacon.SampleProject/web/src/App.tsx` — adds 7 routes; restructures top-level so anonymous routes sit outside `<RequireAuth>`.
-- `Beacon.SampleProject/web/src/feature-flags.ts` — appends `dashboards`, `ai-actors`, `migration-jobs` to `MIGRATED_PAGES`.
-- `Beacon.SampleProject/web/src/auth/RequireAuth.tsx` — redirect target `/beacon` → `/app/login`.
+- `src/Beacon.SampleProject/web/src/App.tsx` — adds 7 routes; restructures top-level so anonymous routes sit outside `<RequireAuth>`.
+- `src/Beacon.SampleProject/web/src/feature-flags.ts` — appends `dashboards`, `ai-actors`, `migration-jobs` to `MIGRATED_PAGES`.
+- `src/Beacon.SampleProject/web/src/auth/RequireAuth.tsx` — redirect target `/beacon` → `/app/login`.
 
 Plus `wwwroot/app/` synced from the Vite build output.
 
 ## Verification
 
 - `dotnet build --property WarningLevel=0` — succeeded.
-- `dotnet test Beacon.Tests/Beacon.Tests.csproj` — 35 passed, 0 failed.
+- `dotnet test src/Beacon.Tests/Beacon.Tests.csproj` — 35 passed, 0 failed.
 - `npm run build` — succeeded.
 - `npm test -- --run` (Vitest) — 13 passed across 9 files.
 - `wwwroot/app/` rebuilt from `web/dist/`; `*.dswa.cache.json` and `*.Up2Date` cleared per the React-shell asset-rot lesson.
 
 ## Cutover impact
 
-Removing `Beacon.UI` next will require moving `LoginEndpoints.cs` and `SetupEndpoints.cs` from `Beacon.UI/Authentication/` to `Beacon.SampleProject/Endpoints/` (or splitting auth into its own project). The React pages already hit those URLs, so the move is a pure code relocation with no contract change.
+Removing `Beacon.UI` next will require moving `LoginEndpoints.cs` and `SetupEndpoints.cs` from `src/Beacon.UI/Authentication/` to `src/Beacon.SampleProject/Endpoints/` (or splitting auth into its own project). The React pages already hit those URLs, so the move is a pure code relocation with no contract change.
 
 The remaining Blazor pages after this batch (per Batch 7 audit): the legacy widget builder/widget configurations themselves. These are out-of-band admin tooling and do not block the cutover — they can be removed alongside `Beacon.UI` once dashboard editing migrates fully.

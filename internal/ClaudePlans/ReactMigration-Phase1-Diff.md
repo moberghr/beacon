@@ -37,18 +37,18 @@ Every existing MediatR handler is now reachable via HTTP under `/beacon/api/*`. 
 
 | Batch | Files added/modified | Endpoints |
 |---|---|---|
-| 1 — JSON 401 + exception middleware | `Beacon.UI/ServiceExtensions.cs`, `Beacon.SampleProject/Middleware/ApiExceptionMiddleware.cs`, `Beacon.SampleProject/Endpoints/{BeaconApi,Auth}Endpoints.cs`, `Program.cs` | — (infra) |
-| 2 — Integration test harness | `Beacon.Tests/Integration/Api/BeaconWebApplicationFactory.cs`, `Phase1HarnessTests.cs`, `Beacon.Tests.csproj` (added `Microsoft.AspNetCore.Mvc.Testing`), `Program.cs` (`public partial class Program;` shim) | — (infra) |
-| 3 — SignalR hub | `Beacon.SampleProject/Hubs/BeaconHub.cs`, `SignalR/{HubUserIdProvider,HangfireSignalRJobFilter}.cs`, `web/src/lib/hub.ts`, `Program.cs`, `web/package.json` (`@microsoft/signalr`) | — (infra) |
-| 4 — Projects | `Beacon.SampleProject/Endpoints/ProjectsEndpoints.cs` | 10 |
-| 5 — Query domain | `Beacon.SampleProject/Endpoints/{QueryFolders,Queries,QueryVersions}Endpoints.cs` | 11 |
-| 6 — Approvals + ApiKeys | `Beacon.SampleProject/Endpoints/{Approvals,ApiKeys}Endpoints.cs` | 7 + `ApprovalUpdated` publisher |
-| 7 — Dashboards | `Beacon.SampleProject/Endpoints/DashboardsEndpoints.cs` | 11 |
-| 8 — DataQuality + DataCatalog | `Beacon.SampleProject/Endpoints/DataQualityEndpoints.cs` | 8 |
-| 9 — McpSettings + McpLearning | `Beacon.SampleProject/Endpoints/McpEndpoints.cs` | 7 |
-| 10 — AiActors | `Beacon.SampleProject/Endpoints/AiActorsEndpoints.cs` | 13 |
-| 11 — OpenAPI contract test | `Beacon.Tests/Integration/Api/OpenApiContractTests.cs` | — (CI tripwire) |
-| 12 — Generated TS client | `Beacon.SampleProject/web/src/api/generated/beacon-api.ts` (4428 lines, committed), `web/src/api/client.ts` (wrapper), `web/nswag.config.json` (Net90→Net80), `.gitignore` | — (frontend) |
+| 1 — JSON 401 + exception middleware | `src/Beacon.UI/ServiceExtensions.cs`, `src/Beacon.SampleProject/Middleware/ApiExceptionMiddleware.cs`, `src/Beacon.SampleProject/Endpoints/{BeaconApi,Auth}Endpoints.cs`, `Program.cs` | — (infra) |
+| 2 — Integration test harness | `src/Beacon.Tests/Integration/Api/BeaconWebApplicationFactory.cs`, `Phase1HarnessTests.cs`, `Beacon.Tests.csproj` (added `Microsoft.AspNetCore.Mvc.Testing`), `Program.cs` (`public partial class Program;` shim) | — (infra) |
+| 3 — SignalR hub | `src/Beacon.SampleProject/Hubs/BeaconHub.cs`, `SignalR/{HubUserIdProvider,HangfireSignalRJobFilter}.cs`, `web/src/lib/hub.ts`, `Program.cs`, `web/package.json` (`@microsoft/signalr`) | — (infra) |
+| 4 — Projects | `src/Beacon.SampleProject/Endpoints/ProjectsEndpoints.cs` | 10 |
+| 5 — Query domain | `src/Beacon.SampleProject/Endpoints/{QueryFolders,Queries,QueryVersions}Endpoints.cs` | 11 |
+| 6 — Approvals + ApiKeys | `src/Beacon.SampleProject/Endpoints/{Approvals,ApiKeys}Endpoints.cs` | 7 + `ApprovalUpdated` publisher |
+| 7 — Dashboards | `src/Beacon.SampleProject/Endpoints/DashboardsEndpoints.cs` | 11 |
+| 8 — DataQuality + DataCatalog | `src/Beacon.SampleProject/Endpoints/DataQualityEndpoints.cs` | 8 |
+| 9 — McpSettings + McpLearning | `src/Beacon.SampleProject/Endpoints/McpEndpoints.cs` | 7 |
+| 10 — AiActors | `src/Beacon.SampleProject/Endpoints/AiActorsEndpoints.cs` | 13 |
+| 11 — OpenAPI contract test | `src/Beacon.Tests/Integration/Api/OpenApiContractTests.cs` | — (CI tripwire) |
+| 12 — Generated TS client | `src/Beacon.SampleProject/web/src/api/generated/beacon-api.ts` (4428 lines, committed), `web/src/api/client.ts` (wrapper), `web/nswag.config.json` (Net90→Net80), `.gitignore` | — (frontend) |
 | 13 — Final gate | `.claude/rules/architecture.md` §2.1.1, this doc, `CLAUDE.md` (next) | — (docs) |
 
 ## Acceptance gate (run 2026-05-07)

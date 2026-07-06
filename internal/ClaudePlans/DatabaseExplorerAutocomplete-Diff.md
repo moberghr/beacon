@@ -5,11 +5,11 @@ plus Monaco SQL completion driven by live data-source metadata.
 
 ## Backend
 
-- New handler `Beacon.Core/Handlers/DataSources/GetDataSourceMetadataHandler.cs`
+- New handler `src/Beacon.Core/Handlers/DataSources/GetDataSourceMetadataHandler.cs`
   — wraps `IDatabaseMetadataService.GetMetadataAsync`. `internal sealed class`
   with primary-ctor injection. Throws `InvalidOperationException` for invalid id.
 - New endpoint `GET /beacon/api/data-sources/{id:int}/metadata`
-  in `Beacon.SampleProject/Endpoints/DataSourcesEndpoints.cs` named
+  in `src/Beacon.SampleProject/Endpoints/DataSourcesEndpoints.cs` named
   `GetDataSourceMetadata` (matches `OpenApiContractTests` heuristic).
   Returns `DatabaseMetadataSnapshot` directly.
 - The first call may be slow (live DB fetch when cache is cold) — UI shows a

@@ -13,7 +13,7 @@ The subagent dispatch for 5a hit a sandbox-wide Bash denial and returned with no
 
 ## Audit (mandatory per slot rules)
 
-Source page: `Beacon.UI/Components/Pages/Queries/QueryDetails.razor` — **865 LOC**, contradicting the spec's quoted "275 LOC".
+Source page: `src/Beacon.UI/Components/Pages/Queries/QueryDetails.razor` — **865 LOC**, contradicting the spec's quoted "275 LOC".
 
 | What Blazor uses | Existing handler/endpoint? | Action |
 |---|---|---|
@@ -40,7 +40,7 @@ Source page: `Beacon.UI/Components/Pages/Queries/QueryDetails.razor` — **865 L
 
 ## Backend D3 added
 
-### `Beacon.Core/Handlers/Queries/GetQueryDetailHandler.cs`
+### `src/Beacon.Core/Handlers/Queries/GetQueryDetailHandler.cs`
 - `internal sealed class` + primary constructor
 - Delegates to `IQueryService.GetQueryDetails(id, ct)` (which already returns the rich `QueryDetailsData` shape consumed by the entire React detail page including tabs, KPIs, charts, subscription list, version pane data plumbing).
 - Throws `InvalidOperationException` when the query is not found (per §2.9, §9.8).
@@ -57,9 +57,9 @@ public record GetQueryDetailQuery : IRequest<QueryDetailsData>
 }
 ```
 
-### `Beacon.SampleProject/Endpoints/QueriesEndpoints.cs`
+### `src/Beacon.SampleProject/Endpoints/QueriesEndpoints.cs`
 - New endpoint: `GET /beacon/api/queries/{id:int}`.
-- `.WithName("GetQueryDetail")` so the OpenAPI contract test (`Beacon.Tests/Integration/Api/OpenApiContractTests.cs`) matches `GetQueryDetailQuery` after suffix strip.
+- `.WithName("GetQueryDetail")` so the OpenAPI contract test (`src/Beacon.Tests/Integration/Api/OpenApiContractTests.cs`) matches `GetQueryDetailQuery` after suffix strip.
 - `.RequireAuthorization()` is inherited from the parent `MapBeaconApi` group.
 
 ---
@@ -75,8 +75,8 @@ public record GetQueryDetailQuery : IRequest<QueryDetailsData>
 
 ## Files touched
 
-- `Beacon.Core/Handlers/Queries/GetQueryDetailHandler.cs` (NEW)
-- `Beacon.SampleProject/Endpoints/QueriesEndpoints.cs` (added GET endpoint)
+- `src/Beacon.Core/Handlers/Queries/GetQueryDetailHandler.cs` (NEW)
+- `src/Beacon.SampleProject/Endpoints/QueriesEndpoints.cs` (added GET endpoint)
 - `tasks/todo.md` (marked Step 1 audit + D3 portion done; frontend items remain unchecked)
 - `ClaudePlans/ReactMigration-Phase3-Batch5a-Diff.md` (this file)
 

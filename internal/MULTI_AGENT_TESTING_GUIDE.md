@@ -6,25 +6,25 @@ The multi-agent documentation system is now **fully integrated** and ready for t
 
 ### Core Components
 
-1. **Service Layer** (`Beacon.Core/Services/Ai/MultiAgent/`)
+1. **Service Layer** (`src/Beacon.Core/Services/Ai/MultiAgent/`)
    - `IMultiAgentDocumentationService` - Service interface
    - `MultiAgentDocumentationService` - Main orchestration service
    - `MultiAgentPrompts` - System and user prompts for each agent phase
 
-2. **Handler** (`Beacon.Core/Handlers/Documentation/`)
+2. **Handler** (`src/Beacon.Core/Handlers/Documentation/`)
    - `GenerateMultiAgentDocumentationHandler` - MediatR handler
    - `GenerateMultiAgentDocumentationCommand` - Command with progress reporting
 
-3. **Models** (`Beacon.Core/Models/Ai/MultiAgent/`)
+3. **Models** (`src/Beacon.Core/Models/Ai/MultiAgent/`)
    - `DocumentationProgress` - Real-time progress updates
    - `MultiAgentGenerationOptions` - Configuration options
    - `OrchestratorResult`, `DomainResult`, `AggregatedDocumentation` - Results
 
-4. **UI** (`Beacon.UI/Components/Pages/DataSources/`)
+4. **UI** (`src/Beacon.UI/Components/Pages/DataSources/`)
    - `GenerateDocumentationDialog.razor` - Dialog with multi-agent switch
    - `QueryEditor.razor` - Page with "Multi-Agent Workflow" button
 
-5. **Dependency Injection** (`Beacon.Core/ServiceConfiguration.cs`)
+5. **Dependency Injection** (`src/Beacon.Core/ServiceConfiguration.cs`)
    - Service registered on line 135
    - Requires LLM configuration in appsettings.json
 

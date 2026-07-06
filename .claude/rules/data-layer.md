@@ -29,13 +29,13 @@
 
 ## Migrations
 
-§5.9 **Dual-provider migrations are append-only.** Both `Beacon.Core.PostgreSql/Migrations/` and `Beacon.Core.SqlServer/Migrations/` need a new migration whenever an entity changes. NEVER edit a migration that has already been committed — add a new one.
+§5.9 **Dual-provider migrations are append-only.** Both `src/Beacon.Core.PostgreSql/Migrations/` and `src/Beacon.Core.SqlServer/Migrations/` need a new migration whenever an entity changes. NEVER edit a migration that has already been committed — add a new one.
 
 §5.10 See `tasks/lessons.md` and the project memory file `migrations-workflow.md` for the exact `dotnet ef migrations add` invocations for each provider.
 
 ## Hot paths
 
-§5.11 **Dapper is in use alongside EF Core** for metadata extraction (`*MetadataExtractor.cs`), bulk operations, and performance-critical raw SQL — see `Beacon.Core/Helpers/BulkHelpers.cs`, `Beacon.Core/Services/MigrationService.cs`, and the connector `JobRepository.cs` files. Do NOT migrate these to EF Core unless explicitly asked.
+§5.11 **Dapper is in use alongside EF Core** for metadata extraction (`*MetadataExtractor.cs`), bulk operations, and performance-critical raw SQL — see `src/Beacon.Core/Helpers/BulkHelpers.cs`, `src/Beacon.Core/Services/MigrationService.cs`, and the connector `JobRepository.cs` files. Do NOT migrate these to EF Core unless explicitly asked.
 
 §5.12 **Bulk inserts/updates use `EFCore.BulkExtensions`.** Go through `BulkHelpers.cs`, not `context.AddRange` for >1k rows.
 

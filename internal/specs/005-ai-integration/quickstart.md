@@ -54,7 +54,7 @@ dotnet build --property WarningLevel=0
 
 ## Step 2: Create Entity Classes
 
-**File**: `Beacon.Core/Data/Entities/DataSourceDocumentation.cs`
+**File**: `src/Beacon.Core/Data/Entities/DataSourceDocumentation.cs`
 
 ```csharp
 namespace Beacon.Core.Data.Entities;
@@ -89,7 +89,7 @@ public class DataSourceDocumentation : BaseArchivableEntity, IChangeableEntity
 - `AiUsageMetrics.cs`
 - `AiPromptTemplate.cs`
 
-**File**: `Beacon.Core/Data/Enums/DocumentationStatus.cs`
+**File**: `src/Beacon.Core/Data/Enums/DocumentationStatus.cs`
 
 ```csharp
 namespace Beacon.Core.Data.Enums;
@@ -114,7 +114,7 @@ public enum DocumentationStatus
 
 ## Step 3: Update DbContext
 
-**File**: `Beacon.Core/Data/BeaconContext.cs`
+**File**: `src/Beacon.Core/Data/BeaconContext.cs`
 
 ```csharp
 public DbSet<DataSourceDocumentation> DataSourceDocumentations { get; set; } = null!;
@@ -155,7 +155,7 @@ protected override void OnModelCreating(ModelBuilder modelBuilder)
 
 ## Step 4: Create Configuration
 
-**File**: `Beacon.Core/Models/Configuration/LlmConfiguration.cs`
+**File**: `src/Beacon.Core/Models/Configuration/LlmConfiguration.cs`
 
 ```csharp
 namespace Beacon.Core.Models.Configuration;
@@ -190,7 +190,7 @@ public class ProviderLimits
 
 ## Step 5: Implement LLM Provider Abstraction
 
-**File**: `Beacon.Core/Services/LlmProviders/ILlmProvider.cs`
+**File**: `src/Beacon.Core/Services/LlmProviders/ILlmProvider.cs`
 
 ```csharp
 namespace Beacon.Core.Services.LlmProviders;
@@ -224,7 +224,7 @@ public record LlmResponse
 public record TokenCount(int Tokens);
 ```
 
-**File**: `Beacon.Core/Services/LlmProviders/ClaudeProvider.cs`
+**File**: `src/Beacon.Core/Services/LlmProviders/ClaudeProvider.cs`
 
 ```csharp
 namespace Beacon.Core.Services.LlmProviders;
@@ -288,7 +288,7 @@ public class ClaudeProvider : ILlmProvider
 - `OpenAiProvider.cs`
 - `AzureOpenAiProvider.cs`
 
-**File**: `Beacon.Core/Services/LlmProviders/LlmProviderFactory.cs`
+**File**: `src/Beacon.Core/Services/LlmProviders/LlmProviderFactory.cs`
 
 ```csharp
 namespace Beacon.Core.Services.LlmProviders;
@@ -322,7 +322,7 @@ public class LlmProviderFactory
 
 ## Step 6: Implement Core Services
 
-**File**: `Beacon.Core/Services/Ai/IAiDocumentationService.cs`
+**File**: `src/Beacon.Core/Services/Ai/IAiDocumentationService.cs`
 
 ```csharp
 namespace Beacon.Core.Services.Ai;
@@ -350,7 +350,7 @@ public interface IAiDocumentationService
 }
 ```
 
-**File**: `Beacon.Core/Services/Ai/AiDocumentationService.cs`
+**File**: `src/Beacon.Core/Services/Ai/AiDocumentationService.cs`
 
 ```csharp
 namespace Beacon.Core.Services.Ai;
@@ -434,7 +434,7 @@ public class AiDocumentationService : IAiDocumentationService
 
 ## Step 7: Implement MediatR Handlers
 
-**File**: `Beacon.Core/Handlers/Ai/GenerateDocumentation/GenerateDocumentationHandler.cs`
+**File**: `src/Beacon.Core/Handlers/Ai/GenerateDocumentation/GenerateDocumentationHandler.cs`
 
 ```csharp
 namespace Beacon.Core.Handlers.Ai.GenerateDocumentation;
@@ -507,7 +507,7 @@ public record GenerateDocumentationResult
 
 ## Step 8: Register Services in DI
 
-**File**: `Beacon.Core/ServiceConfiguration.cs`
+**File**: `src/Beacon.Core/ServiceConfiguration.cs`
 
 ```csharp
 public static class ServiceConfiguration
@@ -549,7 +549,7 @@ public static class ServiceConfiguration
 
 ## Step 9: Add Configuration
 
-**File**: `Beacon.SampleProject/appsettings.json`
+**File**: `src/Beacon.SampleProject/appsettings.json`
 
 ```json
 {
@@ -598,7 +598,7 @@ dotnet ef database update --startup-project ../Beacon.SampleProject
 
 ## Step 11: Implement UI Components
 
-**File**: `Beacon.UI/Components/Pages/Ai/GenerateDocumentation.razor`
+**File**: `src/Beacon.UI/Components/Pages/Ai/GenerateDocumentation.razor`
 
 ```razor
 @page "/ai/documentation/generate/{DataSourceId:int}"
@@ -692,7 +692,7 @@ dotnet ef database update --startup-project ../Beacon.SampleProject
 
 ## Step 12: Testing
 
-**File**: `Beacon.Tests/Ai/AiDocumentationServiceTests.cs`
+**File**: `src/Beacon.Tests/Ai/AiDocumentationServiceTests.cs`
 
 ```csharp
 public class AiDocumentationServiceTests

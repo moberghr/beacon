@@ -136,14 +136,14 @@ endpoint). Notification list endpoint already existed.
 ## Files touched
 
 ### Backend
-- `Beacon.Core/Handlers/Subscriptions/{Get,Create,Delete}SubscriptionHandler.cs`
-- `Beacon.Core/Handlers/DataSources/{Get,Delete}DataSourceHandler.cs`
-- `Beacon.Core/Handlers/AdminSettings/{Get,Update}AdminSettingsHandler.cs`
-- `Beacon.Core/Handlers/UserSettings/{GetUserSettings,ChangeOwnPassword}Handler.cs`
-- `Beacon.Core/Handlers/Notifications/GetNotificationDetailHandler.cs`
-- `Beacon.SampleProject/Endpoints/{Subscriptions,DataSources,AdminSettings,UserSettings}Endpoints.cs`
-- `Beacon.SampleProject/Endpoints/NotificationsEndpoints.cs` (detail + stub)
-- `Beacon.SampleProject/Endpoints/BeaconApiEndpoints.cs` (group registrations + `AdminPolicyName`)
+- `src/Beacon.Core/Handlers/Subscriptions/{Get,Create,Delete}SubscriptionHandler.cs`
+- `src/Beacon.Core/Handlers/DataSources/{Get,Delete}DataSourceHandler.cs`
+- `src/Beacon.Core/Handlers/AdminSettings/{Get,Update}AdminSettingsHandler.cs`
+- `src/Beacon.Core/Handlers/UserSettings/{GetUserSettings,ChangeOwnPassword}Handler.cs`
+- `src/Beacon.Core/Handlers/Notifications/GetNotificationDetailHandler.cs`
+- `src/Beacon.SampleProject/Endpoints/{Subscriptions,DataSources,AdminSettings,UserSettings}Endpoints.cs`
+- `src/Beacon.SampleProject/Endpoints/NotificationsEndpoints.cs` (detail + stub)
+- `src/Beacon.SampleProject/Endpoints/BeaconApiEndpoints.cs` (group registrations + `AdminPolicyName`)
 
 ### Frontend (new directories)
 - `web/src/routes/subscriptions/{queries.ts, SubscriptionsListPage.tsx, AddSubscriptionDialog.tsx, AddSubscriptionDialog.test.tsx}`

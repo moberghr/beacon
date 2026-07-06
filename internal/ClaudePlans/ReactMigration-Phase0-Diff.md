@@ -15,18 +15,18 @@ Stand up the foundation that lets a React SPA coexist with the existing Blazor a
 
 | File | Change |
 |---|---|
-| `Beacon.SampleProject/Beacon.SampleProject.csproj` | New properties (`ReactAppDir`, `ReactStagingDir`, `BuildReactInDebug`, `ShouldBuildReact`) and four targets (`EnsureReactDependencies`, `BuildReactApp`, `StageReactBuild`, `CleanReactBuild`) wiring `npm ci` + `npm run build` into `dotnet build` and copying `web/dist/**` to `wwwroot/app/`. Off in Debug by default; on in Release; opt-in with `-p:BuildReactInDebug=true`. |
-| `Beacon.SampleProject/Program.cs` | Added `AddOpenApi()`, `AddAntiforgery()`, `using Beacon.SampleProject.Endpoints`. After `UseAuthorization`: `UseAntiforgery()`, `MapOpenApi()`, `MapBeaconApi()`. After Hangfire: `MapFallbackToFile("/app/{**path}", "app/index.html")`. |
-| `Beacon.SampleProject/Endpoints/BeaconApiEndpoints.cs` | New. Composition root for `/beacon/api/*` route group. |
-| `Beacon.SampleProject/Endpoints/HealthEndpoints.cs` | New. `GET /beacon/api/health` → `{ status: "ok" }`. Anonymous. |
-| `Beacon.SampleProject/Endpoints/AuthEndpoints.cs` | New. `GET /beacon/api/auth/me` (anonymous; returns user shape or `{ isAuthenticated: false }`). `GET /beacon/api/auth/permissions` (`RequireAuthorization`; returns `{ canRead, canWrite }`). |
-| `Beacon.SampleProject/Endpoints/AntiforgeryEndpoints.cs` | New. `GET /beacon/api/csrf` issues an antiforgery token cookie + returns the request token. |
-| `Beacon.UI/Authentication/LoginFormAuthMiddleware.cs` | One-line widening: `IsAllowedPath` now skips redirects for any `/api/` path, not just `/api/auth/`. Endpoints opt into auth via `.RequireAuthorization()` themselves. |
+| `src/Beacon.SampleProject/Beacon.SampleProject.csproj` | New properties (`ReactAppDir`, `ReactStagingDir`, `BuildReactInDebug`, `ShouldBuildReact`) and four targets (`EnsureReactDependencies`, `BuildReactApp`, `StageReactBuild`, `CleanReactBuild`) wiring `npm ci` + `npm run build` into `dotnet build` and copying `web/dist/**` to `wwwroot/app/`. Off in Debug by default; on in Release; opt-in with `-p:BuildReactInDebug=true`. |
+| `src/Beacon.SampleProject/Program.cs` | Added `AddOpenApi()`, `AddAntiforgery()`, `using Beacon.SampleProject.Endpoints`. After `UseAuthorization`: `UseAntiforgery()`, `MapOpenApi()`, `MapBeaconApi()`. After Hangfire: `MapFallbackToFile("/app/{**path}", "app/index.html")`. |
+| `src/Beacon.SampleProject/Endpoints/BeaconApiEndpoints.cs` | New. Composition root for `/beacon/api/*` route group. |
+| `src/Beacon.SampleProject/Endpoints/HealthEndpoints.cs` | New. `GET /beacon/api/health` → `{ status: "ok" }`. Anonymous. |
+| `src/Beacon.SampleProject/Endpoints/AuthEndpoints.cs` | New. `GET /beacon/api/auth/me` (anonymous; returns user shape or `{ isAuthenticated: false }`). `GET /beacon/api/auth/permissions` (`RequireAuthorization`; returns `{ canRead, canWrite }`). |
+| `src/Beacon.SampleProject/Endpoints/AntiforgeryEndpoints.cs` | New. `GET /beacon/api/csrf` issues an antiforgery token cookie + returns the request token. |
+| `src/Beacon.UI/Authentication/LoginFormAuthMiddleware.cs` | One-line widening: `IsAllowedPath` now skips redirects for any `/api/` path, not just `/api/auth/`. Endpoints opt into auth via `.RequireAuthorization()` themselves. |
 | `.config/dotnet-tools.json` | New. Pins `NSwag.ConsoleCore@14.1.0` as a local tool. |
-| `.gitignore` | Added `Beacon.SampleProject/web/dist/`, `wwwroot/app/`, `web/src/api/generated/`. |
+| `.gitignore` | Added `src/Beacon.SampleProject/web/dist/`, `wwwroot/app/`, `web/src/api/generated/`. |
 | `CLAUDE.md` | Added two bullets to "Project Profile" describing the REST API surface and the React shell. |
 
-### Frontend (all new under `Beacon.SampleProject/web/`)
+### Frontend (all new under `src/Beacon.SampleProject/web/`)
 
 | File | Purpose |
 |---|---|
@@ -44,7 +44,7 @@ Stand up the foundation that lets a React SPA coexist with the existing Blazor a
 - No EF Core entity, migration, or query touched.
 - No existing Blazor page or component touched.
 - No Beacon.Core, Beacon.AI, Beacon.MCP, or any connector project touched.
-- No removed code anywhere. Only `Beacon.UI/Authentication/LoginFormAuthMiddleware.cs` was modified, and the change is a behavior-preserving widening (paths previously redirected stay redirected; only `/api/*` paths gained skip-redirect behavior).
+- No removed code anywhere. Only `src/Beacon.UI/Authentication/LoginFormAuthMiddleware.cs` was modified, and the change is a behavior-preserving widening (paths previously redirected stay redirected; only `/api/*` paths gained skip-redirect behavior).
 - Cookie auth scheme (`§1.8`), middleware order (`§1.9`), HTTPS redirect carve-out for `/beacon/mcp`, and Hangfire dashboard all unchanged.
 
 ## Smoke-test results (HTTP, port 5299)
@@ -74,7 +74,7 @@ Stand up the foundation that lets a React SPA coexist with the existing Blazor a
 
 ## Spec deltas (resolved during implementation)
 
-The original spec at `ClaudePlans/ReactMigration-Phase0-1.md` proposed `/api/*` (root) and `/app/*` (root). During task drafting I re-aligned to `/beacon/api/*` and `/beacon/app/*` to match the existing `Beacon.UI/Authentication/LoginEndpoints.cs` convention. Smoke testing revealed:
+The original spec at `ClaudePlans/ReactMigration-Phase0-1.md` proposed `/api/*` (root) and `/app/*` (root). During task drafting I re-aligned to `/beacon/api/*` and `/beacon/app/*` to match the existing `src/Beacon.UI/Authentication/LoginEndpoints.cs` convention. Smoke testing revealed:
 
 - `/beacon/api/*` is fine — the existing `LoginEndpoints` proves minimal-API endpoints under that prefix coexist with Blazor's `/beacon` mount, provided `LoginFormAuthMiddleware.IsAllowedPath` lets them through (the one-line widening above).
 - `/beacon/app/*` is **not fine** — Blazor's catch-all owns the `/beacon` subtree and won the route match against `MapFallbackToFile`. Reverting React to `/app/*` at root (per the original spec) was the clean fix. The eventual cutover (Phase 4) will rename to `/` and Blazor moves to `/legacy` or is decommissioned.

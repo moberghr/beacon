@@ -91,7 +91,7 @@ Completely redesigned the Query Details page (`/queries/{id}`) to match the new 
 
 ## Files Modified
 
-**Beacon.UI/Components/Pages/Queries/QueryDetails.razor**
+**src/Beacon.UI/Components/Pages/Queries/QueryDetails.razor**
 - Complete redesign (~876 lines)
 - Added ~92 lines of CSS styling
 - 4 hero stat cards

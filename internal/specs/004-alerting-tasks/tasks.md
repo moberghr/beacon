@@ -16,10 +16,10 @@
 ## Path Conventions
 
 **Multi-project solution** (from plan.md):
-- **Core**: `Beacon.Core/` (entities, handlers, services)
-- **UI**: `Beacon.UI/` (Blazor components)
-- **Providers**: `Beacon.Core.PostgreSql/`, `Beacon.Core.SqlServer/` (migrations)
-- **Sample**: `Beacon.SampleProject/` (DI registration)
+- **Core**: `src/Beacon.Core/` (entities, handlers, services)
+- **UI**: `src/Beacon.UI/` (Blazor components)
+- **Providers**: `src/Beacon.Core.PostgreSql/`, `src/Beacon.Core.SqlServer/` (migrations)
+- **Sample**: `src/Beacon.SampleProject/` (DI registration)
 
 ---
 
@@ -27,9 +27,9 @@
 
 **Purpose**: Enum modification and base entity setup
 
-- [x] T001 [P] Add CreateTasks boolean property to Subscription entity in Beacon.Core/Data/Entities/Subscription.cs
-- [x] T002 [P] Create AlertingTask entity inheriting from ArchivableBaseEntity in Beacon.Core/Data/Entities/AlertingTask.cs
-- [x] T003 Configure AlertingTask entity in BeaconContext.OnModelCreating() in Beacon.Core/Data/BeaconContext.cs (add DbSet, unique index on SubscriptionId, one-to-many with Notifications)
+- [x] T001 [P] Add CreateTasks boolean property to Subscription entity in src/Beacon.Core/Data/Entities/Subscription.cs
+- [x] T002 [P] Create AlertingTask entity inheriting from ArchivableBaseEntity in src/Beacon.Core/Data/Entities/AlertingTask.cs
+- [x] T003 Configure AlertingTask entity in BeaconContext.OnModelCreating() in src/Beacon.Core/Data/BeaconContext.cs (add DbSet, unique index on SubscriptionId, one-to-many with Notifications)
 
 **Note**: Build solution after T003 to verify entity configuration compiles
 
@@ -41,13 +41,13 @@
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [x] T004 [P] Create TaskData DTO in Beacon.Core/DTOs/TaskData.cs
-- [x] T005 [P] Create TaskDetailsData DTO in Beacon.Core/DTOs/TaskDetailsData.cs
-- [x] T006 [P] Create TaskStatisticsData DTO in Beacon.Core/DTOs/TaskStatisticsData.cs
-- [x] T007 [P] Create ITaskService interface in Beacon.Core/Services/ITaskService.cs
-- [x] T008 [P] Implement TaskService in Beacon.Core/Services/TaskService.cs (find-or-create with auto-resolve)
-- [x] T009 Register ITaskService in DI container in Beacon.Core/ServiceConfiguration.cs
-- [x] T010 Update NotificationService.SendNotification() in Beacon.Core/Services/NotificationService.cs (call TaskService directly for Tasks notifications, no adapter needed)
+- [x] T004 [P] Create TaskData DTO in src/Beacon.Core/DTOs/TaskData.cs
+- [x] T005 [P] Create TaskDetailsData DTO in src/Beacon.Core/DTOs/TaskDetailsData.cs
+- [x] T006 [P] Create TaskStatisticsData DTO in src/Beacon.Core/DTOs/TaskStatisticsData.cs
+- [x] T007 [P] Create ITaskService interface in src/Beacon.Core/Services/ITaskService.cs
+- [x] T008 [P] Implement TaskService in src/Beacon.Core/Services/TaskService.cs (find-or-create with auto-resolve)
+- [x] T009 Register ITaskService in DI container in src/Beacon.Core/ServiceConfiguration.cs
+- [x] T010 Update NotificationService.SendNotification() in src/Beacon.Core/Services/NotificationService.cs (call TaskService directly for Tasks notifications, no adapter needed)
 
 **Migration Note**: User must manually generate migrations after T003:
 ```bash
@@ -70,13 +70,13 @@ dotnet ef database update --project Beacon.Core --startup-project Beacon.SampleP
 
 - [x] T013 [P] [US1] Implement GetTasks query method using paged list pattern in TaskService.cs
 - [x] T014 [P] [US1] Implement GetTaskDetails query method in TaskService.cs
-- [x] T015 [P] [US1] Create Tasks.razor page with MudDataGrid and paging in Beacon.UI/Components/Pages/Tasks/Tasks.razor
-- [x] T016 [P] [US1] Create TaskDetails.razor page with notification history table in Beacon.UI/Components/Pages/Tasks/TaskDetails.razor
-- [x] T017 [US1] Add CreateTasks checkbox to AddSubscriptionDialog.razor in Beacon.UI/Components/Pages/Subscriptions/AddSubscriptionDialog.razor
-- [x] T018 [US1] Add CreateTasks display to SubscriptionDetails.razor in Beacon.UI/Components/Pages/Subscriptions/SubscriptionDetails.razor
+- [x] T015 [P] [US1] Create Tasks.razor page with MudDataGrid and paging in src/Beacon.UI/Components/Pages/Tasks/Tasks.razor
+- [x] T016 [P] [US1] Create TaskDetails.razor page with notification history table in src/Beacon.UI/Components/Pages/Tasks/TaskDetails.razor
+- [x] T017 [US1] Add CreateTasks checkbox to AddSubscriptionDialog.razor in src/Beacon.UI/Components/Pages/Subscriptions/AddSubscriptionDialog.razor
+- [x] T018 [US1] Add CreateTasks display to SubscriptionDetails.razor in src/Beacon.UI/Components/Pages/Subscriptions/SubscriptionDetails.razor
 - [x] T019 [US1] Add CreateTasks property to SubscriptionData and SubscriptionDetailsData DTOs
 - [x] T020 [US1] Update SubscriptionService to map CreateTasks in Create/Update/GetDetails methods
-- [x] T021 [US1] Add Tasks navigation link to MainLayout.razor in Beacon.UI/Components/Layout/MainLayout.razor
+- [x] T021 [US1] Add Tasks navigation link to MainLayout.razor in src/Beacon.UI/Components/Layout/MainLayout.razor
 
 **Checkpoint**: At this point, User Story 1 should be fully functional - users can create Tasks recipients, attach to subscriptions, and view generated tasks
 
@@ -103,7 +103,7 @@ dotnet ef database update --project Beacon.Core --startup-project Beacon.SampleP
 - [x] T024 [P] [US2] Implement GetTaskStatistics method in TaskService.cs
 - [x] T025 [P] [US2] Create ResolveTaskDialog.razor with resolution notes textarea
 - [x] T026 [US2] Update TaskDetails.razor with Resolve/Reopen buttons and notification history table
-- [x] T027 [US2] Update Notification entity to add TaskId nullable FK in Beacon.Core/Data/Entities/Notification.cs
+- [x] T027 [US2] Update Notification entity to add TaskId nullable FK in src/Beacon.Core/Data/Entities/Notification.cs
 
 **Checkpoint**: At this point, User Stories 1 AND 2 should both work independently - users can create, view, resolve, and reopen tasks
 
@@ -124,10 +124,10 @@ dotnet ef database update --project Beacon.Core --startup-project Beacon.SampleP
 
 ### Implementation for User Story 3
 
-- [ ] T024 [P] [US3] Add GetTasksBySubscription method to ITaskService in Beacon.Core/Services/ITaskService.cs
-- [ ] T025 [P] [US3] Implement GetTasksBySubscription in TaskService.cs in Beacon.Core/Services/TaskService.cs (uses GetTasks handler with SubscriptionId filter)
-- [ ] T026 [P] [US3] Create TaskTimeline.razor component in Beacon.UI/Components/Pages/Tasks/TaskTimeline.razor (timeline visualization with result count trend)
-- [ ] T027 [US3] Update SubscriptionDetails.razor in Beacon.UI/Components/Pages/Subscriptions/SubscriptionDetails.razor (add "Task History" tab, embed TaskTimeline component)
+- [ ] T024 [P] [US3] Add GetTasksBySubscription method to ITaskService in src/Beacon.Core/Services/ITaskService.cs
+- [ ] T025 [P] [US3] Implement GetTasksBySubscription in TaskService.cs in src/Beacon.Core/Services/TaskService.cs (uses GetTasks handler with SubscriptionId filter)
+- [ ] T026 [P] [US3] Create TaskTimeline.razor component in src/Beacon.UI/Components/Pages/Tasks/TaskTimeline.razor (timeline visualization with result count trend)
+- [ ] T027 [US3] Update SubscriptionDetails.razor in src/Beacon.UI/Components/Pages/Subscriptions/SubscriptionDetails.razor (add "Task History" tab, embed TaskTimeline component)
 
 **Checkpoint**: All user stories (P1, P2, P3) should now be independently functional - users can create, view, resolve, reopen, and track task trends over time
 
@@ -150,11 +150,11 @@ dotnet ef database update --project Beacon.Core --startup-project Beacon.SampleP
 
 ### Implementation for User Story 4 (DEFERRED)
 
-- [ ] T028 [P] [US4] Add AssignedToUserId nullable field to Task entity in Beacon.Core/Data/Entities/Task.cs
+- [ ] T028 [P] [US4] Add AssignedToUserId nullable field to Task entity in src/Beacon.Core/Data/Entities/Task.cs
 - [ ] T029 [P] [US4] Generate migration for Task entity modification (user generates manually)
-- [ ] T030 [P] [US4] Implement AssignTask command handler in Beacon.Core/Features/Tasks/AssignTask.cs
-- [ ] T031 [P] [US4] Create task assignment UI component in Beacon.UI/Components/Pages/Tasks/AssignTaskDialog.razor
-- [ ] T032 [US4] Update Tasks.razor with "Assigned to Me" filter in Beacon.UI/Components/Pages/Tasks/Tasks.razor
+- [ ] T030 [P] [US4] Implement AssignTask command handler in src/Beacon.Core/Features/Tasks/AssignTask.cs
+- [ ] T031 [P] [US4] Create task assignment UI component in src/Beacon.UI/Components/Pages/Tasks/AssignTaskDialog.razor
+- [ ] T032 [US4] Update Tasks.razor with "Assigned to Me" filter in src/Beacon.UI/Components/Pages/Tasks/Tasks.razor
 - [ ] T033 [US4] Implement notification service integration for task assignments (email/Teams)
 
 **Checkpoint**: Task assignment and notification features complete (if implemented)
@@ -165,10 +165,10 @@ dotnet ef database update --project Beacon.Core --startup-project Beacon.SampleP
 
 **Purpose**: Improvements that affect multiple user stories
 
-- [ ] T034 [P] Implement GetTaskStatistics query handler in Beacon.Core/Features/Tasks/GetTaskStatistics.cs
-- [ ] T035 Add task statistics dashboard to Tasks.razor page header in Beacon.UI/Components/Pages/Tasks/Tasks.razor (total, unresolved, resolved counts)
-- [ ] T036 [P] Add client-side sorting to Tasks.razor task list in Beacon.UI/Components/Pages/Tasks/Tasks.razor
-- [ ] T037 [P] Add pagination to Tasks.razor task list in Beacon.UI/Components/Pages/Tasks/Tasks.razor (if >100 tasks)
+- [ ] T034 [P] Implement GetTaskStatistics query handler in src/Beacon.Core/Features/Tasks/GetTaskStatistics.cs
+- [ ] T035 Add task statistics dashboard to Tasks.razor page header in src/Beacon.UI/Components/Pages/Tasks/Tasks.razor (total, unresolved, resolved counts)
+- [ ] T036 [P] Add client-side sorting to Tasks.razor task list in src/Beacon.UI/Components/Pages/Tasks/Tasks.razor
+- [ ] T037 [P] Add pagination to Tasks.razor task list in src/Beacon.UI/Components/Pages/Tasks/Tasks.razor (if >100 tasks)
 - [ ] T038 [P] Add error handling and loading states to all Task UI components (Tasks.razor, TaskDetails.razor, ResolveTaskDialog.razor)
 - [ ] T039 [P] Add validation for ResolutionNotes max length (2000 chars) in ResolveTaskDialog.razor
 - [ ] T040 Build solution with `dotnet build --property WarningLevel=0` and verify no compilation errors
@@ -248,13 +248,13 @@ dotnet ef database update --project Beacon.Core --startup-project Beacon.SampleP
 # Launch all parallel tasks for User Story 1 together:
 
 # Core handlers (can run in parallel):
-Task: "Implement GetTasks query handler in Beacon.Core/Features/Tasks/GetTasks.cs"
-Task: "Implement GetTaskDetails query handler in Beacon.Core/Features/Tasks/GetTaskDetails.cs"
+Task: "Implement GetTasks query handler in src/Beacon.Core/Features/Tasks/GetTasks.cs"
+Task: "Implement GetTaskDetails query handler in src/Beacon.Core/Features/Tasks/GetTaskDetails.cs"
 
 # UI components (can run in parallel with handlers):
-Task: "Create Tasks.razor page in Beacon.UI/Components/Pages/Tasks/Tasks.razor"
-Task: "Create TaskDetails.razor page in Beacon.UI/Components/Pages/Tasks/TaskDetails.razor"
-Task: "Add Tasks navigation link to NavMenu.razor in Beacon.UI/Components/Layout/NavMenu.razor"
+Task: "Create Tasks.razor page in src/Beacon.UI/Components/Pages/Tasks/Tasks.razor"
+Task: "Create TaskDetails.razor page in src/Beacon.UI/Components/Pages/Tasks/TaskDetails.razor"
+Task: "Add Tasks navigation link to NavMenu.razor in src/Beacon.UI/Components/Layout/NavMenu.razor"
 
 # Sequential after parallel tasks complete:
 Task: "Update AddRecipientDialog.razor to add Tasks option"

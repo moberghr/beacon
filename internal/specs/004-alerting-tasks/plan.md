@@ -41,11 +41,11 @@ Add "Tasks" as a new notification recipient type in the Beacon alerting system. 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
 ### ✅ I. Clean Architecture
-- **Compliance**: Task entity will reside in `Beacon.Core/Data/Entities/`
-- **Compliance**: TasksAdapter will reside in `Beacon.Core/Adapters/`
+- **Compliance**: Task entity will reside in `src/Beacon.Core/Data/Entities/`
+- **Compliance**: TasksAdapter will reside in `src/Beacon.Core/Adapters/`
 - **Compliance**: Task entity will inherit from `BaseArchivableEntity` for soft delete support
-- **Compliance**: CQRS handlers will use MediatR in `Beacon.Core/Features/Tasks/`
-- **Compliance**: UI components will reside in `Beacon.UI/Components/Pages/Tasks/`
+- **Compliance**: CQRS handlers will use MediatR in `src/Beacon.Core/Features/Tasks/`
+- **Compliance**: UI components will reside in `src/Beacon.UI/Components/Pages/Tasks/`
 - **Compliance**: Dependencies flow inward: UI → Services → Core (no violations)
 - **Note**: Task entity will implement standard entity patterns (IChangeableEntity not needed as tasks are immutable after resolution)
 
@@ -116,7 +116,7 @@ specs/004-alerting-tasks/
 ### Source Code (repository root)
 
 ```text
-Beacon.Core/
+src/Beacon.Core/
 ├── Data/
 │   ├── Entities/
 │   │   └── Task.cs                          # NEW: Task entity
@@ -134,15 +134,15 @@ Beacon.Core/
     ├── TaskData.cs                           # NEW: Task list item DTO
     └── TaskDetailsData.cs                    # NEW: Task details DTO
 
-Beacon.Core.PostgreSql/
+src/Beacon.Core.PostgreSql/
 └── Migrations/
     └── [Timestamp]_AddTaskEntity.cs          # NEW: PostgreSQL migration (user generates)
 
-Beacon.Core.SqlServer/
+src/Beacon.Core.SqlServer/
 └── Migrations/
     └── [Timestamp]_AddTaskEntity.cs          # NEW: SQL Server migration (user generates)
 
-Beacon.UI/
+src/Beacon.UI/
 └── Components/
     └── Pages/
         └── Tasks/                             # NEW: Task UI components
@@ -151,7 +151,7 @@ Beacon.UI/
             ├── ResolveTaskDialog.razor        # Dialog for resolving task
             └── TaskFilters.razor              # Filter component (status, subscription, recipient)
 
-Beacon.SampleProject/
+src/Beacon.SampleProject/
 └── Program.cs                                 # MODIFIED: No changes needed (existing adapter registration)
 ```
 

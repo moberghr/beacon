@@ -10,7 +10,7 @@ This document analyzes the current Beacon project architecture to understand pat
 
 The query execution system is built around a sophisticated multi-step, cross-project architecture:
 
-**Key Service: `QueryService` (`/Users/mirkobudimir/Dev/beacon/Beacon.Core/Services/QueryService.cs`)**
+**Key Service: `QueryService` (`/Users/mirkobudimir/Dev/beacon/src/Beacon.Core/Services/QueryService.cs`)**
 
 #### Multi-Step Query Support
 - **Query Structure**: Queries can have multiple steps (`QueryStep`) that execute across different projects/databases
@@ -37,7 +37,7 @@ Task<QueryResult> ExecuteQuery(int subscriptionId, CancellationToken cancellatio
 
 ### Notification Processing
 
-**Key Service: `NotificationService` (`/Users/mirkobudimir/Dev/beacon/Beacon.Core/Services/NotificationService.cs`)**
+**Key Service: `NotificationService` (`/Users/mirkobudimir/Dev/beacon/src/Beacon.Core/Services/NotificationService.cs`)**
 
 #### Notification Flow:
 1. **Query Execution**: `JobService.ExecuteQuery()` runs scheduled queries
@@ -58,14 +58,14 @@ Task<QueryResult> ExecuteQuery(int subscriptionId, CancellationToken cancellatio
 
 **Base Classes:**
 ```csharp
-// /Users/mirkobudimir/Dev/beacon/Beacon.Core/Data/Entities/Base/BaseEntity.cs
+// /Users/mirkobudimir/Dev/beacon/src/Beacon.Core/Data/Entities/Base/BaseEntity.cs
 internal abstract class BaseEntity
 {
     public int Id { get; set; }
     public DateTime CreatedTime { get; set; } = DateTime.UtcNow;
 }
 
-// /Users/mirkobudimir/Dev/beacon/Beacon.Core/Data/Entities/Base/ArchivableBaseEntity.cs  
+// /Users/mirkobudimir/Dev/beacon/src/Beacon.Core/Data/Entities/Base/ArchivableBaseEntity.cs  
 internal abstract class ArchivableBaseEntity : BaseEntity
 {
     public DateTime? ArchivedTime { get; set; }
@@ -78,7 +78,7 @@ internal abstract class ArchivableBaseEntity : BaseEntity
 
 #### Project Entity
 ```csharp
-// /Users/mirkobudimir/Dev/beacon/Beacon.Core/Data/Entities/Project.cs
+// /Users/mirkobudimir/Dev/beacon/src/Beacon.Core/Data/Entities/Project.cs
 internal class Project : ArchivableBaseEntity
 {
     public required string Name { get; set; }
@@ -92,7 +92,7 @@ internal class Project : ArchivableBaseEntity
 
 #### Query Execution System
 ```csharp
-// /Users/mirkobudimir/Dev/beacon/Beacon.Core/Data/Entities/Query.cs
+// /Users/mirkobudimir/Dev/beacon/src/Beacon.Core/Data/Entities/Query.cs
 internal class Query : ArchivableBaseEntity
 {
     public string Name { get; set; }
@@ -106,7 +106,7 @@ internal class Query : ArchivableBaseEntity
     public bool IsCrossDatabase => Steps.Select(s => s.Project.DatabaseEngineType).Distinct().Count() > 1;
 }
 
-// /Users/mirkobudimir/Dev/beacon/Beacon.Core/Data/Entities/QueryStep.cs
+// /Users/mirkobudimir/Dev/beacon/src/Beacon.Core/Data/Entities/QueryStep.cs
 internal class QueryStep : BaseEntity
 {
     public required int QueryId { get; set; }
@@ -125,7 +125,7 @@ internal class QueryStep : BaseEntity
 
 #### QueryExecutionHistory and Notifications
 ```csharp
-// /Users/mirkobudimir/Dev/beacon/Beacon.Core/Data/Entities/QueryExecutionHistory.cs
+// /Users/mirkobudimir/Dev/beacon/src/Beacon.Core/Data/Entities/QueryExecutionHistory.cs
 internal class QueryExecutionHistory : BaseEntity
 {
     public required int SubscriptionId { get; set; }
@@ -136,7 +136,7 @@ internal class QueryExecutionHistory : BaseEntity
     public List<Notification> Notifications { get; set; } = new();
 }
 
-// /Users/mirkobudimir/Dev/beacon/Beacon.Core/Data/Entities/Notification.cs  
+// /Users/mirkobudimir/Dev/beacon/src/Beacon.Core/Data/Entities/Notification.cs  
 internal class Notification : BaseEntity
 {
     public required int RecipientId { get; set; }
@@ -150,7 +150,7 @@ internal class Notification : BaseEntity
 
 ### Database Context
 ```csharp
-// /Users/mirkobudimir/Dev/beacon/Beacon.Core/Data/BeaconContext.cs
+// /Users/mirkobudimir/Dev/beacon/src/Beacon.Core/Data/BeaconContext.cs
 internal class BeaconContext : DbContext
 {
     public DbSet<Query> Queries => Set<Query>();
@@ -169,7 +169,7 @@ internal class BeaconContext : DbContext
 
 **Base Pattern:**
 ```csharp
-// /Users/mirkobudimir/Dev/beacon/Beacon.UI/Components/Shared/BasePageComponent.cs
+// /Users/mirkobudimir/Dev/beacon/src/Beacon.UI/Components/Shared/BasePageComponent.cs
 public class BasePageComponent: ComponentBase
 {
     [Inject] protected NavigationManager NavManager { get; set; }
@@ -179,7 +179,7 @@ public class BasePageComponent: ComponentBase
 ```
 
 ### List/Grid Pattern
-**Example: Queries List (`/Users/mirkobudimir/Dev/beacon/Beacon.UI/Components/Pages/Queries/Queries.razor`)**
+**Example: Queries List (`/Users/mirkobudimir/Dev/beacon/src/Beacon.UI/Components/Pages/Queries/Queries.razor`)**
 
 ```razor
 @page "/beacon/queries"
@@ -209,7 +209,7 @@ public class BasePageComponent: ComponentBase
 - `MudDataGrid`: Server-side data grid with pagination
 
 ### Dialog Pattern
-**Example: Add Project Dialog (`/Users/mirkobudimir/Dev/beacon/Beacon.UI/Components/Pages/Projects/AddProjectDialog.razor`)**
+**Example: Add Project Dialog (`/Users/mirkobudimir/Dev/beacon/src/Beacon.UI/Components/Pages/Projects/AddProjectDialog.razor`)**
 
 ```razor
 <MudDialog Class="pb-2">

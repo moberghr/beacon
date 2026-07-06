@@ -26,8 +26,8 @@
 ### 1.1 Entity Configuration Duplication
 
 **Files:**
-- `Beacon.Core.PostgreSql/Data/PostgreSqlBeaconContext.cs:13-18`
-- `Beacon.Core.SqlServer/Data/SqlServerBeaconContext.cs:13-18`
+- `src/Beacon.Core.PostgreSql/Data/PostgreSqlBeaconContext.cs:13-18`
+- `src/Beacon.Core.SqlServer/Data/SqlServerBeaconContext.cs:13-18`
 
 **Pattern:** Both override `OnModelCreating` with identical schema configuration code.
 
@@ -38,8 +38,8 @@
 ### 1.2 Service Collection Extension Duplication
 
 **Files:**
-- `Beacon.Core.PostgreSql/ServiceCollectionExtensions.cs:30-45`
-- `Beacon.Core.SqlServer/ServiceCollectionExtensions.cs:29-44`
+- `src/Beacon.Core.PostgreSql/ServiceCollectionExtensions.cs:30-45`
+- `src/Beacon.Core.SqlServer/ServiceCollectionExtensions.cs:29-44`
 
 **Pattern:** Nearly identical `BeaconContextFactoryAdapter` class in both files (~32 lines each).
 
@@ -50,9 +50,9 @@
 ### 1.3 Query Parameter Transformation Duplication
 
 **Files:**
-- `Beacon.Core/Services/QueryService.cs:294-300, 343-349`
-- `Beacon.Core/Services/DataSourceService.cs:118-135`
-- `Beacon.Core/Services/SubscriptionService.cs` (throughout)
+- `src/Beacon.Core/Services/QueryService.cs:294-300, 343-349`
+- `src/Beacon.Core/Services/DataSourceService.cs:118-135`
+- `src/Beacon.Core/Services/SubscriptionService.cs` (throughout)
 
 **Pattern:**
 ```csharp
@@ -72,9 +72,9 @@ Parameters = s.Parameters.Select(p => new QueryStepParameterData
 ### 1.4 Recipient Data Transformation Duplication
 
 **Files:**
-- `Beacon.Core/Services/SubscriptionService.cs:133-140, 243-250`
-- `Beacon.Core/Services/NotificationService.cs:30-36, 154`
-- `Beacon.Core/Services/QueryService.cs:438-445`
+- `src/Beacon.Core/Services/SubscriptionService.cs:133-140, 243-250`
+- `src/Beacon.Core/Services/NotificationService.cs:30-36, 154`
+- `src/Beacon.Core/Services/QueryService.cs:438-445`
 
 **Occurrences:** 5+ times
 
@@ -85,8 +85,8 @@ Parameters = s.Parameters.Select(p => new QueryStepParameterData
 ### 1.5 Parameter Entity Creation Duplication
 
 **Files:**
-- `Beacon.Core/Services/QueryService.cs:215-225, 510-520, 546-556, 682-692, 726-736`
-- `Beacon.Core/Services/SubscriptionService.cs:78-84, 210-220`
+- `src/Beacon.Core/Services/QueryService.cs:215-225, 510-520, 546-556, 682-692, 726-736`
+- `src/Beacon.Core/Services/SubscriptionService.cs:78-84, 210-220`
 
 **Occurrences:** 7+ times
 
@@ -96,7 +96,7 @@ Parameters = s.Parameters.Select(p => new QueryStepParameterData
 
 ### 1.6 Task Creation/Update Logic Duplication
 
-**File:** `Beacon.Core/Services/TaskService.cs:16-96, 98-149`
+**File:** `src/Beacon.Core/Services/TaskService.cs:16-96, 98-149`
 
 **Pattern:** `CreateTask` and `CreateOrUpdateTask` share ~70% identical logic.
 
@@ -108,7 +108,7 @@ Parameters = s.Parameters.Select(p => new QueryStepParameterData
 
 ### 1.7 Recipient Fetching Duplication
 
-**File:** `Beacon.Core/Services/SubscriptionService.cs:62-64, 189-191, 297-299`
+**File:** `src/Beacon.Core/Services/SubscriptionService.cs:62-64, 189-191, 297-299`
 
 **Occurrences:** 3 times
 
@@ -120,7 +120,7 @@ Parameters = s.Parameters.Select(p => new QueryStepParameterData
 
 ### 2.1 Console.WriteLine in TaskService.cs (CRITICAL)
 
-**File:** `Beacon.Core/Services/TaskService.cs`
+**File:** `src/Beacon.Core/Services/TaskService.cs`
 
 **Issues:** 14 Console.WriteLine statements instead of ILogger:
 
@@ -147,7 +147,7 @@ Parameters = s.Parameters.Select(p => new QueryStepParameterData
 
 ### 2.2 Console.WriteLine in JobService.cs
 
-**File:** `Beacon.Core/Worker/Services/JobService.cs:94`
+**File:** `src/Beacon.Core/Worker/Services/JobService.cs:94`
 
 **Fix:** Replace with `_logger.LogDebug()`.
 
@@ -155,7 +155,7 @@ Parameters = s.Parameters.Select(p => new QueryStepParameterData
 
 ### 2.3 Placeholder Warning in SchedulingService.cs
 
-**File:** `Beacon.Core/Services/Shared/SchedulingService.cs:71`
+**File:** `src/Beacon.Core/Services/Shared/SchedulingService.cs:71`
 
 ```csharp
 _logger.LogWarning("GetNextExecutionTime not fully implemented, returning 1 hour from now")
@@ -197,8 +197,8 @@ public abstract class CrudService<TEntity, TDto, TCreateRequest, TUpdateRequest>
 ### 3.2 Multi-Step Workflow Extensions
 
 **Files:**
-- `Beacon.Core/Data/Entities/Query.cs:26-34`
-- `Beacon.Core/Data/Entities/DataMigration/MigrationJob.cs:63-67`
+- `src/Beacon.Core/Data/Entities/Query.cs:26-34`
+- `src/Beacon.Core/Data/Entities/DataMigration/MigrationJob.cs:63-67`
 
 **Duplicated logic:**
 ```csharp
@@ -214,9 +214,9 @@ public bool IsCrossDatabase => Steps.Select(s => s.DataSource.DatabaseEngineType
 ### 3.3 Fluent Validator Pattern
 
 **Files with scattered validation:**
-- `Beacon.Core/Validators/QueryValidator.cs:18-27`
-- `Beacon.Core/Validators/SubscriptionValidator.cs:10-49`
-- `Beacon.Core/Services/SubscriptionService.cs:40-60, 183-187`
+- `src/Beacon.Core/Validators/QueryValidator.cs:18-27`
+- `src/Beacon.Core/Validators/SubscriptionValidator.cs:10-49`
+- `src/Beacon.Core/Services/SubscriptionService.cs:40-60, 183-187`
 
 **Proposed abstraction:**
 ```csharp
@@ -250,7 +250,7 @@ public interface IDependencyChecker<T> where T : ArchivableBaseEntity
 
 ### 3.5 Migration Executor Strategy Pattern
 
-**File:** `Beacon.Core/Services/MigrationService.cs` (1343 lines!)
+**File:** `src/Beacon.Core/Services/MigrationService.cs` (1343 lines!)
 
 **Issue:** Multiple database-specific implementations with repeated code blocks.
 
@@ -274,7 +274,7 @@ public class SqlServerMigrationExecutor : IMigrationExecutor { }
 
 ### 4.1 SQL Injection Vulnerability (CRITICAL)
 
-**File:** `Beacon.Core/Helpers/QueryHelper.cs:7-15`
+**File:** `src/Beacon.Core/Helpers/QueryHelper.cs:7-15`
 
 ```csharp
 public static string CompileSql(string querySql, List<SubscriptionParamaterData> parameterValues)
@@ -295,7 +295,7 @@ public static string CompileSql(string querySql, List<SubscriptionParamaterData>
 
 ### 4.2 Hardcoded Credentials (CRITICAL)
 
-**File:** `Beacon.SampleProject/Program.cs:46, 57`
+**File:** `src/Beacon.SampleProject/Program.cs:46, 57`
 
 ```csharp
 options.BaseUrl = "https://localhost:7187/beacon";
@@ -308,7 +308,7 @@ options.BaseUrl = "https://localhost:7187/beacon";
 
 ### 4.3 Bare Exception Handling
 
-**File:** `Beacon.Core/Services/QueryExecutionPreviewService.cs:25-32, 37-44, 49-56, 106-110, 161-164`
+**File:** `src/Beacon.Core/Services/QueryExecutionPreviewService.cs:25-32, 37-44, 49-56, 106-110, 161-164`
 
 ```csharp
 try { ... }
@@ -332,7 +332,7 @@ catch { return null; }  // Swallows ALL exceptions silently
 
 ### 4.5 Null Reference Risks
 
-**File:** `Beacon.Core/Helpers/Helpers.cs:43, 71-72`
+**File:** `src/Beacon.Core/Helpers/Helpers.cs:43, 71-72`
 
 ```csharp
 queryResult.TopRecords.FirstOrDefault().SelectMany(property => ...)
@@ -367,7 +367,7 @@ Used throughout: QueryService.cs, SubscriptionService.cs, MigrationService.cs
 
 ### 4.8 Brittle Exception Matching
 
-**File:** `Beacon.Core/Services/MigrationService.cs:649-660`
+**File:** `src/Beacon.Core/Services/MigrationService.cs:649-660`
 
 ```csharp
 catch (Exception ex) when (ex.Message.Contains("does not exist"))
@@ -383,7 +383,7 @@ catch (Exception ex) when (ex.Message.Contains("connect"))
 ## 5. PROPOSED NEW FILE STRUCTURE
 
 ```
-Beacon.Core/
+src/Beacon.Core/
 ├── Helpers/
 │   ├── LinqHelpers.cs (EXPAND - add extension methods)
 │   ├── ParameterEntityFactory.cs (NEW)
@@ -494,33 +494,33 @@ public static IQueryable<T> TakeIf<T>(this IQueryable<T> query, bool condition, 
 ### 2025-11-28 - Initial Cleanup Sprint
 
 **Files Modified:**
-- `Beacon.Core/Helpers/QueryHelper.cs` - Added SQL escaping, fixed class name reference
-- `Beacon.Core/Constants.cs` - NEW FILE - Application constants
-- `Beacon.SampleProject/Program.cs` - Moved credentials to configuration
-- `Beacon.Core/Services/TaskService.cs` - Replaced Console.WriteLine with ILogger, removed redundant field assignments
-- `Beacon.Core/Worker/Services/JobService.cs` - Replaced Console.WriteLine with ILogger, removed redundant field assignments
-- `Beacon.Core/Services/QueryExecutionPreviewService.cs` - Added proper exception handling with logging
-- `Beacon.Core/Helpers/LinqHelpers.cs` - Added extension methods (ToQueryStepParameterDataList, ToRecipientDataList, SkipIf)
-- `Beacon.Core/Models/Subscriptions/SubscriptionParameterData.cs` - Renamed file and class (was SubscriptionParamaterData)
-- `Beacon.Core/Services/SubscriptionService.cs` - Updated to use new class name
-- `Beacon.Core/Validators/SubscriptionValidator.cs` - Updated to use new class name
-- `Beacon.Core/Models/Subscriptions/SubscriptionData.cs` - Updated to use new class name
-- `Beacon.Core/Models/Subscriptions/SubscriptionDetailsData.cs` - Updated to use new class name
-- `Beacon.Core/Services/Shared/ParameterResolver.cs` - Updated to use new class name
-- `Beacon.Core/Services/Shared/QueryExecutionOrchestrator.cs` - Updated to use new class name
-- `Beacon.Core/Services/QueryService.cs` - Updated to use new class name and constants
-- `Beacon.Core/Services/MigrationService.cs` - Replaced magic numbers with constants
-- `Beacon.Core/Adapters/Helpers.cs` - Fixed null reference issues in email/Jira content generation
-- `Beacon.Core/Services/INotificationService.cs` - NEW FILE - Extracted interface from NotificationService
-- `Beacon.Core/Services/NotificationService.cs` - Removed interface (moved to separate file)
-- `Beacon.Core/Services/Shared/SchedulingService.cs` - Implemented cron methods properly using Cronos library
-- `Beacon.Core/Helpers/ParameterEntityFactory.cs` - NEW FILE - Factory for creating parameter entities from DTOs
-- `Beacon.Core/Services/QueryService.cs` - Refactored 5 parameter creation sites to use ParameterEntityFactory
-- `Beacon.Core/Services/SubscriptionService.cs` - Refactored 2 parameter creation sites to use ParameterEntityFactory
-- `Beacon.Core/Services/TaskService.cs` - Extracted helper methods for task creation/update (FindUnresolvedTaskAsync, UpdateTaskWithResultCount, CreateNewTask, LinkNotificationToTaskAsync)
-- `Beacon.Core/Data/BeaconContext.cs` - Added HasDefaultSchema call to base OnModelCreating
-- `Beacon.Core.PostgreSql/Data/PostgreSqlBeaconContext.cs` - Removed duplicate OnModelCreating, converted to primary constructor
-- `Beacon.Core.SqlServer/Data/SqlServerBeaconContext.cs` - Removed duplicate OnModelCreating, converted to primary constructor
+- `src/Beacon.Core/Helpers/QueryHelper.cs` - Added SQL escaping, fixed class name reference
+- `src/Beacon.Core/Constants.cs` - NEW FILE - Application constants
+- `src/Beacon.SampleProject/Program.cs` - Moved credentials to configuration
+- `src/Beacon.Core/Services/TaskService.cs` - Replaced Console.WriteLine with ILogger, removed redundant field assignments
+- `src/Beacon.Core/Worker/Services/JobService.cs` - Replaced Console.WriteLine with ILogger, removed redundant field assignments
+- `src/Beacon.Core/Services/QueryExecutionPreviewService.cs` - Added proper exception handling with logging
+- `src/Beacon.Core/Helpers/LinqHelpers.cs` - Added extension methods (ToQueryStepParameterDataList, ToRecipientDataList, SkipIf)
+- `src/Beacon.Core/Models/Subscriptions/SubscriptionParameterData.cs` - Renamed file and class (was SubscriptionParamaterData)
+- `src/Beacon.Core/Services/SubscriptionService.cs` - Updated to use new class name
+- `src/Beacon.Core/Validators/SubscriptionValidator.cs` - Updated to use new class name
+- `src/Beacon.Core/Models/Subscriptions/SubscriptionData.cs` - Updated to use new class name
+- `src/Beacon.Core/Models/Subscriptions/SubscriptionDetailsData.cs` - Updated to use new class name
+- `src/Beacon.Core/Services/Shared/ParameterResolver.cs` - Updated to use new class name
+- `src/Beacon.Core/Services/Shared/QueryExecutionOrchestrator.cs` - Updated to use new class name
+- `src/Beacon.Core/Services/QueryService.cs` - Updated to use new class name and constants
+- `src/Beacon.Core/Services/MigrationService.cs` - Replaced magic numbers with constants
+- `src/Beacon.Core/Adapters/Helpers.cs` - Fixed null reference issues in email/Jira content generation
+- `src/Beacon.Core/Services/INotificationService.cs` - NEW FILE - Extracted interface from NotificationService
+- `src/Beacon.Core/Services/NotificationService.cs` - Removed interface (moved to separate file)
+- `src/Beacon.Core/Services/Shared/SchedulingService.cs` - Implemented cron methods properly using Cronos library
+- `src/Beacon.Core/Helpers/ParameterEntityFactory.cs` - NEW FILE - Factory for creating parameter entities from DTOs
+- `src/Beacon.Core/Services/QueryService.cs` - Refactored 5 parameter creation sites to use ParameterEntityFactory
+- `src/Beacon.Core/Services/SubscriptionService.cs` - Refactored 2 parameter creation sites to use ParameterEntityFactory
+- `src/Beacon.Core/Services/TaskService.cs` - Extracted helper methods for task creation/update (FindUnresolvedTaskAsync, UpdateTaskWithResultCount, CreateNewTask, LinkNotificationToTaskAsync)
+- `src/Beacon.Core/Data/BeaconContext.cs` - Added HasDefaultSchema call to base OnModelCreating
+- `src/Beacon.Core.PostgreSql/Data/PostgreSqlBeaconContext.cs` - Removed duplicate OnModelCreating, converted to primary constructor
+- `src/Beacon.Core.SqlServer/Data/SqlServerBeaconContext.cs` - Removed duplicate OnModelCreating, converted to primary constructor
 
 **Summary:**
 - Critical security issues: 2 fixed (SQL injection, hardcoded credentials)

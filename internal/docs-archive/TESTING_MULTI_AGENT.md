@@ -266,15 +266,15 @@ Multi-agent integration is successful if:
 ## Files Modified/Created
 
 ### Modified:
-- `Beacon.Core/ServiceConfiguration.cs` (line 135)
-- `Beacon.UI/Components/Pages/DataSources/GenerateDocumentationDialog.razor`
+- `src/Beacon.Core/ServiceConfiguration.cs` (line 135)
+- `src/Beacon.UI/Components/Pages/DataSources/GenerateDocumentationDialog.razor`
 
 ### Created:
-- `Beacon.Core/Handlers/Documentation/GenerateMultiAgentDocumentationHandler.cs`
-- `Beacon.Core/Services/Ai/MultiAgent/IMultiAgentDocumentationService.cs`
-- `Beacon.Core/Services/Ai/MultiAgent/MultiAgentDocumentationService.cs`
-- `Beacon.Core/Services/Ai/MultiAgent/MultiAgentPrompts.cs`
-- `Beacon.Core/Models/Ai/MultiAgent/*.cs` (6 model files)
+- `src/Beacon.Core/Handlers/Documentation/GenerateMultiAgentDocumentationHandler.cs`
+- `src/Beacon.Core/Services/Ai/MultiAgent/IMultiAgentDocumentationService.cs`
+- `src/Beacon.Core/Services/Ai/MultiAgent/MultiAgentDocumentationService.cs`
+- `src/Beacon.Core/Services/Ai/MultiAgent/MultiAgentPrompts.cs`
+- `src/Beacon.Core/Models/Ai/MultiAgent/*.cs` (6 model files)
 
 ## Summary
 

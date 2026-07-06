@@ -6,7 +6,7 @@
 
 This document defines the MediatR handler contracts (request/response types) for all task operations following the CQRS pattern. Each handler is defined as `internal sealed class` with primary constructor injection, implementing `IRequestHandler<TRequest, TResponse>`.
 
-All handlers reside in `Beacon.Core/Features/Tasks/` directory.
+All handlers reside in `src/Beacon.Core/Features/Tasks/` directory.
 
 ---
 
@@ -16,7 +16,7 @@ All handlers reside in `Beacon.Core/Features/Tasks/` directory.
 
 **Purpose**: Create a new task record when TasksAdapter sends a notification.
 
-**File**: `Beacon.Core/Features/Tasks/CreateTask.cs`
+**File**: `src/Beacon.Core/Features/Tasks/CreateTask.cs`
 
 **Handler Signature**:
 ```csharp
@@ -71,7 +71,7 @@ var response = await _mediator.Send(new CreateTaskRequest
 
 **Purpose**: Mark a task as resolved with optional notes.
 
-**File**: `Beacon.Core/Features/Tasks/ResolveTask.cs`
+**File**: `src/Beacon.Core/Features/Tasks/ResolveTask.cs`
 
 **Handler Signature**:
 ```csharp
@@ -129,7 +129,7 @@ var response = await _mediator.Send(new ResolveTaskRequest
 
 **Purpose**: Reopen a resolved task (set Resolved = false).
 
-**File**: `Beacon.Core/Features/Tasks/ReopenTask.cs`
+**File**: `src/Beacon.Core/Features/Tasks/ReopenTask.cs`
 
 **Handler Signature**:
 ```csharp
@@ -182,7 +182,7 @@ var response = await _mediator.Send(new ReopenTaskRequest
 
 **Purpose**: Retrieve task list with filtering, sorting, and pagination.
 
-**File**: `Beacon.Core/Features/Tasks/GetTasks.cs`
+**File**: `src/Beacon.Core/Features/Tasks/GetTasks.cs`
 
 **Handler Signature**:
 ```csharp
@@ -280,7 +280,7 @@ var response = await _mediator.Send(new GetTasksRequest
 
 **Purpose**: Retrieve full task details including execution history and stored results.
 
-**File**: `Beacon.Core/Features/Tasks/GetTaskDetails.cs`
+**File**: `src/Beacon.Core/Features/Tasks/GetTaskDetails.cs`
 
 **Handler Signature**:
 ```csharp
@@ -356,7 +356,7 @@ if (response.TaskDetails is null)
 
 **Purpose**: Calculate aggregate statistics for tasks dashboard.
 
-**File**: `Beacon.Core/Features/Tasks/GetTaskStatistics.cs`
+**File**: `src/Beacon.Core/Features/Tasks/GetTaskStatistics.cs`
 
 **Handler Signature**:
 ```csharp
@@ -437,7 +437,7 @@ var response = await _mediator.Send(new GetTaskStatisticsRequest
 
 **Purpose**: Abstraction layer between Blazor UI and MediatR handlers.
 
-**Location**: `Beacon.Core/Services/ITaskService.cs`
+**Location**: `src/Beacon.Core/Services/ITaskService.cs`
 
 **Interface Definition**:
 ```csharp
@@ -452,7 +452,7 @@ public interface ITaskService
 }
 ```
 
-**Implementation**: `Beacon.Core/Services/TaskService.cs`
+**Implementation**: `src/Beacon.Core/Services/TaskService.cs`
 
 **Pattern**: Each method wraps a MediatR `Send()` call:
 ```csharp

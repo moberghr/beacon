@@ -13,7 +13,7 @@ I have successfully designed and implemented a complete multi-agent workflow sys
   - Implementation strategy
   - Cost/benefit analysis
 
-### 2. Models (`Beacon.Core/Models/Ai/MultiAgent/`)
+### 2. Models (`src/Beacon.Core/Models/Ai/MultiAgent/`)
 - **`OrchestratorResult.cs`** - Output from schema analysis agent
 - **`DomainGroup.cs`** - Logical table groupings
 - **`DomainResult.cs`** - Domain-specific documentation
@@ -21,7 +21,7 @@ I have successfully designed and implemented a complete multi-agent workflow sys
 - **`MultiAgentGenerationOptions.cs`** - Configuration options
 - **`DocumentationProgress.cs`** - Real-time progress tracking
 
-### 3. Service Layer (`Beacon.Core/Services/Ai/MultiAgent/`)
+### 3. Service Layer (`src/Beacon.Core/Services/Ai/MultiAgent/`)
 - **`IMultiAgentDocumentationService.cs`** - Service interface
 - **`MultiAgentDocumentationService.cs`** (830 lines)
   - Main orchestration logic

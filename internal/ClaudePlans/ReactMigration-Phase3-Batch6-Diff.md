@@ -33,10 +33,10 @@ Shared modules:
 
 Three new MediatR slices:
 
-- `Beacon.Core/Handlers/DataQuality/GetEvaluationHistoryHandler.cs` —
+- `src/Beacon.Core/Handlers/DataQuality/GetEvaluationHistoryHandler.cs` —
   `GetEvaluationHistoryQuery` → `GetEvaluationHistoryResult` (delegates to
   `IDataQualityEvaluationService.GetEvaluationHistoryAsync`).
-- `Beacon.Core/Handlers/Mcp/RunMcpToolHandler.cs` — two handlers:
+- `src/Beacon.Core/Handlers/Mcp/RunMcpToolHandler.cs` — two handlers:
   - `RunMcpToolCommand` → `RunMcpToolResult` (wraps `IMcpPlaygroundService.ExecuteToolAsync`).
   - `GetMcpToolsQuery` → `GetMcpToolsResult` (returns `IMcpPlaygroundService.ToolNames`).
 
@@ -85,19 +85,19 @@ Endpoint wiring:
 - `dotnet build`: green (4 pre-existing warnings, 0 errors).
 - `dotnet test`: 35 / 35 pass.
 - `npm run build`: green; `web/dist/` rsynced into
-  `Beacon.SampleProject/wwwroot/app/`.
+  `src/Beacon.SampleProject/wwwroot/app/`.
 - `npm test`: 13 / 13 pass.
 - DSWA cache cleared (`*.dswa.cache.json`, `*.Up2Date`) per project memory.
 
 ## Files changed
 
 Added (backend):
-- `Beacon.Core/Handlers/DataQuality/GetEvaluationHistoryHandler.cs`
-- `Beacon.Core/Handlers/Mcp/RunMcpToolHandler.cs`
+- `src/Beacon.Core/Handlers/DataQuality/GetEvaluationHistoryHandler.cs`
+- `src/Beacon.Core/Handlers/Mcp/RunMcpToolHandler.cs`
 
 Edited (backend):
-- `Beacon.SampleProject/Endpoints/DataQualityEndpoints.cs`
-- `Beacon.SampleProject/Endpoints/McpEndpoints.cs`
+- `src/Beacon.SampleProject/Endpoints/DataQualityEndpoints.cs`
+- `src/Beacon.SampleProject/Endpoints/McpEndpoints.cs`
 
 Added (web):
 - `routes/data-catalog/{queries.ts,DataCatalogPage.tsx}`

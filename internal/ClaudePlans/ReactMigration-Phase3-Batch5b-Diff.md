@@ -1,6 +1,6 @@
 # Phase 3 — Batch 5b: SubscriptionDetails
 
-Port of `Beacon.UI/Components/Pages/Subscriptions/SubscriptionDetails.razor` (824 LOC)
+Port of `src/Beacon.UI/Components/Pages/Subscriptions/SubscriptionDetails.razor` (824 LOC)
 to React. Read-mostly detail view; create/edit dialogs (multi-step add) deferred to 5c.
 
 ## Audit table — Blazor element → data source / endpoint
@@ -32,11 +32,11 @@ All handlers wrap existing services. No re-implementation, no new migrations.
 
 | Handler | File | Endpoint name |
 |---|---|---|
-| `GetSubscriptionDetailHandler` | `Beacon.Core/Handlers/Subscriptions/GetSubscriptionDetailHandler.cs` | `GetSubscriptionDetail` |
-| `TestSubscriptionHandler` | `Beacon.Core/Handlers/Subscriptions/TestSubscriptionHandler.cs` | `TestSubscription` |
-| `AddSubscriptionRecipientsHandler` | `Beacon.Core/Handlers/Subscriptions/AddSubscriptionRecipientsHandler.cs` | `AddSubscriptionRecipients` |
-| `RemoveSubscriptionRecipientHandler` | `Beacon.Core/Handlers/Subscriptions/RemoveSubscriptionRecipientHandler.cs` | `RemoveSubscriptionRecipient` |
-| `GetSubscriptionAnomalyChartHandler` | `Beacon.Core/Handlers/Subscriptions/GetSubscriptionAnomalyChartHandler.cs` | `GetSubscriptionAnomalyChart` |
+| `GetSubscriptionDetailHandler` | `src/Beacon.Core/Handlers/Subscriptions/GetSubscriptionDetailHandler.cs` | `GetSubscriptionDetail` |
+| `TestSubscriptionHandler` | `src/Beacon.Core/Handlers/Subscriptions/TestSubscriptionHandler.cs` | `TestSubscription` |
+| `AddSubscriptionRecipientsHandler` | `src/Beacon.Core/Handlers/Subscriptions/AddSubscriptionRecipientsHandler.cs` | `AddSubscriptionRecipients` |
+| `RemoveSubscriptionRecipientHandler` | `src/Beacon.Core/Handlers/Subscriptions/RemoveSubscriptionRecipientHandler.cs` | `RemoveSubscriptionRecipient` |
+| `GetSubscriptionAnomalyChartHandler` | `src/Beacon.Core/Handlers/Subscriptions/GetSubscriptionAnomalyChartHandler.cs` | `GetSubscriptionAnomalyChart` |
 
 ## Frontend — components
 

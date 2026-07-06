@@ -9,39 +9,39 @@ Make the AI documentation generation, knowledge graph, and MCP documentation too
 ## Context: Key Files & Current Behavior
 
 ### Knowledge Graph Service
-- **File**: `Beacon.AI/Services/Knowledge/KnowledgeGraphService.cs`
+- **File**: `src/Beacon.AI/Services/Knowledge/KnowledgeGraphService.cs`
 - `GetContextForLlmAsync()` (line ~319): Builds text context for LLM. Uses "Table:", "Columns:", "PK", "FK" labels. For API sources, should use "Endpoint:", "Response Fields:", etc.
 - `GetDataSourceKnowledgeAsync()` (line ~122): Returns `DataSourceKnowledge` with `DatabaseEngine` and `TableCount`. For API sources, `DatabaseEngine` should be "REST API" and the count label should reflect endpoints.
 - `GetTableKnowledgeAsync()` (line ~13): Returns `TableKnowledge` for a specific table/endpoint. Works via `DatabaseMetadata` entity which already stores API endpoints. FK/index lookups will return empty for API sources (fine). The `BusinessPurpose` maps to OpenAPI summary.
 
 ### Get Documentation MCP Tool
-- **File**: `Beacon.MCP/Tools/GetDocumentationTool.cs`
+- **File**: `src/Beacon.MCP/Tools/GetDocumentationTool.cs`
 - `GetTableDocumentationAsync()` (line ~69): Formats table knowledge as markdown. Column table header says "Column | Type | Nullable | PK | Description". For API endpoints, should say "Field | Type | Description" (no PK/FK/Nullable for API fields).
 - `GetDataSourceDocumentationAsync()` (line ~168): Shows data source overview. Says "Tables: N". For API, should say "Endpoints: N".
 - `ResolveDefaultSchemaAsync()` (line ~54): Returns "public" or "dbo" based on engine type. For API sources, should return "default" (the tag we use when no OpenAPI tag exists).
 - Tool description says "table" — should mention endpoints too.
 
 ### AI Documentation Service
-- **File**: `Beacon.AI/Services/Ai/AiDocumentationService.cs`
+- **File**: `src/Beacon.AI/Services/Ai/AiDocumentationService.cs`
 - `GenerateDocumentationAsync()` (line ~50): Calls `_metadataService.GetMetadataAsync()` which only works for database types (throws for non-database). Need to handle API sources.
 - `BuildSchemaAnalysisPrompt()` (line ~289): Prompt says "Database Documentation Task", "Database Name", "Database Schema", "Table: schema.table". For API, needs "API Documentation Task", "API Name", "Endpoints", "Endpoint: GET /path".
 - `AppendTableSchema()` (line ~314): Formats table columns with PK/FK groups. For API endpoints, should list parameters and response fields instead.
 
 ### Query Editor UI
-- **File**: `Beacon.UI/Components/Pages/DataSources/QueryEditor.razor`
+- **File**: `src/Beacon.UI/Components/Pages/DataSources/QueryEditor.razor`
 - Line ~101: "Generate Documentation" buttons gated on `DataSourceType.Database`. Should also show for `DataSourceType.Api`.
 - Line ~131: Active agent runs gated on `DataSourceType.Database`. Should also show for `DataSourceType.Api`.
 - Line ~154: AI Documentation History gated on `DataSourceType.Database`. Should also show for `DataSourceType.Api`.
 
 ### Database Metadata Service
-- **File**: `Beacon.Core/Services/DatabaseMetadataService.cs`
+- **File**: `src/Beacon.Core/Services/DatabaseMetadataService.cs`
 - `GetMetadataAsync()` (line ~30+): Only works for database types (checks `DatabaseEngineType.HasValue`). For API sources, should load from stored `DatabaseMetadata` rows directly.
 
 ## Tasks
 
 ### Task A: Make DatabaseMetadataService work for API sources
 
-**File**: `Beacon.Core/Services/DatabaseMetadataService.cs`
+**File**: `src/Beacon.Core/Services/DatabaseMetadataService.cs`
 
 In `GetMetadataAsync()`, after the `DatabaseEngineType.HasValue` check, add a branch for API:
 
@@ -71,7 +71,7 @@ Check all usages of `DatabaseMetadataSnapshot.DatabaseEngineType` and handle nul
 
 ### Task B: Make KnowledgeGraphService.GetContextForLlmAsync API-aware
 
-**File**: `Beacon.AI/Services/Knowledge/KnowledgeGraphService.cs`
+**File**: `src/Beacon.AI/Services/Knowledge/KnowledgeGraphService.cs`
 
 In `GetContextForLlmAsync()`:
 - At the start, look up the data source type
@@ -88,7 +88,7 @@ Similarly in `GetDataSourceKnowledgeAsync()`:
 
 ### Task C: Make GetDocumentationTool API-aware
 
-**File**: `Beacon.MCP/Tools/GetDocumentationTool.cs`
+**File**: `src/Beacon.MCP/Tools/GetDocumentationTool.cs`
 
 **C1. Update tool description and schema**:
 - Change description to mention both tables and API endpoints
@@ -112,7 +112,7 @@ Similarly in `GetDataSourceKnowledgeAsync()`:
 
 ### Task D: Make AiDocumentationService generate API documentation
 
-**File**: `Beacon.AI/Services/Ai/AiDocumentationService.cs`
+**File**: `src/Beacon.AI/Services/Ai/AiDocumentationService.cs`
 
 **D1. Update `GenerateDocumentationAsync()`**:
 - Look up data source type before calling `_metadataService.GetMetadataAsync()`
@@ -145,7 +145,7 @@ private string BuildApiAnalysisPrompt(string dataSourceName, List<TableMetadataD
 
 ### Task E: Enable documentation UI for API sources
 
-**File**: `Beacon.UI/Components/Pages/DataSources/QueryEditor.razor`
+**File**: `src/Beacon.UI/Components/Pages/DataSources/QueryEditor.razor`
 
 Three conditions to update (all currently check `DataSourceType.Database`):
 1. Line ~101: Generate Documentation buttons — change to `DataSourceType.Database or DataSourceType.Api`
@@ -173,12 +173,12 @@ Tasks A, B, C, E can all be done in parallel. Task D depends on A.
 
 | File | Task | Change |
 |------|------|--------|
-| `Beacon.Core/Models/Metadata/DatabaseMetadataSnapshot.cs` | A | Make `DatabaseEngineType` nullable |
-| `Beacon.Core/Services/DatabaseMetadataService.cs` | A | Handle API sources in `GetMetadataAsync()` |
-| `Beacon.AI/Services/Knowledge/KnowledgeGraphService.cs` | B | API-aware labels in `GetContextForLlmAsync()` and `GetDataSourceKnowledgeAsync()` |
-| `Beacon.MCP/Tools/GetDocumentationTool.cs` | C | API-aware formatting in all methods |
-| `Beacon.AI/Services/Ai/AiDocumentationService.cs` | D | API branch in `GenerateDocumentationAsync()`, new `BuildApiAnalysisPrompt()` |
-| `Beacon.UI/Components/Pages/DataSources/QueryEditor.razor` | E | Remove `DataSourceType.Database` gate for doc generation |
+| `src/Beacon.Core/Models/Metadata/DatabaseMetadataSnapshot.cs` | A | Make `DatabaseEngineType` nullable |
+| `src/Beacon.Core/Services/DatabaseMetadataService.cs` | A | Handle API sources in `GetMetadataAsync()` |
+| `src/Beacon.AI/Services/Knowledge/KnowledgeGraphService.cs` | B | API-aware labels in `GetContextForLlmAsync()` and `GetDataSourceKnowledgeAsync()` |
+| `src/Beacon.MCP/Tools/GetDocumentationTool.cs` | C | API-aware formatting in all methods |
+| `src/Beacon.AI/Services/Ai/AiDocumentationService.cs` | D | API branch in `GenerateDocumentationAsync()`, new `BuildApiAnalysisPrompt()` |
+| `src/Beacon.UI/Components/Pages/DataSources/QueryEditor.razor` | E | Remove `DataSourceType.Database` gate for doc generation |
 
 ## Build verification
 After all changes: `dotnet build --property WarningLevel=0`

@@ -14,7 +14,7 @@ This document defines the data model for the Tasks recipient feature, including 
 
 **Base Class**: `BaseArchivableEntity` (provides `Id`, `CreatedTime`, `ArchivedTime`, `Archive()` method)
 
-**Location**: `Beacon.Core/Data/Entities/Task.cs`
+**Location**: `src/Beacon.Core/Data/Entities/Task.cs`
 
 #### Schema
 
@@ -98,7 +98,7 @@ This document defines the data model for the Tasks recipient feature, including 
 #### Example Entity Code
 
 ```csharp
-// Beacon.Core/Data/Entities/AlertingTask.cs
+// src/Beacon.Core/Data/Entities/AlertingTask.cs
 public class AlertingTask : ArchivableBaseEntity
 {
     public required int SubscriptionId { get; set; }
@@ -125,7 +125,7 @@ public class AlertingTask : ArchivableBaseEntity
 
 **Purpose**: Add optional TaskId foreign key to link notifications to tasks.
 
-**Location**: `Beacon.Core/Data/Entities/Notification.cs`
+**Location**: `src/Beacon.Core/Data/Entities/Notification.cs`
 
 #### Schema Change
 
@@ -143,7 +143,7 @@ public class AlertingTask : ArchivableBaseEntity
 
 **Purpose**: Defines the type of notification recipient.
 
-**Location**: `Beacon.Core/Data/Enums/NotificationType.cs`
+**Location**: `src/Beacon.Core/Data/Enums/NotificationType.cs`
 
 #### Schema Change
 
@@ -207,7 +207,7 @@ public enum NotificationType
 ### EF Core Configuration (BeaconContext.OnModelCreating)
 
 ```csharp
-// Beacon.Core/Data/BeaconContext.cs - OnModelCreating method additions
+// src/Beacon.Core/Data/BeaconContext.cs - OnModelCreating method additions
 
 modelBuilder.Entity<Task>(entity =>
 {
@@ -276,7 +276,7 @@ public DbSet<Task> Tasks => Set<Task>();
 
 **Purpose**: Lightweight DTO for task list display.
 
-**Location**: `Beacon.Core/DTOs/TaskData.cs`
+**Location**: `src/Beacon.Core/DTOs/TaskData.cs`
 
 ```csharp
 public record TaskData
@@ -301,7 +301,7 @@ public record TaskData
 
 **Purpose**: Comprehensive DTO for task details page.
 
-**Location**: `Beacon.Core/DTOs/TaskDetailsData.cs`
+**Location**: `src/Beacon.Core/DTOs/TaskDetailsData.cs`
 
 ```csharp
 public record TaskDetailsData
@@ -333,7 +333,7 @@ public record QueryExecutionSummary(int Id, DateTime ExecutedAt, double Executio
 
 **Purpose**: Aggregate statistics for Tasks page header.
 
-**Location**: `Beacon.Core/DTOs/TaskStatisticsData.cs`
+**Location**: `src/Beacon.Core/DTOs/TaskStatisticsData.cs`
 
 ```csharp
 public record TaskStatisticsData

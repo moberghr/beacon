@@ -156,7 +156,7 @@ This reuses existing metadata entities rather than creating parallel structures.
 ## Project Structure
 
 ```
-Beacon.Connector.Api/
+src/Beacon.Connector.Api/
   ApiProvider.cs                    -- IDataSourceProvider implementation
   ApiMetadataExtractor.cs           -- IDatabaseMetadataExtractor equivalent
   Models/

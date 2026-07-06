@@ -6,7 +6,7 @@
 
 ## Goal
 
-Migrate every Blazor page in `Beacon.UI/Components/Pages/` to a React page at `/app/*`, calling the REST endpoints shipped in Phase 1. **Phase 3 ends with Blazor entirely deleted from `Beacon.SampleProject/Program.cs`** and the `Beacon.UI` project removed from the solution.
+Migrate every Blazor page in `src/Beacon.UI/Components/Pages/` to a React page at `/app/*`, calling the REST endpoints shipped in Phase 1. **Phase 3 ends with Blazor entirely deleted from `src/Beacon.SampleProject/Program.cs`** and the `Beacon.UI` project removed from the solution.
 
 ## Scope by the numbers (from Phase 0 audit)
 
@@ -49,7 +49,7 @@ After cutover (final batch): Blazor and `/beacon` deleted. `/app/*` becomes `/`.
 ### React app structure
 
 ```
-Beacon.SampleProject/web/src/
+src/Beacon.SampleProject/web/src/
 ├── main.tsx                         # bootstrap (existing)
 ├── App.tsx                          # router + auth guard (refactor in batch 1)
 ├── api/
@@ -181,9 +181,9 @@ Pages: McpPlayground, McpLearning, McpSettings, ApiKeys/GenerateApiKeyDialog (if
 
 - [ ] Verify all 44 routable pages have `/app/*` equivalents.
 - [ ] Move `/app` → `/` (root). React serves at the root URL.
-- [ ] Delete from `Beacon.SampleProject/Program.cs`: `app.UseBeaconUI()`, `app.UseLoginForm()`, `app.AddBlazorUI("/beacon")`, `app.MapBlazorHub()` (if any), the `/beacon` Map branch.
+- [ ] Delete from `src/Beacon.SampleProject/Program.cs`: `app.UseBeaconUI()`, `app.UseLoginForm()`, `app.AddBlazorUI("/beacon")`, `app.MapBlazorHub()` (if any), the `/beacon` Map branch.
 - [ ] Remove `Beacon.UI` project from `Beacon.sln` and from `Beacon.SampleProject.csproj` references.
-- [ ] Move auth middleware (`LoginFormAuthMiddleware`, `BeaconCookieAuthMiddleware`, `BeaconAuthorizationMiddleware`, `LoginEndpoints`, `SetupEndpoints`) from `Beacon.UI` into a new `Beacon.SampleProject.Auth` namespace (or just move to `Beacon.SampleProject/Authentication/`).
+- [ ] Move auth middleware (`LoginFormAuthMiddleware`, `BeaconCookieAuthMiddleware`, `BeaconAuthorizationMiddleware`, `LoginEndpoints`, `SetupEndpoints`) from `Beacon.UI` into a new `Beacon.SampleProject.Auth` namespace (or just move to `src/Beacon.SampleProject/Authentication/`).
 - [ ] Remove MudBlazor package reference from `Beacon.SampleProject.csproj`.
 - [ ] Update `CLAUDE.md` and `.claude/rules/project-specific.md` — remove §9.2 / §9.3 (MudBlazor pitfalls), update Project Profile.
 - [ ] Final regression sweep.
@@ -210,7 +210,7 @@ Pages: McpPlayground, McpLearning, McpSettings, ApiKeys/GenerateApiKeyDialog (if
 | MudBlazor's `MudDataGrid` features (server-side paging, virtualization, custom cell renderers) don't all map to TanStack Table out of box | Build the patterns we need on the Projects list (Batch 1). Add features lazily as later batches surface them. |
 | 6 feature areas (Subscriptions/Tasks/etc.) need new MediatR handlers — that's real backend work, not just UI | Each batch budget includes the handlers. Do NOT defer them. The OpenAPI contract test will catch any "added handler, forgot endpoint" slip. |
 | Heavy pages (Batch 5) compound: QueryEditor + Monaco + step form + execution preview + parameter dialogs is 5 patterns interlocking | One page per slot, no parallelization within batch 5. Spec each individually before coding. |
-| Cutover (batch 7) hits a route we missed | Pre-cutover sweep: every `@page` directive in `Beacon.UI/` mapped to a React route. Diff stays open until verified. |
+| Cutover (batch 7) hits a route we missed | Pre-cutover sweep: every `@page` directive in `src/Beacon.UI/` mapped to a React route. Diff stays open until verified. |
 | Sidebar / nav drift from canonical design system mid-flight | All sidebar markup matches `beacon-design.css` from day 1 (Batch 1). Any divergence is a code-review-blocking finding. |
 | Phase 2 may not have shipped before Phase 3 starts (subagent issues) | Phase 3 doesn't depend on Phase 2 changes. Worst case, Phase 2 lands in parallel. |
 

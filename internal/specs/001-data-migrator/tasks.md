@@ -37,12 +37,12 @@
 - Include exact file paths in descriptions
 
 ## Path Conventions
-- **Web app**: Extends existing `Beacon.Core/` and `Beacon.UI/` structure
+- **Web app**: Extends existing `src/Beacon.Core/` and `src/Beacon.UI/` structure
 - Paths based on existing project structure from plan.md
 
 ## Phase 3.1: Setup & Database
 - [ ] T001 Create database migration for MigrationJob and MigrationExecution entities
-- [ ] T002 [P] Add MigrationMode and MigrationStatus enums to Beacon.Core/Enums/
+- [ ] T002 [P] Add MigrationMode and MigrationStatus enums to src/Beacon.Core/Enums/
 - [ ] T003 Configure entity relationships in BeaconContext.OnModelCreating
 
 ## Phase 3.2: Tests First (TDD) ⚠️ MUST COMPLETE BEFORE 3.3
@@ -71,48 +71,48 @@
 ## Phase 3.3: Core Implementation (ONLY after tests are failing)
 
 ### Entity Models (Parallel - Different Files)
-- [ ] T018 [P] MigrationJob entity in Beacon.Core/Features/DataMigration/Entities/MigrationJob.cs
-- [ ] T019 [P] MigrationExecution entity in Beacon.Core/Features/DataMigration/Entities/MigrationExecution.cs
-- [ ] T020 [P] MigrationJobDto record in Beacon.Core/Features/DataMigration/DTOs/MigrationJobDto.cs
-- [ ] T021 [P] MigrationExecutionDto record in Beacon.Core/Features/DataMigration/DTOs/MigrationExecutionDto.cs
+- [ ] T018 [P] MigrationJob entity in src/Beacon.Core/Features/DataMigration/Entities/MigrationJob.cs
+- [ ] T019 [P] MigrationExecution entity in src/Beacon.Core/Features/DataMigration/Entities/MigrationExecution.cs
+- [ ] T020 [P] MigrationJobDto record in src/Beacon.Core/Features/DataMigration/DTOs/MigrationJobDto.cs
+- [ ] T021 [P] MigrationExecutionDto record in src/Beacon.Core/Features/DataMigration/DTOs/MigrationExecutionDto.cs
 
 ### Handler Request/Response Records (Parallel - Different Files)
-- [ ] T022 [P] CreateMigrationJobRequest/Response records in Beacon.Core/Features/DataMigration/Handlers/CreateMigrationJob.cs
-- [ ] T023 [P] ExecuteMigrationJobRequest/Response records in Beacon.Core/Features/DataMigration/Handlers/ExecuteMigrationJob.cs
-- [ ] T024 [P] GetMigrationJobsRequest/Response records in Beacon.Core/Features/DataMigration/Handlers/GetMigrationJobs.cs
-- [ ] T025 [P] GetMigrationExecutionsRequest/Response records in Beacon.Core/Features/DataMigration/Handlers/GetMigrationExecutions.cs
-- [ ] T026 [P] UpdateMigrationJobRequest/Response records in Beacon.Core/Features/DataMigration/Handlers/UpdateMigrationJob.cs
-- [ ] T027 [P] DeleteMigrationJobRequest/Response records in Beacon.Core/Features/DataMigration/Handlers/DeleteMigrationJob.cs
+- [ ] T022 [P] CreateMigrationJobRequest/Response records in src/Beacon.Core/Features/DataMigration/Handlers/CreateMigrationJob.cs
+- [ ] T023 [P] ExecuteMigrationJobRequest/Response records in src/Beacon.Core/Features/DataMigration/Handlers/ExecuteMigrationJob.cs
+- [ ] T024 [P] GetMigrationJobsRequest/Response records in src/Beacon.Core/Features/DataMigration/Handlers/GetMigrationJobs.cs
+- [ ] T025 [P] GetMigrationExecutionsRequest/Response records in src/Beacon.Core/Features/DataMigration/Handlers/GetMigrationExecutions.cs
+- [ ] T026 [P] UpdateMigrationJobRequest/Response records in src/Beacon.Core/Features/DataMigration/Handlers/UpdateMigrationJob.cs
+- [ ] T027 [P] DeleteMigrationJobRequest/Response records in src/Beacon.Core/Features/DataMigration/Handlers/DeleteMigrationJob.cs
 
 ### Handler Implementations (Sequential - May share dependencies)
-- [ ] T028 CreateMigrationJobHandler implementation in Beacon.Core/Features/DataMigration/Handlers/CreateMigrationJob.cs
-- [ ] T029 ExecuteMigrationJobHandler implementation in Beacon.Core/Features/DataMigration/Handlers/ExecuteMigrationJob.cs
-- [ ] T030 GetMigrationJobsHandler implementation in Beacon.Core/Features/DataMigration/Handlers/GetMigrationJobs.cs
-- [ ] T031 GetMigrationExecutionsHandler implementation in Beacon.Core/Features/DataMigration/Handlers/GetMigrationExecutions.cs
-- [ ] T032 UpdateMigrationJobHandler implementation in Beacon.Core/Features/DataMigration/Handlers/UpdateMigrationJob.cs
-- [ ] T033 DeleteMigrationJobHandler implementation in Beacon.Core/Features/DataMigration/Handlers/DeleteMigrationJob.cs
+- [ ] T028 CreateMigrationJobHandler implementation in src/Beacon.Core/Features/DataMigration/Handlers/CreateMigrationJob.cs
+- [ ] T029 ExecuteMigrationJobHandler implementation in src/Beacon.Core/Features/DataMigration/Handlers/ExecuteMigrationJob.cs
+- [ ] T030 GetMigrationJobsHandler implementation in src/Beacon.Core/Features/DataMigration/Handlers/GetMigrationJobs.cs
+- [ ] T031 GetMigrationExecutionsHandler implementation in src/Beacon.Core/Features/DataMigration/Handlers/GetMigrationExecutions.cs
+- [ ] T032 UpdateMigrationJobHandler implementation in src/Beacon.Core/Features/DataMigration/Handlers/UpdateMigrationJob.cs
+- [ ] T033 DeleteMigrationJobHandler implementation in src/Beacon.Core/Features/DataMigration/Handlers/DeleteMigrationJob.cs
 
 ### Migration Service Layer
-- [ ] T034 IMigrationService interface in Beacon.Core/Features/DataMigration/Services/IMigrationService.cs
-- [ ] T035 MigrationService implementation extending existing query execution patterns in Beacon.Core/Features/DataMigration/Services/MigrationService.cs
-- [ ] T036 MigrationValidationService for query and destination validation in Beacon.Core/Features/DataMigration/Services/MigrationValidationService.cs
+- [ ] T034 IMigrationService interface in src/Beacon.Core/Features/DataMigration/Services/IMigrationService.cs
+- [ ] T035 MigrationService implementation extending existing query execution patterns in src/Beacon.Core/Features/DataMigration/Services/MigrationService.cs
+- [ ] T036 MigrationValidationService for query and destination validation in src/Beacon.Core/Features/DataMigration/Services/MigrationValidationService.cs
 
 ## Phase 3.4: UI Components (Sequential - May share component dependencies)
 
 ### Supporting Components (Parallel - Different Files)
-- [ ] T037 [P] ProjectSelector component in Beacon.UI/Components/Custom/ProjectSelector.razor
-- [ ] T038 [P] QueryEditor component in Beacon.UI/Components/Custom/QueryEditor.razor
-- [ ] T039 [P] ExecutionStatusChip component in Beacon.UI/Components/Custom/ExecutionStatusChip.razor
+- [ ] T037 [P] ProjectSelector component in src/Beacon.UI/Components/Custom/ProjectSelector.razor
+- [ ] T038 [P] QueryEditor component in src/Beacon.UI/Components/Custom/QueryEditor.razor
+- [ ] T039 [P] ExecutionStatusChip component in src/Beacon.UI/Components/Custom/ExecutionStatusChip.razor
 
 ### Main UI Components
-- [ ] T040 MigrationJobList component in Beacon.UI/Components/Pages/DataMigration/MigrationJobList.razor
-- [ ] T041 MigrationJobForm component in Beacon.UI/Components/Pages/DataMigration/MigrationJobForm.razor
-- [ ] T042 MigrationExecutionHistory component in Beacon.UI/Components/Pages/DataMigration/MigrationExecutionHistory.razor
+- [ ] T040 MigrationJobList component in src/Beacon.UI/Components/Pages/DataMigration/MigrationJobList.razor
+- [ ] T041 MigrationJobForm component in src/Beacon.UI/Components/Pages/DataMigration/MigrationJobForm.razor
+- [ ] T042 MigrationExecutionHistory component in src/Beacon.UI/Components/Pages/DataMigration/MigrationExecutionHistory.razor
 
 ### Page Components
-- [ ] T043 MigrationListPage in Beacon.UI/Components/Pages/DataMigration/MigrationListPage.razor
-- [ ] T044 CreateMigrationJobPage in Beacon.UI/Components/Pages/DataMigration/CreateMigrationJobPage.razor
-- [ ] T045 MigrationHistoryPage in Beacon.UI/Components/Pages/DataMigration/MigrationHistoryPage.razor
+- [ ] T043 MigrationListPage in src/Beacon.UI/Components/Pages/DataMigration/MigrationListPage.razor
+- [ ] T044 CreateMigrationJobPage in src/Beacon.UI/Components/Pages/DataMigration/CreateMigrationJobPage.razor
+- [ ] T045 MigrationHistoryPage in src/Beacon.UI/Components/Pages/DataMigration/MigrationHistoryPage.razor
 
 ## Phase 3.5: Integration & Navigation
 - [ ] T046 Add Data Migration navigation menu item to MainLayout
@@ -175,10 +175,10 @@ Task: "Contract test DeleteMigrationJobHandler in tests/Features/DataMigration/D
 ### Phase 3.3: Launch Entity Creation Together  
 ```bash
 # Entity models can be created in parallel:
-Task: "MigrationJob entity in Beacon.Core/Features/DataMigration/Entities/MigrationJob.cs"
-Task: "MigrationExecution entity in Beacon.Core/Features/DataMigration/Entities/MigrationExecution.cs"
-Task: "MigrationJobDto record in Beacon.Core/Features/DataMigration/DTOs/MigrationJobDto.cs"
-Task: "MigrationExecutionDto record in Beacon.Core/Features/DataMigration/DTOs/MigrationExecutionDto.cs"
+Task: "MigrationJob entity in src/Beacon.Core/Features/DataMigration/Entities/MigrationJob.cs"
+Task: "MigrationExecution entity in src/Beacon.Core/Features/DataMigration/Entities/MigrationExecution.cs"
+Task: "MigrationJobDto record in src/Beacon.Core/Features/DataMigration/DTOs/MigrationJobDto.cs"
+Task: "MigrationExecutionDto record in src/Beacon.Core/Features/DataMigration/DTOs/MigrationExecutionDto.cs"
 ```
 
 ## Task Generation Rules Applied

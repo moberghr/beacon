@@ -8,16 +8,16 @@
 ## What changed
 
 ### Deleted
-- **`Beacon.UI/` project** — entire directory removed. Was the legacy Blazor host (MudBlazor + Razor pages). Project entry removed from `Beacon.sln`. ProjectReference removed from `Beacon.SampleProject.csproj` and `Beacon.Tests.csproj`.
+- **`src/Beacon.UI/` project** — entire directory removed. Was the legacy Blazor host (MudBlazor + Razor pages). Project entry removed from `Beacon.sln`. ProjectReference removed from `Beacon.SampleProject.csproj` and `Beacon.Tests.csproj`.
 - **MudBlazor + Blazored.LocalStorage NuGet packages** — dropped from `Beacon.SampleProject.csproj`.
 - All Blazor wiring in `Program.cs`: `app.UseBeaconUI()`, `AddBlazorUI("/beacon")`, `app.MapBlazorHub()`, `MapRazorComponents`, the `/beacon` `Map(...)` branch.
 
 ### Moved
-- **Auth middleware** from `Beacon.UI/Authentication/*` → `Beacon.SampleProject/Authentication/`:
+- **Auth middleware** from `src/Beacon.UI/Authentication/*` → `src/Beacon.SampleProject/Authentication/`:
   `ApiKeyAuthMiddleware`, `BasicAuthHandler`, `BeaconAuthenticationOptions`, `BeaconAuthorization*`, `BeaconCookieAuthMiddleware`, `FirstRunSetupMiddleware`, `IBeaconAuthentication*`, `JwtBearer*`, `LoginFormAuthMiddleware`, `MiddlewarePathHelper`, `OidcEvent*`.
-- **Auth endpoints** `LoginEndpoints.cs`, `SetupEndpoints.cs` → `Beacon.SampleProject/Endpoints/`.
-- All namespaces rewritten `Beacon.UI.Authentication` → `Beacon.SampleProject.Authentication`. Two test files in `Beacon.Tests/Unit/` updated to match.
-- New file `Beacon.SampleProject/Authentication/AuthServiceExtensions.cs` — extracted from the old `Beacon.UI/ServiceExtensions.cs`. Holds `AddBeaconCookieAuthentication`, `AddBeaconOidcAuthentication`, `AddBeaconJwtAuthentication`, `UseBeaconJwtBearerAuthentication`.
+- **Auth endpoints** `LoginEndpoints.cs`, `SetupEndpoints.cs` → `src/Beacon.SampleProject/Endpoints/`.
+- All namespaces rewritten `Beacon.UI.Authentication` → `Beacon.SampleProject.Authentication`. Two test files in `src/Beacon.Tests/Unit/` updated to match.
+- New file `src/Beacon.SampleProject/Authentication/AuthServiceExtensions.cs` — extracted from the old `src/Beacon.UI/ServiceExtensions.cs`. Holds `AddBeaconCookieAuthentication`, `AddBeaconOidcAuthentication`, `AddBeaconJwtAuthentication`, `UseBeaconJwtBearerAuthentication`.
 
 ### Path / routing changes
 - **`BrowserRouter basename`** flipped `"/app"` → `"/"`.
@@ -62,7 +62,7 @@
 
 - **Codegen rerun.** Several Phase 3 batches use hand-typed `fetchJson<T>` wrappers because we couldn't run `npm run codegen` against a live backend during subagent dispatches. Run `npm run codegen` once and consolidate.
 - **Drop `feature-flags.ts`** entirely and inline a single hard-coded `resolveNavHref` if the migrated/non-migrated split is no longer relevant.
-- **Cleanup `Beacon.SampleProject/Authentication/`** — some moved files may have unused legacy paths (`/beacon` redirects) that are now dead.
+- **Cleanup `src/Beacon.SampleProject/Authentication/`** — some moved files may have unused legacy paths (`/beacon` redirects) that are now dead.
 - **Test count.** Batch reports during this PR cited "35/35" repeatedly — actual current count is 28/28. The discrepancy is from earlier subagent reporting noise, not from removed tests; nothing was deleted.
 
 ---
@@ -70,14 +70,14 @@
 ## Files touched
 
 Beyond moves and deletes, the cutover edited:
-- `Beacon.SampleProject/Program.cs` — strip Blazor wiring, mount auth middleware, SPA fallback at root.
-- `Beacon.SampleProject/Beacon.SampleProject.csproj` — pkg refs, project ref, staging dir.
-- `Beacon.Tests/Beacon.Tests.csproj` — drop `Beacon.UI` ProjectReference.
-- `Beacon.Core/Beacon.Core.csproj` — `InternalsVisibleTo` swap (`Beacon.UI` → `Beacon.SampleProject` + `Beacon.Tests`).
+- `src/Beacon.SampleProject/Program.cs` — strip Blazor wiring, mount auth middleware, SPA fallback at root.
+- `src/Beacon.SampleProject/Beacon.SampleProject.csproj` — pkg refs, project ref, staging dir.
+- `src/Beacon.Tests/Beacon.Tests.csproj` — drop `Beacon.UI` ProjectReference.
+- `src/Beacon.Core/Beacon.Core.csproj` — `InternalsVisibleTo` swap (`Beacon.UI` → `Beacon.SampleProject` + `Beacon.Tests`).
 - `Beacon.sln` — `Beacon.UI` project entry removed.
-- `Beacon.SampleProject/web/src/App.tsx` — `BrowserRouter basename="/"`.
-- `Beacon.SampleProject/web/vite.config.ts` — `base: '/'`.
-- `Beacon.SampleProject/web/src/feature-flags.ts` — compat shim.
-- `Beacon.Tests/Unit/{OidcEventHandlersTests,SsoChallengeReturnUrlTests}.cs` — namespace usings updated.
+- `src/Beacon.SampleProject/web/src/App.tsx` — `BrowserRouter basename="/"`.
+- `src/Beacon.SampleProject/web/vite.config.ts` — `base: '/'`.
+- `src/Beacon.SampleProject/web/src/feature-flags.ts` — compat shim.
+- `src/Beacon.Tests/Unit/{OidcEventHandlersTests,SsoChallengeReturnUrlTests}.cs` — namespace usings updated.
 
 The overall PR (commits `5e07c01..HEAD`) ports 44 routable Blazor pages to React and removes the Blazor stack entirely.

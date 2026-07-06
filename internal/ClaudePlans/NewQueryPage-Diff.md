@@ -68,11 +68,11 @@ Documented inline in the page UI (save-bar hint shows *"Database explorer ships 
 
 ## Files touched
 
-- `Beacon.SampleProject/web/src/routes/queries/NewQueryPage.tsx` *(new — 599 LOC)*
-- `Beacon.SampleProject/web/src/routes/queries/NewQueryPage.test.tsx` *(new)*
-- `Beacon.SampleProject/web/src/routes/queries/QueriesListPage.tsx` *(button → Link, dialog removed; -77 LOC)*
-- `Beacon.SampleProject/web/src/App.tsx` *(lazy + route added)*
-- `Beacon.SampleProject/wwwroot/app/**` *(rsync from `web/dist` after build)*
+- `src/Beacon.SampleProject/web/src/routes/queries/NewQueryPage.tsx` *(new — 599 LOC)*
+- `src/Beacon.SampleProject/web/src/routes/queries/NewQueryPage.test.tsx` *(new)*
+- `src/Beacon.SampleProject/web/src/routes/queries/QueriesListPage.tsx` *(button → Link, dialog removed; -77 LOC)*
+- `src/Beacon.SampleProject/web/src/App.tsx` *(lazy + route added)*
+- `src/Beacon.SampleProject/wwwroot/app/**` *(rsync from `web/dist` after build)*
 
 No backend C# changes. No new EF migration.
 

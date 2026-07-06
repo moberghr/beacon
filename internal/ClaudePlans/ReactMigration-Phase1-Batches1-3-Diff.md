@@ -11,11 +11,11 @@
 
 | File | Change |
 |---|---|
-| `Beacon.UI/ServiceExtensions.cs` | `AddBeaconCookieAuthentication` now configures `Events.OnRedirectToLogin` and `Events.OnRedirectToAccessDenied` to emit `application/problem+json` 401/403 for any request whose path starts with `/beacon/api/` or `/beacon/mcp` or accepts `application/json`. Browser navigations under Blazor still get HTML redirects. |
-| `Beacon.SampleProject/Middleware/ApiExceptionMiddleware.cs` | New. Maps `InvalidOperationException` → 400, `BeaconException` → 400, `UnauthorizedAccessException` → 403, anything else → 500 (logged with context, generic message returned per §1.11). Emits RFC 7807 `application/problem+json`. Scoped via `app.UseApiExceptionHandler("/beacon/api")`. |
-| `Beacon.SampleProject/Endpoints/BeaconApiEndpoints.cs` | New `AddBeaconApiAuthorization()` registers a named auth policy (`BeaconApi`) bound to the cookie scheme. `MapBeaconApi()` applies the policy at the route group; individual endpoints opt out via `.AllowAnonymous()`. |
-| `Beacon.SampleProject/Endpoints/AuthEndpoints.cs` | Removed explicit `.RequireAuthorization()` from `/auth/permissions` — group-level policy handles it. |
-| `Beacon.SampleProject/Program.cs` | Added `AddBeaconApiAuthorization()` and `app.UseApiExceptionHandler("/beacon/api")`. |
+| `src/Beacon.UI/ServiceExtensions.cs` | `AddBeaconCookieAuthentication` now configures `Events.OnRedirectToLogin` and `Events.OnRedirectToAccessDenied` to emit `application/problem+json` 401/403 for any request whose path starts with `/beacon/api/` or `/beacon/mcp` or accepts `application/json`. Browser navigations under Blazor still get HTML redirects. |
+| `src/Beacon.SampleProject/Middleware/ApiExceptionMiddleware.cs` | New. Maps `InvalidOperationException` → 400, `BeaconException` → 400, `UnauthorizedAccessException` → 403, anything else → 500 (logged with context, generic message returned per §1.11). Emits RFC 7807 `application/problem+json`. Scoped via `app.UseApiExceptionHandler("/beacon/api")`. |
+| `src/Beacon.SampleProject/Endpoints/BeaconApiEndpoints.cs` | New `AddBeaconApiAuthorization()` registers a named auth policy (`BeaconApi`) bound to the cookie scheme. `MapBeaconApi()` applies the policy at the route group; individual endpoints opt out via `.AllowAnonymous()`. |
+| `src/Beacon.SampleProject/Endpoints/AuthEndpoints.cs` | Removed explicit `.RequireAuthorization()` from `/auth/permissions` — group-level policy handles it. |
+| `src/Beacon.SampleProject/Program.cs` | Added `AddBeaconApiAuthorization()` and `app.UseApiExceptionHandler("/beacon/api")`. |
 
 **Effect:** The Phase 0 caveat is gone. Anonymous `GET /beacon/api/auth/permissions` returns:
 
@@ -31,10 +31,10 @@ instead of a 500 with HTML stack trace. Same shape will apply to every authentic
 
 | File | Change |
 |---|---|
-| `Beacon.Tests/Beacon.Tests.csproj` | Added `Microsoft.AspNetCore.Mvc.Testing@9.0.11`. Added project reference to `Beacon.SampleProject`. |
-| `Beacon.SampleProject/Program.cs` | Added `public partial class Program;` shim so `WebApplicationFactory<Program>` compiles. |
-| `Beacon.Tests/Integration/Api/BeaconWebApplicationFactory.cs` | New. Inherits `WebApplicationFactory<Program>`. Reads optional `BEACON_TEST_CONNECTION_STRING` env var to override the dev DB. Otherwise reuses dev config. |
-| `Beacon.Tests/Integration/Api/Phase1HarnessTests.cs` | New. Six NUnit tests under `[Category("Phase1Harness")]`: `Health_Anonymous_Returns200`, `AuthMe_Anonymous_ReturnsIsAuthenticatedFalse`, `AuthPermissions_Anonymous_Returns401Json`, `Csrf_Anonymous_ReturnsTokenAndSetsCookie`, `UnknownApiPath_Returns404`, `Hub_Anonymous_Returns401Json`. Falls back to `Assert.Inconclusive(...)` if the host can't bootstrap (no DB). |
+| `src/Beacon.Tests/Beacon.Tests.csproj` | Added `Microsoft.AspNetCore.Mvc.Testing@9.0.11`. Added project reference to `Beacon.SampleProject`. |
+| `src/Beacon.SampleProject/Program.cs` | Added `public partial class Program;` shim so `WebApplicationFactory<Program>` compiles. |
+| `src/Beacon.Tests/Integration/Api/BeaconWebApplicationFactory.cs` | New. Inherits `WebApplicationFactory<Program>`. Reads optional `BEACON_TEST_CONNECTION_STRING` env var to override the dev DB. Otherwise reuses dev config. |
+| `src/Beacon.Tests/Integration/Api/Phase1HarnessTests.cs` | New. Six NUnit tests under `[Category("Phase1Harness")]`: `Health_Anonymous_Returns200`, `AuthMe_Anonymous_ReturnsIsAuthenticatedFalse`, `AuthPermissions_Anonymous_Returns401Json`, `Csrf_Anonymous_ReturnsTokenAndSetsCookie`, `UnknownApiPath_Returns404`, `Hub_Anonymous_Returns401Json`. Falls back to `Assert.Inconclusive(...)` if the host can't bootstrap (no DB). |
 
 **Effect:** First end-to-end automated test coverage of the new HTTP surface. Future endpoint batches add more `[Category("Phase1Endpoints")]` tests using the same harness. Local runs use the dev DB; CI sets `BEACON_TEST_CONNECTION_STRING`.
 
@@ -42,12 +42,12 @@ instead of a 500 with HTML stack trace. Same shape will apply to every authentic
 
 | File | Change |
 |---|---|
-| `Beacon.SampleProject/Hubs/BeaconHub.cs` | New. `[Authorize]` hub bound to the cookie scheme. Defines event-name constants and three event records (`JobStatusChangedEvent`, `NotificationCreatedEvent`, `ApprovalUpdatedEvent`). |
-| `Beacon.SampleProject/SignalR/HubUserIdProvider.cs` | New. `IUserIdProvider` resolving `ClaimTypes.NameIdentifier`. |
-| `Beacon.SampleProject/SignalR/HangfireSignalRJobFilter.cs` | New. Hangfire `IApplyStateFilter` that reads job parameter `BeaconUserId` and, if present, publishes `JobStatusChanged` to that user via `IHubContext<BeaconHub>`. Jobs without the parameter publish nothing — no broadcast (PII-safe per §1.11). |
-| `Beacon.SampleProject/Program.cs` | `AddSignalR()` + `AddSingleton<IUserIdProvider, HubUserIdProvider>()` + `AddSingleton<HangfireSignalRJobFilter>()` + `app.MapHub<BeaconHub>("/beacon/api/hub").RequireAuthorization(...)` + `Hangfire.GlobalJobFilters.Filters.Add(...)`. |
-| `Beacon.SampleProject/web/package.json` | Added `@microsoft/signalr@^8.0.7`. |
-| `Beacon.SampleProject/web/src/lib/hub.ts` | New. `connectBeaconHub()` returns a typed `BeaconHub` exposing `onJobStatusChanged`, `onNotificationCreated`, `onApprovalUpdated`, and `stop`. |
+| `src/Beacon.SampleProject/Hubs/BeaconHub.cs` | New. `[Authorize]` hub bound to the cookie scheme. Defines event-name constants and three event records (`JobStatusChangedEvent`, `NotificationCreatedEvent`, `ApprovalUpdatedEvent`). |
+| `src/Beacon.SampleProject/SignalR/HubUserIdProvider.cs` | New. `IUserIdProvider` resolving `ClaimTypes.NameIdentifier`. |
+| `src/Beacon.SampleProject/SignalR/HangfireSignalRJobFilter.cs` | New. Hangfire `IApplyStateFilter` that reads job parameter `BeaconUserId` and, if present, publishes `JobStatusChanged` to that user via `IHubContext<BeaconHub>`. Jobs without the parameter publish nothing — no broadcast (PII-safe per §1.11). |
+| `src/Beacon.SampleProject/Program.cs` | `AddSignalR()` + `AddSingleton<IUserIdProvider, HubUserIdProvider>()` + `AddSingleton<HangfireSignalRJobFilter>()` + `app.MapHub<BeaconHub>("/beacon/api/hub").RequireAuthorization(...)` + `Hangfire.GlobalJobFilters.Filters.Add(...)`. |
+| `src/Beacon.SampleProject/web/package.json` | Added `@microsoft/signalr@^8.0.7`. |
+| `src/Beacon.SampleProject/web/src/lib/hub.ts` | New. `connectBeaconHub()` returns a typed `BeaconHub` exposing `onJobStatusChanged`, `onNotificationCreated`, `onApprovalUpdated`, and `stop`. |
 
 **Effect:** The hub is wired and authorized but **no publishers exist yet for `NotificationCreated` or `ApprovalUpdated`**. They land in their feature-area batches (Batch 6 publishes from `ApproveQueryChange`/`RejectQueryChange`; `NotificationCreated` lives in `INotificationService` which isn't a MediatR handler, so its publisher comes alongside Phase 3 page work). The Hangfire filter is wired but only fires when a future enqueueing site sets `BeaconUserId` — current Hangfire jobs (recurring MCP learning aggregations) deliberately have no user, so they don't publish.
 
@@ -57,7 +57,7 @@ instead of a 500 with HTML stack trace. Same shape will apply to every authentic
 - No Blazor page or component touched.
 - No DB schema, migration, or entity touched.
 - No connector touched.
-- Existing `Beacon.UI/Authentication/LoginEndpoints.cs` and `SetupEndpoints.cs` — untouched.
+- Existing `src/Beacon.UI/Authentication/LoginEndpoints.cs` and `SetupEndpoints.cs` — untouched.
 - No CORS configuration. Same-origin only (D1).
 - No bearer JWT for API. Cookie auth only.
 

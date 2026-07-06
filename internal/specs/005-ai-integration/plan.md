@@ -118,7 +118,7 @@ This extends Beacon beyond simple query execution and data monitoring into intel
 **Compliance**: PASS
 
 - All new code will follow PascalCase for classes/methods/properties, camelCase for parameters/locals
-- Files organized by domain: Beacon.Core/Services/Ai/, Beacon.Core/Models/Ai/
+- Files organized by domain: src/Beacon.Core/Services/Ai/, src/Beacon.Core/Models/Ai/
 - Custom exception: AiServiceException inheriting from BeaconException
 - Imports ordered: System → third-party (LLM SDKs) → project namespaces
 
@@ -269,7 +269,7 @@ specs/[###-feature]/
 ### Source Code (repository root)
 
 ```text
-Beacon.Core/                          # Core domain logic (Clean Architecture)
+src/Beacon.Core/                          # Core domain logic (Clean Architecture)
 ├── Data/
 │   ├── Entities/
 │   │   ├── DataSourceDocumentation.cs   # NEW: Stores AI-generated documentation
@@ -412,17 +412,17 @@ Beacon.Core/                          # Core domain logic (Clean Architecture)
             ├── RestorePromptVersionCommand.cs
             └── RestorePromptVersionHandler.cs
 
-Beacon.Core.PostgreSql/              # PostgreSQL provider
+src/Beacon.Core.PostgreSql/              # PostgreSQL provider
 └── Data/
     └── Migrations/
         └── [Timestamp]_AddAiIntegration.cs  # NEW: AI entities migration
 
-Beacon.Core.SqlServer/               # SQL Server provider
+src/Beacon.Core.SqlServer/               # SQL Server provider
 └── Data/
     └── Migrations/
         └── [Timestamp]_AddAiIntegration.cs  # NEW: AI entities migration
 
-Beacon.UI/                            # Blazor UI
+src/Beacon.UI/                            # Blazor UI
 └── Components/
     └── Pages/
         ├── DataSources/
@@ -450,7 +450,7 @@ Beacon.UI/                            # Blazor UI
             ├── AiConfiguration.razor                # NEW: AI provider config, usage monitoring
             └── PromptVersionManager.razor           # NEW: View/create/restore prompt versions
 
-Beacon.Tests/                         # Test project
+src/Beacon.Tests/                         # Test project
 └── Ai/                                  # NEW: AI tests
     ├── AiDocumentationServiceTests.cs
     ├── AiAlertGenerationServiceTests.cs
@@ -499,8 +499,8 @@ This feature extends the existing Clean Architecture structure with new AI capab
 1. **Core Domain**: All AI logic lives in `Beacon.Core` following existing patterns (services, handlers, entities)
 2. **Provider Abstraction**: `ILlmProvider` interface enables multiple LLM providers (OpenAI, Claude, Azure) without coupling to specific SDKs
 3. **Database Agnostic**: New entities and migrations follow existing schema-agnostic pattern across PostgreSQL and SQL Server
-4. **UI Separation**: All UI components for AI features are isolated in `Beacon.UI/Components/Pages/Ai/`
-5. **Testing**: New test classes follow existing xUnit structure in `Beacon.Tests/`
+4. **UI Separation**: All UI components for AI features are isolated in `src/Beacon.UI/Components/Pages/Ai/`
+5. **Testing**: New test classes follow existing xUnit structure in `src/Beacon.Tests/`
 
 No new top-level projects are needed - the feature integrates cleanly into the existing architecture.
 

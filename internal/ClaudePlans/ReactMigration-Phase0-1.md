@@ -11,7 +11,7 @@
 
 | # | Decision | Choice |
 |---|---|---|
-| D1 | Hosting topology | **Same-origin.** React build output lands in `Beacon.SampleProject/wwwroot/`. Single Kestrel host. No CORS in production. |
+| D1 | Hosting topology | **Same-origin.** React build output lands in `src/Beacon.SampleProject/wwwroot/`. Single Kestrel host. No CORS in production. |
 | D2 | UI framework | **React 18 + TypeScript + Vite.** Shadcn/ui + Tailwind CSS + TanStack Table + TanStack Query + React Hook Form + Zod + React Router v6. |
 | D3 | Real-time channel | **SignalR.** One hub for job/notification/approval push. `@microsoft/signalr` client. |
 | D4 | Type contracts | **OpenAPI → TypeScript codegen via NSwag.** Build target emits `web/src/api/types.ts` and a typed fetch client from the running OpenAPI document. No hand-maintained DTOs. |
@@ -37,7 +37,7 @@ These are not revisited in later phases without an explicit decision-change ADR.
 ### Project layout
 
 ```
-Beacon.SampleProject/
+src/Beacon.SampleProject/
 ├── web/                              # NEW — React source, not deployed directly
 │   ├── package.json
 │   ├── tsconfig.json
@@ -206,7 +206,7 @@ Per §4.1, NUnit + Moq + FluentAssertions + bUnit. New test surface:
 1. **Endpoint smoke tests** (one per endpoint group): authenticated GET returns 200 with expected shape; unauthenticated returns 401/redirect.
 2. **Antiforgery tests**: POST without token rejected; with token accepted.
 3. **Translation tests** (§4.3–§4.6): no new ones required for Phase 1 since handlers are untouched. Existing translation tests must continue to pass.
-4. **OpenAPI contract test**: a single test deserializes the live `/swagger/v1/swagger.json` and asserts every MediatR handler in `Beacon.Core/Handlers/**` and `Beacon.AI/Handlers/**` has a matching endpoint. Acts as a tripwire — if a new handler is added without an endpoint, this test fails.
+4. **OpenAPI contract test**: a single test deserializes the live `/swagger/v1/swagger.json` and asserts every MediatR handler in `src/Beacon.Core/Handlers/**` and `src/Beacon.AI/Handlers/**` has a matching endpoint. Acts as a tripwire — if a new handler is added without an endpoint, this test fails.
 5. **NSwag drift test**: build emits TS file; test asserts it's byte-identical to the committed file. Forces explicit regen.
 
 ---

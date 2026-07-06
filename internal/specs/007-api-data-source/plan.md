@@ -14,12 +14,12 @@ Add `DataSourceType.Api` as a new connector that imports REST API endpoints from
 
 #### Task 1.1: Add `DataSourceType.Api` enum value
 
-**File**: `Beacon.Core/Data/Enums/DataSourceType.cs`
+**File**: `src/Beacon.Core/Data/Enums/DataSourceType.cs`
 - Add `Api = 8` to the enum
 
 #### Task 1.2: Create API connection config models
 
-**File**: `Beacon.Connector.Api/Models/ApiConnectionConfig.cs`
+**File**: `src/Beacon.Connector.Api/Models/ApiConnectionConfig.cs`
 ```csharp
 public class ApiConnectionConfig
 {
@@ -31,7 +31,7 @@ public class ApiConnectionConfig
 }
 ```
 
-**File**: `Beacon.Connector.Api/Models/ApiAuthConfig.cs`
+**File**: `src/Beacon.Connector.Api/Models/ApiAuthConfig.cs`
 ```csharp
 public class ApiAuthConfig
 {
@@ -48,7 +48,7 @@ public class ApiAuthConfig
 }
 ```
 
-**File**: `Beacon.Connector.Api/Models/ApiEndpointFilter.cs`
+**File**: `src/Beacon.Connector.Api/Models/ApiEndpointFilter.cs`
 ```csharp
 public class ApiEndpointFilter
 {
@@ -59,7 +59,7 @@ public class ApiEndpointFilter
 
 #### Task 1.3: Create API query definition models
 
-**File**: `Beacon.Connector.Api/Models/ApiQueryDefinition.cs`
+**File**: `src/Beacon.Connector.Api/Models/ApiQueryDefinition.cs`
 ```csharp
 public class ApiQueryDefinition
 {
@@ -78,7 +78,7 @@ public class ApiQueryParameters
 }
 ```
 
-**File**: `Beacon.Connector.Api/Models/ApiResultMapping.cs`
+**File**: `src/Beacon.Connector.Api/Models/ApiResultMapping.cs`
 ```csharp
 public class ApiResultMapping
 {
@@ -96,7 +96,7 @@ public class ApiColumnMapping
 
 #### Task 1.4: Add API endpoint metadata to `DataSourceMetadata`
 
-**File**: `Beacon.Core/Models/Providers/DataSourceMetadata.cs`
+**File**: `src/Beacon.Core/Models/Providers/DataSourceMetadata.cs`
 - Add a new property for API endpoints:
 ```csharp
 /// <summary>
@@ -143,7 +143,7 @@ public class ApiResponseFieldMetadata
 
 #### Task 2.1: Create the project
 
-**File**: `Beacon.Connector.Api/Beacon.Connector.Api.csproj`
+**File**: `src/Beacon.Connector.Api/Beacon.Connector.Api.csproj`
 ```xml
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
@@ -169,7 +169,7 @@ public class ApiResponseFieldMetadata
 
 #### Task 2.2: OpenAPI import service
 
-**File**: `Beacon.Connector.Api/Services/OpenApiImportService.cs`
+**File**: `src/Beacon.Connector.Api/Services/OpenApiImportService.cs`
 
 Responsibilities:
 - Fetch OpenAPI spec from URL using `HttpClient`
@@ -197,7 +197,7 @@ public List<ApiEndpointMetadata> ImportFromString(
 
 #### Task 2.3: JSON response tabularizer
 
-**File**: `Beacon.Connector.Api/Services/JsonResponseTabularizer.cs`
+**File**: `src/Beacon.Connector.Api/Services/JsonResponseTabularizer.cs`
 
 Responsibilities:
 - Takes raw JSON response string + `ApiResultMapping`
@@ -218,7 +218,7 @@ public List<Dictionary<string, object?>> Tabularize(
 
 #### Task 2.4: HTTP client helper
 
-**File**: `Beacon.Connector.Api/Services/ApiHttpClientFactory.cs`
+**File**: `src/Beacon.Connector.Api/Services/ApiHttpClientFactory.cs`
 
 Responsibilities:
 - Create `HttpRequestMessage` from `ApiQueryDefinition` + `ApiConnectionConfig`
@@ -238,7 +238,7 @@ public HttpRequestMessage CreateRequest(
 
 #### Task 2.5: ApiProvider — `IDataSourceProvider` implementation
 
-**File**: `Beacon.Connector.Api/ApiProvider.cs`
+**File**: `src/Beacon.Connector.Api/ApiProvider.cs`
 
 Follow the exact pattern from `CloudWatchProvider`:
 - Constructor: inject `IEncryptionService`, `ILogger<ApiProvider>`, `IHttpClientFactory`, `OpenApiImportService`, `JsonResponseTabularizer`
@@ -270,7 +270,7 @@ Follow the exact pattern from `CloudWatchProvider`:
 
 #### Task 2.6: ServiceCollectionExtensions + ConnectorRegistry
 
-**File**: `Beacon.Connector.Api/ServiceCollectionExtensions.cs`
+**File**: `src/Beacon.Connector.Api/ServiceCollectionExtensions.cs`
 
 Follow exact pattern from CloudWatch:
 ```csharp
@@ -289,7 +289,7 @@ public static class ServiceCollectionExtensions
 
 #### Task 2.7: Register in SampleProject
 
-**File**: `Beacon.SampleProject/Program.cs`
+**File**: `src/Beacon.SampleProject/Program.cs`
 - Add `using Beacon.Connector.Api;`
 - Add `.AddApiConnector()` in the connector chain (after `.AddBigQueryConnector()`)
 
@@ -301,7 +301,7 @@ public static class ServiceCollectionExtensions
 
 #### Task 3.1: Store API endpoints as DatabaseMetadata rows
 
-**File**: `Beacon.Core/Services/DatabaseMetadataService.cs`
+**File**: `src/Beacon.Core/Services/DatabaseMetadataService.cs`
 
 Modify `RefreshMetadataAsync` (or add new method `RefreshApiMetadataAsync`):
 - When `DataSourceType == Api`, use the `IDataSourceProvider.GetMetadataAsync()` to get endpoints
@@ -318,13 +318,13 @@ Modify `RefreshMetadataAsync` (or add new method `RefreshApiMetadataAsync`):
 
 **Decision**: Rather than modifying the existing `RefreshMetadataAsync` which is tightly coupled to `IDatabaseMetadataExtractor`, add a new method and call it from `DataSourceService` after creation when type is Api.
 
-**File**: `Beacon.Core/Services/DataSourceService.cs`
+**File**: `src/Beacon.Core/Services/DataSourceService.cs`
 - In `CreateDataSource`: after saving, if `DataSourceType == Api`, trigger metadata import
 - This requires injecting the provider factory and calling `GetMetadataAsync`, then storing results
 
 #### Task 3.2: Update DataSourceService to handle API metadata import on creation
 
-**File**: `Beacon.Core/Services/DataSourceService.cs`
+**File**: `src/Beacon.Core/Services/DataSourceService.cs`
 
 After `await context.SaveChangesAsync()` in `CreateDataSource`:
 ```csharp
@@ -357,7 +357,7 @@ Add private method `StoreApiEndpointsAsMetadata` that creates `DatabaseMetadata`
 
 #### Task 4.1: Add API fields to AddDataSourceDialog
 
-**File**: `Beacon.UI/Components/Pages/DataSources/AddDataSourceDialog.razor`
+**File**: `src/Beacon.UI/Components/Pages/DataSources/AddDataSourceDialog.razor`
 
 Add a new `else if (_selectedDataSourceType == DataSourceType.Api)` block after the BigQuery section:
 
@@ -402,7 +402,7 @@ case DataSourceType.Api:
 
 #### Task 5.1: Create ApiQueryEditor component
 
-**File**: `Beacon.UI/Components/Pages/DataSources/ApiQueryEditor.razor`
+**File**: `src/Beacon.UI/Components/Pages/DataSources/ApiQueryEditor.razor`
 
 New Blazor component (follows the pattern of `CloudWatchQueryEditor`):
 
@@ -428,7 +428,7 @@ New Blazor component (follows the pattern of `CloudWatchQueryEditor`):
 
 #### Task 5.2: Integrate ApiQueryEditor into QueryEditor page
 
-**File**: `Beacon.UI/Components/Pages/DataSources/QueryEditor.razor`
+**File**: `src/Beacon.UI/Components/Pages/DataSources/QueryEditor.razor`
 
 Add condition (line ~213, where CloudWatch check is):
 ```razor
@@ -453,7 +453,7 @@ Also update the Overview card (line ~46) to handle API type:
 
 #### Task 6.1: Update GetDataCatalogHandler
 
-**File**: `Beacon.Core/Handlers/DataCatalog/GetDataCatalogHandler.cs`
+**File**: `src/Beacon.Core/Handlers/DataCatalog/GetDataCatalogHandler.cs`
 
 Current query filters `where ds.DataSourceType == DataSourceType.Database`. Change to:
 ```csharp
@@ -476,7 +476,7 @@ public record DataCatalogEntry(
 
 #### Task 6.2: Update Data Catalog UI
 
-**File**: `Beacon.UI/Components/Pages/DataCatalog/DataCatalog.razor`
+**File**: `src/Beacon.UI/Components/Pages/DataCatalog/DataCatalog.razor`
 
 - Add a type icon/badge to each card: database icon for Database, API icon (e.g., `Icons.Material.Filled.Api`) for API
 - For API entries, show parameter count instead of column count (or hide column count if 0)
@@ -491,7 +491,7 @@ public record DataCatalogEntry(
 
 #### Task 7.1: Update ListDataSourcesTool
 
-**File**: `Beacon.MCP/Tools/ListDataSourcesTool.cs`
+**File**: `src/Beacon.MCP/Tools/ListDataSourcesTool.cs`
 
 The `ListDataSourcesAsync` method already lists all data sources — no change needed for the list.
 
@@ -501,7 +501,7 @@ The `ListDataSourcesAsync` method already lists all data sources — no change n
 
 #### Task 7.2: Update ExecuteQueryTool
 
-**File**: `Beacon.MCP/Tools/ExecuteQueryTool.cs`
+**File**: `src/Beacon.MCP/Tools/ExecuteQueryTool.cs`
 
 Current tool expects `sql` parameter. For API data sources, the "query" is a JSON object.
 
@@ -521,7 +521,7 @@ In `ExecuteAsync`:
 
 #### Task 7.3: Update GetDocumentationTool
 
-**File**: `Beacon.MCP/Tools/GetDocumentationTool.cs`
+**File**: `src/Beacon.MCP/Tools/GetDocumentationTool.cs`
 
 Verify this works with API data sources. Since documentation is stored per data source and the AI documentation service reads from `DatabaseMetadata`, it should work if the AI documentation service is updated (Phase 8).
 
@@ -533,7 +533,7 @@ Verify this works with API data sources. Since documentation is stored per data 
 
 #### Task 8.1: Update AI documentation service context building
 
-**File**: `Beacon.AI/Services/Ai/AiDocumentationService.cs` (or `MultiAgentDocumentationService.cs`)
+**File**: `src/Beacon.AI/Services/Ai/AiDocumentationService.cs` (or `MultiAgentDocumentationService.cs`)
 
 When building context for the LLM:
 - For API data sources, include endpoint descriptions, parameters, and response fields from `DatabaseMetadata`
@@ -557,7 +557,7 @@ This is a minor change — the service already reads `DatabaseMetadata` for tabl
 
 #### Task 9.3: Unit tests
 
-**File**: `Beacon.Tests/` — new test files:
+**File**: `src/Beacon.Tests/` — new test files:
 - `JsonResponseTabularizerTests.cs` — test various JSON shapes, auto-detect, explicit mapping, edge cases
 - `OpenApiImportServiceTests.cs` — test spec parsing, filtering, response schema extraction
 - `ApiProviderTests.cs` — test query definition parsing, validation
@@ -569,35 +569,35 @@ This is a minor change — the service already reads `DatabaseMetadata` for tabl
 ### New Files
 | File | Phase |
 |------|-------|
-| `Beacon.Connector.Api/Beacon.Connector.Api.csproj` | 2.1 |
-| `Beacon.Connector.Api/ApiProvider.cs` | 2.5 |
-| `Beacon.Connector.Api/ServiceCollectionExtensions.cs` | 2.6 |
-| `Beacon.Connector.Api/Models/ApiConnectionConfig.cs` | 1.2 |
-| `Beacon.Connector.Api/Models/ApiAuthConfig.cs` | 1.2 |
-| `Beacon.Connector.Api/Models/ApiEndpointFilter.cs` | 1.2 |
-| `Beacon.Connector.Api/Models/ApiQueryDefinition.cs` | 1.3 |
-| `Beacon.Connector.Api/Models/ApiResultMapping.cs` | 1.3 |
-| `Beacon.Connector.Api/Services/OpenApiImportService.cs` | 2.2 |
-| `Beacon.Connector.Api/Services/JsonResponseTabularizer.cs` | 2.3 |
-| `Beacon.Connector.Api/Services/ApiHttpClientFactory.cs` | 2.4 |
-| `Beacon.UI/Components/Pages/DataSources/ApiQueryEditor.razor` | 5.1 |
-| `Beacon.Tests/JsonResponseTabularizerTests.cs` | 9.3 |
-| `Beacon.Tests/OpenApiImportServiceTests.cs` | 9.3 |
+| `src/Beacon.Connector.Api/Beacon.Connector.Api.csproj` | 2.1 |
+| `src/Beacon.Connector.Api/ApiProvider.cs` | 2.5 |
+| `src/Beacon.Connector.Api/ServiceCollectionExtensions.cs` | 2.6 |
+| `src/Beacon.Connector.Api/Models/ApiConnectionConfig.cs` | 1.2 |
+| `src/Beacon.Connector.Api/Models/ApiAuthConfig.cs` | 1.2 |
+| `src/Beacon.Connector.Api/Models/ApiEndpointFilter.cs` | 1.2 |
+| `src/Beacon.Connector.Api/Models/ApiQueryDefinition.cs` | 1.3 |
+| `src/Beacon.Connector.Api/Models/ApiResultMapping.cs` | 1.3 |
+| `src/Beacon.Connector.Api/Services/OpenApiImportService.cs` | 2.2 |
+| `src/Beacon.Connector.Api/Services/JsonResponseTabularizer.cs` | 2.3 |
+| `src/Beacon.Connector.Api/Services/ApiHttpClientFactory.cs` | 2.4 |
+| `src/Beacon.UI/Components/Pages/DataSources/ApiQueryEditor.razor` | 5.1 |
+| `src/Beacon.Tests/JsonResponseTabularizerTests.cs` | 9.3 |
+| `src/Beacon.Tests/OpenApiImportServiceTests.cs` | 9.3 |
 
 ### Modified Files
 | File | Phase | Change |
 |------|-------|--------|
-| `Beacon.Core/Data/Enums/DataSourceType.cs` | 1.1 | Add `Api = 8` |
-| `Beacon.Core/Models/Providers/DataSourceMetadata.cs` | 1.4 | Add `Endpoints` property + metadata classes |
-| `Beacon.Core/Services/DataSourceService.cs` | 3.2 | Import API metadata on creation |
-| `Beacon.Core/Services/DatabaseMetadataService.cs` | 3.1 | Support API metadata storage/refresh |
-| `Beacon.Core/Handlers/DataCatalog/GetDataCatalogHandler.cs` | 6.1 | Include API type, add DataSourceType to record |
-| `Beacon.UI/Components/Pages/DataSources/AddDataSourceDialog.razor` | 4.1 | API form fields |
-| `Beacon.UI/Components/Pages/DataSources/QueryEditor.razor` | 5.2 | Route to ApiQueryEditor |
-| `Beacon.UI/Components/Pages/DataCatalog/DataCatalog.razor` | 6.2 | Type badge, API endpoint display |
-| `Beacon.MCP/Tools/ListDataSourcesTool.cs` | 7.1 | API-aware output text |
-| `Beacon.MCP/Tools/ExecuteQueryTool.cs` | 7.2 | `api_query` parameter, skip SQL guardrails |
-| `Beacon.SampleProject/Program.cs` | 2.7 | Register `.AddApiConnector()` |
+| `src/Beacon.Core/Data/Enums/DataSourceType.cs` | 1.1 | Add `Api = 8` |
+| `src/Beacon.Core/Models/Providers/DataSourceMetadata.cs` | 1.4 | Add `Endpoints` property + metadata classes |
+| `src/Beacon.Core/Services/DataSourceService.cs` | 3.2 | Import API metadata on creation |
+| `src/Beacon.Core/Services/DatabaseMetadataService.cs` | 3.1 | Support API metadata storage/refresh |
+| `src/Beacon.Core/Handlers/DataCatalog/GetDataCatalogHandler.cs` | 6.1 | Include API type, add DataSourceType to record |
+| `src/Beacon.UI/Components/Pages/DataSources/AddDataSourceDialog.razor` | 4.1 | API form fields |
+| `src/Beacon.UI/Components/Pages/DataSources/QueryEditor.razor` | 5.2 | Route to ApiQueryEditor |
+| `src/Beacon.UI/Components/Pages/DataCatalog/DataCatalog.razor` | 6.2 | Type badge, API endpoint display |
+| `src/Beacon.MCP/Tools/ListDataSourcesTool.cs` | 7.1 | API-aware output text |
+| `src/Beacon.MCP/Tools/ExecuteQueryTool.cs` | 7.2 | `api_query` parameter, skip SQL guardrails |
+| `src/Beacon.SampleProject/Program.cs` | 2.7 | Register `.AddApiConnector()` |
 | `Beacon.sln` | 2.1 | Add project reference |
 
 ## Execution Order

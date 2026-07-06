@@ -89,7 +89,7 @@ unwrap and throw `InvalidOperationException` so new code stays consistent with
 
 Already present from earlier work (Phase 1 / Batch 2). No backend changes.
 
-`Beacon.SampleProject/Endpoints/BeaconApiEndpoints.cs` registers
+`src/Beacon.SampleProject/Endpoints/BeaconApiEndpoints.cs` registers
 `MapRecipientsEndpoints`, `MapTasksEndpoints`, `MapUsersEndpoints`. All inherit
 the group `RequireAuthorization(AuthPolicyName)`.
 
@@ -135,7 +135,7 @@ No translation tests added — the new EF queries (Recipients getter and
 Recipients delete projection) are simple `Where + Select` shapes; nothing
 joining JSON / arrays / GROUP BY warrants a `ToQueryString()` snapshot per §4.6.
 The Tasks queries are wrapped through the existing service, which is already
-covered by translation tests in `Beacon.Tests/Integration/QueryTranslationTests`.
+covered by translation tests in `src/Beacon.Tests/Integration/QueryTranslationTests`.
 
 ## Naming gotcha (caught + fixed)
 
@@ -176,24 +176,24 @@ nothing security-critical was dropped.
 ## Files touched
 
 ### Backend
-- `Beacon.Core/Handlers/Recipients/{GetRecipients,CreateRecipient,UpdateRecipient,DeleteRecipient}Handler.cs` (new)
-- `Beacon.Core/Handlers/Tasks/{GetTasks,GetTaskDetail,ResolveTask}Handler.cs` (new)
-- `Beacon.Core/Handlers/Users/{GetUsers,GetRoles,CreateInternalUser,CreateExternalUser,UpdateUser,ToggleUserEnabled}Handler.cs` (new)
-- `Beacon.SampleProject/Endpoints/{Recipients,Tasks,Users}Endpoints.cs` (new)
-- `Beacon.SampleProject/Endpoints/BeaconApiEndpoints.cs` (registered three new groups)
+- `src/Beacon.Core/Handlers/Recipients/{GetRecipients,CreateRecipient,UpdateRecipient,DeleteRecipient}Handler.cs` (new)
+- `src/Beacon.Core/Handlers/Tasks/{GetTasks,GetTaskDetail,ResolveTask}Handler.cs` (new)
+- `src/Beacon.Core/Handlers/Users/{GetUsers,GetRoles,CreateInternalUser,CreateExternalUser,UpdateUser,ToggleUserEnabled}Handler.cs` (new)
+- `src/Beacon.SampleProject/Endpoints/{Recipients,Tasks,Users}Endpoints.cs` (new)
+- `src/Beacon.SampleProject/Endpoints/BeaconApiEndpoints.cs` (registered three new groups)
 
 ### Frontend
-- `Beacon.SampleProject/web/src/components/ui/{Dialog,ConfirmDialog}.tsx` (new)
-- `Beacon.SampleProject/web/src/lib/useHubEvent.ts` (new)
-- `Beacon.SampleProject/web/src/routes/recipients/{queries.ts,RecipientDialog.tsx,RecipientsListPage.tsx,RecipientDialog.test.tsx}` (new)
-- `Beacon.SampleProject/web/src/routes/tasks/{queries.ts,ResolveTaskDialog.tsx,TasksListPage.tsx,TaskDetailPage.tsx}` (new)
-- `Beacon.SampleProject/web/src/routes/approvals/{queries.ts,ReviewApprovalDialog.tsx,ApprovalsListPage.tsx}` (new)
-- `Beacon.SampleProject/web/src/routes/api-keys/{queries.ts,GenerateApiKeyDialog.tsx,ApiKeysListPage.tsx}` (new)
-- `Beacon.SampleProject/web/src/routes/users/{queries.ts,UserDialog.tsx,UsersListPage.tsx}` (new)
-- `Beacon.SampleProject/web/src/styles-beacon.css` (appended Batch 3 helpers)
-- `Beacon.SampleProject/web/src/feature-flags.ts` (added five slugs)
-- `Beacon.SampleProject/web/src/App.tsx` (six new lazy routes)
-- `Beacon.SampleProject/wwwroot/app/` (rsynced from `dist/`)
+- `src/Beacon.SampleProject/web/src/components/ui/{Dialog,ConfirmDialog}.tsx` (new)
+- `src/Beacon.SampleProject/web/src/lib/useHubEvent.ts` (new)
+- `src/Beacon.SampleProject/web/src/routes/recipients/{queries.ts,RecipientDialog.tsx,RecipientsListPage.tsx,RecipientDialog.test.tsx}` (new)
+- `src/Beacon.SampleProject/web/src/routes/tasks/{queries.ts,ResolveTaskDialog.tsx,TasksListPage.tsx,TaskDetailPage.tsx}` (new)
+- `src/Beacon.SampleProject/web/src/routes/approvals/{queries.ts,ReviewApprovalDialog.tsx,ApprovalsListPage.tsx}` (new)
+- `src/Beacon.SampleProject/web/src/routes/api-keys/{queries.ts,GenerateApiKeyDialog.tsx,ApiKeysListPage.tsx}` (new)
+- `src/Beacon.SampleProject/web/src/routes/users/{queries.ts,UserDialog.tsx,UsersListPage.tsx}` (new)
+- `src/Beacon.SampleProject/web/src/styles-beacon.css` (appended Batch 3 helpers)
+- `src/Beacon.SampleProject/web/src/feature-flags.ts` (added five slugs)
+- `src/Beacon.SampleProject/web/src/App.tsx` (six new lazy routes)
+- `src/Beacon.SampleProject/wwwroot/app/` (rsynced from `dist/`)
 
 ## Acceptance gate result
 

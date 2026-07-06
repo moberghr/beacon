@@ -1,14 +1,14 @@
 # Phase 3 Batch 5d — AddDataSourceDialog (multi-engine)
 
 ## Scope
-React port of `Beacon.UI/Components/Pages/DataSources/AddDataSourceDialog.razor`.
+React port of `src/Beacon.UI/Components/Pages/DataSources/AddDataSourceDialog.razor`.
 Replaces the `/beacon/data-sources/add` Blazor link with a `StepperDialog` mounted
 from `DataSourcesListPage`.
 
 ## Files
 
 ### Frontend (new)
-- `Beacon.SampleProject/web/src/routes/data-sources/AddDataSourceDialog.tsx` —
+- `src/Beacon.SampleProject/web/src/routes/data-sources/AddDataSourceDialog.tsx` —
   three-step dialog (Type → Connection → Test & save). Form schema is a
   `z.discriminatedUnion('kind', …)` covering five branches:
 
@@ -24,30 +24,30 @@ from `DataSourcesListPage`.
   inside `connectionString` (mirrors the Razor `BuildDataSourceData` switch),
   which is what the existing connector providers expect.
 
-- `Beacon.SampleProject/web/src/routes/data-sources/AddDataSourceDialog.test.tsx` —
+- `src/Beacon.SampleProject/web/src/routes/data-sources/AddDataSourceDialog.test.tsx` —
   Vitest suite. Asserts (a) switching kind reveals/hides the right fields and
   (b) the Database flow POSTs to `/beacon/api/data-sources` with the expected
   payload.
 
 ### Frontend (changed)
-- `Beacon.SampleProject/web/src/routes/data-sources/DataSourcesListPage.tsx` —
+- `src/Beacon.SampleProject/web/src/routes/data-sources/DataSourcesListPage.tsx` —
   the "+ New data source" link is replaced with a button that opens the
   dialog. Toast + cache invalidation come from `useCreateDataSource`.
 
-- `Beacon.SampleProject/web/src/routes/data-sources/queries.ts` (already
+- `src/Beacon.SampleProject/web/src/routes/data-sources/queries.ts` (already
   staged from a previous slot) — adds `useCreateDataSource`,
   `useTestDataSourceConnection`, payload types, and the
   `DATA_SOURCE_TYPE` / `DATABASE_ENGINE` constants the dialog relies on.
 
 ### Backend (changed/new — already staged from a previous slot)
-- `Beacon.Core/Handlers/DataSources/CreateDataSourceHandler.cs` — MediatR
+- `src/Beacon.Core/Handlers/DataSources/CreateDataSourceHandler.cs` — MediatR
   handler wrapping `IDataSourceService.CreateDataSource`. Throws
   `InvalidOperationException` on failure (per §2.9). `internal sealed class`
   + primary ctor.
-- `Beacon.Core/Handlers/DataSources/TestDataSourceConnectionHandler.cs` —
+- `src/Beacon.Core/Handlers/DataSources/TestDataSourceConnectionHandler.cs` —
   same shape, wraps `IDataSourceService.TestConnectionAsync`. Returns the
   service result verbatim so the UI can render a Connected/Failed pill.
-- `Beacon.SampleProject/Endpoints/DataSourcesEndpoints.cs` — `POST
+- `src/Beacon.SampleProject/Endpoints/DataSourcesEndpoints.cs` — `POST
   /beacon/api/data-sources` (`.WithName("CreateDataSource")`) and `POST
   /beacon/api/data-sources/test-connection`
   (`.WithName("TestDataSourceConnection")`). Names match the contract
@@ -69,7 +69,7 @@ from `DataSourcesListPage`.
 ## Verification
 - `dotnet build --property WarningLevel=0` — succeeded (4 pre-existing NuGet
   warnings, 0 errors).
-- `dotnet test Beacon.Tests/Beacon.Tests.csproj` — 35 / 35 passed.
+- `dotnet test src/Beacon.Tests/Beacon.Tests.csproj` — 35 / 35 passed.
 - `npm run build` — clean (existing chunk-size warning unrelated).
 - `npm test` (vitest) — 9 / 9 across 6 files. The new AddDataSourceDialog
   suite contributes 2 of those.

@@ -13,11 +13,11 @@ Branch: `feat/react-phase3` (continues from 5a backend).
 
 | File | Wraps | Endpoint |
 |---|---|---|
-| `Beacon.Core/Handlers/Tasks/GetTaskExecutionsHandler.cs` | `taskService.GetTaskExecutionHistory` | `GET /tasks/{id}/executions` |
-| `Beacon.Core/Handlers/Tasks/GetTaskRelatedHandler.cs` | `taskService.GetRelatedTasks` | `GET /tasks/{id}/related` |
-| `Beacon.Core/Handlers/Tasks/GetTaskResultHistoryHandler.cs` | `taskService.GetResultCountHistory` | `GET /tasks/{id}/result-history` |
-| `Beacon.Core/Handlers/Tasks/GetTaskCommentsHandler.cs` | `taskService.GetTaskComments` | `GET /tasks/{id}/comments` |
-| `Beacon.Core/Handlers/Tasks/AddTaskCommentHandler.cs` | `taskService.AddTaskComment` (with `IBeaconUserContext`) | `POST /tasks/{id}/comments` |
+| `src/Beacon.Core/Handlers/Tasks/GetTaskExecutionsHandler.cs` | `taskService.GetTaskExecutionHistory` | `GET /tasks/{id}/executions` |
+| `src/Beacon.Core/Handlers/Tasks/GetTaskRelatedHandler.cs` | `taskService.GetRelatedTasks` | `GET /tasks/{id}/related` |
+| `src/Beacon.Core/Handlers/Tasks/GetTaskResultHistoryHandler.cs` | `taskService.GetResultCountHistory` | `GET /tasks/{id}/result-history` |
+| `src/Beacon.Core/Handlers/Tasks/GetTaskCommentsHandler.cs` | `taskService.GetTaskComments` | `GET /tasks/{id}/comments` |
+| `src/Beacon.Core/Handlers/Tasks/AddTaskCommentHandler.cs` | `taskService.AddTaskComment` (with `IBeaconUserContext`) | `POST /tasks/{id}/comments` |
 
 All return shapes are dedicated records (`TaskExecutionsResult`, `TaskRelatedResult`,
 `TaskResultHistoryResult`, `TaskCommentsResult`, `AddTaskCommentResult`) — service DTOs
@@ -26,19 +26,19 @@ on whitespace content.
 
 ### Enriched existing handler
 
-`Beacon.Core/Handlers/Tasks/GetTaskDetailHandler.cs` — added two fields to `TaskDetailResult`:
+`src/Beacon.Core/Handlers/Tasks/GetTaskDetailHandler.cs` — added two fields to `TaskDetailResult`:
 - `LastExecutionAt: DateTime?` — most recent `QueryExecutionHistory` row for the parent subscription.
 - `CronExpression: string?` — parent subscription's `CronExpression`.
 
-`Beacon.Core/DTOs/TaskDetailsData.cs` — added matching properties.
+`src/Beacon.Core/DTOs/TaskDetailsData.cs` — added matching properties.
 
-`Beacon.Core/Services/TaskService.cs::GetTaskDetails` — extended the existing single
+`src/Beacon.Core/Services/TaskService.cs::GetTaskDetails` — extended the existing single
 `.Select(new ...)` projection to populate both fields. No new round-trip; the LastExecutionAt
 sub-query is a correlated subquery that EF translates to a `LATERAL` lookup on Postgres.
 
 ### Endpoint wiring
 
-`Beacon.SampleProject/Endpoints/TasksEndpoints.cs` — appended five endpoints with names
+`src/Beacon.SampleProject/Endpoints/TasksEndpoints.cs` — appended five endpoints with names
 matching the OpenAPI contract heuristic (strip `Command`/`Query`):
 
 - `GetTaskExecutions`, `GetTaskRelated`, `GetTaskResultHistory`, `GetTaskComments`, `AddTaskComment`.
@@ -51,7 +51,7 @@ Auth is inherited from the parent group (`MapBeaconApi` already calls `.RequireA
 
 ### Page replaced
 
-`Beacon.SampleProject/web/src/routes/tasks/TaskDetailPage.tsx` — fully rewritten. Layout:
+`src/Beacon.SampleProject/web/src/routes/tasks/TaskDetailPage.tsx` — fully rewritten. Layout:
 
 1. `TaskHero` — page-hero variant: breadcrumb eyebrow + status pill, verb-emphasis title
    ("Investigating *subscription*"), age + SLA-remaining sub, action row (Assign / Snooze / Resolve).
@@ -81,16 +81,16 @@ Auth is inherited from the parent group (`MapBeaconApi` already calls `.RequireA
 
 ### New files
 
-- `Beacon.SampleProject/web/src/routes/tasks/parts/TaskHero.tsx`
-- `Beacon.SampleProject/web/src/routes/tasks/parts/SlaBanner.tsx`
-- `Beacon.SampleProject/web/src/routes/tasks/parts/TaskKpiGrid.tsx`
-- `Beacon.SampleProject/web/src/routes/tasks/parts/TaskInfoCard.tsx`
-- `Beacon.SampleProject/web/src/routes/tasks/parts/TaskResultChart.tsx`
-- `Beacon.SampleProject/web/src/routes/tasks/parts/TaskTabsCard.tsx`
-- `Beacon.SampleProject/web/src/routes/tasks/parts/InvestigationLogCard.tsx`
-- `Beacon.SampleProject/web/src/routes/tasks/parts/RightRail.tsx` (combines SuggestedNextSteps,
+- `src/Beacon.SampleProject/web/src/routes/tasks/parts/TaskHero.tsx`
+- `src/Beacon.SampleProject/web/src/routes/tasks/parts/SlaBanner.tsx`
+- `src/Beacon.SampleProject/web/src/routes/tasks/parts/TaskKpiGrid.tsx`
+- `src/Beacon.SampleProject/web/src/routes/tasks/parts/TaskInfoCard.tsx`
+- `src/Beacon.SampleProject/web/src/routes/tasks/parts/TaskResultChart.tsx`
+- `src/Beacon.SampleProject/web/src/routes/tasks/parts/TaskTabsCard.tsx`
+- `src/Beacon.SampleProject/web/src/routes/tasks/parts/InvestigationLogCard.tsx`
+- `src/Beacon.SampleProject/web/src/routes/tasks/parts/RightRail.tsx` (combines SuggestedNextSteps,
   People, SourceContext, KeyboardTipCallout — three sibling cards in one wrapper)
-- `Beacon.SampleProject/web/src/routes/tasks/parts/TaskSaveBar.tsx`
+- `src/Beacon.SampleProject/web/src/routes/tasks/parts/TaskSaveBar.tsx`
 
 ### Hooks added (`routes/tasks/queries.ts`)
 
@@ -158,7 +158,7 @@ No additions — every icon the design uses (`Users`, `Bell`, `Check`, `Clock`, 
   OpenAPI contract test is one looping test that now sees five new operationIds).
 - `npm run build` — green.
 - `npm test` — green, **5 / 5**.
-- `web/dist/` rsynced into `Beacon.SampleProject/wwwroot/app/`.
+- `web/dist/` rsynced into `src/Beacon.SampleProject/wwwroot/app/`.
 
 ---
 
@@ -171,16 +171,16 @@ All deferred mocks from the section above have been replaced with real backend.
 - `QueryTask` gained `AssigneeUserId: string?` (max 100), `SnoozedUntil: DateTime?`,
   `Priority: TaskPriority` (int-converted, default `Normal`). Indexes on each.
 - `Subscription` gained `SlaHours: int?` — null means "use system default (24h)".
-- New enum `Beacon.Core/Data/Enums/TaskPriority.cs` (`Critical=1`, `High=2`, `Normal=3`, `Low=4`).
-- New entity `Beacon.Core/Data/Entities/TaskWatcher.cs` — composite key
+- New enum `src/Beacon.Core/Data/Enums/TaskPriority.cs` (`Critical=1`, `High=2`, `Normal=3`, `Low=4`).
+- New entity `src/Beacon.Core/Data/Entities/TaskWatcher.cs` — composite key
   `(QueryTaskId, UserId)`, no soft delete (watchers are direct-removable).
   Cascade delete from parent task. `BeaconContext` exposes `DbSet<TaskWatcher> TaskWatchers`.
   Configured via new `ConfigureTaskWatcherEntities()` partial in `BeaconContext`.
 
 ### Migrations (one per provider — §0.1, §5.9)
 
-- `Beacon.Core.PostgreSql/Data/Migrations/20260508125035_TaskAssignSnoozePriorityWatchersSubscriptionSla.cs`
-- `Beacon.Core.SqlServer/Data/Migrations/20260508125116_TaskAssignSnoozePriorityWatchersSubscriptionSla.cs`
+- `src/Beacon.Core.PostgreSql/Data/Migrations/20260508125035_TaskAssignSnoozePriorityWatchersSubscriptionSla.cs`
+- `src/Beacon.Core.SqlServer/Data/Migrations/20260508125116_TaskAssignSnoozePriorityWatchersSubscriptionSla.cs`
 
 Both add columns + the `task_watchers`/`TaskWatchers` table with composite PK and the
 expected indexes. Generated via the documented `Program.cs`-swap workflow; provider
@@ -212,7 +212,7 @@ and forwards it to the service so `IsWatching` is evaluated server-side.
 
 `ITaskService.GetTaskDetails` signature changed to
 `GetTaskDetails(int taskId, string? currentUserId, CancellationToken)`. The single
-existing caller in `Beacon.UI/Components/Pages/Tasks/TaskDetails.razor` was updated
+existing caller in `src/Beacon.UI/Components/Pages/Tasks/TaskDetails.razor` was updated
 to pass `null` (the legacy Blazor task-detail page has no per-user watcher concept).
 
 The projection stays a single `.Select(new ...)` round-trip. Username lookups for
@@ -223,7 +223,7 @@ because `Subscription` has no `CreatedByUserId` audit field — only AI-actor-ma
 subscriptions surface an owner today (via `AiActor.CreatedByUserId`). Documented as a
 future-cleanup item if product wants user attribution on user-created subscriptions.
 
-### Frontend (`Beacon.SampleProject/web/src/routes/tasks/`)
+### Frontend (`src/Beacon.SampleProject/web/src/routes/tasks/`)
 
 `queries.ts` extensions:
 
@@ -283,7 +283,7 @@ and emit rows from the new handlers.
   WatchTask, UnwatchTask, SetSubscriptionSla).
 - `npm run build` — green.
 - `npm test` — green, **5 / 5**.
-- After clearing `*.dswa.cache.json` in `Beacon.SampleProject/obj/` (stale-asset
+- After clearing `*.dswa.cache.json` in `src/Beacon.SampleProject/obj/` (stale-asset
   cache item from `migrations-workflow.md`), build is clean.
 
 ### Caveats / future cleanup

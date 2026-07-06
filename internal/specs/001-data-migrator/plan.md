@@ -91,7 +91,7 @@ specs/001-data-migrator/
 ### Source Code (repository root)
 ```
 # Extends existing Beacon project structure
-Beacon.Core/
+src/Beacon.Core/
 ├── Features/
 │   └── DataMigration/           # New feature area
 │       ├── Entities/           # Migration job entities
@@ -99,7 +99,7 @@ Beacon.Core/
 │       └── Services/           # Migration execution services
 └── Extensions/                  # Extend QueryExecutionHistory
 
-Beacon.UI/
+src/Beacon.UI/
 └── Components/
     └── Pages/
         └── DataMigration/       # New UI pages

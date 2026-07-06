@@ -72,14 +72,14 @@ Vitest count: 7 → 7 (rewrite, not new file).
 ## Files touched
 
 **New:**
-- `Beacon.SampleProject/web/src/components/ui/Stepper.tsx`
-- `Beacon.SampleProject/web/src/components/ui/StepperDialog.tsx`
+- `src/Beacon.SampleProject/web/src/components/ui/Stepper.tsx`
+- `src/Beacon.SampleProject/web/src/components/ui/StepperDialog.tsx`
 
 **Modified:**
-- `Beacon.SampleProject/web/src/routes/subscriptions/AddSubscriptionDialog.tsx` (full rewrite as 3-step)
-- `Beacon.SampleProject/web/src/routes/subscriptions/AddSubscriptionDialog.test.tsx` (rewrite for steps)
-- `Beacon.SampleProject/web/src/routes/subscriptions/parts/RecipientsTab.tsx` (RecipientPicker → 2-step)
-- `Beacon.SampleProject/web/src/styles-beacon.css` (stepper styles)
+- `src/Beacon.SampleProject/web/src/routes/subscriptions/AddSubscriptionDialog.tsx` (full rewrite as 3-step)
+- `src/Beacon.SampleProject/web/src/routes/subscriptions/AddSubscriptionDialog.test.tsx` (rewrite for steps)
+- `src/Beacon.SampleProject/web/src/routes/subscriptions/parts/RecipientsTab.tsx` (RecipientPicker → 2-step)
+- `src/Beacon.SampleProject/web/src/styles-beacon.css` (stepper styles)
 
 ---
 

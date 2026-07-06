@@ -188,7 +188,7 @@ public record DocumentationProgress
 
 ### 2. Agent Prompts
 
-**Location:** `Beacon.Core/Services/Ai/MultiAgent/MultiAgentPrompts.cs`
+**Location:** `src/Beacon.Core/Services/Ai/MultiAgent/MultiAgentPrompts.cs`
 
 ```csharp
 public static class MultiAgentPrompts
@@ -205,7 +205,7 @@ public static class MultiAgentPrompts
 
 ### 3. Models
 
-**Location:** `Beacon.Core/Models/Ai/MultiAgent/`
+**Location:** `src/Beacon.Core/Models/Ai/MultiAgent/`
 
 ```csharp
 public record OrchestratorResult
@@ -510,7 +510,7 @@ Add to `appsettings.json`:
 ## File Structure
 
 ```
-Beacon.Core/
+src/Beacon.Core/
 ├── Services/
 │   └── Ai/
 │       ├── MultiAgent/

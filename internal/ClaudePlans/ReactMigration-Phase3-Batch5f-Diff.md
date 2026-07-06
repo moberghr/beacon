@@ -23,17 +23,17 @@ Three new MediatR slices wrapping existing services. All follow the
 | `ExecuteStepPreviewCommand`        | `POST /beacon/api/queries/{id}/steps/{stepOrder}/preview`  | `ExecuteStepPreview`  | Wraps `IQueryExecutionPreviewService.ExecuteStepPreview` (parameter overload). Body: `{ parameters: ParameterValue[] | null }`. |
 
 Files:
-- `Beacon.Core/Handlers/Queries/UpdateQueryHandler.cs` (new)
-- `Beacon.Core/Handlers/Queries/ExecuteQueryPreviewHandler.cs` (new)
-- `Beacon.Core/Handlers/Queries/ExecuteStepPreviewHandler.cs` (new)
-- `Beacon.SampleProject/Endpoints/QueriesEndpoints.cs` (added 3 routes + `ExecuteStepPreviewRequest` record)
+- `src/Beacon.Core/Handlers/Queries/UpdateQueryHandler.cs` (new)
+- `src/Beacon.Core/Handlers/Queries/ExecuteQueryPreviewHandler.cs` (new)
+- `src/Beacon.Core/Handlers/Queries/ExecuteStepPreviewHandler.cs` (new)
+- `src/Beacon.SampleProject/Endpoints/QueriesEndpoints.cs` (added 3 routes + `ExecuteStepPreviewRequest` record)
 
 No new migrations — purely service wrappers.
 
 ## Frontend
 
 ### New page
-`Beacon.SampleProject/web/src/routes/queries/QueryEditorPage.tsx`
+`src/Beacon.SampleProject/web/src/routes/queries/QueryEditorPage.tsx`
 
 - Lazy-routed at `/queries/:id/edit`
 - Header (name, description, Save, Run, Cancel)
@@ -110,18 +110,18 @@ Added `@monaco-editor/react` (`^4.7.0`).
 
 ## Files touched
 
-- `Beacon.Core/Handlers/Queries/UpdateQueryHandler.cs` (new)
-- `Beacon.Core/Handlers/Queries/ExecuteQueryPreviewHandler.cs` (new)
-- `Beacon.Core/Handlers/Queries/ExecuteStepPreviewHandler.cs` (new)
-- `Beacon.SampleProject/Endpoints/QueriesEndpoints.cs` (edit)
-- `Beacon.SampleProject/web/package.json` (+`@monaco-editor/react`)
-- `Beacon.SampleProject/web/src/App.tsx` (route)
-- `Beacon.SampleProject/web/src/components/ui/SqlEditor.tsx` (new)
-- `Beacon.SampleProject/web/src/routes/queries/queries.ts` (new types + hooks)
-- `Beacon.SampleProject/web/src/routes/queries/QueryDetailPage.tsx` (editHref)
-- `Beacon.SampleProject/web/src/routes/queries/QueryEditorPage.tsx` (new)
-- `Beacon.SampleProject/web/src/routes/queries/QueryEditorPage.test.tsx` (new)
-- `Beacon.SampleProject/web/src/routes/queries/parts/QueryStepsCard.tsx` (prop rename, Link)
-- `Beacon.SampleProject/web/src/routes/queries/parts/StepParameterDialog.tsx` (new)
-- `Beacon.SampleProject/web/src/routes/queries/parts/PreviewResultsCard.tsx` (new)
-- `Beacon.SampleProject/wwwroot/app/**` (rebuilt assets)
+- `src/Beacon.Core/Handlers/Queries/UpdateQueryHandler.cs` (new)
+- `src/Beacon.Core/Handlers/Queries/ExecuteQueryPreviewHandler.cs` (new)
+- `src/Beacon.Core/Handlers/Queries/ExecuteStepPreviewHandler.cs` (new)
+- `src/Beacon.SampleProject/Endpoints/QueriesEndpoints.cs` (edit)
+- `src/Beacon.SampleProject/web/package.json` (+`@monaco-editor/react`)
+- `src/Beacon.SampleProject/web/src/App.tsx` (route)
+- `src/Beacon.SampleProject/web/src/components/ui/SqlEditor.tsx` (new)
+- `src/Beacon.SampleProject/web/src/routes/queries/queries.ts` (new types + hooks)
+- `src/Beacon.SampleProject/web/src/routes/queries/QueryDetailPage.tsx` (editHref)
+- `src/Beacon.SampleProject/web/src/routes/queries/QueryEditorPage.tsx` (new)
+- `src/Beacon.SampleProject/web/src/routes/queries/QueryEditorPage.test.tsx` (new)
+- `src/Beacon.SampleProject/web/src/routes/queries/parts/QueryStepsCard.tsx` (prop rename, Link)
+- `src/Beacon.SampleProject/web/src/routes/queries/parts/StepParameterDialog.tsx` (new)
+- `src/Beacon.SampleProject/web/src/routes/queries/parts/PreviewResultsCard.tsx` (new)
+- `src/Beacon.SampleProject/wwwroot/app/**` (rebuilt assets)

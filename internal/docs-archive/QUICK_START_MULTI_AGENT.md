@@ -4,7 +4,7 @@ This guide shows you how to integrate the multi-agent documentation system into 
 
 ## Step 1: Register Service (2 minutes)
 
-Edit `Beacon.Core/ServiceConfiguration.cs`:
+Edit `src/Beacon.Core/ServiceConfiguration.cs`:
 
 ```csharp
 public static IServiceCollection AddBeacon(
@@ -24,7 +24,7 @@ public static IServiceCollection AddBeacon(
 
 ## Step 2: Create Handler (10 minutes)
 
-Create `Beacon.Core/Handlers/Documentation/GenerateMultiAgentDocumentationHandler.cs`:
+Create `src/Beacon.Core/Handlers/Documentation/GenerateMultiAgentDocumentationHandler.cs`:
 
 ```csharp
 using MediatR;
@@ -80,7 +80,7 @@ public record GenerateMultiAgentDocumentationCommand : IRequest<DataSourceDocume
 
 ## Step 3: Update UI Dialog (15 minutes)
 
-Edit `Beacon.UI/Components/Pages/DataSources/GenerateDocumentationDialog.razor`:
+Edit `src/Beacon.UI/Components/Pages/DataSources/GenerateDocumentationDialog.razor`:
 
 ### Add field:
 ```csharp

@@ -35,10 +35,10 @@ The default landing route changed from `/app/projects` to `/app/home`.
 
 | Handler | Service it wraps | Endpoint | Operation ID |
 |---|---|---|---|
-| `Beacon.Core/Handlers/Notifications/GetNotificationsHandler.cs` | `INotificationService.GetQueryExecutionHistory` | `GET /beacon/api/notifications` | `GetNotifications` |
-| `Beacon.Core/Handlers/ControlTower/GetControlTowerStatisticsHandler.cs` | `IControlTowerService.GetControlTowerStatistics` | `GET /beacon/api/control-tower/statistics` | `GetControlTowerStatistics` |
-| `Beacon.Core/Handlers/ControlTower/GetControlTowerHealthHandler.cs` | `IControlTowerService.GetSubscriptionHealthOverview` | `GET /beacon/api/control-tower/health` | `GetControlTowerHealth` |
-| `Beacon.Core/Handlers/DataMigration/GetMigrationExecutionsHandler.cs` | `IMigrationService.GetMigrationExecutions` | `GET /beacon/api/migrations/executions` | `GetMigrationExecutions` |
+| `src/Beacon.Core/Handlers/Notifications/GetNotificationsHandler.cs` | `INotificationService.GetQueryExecutionHistory` | `GET /beacon/api/notifications` | `GetNotifications` |
+| `src/Beacon.Core/Handlers/ControlTower/GetControlTowerStatisticsHandler.cs` | `IControlTowerService.GetControlTowerStatistics` | `GET /beacon/api/control-tower/statistics` | `GetControlTowerStatistics` |
+| `src/Beacon.Core/Handlers/ControlTower/GetControlTowerHealthHandler.cs` | `IControlTowerService.GetSubscriptionHealthOverview` | `GET /beacon/api/control-tower/health` | `GetControlTowerHealth` |
+| `src/Beacon.Core/Handlers/DataMigration/GetMigrationExecutionsHandler.cs` | `IMigrationService.GetMigrationExecutions` | `GET /beacon/api/migrations/executions` | `GetMigrationExecutions` |
 
 All four follow the established pattern: `internal sealed class` + primary
 constructor, request/result records colocated, query-string params on the
@@ -58,9 +58,9 @@ shape is fine for read-only consumers.
 
 ## Endpoint files added
 
-- `Beacon.SampleProject/Endpoints/NotificationsEndpoints.cs`
-- `Beacon.SampleProject/Endpoints/ControlTowerEndpoints.cs`
-- `Beacon.SampleProject/Endpoints/MigrationsEndpoints.cs`
+- `src/Beacon.SampleProject/Endpoints/NotificationsEndpoints.cs`
+- `src/Beacon.SampleProject/Endpoints/ControlTowerEndpoints.cs`
+- `src/Beacon.SampleProject/Endpoints/MigrationsEndpoints.cs`
 
 All registered in `BeaconApiEndpoints.MapBeaconApi()`.
 
@@ -102,7 +102,7 @@ all appear in the live OpenAPI document.
 ## Verified
 
 - `dotnet build Beacon.SampleProject -c Release --property WarningLevel=0` — green
-- `dotnet test Beacon.Tests/Beacon.Tests.csproj` — 35/35 pass (no new translation tests; the new handlers wrap services rather than running new EF queries)
+- `dotnet test src/Beacon.Tests/Beacon.Tests.csproj` — 35/35 pass (no new translation tests; the new handlers wrap services rather than running new EF queries)
 - `npm run build` — green; total bundle ~94 KB gzipped (first-paint), per-route chunks 0.4–5.8 KB
 - `npm test` — 1/1 pass
 

@@ -26,7 +26,7 @@ This guide provides a step-by-step walkthrough for implementing the Tasks recipi
 
 #### Step 1.1: Add Tasks to NotificationType Enum
 
-**File**: `Beacon.Core/Data/Enums/NotificationType.cs`
+**File**: `src/Beacon.Core/Data/Enums/NotificationType.cs`
 
 **Action**: Add Tasks enum value
 
@@ -50,7 +50,7 @@ dotnet build --property WarningLevel=0
 
 #### Step 1.2: Create Task Entity
 
-**File**: `Beacon.Core/Data/Entities/Task.cs`
+**File**: `src/Beacon.Core/Data/Entities/Task.cs`
 
 **Action**: Create Task entity inheriting from BaseArchivableEntity
 
@@ -81,7 +81,7 @@ public class Task : BaseArchivableEntity
 
 #### Step 1.3: Configure Task Entity in BeaconContext
 
-**File**: `Beacon.Core/Data/BeaconContext.cs`
+**File**: `src/Beacon.Core/Data/BeaconContext.cs`
 
 **Action 1**: Add DbSet property
 
@@ -146,7 +146,7 @@ protected override void OnModelCreating(ModelBuilder modelBuilder)
 
 #### Step 1.4: Create DTOs
 
-**File 1**: `Beacon.Core/DTOs/TaskData.cs`
+**File 1**: `src/Beacon.Core/DTOs/TaskData.cs`
 
 ```csharp
 namespace Beacon.Core.DTOs;
@@ -165,7 +165,7 @@ public record TaskData
 }
 ```
 
-**File 2**: `Beacon.Core/DTOs/TaskDetailsData.cs`
+**File 2**: `src/Beacon.Core/DTOs/TaskDetailsData.cs`
 
 ```csharp
 namespace Beacon.Core.DTOs;
@@ -193,7 +193,7 @@ public record RecipientSummary(int Id, string Name, NotificationType Type);
 public record QueryExecutionSummary(int Id, DateTime ExecutedAt, double ExecutionTimeMs, NotificationStatus Status);
 ```
 
-**File 3**: `Beacon.Core/DTOs/TaskStatisticsData.cs`
+**File 3**: `src/Beacon.Core/DTOs/TaskStatisticsData.cs`
 
 ```csharp
 namespace Beacon.Core.DTOs;
@@ -244,14 +244,14 @@ dotnet ef database update --project Beacon.Core --startup-project Beacon.SampleP
 #### Step 2.1: Create Handler Directory
 
 ```bash
-mkdir -p Beacon.Core/Features/Tasks
+mkdir -p src/Beacon.Core/Features/Tasks
 ```
 
 ---
 
 #### Step 2.2: Implement CreateTask Handler
 
-**File**: `Beacon.Core/Features/Tasks/CreateTask.cs`
+**File**: `src/Beacon.Core/Features/Tasks/CreateTask.cs`
 
 ```csharp
 namespace Beacon.Core.Features.Tasks;
@@ -323,7 +323,7 @@ public sealed record Response
 
 #### Step 2.3: Implement ResolveTask Handler
 
-**File**: `Beacon.Core/Features/Tasks/ResolveTask.cs`
+**File**: `src/Beacon.Core/Features/Tasks/ResolveTask.cs`
 
 ```csharp
 namespace Beacon.Core.Features.Tasks;
@@ -390,7 +390,7 @@ public sealed record Response
 
 #### Step 2.4: Implement ReopenTask Handler
 
-**File**: `Beacon.Core/Features/Tasks/ReopenTask.cs`
+**File**: `src/Beacon.Core/Features/Tasks/ReopenTask.cs`
 
 ```csharp
 namespace Beacon.Core.Features.Tasks;
@@ -447,7 +447,7 @@ public sealed record Response
 
 #### Step 2.5: Implement GetTasks Query Handler
 
-**File**: `Beacon.Core/Features/Tasks/GetTasks.cs`
+**File**: `src/Beacon.Core/Features/Tasks/GetTasks.cs`
 
 ```csharp
 namespace Beacon.Core.Features.Tasks;
@@ -543,7 +543,7 @@ public sealed record Response
 
 #### Step 2.6: Implement GetTaskDetails Query Handler
 
-**File**: `Beacon.Core/Features/Tasks/GetTaskDetails.cs`
+**File**: `src/Beacon.Core/Features/Tasks/GetTaskDetails.cs`
 
 ```csharp
 namespace Beacon.Core.Features.Tasks;
@@ -632,7 +632,7 @@ public sealed record Response
 
 #### Step 3.1: Implement TasksAdapter
 
-**File**: `Beacon.Core/Adapters/TasksAdapter.cs`
+**File**: `src/Beacon.Core/Adapters/TasksAdapter.cs`
 
 ```csharp
 namespace Beacon.Core.Adapters;
@@ -685,7 +685,7 @@ public class TasksAdapter(IMediator mediator) : IAdapter
 
 #### Step 3.2: Register TasksAdapter in AdapterFactory
 
-**File**: `Beacon.Core/Adapters/AdapterFactory.cs`
+**File**: `src/Beacon.Core/Adapters/AdapterFactory.cs`
 
 **Action**: Add Tasks case to `GetAdapterService` method
 
@@ -711,7 +711,7 @@ public IAdapter GetAdapterService(NotificationType notificationType)
 
 #### Step 4.1: Create ITaskService Interface
 
-**File**: `Beacon.Core/Services/ITaskService.cs`
+**File**: `src/Beacon.Core/Services/ITaskService.cs`
 
 ```csharp
 namespace Beacon.Core.Services;
@@ -736,7 +736,7 @@ public interface ITaskService
 
 #### Step 4.2: Implement TaskService
 
-**File**: `Beacon.Core/Services/TaskService.cs`
+**File**: `src/Beacon.Core/Services/TaskService.cs`
 
 ```csharp
 namespace Beacon.Core.Services;
@@ -823,7 +823,7 @@ public class TaskService(IMediator mediator) : ITaskService
 
 #### Step 4.3: Register TaskService in DI
 
-**File**: `Beacon.SampleProject/Program.cs` (or wherever services are registered)
+**File**: `src/Beacon.SampleProject/Program.cs` (or wherever services are registered)
 
 ```csharp
 services.AddScoped<ITaskService, TaskService>();
@@ -837,7 +837,7 @@ services.AddScoped<ITaskService, TaskService>();
 
 #### Step 5.1: Create Tasks Page
 
-**File**: `Beacon.UI/Components/Pages/Tasks/Tasks.razor`
+**File**: `src/Beacon.UI/Components/Pages/Tasks/Tasks.razor`
 
 ```razor
 @page "/tasks"
@@ -942,7 +942,7 @@ else
 
 #### Step 5.2: Create Task Details Page
 
-**File**: `Beacon.UI/Components/Pages/Tasks/TaskDetails.razor`
+**File**: `src/Beacon.UI/Components/Pages/Tasks/TaskDetails.razor`
 
 ```razor
 @page "/tasks/{TaskId:int}"
@@ -1022,7 +1022,7 @@ else
 
 #### Step 5.3: Update Navigation
 
-**File**: `Beacon.UI/Components/Layout/NavMenu.razor`
+**File**: `src/Beacon.UI/Components/Layout/NavMenu.razor`
 
 **Action**: Add Tasks navigation link
 
@@ -1058,7 +1058,7 @@ dotnet watch run --project Beacon.SampleProject
 
 #### Step 6.2: Integration Testing
 
-Create test file: `Beacon.Tests/Features/Tasks/CreateTaskTests.cs`
+Create test file: `src/Beacon.Tests/Features/Tasks/CreateTaskTests.cs`
 
 ```csharp
 // TODO: Add integration tests for handlers

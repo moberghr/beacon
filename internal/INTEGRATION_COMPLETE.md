@@ -14,7 +14,7 @@ The multi-agent database documentation system has been **fully integrated** into
 
 ### 💻 Production Code (12 files, 1,600+ lines)
 
-**Models** (6 files in `Beacon.Core/Models/Ai/MultiAgent/`):
+**Models** (6 files in `src/Beacon.Core/Models/Ai/MultiAgent/`):
 - `OrchestratorResult.cs` - Schema analysis output
 - `DomainGroup.cs` - Logical table groupings
 - `DomainResult.cs` - Domain-specific documentation
@@ -22,17 +22,17 @@ The multi-agent database documentation system has been **fully integrated** into
 - `MultiAgentGenerationOptions.cs` - Configuration
 - `DocumentationProgress.cs` - Real-time progress
 
-**Services** (3 files in `Beacon.Core/Services/Ai/MultiAgent/`):
+**Services** (3 files in `src/Beacon.Core/Services/Ai/MultiAgent/`):
 - `IMultiAgentDocumentationService.cs` - Interface
 - `MultiAgentDocumentationService.cs` - 830 lines, full orchestration
 - `MultiAgentPrompts.cs` - 580 lines, all agent prompts
 
 **Handlers** (1 file):
-- `Beacon.Core/Handlers/Documentation/GenerateMultiAgentDocumentationHandler.cs`
+- `src/Beacon.Core/Handlers/Documentation/GenerateMultiAgentDocumentationHandler.cs`
 
 **Integration** (2 files modified):
-- `Beacon.Core/ServiceConfiguration.cs` - Service registration
-- `Beacon.UI/Components/Pages/DataSources/GenerateDocumentationDialog.razor` - UI updates
+- `src/Beacon.Core/ServiceConfiguration.cs` - Service registration
+- `src/Beacon.UI/Components/Pages/DataSources/GenerateDocumentationDialog.razor` - UI updates
 
 ### 📚 Testing Guide
 - **Testing instructions** (`docs/TESTING_MULTI_AGENT.md`) - Complete testing guide
@@ -41,7 +41,7 @@ The multi-agent database documentation system has been **fully integrated** into
 
 ### 1. Service Registration ✅
 
-**File**: `Beacon.Core/ServiceConfiguration.cs`
+**File**: `src/Beacon.Core/ServiceConfiguration.cs`
 
 **Line 135**: Added multi-agent service registration
 ```csharp
@@ -51,7 +51,7 @@ services.TryAddScoped<Services.Ai.MultiAgent.IMultiAgentDocumentationService,
 
 ### 2. MediatR Handler ✅
 
-**File**: `Beacon.Core/Handlers/Documentation/GenerateMultiAgentDocumentationHandler.cs`
+**File**: `src/Beacon.Core/Handlers/Documentation/GenerateMultiAgentDocumentationHandler.cs`
 
 New handler with command:
 - `GenerateMultiAgentDocumentationCommand` - Command with progress support
@@ -59,7 +59,7 @@ New handler with command:
 
 ### 3. UI Updates ✅
 
-**File**: `Beacon.UI/Components/Pages/DataSources/GenerateDocumentationDialog.razor`
+**File**: `src/Beacon.UI/Components/Pages/DataSources/GenerateDocumentationDialog.razor`
 
 **Changes**:
 - Line 2-5: Added using directives
@@ -140,7 +140,7 @@ To test the integration, you need:
 
 ### 1. Database Connection
 
-Update `Beacon.SampleProject/appsettings.json`:
+Update `src/Beacon.SampleProject/appsettings.json`:
 
 ```json
 {
@@ -207,7 +207,7 @@ Enable AI features in `appsettings.json`:
 ## Files Created
 
 ```
-Beacon.Core/
+src/Beacon.Core/
 ├── Models/Ai/MultiAgent/
 │   ├── OrchestratorResult.cs ✅
 │   ├── DomainGroup.cs ✅

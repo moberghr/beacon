@@ -55,7 +55,7 @@ From the handler audit conducted 2026-05-07:
 ## Phase 1 acceptance criteria
 
 1. **All 61 distinct endpoints reachable** under `/beacon/api/*`, each with `.RequireAuthorization()` (none anonymous), each with a stable `WithName(...)` and `WithTags(...)`.
-2. **OpenAPI contract test** scans `Beacon.Core/Handlers/**` and `Beacon.AI/Handlers/**`, asserts every distinct request type maps to an endpoint. Adding a handler without an endpoint fails CI.
+2. **OpenAPI contract test** scans `src/Beacon.Core/Handlers/**` and `src/Beacon.AI/Handlers/**`, asserts every distinct request type maps to an endpoint. Adding a handler without an endpoint fails CI.
 3. **NSwag drift test** asserts `web/src/api/generated/beacon-api.ts` is byte-identical to a fresh codegen. Modifying the OpenAPI doc without regenerating the TS file fails CI.
 4. **Integration test harness** running against `WebApplicationFactory<Program>` with a test SQLite/Postgres backing. At least 5 endpoint smoke tests covering: anon/auth, error mapping, file download, action verb, JSON 401.
 5. **JSON 401 for `/api/*`**: anonymous calls to `RequireAuthorization` endpoints return `401 application/json` with `{ "error": "Unauthorized" }`, not an HTML redirect.
@@ -91,10 +91,10 @@ From the handler audit conducted 2026-05-07:
 
 ## Architecture changes
 
-### `Beacon.SampleProject/Endpoints/` grows
+### `src/Beacon.SampleProject/Endpoints/` grows
 
 ```
-Beacon.SampleProject/
+src/Beacon.SampleProject/
 ├── Endpoints/
 │   ├── BeaconApiEndpoints.cs        # composition root (existing, expanded)
 │   ├── HealthEndpoints.cs           # existing
@@ -163,13 +163,13 @@ Server side: `IHubContext<BeaconHub>` injected where needed; payloads are flat r
 ## Test strategy
 
 1. **Unit tests** for `ApiExceptionMiddleware` mapping (NUnit + Moq).
-2. **Integration tests** in a new `Beacon.Tests/Integration/Api/` directory using `WebApplicationFactory<Program>` (NUnit). Test sample per feature area:
+2. **Integration tests** in a new `src/Beacon.Tests/Integration/Api/` directory using `WebApplicationFactory<Program>` (NUnit). Test sample per feature area:
     - One GET (auth required) — anon → 401 JSON, auth → 200
     - One POST (validates antiforgery token)
     - One DELETE (soft-archive)
     - The file-download path (`ExportProjectDocumentation`) — verifies `Content-Disposition`
     - The Hangfire-backed path (`GenerateProjectDocumentation`) — verifies a `jobId` is returned (mock the actual scheduler in tests)
-3. **Contract test** (the OpenAPI scan) lives at `Beacon.Tests/Integration/Api/OpenApiContractTests.cs`. Reflects on `IRequest<>` types and asserts each has a route.
+3. **Contract test** (the OpenAPI scan) lives at `src/Beacon.Tests/Integration/Api/OpenApiContractTests.cs`. Reflects on `IRequest<>` types and asserts each has a route.
 4. **Drift test** for NSwag lives in the same file; runs `nswag run nswag.config.json` against the in-process host's OpenAPI document, diffs against committed `beacon-api.ts`.
 5. **Existing 28 tests** must continue to pass.
 

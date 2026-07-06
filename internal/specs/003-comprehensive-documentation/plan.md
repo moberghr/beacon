@@ -138,7 +138,7 @@ specs/003-comprehensive-documentation/
 │
 ├── CLAUDE.md                          # Existing (reference for code examples)
 ├── SCHEMA_AGNOSTIC_MIGRATIONS.md     # Existing (reference for advanced docs)
-└── Beacon.Core/                    # Existing (reference for API docs)
+└── src/Beacon.Core/                    # Existing (reference for API docs)
     └── Services/                      # Service interfaces to document
 ```
 
@@ -301,7 +301,7 @@ Enable users to discover all capabilities (SC-006).
 - INotificationService interface
 - IMigrationService interface
 - Request/response examples for key operations
-**Dependencies**: None (reference Beacon.Core/Services/)
+**Dependencies**: None (reference src/Beacon.Core/Services/)
 **Estimated Time**: 4 hours
 **Validation**: All service interfaces documented with examples
 

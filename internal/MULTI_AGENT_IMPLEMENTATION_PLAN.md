@@ -30,7 +30,7 @@ I have designed and implemented a production-ready multi-agent workflow system f
 - Next steps and enhancements
 
 ### 4. Data Models (6 files)
-All in `Beacon.Core/Models/Ai/MultiAgent/`:
+All in `src/Beacon.Core/Models/Ai/MultiAgent/`:
 - `OrchestratorResult.cs` - Schema analysis output
 - `DomainGroup.cs` - Logical table groupings
 - `DomainResult.cs` - Domain documentation
@@ -39,8 +39,8 @@ All in `Beacon.Core/Models/Ai/MultiAgent/`:
 - `DocumentationProgress.cs` - Real-time progress tracking
 
 ### 5. Service Implementation
-- **Interface:** `Beacon.Core/Services/Ai/MultiAgent/IMultiAgentDocumentationService.cs`
-- **Implementation:** `Beacon.Core/Services/Ai/MultiAgent/MultiAgentDocumentationService.cs` (830 lines)
+- **Interface:** `src/Beacon.Core/Services/Ai/MultiAgent/IMultiAgentDocumentationService.cs`
+- **Implementation:** `src/Beacon.Core/Services/Ai/MultiAgent/MultiAgentDocumentationService.cs` (830 lines)
   - Complete orchestration logic
   - Parallel processing with SemaphoreSlim
   - Caching with IMemoryCache
@@ -49,7 +49,7 @@ All in `Beacon.Core/Models/Ai/MultiAgent/`:
   - JSON parsing with fallbacks
 
 ### 6. Agent Prompts
-- **File:** `Beacon.Core/Services/Ai/MultiAgent/MultiAgentPrompts.cs` (580 lines)
+- **File:** `src/Beacon.Core/Services/Ai/MultiAgent/MultiAgentPrompts.cs` (580 lines)
 - Orchestrator system prompt and builder
 - Domain agent system prompt and builder
 - Aggregator system prompt and builder
@@ -110,7 +110,7 @@ Phase 3: AGGREGATOR (4-6 seconds)
 
 ### 1. Service Registration (High Priority)
 
-Add to `Beacon.Core/ServiceConfiguration.cs`:
+Add to `src/Beacon.Core/ServiceConfiguration.cs`:
 
 ```csharp
 // Multi-agent documentation service
@@ -121,7 +121,7 @@ services.AddSingleton<IMultiAgentDocumentationService, MultiAgentDocumentationSe
 
 ### 2. UI Integration (High Priority)
 
-**File to modify:** `Beacon.UI/Components/Pages/DataSources/GenerateDocumentationDialog.razor`
+**File to modify:** `src/Beacon.UI/Components/Pages/DataSources/GenerateDocumentationDialog.razor`
 
 Add:
 - Toggle: "Use Multi-Agent Workflow" (default: true)
@@ -143,7 +143,7 @@ Add:
 ### 3. Handler/Command Integration (Medium Priority)
 
 **Option A: New Handler**
-Create `Beacon.Core/Handlers/Documentation/GenerateMultiAgentDocumentationHandler.cs`
+Create `src/Beacon.Core/Handlers/Documentation/GenerateMultiAgentDocumentationHandler.cs`
 
 **Option B: Update Existing**
 Modify existing documentation handler to support multi-agent mode via options
@@ -167,7 +167,7 @@ Create test files:
 
 ### 5. Configuration (Low Priority)
 
-Add to `Beacon.Core/Configuration/BeaconConfiguration.cs`:
+Add to `src/Beacon.Core/Configuration/BeaconConfiguration.cs`:
 
 ```csharp
 public class MultiAgentDocumentationOptions
@@ -236,7 +236,7 @@ Update:
 ## File Structure Created
 
 ```
-Beacon.Core/
+src/Beacon.Core/
 ├── Models/
 │   └── Ai/
 │       └── MultiAgent/

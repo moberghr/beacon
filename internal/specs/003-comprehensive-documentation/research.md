@@ -33,7 +33,7 @@ This research document identifies existing documentation patterns, project struc
 
 ```
 Beacon/
-├── Beacon.Core/                    # Core domain logic
+├── src/Beacon.Core/                    # Core domain logic
 │   ├── Data/
 │   │   ├── Entities/                  # Domain models (Project, Query, Subscription, etc.)
 │   │   ├── Enums/
@@ -45,17 +45,17 @@ Beacon/
 │   ├── Adapters/                      # Teams, Jira, Email integration
 │   └── Worker/                        # Hangfire job scheduling
 │
-├── Beacon.UI/                      # Blazor UI components
+├── src/Beacon.UI/                      # Blazor UI components
 │   ├── Components/
 │   │   ├── Pages/                     # Main pages (Projects, Queries, Subscriptions, etc.)
 │   │   └── Shared/                    # Reusable components
 │   └── wwwroot/                       # Static assets
 │
 ├── Beacon.UI.AspNet/               # ASP.NET integration
-├── Beacon.SampleProject/           # Sample application
-├── Beacon.Core.PostgreSql/         # PostgreSQL provider
-├── Beacon.Core.SqlServer/          # SQL Server provider
-└── Beacon.Tests/                   # Unit tests
+├── src/Beacon.SampleProject/           # Sample application
+├── src/Beacon.Core.PostgreSql/         # PostgreSQL provider
+├── src/Beacon.Core.SqlServer/          # SQL Server provider
+└── src/Beacon.Tests/                   # Unit tests
 ```
 
 ### Key Features to Document
