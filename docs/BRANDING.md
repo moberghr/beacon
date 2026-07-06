@@ -4,7 +4,7 @@ nav_exclude: true
 
 # Beacon Documentation Branding
 
-This document describes the visual design system for the Beacon documentation site. It mirrors the product design system (`Beacon.UI/web/src/index.css` — brand hue 175 on the oklch scale, emerald on deep neutral surfaces).
+This document describes the visual design system for the Beacon documentation site. It mirrors the product design system (`src/Beacon.UI/web/src/index.css` — brand hue 175 on the oklch scale, emerald on deep neutral surfaces).
 
 ## Color Palette
 
@@ -48,7 +48,7 @@ The Beacon mark is a lighthouse beacon: an emerald dot emitting light beams, dra
 
 - **Wordmark** (mark + "Beacon" text): `assets/images/beacon-logo.svg` — used in the site navigation
 - **Mark only**: `assets/images/beacon-mark.svg` — used in the README hero
-- Source of truth: `Beacon.UI/web/public/beacon-logo.svg` and `beacon-mark.svg`
+- Source of truth: `src/Beacon.UI/web/public/beacon-logo.svg` and `beacon-mark.svg`
 
 ### Logo Usage
 

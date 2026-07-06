@@ -69,20 +69,20 @@ curl http://localhost:5296/beacon/api/health
 
 ### A4. (Optional) Run the React dev server
 
-The host serves the pre-built SPA out of `Beacon.UI/wwwroot`. If you're working on the frontend, run the Vite dev server instead — it hot-reloads and proxies API/MCP calls to Kestrel:
+The host serves the pre-built SPA out of `src/Beacon.UI/wwwroot`. If you're working on the frontend, run the Vite dev server instead — it hot-reloads and proxies API/MCP calls to Kestrel:
 
 ```bash
-npm install --prefix Beacon.UI/web
-npm run dev --prefix Beacon.UI/web
+npm install --prefix src/Beacon.UI/web
+npm run dev --prefix src/Beacon.UI/web
 ```
 
 Vite serves the app on **http://localhost:5173** and proxies `/beacon/api` and `/beacon/mcp` to Kestrel (port 5296 / 7187), so keep the API host from A3 running alongside it.
 
-Other frontend commands (run inside `Beacon.UI/web`):
+Other frontend commands (run inside `src/Beacon.UI/web`):
 
 | Command | What it does |
 |---|---|
-| `npm run build` | Production build → outputs to `Beacon.UI/wwwroot` |
+| `npm run build` | Production build → outputs to `src/Beacon.UI/wwwroot` |
 | `npm run codegen` | Regenerates the typed TS fetch client from `/openapi/v1.json` via NSwag |
 | `npm test` | Runs the Vitest test suite |
 
@@ -162,7 +162,7 @@ See the [Configuration Guide](configuration) for AI/LLM, OIDC, email, and schedu
 
 ### B4. Wire up `Program.cs`
 
-This is the full host setup, modeled on `Beacon.SampleProject/Program.cs`:
+This is the full host setup, modeled on `src/Beacon.SampleProject/Program.cs`:
 
 ```csharp
 using Beacon.AI;
@@ -393,7 +393,7 @@ GRANT CREATE SCHEMA TO your_user;
 ### SPA not loading at `/`
 
 1. Confirm `app.MapBeaconUi()` is wired and `app.UseStaticFiles()` runs before it.
-2. If developing the frontend, make sure the Vite dev server (`npm run dev`) is running, or that you ran `npm run build` so `Beacon.UI/wwwroot` is up to date.
+2. If developing the frontend, make sure the Vite dev server (`npm run dev`) is running, or that you ran `npm run build` so `src/Beacon.UI/wwwroot` is up to date.
 3. Check the browser console for errors and clear cache.
 
 ### Authentication failing

@@ -364,15 +364,15 @@ tasks/todo.md
 .claude/references.index
 .mtk/
 
-# React (post-Phase-3-cutover — UI now lives in Beacon.UI/)
-Beacon.UI/web/dist/
-# React build output — produced by BuildReactApp into Beacon.UI/wwwroot/.
+# React (post-Phase-3-cutover — UI now lives in src/Beacon.UI/)
+src/Beacon.UI/web/dist/
+# React build output — produced by BuildReactApp into src/Beacon.UI/wwwroot/.
 # Hashes change every build; don't track them.
-Beacon.UI/wwwroot/assets/
-Beacon.UI/wwwroot/index.html
-Beacon.UI/web/*.tsbuildinfo
-Beacon.UI/web/vite.config.js
-Beacon.UI/web/vite.config.d.ts
+src/Beacon.UI/wwwroot/assets/
+src/Beacon.UI/wwwroot/index.html
+src/Beacon.UI/web/*.tsbuildinfo
+src/Beacon.UI/web/vite.config.js
+src/Beacon.UI/web/vite.config.d.ts
 /.claude/worktrees/
 
 # Playwright MCP page snapshots (agent-generated browser traces, not source)

@@ -12,4 +12,4 @@
 
 §7.5 **MCP server:** Streamable HTTP transport, mounted at `/beacon/mcp` via `ModelContextProtocol.AspNetCore`. Wired with `app.MapMcp("/beacon/mcp").RequireAuthorization()`. Do not move the route or remove the auth requirement.
 
-§7.6 **Composition root** is `Beacon.SampleProject` (yes, the name is historical). All cross-project DI registration, configuration loading, and Hangfire setup live in `Beacon.SampleProject/Program.cs`.
+§7.6 **Composition root** is `Beacon.SampleProject` (yes, the name is historical). All cross-project DI registration, configuration loading, and Hangfire setup live in `src/Beacon.SampleProject/Program.cs`.

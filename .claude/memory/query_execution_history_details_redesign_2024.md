@@ -76,14 +76,14 @@ Completely redesigned the Query Execution History Details page (`/query-executio
 
 ## Files Modified
 
-**Beacon.UI/wwwroot/css/beacon-styles.css**
+**src/Beacon.UI/wwwroot/css/beacon-styles.css**
 - Added enterprise dashboard styles section (~90 lines)
 - Hero card variants (primary, success, info, warning)
 - Detail card styling
 - Section title styling
 - Info row styling with hover effects
 
-**Beacon.UI/Components/Pages/QueryExecutionHistory/QueryExecutionHistoryDetails.razor**
+**src/Beacon.UI/Components/Pages/QueryExecutionHistory/QueryExecutionHistoryDetails.razor**
 - Complete redesign (~280 lines)
 - **No inline CSS** - uses shared styles
 - 4 hero stat cards

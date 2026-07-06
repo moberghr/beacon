@@ -1,5 +1,5 @@
 ---
-description: Kill any running Beacon API / Vite processes and start a fresh API (Beacon.SampleProject) + Vite frontend (Beacon.UI/web).
+description: Kill any running Beacon API / Vite processes and start a fresh API (Beacon.SampleProject) + Vite frontend (src/Beacon.UI/web).
 ---
 
 # /run — start Beacon (API + frontend)
@@ -74,7 +74,7 @@ If after ~20s the API hasn't responded, read the background bash's stdout/stderr
 ## 4. Start Vite in the background
 
 ```bash
-npm run dev --prefix Beacon.UI/web
+npm run dev --prefix src/Beacon.UI/web
 ```
 
 Run this **with `run_in_background: true`**. Use `--prefix` (don't `cd`) so the parent working directory stays at the repo root.
@@ -94,7 +94,7 @@ Tell the user which `bash id` to pass to `BashKill` if they want to stop either 
 
 ## Notes
 
-- **First-time setup**: if `npm run dev` fails with missing modules, run `npm ci --prefix Beacon.UI/web` first, then retry. Don't re-run `npm install` on every invocation — it's slow and unnecessary once `node_modules/` exists.
+- **First-time setup**: if `npm run dev` fails with missing modules, run `npm ci --prefix src/Beacon.UI/web` first, then retry. Don't re-run `npm install` on every invocation — it's slow and unnecessary once `node_modules/` exists.
 - **`Beacon:EncryptionKey` and other config**: if the API exits immediately with "EncryptionKey must be configured", that's an environment issue — report it and stop. Don't auto-generate a key.
 - **Worktree awareness**: each worktree gets its own running pair. The kill step at the top reclaims ports from any other worktree's running instance, which is exactly what's wanted when switching.
 - **No `dotnet build` first**: `dotnet run` rebuilds incrementally. Don't pre-build — it doubles startup time.

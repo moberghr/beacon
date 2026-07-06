@@ -6,7 +6,7 @@ Added execution time metrics and charts to both the Dashboard (Home page) and Qu
 ## UI Changes
 
 ### 1. Home.razor (Dashboard Page)
-**File**: Beacon.UI/Components/Pages/Home.razor
+**File**: src/Beacon.UI/Components/Pages/Home.razor
 
 **Added Components**:
 1. **Three Hero Cards** (lines 140-189):
@@ -32,7 +32,7 @@ Added execution time metrics and charts to both the Dashboard (Home page) and Qu
 - `ExecutionTimeHistory` (list of daily data points for last 30 days)
 
 ### 2. QueryDetails.razor (Query Details Page)
-**File**: Beacon.UI/Components/Pages/Queries/QueryDetails.razor
+**File**: src/Beacon.UI/Components/Pages/Queries/QueryDetails.razor
 
 **Added Components**:
 1. **Three Hero Cards** (lines 122-162):
@@ -152,13 +152,13 @@ To verify the implementation:
 
 ## Files Modified
 
-1. **Beacon.UI/Components/Pages/Home.razor**
+1. **src/Beacon.UI/Components/Pages/Home.razor**
    - Added using statement for ChartHelper
    - Added 3 execution time hero cards
    - Added execution time chart
    - Added chart fields and methods
 
-2. **Beacon.UI/Components/Pages/Queries/QueryDetails.razor**
+2. **src/Beacon.UI/Components/Pages/Queries/QueryDetails.razor**
    - Added using statement for ChartHelper
    - Added 3 execution time hero cards
    - Added execution time chart

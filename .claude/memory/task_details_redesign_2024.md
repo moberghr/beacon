@@ -102,7 +102,7 @@ Completely redesigned the Task Details page (`/tasks/{id}`) to match the new ent
 
 ## Files Modified
 
-**Beacon.UI/Components/Pages/Tasks/TaskDetails.razor**
+**src/Beacon.UI/Components/Pages/Tasks/TaskDetails.razor**
 - Complete redesign (~720 lines including CSS)
 - Added ~90 lines of CSS styling
 - 4 hero stat cards
