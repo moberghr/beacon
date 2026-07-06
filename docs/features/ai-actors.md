@@ -81,7 +81,7 @@ Pause, resume, and archive are available from the actor's edit page and via `POS
 
 A think cycle is one autonomous reasoning pass. It is triggered:
 
-- **Automatically** — when a subscription owned by an `Active` actor finishes executing, a think cycle is enqueued as a Hangfire background job so the subscription pipeline never blocks on LLM round-trips. Paused, draft, or failed actors are skipped.
+- **Automatically** — when a subscription owned by an `Active` actor finishes executing, a think cycle is enqueued as a background job so the subscription pipeline never blocks on LLM round-trips. Paused, draft, or failed actors are skipped.
 - **Manually** — via the actor detail page or `POST /beacon/api/ai-actors/{id}/think`.
 
 Each cycle is persisted as an execution record that moves through these phases:

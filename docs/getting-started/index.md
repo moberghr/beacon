@@ -13,7 +13,7 @@ Welcome to Beacon! Beacon is a .NET 9 platform for semantic database monitoring,
 
 Beacon ships two ways, and you can use either:
 
-1. **As a self-hostable application** — clone the repository and run the `Beacon.SampleProject` host (the composition root). It boots Kestrel, serves the React single-page app at the root URL, exposes the REST API, MCP server, SignalR hub, and Hangfire dashboard, and applies database migrations on first run.
+1. **As a self-hostable application** — clone the repository and run the `Beacon.SampleProject` host (the composition root). It boots Kestrel, serves the React single-page app at the root URL, exposes the REST API, MCP server, and SignalR hub, and applies database migrations on first run.
 2. **As NuGet packages** — embed Beacon into your own ASP.NET Core application by referencing the `Beacon.*` packages and wiring them in `Program.cs`.
 
 The **Installation** guide covers both paths in detail.
@@ -46,13 +46,12 @@ flowchart TB
         API["REST API<br/>/beacon/api/* (Minimal APIs)"]
         Hub["SignalR Hub<br/>/beacon/api/hub"]
         MCP["MCP Server<br/>/beacon/mcp (Streamable HTTP)"]
-        Hangfire["Hangfire Dashboard<br/>/hangfire"]
     end
 
     subgraph Core["Beacon.Core + Beacon.AI + Beacon.MCP"]
         Mediatr["MediatR / CQRS handlers"]
         AI["AI layer<br/>(runtime-swappable LLM + queue)"]
-        Scheduler["IBeaconScheduler<br/>(Hangfire-backed)"]
+        Scheduler["IBeaconScheduler<br/>(pluggable scheduler)"]
     end
 
     subgraph Data["Data layer"]
@@ -79,7 +78,7 @@ Beacon enables you to:
 
 1. **Connect** to your data sources — PostgreSQL, SQL Server, MySQL, Google BigQuery, Snowflake, Databricks, Azure Synapse, AWS CloudWatch, and generic REST APIs (9 connectors)
 2. **Define** SQL queries (including cross-database queries) to monitor your data
-3. **Schedule** execution with cron expressions via Hangfire
+3. **Schedule** execution with cron expressions via the pluggable scheduler
 4. **Deliver** results via Email, Microsoft Teams, or Jira
 5. **Migrate** data between databases with ETL pipelines
 6. **Integrate** with AI agents through the built-in MCP server
