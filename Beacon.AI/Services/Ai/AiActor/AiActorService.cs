@@ -1,8 +1,8 @@
 using System.Text.Json;
-using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Data;
+using Beacon.Core.Worker;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Models;
@@ -25,7 +25,7 @@ public class AiActorService : IAiActorServiceExtended
     private readonly IDatabaseMetadataService _metadataService;
     private readonly IQueryService _queryService;
     private readonly ISubscriptionService _subscriptionService;
-    private readonly IBackgroundJobClient _backgroundJobClient;
+    private readonly IBeaconScheduler _beaconScheduler;
     private readonly ILogger<AiActorService> _logger;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -40,7 +40,7 @@ public class AiActorService : IAiActorServiceExtended
         IDatabaseMetadataService metadataService,
         IQueryService queryService,
         ISubscriptionService subscriptionService,
-        IBackgroundJobClient backgroundJobClient,
+        IBeaconScheduler beaconScheduler,
         ILogger<AiActorService> logger)
     {
         _contextFactory = contextFactory;
@@ -48,7 +48,7 @@ public class AiActorService : IAiActorServiceExtended
         _metadataService = metadataService;
         _queryService = queryService;
         _subscriptionService = subscriptionService;
-        _backgroundJobClient = backgroundJobClient;
+        _beaconScheduler = beaconScheduler;
         _logger = logger;
     }
 
@@ -136,11 +136,10 @@ public class AiActorService : IAiActorServiceExtended
 
         var actorId = subscriptionInfo.AiActorId.Value;
 
-        // Enqueue think cycle as a Hangfire background job so the subscription-execution
+        // Enqueue the think cycle as a background job so the subscription-execution
         // pipeline does not block on LLM round-trips. The job runs under its own scope
-        // and its own CancellationToken; the value-type args round-trip through Hangfire JSON.
-        var jobId = _backgroundJobClient.Enqueue<IAiActorServiceExtended>(
-            x => x.ExecuteThinkCycleBackgroundAsync(actorId, subscriptionId));
+        // and its own CancellationToken.
+        var jobId = _beaconScheduler.EnqueueAiActorThinkCycle(actorId, subscriptionId);
 
         _logger.LogInformation(
             "Subscription {SubscriptionId} executed, enqueued think cycle job {JobId} for actor {ActorId}",
