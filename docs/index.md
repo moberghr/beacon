@@ -31,7 +31,7 @@ Beacon is a .NET 9 platform that turns database monitoring into semantic queries
 Highlights:
 
 - **9 data sources**: PostgreSQL, SQL Server, MySQL, BigQuery, Snowflake, Databricks, Azure Synapse, AWS CloudWatch, and a generic REST API connector
-- **Flexible alerting**: Email, Microsoft Teams, Slack, and Jira notifications with cron scheduling (Hangfire), plus automatic [alerting tasks](features/tasks) with lifecycle tracking
+- **Flexible alerting**: Email, Microsoft Teams, Slack, and Jira notifications with cron scheduling, plus automatic [alerting tasks](features/tasks) with lifecycle tracking
 - **Control Tower**: [real-time health](features/control-tower) across every scheduled check — success rates, anomalies, open tasks — in one auto-refreshing view
 - **Query chaining**: multi-step queries with cross-database joins via in-memory SQLite (`@@result1`, `@@result2`)
 - **Full results as attachments**: email notifications include complete datasets as CSV for Excel analysis
@@ -72,7 +72,7 @@ graph TB
 
     subgraph Infrastructure["Infrastructure Layer"]
         Meta[(Metadata DB<br/>PostgreSQL / SQL Server)] ~~~ Sources[(9 Data-Source<br/>Connectors)]
-        Scheduler[Hangfire<br/>on PostgreSQL] ~~~ SQLiteVM[In-Memory SQLite<br/>Cross-DB Joins]
+        Scheduler[IBeaconScheduler<br/>Pluggable Scheduler] ~~~ SQLiteVM[In-Memory SQLite<br/>Cross-DB Joins]
     end
 
     React --> Edge
@@ -98,7 +98,7 @@ Multi-step queries with cross-database capabilities:
 ```mermaid
 sequenceDiagram
     participant User
-    participant Scheduler as Hangfire Scheduler
+    participant Scheduler as Beacon Scheduler
     participant QueryOrchestrator
     participant VirtualTableManager
     participant PostgreSQL
@@ -255,7 +255,7 @@ using Beacon.UI;
 
 builder.Services.AddBeaconServices(builder.Configuration, options =>
     {
-        options.AddBeaconScheduler<BeaconScheduler>(); // Hangfire-backed IBeaconScheduler
+        options.AddBeaconScheduler<YourScheduler>();   // your IBeaconScheduler implementation
         options.UseAI = true;                          // optional, experimental
     })
     .AddPostgreSqlConnector()
@@ -363,7 +363,7 @@ Get help and contribute to the project.
 | **SQL Accuracy Stack** | M-Schema grounding with sample values, AST read-only validation, dry-run repair loop |
 | **MCP Learning Loop** | Usage signals become approved schema patterns and documentation patches |
 | **Control Tower** | Real-time subscription health with anomaly sparklines and open-task counts |
-| **Cron Scheduling** | Hangfire on PostgreSQL with flexible cron expressions |
+| **Cron Scheduling** | Pluggable `IBeaconScheduler` with flexible cron expressions — pair it with [Moberg Warp](https://moberghr.github.io/warp/) |
 | **Multi-Step Queries** | Chain queries with result aggregation and cross-DB joins |
 | **Notifications** | Email (with CSV attachments), Teams, Slack, Jira delivery |
 | **Alerting Tasks** | Auto-created from failed checks, auto-resolved when data recovers |

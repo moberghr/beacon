@@ -207,7 +207,7 @@ internal class SubscriptionService(
             .Where(x => subscriptionData.Recipients.Select(y => y.RecipientId).Contains(x.Id))
             .ToListAsync(cancellationToken);
 
-        var shouldUpdateHangfire = subscription.CronExpression != subscriptionData.CronExpression;
+        var shouldUpdateSchedule = subscription.CronExpression != subscriptionData.CronExpression;
 
         subscription.CronExpression = subscriptionData.CronExpression;
         subscription.MaxRows = subscriptionData.MaxRows;
@@ -267,7 +267,7 @@ internal class SubscriptionService(
             .FirstOrDefaultAsync(cancellationToken)
             ?? throw new InvalidOperationException($"Query {subscription.QueryId} not found.");
 
-        if (shouldUpdateHangfire)
+        if (shouldUpdateSchedule)
         {
             beaconScheduler.AddOrUpdate(subscription.Id, $"{query.Name}: {subscription.Id}", subscription.CronExpression);
         }

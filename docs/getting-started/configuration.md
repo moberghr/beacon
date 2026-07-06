@@ -29,7 +29,7 @@ builder.Services.AddBeaconHostInfrastructure();
 // Core services, scheduler, connectors, metadata provider
 builder.Services.AddBeaconServices(builder.Configuration, options =>
     {
-        options.AddBeaconScheduler<BeaconScheduler>();   // IBeaconScheduler (Hangfire-backed)
+        options.AddBeaconScheduler<BeaconScheduler>();   // your IBeaconScheduler implementation
         options.BaseUrl = "https://localhost:7187";
         options.UseAI = true;
         options.AddEmailAdapter<BeaconMailSender>();
@@ -64,7 +64,6 @@ app.MapBeaconApi();               // /beacon/api/*
 app.MapLoginEndpoints("/beacon", beaconConfiguration);
 app.MapHub<BeaconHub>("/beacon/api/hub").RequireAuthorization();
 app.MapMcp("/beacon/mcp").RequireAuthorization();
-app.UseHangfireDashboard("/hangfire");
 app.MapBeaconUi();                // React SPA at root /
 ```
 
@@ -527,65 +526,47 @@ Server=hostname;Database=dbname;Uid=user;Pwd=pass;SslMode=Required
 
 ## Scheduling
 
-Beacon schedules recurring work through the `IBeaconScheduler` abstraction. The canonical implementation, `BeaconScheduler`, is backed by **Hangfire on PostgreSQL** (1-second poll, automatic retries disabled). Quartz.NET remains a valid alternative implementation of the same interface.
-
-### Hangfire Storage (canonical)
+Beacon does not bundle a job runner. All recurring work goes through the `IBeaconScheduler` abstraction — you plug in the scheduler your host already uses:
 
 ```csharp
-using Hangfire;
-using Hangfire.PostgreSql;
+namespace Beacon.Core.Worker;
 
-builder.Services.AddHangfire((provider, config) => config
-    .SetDataCompatibilityLevel(CompatibilityLevel.Version_170)
-    .UseSimpleAssemblyNameTypeSerializer()
-    .UseRecommendedSerializerSettings()
-    .UseFilter(new AutomaticRetryAttribute { Attempts = 0 }) // retries disabled
-    .UsePostgreSqlStorage(connectionString, new PostgreSqlStorageOptions
-    {
-        PrepareSchemaIfNecessary = true,
-        QueuePollInterval = TimeSpan.FromSeconds(1)
-    }));
-
-builder.Services.AddHangfireServer(options =>
+public interface IBeaconScheduler
 {
-    options.WorkerCount = 10; // default: CPU core count
-});
+    void AddOrUpdate(int subscriptionId, string subscriptionName, string cron);
+    void Remove(int subscriptionId, string subscriptionName);
+
+    // optional — data-quality contract evaluation schedules
+    void AddOrUpdateDataQualityJob(int contractId, string contractName, string cron);
+    void RemoveDataQualityJob(int contractId, string contractName);
+
+    // optional — fire-and-forget background work used by the AI features;
+    // returns the job id (used to correlate JobStatusChanged push events)
+    string EnqueueProjectDocumentation(int projectId, int userId, string? notifyUserId);
+    string EnqueueAiActorThinkCycle(int actorId, int subscriptionId);
+}
 ```
 
-**Worker-count guidelines:**
+The optional members have default implementations that throw, so hosts that don't use data-quality contracts or AI features only implement the two subscription methods.
 
-- Light load (< 100 subscriptions): 2–4 workers
-- Medium load (100–500 subscriptions): 5–10 workers
-- Heavy load (500+ subscriptions): 10–20 workers
+Beacon calls `AddOrUpdate` whenever a subscription is created or its cron changes, and `Remove` when it's deleted or disabled. Your implementation maps those calls onto recurring jobs that invoke `IJobService.ExecuteQuery(subscriptionId)` on the cron schedule.
 
 ### Scheduler Implementation
 
 ```csharp
-using Hangfire;
 using Beacon.Core.Worker;
 
 public class BeaconScheduler : IBeaconScheduler
 {
-    private readonly IRecurringJobManager _recurringJobManager;
-
-    public BeaconScheduler(IRecurringJobManager recurringJobManager)
-    {
-        _recurringJobManager = recurringJobManager;
-    }
-
     public void AddOrUpdate(int subscriptionId, string subscriptionName, string cron)
     {
-        var jobKey = $"{subscriptionId} - {subscriptionName}";
-        _recurringJobManager.AddOrUpdate<IJobService>(
-            jobKey,
-            x => x.ExecuteQuery(subscriptionId),
-            cron);
+        // register/update a recurring job in your job runner that calls
+        // IJobService.ExecuteQuery(subscriptionId) on the given cron schedule
     }
 
     public void Remove(int subscriptionId, string subscriptionName)
     {
-        var jobKey = $"{subscriptionId} - {subscriptionName}";
-        _recurringJobManager.RemoveIfExists(jobKey);
+        // remove the recurring job
     }
 }
 
@@ -593,7 +574,7 @@ public class BeaconScheduler : IBeaconScheduler
 options.AddBeaconScheduler<BeaconScheduler>();
 ```
 
-The Hangfire dashboard mounts at `/hangfire` (admin only).
+Any job runner with recurring/cron support works. We recommend [Moberg Warp](https://moberghr.github.io/warp/) — define an `IJob` that calls `IJobService.ExecuteQuery` and map `AddOrUpdate`/`Remove` onto Warp's `AddOrUpdateRecurringJob`/remove APIs; you get retries, concurrency guards, and a job dashboard out of the box. Quartz.NET is another valid choice. `Beacon.SampleProject` ships a complete working reference implementation you can copy as a starting point.
 
 ## Email Adapter
 
@@ -792,7 +773,6 @@ When Beacon runs behind a reverse proxy (nginx, Traefik, a cloud load balancer),
     "LogLevel": {
       "Default": "Information",
       "Beacon": "Debug",
-      "Hangfire": "Information",
       "Microsoft.AspNetCore": "Warning"
     }
   }
@@ -835,8 +815,7 @@ When Beacon runs behind a reverse proxy (nginx, Traefik, a cloud load balancer),
   "Logging": {
     "LogLevel": {
       "Default": "Information",
-      "Beacon": "Information",
-      "Hangfire": "Warning"
+      "Beacon": "Information"
     }
   }
 }

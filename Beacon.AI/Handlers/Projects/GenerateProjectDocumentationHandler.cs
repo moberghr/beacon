@@ -1,13 +1,12 @@
-using Hangfire;
 using MediatR;
-using Beacon.AI.Services.Documentation;
 using Beacon.Core.Authorization;
 using Beacon.Core.Handlers.Projects;
+using Beacon.Core.Worker;
 
 namespace Beacon.AI.Handlers.Projects;
 
 internal sealed class GenerateProjectDocumentationHandler(
-    IBackgroundJobClient backgroundJobClient,
+    IBeaconScheduler beaconScheduler,
     IBeaconUserContext userContext)
     : IRequestHandler<GenerateProjectDocumentationCommand, GenerateProjectDocumentationResult>
 {
@@ -15,15 +14,12 @@ internal sealed class GenerateProjectDocumentationHandler(
         GenerateProjectDocumentationCommand request,
         CancellationToken cancellationToken)
     {
-        var jobId = backgroundJobClient.Enqueue<IProjectDocumentationService>(
-            svc => svc.GenerateDocumentationAsync(request.ProjectId, request.UserId, CancellationToken.None));
-
-        // Tag the job with the enqueueing user so HangfireSignalRJobFilter publishes
-        // JobStatusChanged events to /beacon/api/hub for that user only.
-        if (!string.IsNullOrWhiteSpace(userContext.UserId))
-        {
-            JobStorage.Current.GetConnection().SetJobParameter(jobId, "BeaconUserId", userContext.UserId);
-        }
+        // notifyUserId lets the host scope JobStatusChanged push events on
+        // /beacon/api/hub to the enqueueing user only.
+        var jobId = beaconScheduler.EnqueueProjectDocumentation(
+            request.ProjectId,
+            request.UserId,
+            string.IsNullOrWhiteSpace(userContext.UserId) ? null : userContext.UserId);
 
         return Task.FromResult(new GenerateProjectDocumentationResult(jobId));
     }

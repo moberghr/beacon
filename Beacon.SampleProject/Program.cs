@@ -22,6 +22,7 @@ using Beacon.Api.Hubs;
 using Beacon.Api.OpenApi;
 using Microsoft.AspNetCore.OpenApi;
 using Beacon.Api.SignalR;
+using Beacon.SampleProject.SignalR;
 using Beacon.SampleProject.Authentication;
 using Beacon.SampleProject.Middleware;
 using Beacon.SampleProject.Services;
@@ -328,8 +329,8 @@ app.UseHangfireDashboard("/hangfire", new DashboardOptions
 app.MapBeaconUi();
 
 // MCP Learning: aggregate patterns every 6 hours, cleanup old signals daily
-RecurringJob.AddOrUpdate<IJobService>("mcp-learning-aggregate", x => x.AggregateLearnedPatterns(JobCancellationToken.Null), "0 */6 * * *");
-RecurringJob.AddOrUpdate<IJobService>("mcp-learning-cleanup", x => x.CleanupOldSignals(JobCancellationToken.Null), "0 3 * * *");
+RecurringJob.AddOrUpdate<IJobService>("mcp-learning-aggregate", x => x.AggregateLearnedPatterns(CancellationToken.None), "0 */6 * * *");
+RecurringJob.AddOrUpdate<IJobService>("mcp-learning-cleanup", x => x.CleanupOldSignals(CancellationToken.None), "0 3 * * *");
 
 app.Run();
 
