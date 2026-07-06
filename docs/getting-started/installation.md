@@ -146,7 +146,7 @@ See [Step 2](#step-2-generate-the-encryption-key) below.
     "BeaconContext": "Host=localhost;Database=beacon;Username=postgres;Password=yourpassword"
   },
   "Beacon": {
-    "EncryptionKey": "[REMOVED-KEY]="
+    "EncryptionKey": "k8Jt2mVq9Xw4Zr7yLp3nB6hTsE1dCaG5uFoQiRxYjMA="
   },
   "Logging": {
     "LogLevel": {
@@ -335,7 +335,7 @@ openssl rand -base64 32
 **Example output:**
 
 ```
-[REMOVED-KEY]=
+k8Jt2mVq9Xw4Zr7yLp3nB6hTsE1dCaG5uFoQiRxYjMA=
 ```
 
 Store it via User Secrets, an environment variable, or a secrets manager — never commit it. See the [Configuration Guide](configuration) for production patterns.

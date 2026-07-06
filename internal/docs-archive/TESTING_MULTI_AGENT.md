@@ -35,7 +35,7 @@ Enable AI features by configuring an LLM provider in `appsettings.json`:
 ```json
 {
   "Beacon": {
-    "EncryptionKey": "[REMOVED-KEY]=",
+    "EncryptionKey": "k8Jt2mVq9Xw4Zr7yLp3nB6hTsE1dCaG5uFoQiRxYjMA=",
     "LLM": {
       "Provider": "Claude",
       "ApiKey": "your-claude-api-key",
