@@ -380,3 +380,7 @@ src/Beacon.UI/web/vite.config.d.ts
 
 # MCP local-override config — for committing-free secret values
 .mcp.local.json
+
+# Local-only working folders — kept on disk, never tracked
+internal/
+.specify/
