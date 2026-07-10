@@ -40,6 +40,10 @@
 		<PackageReference Include="Microsoft.Extensions.AI" Version="10.2.0" />
 		<PackageReference Include="AWSSDK.BedrockRuntime" Version="4.0.14.4" />
 
+		<!-- Local in-process embeddings (ONNX; bge-small-en-v1.5). No network egress. -->
+		<PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.27.0" />
+		<PackageReference Include="Microsoft.ML.Tokenizers" Version="2.0.0" />
+
 		<!-- Document generation packages -->
 		<PackageReference Include="QuestPDF" Version="2025.12.1" />
 		<PackageReference Include="Markdig" Version="0.44.0" />

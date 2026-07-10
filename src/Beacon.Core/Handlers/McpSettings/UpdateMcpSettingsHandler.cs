@@ -62,6 +62,17 @@ internal sealed class UpdateMcpSettingsHandler(
         entity.LearningInjectionBudgetChars = data.LearningInjectionBudgetChars;
         entity.LearningSignalRetentionDays = data.LearningSignalRetentionDays;
 
+        // Self-learning settings
+        entity.EnableSelfConsistency = data.EnableSelfConsistency;
+        entity.SelfConsistencyCandidateCount = data.SelfConsistencyCandidateCount;
+        entity.EnableEvalJudge = data.EnableEvalJudge;
+        entity.EnableSemanticRetrieval = data.EnableSemanticRetrieval;
+        entity.ExemplarTopK = data.ExemplarTopK;
+
+        // Replay-verification settings
+        entity.EnableReplayVerification = data.EnableReplayVerification;
+        entity.LearningReplayMinFlips = data.LearningReplayMinFlips;
+
         await context.SaveChangesAsync(cancellationToken);
         settingsProvider.InvalidateCache();
     }

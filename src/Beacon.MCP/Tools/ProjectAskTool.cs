@@ -165,11 +165,38 @@ internal sealed class ProjectAskTool(
         var smartContext = await knowledgeGraph.GetSmartContextForAskAsync(dataSourceId, question, ct);
         signal.SetDataSourceId(dataSourceId);
 
-        var sqlResult = await sqlGenerationService.GenerateAsync(llmProvider, smartContext.FullContext, question, settings, ct);
-        var generatedSql = sqlResult.Sql;
-        signal.SetGeneratedSql(generatedSql, sqlResult.TablesUsed);
+        // Self-consistency voting pre-stage (spec §⑤). Runs ONLY when enabled and execution is
+        // requested — it must execute each candidate read-only to compare result sets. The elected
+        // winner becomes `generatedSql` and is fed into the EXISTING repair loop below unchanged.
+        // If voting is disabled, or produces no majority (no candidate validated+executed), we fall
+        // through to the single-candidate path below, behaving exactly as before.
+        string? generatedSql = null;
+        List<string>? tablesUsed = null;
+        string? votingNote = null;
+
+        if (settings.EnableSelfConsistency && execute)
+        {
+            var vote = await RunSelfConsistencyVoteAsync(
+                llmProvider, dataSourceId, question, settings, smartContext, ct);
+            generatedSql = vote.Sql;
+            tablesUsed = vote.Tables;
+            votingNote = vote.Note;
+        }
+
+        if (generatedSql == null)
+        {
+            var sqlResult = await sqlGenerationService.GenerateAsync(llmProvider, smartContext.FullContext, question, settings, ct);
+            generatedSql = sqlResult.Sql;
+            tablesUsed = sqlResult.TablesUsed;
+        }
+
+        signal.SetGeneratedSql(generatedSql, tablesUsed);
 
         var text = $"### Generated SQL\n```sql\n{generatedSql}\n```\n\n";
+        if (votingNote != null)
+        {
+            text += votingNote;
+        }
 
         var validationError = ValidateGeneratedSql(generatedSql, settings, smartContext.DatabaseDialect);
         if (validationError != null)
@@ -307,6 +334,106 @@ internal sealed class ProjectAskTool(
         text += execResult.FormattedResult ?? $"**Execution Error:** {execResult.ErrorMessage}\n";
 
         return (text, execResult.IsSuccess);
+    }
+
+    // Non-zero so the N samples diverge; provider-agnostic (§9.4) — no per-provider tuning.
+    private const decimal SelfConsistencyTemperature = 0.7m;
+
+    // Generates N candidates, validates + executes each read-only, and elects the majority
+    // result set. Returns the winning SQL (+ its tables + an agreement note) or all-nulls when no
+    // candidate validated and executed — in which case the caller falls back to single generation.
+    private async Task<(string? Sql, List<string>? Tables, string? Note)> RunSelfConsistencyVoteAsync(
+        ILlmProvider llmProvider,
+        int dataSourceId,
+        string question,
+        Core.Models.McpSettingsData settings,
+        Beacon.AI.Services.Knowledge.SmartSchemaContext smartContext,
+        CancellationToken ct)
+    {
+        var candidateCount = Math.Clamp(settings.SelfConsistencyCandidateCount, 1, 8);
+
+        var candidates = await sqlGenerationService.GenerateCandidatesAsync(
+            llmProvider, smartContext.FullContext, question, settings, candidateCount, SelfConsistencyTemperature, ct);
+
+        if (candidates.Count == 0)
+        {
+            logger.LogWarning(
+                "Self-consistency voting produced no candidates for data source {DataSourceId}; falling back to single-candidate generation.",
+                dataSourceId);
+            return (null, null, "*Self-consistency: no candidates were generated; used single-candidate generation.*\n\n");
+        }
+
+        var evaluated = new List<(string Sql, string Fingerprint, bool Ok)>(candidates.Count);
+        foreach (var candidate in candidates)
+        {
+            // SECURITY (§1.5, lesson 2026-07-03): EVERY candidate must clear the same guardrail +
+            // AST read-only gate the single-candidate path uses BEFORE it can reach ExecuteAsync.
+            // A candidate that fails validation is dropped and is never executed.
+            if (ValidateGeneratedSql(candidate.Sql, settings, smartContext.DatabaseDialect) != null)
+            {
+                continue;
+            }
+
+            var execResult = await queryExecutionService.ExecuteAsync(dataSourceId, candidate.Sql, 100, ct);
+            evaluated.Add((candidate.Sql, ResultFingerprint(execResult), execResult.IsSuccess));
+        }
+
+        var winner = SelectMajority(evaluated);
+        if (winner == null)
+        {
+            // The most diagnostically interesting outcome (model couldn't agree, or every candidate failed
+            // validation/execution) must NOT be silent — otherwise voting can be effectively broken while
+            // paying N× cost with an identical-looking response.
+            logger.LogWarning(
+                "Self-consistency voting found no agreeing executable candidate for data source {DataSourceId} ({Generated} generated, {Executed} executed); falling back to single-candidate generation.",
+                dataSourceId, candidates.Count, evaluated.Count(x => x.Ok));
+            return (null, null, "*Self-consistency: no candidate produced an executable, agreed result; used single-candidate generation.*\n\n");
+        }
+
+        var winnerFingerprint = evaluated
+            .First(x => x.Sql == winner)
+            .Fingerprint;
+        var agreementCount = evaluated.Count(x => x.Ok && x.Fingerprint == winnerFingerprint);
+        var executedCount = evaluated.Count(x => x.Ok);
+        var winnerTables = candidates
+            .First(x => x.Sql == winner)
+            .TablesUsed;
+
+        logger.LogInformation(
+            "Self-consistency voting: {Agree}/{Executed} candidates agreed (of {Generated} generated)",
+            agreementCount, executedCount, candidates.Count);
+
+        var note = $"*Self-consistency: {agreementCount} of {executedCount} executed candidate(s) agreed on this result set ({candidates.Count} generated).*\n\n";
+        return (winner, winnerTables, note);
+    }
+
+    // Result-set majority vote. Groups the SUCCESSFULLY-executed candidates by fingerprint and
+    // returns the SQL of the largest group; ties break to the first-seen group. Returns null when
+    // no candidate executed successfully (caller then falls back to the single-candidate path).
+    // Pure + static so it is unit-testable without an LLM or a database.
+    internal static string? SelectMajority(IReadOnlyList<(string Sql, string Fingerprint, bool Ok)> candidates)
+    {
+        var successful = candidates
+            .Where(x => x.Ok)
+            .ToList();
+
+        if (successful.Count == 0)
+        {
+            return null;
+        }
+
+        return successful
+            .GroupBy(x => x.Fingerprint)
+            .OrderByDescending(x => x.Count())
+            .ThenBy(x => successful.FindIndex(y => y.Fingerprint == x.Key))
+            .First()
+            .First()
+            .Sql;
+    }
+
+    private static string ResultFingerprint(QueryExecutionResult result)
+    {
+        return $"{result.IsSuccess}|{result.RowCount}|{(result.FormattedResult ?? "").Trim()}";
     }
 
     private async Task<string?> TryDryRunAsync(int dataSourceId, string sql, CancellationToken ct)

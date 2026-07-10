@@ -20,4 +20,15 @@ public class McpSettingsData
     public double LearningAutoApproveThreshold { get; set; } = 0.7;
     public int LearningInjectionBudgetChars { get; set; } = 1500;
     public int LearningSignalRetentionDays { get; set; } = 90;
+
+    // Self-learning settings
+    public bool EnableSelfConsistency { get; set; } = false;
+    public int SelfConsistencyCandidateCount { get; set; } = 5;
+    public bool EnableEvalJudge { get; set; } = false;
+    public bool EnableSemanticRetrieval { get; set; } = true;
+    public int ExemplarTopK { get; set; } = 4;
+
+    // Replay-verification settings
+    public bool EnableReplayVerification { get; set; } = true;
+    public int LearningReplayMinFlips { get; set; } = 1;
 }

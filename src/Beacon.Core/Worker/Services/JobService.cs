@@ -19,7 +19,9 @@ internal class JobService(
     IDataQualityEvaluationService dataQualityEvaluationService,
     ILogger<JobService> logger,
     IAiActorService? aiActorService = null,
-    IMcpLearningAggregationService? mcpLearningService = null)
+    IMcpLearningAggregationService? mcpLearningService = null,
+    IEmbeddingIndexingService? embeddingIndexingService = null,
+    IMcpEvalService? mcpEvalService = null)
     : IJobService
 {
     // AI Actor service is optional - only available if Beacon.AI is added
@@ -372,6 +374,28 @@ internal class JobService(
         }
 
         await mcpLearningService.CleanupOldSignalsAsync(ct: cancellationToken);
+    }
+
+    public async Task ReindexEmbeddings(CancellationToken cancellationToken)
+    {
+        if (embeddingIndexingService == null)
+        {
+            logger.LogDebug("Embedding indexing service not available, skipping re-index");
+            return;
+        }
+
+        await embeddingIndexingService.ReindexAsync(cancellationToken);
+    }
+
+    public async Task RunMcpEval(int runId, CancellationToken cancellationToken)
+    {
+        if (mcpEvalService == null)
+        {
+            logger.LogDebug("MCP eval service not available, skipping eval run {RunId}", runId);
+            return;
+        }
+
+        await mcpEvalService.RunAsync(runId, cancellationToken);
     }
 
     private async Task TriggerAiActorIfApplicableAsync(int subscriptionId, int rowCount, CancellationToken cancellationToken)

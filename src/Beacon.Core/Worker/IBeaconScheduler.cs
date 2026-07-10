@@ -21,4 +21,9 @@ public interface IBeaconScheduler
 
     string EnqueueAiActorThinkCycle(int actorId, int subscriptionId)
         => throw new NotImplementedException("Background enqueue not implemented in this host");
+
+    // Fire-and-forget execution of an already-created eval run (see IMcpEvalService.StartRunAsync).
+    // Implementations enqueue IJobService.RunMcpEval(runId) on the host's job runner.
+    string EnqueueMcpEval(int runId)
+        => throw new NotImplementedException("Background enqueue not implemented in this host");
 }

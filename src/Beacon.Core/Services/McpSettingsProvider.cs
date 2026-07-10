@@ -74,7 +74,14 @@ internal sealed class McpSettingsProvider(
             EnableLearning = entity.EnableLearning,
             LearningAutoApproveThreshold = entity.LearningAutoApproveThreshold,
             LearningInjectionBudgetChars = entity.LearningInjectionBudgetChars,
-            LearningSignalRetentionDays = entity.LearningSignalRetentionDays
+            LearningSignalRetentionDays = entity.LearningSignalRetentionDays,
+            EnableSelfConsistency = entity.EnableSelfConsistency,
+            SelfConsistencyCandidateCount = entity.SelfConsistencyCandidateCount,
+            EnableEvalJudge = entity.EnableEvalJudge,
+            EnableSemanticRetrieval = entity.EnableSemanticRetrieval,
+            ExemplarTopK = entity.ExemplarTopK,
+            EnableReplayVerification = entity.EnableReplayVerification,
+            LearningReplayMinFlips = entity.LearningReplayMinFlips
         };
     }
 }

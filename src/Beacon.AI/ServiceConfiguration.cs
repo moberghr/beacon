@@ -6,6 +6,7 @@ using Beacon.AI.Services.Ai;
 using Beacon.AI.Services.Ai.AiActor;
 using Beacon.AI.Services.DbtIntegration;
 using Beacon.AI.Services.Documentation;
+using Beacon.AI.Services.Embeddings;
 using Beacon.AI.Services.GitHub;
 using Beacon.AI.Services.Knowledge;
 using Beacon.AI.Services.LlmProviders;
@@ -82,6 +83,9 @@ public static class ServiceConfiguration
         services.AddTransient<ICodeAnalyzer, CSharpCodeAnalyzer>();
         services.TryAddTransient<IGitHubScannerService, GitHubScannerService>();
 
+        // Local ONNX embeddings (in-process, no egress). Singleton for session reuse.
+        services.AddBeaconEmbeddings();
+
         // Knowledge Graph
         services.TryAddTransient<IKnowledgeGraphService, KnowledgeGraphService>();
 
@@ -94,8 +98,23 @@ public static class ServiceConfiguration
         // dbt Integration
         services.TryAddTransient<IDbtIntegrationService, DbtIntegrationService>();
 
-        // MCP Learning Aggregation
+        // MCP LLM lesson extractor (LLM-primary schema-correction detection; regex fallback lives in the
+        // aggregation service). Queue-backed via DelegatingLlmProvider (§6.1); provider-agnostic (§9.4).
+        services.TryAddTransient<Core.Services.ILessonExtractor, Services.Learning.LlmLessonExtractor>();
+
+        // MCP replay-verification gate (§ Architecture ⑥). Promotes NeedsEvidence candidates only when they
+        // measurably help against the golden set; executes SQL read-only via IMcpEvalService (no new path).
+        services.TryAddTransient<Core.Services.IPatternReplayVerifier, Services.Learning.PatternReplayVerifier>();
+
+        // MCP Learning Aggregation (resolves the optional ILessonExtractor + IPatternReplayVerifier via its ctor).
         services.TryAddTransient<Core.Services.IMcpLearningAggregationService, Services.Learning.McpLearningAggregationService>();
+
+        // MCP Embedding Indexing (populates McpEmbedding for hybrid retrieval + semantic few-shot)
+        services.TryAddTransient<Core.Services.IEmbeddingIndexingService, Services.Embeddings.EmbeddingIndexingService>();
+
+        // MCP Eval harness (interface in Core, impl here; wired at composition root like the learning
+        // aggregation split). Executes SQL strictly read-only via the Core provider factory.
+        services.TryAddTransient<Core.Services.IMcpEvalService, Services.Eval.McpEvalService>();
 
         // MCP pipeline services (used by ProjectAskTool orchestrator)
         services.TryAddTransient<IIntentClassifier, IntentClassifier>();
@@ -103,6 +122,19 @@ public static class ServiceConfiguration
         services.TryAddTransient<ISqlGenerationService, SqlGenerationService>();
         services.TryAddTransient<IKnowledgeAnswerService, KnowledgeAnswerService>();
 
+        return services;
+    }
+
+    /// <summary>
+    /// Registers the local ONNX embedding service. Kept as a discrete extension (per the plan's
+    /// <c>AddBeaconEmbeddings()</c>) though wired via <see cref="AddBeaconAI"/> rather than
+    /// <c>BeaconBuilder</c> — the AI layer registers through <c>AddBeaconAI(IServiceCollection)</c>,
+    /// not the builder chain (that is used only for connectors and DB providers). Singleton so the
+    /// <c>InferenceSession</c> is loaded once and reused (§6). <c>TryAdd</c> lets the host override.
+    /// </summary>
+    public static IServiceCollection AddBeaconEmbeddings(this IServiceCollection services)
+    {
+        services.TryAddSingleton<IBeaconEmbeddingService, OnnxEmbeddingService>();
         return services;
     }
 }
