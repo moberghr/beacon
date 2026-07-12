@@ -41,7 +41,7 @@ Framework details in `.claude/skills/tech-stack-dotnet/SKILL.md`.
 - **Composition root:** `Beacon.SampleProject` (host + UI shell). Auth middleware lives in `src/Beacon.SampleProject/Authentication/`.
 - **Data layer:** EF Core 9 (PostgreSQL + SQL Server, dual migrations) + Dapper for hot paths
 - **Patterns:** MediatR/CQRS (handler+request+result in one file, `internal sealed class` + primary ctor), `IDbContextFactory<BeaconContext>`, builder-pattern DI, soft delete via `ArchivableBaseEntity`
-- **Hosting:** Kestrel self-hosted; React SPA at root `/`; Hangfire on PostgreSQL (`/hangfire`). No more Blazor / MudBlazor.
+- **Hosting:** Kestrel self-hosted; React SPA at root `/`; **Moberg.Warp** background jobs on PostgreSQL (dashboard at `/warp`, admin-only). Warp replaced Hangfire; MediatR remains the in-memory mediator. No more Blazor / MudBlazor.
 - **MCP:** Streamable HTTP at `/beacon/mcp` (auth required); 5 tools + 4 resources
 - **REST API:** Minimal-API endpoints under `/beacon/api/*` for the React shell. Endpoints live in `src/Beacon.Api/Endpoints/` (one file per area); the host wires them via `app.MapBeaconApi()`. OpenAPI document at `/openapi/v1.json`. Convention: one endpoint = one MediatR handler (§2.1.1, enforced by `OpenApiContractTests`). Group-level auth via the `BeaconApi` policy (cookie scheme); endpoints opt out via `.AllowAnonymous()`. Anonymous calls to authenticated endpoints get RFC 7807 JSON 401. SignalR hub at `/beacon/api/hub` for real-time events (`JobStatusChanged`, `NotificationCreated`, `ApprovalUpdated`, scoped to `Clients.User`).
 - **React shell:** `src/Beacon.UI/web/` (Vite + React + TS + **Tailwind CSS v3.4**). Beacon design system primitives live in `src/components/beacon/` (Button, Card, Pill, KPI, Banner, Modal, Input, Seg, Kbd, PageHeader, BeaconHero). Tailwind config maps `brand-*`, `surface`, `text`, `ok|warn|crit|info`, etc. onto CSS variables defined in `src/index.css :root`. Theme switch via `document.documentElement.dataset.theme = 'dark'`. Builds into `src/Beacon.UI/wwwroot/`, served at root `/` by the `Beacon.UI` Razor Class Library. `BrowserRouter basename="/"`. `npm run codegen` regenerates the typed fetch client from `/openapi/v1.json` via NSwag local tool. Icons via `lucide-react`. No legacy CSS — `styles-beacon.css` was removed when every page was migrated to Tailwind + Beacon primitives.
@@ -72,7 +72,7 @@ Detailed rules in `.claude/rules/` (auto-loaded):
 | File | Covers | Rules |
 |---|---|---|
 | `security.md` | Auth, secrets, audit, PII | §1.x |
-| `architecture.md` | Layers, DI, MediatR, Hangfire | §2.x |
+| `architecture.md` | Layers, DI, MediatR, Warp jobs | §2.x |
 | `coding-style.md` | LINQ, lambdas, layout (project deltas) | §3.x |
 | `testing.md` | NUnit + translation tests | §4.x |
 | `data-layer.md` | EF Core, migrations, Dapper hot paths | §5.x |

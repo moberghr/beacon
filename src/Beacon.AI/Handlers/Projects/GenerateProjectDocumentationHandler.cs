@@ -10,17 +10,17 @@ internal sealed class GenerateProjectDocumentationHandler(
     IBeaconUserContext userContext)
     : IRequestHandler<GenerateProjectDocumentationCommand, GenerateProjectDocumentationResult>
 {
-    public Task<GenerateProjectDocumentationResult> Handle(
+    public async Task<GenerateProjectDocumentationResult> Handle(
         GenerateProjectDocumentationCommand request,
         CancellationToken cancellationToken)
     {
         // notifyUserId lets the host scope JobStatusChanged push events on
         // /beacon/api/hub to the enqueueing user only.
-        var jobId = beaconScheduler.EnqueueProjectDocumentation(
+        var jobId = await beaconScheduler.EnqueueProjectDocumentation(
             request.ProjectId,
             request.UserId,
             string.IsNullOrWhiteSpace(userContext.UserId) ? null : userContext.UserId);
 
-        return Task.FromResult(new GenerateProjectDocumentationResult(jobId));
+        return new GenerateProjectDocumentationResult(jobId);
     }
 }

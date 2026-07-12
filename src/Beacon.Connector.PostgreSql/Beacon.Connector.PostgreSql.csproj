@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>true</IsPackable>
@@ -10,7 +10,7 @@
     <ProjectReference Include="..\Beacon.Core\Beacon.Core.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="Npgsql" Version="9.0.4" />
+    <PackageReference Include="Npgsql" Version="10.0.3" />
     <PackageReference Include="Dapper" Version="2.1.66" />
   </ItemGroup>
 </Project>

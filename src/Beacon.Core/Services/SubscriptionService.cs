@@ -100,7 +100,7 @@ internal class SubscriptionService(
             .FirstOrDefaultAsync(cancellationToken)
             ?? throw new InvalidOperationException($"Query {subscriptionData.QueryId} not found.");
 
-        beaconScheduler.AddOrUpdate(subscription.Id, $"{query.Name}: {subscription.Id}", subscription.CronExpression);
+        await beaconScheduler.AddOrUpdate(subscription.Id, $"{query.Name}: {subscription.Id}", subscription.CronExpression);
 
         return new BaseResponse { Success = true, Message = "Subscription created successfully" };
     }
@@ -118,7 +118,7 @@ internal class SubscriptionService(
 
         subscription.Archive();
 
-        beaconScheduler.Remove(subscription.Id, $"{subscription.Query.Name}: {subscription.Id}");
+        await beaconScheduler.Remove(subscription.Id, $"{subscription.Query.Name}: {subscription.Id}");
 
         foreach (var param in subscription.Parameters)
         {
@@ -269,7 +269,7 @@ internal class SubscriptionService(
 
         if (shouldUpdateSchedule)
         {
-            beaconScheduler.AddOrUpdate(subscription.Id, $"{query.Name}: {subscription.Id}", subscription.CronExpression);
+            await beaconScheduler.AddOrUpdate(subscription.Id, $"{query.Name}: {subscription.Id}", subscription.CronExpression);
         }
     }
 

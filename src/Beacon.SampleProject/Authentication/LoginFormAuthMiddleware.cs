@@ -74,8 +74,8 @@ internal sealed class LoginFormAuthMiddleware(
             return true;
         }
 
-        // Allow Hangfire dashboard (admin-only — enforced by dashboard authorization)
-        if (path.StartsWith("/hangfire", StringComparison.OrdinalIgnoreCase))
+        // Allow Warp dashboard (admin-only — enforced by dashboard authorization)
+        if (path.StartsWith("/warp", StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }

@@ -26,7 +26,7 @@ public class OpenApiContractTests
     /// </summary>
     private static readonly HashSet<string> AllowedExclusions = new(StringComparer.Ordinal)
     {
-        // Internal-only: triggered by Hangfire recurring jobs, not user-driven.
+        // Internal-only: triggered by Warp recurring jobs, not user-driven.
     };
 
     [OneTimeSetUp]

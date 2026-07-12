@@ -16,7 +16,7 @@ internal sealed class RunEvalHandler(IMcpEvalService evalService, IBeaconSchedul
     public async Task<RunEvalResult> Handle(RunEvalCommand request, CancellationToken cancellationToken)
     {
         var runId = await evalService.StartRunAsync(request.ProjectId, request.TriggeredByUserId, cancellationToken);
-        scheduler.EnqueueMcpEval(runId);
+        await scheduler.EnqueueMcpEval(runId);
 
         return new RunEvalResult(runId);
     }

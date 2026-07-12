@@ -7,7 +7,7 @@ namespace Beacon.Tests.Integration.Api;
 /// <summary>
 /// Spins up Beacon.SampleProject's Program in-process for endpoint integration tests.
 /// Tests fall back to <see cref="NUnit.Framework.Assert.Inconclusive(string)"/> when the
-/// host can't bootstrap (missing DB, Hangfire backing unreachable, etc.) so unit-test
+/// host can't bootstrap (missing DB, Warp backing unreachable, etc.) so unit-test
 /// machines without a Postgres instance still get a green build.
 /// </summary>
 public sealed class BeaconWebApplicationFactory : WebApplicationFactory<Program>

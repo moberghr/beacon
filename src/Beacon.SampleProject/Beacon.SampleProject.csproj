@@ -1,18 +1,21 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
     <PropertyGroup>
-        <TargetFramework>net9.0</TargetFramework>
+        <TargetFramework>net10.0</TargetFramework>
         <Nullable>enable</Nullable>
         <ImplicitUsings>enable</ImplicitUsings>
         <UserSecretsId>83bd5adc-17be-4915-a4f0-b44dac7e11e5</UserSecretsId>
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="Hangfire" Version="1.8.22" />
-        <PackageReference Include="Hangfire.PostgreSql" Version="1.20.12" />
-        <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.11" />
-        <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="9.0.11" />
-        <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.11">
+        <PackageReference Include="Moberg.Warp.Core" Version="3.1.0" />
+        <PackageReference Include="Moberg.Warp.Worker" Version="3.1.0" />
+        <PackageReference Include="Moberg.Warp.Provider.PostgreSql" Version="3.1.0" />
+        <PackageReference Include="Moberg.Warp.Provider.SqlServer" Version="3.1.0" />
+        <PackageReference Include="Moberg.Warp.UI" Version="3.1.0" />
+        <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.5" />
+        <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="10.0.5" />
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.5">
           <PrivateAssets>all</PrivateAssets>
           <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
