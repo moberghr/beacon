@@ -4,5 +4,7 @@ public enum McpEmbeddingOwnerType
 {
     MetadataTable = 0,
     MetadataColumn = 1,
-    Exemplar = 2
+    Exemplar = 2,
+    DocChunk = 3,
+    GlossaryTerm = 4
 }

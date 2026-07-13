@@ -12,7 +12,19 @@ namespace Beacon.Core.Data.Entities;
 /// </summary>
 public class McpEmbedding : BaseEntity
 {
-    public int DataSourceId { get; set; }
+    /// <summary>
+    /// Nullable owning data source. Metadata/exemplar embeddings are data-source-scoped and set this;
+    /// project-scoped doc-chunk and glossary embeddings leave it null and set <see cref="ProjectId"/> instead
+    /// (symmetric with <see cref="ProjectId"/> — no magic-sentinel 0).
+    /// </summary>
+    public int? DataSourceId { get; set; }
+
+    /// <summary>
+    /// Nullable owning project. Existing metadata/exemplar embeddings are data-source-scoped
+    /// (<see cref="DataSourceId"/>); doc-chunk and glossary embeddings are project-scoped and set this.
+    /// </summary>
+    public int? ProjectId { get; set; }
+
     public McpEmbeddingOwnerType OwnerType { get; set; }
     public int OwnerId { get; set; }
 

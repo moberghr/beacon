@@ -33,4 +33,11 @@ public class McpSettings : BaseEntity
     // Replay-verification settings
     public bool EnableReplayVerification { get; set; } = true;
     public int LearningReplayMinFlips { get; set; } = 1;
+
+    // Knowledge-base Tier 3 settings
+    public bool EnableContextualRetrieval { get; set; } = false;
+    public int DocChunkWindowSentences { get; set; } = 5;
+    public int DocChunkOverlapSentences { get; set; } = 1;
+    public int GlossaryTopK { get; set; } = 5;
+    public int DocChunkTopK { get; set; } = 6;
 }

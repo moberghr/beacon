@@ -1,34 +1,31 @@
-# Todo — Self-Learning Loop Tier 2 (2026-07-10)
+# Todo — Knowledge-Base Tier 3 (2026-07-12)
 
-**Scope:** new-feature · security_impact: pii-exposure · **Rigor: MAX (score ~20)**
-Spec: `docs/specs/2026-07-10-self-learning-tier2.md`
-Plan: `docs/plans/2026-07-10-self-learning-tier2.md`
-Branch: `feature/kb-selflearning-tier0-1` (continues Tier 0/1)
-
-> Tier 0/1 (2026-07-09) is complete + verified (build 0 err, 324 tests) and remains in the working tree as Tier 2's base. Its todo is preserved at `docs/plans/2026-07-09-kb-selflearning-tier0-1.md`.
+**Scope:** new-feature · security_impact: pii-exposure · **Rigor: MAX**
+Spec: `docs/specs/2026-07-12-kb-tier3.md`
+Plan: `docs/plans/2026-07-12-kb-tier3.md`
+Branch: `feat/warp-jobs` (Tier 0/1/2 + Warp/net10 base)
 
 ## Batches
 
-- [x] **T2-B1 — Status + validity schema:** `McpPatternStatus.NeedsEvidence`; `McpLearnedPattern.SupersededAt`/`LastVerifiedAt`; 2 settings + mapping; dual migration + snapshots (no EF drift, defaults manual) ✓ build 0 err, 324 tests pass
-- [x] **T2-B2 — LLM lesson extraction (⑦):** `ILessonExtractor` (Core) + `LlmLessonExtractor` (AI, queue-backed, defensive parse, OCE rethrow, cluster-text only); `DetectSchemaCorrectionsAsync` LLM-primary + regex fallback; 7 tests ✓ build 0 err, 331 tests pass
-- [x] **T2-B3 — Replay-verification gate (⑥):** `IPatternReplayVerifier` + impl (relevant failing cases by DataSourceId+GoldSql table match); factored `GenerateExecuteCompareAsync` (read-only reused, extraContext hook) + `EvaluateCasePassesAsync`; promotion `NeedsEvidence`→replay→`AutoApproved`; mutating-gold-never-executed proven; 8 tests ✓ build 0 err, 339 tests pass
-- [x] **T2-B4 — Retrieval selection + decay (⑧):** embed all approved patterns (not just CommonQuery, skip stale); all-type top-k semantic selection + `SupersededAt==null` filter in `GetRelevantPatternsAsync`; `DetectStalePatternsAsync` (column-gone → SupersededAt, history kept); 3 tests ✓ build 0 err, 342 tests pass
+- [x] **T3-B1 — Schema & settings:** OwnerType +DocChunk/GlossaryTerm; `McpEmbedding.ProjectId` (+ raw NN SELECT fix); `McpDocChunk` + `McpGlossaryTerm`; 5 settings + mapping; dual migration + snapshots ✓ build 0 err, 349 tests pass
+- [x] **T3-B2 — Chunker + NN generalization:** pure `DocumentChunker` (sentence-window, 12 tests); NN helpers take `int? projectId` (existing call sites → null, no regression); DocChunk/Glossary owner-type constants ✓ build 0 err, 361 tests pass
+- [x] **T3-B3 — Doc-chunk indexing + contextual retrieval (⑨+⑩):** `IDocChunkIndexingService`/impl (chunk→opt LLM blurb→embed→upsert+prune, gated, OCE rethrow); `IKnowledgeGraphService.GetRelevantDocChunksAsync`; `KnowledgeAnswerService` top-K vs truncation fallback; `ReindexDocChunksJob` Warp job; 5 tests ✓ build 0 err, 366 tests pass
+- [x] **T3-B4 — Glossary (⑪):** 4 admin CRUD handlers + `GlossaryEndpoints` (all mapped); glossary embedding in reindex (soft-deactivate + prune); top-K glossary injection into `GetSmartContextForAskAsync` (both paths, projectId resolved from dataSourceId); 9 tests ✓ build 0 err, 375 tests pass
 
 ## Gate sequence
 4 batches → Phase 3.5 drift check → Stage 1 compliance-reviewer → Stage 2 [test-reviewer + architecture-reviewer + silent-failure-hunter] → Phase 6 cleanup → Phase 7 compound
 
 ## Post-implementation review items
-- [x] Full `dotnet test` green — 349 passed / 0 failed
-- [x] Phase 3.5 drift clean — no committed migration edited; all files in manifest
-- [x] Stage 1 compliance-reviewer — PASS (no Critical/Warning)
-- [x] Stage 2 (MAX): architecture APPROVED; silent-failure + test reviews triaged
-- [x] Replay execution proven read-only (mutating candidate/gold never executed — test)
-- [x] No auto-approval without measured evidence (NeedsEvidence default; confidence-can't-promote test)
-- [x] LLM extractor: failure-cluster text only, via queue, OCE rethrow; regex fallback works offline (tested)
-- [x] Migrations: defaults on both providers; no committed migration edited
-- [x] Phase 5 (2 iterations): silent-failure F1-F4 fixed (deterministic replay, Measurable flag, Errored verdict, stale-vector prune) + visibility (null-verifier warn, OCE loop-boundary, persistent-extraction-failure signal); test findings F1-F4 fixed (cancellation tautology, fallback-wiring, promotion-loop isolation, lesson-block content)
-
-## Deferred follow-ups (documented, not done this session)
-- [ ] **Live replay measurement** (needs golden set + live DB + model): actually run the gate. Code-complete + unit-tested with mocked eval. Safe default holds: no auto-approval without measured evidence.
-- [ ] **Replay determinism at scale**: temp-0 generation is in; once live, consider best-of-N agreement + `LearningReplayMinFlips >= 2` to further de-noise flips.
-- [ ] Tier 2.5 (GEPA/DSPy trace-compiled prompt optimization) + Tier 3 (chunking, contextual retrieval, glossary, semantic layer).
+- [x] Full `dotnet test` green — 387 passed / 0 failed on net10
+- [x] Phase 3.5 drift clean — no committed migration edited; all files in scope
+- [x] Stage 1 compliance — 1 Warning (index/query embedding asymmetry) FIXED + guard test
+- [x] Stage 2 (MAX): architecture approve_with_findings; test + silent-failure findings fixed (Phase 5)
+  - SF2 fail-closed on both new retrieval paths; SF1 blurb-failure Error signal; A1 IJobService facade; A2 DataSourceId nullable; F001/F002/F003 tests added; F004 exact-topK + XML doc fix
+- [x] New Warp job routed through IJobService facade (not Hangfire); recurring registration correct
+- [x] Contextual blurb sends only section text; gated + LLM via queue; blurb-failure → raw chunk + Error signal
+- [x] Glossary endpoints admin-policy gated; all 4 handlers mapped
+- [x] Existing B5/B6 retrieval behaviour unchanged (NN generalization additive)
+- [x] Migration live-verified: full chain + amended AddKbTier3 (DataSourceId nullable) applies on PG17/pgvector 0.8.5; both Tier-3 tables created
+- [ ] Live recall over real docs / real ONNX blurb generation → infra follow-up (unit-tested with fake embedder + mocked LLM)
+- [ ] Deferred: ⑫ semantic layer, Tier 2.5 GEPA/DSPy, contextual-BM25, cross-encoder reranker
+- [ ] Follow-up (below-threshold): KnowledgeGraphService growing (1440→1684 lines) — candidate to split a RetrievalService if a 4th owner type is added

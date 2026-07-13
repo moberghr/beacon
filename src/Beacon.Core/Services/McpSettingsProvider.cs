@@ -81,7 +81,12 @@ internal sealed class McpSettingsProvider(
             EnableSemanticRetrieval = entity.EnableSemanticRetrieval,
             ExemplarTopK = entity.ExemplarTopK,
             EnableReplayVerification = entity.EnableReplayVerification,
-            LearningReplayMinFlips = entity.LearningReplayMinFlips
+            LearningReplayMinFlips = entity.LearningReplayMinFlips,
+            EnableContextualRetrieval = entity.EnableContextualRetrieval,
+            DocChunkWindowSentences = entity.DocChunkWindowSentences,
+            DocChunkOverlapSentences = entity.DocChunkOverlapSentences,
+            GlossaryTopK = entity.GlossaryTopK,
+            DocChunkTopK = entity.DocChunkTopK
         };
     }
 }

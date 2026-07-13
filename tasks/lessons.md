@@ -129,3 +129,27 @@
 **Rule:** For any measured promotion/gate that re-generates via an LLM: (a) generate at temperature 0 on the measurement path so a flip reflects the change under test, not sampling variance (and/or require best-of-N agreement + a min-flips bar > 1); (b) thread a `Measurable` flag (did BOTH sides actually execute?) so an infra `Success=false` is counted as *errored*, never as a clean pass/fail; (c) carry an explicit `Errored` count in the verdict and require `measured > 0` to pass; (d) log the full verdict breakdown so "couldn't measure" is operationally distinct from "measured, didn't help." Never let confidence alone auto-approve — that's the memory-poisoning surface the gate exists to close.
 
 **When it applies:** the replay gate and any future measured-promotion loop (Tier 2.5 GEPA/DSPy, A/B lesson gating).
+
+## Index-time and query-time embedding MUST use the same representation (2026-07-13)
+
+**What happened:** Tier-3 doc-chunk retrieval (`GetRelevantDocChunksAsync`) embedded `Mask(question)` while chunks were embedded RAW at index time. Masking (strip literals/numbers → `<num>`/`<value>`) is a DAIL-SQL *exemplar* technique — it makes structurally-similar SQL questions collide. For prose RAG it puts the query vector in a different region than the raw chunk vectors, silently degrading top-K recall (the whole point of the feature). Caught by Stage-1 review, not tests (the top-K test mocked the retrieval; the indexing test used a fake embedder).
+
+**Rule:** For any embedding retrieval, the query and the stored content MUST be transformed identically before `EmbedAsync`. Masking belongs ONLY where both sides are masked (SQL exemplars, glossary terms). For prose/doc chunks, embed both sides raw. Add a test that seeds a decoy whose vector is the *wrong* transform and asserts the correctly-transformed match wins — a mock-the-retrieval test cannot catch this.
+
+**When it applies:** every new embedding-retrieval path in Beacon (doc chunks, glossary, future RAG).
+
+## A best-effort enrichment added to a primary flow must FAIL-CLOSED, not propagate (2026-07-13)
+
+**What happened:** Tier-3 added `GetRelevantDocChunksAsync` (into `KnowledgeAnswerService`'s `Task.WhenAll`) and `BuildGlossaryBlockAsync` (into `GetSmartContextForAskAsync`) without try/catch. A transient embedding/vector-store error would then fail the ENTIRE `ask`/answer — a question that answered fine before the feature existed now throws. The pre-existing sibling arms (`SearchAsync` dense arm, `GetRelevantPatternsAsync` semantic path) already fail-closed (rethrow OCE, else LogWarning + return empty/baseline).
+
+**Rule:** When adding an optional enrichment (extra retrieval arm, injected context block) to an existing user-facing path, wrap it `catch (OperationCanceledException) { throw; } catch (Exception ex) { logger.LogWarning(...); return <empty/baseline>; }` so a failure degrades to the pre-feature behaviour with a signal — never turns a best-effort add into a hard dependency. Match the fail-closed pattern the existing arms on that path already use.
+
+**When it applies:** any new arm added to `SearchAsync`/`GetSmartContextForAskAsync`/`KnowledgeAnswerService` or similar primary flows.
+
+## LSP staleness includes SEMANTIC errors after an entity property type change (2026-07-13)
+
+**What happened:** Making `McpEmbedding.DataSourceId` `int → int?` made the LSP report `CS0037 "cannot convert null to int"` at the `DataSourceId = null` initializers — a semantic error, not the usual CS8019/CS8933 using-directive noise. `dotnet build` was 0 errors: the LSP simply hadn't reindexed the property's new nullability. (Also seen: `CS0246 Warp/IJob not found` after the Warp package landed.)
+
+**Rule:** `dotnet build --property WarningLevel=0` is authoritative over the C# LSP for Beacon — for stale-namespace (CS0246), duplicate-using (CS8933/CS8019), AND semantic (CS0037) errors that appear right after adding a package or changing an entity property's type. Always confirm with a real build before acting on an LSP error in a just-edited file; never "fix" a phantom LSP error the compiler doesn't report.
+
+**When it applies:** any edit that adds a package reference or changes a type/nullability the LSP must reindex.

@@ -112,6 +112,10 @@ public static class ServiceConfiguration
         // MCP Embedding Indexing (populates McpEmbedding for hybrid retrieval + semantic few-shot)
         services.TryAddTransient<Core.Services.IEmbeddingIndexingService, Services.Embeddings.EmbeddingIndexingService>();
 
+        // MCP Doc-chunk Indexing (Tier-3 ⑨/⑩): chunks + optional contextual blurb + embeds project docs into
+        // McpDocChunk + McpEmbedding. Interface in Core, impl here — mirrors the embedding-indexing split.
+        services.TryAddTransient<Core.Services.IDocChunkIndexingService, Services.Knowledge.DocChunkIndexingService>();
+
         // MCP Eval harness (interface in Core, impl here; wired at composition root like the learning
         // aggregation split). Executes SQL strictly read-only via the Core provider factory.
         services.TryAddTransient<Core.Services.IMcpEvalService, Services.Eval.McpEvalService>();

@@ -16,5 +16,7 @@ public interface IJobService
 
     Task ReindexEmbeddings(CancellationToken cancellationToken);
 
+    Task ReindexDocChunks(CancellationToken cancellationToken);
+
     Task RunMcpEval(int runId, CancellationToken cancellationToken);
 }
