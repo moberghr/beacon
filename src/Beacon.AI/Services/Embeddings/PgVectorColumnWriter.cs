@@ -24,11 +24,25 @@ internal sealed class PgVectorColumnWriter : IEmbeddingVectorColumnWriter
 {
     private const string NpgsqlProviderName = "Npgsql.EntityFrameworkCore.PostgreSQL";
 
+    // Must equal the vector(N) modifier on mcp_embeddings.embedding (migration 20260709120200). pgvector
+    // rejects a literal of a different length, so validate up-front for an actionable error instead of an
+    // opaque cast failure deep inside the batch UPDATE.
+    private const int VectorDimensions = 384;
+
     public async Task WriteAsync(BeaconContext context, IReadOnlyList<(int Id, float[] Vector)> writes, CancellationToken ct)
     {
         if (writes.Count == 0 || context.Database.ProviderName != NpgsqlProviderName)
         {
             return;
+        }
+
+        foreach (var write in writes)
+        {
+            if (write.Vector.Length != VectorDimensions)
+            {
+                throw new InvalidOperationException(
+                    $"Embedding for mcp_embeddings id {write.Id} has {write.Vector.Length} dimension(s); expected {VectorDimensions} (column is vector({VectorDimensions})).");
+            }
         }
 
         var ids = writes

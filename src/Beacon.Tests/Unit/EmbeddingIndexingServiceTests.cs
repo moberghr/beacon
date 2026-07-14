@@ -307,6 +307,20 @@ public class EmbeddingIndexingServiceTests
     }
 
     [Test]
+    public async Task PgVectorColumnWriter_WrongDimensionVector_ThrowsActionableErrorBeforeAnySql()
+    {
+        // Npgsql provider so the writer gets past the provider gate; the 3-dim vector must be rejected by the
+        // up-front dimension check (a clear error) rather than failing opaquely in the vector(384) cast.
+        await using var context = NpgsqlTestContext.Create();
+        var writer = new PgVectorColumnWriter();
+
+        var act = async () => await writer.WriteAsync(context, [(5, new float[3])], CancellationToken.None);
+
+        (await act.Should().ThrowAsync<InvalidOperationException>())
+            .WithMessage("*id 5*3 dimension*384*");
+    }
+
+    [Test]
     public async Task ReindexAsync_WhenEmbedderUnavailable_IsNoOpAndTouchesNoDatabase()
     {
         var factory = new Mock<IDbContextFactory<BeaconContext>>(MockBehavior.Strict);
