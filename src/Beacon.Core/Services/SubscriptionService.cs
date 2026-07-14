@@ -118,14 +118,19 @@ internal class SubscriptionService(
 
         subscription.Archive();
 
-        await beaconScheduler.Remove(subscription.Id, $"{subscription.Query.Name}: {subscription.Id}");
-
         foreach (var param in subscription.Parameters)
         {
             param.Archive();
         }
 
         await context.SaveChangesAsync(cancellationToken);
+
+        // Persist the archive BEFORE unscheduling. BeaconContext and WarpDbContext can't share a transaction,
+        // so commit the primary write first: if Remove then fails, the subscription is already archived (the
+        // soft-delete query filter stops the recurring job from doing anything) and only a harmless orphaned
+        // Warp definition remains. The reverse order could unschedule a still-active subscription when the
+        // archive save fails.
+        await beaconScheduler.Remove(subscription.Id, $"{subscription.Query.Name}: {subscription.Id}");
     }
 
     public async Task<List<SubscriptionData>> GetSubscriptions(int? subscriptionId, int? queryId, NotificationType? notificationType, string? keyword, CancellationToken cancellationToken)

@@ -232,6 +232,81 @@ public class EmbeddingIndexingServiceTests
     }
 
     [Test]
+    public async Task ReindexDataSourceAsync_PrunesVectorsForDroppedMetadataTableAndColumn()
+    {
+        // Current metadata: table 10 with a single column 101. Table 20 and column 102 were dropped since the
+        // last index — their lingering vectors must be pruned (not just exemplars) so they can't occupy top-k
+        // NN slots for a table/column that no longer exists.
+        var tables = new List<DatabaseMetadata>
+        {
+            new()
+            {
+                Id = 10,
+                DataSourceId = 1,
+                SchemaName = "public",
+                TableName = "orders",
+                TableDescription = "orders",
+                Columns = new List<ColumnMetadata>
+                {
+                    new() { Id = 101, ColumnName = "id", DataType = "int" }
+                }
+            }
+        };
+
+        var validTableRow = StaleVector(60, McpEmbeddingOwnerType.MetadataTable, 10);
+        var validColumnRow = StaleVector(61, McpEmbeddingOwnerType.MetadataColumn, 101);
+        var droppedTableRow = StaleVector(62, McpEmbeddingOwnerType.MetadataTable, 20);
+        var droppedColumnRow = StaleVector(63, McpEmbeddingOwnerType.MetadataColumn, 102);
+
+        var captured = new List<McpEmbedding>();
+        var removed = new List<McpEmbedding>();
+        var service = BuildService(
+            tables,
+            patterns: [],
+            existingEmbeddings: [validTableRow, validColumnRow, droppedTableRow, droppedColumnRow],
+            captured,
+            removed,
+            out _);
+
+        await service.ReindexDataSourceAsync(1, CancellationToken.None);
+
+        removed.Select(x => x.OwnerId).Should().BeEquivalentTo(new[] { 20, 102 });
+        removed.Should().NotContain(x => x.OwnerId == 10 || x.OwnerId == 101);
+    }
+
+    [Test]
+    public async Task ReindexDataSourceAsync_HandsPersistedRowsToPgVectorColumnWriter()
+    {
+        // The DB-managed pgvector column is invisible to EF, so the refreshed vector for an already-persisted
+        // row must be handed to the vector-column writer keyed by that row's id — otherwise the column the
+        // PostgreSQL nearest-neighbor query orders by stays NULL and semantic search returns arbitrary rows.
+        var tables = new List<DatabaseMetadata>
+        {
+            new()
+            {
+                Id = 10,
+                DataSourceId = 1,
+                SchemaName = "public",
+                TableName = "orders",
+                TableDescription = "orders",
+                Columns = new List<ColumnMetadata>()
+            }
+        };
+
+        var existingRow = StaleVector(77, McpEmbeddingOwnerType.MetadataTable, 10);
+
+        var writer = new FakeVectorColumnWriter();
+        var service = BuildService(
+            tables, patterns: [], existingEmbeddings: [existingRow], captured: [], removed: [], out _, writer);
+
+        await service.ReindexDataSourceAsync(1, CancellationToken.None);
+
+        writer.Writes.Should().ContainSingle();
+        writer.Writes[0].Id.Should().Be(77);
+        writer.Writes[0].Vector.Should().HaveCount(384);
+    }
+
+    [Test]
     public async Task ReindexAsync_WhenEmbedderUnavailable_IsNoOpAndTouchesNoDatabase()
     {
         var factory = new Mock<IDbContextFactory<BeaconContext>>(MockBehavior.Strict);
@@ -239,6 +314,7 @@ public class EmbeddingIndexingServiceTests
             factory.Object,
             new UnavailableEmbeddingService(),
             Mock.Of<IMcpSettingsProvider>(),
+            new FakeVectorColumnWriter(),
             NullLogger<EmbeddingIndexingService>.Instance);
 
         await service.ReindexAsync(CancellationToken.None);
@@ -268,13 +344,28 @@ public class EmbeddingIndexingServiceTests
         return pattern;
     }
 
+    // A lingering embedding row from a prior index (stale model/dimensions) used to assert prune + write paths.
+    private static McpEmbedding StaleVector(int id, McpEmbeddingOwnerType ownerType, int ownerId) =>
+        new()
+        {
+            Id = id,
+            DataSourceId = 1,
+            OwnerType = ownerType,
+            OwnerId = ownerId,
+            EmbeddingBytes = [1, 2, 3, 4],
+            Model = "stale-model",
+            Dimensions = 1,
+            EmbeddingVersion = 0
+        };
+
     private static EmbeddingIndexingService BuildService(
         List<DatabaseMetadata> tables,
         List<McpLearnedPattern> patterns,
         List<McpEmbedding> existingEmbeddings,
         List<McpEmbedding> captured,
         List<McpEmbedding> removed,
-        out Mock<IDbContextFactory<BeaconContext>> factory)
+        out Mock<IDbContextFactory<BeaconContext>> factory,
+        FakeVectorColumnWriter? vectorWriter = null)
     {
         var metadataSet = BuildDbSet(tables);
         var patternSet = BuildDbSet(patterns);
@@ -306,6 +397,7 @@ public class EmbeddingIndexingServiceTests
             factory.Object,
             new FakeEmbeddingService(),
             settings.Object,
+            vectorWriter ?? new FakeVectorColumnWriter(),
             NullLogger<EmbeddingIndexingService>.Instance);
     }
 

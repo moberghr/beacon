@@ -22,6 +22,7 @@ internal sealed class DocChunkIndexingService(
     IBeaconEmbeddingService embeddingService,
     IMcpSettingsProvider settingsProvider,
     ILlmProvider llmProvider,
+    IEmbeddingVectorColumnWriter vectorWriter,
     ILogger<DocChunkIndexingService> logger) : IDocChunkIndexingService
 {
     // Kept identical to EmbeddingIndexingService so all vectors in the shared store share a model/version
@@ -292,6 +293,8 @@ internal sealed class DocChunkIndexingService(
             .ToDictionary(x => x.OwnerId);
 
         var newEmbeddings = new List<McpEmbedding>();
+        // (Row, vector) pairs to push into the DB-managed pgvector column after SaveChanges assigns ids.
+        var vectorWrites = new List<(McpEmbedding Row, float[] Vector)>();
         for (var i = 0; i < desired.Count; i++)
         {
             var chunkId = chunkRows[i].Id;
@@ -303,10 +306,11 @@ internal sealed class DocChunkIndexingService(
                 row.Model = EmbeddingModelName;
                 row.Dimensions = dimensions;
                 row.EmbeddingVersion = CurrentEmbeddingVersion;
+                vectorWrites.Add((row, vectors[i]));
             }
             else
             {
-                newEmbeddings.Add(new McpEmbedding
+                var newRow = new McpEmbedding
                 {
                     // Doc-chunk embeddings are project-scoped; DataSourceId is unused (retrieval filters on project_id).
                     DataSourceId = null,
@@ -317,7 +321,9 @@ internal sealed class DocChunkIndexingService(
                     Model = EmbeddingModelName,
                     Dimensions = dimensions,
                     EmbeddingVersion = CurrentEmbeddingVersion
-                });
+                };
+                newEmbeddings.Add(newRow);
+                vectorWrites.Add((newRow, vectors[i]));
             }
         }
 
@@ -327,6 +333,12 @@ internal sealed class DocChunkIndexingService(
         }
 
         await context.SaveChangesAsync(ct);
+
+        // Populate the DB-managed pgvector column now that new rows have DB-assigned ids (PostgreSQL only).
+        await vectorWriter.WriteAsync(
+            context,
+            vectorWrites.Select(x => (x.Row.Id, x.Vector)).ToList(),
+            ct);
 
         var withBlurb = blurbs.Count(x => x != null);
         logger.LogInformation(
@@ -390,6 +402,8 @@ internal sealed class DocChunkIndexingService(
             .ToDictionary(x => x.OwnerId);
 
         var newEmbeddings = new List<McpEmbedding>();
+        // (Row, vector) pairs to push into the DB-managed pgvector column after SaveChanges assigns ids.
+        var vectorWrites = new List<(McpEmbedding Row, float[] Vector)>();
         if (terms.Count > 0)
         {
             var texts = terms
@@ -408,10 +422,11 @@ internal sealed class DocChunkIndexingService(
                     row.Model = EmbeddingModelName;
                     row.Dimensions = dimensions;
                     row.EmbeddingVersion = CurrentEmbeddingVersion;
+                    vectorWrites.Add((row, vectors[i]));
                 }
                 else
                 {
-                    newEmbeddings.Add(new McpEmbedding
+                    var newRow = new McpEmbedding
                     {
                         // Glossary embeddings are project-scoped; DataSourceId is unused (retrieval filters on project_id).
                         DataSourceId = null,
@@ -422,7 +437,9 @@ internal sealed class DocChunkIndexingService(
                         Model = EmbeddingModelName,
                         Dimensions = dimensions,
                         EmbeddingVersion = CurrentEmbeddingVersion
-                    });
+                    };
+                    newEmbeddings.Add(newRow);
+                    vectorWrites.Add((newRow, vectors[i]));
                 }
             }
         }
@@ -438,6 +455,12 @@ internal sealed class DocChunkIndexingService(
         }
 
         await context.SaveChangesAsync(ct);
+
+        // Populate the DB-managed pgvector column now that new rows have DB-assigned ids (PostgreSQL only).
+        await vectorWriter.WriteAsync(
+            context,
+            vectorWrites.Select(x => (x.Row.Id, x.Vector)).ToList(),
+            ct);
 
         logger.LogInformation(
             "Glossary re-index for project {ProjectId}: {Terms} active term(s) embedded ({New} new), {Pruned} stale vector(s) pruned.",

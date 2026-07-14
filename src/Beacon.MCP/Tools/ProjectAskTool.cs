@@ -183,6 +183,11 @@ internal sealed class ProjectAskTool(
             votingNote = vote.Note;
         }
 
+        // A voted winner had its result set agreed on by the majority of independent candidates — including
+        // agreeing that zero rows is the answer. Suppress the empty-result repair below for that winner so a
+        // single loosened retry can't override the consensus with spurious rows.
+        var electedByVote = generatedSql != null;
+
         if (generatedSql == null)
         {
             var sqlResult = await sqlGenerationService.GenerateAsync(llmProvider, smartContext.FullContext, question, settings, ct);
@@ -299,7 +304,7 @@ internal sealed class ProjectAskTool(
                 }
             }
         }
-        else if (execResult.IsSuccess && execResult.RowCount == 0 && repairAttempts < maxRepairAttempts && !QuestionExpectsCountOrExistence(question))
+        else if (execResult.IsSuccess && execResult.RowCount == 0 && repairAttempts < maxRepairAttempts && !electedByVote && !QuestionExpectsCountOrExistence(question))
         {
             // Empty-result repair: one bounded retry; identical SQL or a second empty result
             // means zero rows is accepted as the answer.
@@ -431,9 +436,22 @@ internal sealed class ProjectAskTool(
             .Sql;
     }
 
-    private static string ResultFingerprint(QueryExecutionResult result)
+    // Order-independent result-set fingerprint for self-consistency voting: two candidates returning the
+    // same rows in a different order (no stable ORDER BY) must produce the same fingerprint so they count as
+    // agreeing. QueryExecutionResult exposes only the formatted markdown table, so canonicalize by trimming
+    // and ordinally sorting its non-empty lines — the header/separator lines are identical across same-shaped
+    // results, so the sort is stable and only row order is neutralized. Internal for unit tests.
+    internal static string ResultFingerprint(QueryExecutionResult result)
     {
-        return $"{result.IsSuccess}|{result.RowCount}|{(result.FormattedResult ?? "").Trim()}";
+        var canonical = string.Join(
+            "\n",
+            (result.FormattedResult ?? "")
+                .Split('\n')
+                .Select(x => x.Trim())
+                .Where(x => x.Length > 0)
+                .OrderBy(x => x, StringComparer.Ordinal));
+
+        return $"{result.IsSuccess}|{result.RowCount}|{canonical}";
     }
 
     private async Task<string?> TryDryRunAsync(int dataSourceId, string sql, CancellationToken ct)
