@@ -153,3 +153,19 @@
 **Rule:** `dotnet build --property WarningLevel=0` is authoritative over the C# LSP for Beacon — for stale-namespace (CS0246), duplicate-using (CS8933/CS8019), AND semantic (CS0037) errors that appear right after adding a package or changing an entity property's type. Always confirm with a real build before acting on an LSP error in a just-edited file; never "fix" a phantom LSP error the compiler doesn't report.
 
 **When it applies:** any edit that adds a package reference or changes a type/nullability the LSP must reindex.
+
+## A guardrail that DETECTS must be APPLIED at every output surface — and recomputed from the SQL that actually runs (2026-07-14)
+
+**What happened:** `IQueryGuardrailService.ValidateQuery` returns `PiiColumns`, and `SemanticSearchService` masked rows with `MaskPiiValues(row, piiCols)` — but the MCP `query`/`ask`/cross-source surfaces (`ProjectQueryTool`, `QueryExecutionService`, `CrossSourceQueryService`) computed `PiiColumns` and then discarded it, returning raw PII to the client (§1.6/§1.11 leak). While fixing it, a second trap surfaced: `CrossSourceQueryService` runs a dry-run *repair* that replaces the SQL, so a `PiiColumns` snapshot taken from the pre-repair SQL is stale — a repaired query selecting a new PII column would ship unmasked.
+
+**Rule:** When a guardrail computes a security decision (PII columns, read-only verdict), EVERY surface that emits rows must apply it, not just one. And compute it from the SQL that is *actually executed* — recompute after any repair/rewrite step, never reuse a snapshot taken before the SQL changed. Mirror the canonical applier (`SemanticSearchService`) exactly. If the same mask-before-emit block appears at 3+ sites, consider a single `MaskRows(rows, sql, options)` entry point so detection and masking can't drift apart (deferred here to keep scope minimal).
+
+**When it applies:** any new query/result surface in Beacon.MCP or Beacon.AI that returns provider rows to a client, especially paths with a repair/retry loop.
+
+## T-SQL row-limit rewriting: cap only the OUTERMOST result, and treat AzureSynapse as T-SQL (2026-07-14)
+
+**What happened:** `QueryGuardrailService.ApplyRowLimit` had two bugs. (1) `Regex.Replace(sql, @"\bSELECT\b", "SELECT TOP N")` (no count) injected `TOP` into EVERY SELECT — subqueries/CTEs got truncated before aggregation, silently corrupting COUNT/SUM on SQL Server. (2) Only the literal `"MSSQL"` took the T-SQL branch, so `DatabaseEngineType.AzureSynapse.ToString()` fell through to `... LIMIT N`, which T-SQL rejects — every row-limited Synapse query errored.
+
+**Rule:** For T-SQL row limits: SELECT-leading query → `TOP` on the FIRST SELECT only (`Regex.Replace(..., replacement, count: 1)`); WITH/CTE-leading query → append `ORDER BY (SELECT NULL) OFFSET 0 ROWS FETCH NEXT N ROWS ONLY` (a CTE can't be wrapped in a derived table and `TOP` can't reach the outer SELECT by regex); already-ordered query → `OFFSET/FETCH`. Route BOTH `MSSQL` and `AzureSynapse` through this branch — mirror `SqlReadOnlyAstValidator.ResolveDialect`, which already maps `azuresynapse → MsSqlDialect`. Never use `Regex.Replace` without a `count` when you mean "the first match".
+
+**When it applies:** any engine-specific SQL rewriting in `QueryGuardrailService` or the connectors; any time a new `DatabaseEngineType` is added (check every `ToString()`-based engine switch).

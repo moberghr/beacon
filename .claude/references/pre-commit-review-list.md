@@ -14,7 +14,7 @@
 
 6. **No plaintext secrets, no missing encryption.** No connection strings, API keys, encryption keys, OIDC client secrets, or LLM provider keys in code, tests, or appsettings (non-encrypted sections). Connection strings persisted to DB MUST go through the encryption helper using `Beacon:EncryptionKey`.
 
-7. **No PII in logs.** User query text, full row payloads, connection strings, auth tokens — none of them go to `ILogger`. Identifiers and counts only.
+7. **No PII in logs — and mask PII in returned rows.** User query text, full row payloads, connection strings, auth tokens — none go to `ILogger` (identifiers and counts only). Separately: any MCP/AI surface returning provider rows to a client must run the detected `PiiColumns` through `MaskPiiValues` before formatting — recomputed from the SQL that actually executes (after any dry-run/repair), matching `SemanticSearchService`. Computing `PiiColumns` and discarding it is a leak.
 
 8. **No fake / seed / demo data in UI pages.** Pages start empty; data comes from real sources. Hardcoded sample rows in `.razor` are an automatic flag.
 

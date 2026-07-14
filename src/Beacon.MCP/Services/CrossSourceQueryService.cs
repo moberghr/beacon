@@ -150,8 +150,28 @@ internal sealed class CrossSourceQueryService(
 
             if (result.Rows?.Count > 0)
             {
+                // Mask PII before rows enter the in-memory join store so the joined output returned to the
+                // MCP client is masked too (§1.6/§1.11). Recompute PII columns from the SQL that ACTUALLY
+                // executed — DryRunWithRepairAsync above may have replaced `sql`, so the pre-repair
+                // `validation.PiiColumns` can reference the wrong columns.
+                var rows = result.Rows;
+                if (settings.EnablePiiDetection)
+                {
+                    var piiColumns = guardrailService.ValidateQuery(sql, new QueryGuardrailOptions
+                    {
+                        ReadOnly = false,
+                        DetectPii = true,
+                        CustomPiiPatterns = settings.CustomPiiPatterns.Count > 0 ? settings.CustomPiiPatterns : null
+                    }).PiiColumns;
+
+                    if (piiColumns is { Count: > 0 } piiCols)
+                    {
+                        rows = rows.Select(x => guardrailService.MaskPiiValues(x, piiCols)).ToList();
+                    }
+                }
+
                 var tableName = $"result{i + 1}";
-                await memDb.CreateTableFromResults(tableName, result.Rows.Cast<IDictionary<string, object?>>().ToList(), new ProjectInfo
+                await memDb.CreateTableFromResults(tableName, rows.Cast<IDictionary<string, object?>>().ToList(), new ProjectInfo
                 {
                     Name = source.DataSourceName,
                     DatabaseEngine = dataSource.DatabaseEngineType?.ToString() ?? "Unknown",

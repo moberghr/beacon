@@ -84,6 +84,8 @@ internal sealed class ProjectQueryTool(
 
             var isApi = dataSource.DataSourceType == DataSourceType.Api;
             string queryText;
+            // PII columns detected on the SQL path (null for API sources); used to mask result values below.
+            List<string>? piiColumns = null;
 
             if (isApi)
             {
@@ -116,6 +118,8 @@ internal sealed class ProjectQueryTool(
                     await signalService.RecordSignalAsync(signal.Build(), cancellationToken);
                     return ToolHelper.Error($"Query validation failed: {validation.Error}");
                 }
+
+                piiColumns = validation.PiiColumns;
 
                 // AST-based read-only defense-in-depth on top of the regex guardrail (§1.5)
                 if (settings.EnforceReadOnly)
@@ -155,7 +159,17 @@ internal sealed class ProjectQueryTool(
             var text = $"# Query Results\n\n**Data Source:** {dataSource.Name}\n**Rows:** {result.Rows?.Count ?? 0}\n\n";
 
             if (result.Rows != null && result.Rows.Count > 0)
-                text += ToolHelper.FormatResultsAsMarkdown(result.Rows, maxRows);
+            {
+                // Mask PII column values before returning to the MCP client (§1.6/§1.11). Mirrors
+                // SemanticSearchService; no-op when detection is off or no PII column was selected.
+                var rows = result.Rows;
+                if (piiColumns is { Count: > 0 } piiCols)
+                {
+                    rows = rows.Select(x => guardrailService.MaskPiiValues(x, piiCols)).ToList();
+                }
+
+                text += ToolHelper.FormatResultsAsMarkdown(rows, maxRows);
+            }
 
             sw.Stop();
             signal.SetResult(result.Rows?.Count, (int)sw.ElapsedMilliseconds, true);

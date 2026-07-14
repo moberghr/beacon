@@ -19,6 +19,11 @@ internal sealed class QueryGuardrailService : IQueryGuardrailService
         @"(;\s*(INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE|CREATE|EXEC))|(/\*.*?(INSERT|UPDATE|DELETE|DROP).*?\*/)",
         RegexOptions.IgnoreCase | RegexOptions.Compiled | RegexOptions.Singleline);
 
+    // SELECT keyword, used to prefix TOP on the OUTERMOST select only (count: 1) for T-SQL row limits.
+    private static readonly Regex SelectKeywordPattern = new(
+        @"\bSELECT\b",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
     public QueryValidationResult ValidateQuery(string sql, QueryGuardrailOptions? options = null)
     {
         options ??= new QueryGuardrailOptions();
@@ -89,15 +94,25 @@ internal sealed class QueryGuardrailService : IQueryGuardrailService
         if (Regex.IsMatch(trimmed, @"\bTOP\s+\d+", RegexOptions.IgnoreCase))
             return sql;
 
-        // Apply engine-specific row limit
-        if (string.Equals(databaseEngine, "MSSQL", StringComparison.OrdinalIgnoreCase))
+        // T-SQL engines: SQL Server AND Azure Synapse. Synapse is a T-SQL dedicated SQL pool with no
+        // LIMIT keyword, so it must take the TOP / OFFSET-FETCH path too — matching
+        // SqlReadOnlyAstValidator.ResolveDialect, which already maps azuresynapse to MsSqlDialect.
+        if (IsTSqlEngine(databaseEngine))
         {
-            // For SQL Server, wrap in a subquery with TOP if no ORDER BY, or use TOP directly
+            // Already ordered → OFFSET/FETCH bounds the outermost result.
             if (Regex.IsMatch(trimmed, @"\bORDER\s+BY\b", RegexOptions.IgnoreCase))
                 return $"{trimmed} OFFSET 0 ROWS FETCH NEXT {maxRows} ROWS ONLY";
 
-            // Insert TOP after SELECT
-            return Regex.Replace(trimmed, @"\bSELECT\b", $"SELECT TOP {maxRows}", RegexOptions.IgnoreCase, TimeSpan.FromSeconds(1));
+            // A SELECT-leading query: cap the OUTERMOST SELECT with TOP. count: 1 replaces only the
+            // first SELECT keyword — never inner subqueries (the old bug injected TOP into every
+            // SELECT and truncated them before aggregation, corrupting COUNT/SUM).
+            if (Regex.IsMatch(trimmed, @"^\s*SELECT\b", RegexOptions.IgnoreCase))
+                return SelectKeywordPattern.Replace(trimmed, $"SELECT TOP {maxRows}", 1);
+
+            // A WITH (CTE) or otherwise non-SELECT-leading query: a first-SELECT TOP would land on the
+            // CTE body and leave the OUTER result uncapped, and a CTE can't be wrapped in a derived
+            // table. Bound the outer result with a dummy-ordered OFFSET/FETCH (valid T-SQL) instead.
+            return $"{trimmed} ORDER BY (SELECT NULL) OFFSET 0 ROWS FETCH NEXT {maxRows} ROWS ONLY";
         }
 
         // PostgreSQL / MySQL - use LIMIT
@@ -159,4 +174,8 @@ internal sealed class QueryGuardrailService : IQueryGuardrailService
 
         return masked;
     }
+
+    private static bool IsTSqlEngine(string? databaseEngine) =>
+        string.Equals(databaseEngine, "MSSQL", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(databaseEngine, "AzureSynapse", StringComparison.OrdinalIgnoreCase);
 }

@@ -1,31 +1,37 @@
-# Todo — Knowledge-Base Tier 3 (2026-07-12)
+# Todo — Bug-hunt fixes (2026-07-14)
 
-**Scope:** new-feature · security_impact: pii-exposure · **Rigor: MAX**
-Spec: `docs/specs/2026-07-12-kb-tier3.md`
-Plan: `docs/plans/2026-07-12-kb-tier3.md`
-Branch: `feat/warp-jobs` (Tier 0/1/2 + Warp/net10 base)
+**Scope:** bug-fix · security_impact: pii · **Rigor: HIGH** (score 9 — 3 batches, 10 files, security_impact=pii)
+Spec: `docs/specs/2026-07-14-bughunt-fixes.md`
+Plan: `docs/plans/2026-07-14-bughunt-fixes.md`
+Branch: `fix/kb-pgvector-and-warp-bugs`
 
-## Batches
+## Batch 1 — Core correctness (no external surface)
+- [x] Fix 3+4: `QueryGuardrailService.ApplyRowLimit` — first-SELECT-only TOP; route AzureSynapse through the T-SQL branch
+- [x] Fix 5: `SubscriptionValidator.ValidateParameters` — require each placeholder matched exactly once
+- [x] Fix 2: `DataSourceService.DeleteDataSource` — `.IgnoreQueryFilters()` on the QuerySteps→Query load
+- [x] Tests: `QueryGuardrailServiceTests` (subquery + AzureSynapse), new `SubscriptionValidatorTests`
+- [x] Checkpoint: build 0 err; 35 guardrail+validator tests pass
 
-- [x] **T3-B1 — Schema & settings:** OwnerType +DocChunk/GlossaryTerm; `McpEmbedding.ProjectId` (+ raw NN SELECT fix); `McpDocChunk` + `McpGlossaryTerm`; 5 settings + mapping; dual migration + snapshots ✓ build 0 err, 349 tests pass
-- [x] **T3-B2 — Chunker + NN generalization:** pure `DocumentChunker` (sentence-window, 12 tests); NN helpers take `int? projectId` (existing call sites → null, no regression); DocChunk/Glossary owner-type constants ✓ build 0 err, 361 tests pass
-- [x] **T3-B3 — Doc-chunk indexing + contextual retrieval (⑨+⑩):** `IDocChunkIndexingService`/impl (chunk→opt LLM blurb→embed→upsert+prune, gated, OCE rethrow); `IKnowledgeGraphService.GetRelevantDocChunksAsync`; `KnowledgeAnswerService` top-K vs truncation fallback; `ReindexDocChunksJob` Warp job; 5 tests ✓ build 0 err, 366 tests pass
-- [x] **T3-B4 — Glossary (⑪):** 4 admin CRUD handlers + `GlossaryEndpoints` (all mapped); glossary embedding in reindex (soft-deactivate + prune); top-K glossary injection into `GetSmartContextForAskAsync` (both paths, projectId resolved from dataSourceId); 9 tests ✓ build 0 err, 375 tests pass
+## Batch 2 — PII masking on the MCP query surface (security)
+- [x] Fix 1a: `ProjectQueryTool` — mask `result.Rows` via `MaskPiiValues` before formatting
+- [x] Fix 1b: `CrossSourceQueryService` — mask each source's rows before loading into SQLite
+- [x] Fix 1c: `QueryExecutionService` — inject `IMcpSettingsProvider`; detect + mask before formatting (ask path)
+- [x] Checkpoint: build 0 err (tool paths verified via build + review; full suite after Batch 3)
 
-## Gate sequence
-4 batches → Phase 3.5 drift check → Stage 1 compliance-reviewer → Stage 2 [test-reviewer + architecture-reviewer + silent-failure-hunter] → Phase 6 cleanup → Phase 7 compound
+## Batch 3 — LLM provider null-safety
+- [x] Fix 6: `OpenAiProvider` + `AzureOpenAiProvider` — `Content?.FirstOrDefault()?.Text ?? string.Empty`
+- [x] Checkpoint: build 0 err; full suite 404 pass / 0 fail
+
+## Gate sequence — COMPLETE
+3 batches ✓ → Phase 3.5 drift clean ✓ → Stage 1 compliance ✓ → Stage 2 test + architecture ✓ → Phase 6 cleanup ✓ → Phase 7 compound ✓ (2 lessons + pre-commit item 7 extended)
 
 ## Post-implementation review items
-- [x] Full `dotnet test` green — 387 passed / 0 failed on net10
-- [x] Phase 3.5 drift clean — no committed migration edited; all files in scope
-- [x] Stage 1 compliance — 1 Warning (index/query embedding asymmetry) FIXED + guard test
-- [x] Stage 2 (MAX): architecture approve_with_findings; test + silent-failure findings fixed (Phase 5)
-  - SF2 fail-closed on both new retrieval paths; SF1 blurb-failure Error signal; A1 IJobService facade; A2 DataSourceId nullable; F001/F002/F003 tests added; F004 exact-topK + XML doc fix
-- [x] New Warp job routed through IJobService facade (not Hangfire); recurring registration correct
-- [x] Contextual blurb sends only section text; gated + LLM via queue; blurb-failure → raw chunk + Error signal
-- [x] Glossary endpoints admin-policy gated; all 4 handlers mapped
-- [x] Existing B5/B6 retrieval behaviour unchanged (NN generalization additive)
-- [x] Migration live-verified: full chain + amended AddKbTier3 (DataSourceId nullable) applies on PG17/pgvector 0.8.5; both Tier-3 tables created
-- [ ] Live recall over real docs / real ONNX blurb generation → infra follow-up (unit-tested with fake embedder + mocked LLM)
-- [ ] Deferred: ⑫ semantic layer, Tier 2.5 GEPA/DSPy, contextual-BM25, cross-encoder reranker
-- [ ] Follow-up (below-threshold): KnowledgeGraphService growing (1440→1684 lines) — candidate to split a RetrievalService if a 4th owner type is added
+- [x] Full `dotnet test` green — 404 pass / 0 fail
+- [x] Behavioral diff written
+- [x] Phase 3.5 drift clean — files match manifest; no committed migration edited
+- [x] Stage 1 compliance — 3 Warnings, all fixed (CTE row-limit regression + test; archive idempotency guard; PII masking wiring test)
+- [x] Stage 2 test-reviewer (approved_with_warnings) + architecture-reviewer (1 Critical)
+- [x] Fix findings (iteration 1): arch-F1 recompute PII from executed SQL in CrossSource (Critical); arch-F2 move IsTSqlEngine last; test-F3 branch-specific message assertions; test-F4 Synapse CTE test
+- [x] Waived: test-F1 (DeleteDataSource — NRE needs real EF provider; §4.7 forbids InMemory; double can't run Include/IgnoreQueryFilters); test-F2 (ProjectQueryTool masking — below threshold, identical to tested QueryExecutionService pattern, disproportionate DI)
+- [x] Cleanup: changes already minimal; arch-F3 (shared MaskRows helper) deferred — would expand scope into SemanticSearchService
+- [x] Final: build 0 err; full suite 405 pass / 0 fail
