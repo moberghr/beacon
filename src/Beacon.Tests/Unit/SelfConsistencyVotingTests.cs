@@ -34,6 +34,34 @@ public class SelfConsistencyVotingTests
         ProjectAskTool.SelectMajority(candidates).Should().Be("SELECT count(*) FROM orders");
     }
 
+    // ---- ResultFingerprint: order-independent so same-set candidates agree ----
+
+    [Test]
+    public void ResultFingerprint_SameRowsDifferentOrder_Match()
+    {
+        var ascending = new QueryExecutionResult(
+            "### Results (2 rows)\n| id |\n| --- |\n| 1 |\n| 2 |", null, 2, true);
+        var descending = new QueryExecutionResult(
+            "### Results (2 rows)\n| id |\n| --- |\n| 2 |\n| 1 |", null, 2, true);
+
+        // Same row SET in different order (no stable ORDER BY) must fingerprint identically so the two
+        // candidates count as agreeing during self-consistency voting.
+        ProjectAskTool.ResultFingerprint(ascending)
+            .Should().Be(ProjectAskTool.ResultFingerprint(descending));
+    }
+
+    [Test]
+    public void ResultFingerprint_DifferentRows_DoNotMatch()
+    {
+        var one = new QueryExecutionResult(
+            "### Results (1 rows)\n| id |\n| --- |\n| 1 |", null, 1, true);
+        var nine = new QueryExecutionResult(
+            "### Results (1 rows)\n| id |\n| --- |\n| 9 |", null, 1, true);
+
+        ProjectAskTool.ResultFingerprint(one)
+            .Should().NotBe(ProjectAskTool.ResultFingerprint(nine));
+    }
+
     [Test]
     public void SelectMajority_Tie_BreaksToFirstSeenGroup()
     {

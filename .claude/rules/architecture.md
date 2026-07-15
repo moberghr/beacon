@@ -64,4 +64,4 @@ Core.PostgreSql/Sql  → Core
 
 ## Background work
 
-§2.15 **All recurring / scheduled work uses Hangfire + PostgreSQL storage.** Recurring jobs are registered in `src/Beacon.SampleProject/Program.cs`. Do NOT use `BackgroundService` or `IHostedService`.
+§2.15 **All recurring / scheduled / background work uses Moberg.Warp** (`AddWarpServer<WarpDbContext>`), backed by PostgreSQL. Warp owns its own dedicated `WarpDbContext` (the `warp` schema in `src/Beacon.SampleProject/Warp/`) — kept separate from `BeaconContext` so Warp's model customizer + interceptors never touch Beacon's abstract/factory-based context. Fire-and-forget and recurring work is enqueued through the `IBeaconScheduler` abstraction (impl `BeaconScheduler` in the host, on `IPublisher` / `IRecurringJobPublisher`); one Warp `IJob` + `IJobHandler<T>` per operation lives in `src/Beacon.SampleProject/Warp/Jobs/`. Static recurring jobs are registered in `Program.cs`. Do NOT use `BackgroundService` or `IHostedService` directly — use Warp. (Hangfire was removed; MediatR stays for in-memory `IRequest`/`Send`.)

@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
 	<PropertyGroup>
-		<TargetFramework>net9.0</TargetFramework>
+		<TargetFramework>net10.0</TargetFramework>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<Nullable>enable</Nullable>
 
@@ -50,8 +50,8 @@
 
 		<!-- Required dependencies from Core -->
 		<PackageReference Include="MediatR" Version="12.4.1" />
-		<PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.11" />
-		<PackageReference Include="Microsoft.Extensions.Http" Version="9.0.11" />
+		<PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.5" />
+		<PackageReference Include="Microsoft.Extensions.Http" Version="10.0.5" />
 	</ItemGroup>
 
 </Project>

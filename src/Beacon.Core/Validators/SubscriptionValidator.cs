@@ -21,30 +21,28 @@ internal static class SubscriptionValidator
             throw new BeaconException($"Defined subscription parameters count does not match specified query parameter count.");
         }
 
-        int matched = 0;
+        // Each query placeholder must be matched EXACTLY once. A single running counter (the old
+        // approach) let a duplicated placeholder and a missing one cancel out — e.g. query [@a,@b]
+        // with subscription [@a,@a] passed while @b was never bound. Count matches per query param.
         foreach (var queryParam in queryParameters)
         {
-            foreach (var subscriptionParam in subscriptionParameters)
+            var matches = subscriptionParameters
+                .Where(x => x.QueryPlaceholder == queryParam.Placeholder)
+                .ToList();
+
+            if (matches.Count == 0)
             {
-                if (subscriptionParam.QueryPlaceholder == queryParam.Placeholder)
-                {
-                    ++matched;
-
-                    QueryValidator.CheckForFlaggedWords(subscriptionParam.Value);
-
-                    ParameterTypeHelper.ParseParameter(subscriptionParam.Value, queryParam.Type);
-                }
+                throw new BeaconException($"Not all requested query parameters are defined.");
             }
-        }
 
-        if (matched < queryParameters.Count)
-        {
-            throw new BeaconException($"Not all requested query parameters are defined.");
-        }
+            if (matches.Count > 1)
+            {
+                throw new BeaconException($"There are multiple of the same query parameter names defined");
+            }
 
-        if (matched > queryParameters.Count)
-        {
-            throw new BeaconException($"There are multiple of the same query parameter names defined");
+            var subscriptionParam = matches[0];
+            QueryValidator.CheckForFlaggedWords(subscriptionParam.Value);
+            ParameterTypeHelper.ParseParameter(subscriptionParam.Value, queryParam.Type);
         }
     }
 }

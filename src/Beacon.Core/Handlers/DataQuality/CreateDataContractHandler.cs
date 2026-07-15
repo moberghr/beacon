@@ -54,7 +54,7 @@ internal sealed class CreateDataContractHandler(
 
         if (contract.IsEnabled)
         {
-            scheduler.AddOrUpdateDataQualityJob(contract.Id, contract.Name, contract.CronExpression);
+            await scheduler.AddOrUpdateDataQualityJob(contract.Id, contract.Name, contract.CronExpression);
         }
 
         return new CreateDataContractResult { DataContractId = contract.Id };

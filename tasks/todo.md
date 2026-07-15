@@ -1,34 +1,37 @@
-# Todo — Self-Learning Loop Tier 2 (2026-07-10)
+# Todo — Bug-hunt fixes (2026-07-14)
 
-**Scope:** new-feature · security_impact: pii-exposure · **Rigor: MAX (score ~20)**
-Spec: `docs/specs/2026-07-10-self-learning-tier2.md`
-Plan: `docs/plans/2026-07-10-self-learning-tier2.md`
-Branch: `feature/kb-selflearning-tier0-1` (continues Tier 0/1)
+**Scope:** bug-fix · security_impact: pii · **Rigor: HIGH** (score 9 — 3 batches, 10 files, security_impact=pii)
+Spec: `docs/specs/2026-07-14-bughunt-fixes.md`
+Plan: `docs/plans/2026-07-14-bughunt-fixes.md`
+Branch: `fix/kb-pgvector-and-warp-bugs`
 
-> Tier 0/1 (2026-07-09) is complete + verified (build 0 err, 324 tests) and remains in the working tree as Tier 2's base. Its todo is preserved at `docs/plans/2026-07-09-kb-selflearning-tier0-1.md`.
+## Batch 1 — Core correctness (no external surface)
+- [x] Fix 3+4: `QueryGuardrailService.ApplyRowLimit` — first-SELECT-only TOP; route AzureSynapse through the T-SQL branch
+- [x] Fix 5: `SubscriptionValidator.ValidateParameters` — require each placeholder matched exactly once
+- [x] Fix 2: `DataSourceService.DeleteDataSource` — `.IgnoreQueryFilters()` on the QuerySteps→Query load
+- [x] Tests: `QueryGuardrailServiceTests` (subquery + AzureSynapse), new `SubscriptionValidatorTests`
+- [x] Checkpoint: build 0 err; 35 guardrail+validator tests pass
 
-## Batches
+## Batch 2 — PII masking on the MCP query surface (security)
+- [x] Fix 1a: `ProjectQueryTool` — mask `result.Rows` via `MaskPiiValues` before formatting
+- [x] Fix 1b: `CrossSourceQueryService` — mask each source's rows before loading into SQLite
+- [x] Fix 1c: `QueryExecutionService` — inject `IMcpSettingsProvider`; detect + mask before formatting (ask path)
+- [x] Checkpoint: build 0 err (tool paths verified via build + review; full suite after Batch 3)
 
-- [x] **T2-B1 — Status + validity schema:** `McpPatternStatus.NeedsEvidence`; `McpLearnedPattern.SupersededAt`/`LastVerifiedAt`; 2 settings + mapping; dual migration + snapshots (no EF drift, defaults manual) ✓ build 0 err, 324 tests pass
-- [x] **T2-B2 — LLM lesson extraction (⑦):** `ILessonExtractor` (Core) + `LlmLessonExtractor` (AI, queue-backed, defensive parse, OCE rethrow, cluster-text only); `DetectSchemaCorrectionsAsync` LLM-primary + regex fallback; 7 tests ✓ build 0 err, 331 tests pass
-- [x] **T2-B3 — Replay-verification gate (⑥):** `IPatternReplayVerifier` + impl (relevant failing cases by DataSourceId+GoldSql table match); factored `GenerateExecuteCompareAsync` (read-only reused, extraContext hook) + `EvaluateCasePassesAsync`; promotion `NeedsEvidence`→replay→`AutoApproved`; mutating-gold-never-executed proven; 8 tests ✓ build 0 err, 339 tests pass
-- [x] **T2-B4 — Retrieval selection + decay (⑧):** embed all approved patterns (not just CommonQuery, skip stale); all-type top-k semantic selection + `SupersededAt==null` filter in `GetRelevantPatternsAsync`; `DetectStalePatternsAsync` (column-gone → SupersededAt, history kept); 3 tests ✓ build 0 err, 342 tests pass
+## Batch 3 — LLM provider null-safety
+- [x] Fix 6: `OpenAiProvider` + `AzureOpenAiProvider` — `Content?.FirstOrDefault()?.Text ?? string.Empty`
+- [x] Checkpoint: build 0 err; full suite 404 pass / 0 fail
 
-## Gate sequence
-4 batches → Phase 3.5 drift check → Stage 1 compliance-reviewer → Stage 2 [test-reviewer + architecture-reviewer + silent-failure-hunter] → Phase 6 cleanup → Phase 7 compound
+## Gate sequence — COMPLETE
+3 batches ✓ → Phase 3.5 drift clean ✓ → Stage 1 compliance ✓ → Stage 2 test + architecture ✓ → Phase 6 cleanup ✓ → Phase 7 compound ✓ (2 lessons + pre-commit item 7 extended)
 
 ## Post-implementation review items
-- [x] Full `dotnet test` green — 349 passed / 0 failed
-- [x] Phase 3.5 drift clean — no committed migration edited; all files in manifest
-- [x] Stage 1 compliance-reviewer — PASS (no Critical/Warning)
-- [x] Stage 2 (MAX): architecture APPROVED; silent-failure + test reviews triaged
-- [x] Replay execution proven read-only (mutating candidate/gold never executed — test)
-- [x] No auto-approval without measured evidence (NeedsEvidence default; confidence-can't-promote test)
-- [x] LLM extractor: failure-cluster text only, via queue, OCE rethrow; regex fallback works offline (tested)
-- [x] Migrations: defaults on both providers; no committed migration edited
-- [x] Phase 5 (2 iterations): silent-failure F1-F4 fixed (deterministic replay, Measurable flag, Errored verdict, stale-vector prune) + visibility (null-verifier warn, OCE loop-boundary, persistent-extraction-failure signal); test findings F1-F4 fixed (cancellation tautology, fallback-wiring, promotion-loop isolation, lesson-block content)
-
-## Deferred follow-ups (documented, not done this session)
-- [ ] **Live replay measurement** (needs golden set + live DB + model): actually run the gate. Code-complete + unit-tested with mocked eval. Safe default holds: no auto-approval without measured evidence.
-- [ ] **Replay determinism at scale**: temp-0 generation is in; once live, consider best-of-N agreement + `LearningReplayMinFlips >= 2` to further de-noise flips.
-- [ ] Tier 2.5 (GEPA/DSPy trace-compiled prompt optimization) + Tier 3 (chunking, contextual retrieval, glossary, semantic layer).
+- [x] Full `dotnet test` green — 404 pass / 0 fail
+- [x] Behavioral diff written
+- [x] Phase 3.5 drift clean — files match manifest; no committed migration edited
+- [x] Stage 1 compliance — 3 Warnings, all fixed (CTE row-limit regression + test; archive idempotency guard; PII masking wiring test)
+- [x] Stage 2 test-reviewer (approved_with_warnings) + architecture-reviewer (1 Critical)
+- [x] Fix findings (iteration 1): arch-F1 recompute PII from executed SQL in CrossSource (Critical); arch-F2 move IsTSqlEngine last; test-F3 branch-specific message assertions; test-F4 Synapse CTE test
+- [x] Waived: test-F1 (DeleteDataSource — NRE needs real EF provider; §4.7 forbids InMemory; double can't run Include/IgnoreQueryFilters); test-F2 (ProjectQueryTool masking — below threshold, identical to tested QueryExecutionService pattern, disproportionate DI)
+- [x] Cleanup: changes already minimal; arch-F3 (shared MaskRows helper) deferred — would expand scope into SemanticSearchService
+- [x] Final: build 0 err; full suite 405 pass / 0 fail

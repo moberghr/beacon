@@ -74,8 +74,11 @@ internal sealed class LoginFormAuthMiddleware(
             return true;
         }
 
-        // Allow Hangfire dashboard (admin-only — enforced by dashboard authorization)
-        if (path.StartsWith("/hangfire", StringComparison.OrdinalIgnoreCase))
+        // Allow Warp dashboard (admin-only — enforced by dashboard authorization). Match Warp's own
+        // case-sensitive (Ordinal) prefix test exactly: a case-insensitive match here would allow-list a
+        // mixed-case path like /WARP that Warp never handles, letting it fall through to the SPA and serve
+        // index.html to an anonymous caller instead of redirecting to login.
+        if (path.StartsWith("/warp", StringComparison.Ordinal))
         {
             return true;
         }

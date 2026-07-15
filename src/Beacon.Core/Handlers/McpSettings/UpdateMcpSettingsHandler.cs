@@ -73,6 +73,13 @@ internal sealed class UpdateMcpSettingsHandler(
         entity.EnableReplayVerification = data.EnableReplayVerification;
         entity.LearningReplayMinFlips = data.LearningReplayMinFlips;
 
+        // Knowledge-base Tier 3 settings
+        entity.EnableContextualRetrieval = data.EnableContextualRetrieval;
+        entity.DocChunkWindowSentences = data.DocChunkWindowSentences;
+        entity.DocChunkOverlapSentences = data.DocChunkOverlapSentences;
+        entity.GlossaryTopK = data.GlossaryTopK;
+        entity.DocChunkTopK = data.DocChunkTopK;
+
         await context.SaveChangesAsync(cancellationToken);
         settingsProvider.InvalidateCache();
     }

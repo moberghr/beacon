@@ -81,11 +81,11 @@ internal sealed class UpdateDataContractHandler(
 
         if (contract.IsEnabled)
         {
-            scheduler.AddOrUpdateDataQualityJob(contract.Id, contract.Name, contract.CronExpression);
+            await scheduler.AddOrUpdateDataQualityJob(contract.Id, contract.Name, contract.CronExpression);
         }
         else
         {
-            scheduler.RemoveDataQualityJob(contract.Id, contract.Name);
+            await scheduler.RemoveDataQualityJob(contract.Id, contract.Name);
         }
     }
 }

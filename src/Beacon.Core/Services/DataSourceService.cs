@@ -131,11 +131,24 @@ internal class DataSourceService(
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
+        // IgnoreQueryFilters so archived queries still materialize on the QueryStep→Query navigation.
+        // Query is an ArchivableBaseEntity (global ArchivedTime == null filter); without this, qs.Query
+        // is null for any archived query and the in-memory qs.Query.ArchivedTime check below throws NRE —
+        // on the exact happy path where every referencing query is already archived.
         var dataSource = await context.DataSources
+            .IgnoreQueryFilters()
             .Include(x => x.QuerySteps)
                 .ThenInclude(qs => qs.Query)
             .Where(x => x.Id == dataSourceId)
             .SingleAsync(cancellationToken);
+
+        // IgnoreQueryFilters also disables the DataSource's own soft-delete filter, so an
+        // already-archived source is returned here rather than throwing. Re-archiving would reset
+        // ArchivedTime, so treat an already-archived source as a no-op.
+        if (dataSource.ArchivedTime != null)
+        {
+            return;
+        }
 
         // Check for non-archived queries using this data source
         var unarchivedQueries = dataSource.QuerySteps

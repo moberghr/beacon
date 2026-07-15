@@ -48,7 +48,9 @@ public class AzureOpenAiProvider : ILlmProvider
 
         var response = await _chatClient.CompleteChatAsync(messages, options, cancellationToken);
 
-        var content = response.Value.Content[0].Text;
+        // Content is empty on a content-filter / refusal response — guard against ArgumentOutOfRangeException.
+        // Mirrors ClaudeProvider / BedrockProvider.
+        var content = response.Value.Content?.FirstOrDefault()?.Text ?? string.Empty;
         var usage = response.Value.Usage;
 
         // Calculate cost (Azure uses same pricing as OpenAI)

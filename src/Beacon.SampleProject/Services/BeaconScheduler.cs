@@ -1,88 +1,97 @@
-﻿using Hangfire;
-using Beacon.AI.Services.Ai.AiActor;
-using Beacon.AI.Services.Documentation;
+using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Worker;
+using Beacon.SampleProject.Warp;
+using Beacon.SampleProject.Warp.Jobs;
+using Warp.Core;
+using Warp.Core.Data.Entities;
+using Warp.Core.Helper;
 
 namespace Beacon.SampleProject.Services;
 
 /// <summary>
-/// One possible implementation of the beacon schedule execute query
+/// Warp-backed implementation of <see cref="IBeaconScheduler"/>. Recurring subscription and
+/// data-quality work becomes Warp recurring-job definitions; fire-and-forget AI work becomes
+/// enqueued Warp jobs. Returns the Warp job id (a GUID) as the string the UI correlates
+/// JobStatusChanged push events by. Recurring jobs are keyed by the STABLE entity id (never the
+/// mutable name) so a rename can't desync the add/update key from the remove key — removal looks the
+/// definition up by that name via the Warp context (Warp's DeleteRecurringJob is id-based).
 /// </summary>
-public class BeaconScheduler : IBeaconScheduler
+public sealed class BeaconScheduler(
+    IPublisher publisher,
+    IRecurringJobPublisher recurringJobPublisher,
+    WarpDbContext warpDbContext) : IBeaconScheduler
 {
-    private readonly IRecurringJobManager _recurringJobManager;
-    private readonly IBackgroundJobClient _backgroundJobClient;
-
-    public BeaconScheduler(IRecurringJobManager recurringJobManager, IBackgroundJobClient backgroundJobClient)
-    {
-        _recurringJobManager = recurringJobManager;
-        _backgroundJobClient = backgroundJobClient;
-    }
-
-    public void AddOrUpdate(int subscriptionId, string subscriptionName, string cron)
-    {
-        _recurringJobManager.AddOrUpdate<IJobService>(
-            CompileSubscriptionJobKey(subscriptionId, subscriptionName),
-            // CancellationToken.None is a placeholder — Hangfire substitutes its
-            // shutdown-aware token for CancellationToken parameters at execution time.
-            x => x.ExecuteQuery(subscriptionId, CancellationToken.None),
+    public Task AddOrUpdate(int subscriptionId, string subscriptionName, string cron)
+        => recurringJobPublisher.AddOrUpdateRecurringJob(
+            new ExecuteSubscriptionQueryJob { SubscriptionId = subscriptionId },
+            CompileSubscriptionJobKey(subscriptionId),
             cron);
-    }
 
-    public void Remove(int subscriptionId, string subscriptionName)
-    {
-        _recurringJobManager.RemoveIfExists(CompileSubscriptionJobKey(subscriptionId, subscriptionName));
-    }
+    public Task Remove(int subscriptionId, string subscriptionName)
+        => RemoveRecurringJobByName(CompileSubscriptionJobKey(subscriptionId));
 
-    public void AddOrUpdateDataQualityJob(int contractId, string contractName, string cron)
-    {
-        _recurringJobManager.AddOrUpdate<IJobService>(
-            CompileDataQualityJobKey(contractId, contractName),
-            x => x.EvaluateDataContract(contractId, CancellationToken.None),
+    public Task AddOrUpdateDataQualityJob(int contractId, string contractName, string cron)
+        => recurringJobPublisher.AddOrUpdateRecurringJob(
+            new EvaluateDataContractJob { ContractId = contractId },
+            CompileDataQualityJobKey(contractId),
             cron);
-    }
 
-    public void RemoveDataQualityJob(int contractId, string contractName)
+    public Task RemoveDataQualityJob(int contractId, string contractName)
+        => RemoveRecurringJobByName(CompileDataQualityJobKey(contractId));
+
+    public async Task<string> EnqueueProjectDocumentation(int projectId, int userId, string? notifyUserId)
     {
-        _recurringJobManager.RemoveIfExists(CompileDataQualityJobKey(contractId, contractName));
-    }
+        var jobParameters = new JobParameters();
 
-    public string EnqueueProjectDocumentation(int projectId, int userId, string? notifyUserId)
-    {
-        var jobId = _backgroundJobClient.Enqueue<IProjectDocumentationService>(
-            x => x.GenerateDocumentationAsync(projectId, userId, CancellationToken.None));
-
-        // Tag the job with the enqueueing user so HangfireSignalRJobFilter publishes
-        // JobStatusChanged events to /beacon/api/hub for that user only.
+        // Tag the job with the enqueueing user so JobStatusChangedBehavior publishes
+        // JobStatusChanged events to /beacon/api/hub for that user only (PII guard, §1.11).
         if (!string.IsNullOrWhiteSpace(notifyUserId))
         {
-            JobStorage.Current.GetConnection().SetJobParameter(jobId, "BeaconUserId", notifyUserId);
+            jobParameters.Metadata = new Dictionary<string, object> { ["BeaconUserId"] = notifyUserId };
         }
 
-        return jobId;
+        var jobId = await publisher.Enqueue(new GenerateProjectDocumentationJob { ProjectId = projectId, UserId = userId }, jobParameters);
+        await publisher.SaveChangesAsync();
+
+        return jobId.ToString();
     }
 
-    public string EnqueueAiActorThinkCycle(int actorId, int subscriptionId)
+    public async Task<string> EnqueueAiActorThinkCycle(int actorId, int subscriptionId)
     {
-        return _backgroundJobClient.Enqueue<IAiActorServiceExtended>(
-            x => x.ExecuteThinkCycleBackgroundAsync(actorId, subscriptionId));
+        var jobId = await publisher.Enqueue(new AiActorThinkCycleJob { ActorId = actorId, SubscriptionId = subscriptionId });
+        await publisher.SaveChangesAsync();
+
+        return jobId.ToString();
     }
 
-    public string EnqueueMcpEval(int runId)
+    public async Task<string> EnqueueMcpEval(int runId)
     {
-        // CancellationToken.None is a placeholder — Hangfire substitutes its shutdown-aware
-        // token for CancellationToken parameters at execution time.
-        return _backgroundJobClient.Enqueue<IJobService>(
-            x => x.RunMcpEval(runId, CancellationToken.None));
+        var jobId = await publisher.Enqueue(new RunMcpEvalJob { RunId = runId });
+        await publisher.SaveChangesAsync();
+
+        return jobId.ToString();
     }
 
-    private static string CompileSubscriptionJobKey(int subscriptionId, string subscriptionName)
+    private async Task RemoveRecurringJobByName(string name)
     {
-        return $"{subscriptionId} - {subscriptionName}";
+        var recurringJob = await warpDbContext.Set<RecurringJob>()
+            .Where(x => x.Name == name)
+            .FirstOrDefaultAsync();
+        if (recurringJob == null)
+        {
+            return;
+        }
+
+        warpDbContext.Set<RecurringJob>().Remove(recurringJob);
+        await warpDbContext.SaveChangesAsync();
     }
 
-    private static string CompileDataQualityJobKey(int contractId, string contractName)
-    {
-        return $"dq-{contractId} - {contractName}";
-    }
+    // Keyed on the stable entity id ONLY. The display name is intentionally excluded: it is user-mutable
+    // (a subscription's query or a data contract can be renamed), and a name baked into the key would make
+    // AddOrUpdate after a rename create a second definition while Remove fails to find the original.
+    private static string CompileSubscriptionJobKey(int subscriptionId)
+        => $"subscription-{subscriptionId}";
+
+    private static string CompileDataQualityJobKey(int contractId)
+        => $"dq-{contractId}";
 }

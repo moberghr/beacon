@@ -149,6 +149,8 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
     public DbSet<McpLearnedPattern> McpLearnedPatterns => Set<McpLearnedPattern>();
     public DbSet<McpDocumentationPatch> McpDocumentationPatches => Set<McpDocumentationPatch>();
     public DbSet<McpEmbedding> McpEmbeddings => Set<McpEmbedding>();
+    public DbSet<McpDocChunk> McpDocChunks => Set<McpDocChunk>();
+    public DbSet<McpGlossaryTerm> McpGlossaryTerms => Set<McpGlossaryTerm>();
 
     // MCP Eval harness
     public DbSet<McpEvalCase> McpEvalCases => Set<McpEvalCase>();
@@ -185,6 +187,8 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
         ConfigureMcpEntities(modelBuilder);
         ConfigureMcpLearningEntities(modelBuilder);
         ConfigureMcpEmbeddingEntities(modelBuilder);
+        ConfigureMcpDocChunkEntities(modelBuilder);
+        ConfigureMcpGlossaryEntities(modelBuilder);
         ConfigureMcpEvalEntities(modelBuilder);
         base.OnModelCreating(modelBuilder);
     }
@@ -1323,6 +1327,11 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             entity.Property(e => e.EnableSampleValueCollection).HasDefaultValue(true);
             entity.Property(e => e.EnableReplayVerification).HasDefaultValue(true);
             entity.Property(e => e.LearningReplayMinFlips).HasDefaultValue(1);
+            entity.Property(e => e.EnableContextualRetrieval).HasDefaultValue(false);
+            entity.Property(e => e.DocChunkWindowSentences).HasDefaultValue(5);
+            entity.Property(e => e.DocChunkOverlapSentences).HasDefaultValue(1);
+            entity.Property(e => e.GlossaryTopK).HasDefaultValue(5);
+            entity.Property(e => e.DocChunkTopK).HasDefaultValue(6);
         });
     }
 
@@ -1379,6 +1388,40 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
 
             entity.HasIndex(e => e.DataSourceId);
             entity.HasIndex(e => new { e.DataSourceId, e.OwnerType, e.OwnerId }).IsUnique();
+
+            // Project-scoped owner lookup for doc-chunk / glossary retrieval (WHERE project_id = X AND owner_type = ANY(...)).
+            entity.HasIndex(e => new { e.ProjectId, e.OwnerType });
+        });
+    }
+
+    protected static void ConfigureMcpDocChunkEntities(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<McpDocChunk>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.ChunkText).IsRequired();
+
+            entity.HasIndex(e => e.ProjectId);
+            entity.HasIndex(e => new { e.ProjectId, e.SourceSectionId });
+        });
+    }
+
+    protected static void ConfigureMcpGlossaryEntities(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<McpGlossaryTerm>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Term).HasMaxLength(200).IsRequired();
+            entity.Property(e => e.Synonyms).HasMaxLength(1000);
+            entity.Property(e => e.Definition).HasMaxLength(2000).IsRequired();
+            entity.Property(e => e.TargetSchema).HasMaxLength(200);
+            entity.Property(e => e.TargetTable).HasMaxLength(200);
+            entity.Property(e => e.TargetColumn).HasMaxLength(200);
+            entity.Property(e => e.MetricExpression).HasMaxLength(1000);
+            entity.Property(e => e.IsActive).HasDefaultValue(true);
+
+            entity.HasIndex(e => e.ProjectId);
+            entity.HasIndex(e => new { e.ProjectId, e.IsActive });
         });
     }
 

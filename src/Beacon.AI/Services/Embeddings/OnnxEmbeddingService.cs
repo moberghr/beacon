@@ -125,33 +125,12 @@ internal sealed class OnnxEmbeddingService : IBeaconEmbeddingService, IDisposabl
         using var results = model.Session.Run(inputs);
         var hidden = results.First().AsEnumerable<float>().ToArray();
 
-        // last_hidden_state is row-major [1, tokenCount, EmbeddingDimensions]. Mean-pool over the
-        // attention mask (all tokens attended here, so this is a plain token-count mean), then L2-normalize.
+        // last_hidden_state is row-major [1, tokenCount, EmbeddingDimensions]. bge-small-en-v1.5 is trained
+        // for CLS pooling: the sentence embedding is the [CLS] token's hidden state (position 0), not a mean
+        // over tokens. Mean pooling would place the vector in a different region than the model was calibrated
+        // for and degrade retrieval quality. Take token 0's row, then L2-normalize.
         var pooled = new float[EmbeddingDimensions];
-        var maskSum = 0;
-        for (var t = 0; t < tokenCount; t++)
-        {
-            var mask = attentionMask.Buffer.Span[t];
-            if (mask == 0)
-            {
-                continue;
-            }
-
-            maskSum += (int)mask;
-            var offset = t * EmbeddingDimensions;
-            for (var d = 0; d < EmbeddingDimensions; d++)
-            {
-                pooled[d] += hidden[offset + d];
-            }
-        }
-
-        if (maskSum > 0)
-        {
-            for (var d = 0; d < EmbeddingDimensions; d++)
-            {
-                pooled[d] /= maskSum;
-            }
-        }
+        Array.Copy(hidden, 0, pooled, 0, EmbeddingDimensions);
 
         Normalize(pooled);
         return pooled;

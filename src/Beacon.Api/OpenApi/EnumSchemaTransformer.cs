@@ -1,6 +1,6 @@
+using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.OpenApi;
-using Microsoft.OpenApi.Any;
-using Microsoft.OpenApi.Models;
+using Microsoft.OpenApi;
 
 namespace Beacon.Api.OpenApi;
 
@@ -20,15 +20,17 @@ public sealed class EnumSchemaTransformer : IOpenApiSchemaTransformer
             return Task.CompletedTask;
         }
 
-        schema.Enum.Clear();
-        var names = new OpenApiArray();
+        var values = new List<JsonNode>();
+        var names = new JsonArray();
         foreach (var name in Enum.GetNames(type))
         {
-            schema.Enum.Add(new OpenApiInteger(Convert.ToInt32(Enum.Parse(type, name))));
-            names.Add(new OpenApiString(name));
+            values.Add(JsonValue.Create(Convert.ToInt32(Enum.Parse(type, name))));
+            names.Add(JsonValue.Create(name));
         }
 
-        schema.Extensions["x-enumNames"] = names;
+        schema.Enum = values;
+        schema.Extensions ??= new Dictionary<string, IOpenApiExtension>();
+        schema.Extensions["x-enumNames"] = new JsonNodeExtension(names);
         return Task.CompletedTask;
     }
 }

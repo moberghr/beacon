@@ -109,8 +109,16 @@ public static class ServiceConfiguration
         // MCP Learning Aggregation (resolves the optional ILessonExtractor + IPatternReplayVerifier via its ctor).
         services.TryAddTransient<Core.Services.IMcpLearningAggregationService, Services.Learning.McpLearningAggregationService>();
 
+        // Writes the DB-managed pgvector column that the PostgreSQL nearest-neighbor search orders by
+        // (the column is invisible to the EF model, so both indexing services set it through this seam).
+        services.TryAddSingleton<Services.Embeddings.IEmbeddingVectorColumnWriter, Services.Embeddings.PgVectorColumnWriter>();
+
         // MCP Embedding Indexing (populates McpEmbedding for hybrid retrieval + semantic few-shot)
         services.TryAddTransient<Core.Services.IEmbeddingIndexingService, Services.Embeddings.EmbeddingIndexingService>();
+
+        // MCP Doc-chunk Indexing (Tier-3 ⑨/⑩): chunks + optional contextual blurb + embeds project docs into
+        // McpDocChunk + McpEmbedding. Interface in Core, impl here — mirrors the embedding-indexing split.
+        services.TryAddTransient<Core.Services.IDocChunkIndexingService, Services.Knowledge.DocChunkIndexingService>();
 
         // MCP Eval harness (interface in Core, impl here; wired at composition root like the learning
         // aggregation split). Executes SQL strictly read-only via the Core provider factory.

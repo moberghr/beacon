@@ -19,7 +19,7 @@ internal sealed class DeleteDataContractHandler(
             .FirstOrDefaultAsync(cancellationToken)
             ?? throw new BeaconException($"Data contract {request.DataContractId} not found");
 
-        scheduler.RemoveDataQualityJob(contract.Id, contract.Name);
+        await scheduler.RemoveDataQualityJob(contract.Id, contract.Name);
 
         contract.Archive();
         await context.SaveChangesAsync(cancellationToken);

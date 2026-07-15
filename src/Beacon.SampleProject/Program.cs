@@ -1,5 +1,10 @@
-using Hangfire;
-using Hangfire.PostgreSql;
+using Microsoft.EntityFrameworkCore;
+using Warp.Core;
+using Warp.Worker;
+using Warp.Provider.PostgreSql;
+using Warp.UI.UIMiddleware;
+using Beacon.SampleProject.Warp;
+using Beacon.SampleProject.Warp.Jobs;
 using Beacon.AI;
 using Beacon.Core;
 using Beacon.Core.Worker;
@@ -22,7 +27,6 @@ using Beacon.Api.Hubs;
 using Beacon.Api.OpenApi;
 using Microsoft.AspNetCore.OpenApi;
 using Beacon.Api.SignalR;
-using Beacon.SampleProject.SignalR;
 using Beacon.SampleProject.Authentication;
 using Beacon.SampleProject.Middleware;
 using Beacon.SampleProject.Services;
@@ -62,26 +66,28 @@ builder.Services.AddHttpClient().ConfigureHttpClientDefaults(http =>
     });
 });
 
-// Configure Hangfire with PostgreSQL
-builder.Services.AddHangfire(hangfireConfiguration => hangfireConfiguration
-    .SetDataCompatibilityLevel(CompatibilityLevel.Version_170)
-    .UseSimpleAssemblyNameTypeSerializer()
-    .UseRecommendedSerializerSettings()
-    .UseFilter(new AutomaticRetryAttribute { Attempts = 0 })
-    .UsePostgreSqlStorage(
-        x => x.UseNpgsqlConnection(builder.Configuration.GetConnectionString("BeaconContext")),
-        new PostgreSqlStorageOptions
-        {
-            PrepareSchemaIfNecessary = true,
-            QueuePollInterval = TimeSpan.FromSeconds(1),
-        }));
+// Configure Warp (background jobs, recurring jobs, dashboard — replaces Hangfire).
+// Warp's schema lives in a dedicated WarpDbContext (the "warp" schema), registered Scoped so
+// Warp's publisher/worker services can resolve it and so Warp can decorate
+// DbContextOptions<WarpDbContext> with its model customizer + row-lock interceptors. This keeps
+// Beacon's own abstract/factory-based BeaconContext untouched.
+builder.Services.AddDbContext<WarpDbContext>(options =>
+    options.UseNpgsql(builder.Configuration.GetConnectionString("BeaconContext"))
+           .UseSnakeCaseNamingConvention());
 
-// Cap the worker count explicitly. The Hangfire default is 20 × ProcessorCount (e.g. 160 on an
-// 8-core host); each scheduled-query job opens a BeaconContext plus a downstream connector
-// connection, so the default would exhaust the Npgsql pool (default 100) at scale and — with
-// retries disabled (Attempts = 0) — turn pool-timeout failures into terminal job failures.
-builder.Services.AddHangfireServer(options =>
-    options.WorkerCount = Math.Min(Environment.ProcessorCount * 2, 20));
+// Cap the worker count explicitly. Each scheduled-query job opens a BeaconContext plus a
+// downstream connector connection, so an unbounded worker count would exhaust the Npgsql pool
+// (default 100) at scale and — with retries disabled (§6.4) — turn pool-timeout failures into
+// terminal job failures.
+builder.Services.AddWarpServer<WarpDbContext>(opt =>
+{
+    opt.UsePostgreSql();
+
+    // §6.4 — no automatic retry; failures are investigated, not retried blindly.
+    // (Deliberately no opt.AddRetry().) Polling cadence matches the old Hangfire 1s interval.
+    opt.PollingInterval = TimeSpan.FromSeconds(1);
+    opt.WorkerCount = Math.Min(Environment.ProcessorCount * 2, 20);
+});
 
 // Host-level identity + SignalR plumbing (claims transformer, Hangfire → SignalR bridge,
 // SignalR user-id provider). Registered together via AuthServiceExtensions (§2.12).
@@ -310,17 +316,17 @@ if (beaconConfiguration.UserManagement.Enabled)
 // SignalR hub for the React shell. Auth required (cookie scheme).
 app.MapHub<BeaconHub>("/beacon/api/hub").RequireAuthorization(BeaconApiEndpoints.AuthPolicyName);
 
-// Register the Hangfire SignalR filter against the global JobStorage, now that DI is built.
-Hangfire.GlobalJobFilters.Filters.Add(app.Services.GetRequiredService<HangfireSignalRJobFilter>());
+// JobStatusChanged push to /beacon/api/hub is handled by JobStatusChangedBehavior, a Warp
+// pipeline behavior auto-registered by the Warp source generator — no manual filter wiring.
 
 // Beacon MCP Server - available at /beacon/mcp (Streamable HTTP, SDK transport)
 app.MapMcp("/beacon/mcp").RequireAuthorization();
 
-// Hangfire Dashboard - available at /hangfire — Admin-only (§7.4).
-app.UseHangfireDashboard("/hangfire", new DashboardOptions
+// Warp Dashboard - available at /warp — Admin-only (§7.4).
+app.UseWarpUI(warpUiOptions =>
 {
-    IgnoreAntiforgeryToken = true,
-    Authorization = [new HangfireDashboardAuthFilter()],
+    warpUiOptions.RoutePrefix = "/warp";
+    warpUiOptions.Authorization = new WarpDashboardAuthFilter();
 });
 
 // React SPA shell at root /. Beacon.UI ships the built React app as Razor Class
@@ -328,12 +334,25 @@ app.UseHangfireDashboard("/hangfire", new DashboardOptions
 // routes resolve to its index.html. Real asset requests fall through to UseStaticFiles.
 app.MapBeaconUi();
 
-// MCP Learning: aggregate patterns every 6 hours, cleanup old signals daily
-RecurringJob.AddOrUpdate<IJobService>("mcp-learning-aggregate", x => x.AggregateLearnedPatterns(CancellationToken.None), "0 */6 * * *");
-RecurringJob.AddOrUpdate<IJobService>("mcp-learning-cleanup", x => x.CleanupOldSignals(CancellationToken.None), "0 3 * * *");
+// Warp startup: apply the warp-schema migrations, then register static recurring jobs. The
+// WarpInitial migration EnsureSchema's the "warp" schema, so this bootstraps a fresh database;
+// it must run before AddOrUpdateRecurringJob (which writes to warp.recurring_job).
+using (var warpStartupScope = app.Services.CreateScope())
+{
+    warpStartupScope.ServiceProvider.GetRequiredService<WarpDbContext>().Database.Migrate();
 
-// MCP Embeddings: re-index metadata + exemplars for hybrid retrieval / semantic few-shot every 12 hours
-RecurringJob.AddOrUpdate<IJobService>("mcp-embedding-reindex", x => x.ReindexEmbeddings(CancellationToken.None), "0 */12 * * *");
+    var recurringJobPublisher = warpStartupScope.ServiceProvider.GetRequiredService<IRecurringJobPublisher>();
+
+    // MCP Learning: aggregate patterns every 6 hours, cleanup old signals daily
+    await recurringJobPublisher.AddOrUpdateRecurringJob(new AggregateLearnedPatternsJob(), "mcp-learning-aggregate", "0 */6 * * *");
+    await recurringJobPublisher.AddOrUpdateRecurringJob(new CleanupOldSignalsJob(), "mcp-learning-cleanup", "0 3 * * *");
+
+    // MCP Embeddings: re-index metadata + exemplars for hybrid retrieval / semantic few-shot every 12 hours
+    await recurringJobPublisher.AddOrUpdateRecurringJob(new ReindexEmbeddingsJob(), "mcp-embedding-reindex", "0 */12 * * *");
+
+    // MCP Doc chunks (Tier-3 ⑨/⑩): re-chunk + (optional contextual blurb) + re-embed project docs every 12 hours
+    await recurringJobPublisher.AddOrUpdateRecurringJob(new ReindexDocChunksJob(), "mcp-docchunk-reindex", "0 */12 * * *");
+}
 
 app.Run();
 

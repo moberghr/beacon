@@ -1709,6 +1709,42 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.ToTable("McpAuditLogs", "beacon");
                 });
 
+            modelBuilder.Entity("Beacon.Core.Data.Entities.McpDocChunk", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ChunkText")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("ContextualBlurb")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("ProjectId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("int");
+
+                    b.Property<int>("SourceSectionId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProjectId");
+
+                    b.HasIndex("ProjectId", "SourceSectionId");
+
+                    b.ToTable("McpDocChunks", "beacon");
+                });
+
             modelBuilder.Entity("Beacon.Core.Data.Entities.McpDocumentationPatch", b =>
                 {
                     b.Property<int>("Id")
@@ -1778,7 +1814,7 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("datetime2");
 
-                    b.Property<int>("DataSourceId")
+                    b.Property<int?>("DataSourceId")
                         .HasColumnType("int");
 
                     b.Property<int>("Dimensions")
@@ -1802,12 +1838,17 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Property<int>("OwnerType")
                         .HasColumnType("int");
 
+                    b.Property<int?>("ProjectId")
+                        .HasColumnType("int");
+
                     b.HasKey("Id");
 
                     b.HasIndex("DataSourceId");
 
                     b.HasIndex("DataSourceId", "OwnerType", "OwnerId")
                         .IsUnique();
+
+                    b.HasIndex("ProjectId", "OwnerType");
 
                     b.ToTable("McpEmbeddings", "beacon");
                 });
@@ -1971,6 +2012,67 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.HasIndex("ProjectId");
 
                     b.ToTable("McpEvalRuns", "beacon");
+                });
+
+            modelBuilder.Entity("Beacon.Core.Data.Entities.McpGlossaryTerm", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int?>("DataSourceId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Definition")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(true);
+
+                    b.Property<string>("MetricExpression")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<int>("ProjectId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Synonyms")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<string>("TargetColumn")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("TargetSchema")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("TargetTable")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("Term")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProjectId");
+
+                    b.HasIndex("ProjectId", "IsActive");
+
+                    b.ToTable("McpGlossaryTerms", "beacon");
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.McpLearnedPattern", b =>
@@ -2223,6 +2325,26 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                         .HasMaxLength(4000)
                         .HasColumnType("nvarchar(4000)");
 
+                    b.Property<int>("DocChunkOverlapSentences")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(1);
+
+                    b.Property<int>("DocChunkTopK")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(6);
+
+                    b.Property<int>("DocChunkWindowSentences")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(5);
+
+                    b.Property<bool>("EnableContextualRetrieval")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false);
+
                     b.Property<bool>("EnableEvalJudge")
                         .HasColumnType("bit");
 
@@ -2265,6 +2387,11 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Property<string>("GlobalInstruction")
                         .HasMaxLength(4000)
                         .HasColumnType("nvarchar(4000)");
+
+                    b.Property<int>("GlossaryTopK")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(5);
 
                     b.Property<double>("LearningAutoApproveThreshold")
                         .HasColumnType("float");

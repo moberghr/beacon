@@ -139,7 +139,7 @@ public class AiActorService : IAiActorServiceExtended
         // Enqueue the think cycle as a background job so the subscription-execution
         // pipeline does not block on LLM round-trips. The job runs under its own scope
         // and its own CancellationToken.
-        var jobId = _beaconScheduler.EnqueueAiActorThinkCycle(actorId, subscriptionId);
+        var jobId = await _beaconScheduler.EnqueueAiActorThinkCycle(actorId, subscriptionId);
 
         _logger.LogInformation(
             "Subscription {SubscriptionId} executed, enqueued think cycle job {JobId} for actor {ActorId}",

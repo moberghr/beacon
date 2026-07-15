@@ -21,6 +21,7 @@ internal class JobService(
     IAiActorService? aiActorService = null,
     IMcpLearningAggregationService? mcpLearningService = null,
     IEmbeddingIndexingService? embeddingIndexingService = null,
+    IDocChunkIndexingService? docChunkIndexingService = null,
     IMcpEvalService? mcpEvalService = null)
     : IJobService
 {
@@ -385,6 +386,17 @@ internal class JobService(
         }
 
         await embeddingIndexingService.ReindexAsync(cancellationToken);
+    }
+
+    public async Task ReindexDocChunks(CancellationToken cancellationToken)
+    {
+        if (docChunkIndexingService == null)
+        {
+            logger.LogDebug("Doc-chunk indexing service not available, skipping re-index");
+            return;
+        }
+
+        await docChunkIndexingService.ReindexAsync(cancellationToken);
     }
 
     public async Task RunMcpEval(int runId, CancellationToken cancellationToken)
