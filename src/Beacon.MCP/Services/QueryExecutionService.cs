@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Data;
+using Beacon.Core.Services;
 using Beacon.Core.Services.Providers;
 using Beacon.Core.Services.Security;
 using Beacon.MCP.Tools;
@@ -9,7 +10,8 @@ namespace Beacon.MCP.Services;
 internal sealed class QueryExecutionService(
     IDbContextFactory<BeaconContext> contextFactory,
     IDataSourceProviderFactory providerFactory,
-    IQueryGuardrailService guardrailService) : IQueryExecutionService
+    IQueryGuardrailService guardrailService,
+    IMcpSettingsProvider settingsProvider) : IQueryExecutionService
 {
     public async Task<QueryExecutionResult> ExecuteAsync(int dataSourceId, string sql, int maxRows, CancellationToken ct)
     {
@@ -27,10 +29,29 @@ internal sealed class QueryExecutionService(
 
         if (result.Success && result.Rows?.Count > 0)
         {
-            var text = $"### Results ({result.Rows.Count} rows)\n\n";
-            text += ToolHelper.FormatResultsAsMarkdown(result.Rows);
+            // Mask PII column values before returning to the MCP client (§1.6/§1.11). Read-only was
+            // already enforced upstream, so here we only need PII detection. Mirrors SemanticSearchService.
+            var rows = result.Rows;
+            var settings = await settingsProvider.GetSettingsAsync(ct);
+            if (settings.EnablePiiDetection)
+            {
+                var piiColumns = guardrailService.ValidateQuery(sql, new QueryGuardrailOptions
+                {
+                    ReadOnly = false,
+                    DetectPii = true,
+                    CustomPiiPatterns = settings.CustomPiiPatterns.Count > 0 ? settings.CustomPiiPatterns : null
+                }).PiiColumns;
 
-            return new QueryExecutionResult(text, null, result.Rows.Count, true);
+                if (piiColumns is { Count: > 0 } piiCols)
+                {
+                    rows = rows.Select(x => guardrailService.MaskPiiValues(x, piiCols)).ToList();
+                }
+            }
+
+            var text = $"### Results ({rows.Count} rows)\n\n";
+            text += ToolHelper.FormatResultsAsMarkdown(rows);
+
+            return new QueryExecutionResult(text, null, rows.Count, true);
         }
 
         if (!result.Success)

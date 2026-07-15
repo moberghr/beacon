@@ -28,6 +28,13 @@ public class EmbeddingCodecTests
     }
 
     [Test]
+    public void ToVectorLiteral_FormatsAsBracketedInvariantCsv()
+    {
+        EmbeddingCodec.ToVectorLiteral([0f, 1.5f, -2f])
+            .Should().Be("[0,1.5,-2]");
+    }
+
+    [Test]
     public void Cosine_IdenticalVectors_IsApproximatelyOne()
     {
         var vector = new[] { 1f, 2f, 3f, 4f };

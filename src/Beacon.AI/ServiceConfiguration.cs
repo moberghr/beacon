@@ -109,6 +109,10 @@ public static class ServiceConfiguration
         // MCP Learning Aggregation (resolves the optional ILessonExtractor + IPatternReplayVerifier via its ctor).
         services.TryAddTransient<Core.Services.IMcpLearningAggregationService, Services.Learning.McpLearningAggregationService>();
 
+        // Writes the DB-managed pgvector column that the PostgreSQL nearest-neighbor search orders by
+        // (the column is invisible to the EF model, so both indexing services set it through this seam).
+        services.TryAddSingleton<Services.Embeddings.IEmbeddingVectorColumnWriter, Services.Embeddings.PgVectorColumnWriter>();
+
         // MCP Embedding Indexing (populates McpEmbedding for hybrid retrieval + semantic few-shot)
         services.TryAddTransient<Core.Services.IEmbeddingIndexingService, Services.Embeddings.EmbeddingIndexingService>();
 

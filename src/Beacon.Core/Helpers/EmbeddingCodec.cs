@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Globalization;
 
 namespace Beacon.Core.Helpers;
 
@@ -21,6 +22,18 @@ public static class EmbeddingCodec
         }
 
         return bytes;
+    }
+
+    /// <summary>
+    /// Formats a vector as a pgvector text literal (e.g. <c>[0.1,0.2,…]</c>) using invariant, round-trippable
+    /// formatting. Matches the query-side literal in the PostgreSQL nearest-neighbor search so the stored
+    /// vector and the query vector share one representation. Pure string helper — no EF / provider dependency.
+    /// </summary>
+    public static string ToVectorLiteral(float[] vector)
+    {
+        ArgumentNullException.ThrowIfNull(vector);
+
+        return "[" + string.Join(",", vector.Select(x => x.ToString("R", CultureInfo.InvariantCulture))) + "]";
     }
 
     /// <summary>Deserializes a little-endian byte array back into a vector.</summary>

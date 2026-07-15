@@ -100,7 +100,8 @@ internal class SubscriptionService(
             .FirstOrDefaultAsync(cancellationToken)
             ?? throw new InvalidOperationException($"Query {subscriptionData.QueryId} not found.");
 
-        await beaconScheduler.AddOrUpdate(subscription.Id, $"{query.Name}: {subscription.Id}", subscription.CronExpression);
+        // Name is a display/telemetry hint only — the recurring-job identity is the subscription id (see BeaconScheduler).
+        await beaconScheduler.AddOrUpdate(subscription.Id, query.Name, subscription.CronExpression);
 
         return new BaseResponse { Success = true, Message = "Subscription created successfully" };
     }
@@ -118,14 +119,19 @@ internal class SubscriptionService(
 
         subscription.Archive();
 
-        await beaconScheduler.Remove(subscription.Id, $"{subscription.Query.Name}: {subscription.Id}");
-
         foreach (var param in subscription.Parameters)
         {
             param.Archive();
         }
 
         await context.SaveChangesAsync(cancellationToken);
+
+        // Persist the archive BEFORE unscheduling. BeaconContext and WarpDbContext can't share a transaction,
+        // so commit the primary write first: if Remove then fails, the subscription is already archived (the
+        // soft-delete query filter stops the recurring job from doing anything) and only a harmless orphaned
+        // Warp definition remains. The reverse order could unschedule a still-active subscription when the
+        // archive save fails.
+        await beaconScheduler.Remove(subscription.Id, subscription.Query.Name);
     }
 
     public async Task<List<SubscriptionData>> GetSubscriptions(int? subscriptionId, int? queryId, NotificationType? notificationType, string? keyword, CancellationToken cancellationToken)
@@ -269,7 +275,8 @@ internal class SubscriptionService(
 
         if (shouldUpdateSchedule)
         {
-            await beaconScheduler.AddOrUpdate(subscription.Id, $"{query.Name}: {subscription.Id}", subscription.CronExpression);
+            // Name is a display/telemetry hint only — the recurring-job identity is the subscription id (see BeaconScheduler).
+        await beaconScheduler.AddOrUpdate(subscription.Id, query.Name, subscription.CronExpression);
         }
     }
 

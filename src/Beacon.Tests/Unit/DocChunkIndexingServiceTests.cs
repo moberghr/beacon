@@ -153,6 +153,7 @@ public class DocChunkIndexingServiceTests
             new UnavailableEmbeddingService(),
             settings.Object,
             llm.Object,
+            new FakeVectorColumnWriter(),
             NullLogger<DocChunkIndexingService>.Instance);
 
         await service.ReindexAsync(CancellationToken.None);
@@ -303,7 +304,8 @@ public class DocChunkIndexingServiceTests
         List<McpEmbedding> capturedEmbeddings,
         List<McpDocChunk> removedChunks,
         List<McpEmbedding> removedEmbeddings,
-        ILogger<DocChunkIndexingService>? logger = null)
+        ILogger<DocChunkIndexingService>? logger = null,
+        FakeVectorColumnWriter? vectorWriter = null)
     {
         var documentation = new ProjectDocumentation
         {
@@ -376,6 +378,7 @@ public class DocChunkIndexingServiceTests
             embeddingService,
             settingsProvider.Object,
             llmProvider,
+            vectorWriter ?? new FakeVectorColumnWriter(),
             logger ?? NullLogger<DocChunkIndexingService>.Instance);
     }
 

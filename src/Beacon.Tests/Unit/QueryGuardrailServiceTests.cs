@@ -146,6 +146,66 @@ public class QueryGuardrailServiceTests
         sql.Should().Be("SELECT * FROM orders LIMIT 10");
     }
 
+    [Test]
+    public void ApplyRowLimit_SqlServer_Subquery_OnlyOutermostGetsTop()
+    {
+        var sql = _service.ApplyRowLimit(
+            "SELECT category, COUNT(*) FROM (SELECT id, category FROM orders) x GROUP BY category",
+            500,
+            "MSSQL");
+
+        // Only the outer SELECT is capped — the inner subquery must NOT get TOP, or its rows would be
+        // truncated before aggregation, corrupting the COUNT.
+        sql.Should().StartWith("SELECT TOP 500 category");
+        sql.Should().NotContain("(SELECT TOP");
+    }
+
+    [Test]
+    public void ApplyRowLimit_AzureSynapse_InsertsTop()
+    {
+        var sql = _service.ApplyRowLimit("SELECT * FROM sales", 100, "AzureSynapse");
+
+        // Azure Synapse is T-SQL: it must use TOP, never LIMIT (which Synapse rejects).
+        sql.Should().Contain("SELECT TOP 100");
+        sql.Should().NotContain("LIMIT");
+    }
+
+    [Test]
+    public void ApplyRowLimit_AzureSynapseWithOrderBy_UsesFetch()
+    {
+        var sql = _service.ApplyRowLimit("SELECT * FROM sales ORDER BY id", 100, "AzureSynapse");
+
+        sql.Should().Contain("FETCH NEXT 100 ROWS ONLY");
+        sql.Should().NotContain("LIMIT");
+    }
+
+    [Test]
+    public void ApplyRowLimit_SqlServer_CteLeading_BoundsOuterResultWithoutTop()
+    {
+        var sql = _service.ApplyRowLimit(
+            "WITH r AS (SELECT id, category FROM orders) SELECT category, COUNT(*) AS n FROM r GROUP BY category",
+            500,
+            "MSSQL");
+
+        // A first-SELECT TOP would land on the CTE body and leave the OUTER result uncapped; bound the
+        // outer result with OFFSET/FETCH instead, and never inject TOP into the CTE.
+        sql.Should().Contain("FETCH NEXT 500 ROWS ONLY");
+        sql.Should().NotContain("TOP");
+    }
+
+    [Test]
+    public void ApplyRowLimit_AzureSynapse_CteLeading_BoundsOuterResultWithoutTop()
+    {
+        var sql = _service.ApplyRowLimit(
+            "WITH r AS (SELECT id, category FROM orders) SELECT category, COUNT(*) AS n FROM r GROUP BY category",
+            500,
+            "AzureSynapse");
+
+        sql.Should().Contain("FETCH NEXT 500 ROWS ONLY");
+        sql.Should().NotContain("TOP");
+        sql.Should().NotContain("LIMIT");
+    }
+
     [TestCase("email", true)]
     [TestCase("user_password", true)]
     [TestCase("credit_card", true)]

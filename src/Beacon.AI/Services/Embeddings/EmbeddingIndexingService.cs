@@ -15,6 +15,7 @@ internal sealed class EmbeddingIndexingService(
     IDbContextFactory<BeaconContext> contextFactory,
     IBeaconEmbeddingService embeddingService,
     IMcpSettingsProvider settingsProvider,
+    IEmbeddingVectorColumnWriter vectorWriter,
     ILogger<EmbeddingIndexingService> logger) : IEmbeddingIndexingService
 {
     // The bge-small-en-v1.5 model the local ONNX embedder wraps. Persisted alongside each vector so a
@@ -147,22 +148,30 @@ internal sealed class EmbeddingIndexingService(
             .Where(x => x.DataSourceId == dataSourceId)
             .ToListAsync(ct);
 
-        // Prune stale exemplar vectors (§ Architecture ⑧): when a pattern is superseded / rejected / reverted
-        // its Exemplar row is no longer in the valid set (Approved/AutoApproved + SupersededAt == null) computed
-        // above, but the upsert path would never touch it — so it lingers and occupies top-k slots in the NN
-        // query (which filters only by data source + owner type), starving valid lessons. Delete every Exemplar
-        // row whose OwnerId is not in the current valid set, in this SAME unit of work (one SaveChanges, §5.7).
-        // Metadata (table/column) vectors are untouched.
+        // Prune stale vectors (§ Architecture ⑧): a row whose owner is no longer in the current valid set —
+        // a superseded/rejected/reverted exemplar, OR a table/column that was dropped from metadata — is never
+        // touched by the upsert path, so it lingers and occupies top-k slots in the NN query (which filters
+        // only by data source + owner type), starving valid results. Delete every such row (exemplars AND
+        // metadata) in this SAME unit of work (one SaveChanges, §5.7).
         var validExemplarIds = exemplars
             .Select(x => x.Id)
             .ToHashSet();
-        var staleExemplarRows = existing
-            .Where(x => x.OwnerType == McpEmbeddingOwnerType.Exemplar)
-            .Where(x => !validExemplarIds.Contains(x.OwnerId))
+        var validTableIds = tables
+            .Select(x => x.Id)
+            .ToHashSet();
+        var validColumnIds = tables
+            .SelectMany(x => x.Columns)
+            .Select(x => x.Id)
+            .ToHashSet();
+        var staleRows = existing
+            .Where(x =>
+                (x.OwnerType == McpEmbeddingOwnerType.Exemplar && !validExemplarIds.Contains(x.OwnerId))
+                || (x.OwnerType == McpEmbeddingOwnerType.MetadataTable && !validTableIds.Contains(x.OwnerId))
+                || (x.OwnerType == McpEmbeddingOwnerType.MetadataColumn && !validColumnIds.Contains(x.OwnerId)))
             .ToList();
 
         // Nothing to embed AND nothing to prune → no-op (guards the empty-set case without an idle SaveChanges).
-        if (inputs.Count == 0 && staleExemplarRows.Count == 0)
+        if (inputs.Count == 0 && staleRows.Count == 0)
         {
             return;
         }
@@ -171,6 +180,8 @@ internal sealed class EmbeddingIndexingService(
         var dimensions = embeddingService.Dimensions;
 
         var toAdd = new List<McpEmbedding>();
+        // (Row, vector) pairs to push into the DB-managed pgvector column after SaveChanges assigns ids.
+        var vectorWrites = new List<(McpEmbedding Row, float[] Vector)>();
         if (inputs.Count > 0)
         {
             var texts = inputs
@@ -189,10 +200,11 @@ internal sealed class EmbeddingIndexingService(
                     row.Model = EmbeddingModelName;
                     row.Dimensions = dimensions;
                     row.EmbeddingVersion = CurrentEmbeddingVersion;
+                    vectorWrites.Add((row, vectors[i]));
                 }
                 else
                 {
-                    toAdd.Add(new McpEmbedding
+                    var newRow = new McpEmbedding
                     {
                         DataSourceId = dataSourceId,
                         OwnerType = input.OwnerType,
@@ -201,7 +213,9 @@ internal sealed class EmbeddingIndexingService(
                         Model = EmbeddingModelName,
                         Dimensions = dimensions,
                         EmbeddingVersion = CurrentEmbeddingVersion
-                    });
+                    };
+                    toAdd.Add(newRow);
+                    vectorWrites.Add((newRow, vectors[i]));
                 }
             }
         }
@@ -211,16 +225,23 @@ internal sealed class EmbeddingIndexingService(
             await context.McpEmbeddings.AddRangeAsync(toAdd, ct);
         }
 
-        if (staleExemplarRows.Count > 0)
+        if (staleRows.Count > 0)
         {
-            context.McpEmbeddings.RemoveRange(staleExemplarRows);
+            context.McpEmbeddings.RemoveRange(staleRows);
         }
 
         await context.SaveChangesAsync(ct);
 
+        // Populate the DB-managed pgvector column now that new rows have DB-assigned ids (PostgreSQL only;
+        // no-op on SQL Server / in-memory, which cosine over the byte column instead).
+        await vectorWriter.WriteAsync(
+            context,
+            vectorWrites.Select(x => (x.Row.Id, x.Vector)).ToList(),
+            ct);
+
         logger.LogInformation(
-            "Indexed {Count} MCP embeddings for data source {DataSourceId} ({Added} new, {Pruned} stale exemplar(s) pruned)",
-            inputs.Count, dataSourceId, toAdd.Count, staleExemplarRows.Count);
+            "Indexed {Count} MCP embeddings for data source {DataSourceId} ({Added} new, {Pruned} stale vector(s) pruned)",
+            inputs.Count, dataSourceId, toAdd.Count, staleRows.Count);
     }
 
     private static List<EmbeddingInput> BuildEmbeddingInputs(List<TableSource> tables, List<ExemplarSource> exemplars)
