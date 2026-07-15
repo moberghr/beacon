@@ -83,6 +83,7 @@ public static class BeaconApiEndpoints
         group.MapDashboardsEndpoints();
         group.MapDataQualityEndpoints();
         group.MapMcpManagementEndpoints();
+        group.MapEvalEndpoints();
         group.MapAiActorsEndpoints();
         group.MapNotificationsEndpoints();
         group.MapControlTowerEndpoints();

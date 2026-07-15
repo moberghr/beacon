@@ -68,6 +68,14 @@ public class BeaconScheduler : IBeaconScheduler
             x => x.ExecuteThinkCycleBackgroundAsync(actorId, subscriptionId));
     }
 
+    public string EnqueueMcpEval(int runId)
+    {
+        // CancellationToken.None is a placeholder — Hangfire substitutes its shutdown-aware
+        // token for CancellationToken parameters at execution time.
+        return _backgroundJobClient.Enqueue<IJobService>(
+            x => x.RunMcpEval(runId, CancellationToken.None));
+    }
+
     private static string CompileSubscriptionJobKey(int subscriptionId, string subscriptionName)
     {
         return $"{subscriptionId} - {subscriptionName}";

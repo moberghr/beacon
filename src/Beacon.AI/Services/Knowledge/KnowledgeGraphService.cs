@@ -1,8 +1,11 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Beacon.AI.Services.Embeddings;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Helpers;
 using Beacon.Core.Services.Providers;
+using System.Globalization;
 using System.Text;
 
 namespace Beacon.AI.Services.Knowledge;
@@ -10,8 +13,19 @@ namespace Beacon.AI.Services.Knowledge;
 internal sealed class KnowledgeGraphService(
     IDbContextFactory<BeaconContext> contextFactory,
     IMcpSettingsProvider settingsProvider,
+    IBeaconEmbeddingService embeddingService,
     ILogger<KnowledgeGraphService> logger) : IKnowledgeGraphService
 {
+    // EF Core provider name for the Npgsql backend. Compared as a string so Beacon.AI stays off the
+    // Npgsql package (§2.4) yet can branch to the pgvector <=> raw query on PostgreSQL data sources.
+    private const string NpgsqlProviderName = "Npgsql.EntityFrameworkCore.PostgreSQL";
+
+    // Owner-type filters for the shared nearest-neighbour helpers. Metadata (table/column) feeds the
+    // dense arm of hybrid search (B5); Exemplar feeds semantic few-shot selection (B6). Kept as int[]
+    // so the PostgreSQL raw query can pass them as a single parameterized array (owner_type = ANY(...)).
+    private static readonly int[] MetadataOwnerTypes =
+        [(int)McpEmbeddingOwnerType.MetadataTable, (int)McpEmbeddingOwnerType.MetadataColumn];
+    private static readonly int[] ExemplarOwnerTypes = [(int)McpEmbeddingOwnerType.Exemplar];
     public async Task<TableKnowledge> GetTableKnowledgeAsync(int dataSourceId, string schemaName, string tableName, CancellationToken ct = default)
     {
         await using var context = await contextFactory.CreateDbContextAsync(ct);
@@ -291,8 +305,247 @@ internal sealed class KnowledgeGraphService(
             });
         }
 
-        return results.OrderByDescending(r => r.Relevance).Take(maxResults).ToList();
+        // Lexical (sparse) arm — the historical token-overlap ranking. This is exactly the result
+        // returned before hybrid retrieval existed, and stays the behaviour-preserving fallback.
+        var lexicalRanked = results
+            .OrderByDescending(r => r.Relevance)
+            .ToList();
+
+        // Dense arm only kicks in with a local embedder, semantic retrieval enabled, and a concrete
+        // data source to scope the vector store to. Anything short of that returns today's lexical list.
+        var useDense = embeddingService.IsAvailable && dataSourceId.HasValue;
+        if (useDense)
+        {
+            var settings = await settingsProvider.GetSettingsAsync(ct);
+            useDense = settings.EnableSemanticRetrieval;
+        }
+
+        if (!useDense)
+        {
+            return lexicalRanked.Take(maxResults).ToList();
+        }
+
+        try
+        {
+            var denseRanked = await BuildDenseResultsAsync(context, query, dataSourceId!.Value, maxResults * 2, ct);
+            if (denseRanked.Count == 0)
+            {
+                // No vectors indexed yet (or nothing matched) — nothing to fuse; keep lexical behaviour.
+                return lexicalRanked.Take(maxResults).ToList();
+            }
+
+            // Fuse the two independently-ranked arms via RRF and re-weight Relevance with the fused score.
+            var fused = ReciprocalRankFusion.FuseWithScores(
+                new IReadOnlyList<SearchResult>[] { lexicalRanked, denseRanked },
+                FusionKey);
+
+            return fused
+                .Take(maxResults)
+                .Select(x => x.Item with { Relevance = x.Score })
+                .ToList();
+        }
+        catch (OperationCanceledException)
+        {
+            // A cancelled/timed-out request must unwind, not be misreported as a dense-arm failure and
+            // then keep doing more cancellable lexical work.
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // Fail closed onto the lexical arm — a vector-store/query hiccup must never fail a search.
+            logger.LogWarning(ex, "Dense retrieval arm failed for data source {DataSourceId}; falling back to lexical search.", dataSourceId);
+            return lexicalRanked.Take(maxResults).ToList();
+        }
     }
+
+    // Stable identity for fusing/de-duplicating a SearchResult across the lexical and dense arms.
+    private static string FusionKey(SearchResult result) => result.Type switch
+    {
+        "column" => $"c|{result.DataSourceId}|{result.SchemaName}|{result.TableName}|{result.ColumnName}",
+        "table" => $"t|{result.DataSourceId}|{result.SchemaName}|{result.TableName}",
+        _ => $"{result.Type}|{result.DataSourceName}|{result.Description}"
+    };
+
+    // Dense (semantic) arm: embed the query once, pull the nearest table/column embeddings for the data
+    // source, and map them back to SearchResults preserving the vector-similarity ranking. PostgreSQL
+    // uses the pgvector HNSW index via a raw <=> query; other providers do in-memory cosine over the
+    // stored bytes (metadata-scale catalogs). Exemplar embeddings are excluded — those feed few-shot (B6).
+    private async Task<List<SearchResult>> BuildDenseResultsAsync(
+        BeaconContext context, string query, int dataSourceId, int limit, CancellationToken ct)
+    {
+        var queryVector = await embeddingService.EmbedAsync(query, ct);
+
+        var hits = context.Database.ProviderName == NpgsqlProviderName
+            ? await GetNearestPostgresAsync(context, queryVector, dataSourceId, MetadataOwnerTypes, limit, ct)
+            : await GetNearestInMemoryAsync(context, queryVector, dataSourceId, MetadataOwnerTypes, limit, ct);
+
+        if (hits.Count == 0)
+        {
+            return [];
+        }
+
+        var tableOwnerIds = hits
+            .Where(x => x.OwnerType == McpEmbeddingOwnerType.MetadataTable)
+            .Select(x => x.OwnerId)
+            .ToList();
+        var columnOwnerIds = hits
+            .Where(x => x.OwnerType == McpEmbeddingOwnerType.MetadataColumn)
+            .Select(x => x.OwnerId)
+            .ToList();
+
+        var tablesById = new Dictionary<int, SearchResult>();
+        if (tableOwnerIds.Count > 0)
+        {
+            var tableRows = await context.DatabaseMetadata
+                .Where(x => tableOwnerIds.Contains(x.Id))
+                .Select(x =>
+                    new
+                    {
+                        x.Id,
+                        x.DataSourceId,
+                        DataSourceName = x.DataSource.Name,
+                        x.SchemaName,
+                        x.TableName,
+                        x.TableDescription
+                    })
+                .ToListAsync(ct);
+
+            foreach (var row in tableRows)
+            {
+                tablesById[row.Id] = new SearchResult
+                {
+                    Type = "table",
+                    DataSourceId = row.DataSourceId,
+                    DataSourceName = row.DataSourceName,
+                    SchemaName = row.SchemaName,
+                    TableName = row.TableName,
+                    Description = row.TableDescription,
+                    Relevance = 0
+                };
+            }
+        }
+
+        var columnsById = new Dictionary<int, SearchResult>();
+        if (columnOwnerIds.Count > 0)
+        {
+            var columnRows = await context.ColumnMetadata
+                .Where(x => columnOwnerIds.Contains(x.Id))
+                .Select(x =>
+                    new
+                    {
+                        x.Id,
+                        x.DatabaseMetadata.DataSourceId,
+                        DataSourceName = x.DatabaseMetadata.DataSource.Name,
+                        x.DatabaseMetadata.SchemaName,
+                        x.DatabaseMetadata.TableName,
+                        x.ColumnName,
+                        x.Description
+                    })
+                .ToListAsync(ct);
+
+            foreach (var row in columnRows)
+            {
+                columnsById[row.Id] = new SearchResult
+                {
+                    Type = "column",
+                    DataSourceId = row.DataSourceId,
+                    DataSourceName = row.DataSourceName,
+                    SchemaName = row.SchemaName,
+                    TableName = row.TableName,
+                    ColumnName = row.ColumnName,
+                    Description = row.Description,
+                    Relevance = 0
+                };
+            }
+        }
+
+        // Re-project hits into SearchResults in the vector-similarity order returned above; Relevance is a
+        // placeholder here (0) — RRF assigns the final fused score once this arm is fused with the lexical one.
+        var dense = new List<SearchResult>();
+        foreach (var hit in hits)
+        {
+            if (hit.OwnerType == McpEmbeddingOwnerType.MetadataTable
+                && tablesById.TryGetValue(hit.OwnerId, out var tableResult))
+            {
+                dense.Add(tableResult);
+            }
+            else if (hit.OwnerType == McpEmbeddingOwnerType.MetadataColumn
+                && columnsById.TryGetValue(hit.OwnerId, out var columnResult))
+            {
+                dense.Add(columnResult);
+            }
+        }
+
+        return dense;
+    }
+
+    private static async Task<List<EmbeddingHit>> GetNearestPostgresAsync(
+        BeaconContext context, float[] queryVector, int dataSourceId, int[] ownerTypes, int limit, CancellationToken ct)
+    {
+        // The query vector is our own floats, formatted invariantly, but still passed as a parameter
+        // (never string-concatenated) and cast to vector(384) so pgvector can use the <=> HNSW index (§1.10).
+        var vectorLiteral = "[" + string.Join(",", queryVector.Select(x => x.ToString("R", CultureInfo.InvariantCulture))) + "]";
+
+        // Only the EF-mapped columns are selected — the DB-managed `embedding` vector column is left out so
+        // Npgsql never has to read the vector type (no Pgvector handler is registered on this data source).
+        // ownerTypes is our own enum-constant array (0/1 metadata, 2 exemplar), passed as a single
+        // parameterized integer[] via owner_type = ANY(...) — never string-interpolated (§1.10).
+        FormattableString sql = $@"
+            SELECT id, data_source_id, owner_type, owner_id, embedding_bytes, model, dimensions, embedding_version, created_time
+            FROM mcp_embeddings
+            WHERE data_source_id = {dataSourceId}
+              AND owner_type = ANY({ownerTypes})
+            ORDER BY embedding <=> {vectorLiteral}::vector(384)
+            LIMIT {limit}";
+
+        // No LINQ composition on top of FromSqlInterpolated so the raw ORDER BY / LIMIT run verbatim.
+        var rows = await context.McpEmbeddings
+            .FromSqlInterpolated(sql)
+            .AsNoTracking()
+            .ToListAsync(ct);
+
+        return rows
+            .Select(x => new EmbeddingHit(x.OwnerType, x.OwnerId))
+            .ToList();
+    }
+
+    private static async Task<List<EmbeddingHit>> GetNearestInMemoryAsync(
+        BeaconContext context, float[] queryVector, int dataSourceId, int[] ownerTypes, int limit, CancellationToken ct)
+    {
+        var ownerTypeFilter = ownerTypes
+            .Select(x => (McpEmbeddingOwnerType)x)
+            .ToList();
+
+        var candidates = await context.McpEmbeddings
+            .Where(x => x.DataSourceId == dataSourceId)
+            .Where(x => ownerTypeFilter.Contains(x.OwnerType))
+            .Select(x =>
+                new
+                {
+                    x.OwnerType,
+                    x.OwnerId,
+                    x.EmbeddingBytes
+                })
+            .ToListAsync(ct);
+
+        var expectedBytes = queryVector.Length * sizeof(float);
+
+        return candidates
+            .Where(x => x.EmbeddingBytes.Length == expectedBytes)
+            .Select(x =>
+                new
+                {
+                    x.OwnerType,
+                    x.OwnerId,
+                    Score = EmbeddingCodec.Cosine(queryVector, EmbeddingCodec.FromBytes(x.EmbeddingBytes))
+                })
+            .OrderByDescending(x => x.Score)
+            .Take(limit)
+            .Select(x => new EmbeddingHit(x.OwnerType, x.OwnerId))
+            .ToList();
+    }
+
+    private readonly record struct EmbeddingHit(McpEmbeddingOwnerType OwnerType, int OwnerId);
 
     public async Task<LineageInfo> GetLineageAsync(int dataSourceId, string schemaName, string tableName, CancellationToken ct = default)
     {
@@ -907,35 +1160,147 @@ internal sealed class KnowledgeGraphService(
     {
         await using var context = await contextFactory.CreateDbContextAsync(ct);
 
-        var lowerTables = tableNames.Select(t => t.ToLowerInvariant()).ToHashSet();
+        var lowerTables = tableNames
+            .Select(x => x.ToLowerInvariant())
+            .ToHashSet();
 
+        // The approved/auto-approved pattern bank feeds BOTH paths: semantic selection picks the top-k
+        // nearest lessons of ANY type out of it by embedding similarity, and the table-overlap ranking
+        // orders the rest. Stale (superseded) lessons are filtered out here so they are NEVER injected
+        // into a prompt on either path (§ Architecture ⑧ temporal decay) — history stays in the table.
         var patterns = await context.McpLearnedPatterns
-            .Where(p => p.DataSourceId == dataSourceId
-                && (p.Status == McpPatternStatus.Approved || p.Status == McpPatternStatus.AutoApproved))
-            .OrderByDescending(p => p.Confidence)
-            .ThenByDescending(p => p.SignalCount)
+            .Where(x => x.DataSourceId == dataSourceId)
+            .Where(x => x.Status == McpPatternStatus.Approved || x.Status == McpPatternStatus.AutoApproved)
+            .Where(x => x.SupersededAt == null)
+            .OrderByDescending(x => x.Confidence)
+            .ThenByDescending(x => x.SignalCount)
             .Take(100)
-            .Select(p => new
-            {
-                p.PatternType,
-                p.TableName,
-                p.SchemaName,
-                p.ColumnName,
-                p.PatternContent,
-                p.ExampleQuestion,
-                p.ExampleSql,
-                p.Confidence
-            })
+            .Select(x =>
+                new PatternCandidate
+                {
+                    Id = x.Id,
+                    PatternType = x.PatternType,
+                    TableName = x.TableName,
+                    SchemaName = x.SchemaName,
+                    ColumnName = x.ColumnName,
+                    PatternContent = x.PatternContent,
+                    ExampleQuestion = x.ExampleQuestion,
+                    ExampleSql = x.ExampleSql,
+                    Confidence = x.Confidence
+                })
             .ToListAsync(ct);
 
-        // Rank by relevance: table overlap + pattern type priority
-        var ranked = patterns
-            .Select(p =>
+        var settings = await settingsProvider.GetSettingsAsync(ct);
+
+        // DAIL-SQL semantic selection (§ Architecture ⑧): choose the top-k nearest lessons of ANY type by
+        // masked-question embedding similarity instead of blanket-injecting the whole bank. Lessons that have
+        // no embedding yet (e.g. not re-indexed) fall back to the table-overlap ranking and are merged in
+        // after the semantic picks. Any failure falls back to the full overlap ranking over all types.
+        var useSemantic = embeddingService.IsAvailable
+            && settings.EnableSemanticRetrieval
+            && !string.IsNullOrWhiteSpace(question);
+
+        if (useSemantic)
+        {
+            try
             {
-                var tableFull = $"{p.SchemaName}.{p.TableName}".ToLowerInvariant();
-                var tableOnly = p.TableName.ToLowerInvariant();
+                var semanticRanked = await BuildSemanticRankingAsync(
+                    context, patterns, lowerTables, question!, dataSourceId, settings.ExemplarTopK, ct);
+                if (semanticRanked != null)
+                {
+                    return ApplyBudget(semanticRanked, maxPatterns, budgetChars);
+                }
+                // No exemplar vectors indexed / none mapped back — fall through to overlap behaviour.
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Semantic exemplar selection failed for data source {DataSourceId}; falling back to table-overlap pattern ranking.", dataSourceId);
+            }
+        }
+
+        // Behaviour-preserving fallback: the historical table-overlap ranking over ALL pattern types.
+        return ApplyBudget(RankByTableOverlap(patterns, lowerTables), maxPatterns, budgetChars);
+    }
+
+    // Semantic path (§ Architecture ⑧): embed the masked question once, pull the nearest Exemplar embeddings
+    // for this data source, and map their OwnerIds back to the loaded valid bank of ANY pattern type in
+    // vector-similarity order — these top-k picks lead. Lessons that have NO exemplar embedding (e.g. added
+    // since the last re-index, so they could not be ranked semantically) keep the table-overlap ranking and
+    // follow, so they stay visible rather than silently disappearing. Lessons that DO have an embedding but
+    // were not in the top-k are intentionally dropped — that is the point of top-k over blanket injection.
+    // Returns null when no exemplar vector maps back to a loaded pattern, so the caller falls back to full
+    // overlap ranking.
+    private async Task<List<PatternCandidate>?> BuildSemanticRankingAsync(
+        BeaconContext context, List<PatternCandidate> patterns, HashSet<string> lowerTables,
+        string question, int dataSourceId, int exemplarTopK, CancellationToken ct)
+    {
+        var topK = Math.Max(1, exemplarTopK);
+        var maskedVector = await embeddingService.EmbedAsync(EmbeddingMaskingHelper.Mask(question), ct);
+
+        var hits = context.Database.ProviderName == NpgsqlProviderName
+            ? await GetNearestPostgresAsync(context, maskedVector, dataSourceId, ExemplarOwnerTypes, topK, ct)
+            : await GetNearestInMemoryAsync(context, maskedVector, dataSourceId, ExemplarOwnerTypes, topK, ct);
+
+        if (hits.Count == 0)
+        {
+            return null;
+        }
+
+        // Exemplar OwnerId == McpLearnedPattern.Id. Map hits (already in similarity order) back to the loaded
+        // bank of ALL types, preserving that order; ignore ids not in the bank (e.g. a hit whose pattern was
+        // superseded and filtered out of the bank above).
+        var patternsById = patterns.ToDictionary(x => x.Id);
+
+        var selected = new List<PatternCandidate>();
+        var selectedIds = new HashSet<int>();
+        foreach (var hit in hits)
+        {
+            if (patternsById.TryGetValue(hit.OwnerId, out var pattern) && selectedIds.Add(hit.OwnerId))
+            {
+                selected.Add(pattern);
+            }
+        }
+
+        if (selected.Count == 0)
+        {
+            return null;
+        }
+
+        // A lesson with an exemplar embedding was a candidate for the top-k; if it was not selected it is
+        // deliberately dropped. A lesson WITHOUT an embedding could not be ranked semantically, so it falls
+        // back to the table-overlap ranking and is merged in after the semantic picks (one cheap id lookup —
+        // no vectors loaded). This keeps freshly-added, not-yet-indexed lessons visible.
+        var embeddedIds = await context.McpEmbeddings
+            .Where(x => x.DataSourceId == dataSourceId)
+            .Where(x => x.OwnerType == McpEmbeddingOwnerType.Exemplar)
+            .Select(x => x.OwnerId)
+            .ToListAsync(ct);
+        var embeddedIdSet = embeddedIds.ToHashSet();
+
+        var backfill = RankByTableOverlap(
+            patterns.Where(x => !selectedIds.Contains(x.Id) && !embeddedIdSet.Contains(x.Id)),
+            lowerTables);
+
+        return selected
+            .Concat(backfill)
+            .ToList();
+    }
+
+    // Historical relevance ranking: table overlap (biggest lever) + pattern-type priority + confidence.
+    private static List<PatternCandidate> RankByTableOverlap(
+        IEnumerable<PatternCandidate> patterns, HashSet<string> lowerTables)
+    {
+        return patterns
+            .Select(x =>
+            {
+                var tableFull = $"{x.SchemaName}.{x.TableName}".ToLowerInvariant();
+                var tableOnly = x.TableName.ToLowerInvariant();
                 var tableMatch = lowerTables.Contains(tableFull) || lowerTables.Contains(tableOnly);
-                var typePriority = p.PatternType switch
+                var typePriority = x.PatternType switch
                 {
                     McpPatternType.SchemaCorrection => 4,
                     McpPatternType.ColumnClarification => 3,
@@ -943,29 +1308,60 @@ internal sealed class KnowledgeGraphService(
                     McpPatternType.CommonQuery => 1,
                     _ => 0
                 };
-                var score = (tableMatch ? 10 : 0) + typePriority + p.Confidence;
-                return (Pattern: p, Score: score);
+                var score = (tableMatch ? 10 : 0) + typePriority + x.Confidence;
+                return (Pattern: x, Score: score);
             })
             .OrderByDescending(x => x.Score)
+            .Select(x => x.Pattern)
             .ToList();
+    }
 
-        // Apply budget cap
+    // Shared budget cap: take patterns in the supplied order until maxPatterns or budgetChars is hit.
+    private static List<LearnedPatternInfo> ApplyBudget(
+        List<PatternCandidate> ranked, int maxPatterns, int budgetChars)
+    {
         var result = new List<LearnedPatternInfo>();
         var totalChars = 0;
 
-        foreach (var (p, _) in ranked)
+        foreach (var x in ranked)
         {
-            if (result.Count >= maxPatterns) break;
-            var contentLen = p.PatternContent.Length + (p.ExampleSql?.Length ?? 0) + 20;
-            if (totalChars + contentLen > budgetChars && result.Count > 0) break;
+            if (result.Count >= maxPatterns)
+            {
+                break;
+            }
+
+            var contentLen = x.PatternContent.Length + (x.ExampleSql?.Length ?? 0) + 20;
+            if (totalChars + contentLen > budgetChars && result.Count > 0)
+            {
+                break;
+            }
 
             totalChars += contentLen;
             result.Add(new LearnedPatternInfo(
-                p.PatternType.ToString(), p.TableName, p.ColumnName,
-                p.PatternContent, p.ExampleQuestion, p.ExampleSql, p.Confidence));
+                x.PatternType.ToString(),
+                x.TableName,
+                x.ColumnName,
+                x.PatternContent,
+                x.ExampleQuestion,
+                x.ExampleSql,
+                x.Confidence));
         }
 
         return result;
+    }
+
+    // Materialized pattern-bank row shared by the semantic and overlap ranking paths.
+    private sealed record PatternCandidate
+    {
+        public int Id { get; init; }
+        public McpPatternType PatternType { get; init; }
+        public string TableName { get; init; } = null!;
+        public string SchemaName { get; init; } = null!;
+        public string? ColumnName { get; init; }
+        public string PatternContent { get; init; } = null!;
+        public string? ExampleQuestion { get; init; }
+        public string? ExampleSql { get; init; }
+        public double Confidence { get; init; }
     }
 
     internal static string FormatLearnedPatternsForLlm(List<LearnedPatternInfo> patterns)

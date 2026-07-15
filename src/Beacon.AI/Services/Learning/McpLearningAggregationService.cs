@@ -10,7 +10,9 @@ namespace Beacon.AI.Services.Learning;
 internal sealed class McpLearningAggregationService(
     IDbContextFactory<BeaconContext> contextFactory,
     IMcpSettingsProvider settingsProvider,
-    ILogger<McpLearningAggregationService> logger) : IMcpLearningAggregationService
+    ILogger<McpLearningAggregationService> logger,
+    ILessonExtractor? lessonExtractor = null,
+    IPatternReplayVerifier? replayVerifier = null) : IMcpLearningAggregationService
 {
     public async Task AggregateLearnedPatternsAsync(CancellationToken ct = default)
     {
@@ -27,24 +29,44 @@ internal sealed class McpLearningAggregationService(
                 .ToListAsync(ct);
         }
 
+        // Tallies LLM-extraction attempts vs. null results across every cluster this run so a persistently
+        // failing (misconfigured) LLM-primary path surfaces ONCE at the end instead of hiding behind a green
+        // job (§ silent-failure F7).
+        var extraction = new ExtractionStats();
+
         foreach (var projectId in projectIds)
         {
             try
             {
                 await using var projectContext = await contextFactory.CreateDbContextAsync(ct);
-                await AggregateForProjectAsync(projectContext, projectId, settings.LearningAutoApproveThreshold, settings.LearningSignalRetentionDays, ct);
+                await AggregateForProjectAsync(projectContext, projectId, settings, extraction, ct);
+            }
+            catch (OperationCanceledException)
+            {
+                // Host shutdown / cancellation must unwind the whole run, not be logged-and-continued per
+                // project (the extraction + replay orchestration below correctly rethrows OCE).
+                throw;
             }
             catch (Exception ex)
             {
                 logger.LogWarning(ex, "Failed to aggregate patterns for project {ProjectId}", projectId);
             }
         }
+
+        // LLM-primary path health: if the extractor was tried at least once but returned null EVERY time,
+        // the provider is likely misconfigured and the system is silently running on the regex fallback.
+        if (extraction.Attempts > 0 && extraction.NullResults == extraction.Attempts)
+        {
+            logger.LogError(
+                "LLM lesson extraction returned no result for all {Count} cluster(s) this run — LLM-primary path may be misconfigured; using regex fallback",
+                extraction.Attempts);
+        }
     }
 
     private async Task AggregateForProjectAsync(
-        BeaconContext context, int projectId, double autoApproveThreshold, int retentionDays, CancellationToken ct)
+        BeaconContext context, int projectId, McpSettingsData settings, ExtractionStats extraction, CancellationToken ct)
     {
-        var cutoff = DateTime.UtcNow.AddDays(-retentionDays);
+        var cutoff = DateTime.UtcNow.AddDays(-settings.LearningSignalRetentionDays);
         var signals = await context.McpQuerySignals
             .Where(s => s.ProjectId == projectId && s.CreatedTime >= cutoff && s.DataSourceId != null)
             .OrderByDescending(s => s.CreatedTime)
@@ -60,24 +82,157 @@ internal sealed class McpLearningAggregationService(
             var dataSourceId = dsGroup.Key;
 
             // 1. Schema Corrections: validation failed + retry succeeded
-            await DetectSchemaCorrectionsAsync(context, projectId, dataSourceId, dsGroup.ToList(), autoApproveThreshold, ct);
+            await DetectSchemaCorrectionsAsync(context, projectId, dataSourceId, dsGroup.ToList(), extraction, ct);
 
             // 2. Common Queries: cluster successful queries
-            await DetectCommonQueriesAsync(context, projectId, dataSourceId, dsGroup.ToList(), autoApproveThreshold, ct);
+            await DetectCommonQueriesAsync(context, projectId, dataSourceId, dsGroup.ToList(), ct);
 
             // 3. Join Patterns: multi-table successful queries
-            await DetectJoinPatternsAsync(context, projectId, dataSourceId, dsGroup.ToList(), autoApproveThreshold, ct);
+            await DetectJoinPatternsAsync(context, projectId, dataSourceId, dsGroup.ToList(), ct);
 
             // 4. Documentation Gaps: high error rate tables
-            await DetectDocumentationGapsAsync(context, projectId, dataSourceId, dsGroup.ToList(), autoApproveThreshold, ct);
+            await DetectDocumentationGapsAsync(context, projectId, dataSourceId, dsGroup.ToList(), ct);
         }
 
+        // Temporal decay (§ Architecture ⑧): mark schema-corrections stale when their referenced column no
+        // longer exists in current metadata. Joins this method's single unit of work (one SaveChanges, §5.7).
+        await DetectStalePatternsAsync(context, projectId, ct);
+
         await context.SaveChangesAsync(ct);
+
+        // Replay-verification gate (§ Architecture ⑥): candidates were upserted as NeedsEvidence above;
+        // promote only those that MEASURABLY help against the golden set. Confidence alone never promotes.
+        await PromoteVerifiedCandidatesAsync(context, projectId, settings, ct);
     }
 
-    private static async Task DetectSchemaCorrectionsAsync(
+    // Promotes NeedsEvidence candidates for the project via the replay verifier: a candidate becomes
+    // AutoApproved ONLY when injecting it flips ≥ LearningReplayMinFlips of its relevant failing golden
+    // cases with zero relevant regressions. When replay is disabled or no verifier is wired, candidates
+    // stay NeedsEvidence (safe default — never auto-approve without measured evidence). Human Approve/Reject
+    // is a separate path and untouched. Internal so it can be unit-tested in isolation.
+    internal async Task PromoteVerifiedCandidatesAsync(
+        BeaconContext context, int projectId, McpSettingsData settings, CancellationToken ct)
+    {
+        // Intentional disable stays quiet (operator turned replay off on purpose).
+        if (!settings.EnableReplayVerification)
+        {
+            return;
+        }
+
+        // Enabled-but-unwired is a DI gap that silently stalls ALL promotion (candidates never leave
+        // NeedsEvidence) — surface it so it is noticed rather than mistaken for "nothing to promote" (T2-2).
+        if (replayVerifier is null)
+        {
+            logger.LogWarning(
+                "Replay verification is enabled but no verifier is wired — candidates will remain NeedsEvidence");
+            return;
+        }
+
+        var candidates = await context.McpLearnedPatterns
+            .Where(x => x.ProjectId == projectId)
+            .Where(x => x.Status == McpPatternStatus.NeedsEvidence)
+            .ToListAsync(ct);
+
+        if (candidates.Count == 0)
+        {
+            return;
+        }
+
+        var promoted = 0;
+        foreach (var candidate in candidates)
+        {
+            try
+            {
+                var verdict = await replayVerifier.VerifyAsync(candidate, settings.LearningReplayMinFlips, ct);
+
+                logger.LogDebug(
+                    "Replay verdict for candidate {PatternId}: relevant={Relevant} baselineFailing={BaselineFailing} flipped={Flipped} regressions={Regressions} errored={Errored} passed={Passed}",
+                    candidate.Id, verdict.RelevantCases, verdict.BaselineFailing, verdict.Flipped,
+                    verdict.Regressions, verdict.Errored, verdict.Passed);
+
+                // Persistent replay failure (every relevant case errored, e.g. a data-source outage) is
+                // distinct from "measured, no improvement" — make it visible so promotion isn't silently
+                // deferred forever.
+                if (verdict.Errored == verdict.RelevantCases && verdict.RelevantCases > 0)
+                {
+                    logger.LogWarning(
+                        "Replay could not measure candidate {PatternId}: all {Count} relevant case(s) errored — promotion deferred",
+                        candidate.Id, verdict.RelevantCases);
+                }
+
+                if (verdict.Passed)
+                {
+                    candidate.Status = McpPatternStatus.AutoApproved;
+                    candidate.LastVerifiedAt = DateTime.UtcNow;
+                    promoted++;
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Replay verification failed for pattern {PatternId}; leaving NeedsEvidence", candidate.Id);
+            }
+        }
+
+        if (promoted > 0)
+        {
+            // Second save of the deliberate two-phase flow (§5.7, T2-1): the detection pass in
+            // AggregateForProjectAsync already flushed NeedsEvidence candidates, and promotion re-queries those
+            // persisted candidates (including ones created in earlier runs), so the detection save MUST land
+            // before this promotion save — they cannot be collapsed into one unit of work.
+            await context.SaveChangesAsync(ct);
+            logger.LogInformation("Replay-verified {Count} learned pattern(s) → AutoApproved for project {ProjectId}", promoted, projectId);
+        }
+    }
+
+    // Temporal decay / staleness pass (§ Architecture ⑧): a schema-correction points at a specific column
+    // (McpLearnedPattern.ColumnName). When that column is no longer present in the current ColumnMetadata for
+    // the correction's (DataSourceId, SchemaName, TableName) — e.g. the schema was refreshed and the column
+    // was renamed/removed — the correction has gone stale and must never be injected again. We set
+    // SupersededAt (keeping the row for audit — never delete, §Rejected alternatives) rather than deleting.
+    // No SaveChanges here: the tracked mutations are flushed by AggregateForProjectAsync's single unit of
+    // work (§5.7). Internal so it can be unit-tested in isolation against a mocked context.
+    internal async Task DetectStalePatternsAsync(BeaconContext context, int projectId, CancellationToken ct)
+    {
+        var corrections = await context.McpLearnedPatterns
+            .Where(x => x.ProjectId == projectId)
+            .Where(x => x.PatternType == McpPatternType.SchemaCorrection)
+            .Where(x => x.Status == McpPatternStatus.Approved || x.Status == McpPatternStatus.AutoApproved)
+            .Where(x => x.SupersededAt == null)
+            .Where(x => x.ColumnName != null)
+            .ToListAsync(ct);
+
+        if (corrections.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var correction in corrections)
+        {
+            var columnExists = await context.ColumnMetadata
+                .Where(x => x.DatabaseMetadata.DataSourceId == correction.DataSourceId)
+                .Where(x => x.DatabaseMetadata.SchemaName == correction.SchemaName)
+                .Where(x => x.DatabaseMetadata.TableName == correction.TableName)
+                .Where(x => x.ColumnName == correction.ColumnName)
+                .AnyAsync(ct);
+
+            if (!columnExists)
+            {
+                correction.SupersededAt = DateTime.UtcNow;
+            }
+        }
+    }
+
+    // LLM-PRIMARY (§ Architecture ⑦): per correction cluster, the LLM lesson extractor is tried first;
+    // its structured lesson is used when present, otherwise the deterministic regex + ColumnSimilarity
+    // path below runs unchanged as the fallback. Instance method (not static) so it can reach the
+    // optional lessonExtractor. The clustering and every other detector stay untouched.
+    internal async Task DetectSchemaCorrectionsAsync(
         BeaconContext context, int projectId, int dataSourceId,
-        List<McpQuerySignal> signals, double threshold, CancellationToken ct)
+        List<McpQuerySignal> signals, ExtractionStats extraction, CancellationToken ct)
     {
         // Capture corrections from both schema validation failures AND execution column errors
         var corrections = signals
@@ -99,7 +254,7 @@ internal sealed class McpLearningAggregationService(
             @"column ""(\w+)"" does not exist",
             RegexOptions.IgnoreCase);
 
-        var mappings = new List<(string WrongColumn, string? CorrectColumn, string Schema, string Table)>();
+        var mappings = new List<(string WrongColumn, string? CorrectColumn, string Schema, string Table, McpQuerySignal Signal)>();
 
         foreach (var signal in corrections)
         {
@@ -121,7 +276,7 @@ internal sealed class McpLearningAggregationService(
                     var wrongCol = match.Groups[1].Value;
                     var availableCsv = match.Groups[2].Value;
                     var correctCol = FindBestColumnMatch(wrongCol, availableCsv, signal.CorrectedSql);
-                    mappings.Add((wrongCol, correctCol, schema, table));
+                    mappings.Add((wrongCol, correctCol, schema, table, signal));
                     captured.Add(wrongCol);
                 }
             }
@@ -137,7 +292,7 @@ internal sealed class McpLearningAggregationService(
                     {
                         var correctCol = FindReplacementInCorrectedSql(
                             wrongCol, signal.GeneratedSql, signal.CorrectedSql);
-                        mappings.Add((wrongCol, correctCol, schema, table));
+                        mappings.Add((wrongCol, correctCol, schema, table, signal));
                     }
                 }
             }
@@ -154,21 +309,54 @@ internal sealed class McpLearningAggregationService(
                 .Select(m => m.CorrectColumn)
                 .FirstOrDefault(c => c != null);
 
+            // The linear count-based confidence is retained ONLY as a prior/tiebreak — it is still passed
+            // through regardless of which path builds the pattern (§ Architecture ⑦).
+            var confidence = Math.Min(1.0, 0.5 + (group.Count() * 0.15));
+
+            // LLM-PRIMARY: extract a structured lesson from the representative failure. On a non-null
+            // lesson use the LLM's content/example/type; on null (or no extractor) fall back below.
+            if (lessonExtractor is { IsAvailable: true })
+            {
+                var representative = first.Signal;
+                var cluster = new FailureCluster(
+                    dataSourceId,
+                    first.Schema,
+                    first.Table,
+                    first.WrongColumn,
+                    representative.Question,
+                    representative.GeneratedSql,
+                    representative.SchemaValidationError ?? representative.ExecutionError,
+                    representative.CorrectedSql,
+                    null);
+
+                extraction.Attempts++;
+                var lesson = await lessonExtractor.ExtractAsync(cluster, ct);
+                if (lesson != null)
+                {
+                    await UpsertPatternAsync(context, projectId, dataSourceId, first.Schema, first.Table, first.WrongColumn,
+                        lesson.PatternType, lesson.PatternContent, lesson.ExampleQuestion, lesson.ExampleSql,
+                        group.Count(), confidence, ct);
+                    continue;
+                }
+
+                // Extractor was tried but produced nothing usable — record it so an all-null run is visible.
+                extraction.NullResults++;
+            }
+
+            // FALLBACK: deterministic regex + ColumnSimilarity content (unchanged).
             var content = correctCol != null
                 ? $"NEVER use '{first.WrongColumn}' on {first.Schema}.{first.Table} — correct column is '{correctCol}'"
                 : $"Column '{first.WrongColumn}' does not exist on {first.Schema}.{first.Table} — check schema";
 
-            var confidence = Math.Min(1.0, 0.5 + (group.Count() * 0.15));
-
             await UpsertPatternAsync(context, projectId, dataSourceId, first.Schema, first.Table, first.WrongColumn,
                 McpPatternType.SchemaCorrection, content, null, null,
-                group.Count(), confidence, threshold, ct);
+                group.Count(), confidence, ct);
         }
     }
 
     private static async Task DetectCommonQueriesAsync(
         BeaconContext context, int projectId, int dataSourceId,
-        List<McpQuerySignal> signals, double threshold, CancellationToken ct)
+        List<McpQuerySignal> signals, CancellationToken ct)
     {
         var successful = signals
             .Where(s => s.IsSuccessful && !string.IsNullOrEmpty(s.GeneratedSql) && !string.IsNullOrEmpty(s.TablesUsed))
@@ -205,13 +393,13 @@ internal sealed class McpLearningAggregationService(
 
             await UpsertPatternAsync(context, projectId, dataSourceId, schema, table, null,
                 McpPatternType.CommonQuery, content, representative.Question, exampleSql,
-                group.Count(), confidence, threshold, ct);
+                group.Count(), confidence, ct);
         }
     }
 
     private static async Task DetectJoinPatternsAsync(
         BeaconContext context, int projectId, int dataSourceId,
-        List<McpQuerySignal> signals, double threshold, CancellationToken ct)
+        List<McpQuerySignal> signals, CancellationToken ct)
     {
         var multiTable = signals
             .Where(s => s.IsSuccessful && !string.IsNullOrEmpty(s.TablesUsed))
@@ -242,13 +430,13 @@ internal sealed class McpLearningAggregationService(
 
             await UpsertPatternAsync(context, projectId, dataSourceId, schema, table, null,
                 McpPatternType.JoinPattern, content, representative.Question, representative.GeneratedSql,
-                group.Count(), confidence, threshold, ct);
+                group.Count(), confidence, ct);
         }
     }
 
     private static async Task DetectDocumentationGapsAsync(
         BeaconContext context, int projectId, int dataSourceId,
-        List<McpQuerySignal> signals, double threshold, CancellationToken ct)
+        List<McpQuerySignal> signals, CancellationToken ct)
     {
         var byTable = signals
             .Where(s => !string.IsNullOrEmpty(s.TablesUsed))
@@ -276,7 +464,7 @@ internal sealed class McpLearningAggregationService(
 
             await UpsertPatternAsync(context, projectId, dataSourceId, schema, table, null,
                 McpPatternType.DocumentationGap, content, null, null,
-                tableStats.Total, confidence, threshold, ct);
+                tableStats.Total, confidence, ct);
         }
     }
 
@@ -284,7 +472,7 @@ internal sealed class McpLearningAggregationService(
         BeaconContext context, int projectId, int dataSourceId,
         string schema, string table, string? column,
         McpPatternType type, string content, string? exampleQuestion, string? exampleSql,
-        int signalCount, double confidence, double autoApproveThreshold, CancellationToken ct)
+        int signalCount, double confidence, CancellationToken ct)
     {
         var existing = await context.McpLearnedPatterns
             .FirstOrDefaultAsync(p =>
@@ -304,16 +492,14 @@ internal sealed class McpLearningAggregationService(
             existing.Confidence = confidence;
             existing.LastRefreshedAt = DateTime.UtcNow;
 
-            // Auto-approve if above threshold and currently pending
-            if (existing.Status == McpPatternStatus.Pending && confidence >= autoApproveThreshold)
-                existing.Status = McpPatternStatus.AutoApproved;
+            // Promotion is now decided by the replay-verification gate (§ Architecture ⑥), NOT confidence.
+            // A refresh leaves the status alone: Pending/NeedsEvidence await evidence; a human-reviewed
+            // Approved/Rejected/AutoApproved verdict is preserved.
         }
         else
         {
-            var status = confidence >= autoApproveThreshold
-                ? McpPatternStatus.AutoApproved
-                : McpPatternStatus.Pending;
-
+            // New candidates land in NeedsEvidence — never AutoApproved on confidence alone. The aggregation
+            // job's replay gate promotes them to AutoApproved only when they measurably help (§ Architecture ⑥).
             context.McpLearnedPatterns.Add(new McpLearnedPattern
             {
                 ProjectId = projectId,
@@ -327,7 +513,7 @@ internal sealed class McpLearningAggregationService(
                 ExampleSql = exampleSql,
                 SignalCount = signalCount,
                 Confidence = confidence,
-                Status = status,
+                Status = McpPatternStatus.NeedsEvidence,
                 LastRefreshedAt = DateTime.UtcNow
             });
         }
@@ -601,4 +787,12 @@ internal sealed class McpLearningAggregationService(
         "DATE_TRUNC", "GENERATE_SERIES", "LAG", "LEAD",
         "ROW_NUMBER", "RANK", "DENSE_RANK"
     };
+
+    // Run-scoped tally of LLM lesson-extraction attempts vs. null (fell-back) results, threaded through the
+    // detectors so a persistently dead LLM-primary path can be reported once at the end of the run (F7).
+    internal sealed class ExtractionStats
+    {
+        public int Attempts { get; set; }
+        public int NullResults { get; set; }
+    }
 }

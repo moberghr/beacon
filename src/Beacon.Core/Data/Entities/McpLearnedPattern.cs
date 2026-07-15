@@ -23,4 +23,6 @@ public class McpLearnedPattern : BaseEntity
     public int? ReviewedByUserId { get; set; }
     public DateTime? ReviewedAt { get; set; }
     public DateTime? LastRefreshedAt { get; set; }
+    public DateTime? SupersededAt { get; set; }
+    public DateTime? LastVerifiedAt { get; set; }
 }

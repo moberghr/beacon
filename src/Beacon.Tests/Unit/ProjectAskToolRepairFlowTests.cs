@@ -49,7 +49,7 @@ public class ProjectAskToolRepairFlowTests
             });
 
         _sqlGeneration
-            .Setup(x => x.GenerateAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(), _settings, It.IsAny<CancellationToken>()))
+            .Setup(x => x.GenerateAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(), _settings, It.IsAny<CancellationToken>(), It.IsAny<decimal?>()))
             .ReturnsAsync(new SqlGenerationResult(GeneratedSql, ["orders"]));
 
         _guardrail

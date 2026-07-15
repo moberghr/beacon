@@ -148,6 +148,12 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
     public DbSet<McpQuerySignal> McpQuerySignals => Set<McpQuerySignal>();
     public DbSet<McpLearnedPattern> McpLearnedPatterns => Set<McpLearnedPattern>();
     public DbSet<McpDocumentationPatch> McpDocumentationPatches => Set<McpDocumentationPatch>();
+    public DbSet<McpEmbedding> McpEmbeddings => Set<McpEmbedding>();
+
+    // MCP Eval harness
+    public DbSet<McpEvalCase> McpEvalCases => Set<McpEvalCase>();
+    public DbSet<McpEvalRun> McpEvalRuns => Set<McpEvalRun>();
+    public DbSet<McpEvalResult> McpEvalResults => Set<McpEvalResult>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -178,6 +184,8 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
         ConfigureApiKeyEntities(modelBuilder);
         ConfigureMcpEntities(modelBuilder);
         ConfigureMcpLearningEntities(modelBuilder);
+        ConfigureMcpEmbeddingEntities(modelBuilder);
+        ConfigureMcpEvalEntities(modelBuilder);
         base.OnModelCreating(modelBuilder);
     }
 
@@ -1313,6 +1321,8 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             entity.Property(e => e.AskDescription).HasMaxLength(1000);
             entity.Property(e => e.CustomPiiPatterns).HasMaxLength(4000);
             entity.Property(e => e.EnableSampleValueCollection).HasDefaultValue(true);
+            entity.Property(e => e.EnableReplayVerification).HasDefaultValue(true);
+            entity.Property(e => e.LearningReplayMinFlips).HasDefaultValue(1);
         });
     }
 
@@ -1356,6 +1366,60 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
 
             entity.HasIndex(e => new { e.ProjectId, e.Status });
             entity.HasIndex(e => e.DataSourceId);
+        });
+    }
+
+    protected static void ConfigureMcpEmbeddingEntities(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<McpEmbedding>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.EmbeddingBytes).IsRequired();
+            entity.Property(e => e.Model).HasMaxLength(200).IsRequired();
+
+            entity.HasIndex(e => e.DataSourceId);
+            entity.HasIndex(e => new { e.DataSourceId, e.OwnerType, e.OwnerId }).IsUnique();
+        });
+    }
+
+    protected static void ConfigureMcpEvalEntities(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<McpEvalCase>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Question).HasMaxLength(4000).IsRequired();
+            entity.Property(e => e.GoldSql).IsRequired();
+            entity.Property(e => e.Notes).HasMaxLength(2000);
+            entity.Property(e => e.IsActive).HasDefaultValue(true);
+
+            entity.HasIndex(e => new { e.DataSourceId, e.IsActive });
+        });
+
+        modelBuilder.Entity<McpEvalRun>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Status).HasMaxLength(50).IsRequired();
+            entity.Property(e => e.Notes).HasMaxLength(2000);
+            entity.Property(e => e.TotalCases).HasDefaultValue(0);
+            entity.Property(e => e.PassedCases).HasDefaultValue(0);
+            entity.Property(e => e.ExecutionAccuracy).HasDefaultValue(0.0);
+            entity.Property(e => e.JudgeEnabled).HasDefaultValue(false);
+
+            entity.HasIndex(e => e.ProjectId);
+            entity.HasIndex(e => e.CreatedTime);
+        });
+
+        modelBuilder.Entity<McpEvalResult>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.ExecutionError).HasMaxLength(4000);
+            entity.Property(e => e.JudgeVerdict).HasMaxLength(4000);
+            entity.Property(e => e.Passed).HasDefaultValue(false);
+            entity.Property(e => e.JudgeUsed).HasDefaultValue(false);
+            entity.Property(e => e.ExecutionTimeMs).HasDefaultValue(0);
+
+            entity.HasIndex(e => e.EvalRunId);
+            entity.HasIndex(e => e.EvalCaseId);
         });
     }
 }

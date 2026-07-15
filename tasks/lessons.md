@@ -69,3 +69,63 @@
 **Why it matters:** Both bugs were real, exploitable fail-opens in a security control this repo explicitly ships to prevent writes through the query-builder and SQL connectors. Neither would have been caught by "does it compile and pass the happy-path test" — they required someone deliberately trying to think like an attacker with SQL knowledge of parser edge cases.
 
 **When it applies:** Any time a new or modified SQL-parsing/allow-list validator is added anywhere in Beacon (MCP tools, connectors, query builder). Before considering such a validator done, explicitly test: CTEs wrapping DML, UNION arms hiding a mutation, EXPLAIN wrapping DML, and parse-failure behavior. Route it through at least one adversarial review pass (`compliance-reviewer` and/or `silent-failure-hunter`) before merge — this class of bug reliably survives a first implementation pass.
+
+## Hand-write dual migrations here — `dotnet ef` scaffolding is unreliable in this repo (2026-07-10)
+
+**What happened:** Adding 3 dual-provider migrations (settings, McpEmbedding, McpEval), the composition root (`src/Beacon.SampleProject/Program.cs`) wires **PostgreSQL only** at design time (`.UsePostgreSql(...)`), and there is **no `IDesignTimeDbContextFactory`**. So `dotnet ef migrations add --project src/Beacon.Core.SqlServer` cannot resolve `SqlServerBeaconContext` without a fragile temporary provider-switch, and the pgvector `vector(384)` column + HNSW index can't be scaffolded by EF at all.
+
+**Rule:** For dual-provider schema changes, hand-write BOTH migrations into `src/Beacon.Core.{PostgreSql,SqlServer}/Data/Migrations/` (timestamp-prefixed name AFTER the latest existing, plus the `.Designer.cs` companion) AND update BOTH `*BeaconContextModelSnapshot.cs` — do not rely on `dotnet ef migrations add`. Prefer `.HasDefaultValue(...)` in the fluent config so model==snapshot==migration (no EF drift) and set `defaultValue:` on every non-nullable `AddColumn` (see the 2026-06-10 initializer lesson). PG-only extension columns (pgvector) go in via `migrationBuilder.Sql("CREATE EXTENSION IF NOT EXISTS vector; ALTER TABLE ... ADD COLUMN embedding vector(384);")` + a raw HNSW index — kept OUT of the EF model/snapshot.
+
+**Why it matters:** tests here never apply migrations (`NpgsqlTestContext.ToQueryString()`, no live DB), so a broken/omitted migration passes build+test and only fails at a real deploy. Hand-writing is deterministic; scaffolding silently targets the wrong context or drops the vector DDL.
+
+**When it applies:** any dual-provider entity/column change in Beacon.
+
+## Trust `dotnet build`, not the LSP, after adding NuGet packages or editing shared files (2026-07-10)
+
+**What happened:** Repeatedly during this build the C# LSP reported `CS0234 'Microsoft.ML' does not exist` / `CS0246 InferenceSession not found` / `CS1061 IBeaconScheduler has no EnqueueMcpEval` on files that compiled cleanly — the LSP workspace had not re-restored the newly-added `Microsoft.ML.OnnxRuntime`/`Pgvector` packages or re-parsed a just-modified interface. `dotnet build --property WarningLevel=0` reported 0 errors in every case.
+
+**Rule:** When LSP diagnostics contradict a fresh `dotnet build`, the compiler is authoritative. After adding a package reference or editing a widely-referenced file, verify with `dotnet build` and treat stale `CS0234/CS0246/CS1061/CS8933/CS8019` LSP noise on those files as non-blocking. (The `CS8933`/`CS8019` "duplicate/unnecessary global using" warnings on EF-generated snapshot/migration files are inherent to those files and benign at `WarningLevel=0`.)
+
+**When it applies:** any change that adds NuGet packages or touches a file the LSP has cached.
+
+## Keep provider-specific vector types out of provider-neutral Core (2026-07-10)
+
+**What happened:** Adding pgvector: the shared abstract `BeaconContext` and the `McpEmbedding` entity must stay provider-neutral (§5.2/§5.4). Putting a `Pgvector.Vector` property on the entity would force the `Pgvector` package into `Beacon.Core` and break neutrality.
+
+**Rule:** Store embeddings as `byte[]` on the entity (works as `bytea`/`varbinary` on both providers); add the Postgres `vector(384)` column + HNSW index via raw migration SQL only (DB-managed, not an EF property); do vector search with a provider branch on `context.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL"` (string compare, NOT `IsNpgsql()`, to keep `Beacon.AI` off the Npgsql package) → `FromSqlInterpolated` with a parameterized `'[...]'::vector(384)` literal on PG, in-memory `EmbeddingCodec.Cosine` elsewhere. `Pgvector`/`Pgvector.EntityFrameworkCore` belong ONLY in `Beacon.Core.PostgreSql.csproj`.
+
+**When it applies:** any future embedding/ANN work; any provider-specific column type on a shared entity.
+
+## A measurement/eval harness must exclude infra failures from its headline metric (2026-07-10)
+
+**What happened:** `McpEvalService` initially counted any thrown exception (LLM outage, DB blip, missing data source) as `ExecutionError` and folded it into `ExecutionAccuracy = passed / totalCases` — so an outage mid-run silently deflated the reported accuracy, defeating the harness's whole purpose.
+
+**Rule:** In an eval/scoring harness, distinguish "could not evaluate" (harness/infra/generation exception) from "evaluated and wrong." Tag the former separately (`McpEvalFailureTag.HarnessError`) and score accuracy ONLY over evaluated cases (`passed / (total - errored)`), surfacing the excluded count. A wrong headline number is worse than a smaller-but-honest one.
+
+**When it applies:** any batch scorer/eval loop where per-item work can fail for reasons unrelated to what's being measured.
+
+## A non-awaited async assertion is a test that CANNOT fail (2026-07-10)
+
+**What happened:** A Tier-2 cancellation test `public void ExtractAsync_Cancellation_...()` did `var act = async () => ...; act.Should().ThrowAsync<OperationCanceledException>();` WITHOUT awaiting. The returned `Task<ExceptionAssertions>` was discarded and NUnit finished the synchronous `void` method before the assertion ran — a reviewer empirically proved it still passed against an implementation that swallowed the exception. Zero verification value for the one regression it guarded.
+
+**Rule:** Any FluentAssertions `*Async` assertion (`ThrowAsync`, `NotThrowAsync`, `CompleteWithinAsync`) MUST be `await`ed, and the test method MUST be `public async Task` (never `void`/`async void`). A bare non-awaited `ThrowAsync` on a `void` test is an always-green tautology. When reviewing tests, grep changed test files for `ThrowAsync`/`NotThrowAsync` not preceded by `await`, and for `async void`.
+
+**Why it matters:** a false-confidence test is worse than no test — it actively signals "covered" for a behavior that is unguarded. This class survives a green `dotnet test` run and only a mutation/adversarial check catches it.
+
+**When it applies:** every async NUnit test in Beacon.Tests using FluentAssertions.
+
+## Making a private method `internal` for testing? Bump every private type in its signature too (2026-07-10)
+
+**What happened:** Promoting `DetectSchemaCorrectionsAsync` from `private` to `internal` (so a test could call it) compiled-errored `CS0051` because a parameter type (`ExtractionStats`, a `private sealed` nested class) was less accessible than the now-internal method.
+
+**Rule:** When widening a method's accessibility (private→internal) to test it, every type in its signature must be at least as accessible. Bump the nested helper types (`ExtractionStats` here) to `internal` in the same edit. `InternalsVisibleTo("Beacon.Tests")` then makes both reachable.
+
+**When it applies:** exposing internals for unit tests anywhere in Beacon.
+
+## A replay/measurement gate must generate DETERMINISTICALLY and separate "unmeasurable" from "no-improvement" (2026-07-10)
+
+**What happened:** The Tier-2 replay-verification gate promotes a learned pattern if injecting it flips ≥N failing eval cases. Two silent-correctness bugs found in review: (1) generation used a non-zero temperature (0.1) for both baseline and candidate passes, so a single "flip" could be sampling NOISE, not the lesson's effect — auto-promoting a useless pattern; (2) an infra error (DB blip / LLM outage) returned `Success=false`, which the gate counted as a legitimate baseline-fail (→ false flip) or candidate-fail (→ false block), and an all-errored run produced a verdict byte-identical to "baseline already passes everything" — a good pattern stuck forever with no signal.
+
+**Rule:** For any measured promotion/gate that re-generates via an LLM: (a) generate at temperature 0 on the measurement path so a flip reflects the change under test, not sampling variance (and/or require best-of-N agreement + a min-flips bar > 1); (b) thread a `Measurable` flag (did BOTH sides actually execute?) so an infra `Success=false` is counted as *errored*, never as a clean pass/fail; (c) carry an explicit `Errored` count in the verdict and require `measured > 0` to pass; (d) log the full verdict breakdown so "couldn't measure" is operationally distinct from "measured, didn't help." Never let confidence alone auto-approve — that's the memory-poisoning surface the gate exists to close.
+
+**When it applies:** the replay gate and any future measured-promotion loop (Tier 2.5 GEPA/DSPy, A/B lesson gating).

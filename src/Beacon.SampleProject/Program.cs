@@ -332,6 +332,9 @@ app.MapBeaconUi();
 RecurringJob.AddOrUpdate<IJobService>("mcp-learning-aggregate", x => x.AggregateLearnedPatterns(CancellationToken.None), "0 */6 * * *");
 RecurringJob.AddOrUpdate<IJobService>("mcp-learning-cleanup", x => x.CleanupOldSignals(CancellationToken.None), "0 3 * * *");
 
+// MCP Embeddings: re-index metadata + exemplars for hybrid retrieval / semantic few-shot every 12 hours
+RecurringJob.AddOrUpdate<IJobService>("mcp-embedding-reindex", x => x.ReindexEmbeddings(CancellationToken.None), "0 */12 * * *");
+
 app.Run();
 
 // Marker partial class for WebApplicationFactory<Program> in Beacon.Tests integration tests.

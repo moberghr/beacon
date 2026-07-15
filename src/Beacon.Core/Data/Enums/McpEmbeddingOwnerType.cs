@@ -1,0 +1,8 @@
+namespace Beacon.Core.Data.Enums;
+
+public enum McpEmbeddingOwnerType
+{
+    MetadataTable = 0,
+    MetadataColumn = 1,
+    Exemplar = 2
+}

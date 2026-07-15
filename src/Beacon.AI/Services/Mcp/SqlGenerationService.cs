@@ -12,7 +12,53 @@ internal sealed class SqlGenerationService : ISqlGenerationService
         string schemaContext,
         string question,
         McpSettingsData settings,
+        CancellationToken ct,
+        decimal? temperature = null)
+    {
+        var request = BuildGenerationRequest(schemaContext, question, settings, temperature ?? 0.1m);
+        var response = await llmProvider.CompleteAsync(request, ct);
+        return BuildResult(response);
+    }
+
+    public async Task<IReadOnlyList<SqlGenerationResult>> GenerateCandidatesAsync(
+        ILlmProvider llmProvider,
+        string schemaContext,
+        string question,
+        McpSettingsData settings,
+        int candidateCount,
+        decimal temperature,
         CancellationToken ct)
+    {
+        var candidates = new List<SqlGenerationResult>(candidateCount);
+
+        // Sequential sampling — each completion funnels through LlmRequestQueue via the injected
+        // provider (§6.1). A single unusable sample (truncated / no SQL) is dropped rather than
+        // failing the whole vote, so the caller can still fall back to the single-candidate path.
+        for (var i = 0; i < candidateCount; i++)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var request = BuildGenerationRequest(schemaContext, question, settings, temperature);
+            var response = await llmProvider.CompleteAsync(request, ct);
+
+            try
+            {
+                candidates.Add(BuildResult(response));
+            }
+            catch (AiServiceException)
+            {
+                // Truncated or SQL-less candidate — skip it and keep sampling the rest.
+            }
+        }
+
+        return candidates;
+    }
+
+    private static LlmRequest BuildGenerationRequest(
+        string schemaContext,
+        string question,
+        McpSettingsData settings,
+        decimal temperature)
     {
         var systemPrompt = settings.AskSystemPrompt ?? """
             You are a SQL expert. Based on the provided database schema and context, generate a SQL query to answer the user's question.
@@ -43,15 +89,17 @@ internal sealed class SqlGenerationService : ISqlGenerationService
             USER QUESTION: {question}
             """;
 
-        var request = new LlmRequest
+        return new LlmRequest
         {
             SystemPrompt = systemPrompt,
             Messages = [new ChatMessage(ConversationRole.User, userMessage)],
-            Temperature = 0.1m,
+            Temperature = temperature,
             MaxTokens = 1024
         };
+    }
 
-        var response = await llmProvider.CompleteAsync(request, ct);
+    private static SqlGenerationResult BuildResult(LlmResponse response)
+    {
         if (response.Truncated)
         {
             throw new AiServiceException("SQL generation response was truncated at the token limit. The generated SQL is incomplete and cannot be used.");

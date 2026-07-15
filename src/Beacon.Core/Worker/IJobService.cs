@@ -13,4 +13,8 @@ public interface IJobService
     Task GenerateDocumentationPatches(CancellationToken cancellationToken);
 
     Task CleanupOldSignals(CancellationToken cancellationToken);
+
+    Task ReindexEmbeddings(CancellationToken cancellationToken);
+
+    Task RunMcpEval(int runId, CancellationToken cancellationToken);
 }
