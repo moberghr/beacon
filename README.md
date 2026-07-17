@@ -33,7 +33,7 @@ so your team *and* your AI assistants can watch, query, and move data safely.
 
 ## What is Beacon?
 
-Beacon is a **.NET 9 platform for semantic database monitoring, alerting, and data orchestration**. Point it at your databases — PostgreSQL, SQL Server, MySQL, BigQuery, Snowflake, Databricks, Azure Synapse, AWS CloudWatch, or any REST API — and it becomes the operations layer on top of them:
+Beacon is a **.NET 10 platform for semantic database monitoring, alerting, and data orchestration**. Point it at your databases — PostgreSQL, SQL Server, MySQL, BigQuery, Snowflake, Databricks, Azure Synapse, AWS CloudWatch, or any REST API — and it becomes the operations layer on top of them:
 
 - **Watch** — scheduled SQL checks catch data-quality issues, broken business rules, and unhealthy databases before your users do.
 - **Alert** — results delivered to Email, Microsoft Teams, Slack, Jira, or webhooks, with full datasets attached.
@@ -80,7 +80,7 @@ It ships in two forms: a **self-hostable application** (clone and run) and **NuG
 
 ## 🚀 Quick Start
 
-**Prerequisites:** .NET 9 SDK, Node.js 18+, and a PostgreSQL database. Set a connection string and a 32-character encryption key in `src/Beacon.SampleProject/appsettings.json` (or user-secrets / environment variables):
+**Prerequisites:** .NET 10 SDK, Node.js 18+, and a PostgreSQL database. Set a connection string and a 32-character encryption key in `src/Beacon.SampleProject/appsettings.json` (or user-secrets / environment variables):
 
 ```json
 {
@@ -177,7 +177,7 @@ graph TB
     end
 
     subgraph Data["Data Access"]
-        EFCore[EF Core 9<br/>BeaconContext] ~~~ Dapper[Dapper<br/>Hot Paths]
+        EFCore[EF Core 10<br/>BeaconContext] ~~~ Dapper[Dapper<br/>Hot Paths]
     end
 
     subgraph Infrastructure["Infrastructure"]
@@ -378,9 +378,9 @@ openssl rand -base64 32
 
 ## 🛠️ Technology stack
 
-**Runtime** — .NET 9 / C# 13 / ASP.NET Core (Kestrel, self-hosted) ·
+**Runtime** — .NET 10 / C# 14 / ASP.NET Core (Kestrel, self-hosted) ·
 **UI** — React 18, Vite, TypeScript, Tailwind CSS, Radix UI, TanStack Query/Table, Monaco, SignalR ·
-**Data** — EF Core 9 (dual-provider migrations), Dapper hot paths, EFCore.BulkExtensions ·
+**Data** — EF Core 10 (dual-provider migrations), Dapper hot paths, EFCore.BulkExtensions ·
 **Jobs** — pluggable via `IBeaconScheduler` (pair it with [Moberg Warp](https://moberghr.github.io/warp/)) ·
 **AI** — OpenAI / Anthropic / Azure OpenAI / AWS Bedrock via a swappable provider abstraction ·
 **Documents** — QuestPDF, Markdig, Mermaid ERDs, ClosedXML, CsvHelper ·
@@ -388,7 +388,7 @@ openssl rand -base64 32
 
 ## 🔧 Requirements
 
-- **.NET 9 SDK** and **Node.js 18+** (for building the React UI)
+- **.NET 10 SDK** and **Node.js 18+** (for building the React UI)
 - **PostgreSQL 12+** or **SQL Server 2019+** for Beacon's metadata database
 - **32-character encryption key** (`Beacon:EncryptionKey`) — required
 - *(Optional)* LLM API key for AI features · SMTP provider for email notifications
