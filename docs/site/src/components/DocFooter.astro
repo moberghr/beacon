@@ -1,0 +1,17 @@
+---
+// Renders Starlight's default footer (pagination, edit link, last-updated),
+// then appends the Moberg attribution + tagline required by the brand system.
+import Default from '@astrojs/starlight/components/Footer.astro';
+---
+
+<Default><slot /></Default>
+
+<div class="moberg-doc-footer">
+  <span>Serious engineering, infinite possibilities.</span>
+  <span class="sep">·</span>
+  <span>© 2026 Moberg d.o.o.</span>
+  <span class="sep">·</span>
+  <a href="https://github.com/moberghr/beacon">GitHub</a>
+  <span class="sep">·</span>
+  <a href="https://github.com/moberghr/beacon/blob/main/LICENSING.md">Licensing</a>
+</div>

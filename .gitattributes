@@ -1,0 +1,18 @@
+# Prevent line-ending normalization from corrupting binary assets.
+# (Doc screenshots were previously corrupted when CRLF→LF normalization
+#  stripped the 0x0D byte from PNG signatures — see docs redesign, 2026-07.)
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.webp  binary
+*.pdf   binary
+*.woff  binary
+*.woff2 binary
+*.eot   binary
+*.ttf   binary
+*.otf   binary
+
+# SVGs are text; keep them LF to stay diff-friendly.
+*.svg   text eol=lf

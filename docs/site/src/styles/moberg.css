@@ -1,0 +1,120 @@
+/* ============================================================================
+   Beacon docs — Moberg house brand on Starlight.
+   Accent: Moberg Blue #430cda. Type: Helvetica Neue. Light-first, dark toggle.
+   Design language mirrors moberghr.github.io/warp (numbered sections, terminal
+   panels, dark footer) recoloured from Moberg purple to the corrected blue.
+   ========================================================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+/* ── Fonts ─────────────────────────────────────────────────────────────── */
+:root {
+  --sl-font: 'Helvetica Neue', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+  --sl-font-mono: 'JetBrains Mono', 'SF Mono', Consolas, 'Liberation Mono', monospace;
+}
+
+/* ── Starlight accent (Moberg blue) — dark theme is Starlight's :root default ── */
+:root {
+  --sl-color-accent-low: #211a4d;
+  --sl-color-accent: #6c48ff;
+  --sl-color-accent-high: #d3c9ff;
+
+  /* Beacon landing tokens (dark) */
+  --bx-accent: #7657ff;
+  --bx-accent-dark: #430cda;
+  --bx-accent-light: #9481ff;
+  --bx-accent-dim: rgba(118, 87, 255, 0.14);
+  --bx-accent-gradient: linear-gradient(135deg, #6c48ff 0%, #2a068f 100%);
+
+  --bx-surface: #14181f;
+  --bx-surface2: #1a1f2c;
+  --bx-border: #252d3d;
+  --bx-border-bright: rgba(255, 255, 255, 0.09);
+  --bx-text: #edf0f7;
+  --bx-text-muted: #a8b4c8;
+  --bx-text-dim: #6878a0;
+
+  --bx-terminal-bg: #0e1218;
+  --bx-terminal-border: #1f2532;
+  --bx-terminal-bar-bg: #0a0d12;
+
+  --bx-radius: 12px;
+  --bx-radius-sm: 8px;
+  --bx-radius-pill: 20px;
+}
+
+/* ── Light theme (Moberg default look) ─────────────────────────────────── */
+:root[data-theme='light'] {
+  --sl-color-accent-low: #e5dffb;
+  --sl-color-accent: #430cda;
+  --sl-color-accent-high: #24036f;
+
+  --bx-accent: #430cda;
+  --bx-accent-dark: #2a068f;
+  --bx-accent-light: #5a30ee;
+  --bx-accent-dim: rgba(67, 12, 218, 0.07);
+  --bx-accent-gradient: linear-gradient(135deg, #430cda 0%, #2a068f 100%);
+
+  --bx-surface: #ffffff;
+  --bx-surface2: #f4f6fa;
+  --bx-border: #e1e7eb;
+  --bx-border-bright: rgba(0, 0, 0, 0.13);
+  --bx-text: #121212;
+  --bx-text-muted: #545454;
+  --bx-text-dim: #717a80;
+
+  --bx-terminal-bg: #0e1218;
+  --bx-terminal-border: #1f2532;
+  --bx-terminal-bar-bg: #0a0d12;
+}
+
+/* ── Global type polish ────────────────────────────────────────────────── */
+.sl-markdown-content h1,
+.sl-markdown-content h2 {
+  letter-spacing: -0.015em;
+}
+
+/* Page-title H1 in Moberg's thin weight. */
+.sl-markdown-content h1:first-child,
+h1#_top {
+  font-weight: 400;
+}
+
+/* Subtle blue body glow (light only), matching Warp. */
+:root[data-theme='light'] body {
+  background-image: radial-gradient(ellipse at 12% -5%, rgba(67, 12, 218, 0.06) 0%, transparent 55%);
+  background-attachment: fixed;
+}
+
+/* ── Themed screenshots: show only the one matching the active theme ────── */
+:root[data-theme='light'] img[data-theme-target='dark'] { display: none !important; }
+:root:not([data-theme='light']) img[data-theme-target='light'] { display: none !important; }
+
+/* ── Terminal syntax colours (used by set:html in landing terminals) ────── */
+.k-green  { color: #4ade80; }
+.k-blue   { color: #9b8cff; }
+.k-yellow { color: #fbbf24; }
+.k-purple { color: #c084fc; }
+.k-red    { color: #fb7185; }
+.k-dim    { color: #6b7280; }
+.k-mute   { color: #8b95a2; }
+
+/* ── Landing (splash): suppress the auto page-title H1; the hero carries it ── */
+body:has(main.bx) .sl-container > h1:first-child { display: none; }
+/* Let the custom landing footer span full width, flush to the page edges. */
+body:has(main.bx) .sl-container { padding-bottom: 0; }
+
+/* ── Moberg attribution beneath the doc footer ─────────────────────────── */
+.moberg-doc-footer {
+  margin-top: 2.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--sl-color-hairline);
+  font-size: 0.75rem;
+  color: var(--sl-color-gray-4);
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.moberg-doc-footer a { color: var(--sl-color-accent-high); }
+.moberg-doc-footer .sep { opacity: 0.4; }

@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/assets/images/beacon-mark.svg" width="88" alt="Beacon logo" />
+<img src="docs/assets/images/beacon-mark.svg" width="82" alt="Beacon" />
 
 # Beacon
 
@@ -9,15 +9,15 @@
 Semantic alerts, cross-database orchestration, and a governed MCP server —
 so your team *and* your AI assistants can watch, query, and move data safely.
 
-[![NuGet](https://img.shields.io/badge/NuGet-available-blue)](https://www.nuget.org/)
-[![Documentation](https://img.shields.io/badge/docs-github.io-blue)](https://moberghr.github.io/beacon)
-[![License](https://img.shields.io/badge/license-AGPL--3.0%20or%20Commercial-blue)](LICENSING.md)
-[![.NET](https://img.shields.io/badge/.NET-9.0-purple)](https://dotnet.microsoft.com/)
-[![React](https://img.shields.io/badge/React-18-61dafb)](https://react.dev/)
+[![Docs](https://img.shields.io/badge/docs-moberghr.github.io%2Fbeacon-430cda)](https://moberghr.github.io/beacon)
+[![NuGet](https://img.shields.io/badge/NuGet-Beacon.*-430cda)](https://www.nuget.org/)
+[![License](https://img.shields.io/badge/license-AGPL--3.0%20or%20Commercial-430cda)](LICENSING.md)
+[![.NET](https://img.shields.io/badge/.NET-9.0-430cda)](https://dotnet.microsoft.com/)
+[![MCP](https://img.shields.io/badge/MCP-Streamable%20HTTP-430cda)](https://moberghr.github.io/beacon/features/mcp-server/)
 
 [Documentation](https://moberghr.github.io/beacon) ·
 [Quick Start](#-quick-start) ·
-[MCP Server](#-the-mcp-server-give-your-ai-assistant-safe-hands) ·
+[MCP Server](#-the-mcp-server-safe-hands-for-your-ai) ·
 [Embed via NuGet](#-embed-beacon-in-your-own-app) ·
 [Licensing](LICENSING.md)
 
@@ -38,7 +38,7 @@ Beacon is a **.NET 9 platform for semantic database monitoring, alerting, and da
 - **Watch** — scheduled SQL checks catch data-quality issues, broken business rules, and unhealthy databases before your users do.
 - **Alert** — results delivered to Email, Microsoft Teams, Slack, Jira, or webhooks, with full datasets attached.
 - **Move** — auditable ETL jobs (Insert / Upsert / Truncate / Sync) across different database engines.
-- **Serve AI** — a built-in, production-hardened **MCP server** gives Claude, ChatGPT, and any MCP client read-only, PII-aware, fully audited access to your data.
+- **Serve AI** — a built-in, production-hardened **MCP server** gives Claude, Cursor, and any MCP client read-only, PII-aware, fully audited access to your data.
 
 It ships in two forms: a **self-hostable application** (clone and run) and **NuGet packages** you embed into your own ASP.NET Core application.
 
@@ -46,12 +46,12 @@ It ships in two forms: a **self-hostable application** (clone and run) and **NuG
 
 | | What you get |
 |---|---|
-| 🧠 **AI-grade SQL accuracy** | Natural-language questions become SQL grounded in an **M-Schema context with real sample values**, validated by a **multi-dialect AST parser**, and self-corrected through a **dry-run repair loop** — not a naive prompt-to-SQL pipe. |
-| 🔁 **A self-improving MCP server** | Every MCP query records a usage signal — intent, generated SQL, routing, outcome, timing. A **learning loop** turns those signals into approved schema clarifications and documentation patches, so answers get better with use. |
-| 🔐 **Security as a default, not an add-on** | AES-256-GCM–encrypted connection strings, SHA256-hashed scoped API keys shown exactly once, read-only enforcement at the connector level, PII detection and masking, login rate limiting, antiforgery, OIDC/SSO, JWT for MCP clients. |
-| 🔗 **Cross-database queries** | Chain query steps across engines and join the results in in-memory SQLite (`@@result1`, `@@result2`) — no data warehouse required. |
-| 📦 **Embeddable** | `AddBeaconServices()` drops the whole platform — UI, API, MCP server, scheduler — into your existing ASP.NET Core host. Your app, your auth, your domain. |
-| 🔄 **Runtime-swappable LLM** | OpenAI, Anthropic Claude, Azure OpenAI, or AWS Bedrock — hot-swappable from admin settings without a restart, behind a concurrency-limited request queue with usage tracking. |
+| **AI-grade SQL accuracy** | Natural-language questions become SQL grounded in an **M-Schema context with real sample values**, validated by a **multi-dialect AST parser**, and self-corrected through a **dry-run repair loop** — not a naive prompt-to-SQL pipe. |
+| **A self-improving MCP server** | Every MCP query records a usage signal — intent, generated SQL, routing, outcome, timing. A **learning loop** turns those signals into approved schema clarifications and documentation patches, so answers get better with use. |
+| **Security as a default, not an add-on** | AES-256-GCM–encrypted connection strings, SHA256-hashed scoped API keys shown exactly once, read-only enforcement at the connector level, PII detection and masking, login rate limiting, antiforgery, OIDC/SSO, and JWT for MCP clients. |
+| **Cross-database queries** | Chain query steps across engines and join the results in in-memory SQLite (`@@result1`, `@@result2`) — no data warehouse required. |
+| **Embeddable** | `AddBeaconServices()` drops the whole platform — UI, API, MCP server, scheduler — into your existing ASP.NET Core host. Your app, your auth, your domain. |
+| **Runtime-swappable LLM** | OpenAI, Anthropic Claude, Azure OpenAI, or AWS Bedrock — hot-swappable from admin settings without a restart, behind a concurrency-limited request queue with usage tracking. |
 
 ## See it
 
@@ -69,11 +69,11 @@ It ships in two forms: a **self-hostable application** (clone and run) and **NuG
   <tr>
     <td width="50%">
       <img src="docs/assets/images/screenshots/query-editor-light.png" alt="Multi-step query editor with database explorer" />
-      <p align="center"><b>Query editor</b> — Monaco SQL editing, database explorer, typed parameters, step preview.</p>
+      <p align="center"><b>Query editor</b> — Monaco SQL editing, live database explorer, typed parameters, pre-flight checks.</p>
     </td>
     <td width="50%">
-      <img src="docs/assets/images/screenshots/home-light.png" alt="Home dashboard in light theme" />
-      <p align="center"><b>Light & dark themes</b> — a full design system, not a CSS filter.</p>
+      <img src="docs/assets/images/screenshots/mcp-playground-dark.png" alt="MCP playground — ask questions of your data" />
+      <p align="center"><b>MCP playground</b> — test the tools interactively before you point a client at them.</p>
     </td>
   </tr>
 </table>
@@ -113,9 +113,9 @@ Open **http://localhost:5173**. On first run, Beacon applies its EF Core migrati
 | `/beacon/mcp` | MCP server (Streamable HTTP, auth required) |
 | `/beacon/api/hub` | SignalR hub (real-time events) |
 
-📚 [Detailed quick start guide →](https://moberghr.github.io/beacon/getting-started/quick-start)
+📚 [Detailed quick-start guide →](https://moberghr.github.io/beacon/getting-started/quick-start/)
 
-## 🔌 The MCP server: give your AI assistant safe hands
+## 🔌 The MCP server: safe hands for your AI
 
 Beacon ships a **Model Context Protocol** server over Streamable HTTP at `/beacon/mcp`. It exposes five tools —
 
@@ -130,7 +130,7 @@ Beacon ships a **Model Context Protocol** server over Streamable HTTP at `/beaco
 — and every call passes through the same guardrail stack:
 
 ```
-Natural language question
+Natural-language question
         │
         ▼
 M-Schema grounding ──── schema + column types + REAL sample values in the LLM context
@@ -149,9 +149,9 @@ Audit + usage signal ──── every invocation logged (user, SQL, timing, ro
                            outcome) and fed to the learning loop
 ```
 
-Authentication: cookie session, **scoped API key**, or **JWT bearer** (OIDC) — MCP access is never anonymous.
+Authentication is never anonymous: cookie session, **scoped API key**, or **JWT bearer** (OIDC).
 
-📚 [MCP server documentation →](https://moberghr.github.io/beacon/features/mcp-server)
+📚 [MCP server documentation →](https://moberghr.github.io/beacon/features/mcp-server/)
 
 ## 🏗️ Architecture
 
@@ -159,7 +159,7 @@ Beacon follows a CQRS (MediatR) core where all project references converge on `B
 
 ```mermaid
 graph TB
-    subgraph UI["Presentation Layer"]
+    subgraph UI["Presentation"]
         React[React SPA<br/>Vite + TypeScript + Tailwind]
     end
 
@@ -176,11 +176,11 @@ graph TB
         EmailAdapter[Email] ~~~ TeamsAdapter[Teams] ~~~ SlackAdapter[Slack] ~~~ JiraAdapter[Jira]
     end
 
-    subgraph Data["Data Access Layer"]
+    subgraph Data["Data Access"]
         EFCore[EF Core 9<br/>BeaconContext] ~~~ Dapper[Dapper<br/>Hot Paths]
     end
 
-    subgraph Infrastructure["Infrastructure Layer"]
+    subgraph Infrastructure["Infrastructure"]
         Meta[(Metadata DB<br/>PostgreSQL / SQL Server)] ~~~ Sources[(9 Data-Source<br/>Connectors)]
         Scheduler[IBeaconScheduler<br/>Pluggable Scheduler] ~~~ SQLiteVM[In-Memory SQLite<br/>Cross-DB Joins]
     end
@@ -193,12 +193,12 @@ graph TB
     Core --> Infrastructure
     Adapters --> Infrastructure
 
-    style UI fill:#e3f2fd
-    style Edge fill:#ede7f6
-    style Core fill:#f3e5f5
-    style Adapters fill:#fff3e0
-    style Data fill:#e8f5e9
-    style Infrastructure fill:#fce4ec
+    style UI fill:#e9e4fc,stroke:#430cda
+    style Edge fill:#ece7fd,stroke:#5a30ee
+    style Core fill:#eef0fa,stroke:#6c48ff
+    style Adapters fill:#f4f6fa,stroke:#717a80
+    style Data fill:#eaf5ee,stroke:#16a34a
+    style Infrastructure fill:#f4f6fa,stroke:#545454
 ```
 
 ### Query execution: multi-step, cross-database
@@ -275,7 +275,7 @@ sequenceDiagram
 |---|---|
 | Secrets at rest | Connection strings encrypted with **AES-256-GCM** (authenticated, per-value nonce); mandatory `Beacon:EncryptionKey` |
 | API keys | **SHA256-hashed**, scoped (`Read` / `Execute` / `Admin`), optional per-project restriction, expiry — raw key shown exactly once |
-| Sessions | `HttpOnly`, `SameSite` cookies; antiforgery tokens on state-changing requests; login rate limiting (10/min per IP) |
+| Sessions | `HttpOnly`, `SameSite` cookies; antiforgery tokens on state-changing requests; login rate limiting |
 | SSO | OIDC (any compliant provider) with configurable role mapping; JWT bearer for MCP clients |
 | MCP execution | Read-only enforced at the connector **and** AST level; PII detection & masking; row limits; complete audit trail |
 | Deployment | Opt-in forwarded-headers support with proxy whitelisting for reverse-proxy setups |
@@ -283,7 +283,7 @@ sequenceDiagram
 ### 💻 Developer experience
 - React 18 + Vite + TypeScript + Tailwind UI with a typed OpenAPI client (`npm run codegen`, NSwag)
 - **Mock mode** (`npm run dev:mock`) — full UI without a backend, powered by MSW
-- 27 REST endpoint areas, one MediatR handler per endpoint, OpenAPI contract-tested in CI
+- One MediatR handler per REST endpoint, OpenAPI contract-tested in CI
 - 150+ backend tests (NUnit) including EF Core → SQL translation tests; Vitest + RTL + MSW on the frontend
 
 ## 📦 Embed Beacon in your own app
@@ -360,7 +360,7 @@ app.Run();
 openssl rand -base64 32
 ```
 
-📚 [Detailed installation guide →](https://moberghr.github.io/beacon/getting-started/installation) · [Configuration reference →](https://moberghr.github.io/beacon/getting-started/configuration)
+📚 [Installation guide →](https://moberghr.github.io/beacon/getting-started/installation/) · [Configuration reference →](https://moberghr.github.io/beacon/getting-started/configuration/)
 
 ## 🧱 Project layout
 
@@ -408,5 +408,7 @@ Use it under the AGPLv3 — including its §13 network/SaaS source-disclosure re
 ---
 
 <div align="center">
+<sub>A <b>Moberg</b> product · <i>Serious engineering, infinite possibilities.</i></sub>
+<br/>
 <sub>© 2026 Moberg d.o.o. · <a href="https://moberghr.github.io/beacon">Documentation</a> · <a href="LICENSING.md">Licensing</a></sub>
 </div>
