@@ -14,7 +14,7 @@ Both paths use the same configuration model (see the [Configuration Guide](/gett
 
 Before you begin, ensure you have:
 
-- **.NET 9.0 SDK** or later
+- **.NET 10.0 SDK** or later
 - **PostgreSQL 12+** or **SQL Server 2019+** for Beacon's metadata database
 - **Node.js 18+** and npm — only needed to build or run the React frontend from source
 - **Visual Studio 2022**, **Rider**, or **VS Code** with C# support

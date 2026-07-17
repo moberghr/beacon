@@ -423,7 +423,7 @@ The request queue caps concurrency and throughput:
 
 ## Metadata Database Provider
 
-Beacon's metadata database runs on **EF Core 9** with dual-provider support (PostgreSQL and SQL Server). The default schema is `beacon` (configurable). Dapper is used for hot paths.
+Beacon's metadata database runs on **EF Core 10** with dual-provider support (PostgreSQL and SQL Server). The default schema is `beacon` (configurable). Dapper is used for hot paths.
 
 ### PostgreSQL
 

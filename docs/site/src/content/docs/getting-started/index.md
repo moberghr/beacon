@@ -1,9 +1,9 @@
 ---
 title: Getting Started
-description: Overview of Beacon, a .NET 9 platform for semantic database monitoring, alerting, ETL, and cross-database queries.
+description: Overview of Beacon, a .NET 10 platform for semantic database monitoring, alerting, ETL, and cross-database queries.
 ---
 
-Beacon is a .NET 9 platform for semantic database monitoring, alerting, ETL / data migration, and cross-database queries, with an AI layer and a built-in MCP server. This section takes you from zero to your first scheduled database alert.
+Beacon is a .NET 10 platform for semantic database monitoring, alerting, ETL / data migration, and cross-database queries, with an AI layer and a built-in MCP server. This section takes you from zero to your first scheduled database alert.
 
 ## How Beacon Is Delivered
 
@@ -24,7 +24,7 @@ The [Installation](/getting-started/installation/) guide covers both paths in de
 
 Before you begin, ensure you have:
 
-- **.NET 9.0 SDK** or later
+- **.NET 10.0 SDK** or later
 - **PostgreSQL 12+** or **SQL Server 2019+** for Beacon's metadata database
 - **Node.js 18+** and npm (only if you build or run the React frontend from source)
 - An **encryption key** (`Beacon:EncryptionKey`) — required; generate with `openssl rand -base64 32`
@@ -51,7 +51,7 @@ flowchart TB
     end
 
     subgraph Data["Data layer"]
-        Meta[("Metadata DB<br/>PostgreSQL / SQL Server<br/>EF Core 9, schema 'beacon'")]
+        Meta[("Metadata DB<br/>PostgreSQL / SQL Server<br/>EF Core 10, schema 'beacon'")]
         Sources[("Monitored data sources<br/>9 connectors")]
     end
 
