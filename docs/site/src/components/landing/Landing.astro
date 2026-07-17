@@ -1,0 +1,440 @@
+---
+// Beacon landing page — mirrors the moberghr.github.io/warp design language
+// (eyebrow hero, terminal panels, numbered sections, screenshot showcase, dark
+// footer), recoloured to the Moberg house blue and rewritten for Beacon.
+import { Image } from 'astro:assets';
+import beaconLogo from '../../assets/beacon-logo.svg';
+import homeDark from '../../assets/screenshots/home-dark.png';
+import homeLight from '../../assets/screenshots/home-light.png';
+
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const docsHref = `${base}/getting-started/`;
+const mcpHref = `${base}/features/mcp-server/`;
+const repo = 'https://github.com/moberghr/beacon';
+
+const HERO_SETUP = `<span class="k-dim">// Embed the whole platform in your ASP.NET Core host</span>
+<span class="k-blue">builder</span>.Services.<span class="k-green">AddBeaconServices</span>(config, opt =&gt; {
+    opt.<span class="k-green">AddBeaconScheduler</span>&lt;WarpScheduler&gt;();
+    opt.UseAI = <span class="k-blue">true</span>;
+})
+.<span class="k-green">AddPostgreSqlConnector</span>()
+.<span class="k-green">UsePostgreSql</span>(connectionString, <span class="k-yellow">"beacon"</span>);
+
+app.<span class="k-green">MapBeaconApi</span>();                              <span class="k-dim">// REST /beacon/api</span>
+app.<span class="k-green">MapMcp</span>(<span class="k-yellow">"/beacon/mcp"</span>).<span class="k-green">RequireAuthorization</span>();
+app.<span class="k-green">MapBeaconUi</span>();                               <span class="k-dim">// React UI at /</span>`;
+
+const HERO_MCP = `<span class="k-dim">// Point any MCP client at Beacon — read-only, audited</span>
+{
+  <span class="k-purple">"mcpServers"</span>: {
+    <span class="k-purple">"beacon"</span>: {
+      <span class="k-purple">"url"</span>: <span class="k-yellow">"https://beacon.acme.com/beacon/mcp"</span>,
+      <span class="k-purple">"headers"</span>: { <span class="k-purple">"Authorization"</span>: <span class="k-yellow">"Bearer bk_live_…"</span> }
+    }
+  }
+}
+
+<span class="k-green">→</span> <span class="k-mute">"Which orders are stuck in pending?"</span>
+  <span class="k-dim">grounded SQL · AST-validated · PII-masked · logged</span>`;
+
+const INSTALL_SELFHOST = `<span class="k-dim">$</span> git clone https://github.com/moberghr/beacon
+<span class="k-dim">$</span> dotnet run --project Beacon.SampleProject
+<span class="k-dim">$</span> npm run dev --prefix src/Beacon.UI/web
+
+<span class="k-green">✓</span> EF Core migrations applied on first run
+<span class="k-green">✓</span> First-run admin setup — no hardcoded credentials
+<span class="k-green">✓</span> UI at / · API at /beacon/api · MCP at /beacon/mcp`;
+
+const INSTALL_EMBED = `<span class="k-dim">$</span> dotnet add package Beacon.Core.PostgreSql
+<span class="k-dim">$</span> dotnet add package Beacon.UI
+<span class="k-dim">$</span> dotnet add package Beacon.Connector.PostgreSql
+
+<span class="k-green">✓</span> Your host, your auth, your domain
+<span class="k-green">✓</span> UI + REST + MCP + scheduler drop in
+<span class="k-green">✓</span> Cookie / OIDC / API-key / JWT auth ready`;
+
+const JOBS = [
+  {
+    num: '01', name: 'Watch', tag: 'scheduled SQL',
+    desc: 'Cron-scheduled SQL checks catch data-quality issues, broken business rules, and unhealthy databases before your users do.',
+    code: 'SELECT count(*) FROM orders\nWHERE status = \'stuck\';',
+  },
+  {
+    num: '02', name: 'Alert', tag: 'multi-channel',
+    desc: 'Results delivered to Email, Microsoft Teams, Slack, Jira, or webhooks — full datasets attached, tasks opened and auto-resolved.',
+    code: 'notify: Teams, Email(csv)\nopen task if rows > 0',
+  },
+  {
+    num: '03', name: 'Move', tag: 'auditable ETL',
+    desc: 'Insert, Upsert, Truncate-Load, and Sync jobs move data across engines with bulk operations, transactions, and full history.',
+    code: 'migrate @@result1\n  → warehouse (Upsert)',
+  },
+  {
+    num: '04', name: 'Serve AI', tag: 'governed MCP',
+    desc: 'A production-hardened MCP server gives Claude, Cursor, and any client read-only, PII-aware, fully audited access to your data.',
+    code: 'ask("revenue by region\n  last quarter")',
+  },
+];
+
+const FEATURES = [
+  {
+    icon: '<path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8"/>',
+    title: 'AI-grade SQL accuracy',
+    desc: 'Natural-language questions become SQL grounded in an M-Schema context with real sample values, validated by a multi-dialect AST parser, and self-corrected through a dry-run repair loop — not a naive prompt-to-SQL pipe.',
+  },
+  {
+    icon: '<path d="M12 2L3 7v6c0 5 4 9 9 10 5-1 9-5 9-10V7l-9-5z"/>',
+    title: 'Security as a default',
+    desc: 'AES-256-GCM–encrypted connection strings, SHA256-hashed scoped API keys shown exactly once, read-only enforcement at the connector level, PII detection and masking, login rate limiting, OIDC/SSO, and JWT for MCP clients.',
+  },
+  {
+    icon: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>',
+    title: 'A self-improving MCP server',
+    desc: 'Every query records a usage signal — intent, generated SQL, routing, outcome, timing. A learning loop turns signals into approved schema clarifications and documentation patches, so answers get better with use.',
+  },
+  {
+    icon: '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>',
+    title: 'Cross-database queries',
+    desc: 'Chain query steps across engines and join the results in in-memory SQLite (@@result1, @@result2) — no data warehouse required, no cross-connector SQL gymnastics.',
+  },
+  {
+    icon: '<path d="M3 12h4l3-9 4 18 3-9h4"/>',
+    title: 'Statistical anomaly detection',
+    desc: 'Z-score, IQR, and percentage-change detectors with baseline learning and per-metric sensitivity. Trend charts, related-task discovery, and manual resolution with notes.',
+  },
+  {
+    icon: '<path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><path d="M22 6l-10 7L2 6"/>',
+    title: 'Multi-channel notifications',
+    desc: 'Email with HTML tables and CSV/Excel attachments (full datasets, no row caps), Microsoft Teams Adaptive Cards, Slack Table Blocks, Jira issue creation, and generic webhooks.',
+  },
+  {
+    icon: '<path d="M16 3h5v5M21 3l-7 7M8 21H3v-5M3 21l7-7"/>',
+    title: 'Embeddable via NuGet',
+    desc: 'AddBeaconServices() drops the whole platform — UI, API, MCP server, scheduler — into your existing ASP.NET Core host. Your app, your auth, your domain.',
+  },
+  {
+    icon: '<path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1L12 21.2l7.8-7.7 1-1.1a5.5 5.5 0 0 0 0-7.8z"/>',
+    title: 'Runtime-swappable LLM',
+    desc: 'OpenAI, Anthropic Claude, Azure OpenAI, or AWS Bedrock — hot-swappable from admin settings without a restart, behind a concurrency-limited request queue with usage tracking.',
+  },
+  {
+    icon: '<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>',
+    title: 'Modern React UI',
+    desc: 'React 18 + Vite + TypeScript + Tailwind with light and dark themes, a typed OpenAPI client, real-time SignalR events, and a Monaco SQL editor with a live database explorer.',
+  },
+];
+
+const MARQUEE = [
+  'PostgreSQL', 'SQL Server', 'MySQL', 'BigQuery', 'Snowflake', 'Databricks',
+  'Azure Synapse', 'CloudWatch', 'REST API', 'Model Context Protocol', 'EF Core',
+  'Email', 'Microsoft Teams', 'Slack', 'Jira', 'Webhooks',
+];
+const marqueeItems = [...MARQUEE, ...MARQUEE];
+---
+
+<main class="bx">
+  <!-- ── Hero ─────────────────────────────────────────────────────────── -->
+  <section class="hero">
+    <div class="wrap">
+      <div class="heroGrid">
+        <div class="heroLeft">
+          <div class="eyebrow"><span class="eyebrowDot"></span>Database monitoring for the AI era</div>
+          <h1 class="heroTitle">The database monitoring platform<br />built for the <em>AI era</em>.</h1>
+          <p class="heroSub">
+            Beacon watches your databases with scheduled SQL checks, moves data across
+            engines with auditable ETL, and gives your AI assistants read-only, PII-aware,
+            fully audited access through a governed MCP server. Self-host it, or embed it
+            in your own .NET application.
+          </p>
+          <div class="heroActions">
+            <a class="btnPrimary" href={docsHref}>
+              Get started
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
+            </a>
+            <a class="btnSecondary" href={repo}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.73.5.75 5.48.75 11.75c0 5 3.24 9.24 7.73 10.74.57.1.78-.25.78-.55v-1.93c-3.14.68-3.81-1.51-3.81-1.51-.51-1.3-1.25-1.65-1.25-1.65-1.02-.7.08-.68.08-.68 1.13.08 1.72 1.16 1.72 1.16 1 1.72 2.63 1.22 3.27.93.1-.73.39-1.22.71-1.5-2.51-.29-5.15-1.25-5.15-5.57 0-1.23.44-2.23 1.16-3.02-.12-.29-.5-1.43.11-2.98 0 0 .95-.3 3.1 1.15a10.8 10.8 0 0 1 5.64 0c2.15-1.45 3.1-1.15 3.1-1.15.61 1.55.23 2.69.11 2.98.72.79 1.16 1.79 1.16 3.02 0 4.33-2.64 5.28-5.16 5.56.4.35.76 1.04.76 2.1v3.11c0 .3.2.66.79.55 4.49-1.5 7.73-5.74 7.73-10.74C23.25 5.48 18.27.5 12 .5Z" /></svg>
+              GitHub
+            </a>
+          </div>
+          <div class="heroStats">
+            <span>.NET 9</span><span>9 data sources</span><span>Governed MCP</span><span>AGPL / Commercial</span><span>150+ tests</span>
+          </div>
+        </div>
+        <div class="heroRight">
+          <div class="terminal">
+            <div class="terminalBar"><i></i><i></i><i></i><span class="terminalLabel">Program.cs</span></div>
+            <pre class="terminalPre" set:html={HERO_SETUP} />
+          </div>
+          <div class="terminal">
+            <div class="terminalBar"><i></i><i></i><i></i><span class="terminalLabel">mcp.json</span></div>
+            <pre class="terminalPre" set:html={HERO_MCP} />
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Marquee ─────────────────────────────────────────────────────── -->
+  <div class="marqueeWrap">
+    <div class="wrap">
+      <div class="marqueeInner">
+        <span class="marqueeLabel">Connects to</span>
+        <div class="marqueeViewport">
+          <div class="marqueeTrack">
+            {marqueeItems.map((item) => <span>{item}</span>)}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 01 · What Beacon does ───────────────────────────────────────── -->
+  <section class="section">
+    <div class="wrap">
+      <div class="secHead"><span class="secNum">01</span>What Beacon does</div>
+      <h2 class="h2">Four jobs. One operations layer on your databases.</h2>
+      <p class="lede">
+        Point Beacon at PostgreSQL, SQL Server, MySQL, BigQuery, Snowflake, Databricks,
+        Azure Synapse, CloudWatch, or any REST API. It becomes the layer that watches,
+        alerts, moves, and safely serves that data — to your team and to your AI.
+      </p>
+      <div class="grid4">
+        {JOBS.map((j) => (
+          <div class="card">
+            <span class="cardNum">{j.num}</span>
+            <h3 class="cardName">{j.name}</h3>
+            <code class="cardTag">{j.tag}</code>
+            <p class="cardDesc">{j.desc}</p>
+            <div class="cardCode"><pre>{j.code}</pre></div>
+          </div>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <!-- ── 02 · Capabilities ───────────────────────────────────────────── -->
+  <section class="section sectionAlt">
+    <div class="wrap">
+      <div class="secHead"><span class="secNum">02</span>Capabilities</div>
+      <h2 class="h2">Everything a data team needs — and safe hands for AI.</h2>
+      <p class="lede">
+        Beacon is a complete platform, not a wrapper. Accuracy, security, and governance
+        are defaults, not add-ons.
+      </p>
+      <div class="grid3">
+        {FEATURES.map((f) => (
+          <div class="feature">
+            <div class="featureIcon">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" set:html={f.icon} />
+            </div>
+            <h3 class="featureTitle">{f.title}</h3>
+            <p class="featureText">{f.desc}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <!-- ── 03 · The product ────────────────────────────────────────────── -->
+  <section class="section">
+    <div class="wrap">
+      <div class="secHead"><span class="secNum">03</span>The product</div>
+      <h2 class="h2">A real UI, not a config file.</h2>
+      <p class="lede">
+        A modern React interface with a full design system in light and dark — the
+        Control Tower, query builder, MCP playground, and learning loop are all first-class.
+      </p>
+      <div class="shotWrap">
+        <Image src={homeLight} alt="Beacon home dashboard (light theme)" class="shot" data-theme-target="light" loading="eager" densities={[1, 2]} />
+        <Image src={homeDark} alt="Beacon home dashboard (dark theme)" class="shot" data-theme-target="dark" loading="eager" densities={[1, 2]} />
+      </div>
+      <p class="shotCaption">Shown with sample data from Beacon's built-in mock mode (<code>npm run dev:mock</code>).</p>
+    </div>
+  </section>
+
+  <!-- ── 04 · Get started ────────────────────────────────────────────── -->
+  <section class="section sectionAlt">
+    <div class="wrap">
+      <div class="secHead"><span class="secNum">04</span>Get started</div>
+      <h2 class="h2">Run it in a minute. Embed it in an afternoon.</h2>
+      <p class="lede">
+        Clone and run the sample host, or add the NuGet packages to your own ASP.NET Core
+        app. Either way you get the UI, REST API, MCP server, and scheduler.
+      </p>
+      <div class="installGrid">
+        <div>
+          <div class="installHead"><span class="installLabel">A · Run the app</span><span class="installMeta">self-host</span></div>
+          <div class="terminal"><div class="terminalBar"><i></i><i></i><i></i><span class="terminalLabel">shell</span></div><pre class="terminalPre" set:html={INSTALL_SELFHOST} /></div>
+        </div>
+        <div>
+          <div class="installHead"><span class="installLabel">B · Embed via NuGet</span><span class="installMeta">your host</span></div>
+          <div class="terminal"><div class="terminalBar"><i></i><i></i><i></i><span class="terminalLabel">shell</span></div><pre class="terminalPre" set:html={INSTALL_EMBED} /></div>
+        </div>
+      </div>
+      <div class="heroActions">
+        <a class="btnPrimary" href={docsHref}>Read the docs →</a>
+        <a class="btnSecondary" href={mcpHref}>Explore the MCP server</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Callout ─────────────────────────────────────────────────────── -->
+  <section class="section">
+    <div class="wrap">
+      <div class="callout">
+        <h2>Give your team — and your AI — safe hands on your data.</h2>
+        <p>
+          Beacon is dual-licensed: free under the GNU AGPL v3.0, or a commercial license
+          without copyleft obligations. Self-host it today, or embed it in the product
+          you already ship.
+        </p>
+        <div class="calloutActions">
+          <a class="calloutBtnPrimary" href={docsHref}>Get started</a>
+          <a class="calloutBtnSecondary" href="https://github.com/moberghr/beacon/blob/main/LICENSING.md">Licensing</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Footer ──────────────────────────────────────────────────────── -->
+  <footer class="siteFooter">
+    <div class="wrap footerInner">
+      <div class="footerBrand">
+        <img src={beaconLogo.src} alt="Beacon" height="26" />
+        <p>Semantic database monitoring, alerting, and orchestration for .NET — with a governed MCP server for AI assistants.</p>
+        <p class="tagline">A Moberg product · <em>Serious engineering, infinite possibilities.</em></p>
+      </div>
+      <div class="footerCols">
+        <div>
+          <h4>Docs</h4>
+          <a href={docsHref}>Getting started</a>
+          <a href={`${base}/getting-started/installation/`}>Installation</a>
+          <a href={`${base}/getting-started/configuration/`}>Configuration</a>
+          <a href={mcpHref}>MCP server</a>
+        </div>
+        <div>
+          <h4>Project</h4>
+          <a href={repo}>GitHub</a>
+          <a href={`${repo}/issues`}>Issues</a>
+          <a href={`${repo}/discussions`}>Discussions</a>
+          <a href={`${repo}/blob/main/LICENSING.md`}>Licensing</a>
+        </div>
+      </div>
+    </div>
+    <div class="wrap footerBottom">© 2026 Moberg d.o.o. · Dual-licensed AGPL-3.0 or Commercial</div>
+  </footer>
+</main>
+
+<style>
+  .bx { --maxw: 1120px; }
+  .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 24px; }
+
+  /* Hero */
+  .hero { padding: 72px 0 64px; }
+  .heroGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 56px; align-items: center; }
+  .heroLeft { max-width: 600px; }
+  .eyebrow { display: inline-flex; align-items: center; gap: 10px; font-size: 11px; font-weight: 600; letter-spacing: 1.5px; text-transform: uppercase; color: var(--bx-text-dim); margin-bottom: 22px; }
+  .eyebrowDot { width: 6px; height: 6px; border-radius: 50%; background: var(--bx-accent); flex-shrink: 0; }
+  .heroTitle { font-size: clamp(36px, 5vw, 58px); font-weight: 300; letter-spacing: -0.025em; line-height: 1.08; color: var(--bx-text); margin: 0 0 20px; }
+  .heroTitle em { font-style: normal; color: var(--bx-accent); font-weight: 500; }
+  .heroSub { font-size: 18px; color: var(--bx-text-muted); line-height: 1.6; margin: 0 0 30px; }
+  .heroActions { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 28px; }
+  .heroStats { display: flex; gap: 24px; flex-wrap: wrap; font-family: var(--sl-font-mono); font-size: 11.5px; color: var(--bx-text-dim); }
+  .heroStats span { display: inline-flex; align-items: center; gap: 7px; }
+  .heroStats span::before { content: ''; width: 4px; height: 4px; border-radius: 50%; background: var(--bx-accent); flex-shrink: 0; }
+  .heroRight { display: flex; flex-direction: column; gap: 12px; }
+
+  /* Buttons */
+  .btnPrimary, .btnSecondary { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 500; padding: 11px 22px; border-radius: var(--bx-radius-sm); text-decoration: none; border: 1px solid transparent; transition: background .15s, box-shadow .15s, transform .15s, border-color .15s, color .15s; }
+  .btnPrimary { background: var(--bx-accent); color: #fff; }
+  .btnPrimary:hover { background: var(--bx-accent-dark); box-shadow: 0 4px 18px rgba(67, 12, 218, 0.25); transform: translateY(-1px); color: #fff; }
+  .btnSecondary { background: var(--bx-surface2); color: var(--bx-text); border-color: var(--bx-border); }
+  .btnSecondary:hover { border-color: var(--bx-accent); color: var(--bx-accent); }
+
+  /* Terminal */
+  .terminal { background: var(--bx-terminal-bg); border: 1px solid var(--bx-terminal-border); border-radius: var(--bx-radius); overflow: hidden; font-family: var(--sl-font-mono); font-size: 12.5px; line-height: 1.7; box-shadow: 0 16px 48px -8px rgba(14, 10, 50, 0.25); }
+  .terminalBar { display: flex; align-items: center; gap: 6px; padding: 10px 16px; border-bottom: 1px solid var(--bx-terminal-border); background: var(--bx-terminal-bar-bg); }
+  .terminalBar i { width: 10px; height: 10px; border-radius: 50%; background: #2a303e; flex-shrink: 0; }
+  .terminalLabel { margin-left: 12px; font-size: 11px; color: #6b7280; }
+  .terminalPre { margin: 0; padding: 18px 20px; color: #cfd4e2; overflow-x: auto; background: transparent; border: none; }
+
+  /* Sections */
+  .section { padding: 80px 0; border-top: 1px solid var(--bx-border); }
+  .sectionAlt { background: var(--bx-surface2); }
+  .secHead { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1.5px; color: var(--bx-text-dim); margin: 0 0 18px; padding-bottom: 10px; border-bottom: 1px solid var(--bx-border); display: flex; align-items: center; gap: 10px; }
+  .secNum { font-size: 13px; font-weight: 700; color: var(--bx-accent); min-width: 24px; }
+  .h2 { font-size: clamp(26px, 3.5vw, 40px); font-weight: 700; letter-spacing: -0.01em; line-height: 1.15; color: var(--bx-text); margin: 0 0 16px; max-width: 720px; }
+  .lede { font-size: 17px; color: var(--bx-text-muted); max-width: 660px; margin: 0 0 40px; line-height: 1.6; }
+
+  /* Marquee */
+  .marqueeWrap { border-top: 1px solid var(--bx-border); border-bottom: 1px solid var(--bx-border); background: var(--bx-surface2); overflow: hidden; }
+  .marqueeInner { display: flex; align-items: center; gap: 40px; padding: 16px 24px; }
+  .marqueeLabel { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1.5px; color: var(--bx-text-dim); white-space: nowrap; flex-shrink: 0; }
+  .marqueeViewport { flex: 1; overflow: hidden; }
+  .marqueeTrack { display: inline-flex; gap: 3rem; animation: marquee 42s linear infinite; font-size: 14px; font-weight: 500; color: var(--bx-text-muted); white-space: nowrap; }
+  @keyframes marquee { to { transform: translateX(-50%); } }
+
+  /* 4-up cards */
+  .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+  .card { background: var(--bx-surface); border: 1px solid var(--bx-border); border-radius: var(--bx-radius); padding: 24px; transition: border-color .15s; }
+  .card:hover { border-color: var(--bx-border-bright); }
+  .cardNum { font-family: var(--sl-font-mono); font-size: 11px; color: var(--bx-text-dim); margin-bottom: 12px; display: block; }
+  .cardName { font-size: 20px; font-weight: 700; color: var(--bx-text); margin: 0 0 8px; line-height: 1.2; }
+  .cardTag { font-family: var(--sl-font-mono); font-size: 12px; color: var(--bx-accent); background: var(--bx-accent-dim); padding: 3px 8px; border-radius: 6px; display: inline-block; margin-bottom: 14px; }
+  .cardDesc { font-size: 14px; color: var(--bx-text-muted); line-height: 1.6; margin: 0 0 16px; }
+  .cardCode pre { margin: 0; padding: 12px 14px; background: var(--bx-surface2); border: 1px solid var(--bx-border); border-radius: 8px; font-size: 12px; line-height: 1.6; color: var(--bx-text-muted); font-family: var(--sl-font-mono); overflow-x: auto; white-space: pre; }
+
+  /* 3-up features */
+  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  .feature { background: var(--bx-surface); border: 1px solid var(--bx-border); border-radius: var(--bx-radius); padding: 22px 24px; transition: border-color .15s; }
+  .feature:hover { border-color: var(--bx-border-bright); }
+  .featureIcon { width: 36px; height: 36px; border-radius: 10px; background: var(--bx-accent-dim); color: var(--bx-accent); display: inline-flex; align-items: center; justify-content: center; margin-bottom: 14px; }
+  .featureTitle { font-size: 16px; font-weight: 600; color: var(--bx-text); margin: 0 0 8px; }
+  .featureText { font-size: 14px; color: var(--bx-text-muted); line-height: 1.6; margin: 0; }
+
+  /* Screenshot showcase */
+  .shotWrap { border: 1px solid var(--bx-border); border-radius: var(--bx-radius); overflow: hidden; box-shadow: 0 16px 48px -8px rgba(0, 0, 0, 0.12); }
+  .shot { display: block; width: 100%; height: auto; margin: 0; }
+  .shotCaption { font-size: 13px; color: var(--bx-text-dim); margin: 14px 0 0; text-align: center; }
+  .shotCaption code { font-family: var(--sl-font-mono); font-size: 12px; }
+
+  /* Install */
+  .installGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 32px; }
+  .installHead { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; padding: 0 2px; }
+  .installLabel { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--bx-text-dim); }
+  .installMeta { font-family: var(--sl-font-mono); font-size: 11px; color: var(--bx-text-dim); }
+
+  /* Callout */
+  .callout { background: var(--bx-accent-gradient); color: #fff; padding: 52px 46px; border-radius: var(--bx-radius); }
+  .callout h2 { color: #fff; font-weight: 300; margin: 0 0 14px; font-size: clamp(24px, 3.5vw, 38px); letter-spacing: -0.01em; line-height: 1.2; max-width: 640px; }
+  .callout p { color: rgba(255, 255, 255, 0.85); font-size: 17px; margin: 0 0 26px; max-width: 580px; line-height: 1.6; }
+  .calloutActions { display: flex; gap: 12px; flex-wrap: wrap; }
+  .calloutBtnPrimary, .calloutBtnSecondary { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 500; padding: 11px 22px; border-radius: var(--bx-radius-sm); text-decoration: none; border: 1px solid transparent; transition: background .15s, color .15s, border-color .15s; }
+  .calloutBtnPrimary { background: #fff; color: var(--bx-accent-dark); }
+  .calloutBtnPrimary:hover { background: #f0ecff; }
+  .calloutBtnSecondary { background: transparent; color: #fff; border-color: rgba(255, 255, 255, 0.4); }
+  .calloutBtnSecondary:hover { border-color: #fff; }
+
+  /* Footer */
+  .siteFooter { background: #0e1218; color: rgba(255, 255, 255, 0.62); border-top: 1px solid var(--bx-border); }
+  .footerInner { display: grid; grid-template-columns: 1.4fr 1fr; gap: 40px; padding-top: 52px; padding-bottom: 36px; }
+  .footerBrand img { height: 30px; width: auto; margin-bottom: 16px; filter: brightness(1.7); }
+  .footerBrand p { font-size: 14px; line-height: 1.6; margin: 0 0 10px; max-width: 420px; }
+  .footerBrand .tagline { font-size: 12.5px; color: rgba(255, 255, 255, 0.5); }
+  .footerBrand .tagline em { color: rgba(255, 255, 255, 0.72); font-style: italic; }
+  .footerCols { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; }
+  .footerCols h4 { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: rgba(255, 255, 255, 0.45); margin: 0 0 14px; }
+  .footerCols a { display: block; font-size: 14px; color: rgba(255, 255, 255, 0.68); text-decoration: none; margin-bottom: 9px; }
+  .footerCols a:hover { color: #fff; }
+  .footerBottom { border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 20px; padding-bottom: 28px; font-size: 12px; color: rgba(255, 255, 255, 0.4); }
+
+  /* Responsive */
+  @media (max-width: 1024px) {
+    .heroGrid { grid-template-columns: 1fr; gap: 36px; }
+    .heroRight { display: none; }
+    .grid4 { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (max-width: 900px) { .grid3 { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 860px) { .installGrid { grid-template-columns: 1fr; } .footerInner { grid-template-columns: 1fr; gap: 28px; } }
+  @media (max-width: 640px) { .grid4, .grid3 { grid-template-columns: 1fr; } }
+</style>
