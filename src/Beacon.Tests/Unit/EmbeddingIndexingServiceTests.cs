@@ -395,7 +395,12 @@ public class EmbeddingIndexingServiceTests
             .Setup(x => x.RemoveRange(It.IsAny<IEnumerable<McpEmbedding>>()))
             .Callback((IEnumerable<McpEmbedding> entities) => removed.AddRange(entities));
 
-        var context = new IndexingTestContext(metadataSet.Object, patternSet.Object, embeddingSet.Object);
+        // The indexing service also scans golden eval cases (§ Part A); stub an empty set so these
+        // exemplar-focused tests never fall through to a real DB connection.
+        var goldenSet = BuildDbSet(new List<McpEvalCase>());
+
+        var context = new IndexingTestContext(
+            metadataSet.Object, patternSet.Object, embeddingSet.Object, goldenSet.Object);
 
         factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory
@@ -445,15 +450,18 @@ public class EmbeddingIndexingServiceTests
         private readonly DbSet<DatabaseMetadata> _metadata;
         private readonly DbSet<McpLearnedPattern> _patterns;
         private readonly DbSet<McpEmbedding> _embeddings;
+        private readonly DbSet<McpEvalCase> _goldenCases;
 
         public IndexingTestContext(
             DbSet<DatabaseMetadata> metadata,
             DbSet<McpLearnedPattern> patterns,
-            DbSet<McpEmbedding> embeddings) : base(Options, "beacon")
+            DbSet<McpEmbedding> embeddings,
+            DbSet<McpEvalCase> goldenCases) : base(Options, "beacon")
         {
             _metadata = metadata;
             _patterns = patterns;
             _embeddings = embeddings;
+            _goldenCases = goldenCases;
         }
 
         public override DbSet<TEntity> Set<TEntity>() where TEntity : class
@@ -471,6 +479,11 @@ public class EmbeddingIndexingServiceTests
             if (typeof(TEntity) == typeof(McpEmbedding))
             {
                 return (DbSet<TEntity>)(object)_embeddings;
+            }
+
+            if (typeof(TEntity) == typeof(McpEvalCase))
+            {
+                return (DbSet<TEntity>)(object)_goldenCases;
             }
 
             return base.Set<TEntity>();

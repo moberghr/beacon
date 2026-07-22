@@ -80,6 +80,11 @@ internal sealed class UpdateMcpSettingsHandler(
         entity.GlossaryTopK = data.GlossaryTopK;
         entity.DocChunkTopK = data.DocChunkTopK;
 
+        // Golden-exemplar settings
+        entity.EnableGoldenExemplars = data.EnableGoldenExemplars;
+        entity.GoldenExemplarTopK = data.GoldenExemplarTopK;
+        entity.GoldenExemplarBudgetChars = data.GoldenExemplarBudgetChars;
+
         await context.SaveChangesAsync(cancellationToken);
         settingsProvider.InvalidateCache();
     }
