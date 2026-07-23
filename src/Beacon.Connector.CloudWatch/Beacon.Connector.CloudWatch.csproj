@@ -10,6 +10,6 @@
     <ProjectReference Include="..\Beacon.Core\Beacon.Core.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="AWSSDK.CloudWatchLogs" Version="4.0.14.4" />
+    <PackageReference Include="AWSSDK.CloudWatchLogs" />
   </ItemGroup>
 </Project>

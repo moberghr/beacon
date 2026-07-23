@@ -10,6 +10,6 @@
     <ProjectReference Include="..\Beacon.Core\Beacon.Core.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="System.Net.Http.Json" Version="9.0.0" />
+    <PackageReference Include="System.Net.Http.Json" />
   </ItemGroup>
 </Project>

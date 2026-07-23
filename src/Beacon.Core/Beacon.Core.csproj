@@ -28,33 +28,33 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<PackageReference Include="AdaptiveCards" Version="3.1.0" />
-		<PackageReference Include="ClosedXML" Version="0.105.0" />
-		<PackageReference Include="CronExpressionDescriptor" Version="2.44.0" />
-		<PackageReference Include="Cronos" Version="0.11.1" />
-		<PackageReference Include="CsvHelper" Version="33.1.0" />
-		<PackageReference Include="Dapper" Version="2.1.66" />
-		<PackageReference Include="EFCore.BulkExtensions" Version="10.0.1" />
-		<PackageReference Include="MediatR" Version="12.4.1" />
-		<PackageReference Include="MessageCardModel" Version="1.1.5" />
-		<PackageReference Include="Microsoft.AspNetCore.DataProtection.EntityFrameworkCore" Version="10.0.5" />
-		<PackageReference Include="Microsoft.AspNetCore.Http.Abstractions" Version="2.2.0" />
-		<PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.5" />
-		<PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.5" />
-		<PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.5" />
-		<PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="10.0.5" />
-		<PackageReference Include="Microsoft.Extensions.Http" Version="10.0.5" />
+		<PackageReference Include="AdaptiveCards" />
+		<PackageReference Include="ClosedXML" />
+		<PackageReference Include="CronExpressionDescriptor" />
+		<PackageReference Include="Cronos" />
+		<PackageReference Include="CsvHelper" />
+		<PackageReference Include="Dapper" />
+		<PackageReference Include="EFCore.BulkExtensions" />
+		<PackageReference Include="MediatR" />
+		<PackageReference Include="MessageCardModel" />
+		<PackageReference Include="Microsoft.AspNetCore.DataProtection.EntityFrameworkCore" />
+		<PackageReference Include="Microsoft.AspNetCore.Http.Abstractions" />
+		<PackageReference Include="Microsoft.EntityFrameworkCore" />
+		<PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
+		<PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" />
+		<PackageReference Include="Microsoft.Extensions.Caching.Memory" />
+		<PackageReference Include="Microsoft.Extensions.Http" />
 		<!-- Pomelo 9.0.0 is the newest release and targets EF Core 9; no EF Core 10 build exists yet.
 		     Pinned explicitly (was a transitive dep of EFCore.BulkExtensions 9.x before the net10/EF10
 		     move) so MigrationService.Sql.cs's MySQL bulk-write path (UseMySql) still compiles on EF10.
 		     It compiles and restores, but the MySQL bulk path is runtime-UNVERIFIED on EF Core 10 —
 		     revisit when Pomelo ships an EF Core 10 build. -->
-		<PackageReference Include="Pomelo.EntityFrameworkCore.MySql" Version="9.0.0" />
-		<PackageReference Include="Refit" Version="9.0.2" />
-		<PackageReference Include="SqlParserCS" Version="0.6.5" />
-		<PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.5" />
-		<PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.3.1" />
-		<PackageReference Include="Microsoft.IdentityModel.Tokens" Version="8.3.1" />
+		<PackageReference Include="Pomelo.EntityFrameworkCore.MySql" />
+		<PackageReference Include="Refit" />
+		<PackageReference Include="SqlParserCS" />
+		<PackageReference Include="Microsoft.Data.Sqlite" />
+		<PackageReference Include="System.IdentityModel.Tokens.Jwt" />
+		<PackageReference Include="Microsoft.IdentityModel.Tokens" />
 	</ItemGroup>
 
 </Project>
