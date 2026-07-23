@@ -6,7 +6,7 @@
 		<Nullable>enable</Nullable>
 
 		<!-- Package Information -->
-		<Authors>https://github.com/moberghr</Authors>
+		<Authors>Moberg</Authors>
 		<Description>Beacon core library providing semantic alerts and notifications for databases. Includes domain models, services, and data access abstractions for PostgreSQL, SQL Server, and MySQL support.</Description>
 		<PackageProjectUrl>https://github.com/moberghr/beacon</PackageProjectUrl>
 		<RepositoryUrl>https://github.com/moberghr/beacon</RepositoryUrl>

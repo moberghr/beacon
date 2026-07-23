@@ -6,7 +6,7 @@
         <ImplicitUsings>enable</ImplicitUsings>
 
         <!-- Package Information -->
-        <Authors>https://github.com/moberghr</Authors>
+        <Authors>Moberg</Authors>
         <Description>MCP (Model Context Protocol) server for Beacon. Exposes data sources, knowledge graph, and query capabilities to AI tools via SSE transport.</Description>
         <PackageProjectUrl>https://github.com/moberghr/beacon</PackageProjectUrl>
         <RepositoryUrl>https://github.com/moberghr/beacon</RepositoryUrl>

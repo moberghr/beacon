@@ -6,7 +6,7 @@
 		<Nullable>enable</Nullable>
 
 		<!-- Package Information -->
-		<Authors>https://github.com/moberghr</Authors>
+		<Authors>Moberg</Authors>
 		<Description>Beacon AI extensions library providing LLM-powered documentation generation, alert creation, and AI actors. Optional add-on for Beacon core.</Description>
 		<PackageProjectUrl>https://github.com/moberghr/beacon</PackageProjectUrl>
 		<RepositoryUrl>https://github.com/moberghr/beacon</RepositoryUrl>

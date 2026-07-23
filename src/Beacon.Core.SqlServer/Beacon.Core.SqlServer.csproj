@@ -18,7 +18,7 @@
     <Nullable>enable</Nullable>
 
     <!-- Package Information -->
-    <Authors>https://github.com/moberghr</Authors>
+    <Authors>Moberg</Authors>
     <Description>SQL Server database provider for Beacon. Provides Entity Framework Core configuration and migrations for SQL Server databases.</Description>
     <PackageProjectUrl>https://github.com/moberghr/beacon</PackageProjectUrl>
     <RepositoryUrl>https://github.com/moberghr/beacon</RepositoryUrl>

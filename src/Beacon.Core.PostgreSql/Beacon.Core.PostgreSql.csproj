@@ -26,7 +26,7 @@
     <Nullable>enable</Nullable>
 
     <!-- Package Information -->
-    <Authors>https://github.com/moberghr</Authors>
+    <Authors>Moberg</Authors>
     <Description>PostgreSQL database provider for Beacon. Provides Entity Framework Core configuration and migrations for PostgreSQL databases with snake_case naming conventions.</Description>
     <PackageProjectUrl>https://github.com/moberghr/beacon</PackageProjectUrl>
     <RepositoryUrl>https://github.com/moberghr/beacon</RepositoryUrl>
