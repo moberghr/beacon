@@ -137,7 +137,11 @@ internal sealed class ProjectAskTool(
             signal.SetResult(null, (int)sw.ElapsedMilliseconds, askSucceeded);
             await auditService.LogToolCallAsync(null, projectContext.UserId, "ask",
                 question, null, projectId, (int)sw.ElapsedMilliseconds, null, null, cancellationToken);
-            await signalService.RecordSignalAsync(signal.Build(), cancellationToken);
+            var signalId = await signalService.RecordSignalAsync(signal.Build(), cancellationToken);
+            if (signalId is { } id)
+            {
+                text += $"\n\n_signal_id: {id}_";
+            }
             return ToolHelper.Success(text);
         }
         catch (Exception ex)

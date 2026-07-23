@@ -65,7 +65,7 @@ export default {
         sm: '0 1px 2px oklch(20% 0.02 240 / 0.04), 0 1px 1px oklch(20% 0.02 240 / 0.03)',
         md: '0 2px 4px oklch(20% 0.02 240 / 0.04), 0 4px 12px oklch(20% 0.02 240 / 0.05)',
         pop: '0 8px 24px oklch(20% 0.02 240 / 0.08), 0 2px 4px oklch(20% 0.02 240 / 0.04)',
-        ring: '0 0 0 3px oklch(58% 0.095 175 / 0.20)',
+        ring: '0 0 0 3px oklch(43.5% 0.261 278 / 0.20)',
       },
       letterSpacing: {
         tightish: '-0.01em',

@@ -1,4 +1,5 @@
 using Beacon.Core.Data.Entities.Base;
+using Beacon.Core.Data.Enums;
 
 namespace Beacon.Core.Data.Entities;
 
@@ -34,4 +35,9 @@ public class McpQuerySignal : BaseEntity
     public int? ResultRowCount { get; set; }
     public int ExecutionTimeMs { get; set; }
     public bool IsSuccessful { get; set; }
+
+    // Human correctness feedback (Part B)
+    public McpUserVerdict UserVerdict { get; set; } = McpUserVerdict.Unset;
+    public string? UserCorrectedSql { get; set; }
+    public string? FeedbackNote { get; set; }
 }

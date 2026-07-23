@@ -29,6 +29,7 @@ public static class ServiceConfiguration
         services.AddScoped<ProjectQueryTool>();
         services.AddScoped<ProjectGetDocumentationTool>();
         services.AddScoped<ProjectSearchTool>();
+        services.AddScoped<FeedbackTool>();
 
         // SQL schema validator (pre-execution column check)
         services.AddSingleton<SqlSchemaValidator>();

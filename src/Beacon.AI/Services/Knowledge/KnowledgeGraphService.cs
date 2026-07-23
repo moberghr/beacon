@@ -32,6 +32,10 @@ internal sealed class KnowledgeGraphService(
     // are project-scoped, so callers pass a projectId to the NN helpers instead of a dataSourceId.
     private static readonly int[] DocChunkOwnerTypes = [(int)McpEmbeddingOwnerType.DocChunk];
     private static readonly int[] GlossaryOwnerTypes = [(int)McpEmbeddingOwnerType.GlossaryTerm];
+
+    // Golden eval cases are data-source-scoped (like Exemplar/metadata), so retrieval passes a dataSourceId
+    // (not a projectId) to the shared nearest-neighbour helpers.
+    private static readonly int[] GoldenCaseOwnerTypes = [(int)McpEmbeddingOwnerType.GoldenCase];
     public async Task<TableKnowledge> GetTableKnowledgeAsync(int dataSourceId, string schemaName, string tableName, CancellationToken ct = default)
     {
         await using var context = await contextFactory.CreateDbContextAsync(ct);
@@ -955,6 +959,11 @@ internal sealed class KnowledgeGraphService(
             foreach (var t in allTables)
                 SchemaContextFormatter.AppendTableWithFullColumns(sb, t.SchemaName, t.TableName, t.TableDescription, t.Columns, isApi);
 
+            // Part A: inject human-verified golden query examples ABOVE the mined learned patterns — they are
+            // human-verified, so they outrank machine-mined patterns. Empty (behaviour-preserving) when
+            // disabled, the embedder is off, or no golden case is near.
+            sb.Append(await BuildGoldenExemplarBlockAsync(dataSourceId, question, mcpSettings, ct));
+
             // Inject learned patterns
             if (mcpSettings.EnableLearning)
             {
@@ -1052,6 +1061,10 @@ internal sealed class KnowledgeGraphService(
             foreach (var t in otherTables)
                 SchemaContextFormatter.AppendTableCompact(smartSb, t.SchemaName, t.TableName, t.TableDescription, t.Columns, isApi);
         }
+
+        // Part A: inject human-verified golden query examples ABOVE the mined learned patterns (same
+        // behaviour-preserving fallback as the fast path — empty string when nothing to inject).
+        smartSb.Append(await BuildGoldenExemplarBlockAsync(dataSourceId, question, mcpSettings, ct));
 
         // Inject learned patterns for relevant tables
         if (mcpSettings.EnableLearning)
@@ -1275,6 +1288,103 @@ internal sealed class KnowledgeGraphService(
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Glossary retrieval failed for data source {DataSourceId}; injecting no glossary block.", dataSourceId);
+            return "";
+        }
+    }
+
+    /// <summary>
+    /// Builds the "## Verified query examples (authoritative)" block injected into the ask context ABOVE the
+    /// mined learned-pattern block (§ Part A): the top-K human-verified golden eval cases nearest to the masked
+    /// question, each rendered as its question + gold SQL. Because they are human-verified they outrank the
+    /// machine-mined patterns. Returns "" — injecting nothing, behaviour-preserving — when golden exemplars are
+    /// disabled, the embedder is unavailable, semantic retrieval is off, or no active golden case is near. Fails
+    /// CLOSED (log + "") on transient retrieval errors, mirroring <see cref="BuildGlossaryBlockAsync"/>. Golden
+    /// cases are data-source-scoped, so retrieval keys on dataSourceId (not projectId). Internal for unit tests.
+    /// </summary>
+    internal async Task<string> BuildGoldenExemplarBlockAsync(int dataSourceId, string question, McpSettingsData settings, CancellationToken ct)
+    {
+        if (!settings.EnableGoldenExemplars || !embeddingService.IsAvailable || !settings.EnableSemanticRetrieval)
+        {
+            return "";
+        }
+
+        try
+        {
+            await using var context = await contextFactory.CreateDbContextAsync(ct);
+
+            var limit = Math.Max(1, settings.GoldenExemplarTopK);
+
+            // Mask the question exactly as golden cases were embedded at index time so similarity keys on
+            // structure, not literals.
+            var maskedVector = await embeddingService.EmbedAsync(EmbeddingMaskingHelper.Mask(question), ct);
+
+            // Data-source-scoped (projectId omitted) — same NN helpers, GoldenCase owner type.
+            var hits = context.Database.ProviderName == NpgsqlProviderName
+                ? await GetNearestPostgresAsync(context, maskedVector, dataSourceId, GoldenCaseOwnerTypes, limit, ct)
+                : await GetNearestInMemoryAsync(context, maskedVector, dataSourceId, GoldenCaseOwnerTypes, limit, ct);
+
+            if (hits.Count == 0)
+            {
+                return "";
+            }
+
+            // GoldenCase OwnerId == McpEvalCase.Id. Load the hit cases (ACTIVE only — a stale vector for a
+            // deactivated case maps to no active row and is skipped), then re-project in similarity order.
+            var ownerIds = hits
+                .Select(x => x.OwnerId)
+                .ToList();
+
+            var cases = await context.McpEvalCases
+                .Where(x => x.DataSourceId == dataSourceId)
+                .Where(x => x.IsActive)
+                .Where(x => ownerIds.Contains(x.Id))
+                .Select(x =>
+                    new GoldenCaseHit
+                    {
+                        Id = x.Id,
+                        Question = x.Question,
+                        GoldSql = x.GoldSql
+                    })
+                .ToListAsync(ct);
+
+            var casesById = cases.ToDictionary(x => x.Id);
+            var budget = Math.Max(0, settings.GoldenExemplarBudgetChars);
+
+            var sb = new StringBuilder();
+            foreach (var hit in hits)
+            {
+                if (!casesById.TryGetValue(hit.OwnerId, out var golden))
+                {
+                    continue;
+                }
+
+                var entry = $"-- Q: {golden.Question}\n{golden.GoldSql}\n\n";
+
+                // Budget guard: stop before exceeding the char budget so a large gold SQL can't blow the
+                // context. The first fitting entry is always emitted (better one verified example than none),
+                // so the guard only trims later entries.
+                if (budget > 0 && sb.Length > 0 && sb.Length + entry.Length > budget)
+                {
+                    break;
+                }
+
+                if (sb.Length == 0)
+                {
+                    sb.AppendLine("\n## Verified query examples (authoritative)\n");
+                }
+
+                sb.Append(entry);
+            }
+
+            return sb.ToString();
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Golden-exemplar retrieval failed for data source {DataSourceId}; injecting no verified-examples block.", dataSourceId);
             return "";
         }
     }
@@ -1713,5 +1823,12 @@ internal sealed class KnowledgeGraphService(
         public string? TargetTable { get; init; }
         public string? TargetColumn { get; init; }
         public string? MetricExpression { get; init; }
+    }
+
+    private sealed class GoldenCaseHit
+    {
+        public int Id { get; init; }
+        public string Question { get; init; } = "";
+        public string GoldSql { get; init; } = "";
     }
 }

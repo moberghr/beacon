@@ -86,7 +86,10 @@ internal sealed class McpSettingsProvider(
             DocChunkWindowSentences = entity.DocChunkWindowSentences,
             DocChunkOverlapSentences = entity.DocChunkOverlapSentences,
             GlossaryTopK = entity.GlossaryTopK,
-            DocChunkTopK = entity.DocChunkTopK
+            DocChunkTopK = entity.DocChunkTopK,
+            EnableGoldenExemplars = entity.EnableGoldenExemplars,
+            GoldenExemplarTopK = entity.GoldenExemplarTopK,
+            GoldenExemplarBudgetChars = entity.GoldenExemplarBudgetChars
         };
     }
 }

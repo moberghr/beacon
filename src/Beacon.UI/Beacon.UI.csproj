@@ -11,7 +11,7 @@
         <!-- NuGet packaging metadata. Consumers reference this package to get the React SPA + MapBeaconUi(). -->
         <IsPackable>true</IsPackable>
         <PackageId>Beacon.UI</PackageId>
-        <Description>Beacon React SPA packaged as an ASP.NET Core Razor Class Library. Adds `app.MapBeaconUi()` to host the UI from any .NET 9 web app.</Description>
+        <Description>Beacon React SPA packaged as an ASP.NET Core Razor Class Library. Adds `app.MapBeaconUi()` to host the UI from any .NET 10 web app.</Description>
         <Authors>Moberg</Authors>
 
         <!-- React/Vite build wiring -->

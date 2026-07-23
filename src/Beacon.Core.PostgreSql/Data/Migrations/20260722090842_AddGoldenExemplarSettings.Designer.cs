@@ -3,6 +3,7 @@ using System;
 using Beacon.Core.PostgreSql.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Beacon.Core.PostgreSql.Data.Migrations
 {
     [DbContext(typeof(PostgreSqlBeaconContext))]
-    partial class PostgreSqlBeaconContextModelSnapshot : ModelSnapshot
+    [Migration("20260722090842_AddGoldenExemplarSettings")]
+    partial class AddGoldenExemplarSettings
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -2801,10 +2804,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("execution_time_ms");
 
-                    b.Property<string>("FeedbackNote")
-                        .HasColumnType("text")
-                        .HasColumnName("feedback_note");
-
                     b.Property<string>("GeneratedSql")
                         .HasColumnType("text")
                         .HasColumnName("generated_sql");
@@ -2863,17 +2862,9 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("character varying(50)")
                         .HasColumnName("tool");
 
-                    b.Property<string>("UserCorrectedSql")
-                        .HasColumnType("text")
-                        .HasColumnName("user_corrected_sql");
-
                     b.Property<int?>("UserId")
                         .HasColumnType("integer")
                         .HasColumnName("user_id");
-
-                    b.Property<int>("UserVerdict")
-                        .HasColumnType("integer")
-                        .HasColumnName("user_verdict");
 
                     b.HasKey("Id")
                         .HasName("pk_mcp_query_signals");

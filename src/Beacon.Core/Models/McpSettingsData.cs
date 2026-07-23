@@ -38,4 +38,10 @@ public class McpSettingsData
     public int DocChunkOverlapSentences { get; set; } = 1;
     public int GlossaryTopK { get; set; } = 5;
     public int DocChunkTopK { get; set; } = 6;
+
+    // Golden-exemplar settings — human-verified golden eval cases injected into the ask context as
+    // authoritative query examples, ranked above mined learned patterns.
+    public bool EnableGoldenExemplars { get; set; } = true;
+    public int GoldenExemplarTopK { get; set; } = 4;
+    public int GoldenExemplarBudgetChars { get; set; } = 2000;
 }

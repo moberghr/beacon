@@ -4,6 +4,7 @@ using Beacon.Core.SqlServer.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Beacon.Core.SqlServer.Data.Migrations
 {
     [DbContext(typeof(SqlServerBeaconContext))]
-    partial class SqlServerBeaconContextModelSnapshot : ModelSnapshot
+    [Migration("20260722091141_AddGoldenExemplarSettings")]
+    partial class AddGoldenExemplarSettings
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -2194,9 +2197,6 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Property<int>("ExecutionTimeMs")
                         .HasColumnType("int");
 
-                    b.Property<string>("FeedbackNote")
-                        .HasColumnType("nvarchar(max)");
-
                     b.Property<string>("GeneratedSql")
                         .HasColumnType("nvarchar(max)");
 
@@ -2242,13 +2242,7 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
 
-                    b.Property<string>("UserCorrectedSql")
-                        .HasColumnType("nvarchar(max)");
-
                     b.Property<int?>("UserId")
-                        .HasColumnType("int");
-
-                    b.Property<int>("UserVerdict")
                         .HasColumnType("int");
 
                     b.HasKey("Id");

@@ -40,4 +40,9 @@ public class McpSettings : BaseEntity
     public int DocChunkOverlapSentences { get; set; } = 1;
     public int GlossaryTopK { get; set; } = 5;
     public int DocChunkTopK { get; set; } = 6;
+
+    // Golden-exemplar settings
+    public bool EnableGoldenExemplars { get; set; } = true;
+    public int GoldenExemplarTopK { get; set; } = 4;
+    public int GoldenExemplarBudgetChars { get; set; } = 2000;
 }
