@@ -99,7 +99,7 @@ export default function DataSourceDetailPage() {
   ];
 
   return (
-    <div className="flex flex-col gap-5 p-7">
+    <div className={`flex flex-col gap-5 p-7 ${tab === 'schema' ? 'h-dvh' : ''}`}>
       <PageHeader
         variant="nodes"
         eyebrow={<>Data <span className="eyebrow-sep">/</span> <span className="mono">#{entry.id}</span></>}
@@ -148,7 +148,7 @@ export default function DataSourceDetailPage() {
         <KPI dot="warn" label="Queries" value={formatNumber(entry.queryCount)} sub={`${formatNumber(entry.migrationJobsCount)} migrations`} />
       </KPIGrid>
 
-      <Card>
+      <Card className={tab === 'schema' ? 'flex flex-col flex-1 min-h-0' : undefined}>
         <Tabs tabs={tabs} active={tab} onChange={setTab} />
 
         {tab === 'overview' && <OverviewTab entry={entry} metadataLoading={metadataQuery.isLoading} />}
@@ -252,8 +252,8 @@ function SchemaTab({ query }: { query: ReturnType<typeof useDataSourceMetadataQu
       : undefined) ?? tables[0];
 
   return (
-    <CardBody flush className="grid grid-cols-[260px_1fr] gap-4">
-      <aside className="border-r border-border max-h-[480px] overflow-y-auto p-2">
+    <CardBody flush className="flex flex-1 min-h-0">
+      <aside className="w-[260px] shrink-0 border-r border-border overflow-x-hidden overflow-y-auto p-2">
         {tables.map(t => {
           const key = `${t.schemaName}.${t.tableName}`;
           const isActive = active && active.schemaName === t.schemaName && active.tableName === t.tableName;
@@ -261,26 +261,28 @@ function SchemaTab({ query }: { query: ReturnType<typeof useDataSourceMetadataQu
             <button
               key={key}
               type="button"
+              title={key}
               onClick={() => setSelected({ schemaName: t.schemaName, tableName: t.tableName })}
-              className={`w-full text-left px-2.5 py-1.5 rounded-sm transition flex items-center gap-1.5 ${
+              className={`block w-full truncate text-left px-2.5 py-1.5 rounded-sm transition ${
                 isActive ? 'bg-surface-2 font-semibold text-text' : 'text-text-muted hover:bg-surface-2 hover:text-text'
               }`}
             >
               <span className="mono text-xs">{t.schemaName}.</span>
-              <span className="text-sm">{t.tableName}</span>
+              <span className="text-sm ml-1">{t.tableName}</span>
             </button>
           );
         })}
       </aside>
 
-      <section className="p-4 overflow-auto">
+      <section className="flex-1 min-w-0 overflow-auto p-4">
         {active && <TableDetails table={active} />}
       </section>
     </CardBody>
   );
 }
 
-const COLUMN_GRID = '0.6fr 1.6fr 1fr 0.5fr 0.5fr 1fr';
+const COLUMN_GRID =
+  'minmax(0,0.4fr) minmax(0,2fr) minmax(0,1fr) minmax(0,0.5fr) minmax(0,0.5fr) minmax(0,1.4fr)';
 
 const COLUMN_TABLE_COLUMNS: Column<ColumnMetadataDto>[] = [
   { key: 'ord', header: '#', render: c => <span className="mono text-text-muted">{c.ordinalPosition}</span> },
