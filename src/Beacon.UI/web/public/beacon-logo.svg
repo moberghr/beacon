@@ -1,23 +1,23 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="32 22 232 76" preserveAspectRatio="xMidYMid meet">
   <defs>
     <linearGradient id="beamL76" x1="1" y1="0" x2="0" y2="0">
-      <stop offset="0%" stop-color="#34D399" stop-opacity="1"/>
-      <stop offset="60%" stop-color="#10B981" stop-opacity="0.35"/>
-      <stop offset="100%" stop-color="#10B981" stop-opacity="0"/>
+      <stop offset="0%" stop-color="#5a30ee" stop-opacity="1"/>
+      <stop offset="60%" stop-color="#430cda" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#430cda" stop-opacity="0"/>
     </linearGradient>
     <linearGradient id="beamR76" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#34D399" stop-opacity="1"/>
-      <stop offset="60%" stop-color="#10B981" stop-opacity="0.35"/>
-      <stop offset="100%" stop-color="#10B981" stop-opacity="0"/>
+      <stop offset="0%" stop-color="#5a30ee" stop-opacity="1"/>
+      <stop offset="60%" stop-color="#430cda" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#430cda" stop-opacity="0"/>
     </linearGradient>
     <radialGradient id="core76" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0%" stop-color="#ECFDF5"/>
-      <stop offset="60%" stop-color="#34D399"/>
-      <stop offset="100%" stop-color="#047857"/>
+      <stop offset="0%" stop-color="#EDE9FE"/>
+      <stop offset="60%" stop-color="#5a30ee"/>
+      <stop offset="100%" stop-color="#2a068f"/>
     </radialGradient>
     <linearGradient id="wordmark76" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#10B981"/>
-      <stop offset="100%" stop-color="#047857"/>
+      <stop offset="0%" stop-color="#430cda"/>
+      <stop offset="100%" stop-color="#2a068f"/>
     </linearGradient>
     <filter id="coreGlow76" x="-75%" y="-75%" width="250%" height="250%">
       <feGaussianBlur stdDeviation="4.5" result="blur"/>

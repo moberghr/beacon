@@ -18,7 +18,7 @@ namespace Beacon.Core.SqlServer.Data.Migrations
 #pragma warning disable 612, 618
             modelBuilder
                 .HasDefaultSchema("beacon")
-                .HasAnnotation("ProductVersion", "9.0.11")
+                .HasAnnotation("ProductVersion", "10.0.5")
                 .HasAnnotation("Relational:MaxIdentifierLength", 128);
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
@@ -1845,10 +1845,11 @@ namespace Beacon.Core.SqlServer.Data.Migrations
 
                     b.HasIndex("DataSourceId");
 
-                    b.HasIndex("DataSourceId", "OwnerType", "OwnerId")
-                        .IsUnique();
-
                     b.HasIndex("ProjectId", "OwnerType");
+
+                    b.HasIndex("DataSourceId", "OwnerType", "OwnerId")
+                        .IsUnique()
+                        .HasFilter("[DataSourceId] IS NOT NULL");
 
                     b.ToTable("McpEmbeddings", "beacon");
                 });
@@ -2193,6 +2194,9 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Property<int>("ExecutionTimeMs")
                         .HasColumnType("int");
 
+                    b.Property<string>("FeedbackNote")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<string>("GeneratedSql")
                         .HasColumnType("nvarchar(max)");
 
@@ -2238,7 +2242,13 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
 
+                    b.Property<string>("UserCorrectedSql")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<int?>("UserId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("UserVerdict")
                         .HasColumnType("int");
 
                     b.HasKey("Id");
@@ -2348,6 +2358,9 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Property<bool>("EnableEvalJudge")
                         .HasColumnType("bit");
 
+                    b.Property<bool>("EnableGoldenExemplars")
+                        .HasColumnType("bit");
+
                     b.Property<bool>("EnableLearning")
                         .HasColumnType("bit");
 
@@ -2392,6 +2405,12 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("int")
                         .HasDefaultValue(5);
+
+                    b.Property<int>("GoldenExemplarBudgetChars")
+                        .HasColumnType("int");
+
+                    b.Property<int>("GoldenExemplarTopK")
+                        .HasColumnType("int");
 
                     b.Property<double>("LearningAutoApproveThreshold")
                         .HasColumnType("float");
@@ -2461,6 +2480,14 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Property<string>("ForeignKeyColumn")
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("ForeignKeyConstraintName")
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<string>("ForeignKeySchema")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
 
                     b.Property<string>("ForeignKeyTable")
                         .HasMaxLength(200)
@@ -2574,6 +2601,90 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.HasIndex("DatabaseMetadataId");
 
                     b.ToTable("IndexMetadata", "beacon");
+                });
+
+            modelBuilder.Entity("Beacon.Core.Data.Entities.Metadata.SchemaRelationship", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime?>("ArchivedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("Cardinality")
+                        .HasColumnType("int");
+
+                    b.Property<double>("Confidence")
+                        .HasColumnType("float");
+
+                    b.Property<string>("ConstraintName")
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("DataSourceId")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("IsVerified")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<int>("Origin")
+                        .HasColumnType("int");
+
+                    b.Property<string>("SourceColumn")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("SourceSchema")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("SourceTable")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("TargetColumn")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("TargetSchema")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("TargetTable")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<int?>("VerifiedByUserId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("VerifiedTime")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DataSourceId", "Origin");
+
+                    b.HasIndex("DataSourceId", "SourceSchema", "SourceTable", "SourceColumn", "TargetSchema", "TargetTable", "TargetColumn")
+                        .IsUnique();
+
+                    b.ToTable("SchemaRelationships", "beacon");
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.Notification", b =>
@@ -3976,6 +4087,17 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("DatabaseMetadata");
+                });
+
+            modelBuilder.Entity("Beacon.Core.Data.Entities.Metadata.SchemaRelationship", b =>
+                {
+                    b.HasOne("Beacon.Core.Data.Entities.DataSource", "DataSource")
+                        .WithMany()
+                        .HasForeignKey("DataSourceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("DataSource");
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.Notification", b =>

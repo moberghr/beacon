@@ -1,4 +1,5 @@
 using Beacon.Core.Authorization;
+using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.McpEval;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
@@ -24,6 +25,10 @@ internal static class EvalEndpoints
         eval.MapPost("/golden/promote", (PromoteSignalToGoldenBody body, IMediator m, CancellationToken ct) =>
                 m.Send(new PromoteSignalToGoldenCommand(body.SignalId, body.Notes), ct))
             .WithName("PromoteSignalToGolden");
+
+        eval.MapPost("/feedback", (RecordQueryFeedbackBody body, IMediator m, CancellationToken ct) =>
+                m.Send(new RecordQueryFeedbackCommand(body.SignalId, body.Verdict, body.CorrectedSql, body.Note), ct))
+            .WithName("RecordQueryFeedback");
 
         eval.MapGet("/golden", (
                 [FromQuery] int? projectId,
@@ -73,5 +78,6 @@ internal static class EvalEndpoints
 }
 
 internal sealed record PromoteSignalToGoldenBody(int SignalId, string? Notes);
+internal sealed record RecordQueryFeedbackBody(int SignalId, McpUserVerdict Verdict, string? CorrectedSql, string? Note);
 internal sealed record RunEvalBody(int? ProjectId);
 internal sealed record UpdateGoldenCaseBody(string? Question, string? GoldSql, bool? IsActive, string? Notes);

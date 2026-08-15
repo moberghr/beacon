@@ -1,0 +1,42 @@
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Folder Name="/SolutionFiles/">
+    <File Path="CLAUDE.md" />
+    <File Path="MIGRATIONS.md" />
+    <File Path="README.md" />
+  </Folder>
+  <Folder Name="/SolutionFiles/ClaudePlans/">
+    <File Path="ClaudePlans/QueryChainingFeature.md" />
+  </Folder>
+  <Folder Name="/SolutionFiles/Specify/">
+    <File Path="Specify/memory/constitution.md" />
+    <File Path="Specify/memory/constitution_update_checklist.md" />
+  </Folder>
+  <Folder Name="/SolutionFiles/Specs/">
+    <File Path="specs/001-data-migrator/spec.md" />
+  </Folder>
+  <Folder Name="/Test/">
+    <Project Path="src/Beacon.SampleProject/Beacon.SampleProject.csproj" />
+  </Folder>
+  <Project Path="src/Beacon.AI/Beacon.AI.csproj" />
+  <Project Path="src/Beacon.Api/Beacon.Api.csproj" />
+  <Project Path="src/Beacon.Connector.Api/Beacon.Connector.Api.csproj" />
+  <Project Path="src/Beacon.Connector.AzureSynapse/Beacon.Connector.AzureSynapse.csproj" />
+  <Project Path="src/Beacon.Connector.BigQuery/Beacon.Connector.BigQuery.csproj" />
+  <Project Path="src/Beacon.Connector.CloudWatch/Beacon.Connector.CloudWatch.csproj" />
+  <Project Path="src/Beacon.Connector.Databricks/Beacon.Connector.Databricks.csproj" />
+  <Project Path="src/Beacon.Connector.MySql/Beacon.Connector.MySql.csproj" />
+  <Project Path="src/Beacon.Connector.PostgreSql/Beacon.Connector.PostgreSql.csproj" />
+  <Project Path="src/Beacon.Connector.Snowflake/Beacon.Connector.Snowflake.csproj" />
+  <Project Path="src/Beacon.Connector.SqlServer/Beacon.Connector.SqlServer.csproj" />
+  <Project Path="src/Beacon.Core.PostgreSql/Beacon.Core.PostgreSql.csproj" />
+  <Project Path="src/Beacon.Core.SqlServer/Beacon.Core.SqlServer.csproj" />
+  <Project Path="src/Beacon.Core/Beacon.Core.csproj" />
+  <Project Path="src/Beacon.MCP/Beacon.MCP.csproj" />
+  <Project Path="src/Beacon.Tests/Beacon.Tests.csproj" />
+  <Project Path="src/Beacon.UI/Beacon.UI.csproj" />
+</Solution>

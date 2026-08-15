@@ -142,7 +142,21 @@ internal sealed class EmbeddingIndexingService(
                 })
             .ToListAsync(ct);
 
-        var inputs = BuildEmbeddingInputs(tables, exemplars);
+        // Human-verified golden eval cases for this data source (§ Part A). Indexed as GoldenCase exemplars
+        // so the ask path can retrieve the nearest verified question→SQL pairs and inject them as
+        // authoritative examples. Only ACTIVE cases are embedded; deactivated/deleted ones are pruned below.
+        var goldenCases = await context.McpEvalCases
+            .Where(x => x.DataSourceId == dataSourceId)
+            .Where(x => x.IsActive)
+            .Select(x =>
+                new GoldenCaseSource
+                {
+                    Id = x.Id,
+                    Question = x.Question
+                })
+            .ToListAsync(ct);
+
+        var inputs = BuildEmbeddingInputs(tables, exemplars, goldenCases);
 
         var existing = await context.McpEmbeddings
             .Where(x => x.DataSourceId == dataSourceId)
@@ -163,11 +177,15 @@ internal sealed class EmbeddingIndexingService(
             .SelectMany(x => x.Columns)
             .Select(x => x.Id)
             .ToHashSet();
+        var validGoldenIds = goldenCases
+            .Select(x => x.Id)
+            .ToHashSet();
         var staleRows = existing
             .Where(x =>
                 (x.OwnerType == McpEmbeddingOwnerType.Exemplar && !validExemplarIds.Contains(x.OwnerId))
                 || (x.OwnerType == McpEmbeddingOwnerType.MetadataTable && !validTableIds.Contains(x.OwnerId))
-                || (x.OwnerType == McpEmbeddingOwnerType.MetadataColumn && !validColumnIds.Contains(x.OwnerId)))
+                || (x.OwnerType == McpEmbeddingOwnerType.MetadataColumn && !validColumnIds.Contains(x.OwnerId))
+                || (x.OwnerType == McpEmbeddingOwnerType.GoldenCase && !validGoldenIds.Contains(x.OwnerId)))
             .ToList();
 
         // Nothing to embed AND nothing to prune → no-op (guards the empty-set case without an idle SaveChanges).
@@ -244,7 +262,7 @@ internal sealed class EmbeddingIndexingService(
             inputs.Count, dataSourceId, toAdd.Count, staleRows.Count);
     }
 
-    private static List<EmbeddingInput> BuildEmbeddingInputs(List<TableSource> tables, List<ExemplarSource> exemplars)
+    private static List<EmbeddingInput> BuildEmbeddingInputs(List<TableSource> tables, List<ExemplarSource> exemplars, List<GoldenCaseSource> goldenCases)
     {
         var inputs = new List<EmbeddingInput>();
 
@@ -272,6 +290,16 @@ internal sealed class EmbeddingIndexingService(
                 McpEmbeddingOwnerType.Exemplar,
                 exemplar.Id,
                 EmbeddingMaskingHelper.Mask(exemplar.ExampleQuestion ?? exemplar.PatternContent)));
+        }
+
+        // Golden cases embed their masked verified question (same masking as exemplars) so they rank by
+        // question structure at retrieval time.
+        foreach (var golden in goldenCases)
+        {
+            inputs.Add(new EmbeddingInput(
+                McpEmbeddingOwnerType.GoldenCase,
+                golden.Id,
+                EmbeddingMaskingHelper.Mask(golden.Question)));
         }
 
         return inputs;
@@ -318,5 +346,11 @@ internal sealed class EmbeddingIndexingService(
         public int Id { get; set; }
         public string? ExampleQuestion { get; set; }
         public string PatternContent { get; set; } = null!;
+    }
+
+    private sealed class GoldenCaseSource
+    {
+        public int Id { get; set; }
+        public string Question { get; set; } = null!;
     }
 }

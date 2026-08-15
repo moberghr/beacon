@@ -6,7 +6,7 @@
 		<Nullable>enable</Nullable>
 
 		<!-- Package Information -->
-		<Authors>https://github.com/moberghr</Authors>
+		<Authors>Moberg</Authors>
 		<Description>Beacon AI extensions library providing LLM-powered documentation generation, alert creation, and AI actors. Optional add-on for Beacon core.</Description>
 		<PackageProjectUrl>https://github.com/moberghr/beacon</PackageProjectUrl>
 		<RepositoryUrl>https://github.com/moberghr/beacon</RepositoryUrl>
@@ -31,27 +31,27 @@
 
 	<ItemGroup>
 		<!-- LLM Provider packages -->
-		<PackageReference Include="Anthropic" Version="12.0.1" />
-		<PackageReference Include="Azure.AI.OpenAI" Version="2.0.0" />
-		<PackageReference Include="OpenAI" Version="2.8.0" />
-		<PackageReference Include="Microsoft.Agents.AI" Version="1.0.0-preview.260108.1" />
-		<PackageReference Include="Microsoft.Agents.AI.OpenAI" Version="1.0.0-preview.260108.1" />
-		<PackageReference Include="Microsoft.Agents.AI.Workflows" Version="1.0.0-preview.260108.1" />
-		<PackageReference Include="Microsoft.Extensions.AI" Version="10.2.0" />
-		<PackageReference Include="AWSSDK.BedrockRuntime" Version="4.0.14.4" />
+		<PackageReference Include="Anthropic" />
+		<PackageReference Include="Azure.AI.OpenAI" />
+		<PackageReference Include="OpenAI" />
+		<PackageReference Include="Microsoft.Agents.AI" />
+		<PackageReference Include="Microsoft.Agents.AI.OpenAI" />
+		<PackageReference Include="Microsoft.Agents.AI.Workflows" />
+		<PackageReference Include="Microsoft.Extensions.AI" />
+		<PackageReference Include="AWSSDK.BedrockRuntime" />
 
 		<!-- Local in-process embeddings (ONNX; bge-small-en-v1.5). No network egress. -->
-		<PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.27.0" />
-		<PackageReference Include="Microsoft.ML.Tokenizers" Version="2.0.0" />
+		<PackageReference Include="Microsoft.ML.OnnxRuntime" />
+		<PackageReference Include="Microsoft.ML.Tokenizers" />
 
 		<!-- Document generation packages -->
-		<PackageReference Include="QuestPDF" Version="2025.12.1" />
-		<PackageReference Include="Markdig" Version="0.44.0" />
+		<PackageReference Include="QuestPDF" />
+		<PackageReference Include="Markdig" />
 
 		<!-- Required dependencies from Core -->
-		<PackageReference Include="MediatR" Version="12.4.1" />
-		<PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.5" />
-		<PackageReference Include="Microsoft.Extensions.Http" Version="10.0.5" />
+		<PackageReference Include="MediatR" />
+		<PackageReference Include="Microsoft.EntityFrameworkCore" />
+		<PackageReference Include="Microsoft.Extensions.Http" />
 	</ItemGroup>
 
 </Project>

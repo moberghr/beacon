@@ -10,7 +10,7 @@
     <ProjectReference Include="..\Beacon.Core\Beacon.Core.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="MySql.Data" Version="9.5.0" />
-    <PackageReference Include="Dapper" Version="2.1.66" />
+    <PackageReference Include="MySql.Data" />
+    <PackageReference Include="Dapper" />
   </ItemGroup>
 </Project>

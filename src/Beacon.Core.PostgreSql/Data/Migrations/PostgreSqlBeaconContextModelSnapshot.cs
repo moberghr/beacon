@@ -17,7 +17,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "9.0.11")
+                .HasAnnotation("ProductVersion", "10.0.5")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -2363,12 +2363,12 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasIndex("DataSourceId")
                         .HasDatabaseName("ix_mcp_embeddings_data_source_id");
 
+                    b.HasIndex("ProjectId", "OwnerType")
+                        .HasDatabaseName("ix_mcp_embeddings_project_id_owner_type");
+
                     b.HasIndex("DataSourceId", "OwnerType", "OwnerId")
                         .IsUnique()
                         .HasDatabaseName("ix_mcp_embeddings_data_source_id_owner_type_owner_id");
-
-                    b.HasIndex("ProjectId", "OwnerType")
-                        .HasDatabaseName("ix_mcp_embeddings_project_id_owner_type");
 
                     b.ToTable("mcp_embeddings", (string)null);
                 });
@@ -2801,6 +2801,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("execution_time_ms");
 
+                    b.Property<string>("FeedbackNote")
+                        .HasColumnType("text")
+                        .HasColumnName("feedback_note");
+
                     b.Property<string>("GeneratedSql")
                         .HasColumnType("text")
                         .HasColumnName("generated_sql");
@@ -2859,9 +2863,17 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("character varying(50)")
                         .HasColumnName("tool");
 
+                    b.Property<string>("UserCorrectedSql")
+                        .HasColumnType("text")
+                        .HasColumnName("user_corrected_sql");
+
                     b.Property<int?>("UserId")
                         .HasColumnType("integer")
                         .HasColumnName("user_id");
+
+                    b.Property<int>("UserVerdict")
+                        .HasColumnType("integer")
+                        .HasColumnName("user_verdict");
 
                     b.HasKey("Id")
                         .HasName("pk_mcp_query_signals");
@@ -2999,6 +3011,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("enable_eval_judge");
 
+                    b.Property<bool>("EnableGoldenExemplars")
+                        .HasColumnType("boolean")
+                        .HasColumnName("enable_golden_exemplars");
+
                     b.Property<bool>("EnableLearning")
                         .HasColumnType("boolean")
                         .HasColumnName("enable_learning");
@@ -3055,6 +3071,14 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("integer")
                         .HasDefaultValue(5)
                         .HasColumnName("glossary_top_k");
+
+                    b.Property<int>("GoldenExemplarBudgetChars")
+                        .HasColumnType("integer")
+                        .HasColumnName("golden_exemplar_budget_chars");
+
+                    b.Property<int>("GoldenExemplarTopK")
+                        .HasColumnType("integer")
+                        .HasColumnName("golden_exemplar_top_k");
 
                     b.Property<double>("LearningAutoApproveThreshold")
                         .HasColumnType("double precision")
@@ -3141,6 +3165,16 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)")
                         .HasColumnName("foreign_key_column");
+
+                    b.Property<string>("ForeignKeyConstraintName")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("foreign_key_constraint_name");
+
+                    b.Property<string>("ForeignKeySchema")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("foreign_key_schema");
 
                     b.Property<string>("ForeignKeyTable")
                         .HasMaxLength(200)
@@ -3285,6 +3319,111 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasDatabaseName("ix_index_metadata_database_metadata_id");
 
                     b.ToTable("index_metadata", (string)null);
+                });
+
+            modelBuilder.Entity("Beacon.Core.Data.Entities.Metadata.SchemaRelationship", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime?>("ArchivedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("archived_time");
+
+                    b.Property<int>("Cardinality")
+                        .HasColumnType("integer")
+                        .HasColumnName("cardinality");
+
+                    b.Property<double>("Confidence")
+                        .HasColumnType("double precision")
+                        .HasColumnName("confidence");
+
+                    b.Property<string>("ConstraintName")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("constraint_name");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_time");
+
+                    b.Property<int>("DataSourceId")
+                        .HasColumnType("integer")
+                        .HasColumnName("data_source_id");
+
+                    b.Property<bool>("IsVerified")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_verified");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("label");
+
+                    b.Property<int>("Origin")
+                        .HasColumnType("integer")
+                        .HasColumnName("origin");
+
+                    b.Property<string>("SourceColumn")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("source_column");
+
+                    b.Property<string>("SourceSchema")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("source_schema");
+
+                    b.Property<string>("SourceTable")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("source_table");
+
+                    b.Property<string>("TargetColumn")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("target_column");
+
+                    b.Property<string>("TargetSchema")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("target_schema");
+
+                    b.Property<string>("TargetTable")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("target_table");
+
+                    b.Property<int?>("VerifiedByUserId")
+                        .HasColumnType("integer")
+                        .HasColumnName("verified_by_user_id");
+
+                    b.Property<DateTime?>("VerifiedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("verified_time");
+
+                    b.HasKey("Id")
+                        .HasName("pk_schema_relationships");
+
+                    b.HasIndex("DataSourceId", "Origin")
+                        .HasDatabaseName("ix_schema_relationships_data_source_id_origin");
+
+                    b.HasIndex("DataSourceId", "SourceSchema", "SourceTable", "SourceColumn", "TargetSchema", "TargetTable", "TargetColumn")
+                        .IsUnique()
+                        .HasDatabaseName("ix_schema_relationships_data_source_id_source_schema_source_ta");
+
+                    b.ToTable("schema_relationships", (string)null);
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.Notification", b =>
@@ -5009,6 +5148,18 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasConstraintName("fk_index_metadata_database_metadata_database_metadata_id");
 
                     b.Navigation("DatabaseMetadata");
+                });
+
+            modelBuilder.Entity("Beacon.Core.Data.Entities.Metadata.SchemaRelationship", b =>
+                {
+                    b.HasOne("Beacon.Core.Data.Entities.DataSource", "DataSource")
+                        .WithMany()
+                        .HasForeignKey("DataSourceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_schema_relationships_data_sources_data_source_id");
+
+                    b.Navigation("DataSource");
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.Notification", b =>

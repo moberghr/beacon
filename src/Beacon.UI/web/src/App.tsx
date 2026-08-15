@@ -29,6 +29,7 @@ const SubscriptionsListPage = lazyWithRetry(() => import('./routes/subscriptions
 const SubscriptionDetailPage = lazyWithRetry(() => import('./routes/subscriptions/SubscriptionDetailPage'));
 const DataSourcesListPage = lazyWithRetry(() => import('./routes/data-sources/DataSourcesListPage'));
 const DataSourceDetailPage = lazyWithRetry(() => import('./routes/data-sources/DataSourceDetailPage'));
+const RelationshipsPage = lazyWithRetry(() => import('./routes/data-sources/relationships/RelationshipsPage'));
 const NewProjectPage = lazyWithRetry(() => import('./routes/projects/NewProjectPage'));
 const NewMigrationJobPage = lazyWithRetry(() => import('./routes/migration-jobs/NewMigrationJobPage'));
 const MigrationJobDetailPage = lazyWithRetry(() => import('./routes/migration-jobs/MigrationJobDetailPage'));
@@ -115,6 +116,7 @@ export default function App() {
                   <Route path="/subscriptions/:id" element={lazyRoute(SubscriptionDetailPage)} />
                   <Route path="/data-sources" element={lazyRoute(DataSourcesListPage)} />
                   <Route path="/data-sources/:id" element={lazyRoute(DataSourceDetailPage)} />
+                  <Route path="/data-sources/:id/relationships" element={lazyRoute(RelationshipsPage)} />
                   <Route path="/admin-settings" element={lazyRoute(AdminSettingsPage)} />
                   <Route path="/settings" element={lazyRoute(SettingsPage)} />
                   <Route path="/data-quality" element={lazyRoute(DataQualityPage)} />

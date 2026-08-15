@@ -10,7 +10,7 @@
     <ProjectReference Include="..\Beacon.Core\Beacon.Core.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="Microsoft.OpenApi.Readers" Version="1.6.22" />
-    <PackageReference Include="JsonPath.Net" Version="1.1.6" />
+    <PackageReference Include="Microsoft.OpenApi.Readers" />
+    <PackageReference Include="JsonPath.Net" />
   </ItemGroup>
 </Project>

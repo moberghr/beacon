@@ -92,6 +92,7 @@ public static class BeaconApiEndpoints
         group.MapRecipientsEndpoints();
         group.MapSubscriptionsEndpoints();
         group.MapDataSourcesEndpoints();
+        group.MapSchemaRelationshipsEndpoints();
         group.MapNotificationActionEndpoints();
         group.MapAdminSettingsEndpoints();
         group.MapUserSettingsEndpoints();

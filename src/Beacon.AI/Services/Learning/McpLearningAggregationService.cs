@@ -354,12 +354,15 @@ internal sealed class McpLearningAggregationService(
         }
     }
 
-    private static async Task DetectCommonQueriesAsync(
+    internal static async Task DetectCommonQueriesAsync(
         BeaconContext context, int projectId, int dataSourceId,
         List<McpQuerySignal> signals, CancellationToken ct)
     {
         var successful = signals
             .Where(s => s.IsSuccessful && !string.IsNullOrEmpty(s.GeneratedSql) && !string.IsNullOrEmpty(s.TablesUsed))
+            // Part B: a human-verified INCORRECT answer is worse than no signal — execution success is not
+            // correctness. Never mine an explicitly-wrong query into a "common query" pattern.
+            .Where(s => s.UserVerdict != McpUserVerdict.Incorrect)
             .ToList();
 
         if (successful.Count < 3) return;
@@ -371,9 +374,10 @@ internal sealed class McpLearningAggregationService(
 
         foreach (var group in byTables)
         {
-            // Prefer non-failed signals for the representative example
+            // Prefer a human-CONFIRMED signal as the exemplar, then a non-failed one.
             var representative = group
-                .OrderBy(s => s.SchemaValidationFailed ? 1 : 0)
+                .OrderByDescending(s => s.UserVerdict == McpUserVerdict.Correct ? 1 : 0)
+                .ThenBy(s => s.SchemaValidationFailed ? 1 : 0)
                 .ThenByDescending(s => s.ResultRowCount ?? 0)
                 .First();
 
@@ -385,8 +389,11 @@ internal sealed class McpLearningAggregationService(
             var schema = parts.Length > 1 ? parts[0] : "public";
             var table = parts.Length > 1 ? parts[1] : parts[0];
 
+            // Part B: a group containing a human-CONFIRMED answer is more trustworthy than one resting on
+            // execution success alone, so it earns a confidence bonus.
+            var humanVerified = group.Any(s => s.UserVerdict == McpUserVerdict.Correct);
             var content = $"Common query pattern for {primaryTable} ({group.Count()} similar queries)";
-            var confidence = Math.Min(1.0, 0.4 + (group.Count() * 0.1));
+            var confidence = Math.Min(1.0, 0.4 + (group.Count() * 0.1) + (humanVerified ? 0.2 : 0.0));
 
             // Use corrected SQL if the representative had a correction — never store broken SQL
             var exampleSql = representative.CorrectedSql ?? representative.GeneratedSql;
@@ -397,12 +404,14 @@ internal sealed class McpLearningAggregationService(
         }
     }
 
-    private static async Task DetectJoinPatternsAsync(
+    internal static async Task DetectJoinPatternsAsync(
         BeaconContext context, int projectId, int dataSourceId,
         List<McpQuerySignal> signals, CancellationToken ct)
     {
         var multiTable = signals
             .Where(s => s.IsSuccessful && !string.IsNullOrEmpty(s.TablesUsed))
+            // Part B: exclude human-verified-incorrect answers from join mining (execution success ≠ correct join).
+            .Where(s => s.UserVerdict != McpUserVerdict.Incorrect)
             .Select(s => new { Signal = s, Tables = TryDeserializeJsonArray(s.TablesUsed!) })
             .Where(x => x.Tables.Count >= 2)
             .ToList();
@@ -418,15 +427,19 @@ internal sealed class McpLearningAggregationService(
         foreach (var group in joinGroups)
         {
             var pair = group.Key;
-            var representative = group.First().Signal;
+            // Prefer a human-CONFIRMED join as the exemplar.
+            var representative = group
+                .OrderByDescending(x => x.Signal.UserVerdict == McpUserVerdict.Correct ? 1 : 0)
+                .First().Signal;
 
             var parts = pair.Split('+');
             var table1Parts = parts[0].Trim().Split('.');
             var schema = table1Parts.Length > 1 ? table1Parts[0] : "public";
             var table = table1Parts.Length > 1 ? table1Parts[1] : table1Parts[0];
 
+            var humanVerified = group.Any(x => x.Signal.UserVerdict == McpUserVerdict.Correct);
             var content = $"Tables {pair} are frequently joined together ({group.Count()} queries)";
-            var confidence = Math.Min(1.0, 0.5 + (group.Count() * 0.1));
+            var confidence = Math.Min(1.0, 0.5 + (group.Count() * 0.1) + (humanVerified ? 0.2 : 0.0));
 
             await UpsertPatternAsync(context, projectId, dataSourceId, schema, table, null,
                 McpPatternType.JoinPattern, content, representative.Question, representative.GeneratedSql,

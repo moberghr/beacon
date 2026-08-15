@@ -1,4 +1,6 @@
 using FluentAssertions;
+using Beacon.Core.Services.Metadata;
+using Beacon.Core.Models.Metadata;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -242,6 +244,8 @@ public class SemanticExemplarSelectionTests
             factory.Object,
             settings.Object,
             embedder,
+            Mock.Of<ISchemaGraphService>(x => x.GetGraphAsync(It.IsAny<int>(), It.IsAny<CancellationToken>())
+                == Task.FromResult(SchemaGraph.Build(Array.Empty<TableMetadataDto>(), Array.Empty<SchemaRelationshipEdge>()))),
             NullLogger<KnowledgeGraphService>.Instance);
     }
 

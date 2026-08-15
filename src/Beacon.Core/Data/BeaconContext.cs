@@ -57,6 +57,8 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
 
     public DbSet<IndexMetadata> IndexMetadata => Set<IndexMetadata>();
 
+    public DbSet<SchemaRelationship> SchemaRelationships => Set<SchemaRelationship>();
+
     public DbSet<Comment> Comments => Set<Comment>();
 
     public DbSet<AnomalyConfig> AnomalyConfigs => Set<AnomalyConfig>();
@@ -323,6 +325,8 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             entity.Property(e => e.DataType).HasMaxLength(100).IsRequired();
             entity.Property(e => e.ForeignKeyTable).HasMaxLength(200);
             entity.Property(e => e.ForeignKeyColumn).HasMaxLength(200);
+            entity.Property(e => e.ForeignKeySchema).HasMaxLength(100);
+            entity.Property(e => e.ForeignKeyConstraintName).HasMaxLength(300);
             entity.Property(e => e.DefaultValue).HasMaxLength(500);
             entity.Property(e => e.Description).HasMaxLength(1000);
             entity.Property(e => e.SampleValues).HasMaxLength(2000);
@@ -341,6 +345,39 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
 
             // Indexes for performance
             entity.HasIndex(e => e.DatabaseMetadataId);
+        });
+
+        // SchemaRelationship configuration
+        modelBuilder.Entity<SchemaRelationship>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.SourceSchema).HasMaxLength(100).IsRequired();
+            entity.Property(e => e.SourceTable).HasMaxLength(200).IsRequired();
+            entity.Property(e => e.SourceColumn).HasMaxLength(200).IsRequired();
+            entity.Property(e => e.TargetSchema).HasMaxLength(100).IsRequired();
+            entity.Property(e => e.TargetTable).HasMaxLength(200).IsRequired();
+            entity.Property(e => e.TargetColumn).HasMaxLength(200).IsRequired();
+            entity.Property(e => e.Label).HasMaxLength(200).IsRequired();
+            entity.Property(e => e.ConstraintName).HasMaxLength(300);
+
+            entity.HasOne(e => e.DataSource)
+                  .WithMany()
+                  .HasForeignKey(e => e.DataSourceId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            // One edge per column pair per data source — sync re-runs must not duplicate.
+            entity.HasIndex(e => new
+            {
+                e.DataSourceId,
+                e.SourceSchema,
+                e.SourceTable,
+                e.SourceColumn,
+                e.TargetSchema,
+                e.TargetTable,
+                e.TargetColumn
+            }).IsUnique();
+
+            entity.HasIndex(e => new { e.DataSourceId, e.Origin });
         });
     }
 

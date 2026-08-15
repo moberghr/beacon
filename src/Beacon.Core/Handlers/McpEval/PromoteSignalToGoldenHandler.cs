@@ -22,7 +22,7 @@ internal sealed class PromoteSignalToGoldenHandler(IDbContextFactory<BeaconConte
             .FirstOrDefaultAsync(cancellationToken)
             ?? throw new InvalidOperationException($"Query signal {request.SignalId} not found.");
 
-        var goldSql = signal.CorrectedSql ?? signal.GeneratedSql;
+        var goldSql = signal.UserCorrectedSql ?? signal.CorrectedSql ?? signal.GeneratedSql;
         if (string.IsNullOrWhiteSpace(goldSql))
         {
             throw new InvalidOperationException($"Query signal {request.SignalId} has no SQL to promote.");

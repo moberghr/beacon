@@ -39,21 +39,29 @@ public class AzureSynapseMetadataExtractor : IDatabaseMetadataExtractor
                 s.name AS table_schema,
                 t.name AS table_name,
                 c.name AS column_name,
+                rs.name AS foreign_schema_name,
                 rt.name AS foreign_table_name,
-                rc.name AS foreign_column_name
+                rc.name AS foreign_column_name,
+                fkc.name AS constraint_name
             FROM sys.foreign_key_columns fk
             JOIN sys.tables t ON fk.parent_object_id = t.object_id
             JOIN sys.schemas s ON t.schema_id = s.schema_id
             JOIN sys.columns c ON fk.parent_object_id = c.object_id AND fk.parent_column_id = c.column_id
             JOIN sys.tables rt ON fk.referenced_object_id = rt.object_id
-            JOIN sys.columns rc ON fk.referenced_object_id = rc.object_id AND fk.referenced_column_id = rc.column_id";
+            JOIN sys.schemas rs ON rt.schema_id = rs.schema_id
+            JOIN sys.columns rc ON fk.referenced_object_id = rc.object_id AND fk.referenced_column_id = rc.column_id
+            JOIN sys.foreign_keys fkc ON fk.constraint_object_id = fkc.object_id";
 
         var foreignKeys = await connection.QueryAsync(new CommandDefinition(foreignKeysQuery, commandTimeout: 180, cancellationToken: cancellationToken));
         var fkLookup = foreignKeys
             .GroupBy(fk => $"{fk.table_schema}.{fk.table_name}.{fk.column_name}")
             .ToDictionary(
                 g => g.Key,
-                g => (TableName: (string)g.First().foreign_table_name, ColumnName: (string)g.First().foreign_column_name)
+                g => (
+                    TableName: (string)g.First().foreign_table_name,
+                    ColumnName: (string)g.First().foreign_column_name,
+                    SchemaName: (string?)g.First().foreign_schema_name,
+                    ConstraintName: (string?)g.First().constraint_name)
             );
 
         // Synapse may not support STRING_AGG in all configurations, use simpler index query
@@ -98,7 +106,10 @@ public class AzureSynapseMetadataExtractor : IDatabaseMetadataExtractor
                         // sys.columns.max_length is boxed as short, so `as int?` is always null — convert explicitly.
                         // Note: for nvarchar/nchar this value is in bytes (2x the character length).
                         MaxLength: c.max_length == null ? (int?)null : Convert.ToInt32(c.max_length),
-                        Description: null
+                        Description: null,
+                        SampleValues: null,
+                        ForeignKeySchema: hasFk ? fkInfo.SchemaName : null,
+                        ForeignKeyConstraintName: hasFk ? fkInfo.ConstraintName : null
                     );
                 }).ToList();
 

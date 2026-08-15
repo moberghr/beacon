@@ -8,14 +8,14 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="Moberg.Warp.Core" Version="3.1.0" />
-        <PackageReference Include="Moberg.Warp.Worker" Version="3.1.0" />
-        <PackageReference Include="Moberg.Warp.Provider.PostgreSql" Version="3.1.0" />
-        <PackageReference Include="Moberg.Warp.Provider.SqlServer" Version="3.1.0" />
-        <PackageReference Include="Moberg.Warp.UI" Version="3.1.0" />
-        <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.5" />
-        <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="10.0.5" />
-        <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.5">
+        <PackageReference Include="Moberg.Warp.Core" />
+        <PackageReference Include="Moberg.Warp.Worker" />
+        <PackageReference Include="Moberg.Warp.Provider.PostgreSql" />
+        <PackageReference Include="Moberg.Warp.Provider.SqlServer" />
+        <PackageReference Include="Moberg.Warp.UI" />
+        <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+        <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" />
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
           <PrivateAssets>all</PrivateAssets>
           <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>

@@ -16,7 +16,7 @@
 @layer base {
   :focus-visible {
     outline: none;
-    box-shadow: 0 0 0 3px oklch(58% 0.095 175 / 0.20);
+    box-shadow: 0 0 0 3px oklch(43.5% 0.261 278 / 0.20);
   }
 }
 
@@ -34,7 +34,7 @@
     height: 6px;
     border-radius: 99px;
     background: var(--brand-500);
-    box-shadow: 0 0 0 3px oklch(58% 0.095 175 / 0.18);
+    box-shadow: 0 0 0 3px oklch(43.5% 0.261 278 / 0.18);
   }
 
   /* SQL token colors used by the QueryExecution sample and the SQL editor. */
@@ -58,7 +58,7 @@
   [data-theme="dark"] .tok-kw { color: oklch(72% 0.16 280); }
   [data-theme="dark"] .tok-fn { color: oklch(72% 0.14 30); }
   [data-theme="dark"] .tok-str { color: oklch(72% 0.13 155); }
-  [data-theme="dark"] .tok-prm { background: oklch(26% 0.06 175); color: oklch(78% 0.09 175); }
+  [data-theme="dark"] .tok-prm { background: oklch(28% 0.10 278); color: oklch(80% 0.13 278); }
   [data-theme="dark"] .tok-ref { background: oklch(24% 0.04 240); color: oklch(78% 0.13 240); }
 
   /* Beacon logo dot — soft heartbeat. Used by the sidebar brand. */
@@ -70,7 +70,7 @@
     position: relative;
     display: grid;
     place-items: center;
-    box-shadow: 0 0 0 3px oklch(58% 0.095 175 / 0.15);
+    box-shadow: 0 0 0 3px oklch(43.5% 0.261 278 / 0.15);
   }
   .beacon-logo-dot::after {
     content: '';
@@ -78,7 +78,7 @@
     height: 8px;
     border-radius: 50%;
     background: white;
-    box-shadow: 0 0 0 2px oklch(58% 0.095 175 / 0.4);
+    box-shadow: 0 0 0 2px oklch(43.5% 0.261 278 / 0.4);
     animation: beacon-pulse 2.4s ease-in-out infinite;
   }
 
@@ -155,33 +155,33 @@
 :root {
   --font-mono: 'Geist Mono', ui-monospace, 'SF Mono', Menlo, monospace;
 
-  /* Brand — teal, desaturated */
-  --brand-50:  oklch(97% 0.02 175);
-  --brand-100: oklch(94% 0.04 175);
-  --brand-200: oklch(88% 0.07 175);
-  --brand-300: oklch(78% 0.09 175);
-  --brand-400: oklch(68% 0.10 175);
-  --brand-500: oklch(58% 0.095 175);
-  --brand-600: oklch(50% 0.09 175);
-  --brand-700: oklch(42% 0.08 175);
-  --brand-800: oklch(34% 0.06 175);
-  --brand-900: oklch(26% 0.04 175);
+  /* Brand — Moberg Blue (#430cda), anchored at 500 */
+  --brand-50:  oklch(97% 0.02 278);
+  --brand-100: oklch(94% 0.045 278);
+  --brand-200: oklch(87% 0.09 278);
+  --brand-300: oklch(76% 0.15 278);
+  --brand-400: oklch(58% 0.235 278);
+  --brand-500: oklch(43.5% 0.261 278); /* #430cda */
+  --brand-600: oklch(38% 0.25 278);
+  --brand-700: oklch(32% 0.205 278);
+  --brand-800: oklch(27% 0.155 278);
+  --brand-900: oklch(22% 0.105 278);
 
   /* Neutrals — cool grey */
   --n-0:   #ffffff;
-  --n-25:  oklch(99.2% 0.003 240);
-  --n-50:  oklch(98% 0.004 240);
-  --n-100: oklch(96% 0.005 240);
-  --n-150: oklch(93.5% 0.006 240);
-  --n-200: oklch(90% 0.008 240);
-  --n-300: oklch(82% 0.010 240);
-  --n-400: oklch(68% 0.012 240);
-  --n-500: oklch(55% 0.014 240);
-  --n-600: oklch(44% 0.014 240);
-  --n-700: oklch(34% 0.012 240);
-  --n-800: oklch(24% 0.010 240);
-  --n-900: oklch(16% 0.008 240);
-  --n-950: oklch(11% 0.008 240);
+  --n-25:  oklch(99.2% 0.003 275);
+  --n-50:  oklch(98% 0.004 275);
+  --n-100: oklch(96% 0.005 275);
+  --n-150: oklch(93.5% 0.006 275);
+  --n-200: oklch(90% 0.008 275);
+  --n-300: oklch(82% 0.010 275);
+  --n-400: oklch(68% 0.012 275);
+  --n-500: oklch(55% 0.014 275);
+  --n-600: oklch(44% 0.014 275);
+  --n-700: oklch(34% 0.012 275);
+  --n-800: oklch(24% 0.010 275);
+  --n-900: oklch(16% 0.008 275);
+  --n-950: oklch(11% 0.008 275);
 
   /* Status */
   --ok:      oklch(62% 0.13 155);
@@ -196,7 +196,7 @@
   /* Surfaces */
   /* Soft grey canvas (~#f4f5f7) against pure-white cards for more depth — Figma polish.
      Dark theme keeps its own --bg below. */
-  --bg:            var(--n-100);
+  --bg:            oklch(96% 0 0); /* pure neutral grey (#f2f2f2) — zero chroma, no green/cool cast */
   --surface:       var(--n-0);
   --surface-2:     var(--n-25);
   --border:        var(--n-150);
@@ -207,16 +207,16 @@
 }
 
 [data-theme="dark"] {
-  --bg:            oklch(14% 0.008 240);
-  --surface:       oklch(17% 0.009 240);
-  --surface-2:     oklch(20% 0.010 240);
-  --border:        oklch(24% 0.010 240);
-  --border-strong: oklch(30% 0.012 240);
-  --text:          oklch(96% 0.005 240);
-  --text-muted:    oklch(68% 0.012 240);
-  --text-subtle:   oklch(50% 0.012 240);
-  --brand-50:  oklch(22% 0.04 175);
-  --brand-100: oklch(26% 0.06 175);
+  --bg:            oklch(14% 0.008 275);
+  --surface:       oklch(17% 0.009 275);
+  --surface-2:     oklch(20% 0.010 275);
+  --border:        oklch(24% 0.010 275);
+  --border-strong: oklch(30% 0.012 275);
+  --text:          oklch(96% 0.005 275);
+  --text-muted:    oklch(68% 0.012 275);
+  --text-subtle:   oklch(50% 0.012 275);
+  --brand-50:  oklch(24% 0.06 278);
+  --brand-100: oklch(28% 0.10 278);
   --ok-bg:   oklch(24% 0.05 155);
   --warn-bg: oklch(24% 0.05 80);
   --crit-bg: oklch(24% 0.06 25);

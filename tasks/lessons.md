@@ -169,3 +169,31 @@
 **Rule:** For T-SQL row limits: SELECT-leading query → `TOP` on the FIRST SELECT only (`Regex.Replace(..., replacement, count: 1)`); WITH/CTE-leading query → append `ORDER BY (SELECT NULL) OFFSET 0 ROWS FETCH NEXT N ROWS ONLY` (a CTE can't be wrapped in a derived table and `TOP` can't reach the outer SELECT by regex); already-ordered query → `OFFSET/FETCH`. Route BOTH `MSSQL` and `AzureSynapse` through this branch — mirror `SqlReadOnlyAstValidator.ResolveDialect`, which already maps `azuresynapse → MsSqlDialect`. Never use `Regex.Replace` without a `count` when you mean "the first match".
 
 **When it applies:** any engine-specific SQL rewriting in `QueryGuardrailService` or the connectors; any time a new `DatabaseEngineType` is added (check every `ToString()`-based engine switch).
+
+## `dotnet ef migrations add` DOES work for PostgreSQL here — only SqlServer needs hand-writing (2026-08-06)
+
+**What happened:** The 2026-07-10 lesson said to hand-write BOTH provider migrations because scaffolding is unreliable. Tested directly this session: `dotnet ef migrations add <Name> --project src/Beacon.Core.PostgreSql --startup-project src/Beacon.SampleProject --context PostgreSqlBeaconContext --output-dir Data/Migrations` **succeeds** and emits correct snake_case DDL plus the `.Designer.cs` and an updated `PostgreSqlBeaconContextModelSnapshot`. The same command for `--context SqlServerBeaconContext` fails with `Unable to resolve service for type 'DbContextOptions<SqlServerBeaconContext>'`, exactly as the earlier lesson predicted — the host wires PostgreSQL only at design time and there is no `IDesignTimeDbContextFactory`.
+
+**Rule:** For a dual-provider schema change: **scaffold the PostgreSQL migration** (it is the wired design-time provider), then **hand-write only the SqlServer side** — migration + `.Designer.cs` + the `SqlServerBeaconContextModelSnapshot` entry. Generate the SqlServer `.Designer.cs` by copying the just-updated snapshot and swapping the class declaration to `[Migration("<ts>_<Name>")] partial class <Name>` with `BuildTargetModel`; the copy also needs `using Microsoft.EntityFrameworkCore.Migrations;` added, which the snapshot does not carry. Give the SqlServer migration a timestamp one second after the PG one so ordering is obvious. This halves the hand-writing the earlier lesson prescribed.
+
+**Why it matters:** hand-writing the PG side wastes time and risks snake_case/type mistakes EF gets right for free.
+
+**When it applies:** every dual-provider entity/column change in Beacon. (Supersedes the "hand-write BOTH" half of the 2026-07-10 lesson; everything else there still holds.)
+
+## A unique index on a soft-deleted entity still covers archived rows — reconcile loops must `IgnoreQueryFilters()` (2026-08-06)
+
+**What happened:** `SchemaRelationship : ArchivableBaseEntity` has a unique index on its 7-column edge identity. `SchemaRelationshipSyncService` loaded existing rows through the normal `DbSet` — so the global soft-delete filter hid archived rows — then inserted any edge it did not see. After a user deleted (archived) a foreign-key-derived relationship, the next metadata refresh re-derived that same edge, did not see the archived row, and inserted a duplicate → unique-constraint violation on `SaveChangesAsync`. Worse, the insert ran inside the deliberately fail-closed `try/catch` in `RefreshDataSourceMetadataHandler`, so the exception became a `LogWarning` and **relationship sync silently stopped working forever after the first delete**.
+
+**Rule:** When a soft-deleted (`ArchivableBaseEntity`) table has a unique index on a natural key, any idempotent sync/reconcile/upsert loop MUST load existing rows with `.IgnoreQueryFilters()` and treat archived rows as *present* for de-duplication — then filter to `ArchivedTime == null` separately for the rows it intends to mutate. The global query filter protects reads; it actively lies to writers. Check this pairing whenever `HasQueryFilter` and `.IsUnique()` appear on the same entity.
+
+**Why it matters:** the failure only appears after a delete, on the *next* sync, and a fail-closed wrapper converts it from a loud crash into permanent silent breakage — the worst combination. No happy-path test catches it.
+
+**When it applies:** any new `ArchivableBaseEntity` with a unique natural-key index, and any service that re-derives rows from an external source on a schedule.
+
+## `npm run codegen` needs a running host — new endpoints cannot reach the generated client offline (2026-08-06)
+
+**What happened:** Adding 7 endpoints, the React layer needed client methods, but `nswag.config.json` reads `https://localhost:7187/openapi/v1.json` — it regenerates from a **running** app, which needs the database. With the local DB unavailable, `beaconApi()` could not gain the new methods, and hand-editing `src/api/generated/beacon-api.ts` is wrong (it is generated output and would be clobbered).
+
+**Rule:** When you add endpoints and cannot run the host, call them through `fetchJson<T>(path, init)` from `src/lib/api.ts` instead of `beaconApi()`. It routes through the same `beaconFetch` wrapper (CSRF priming, antiforgery-mismatch retry, credentials) that the generated client uses, and is already the established pattern in `routes/home/queries.ts` and the auth pages. Keep the hand-written strict result interfaces either way (2026-06-02 lesson). NEVER hand-add methods to `src/api/generated/beacon-api.ts`.
+
+**When it applies:** any new `/beacon/api/*` endpoint consumed by the React app while the host cannot be started.

@@ -137,6 +137,8 @@ public static class ServiceConfiguration
         services.TryAddTransient<IMigrationService, MigrationService>();
         services.TryAddTransient<IDatabaseMetadataService, DatabaseMetadataService>();
         services.TryAddTransient<Services.Metadata.IColumnValueSampler, Services.Metadata.ColumnValueSampler>();
+        services.TryAddTransient<Services.Metadata.ISchemaRelationshipSyncService, Services.Metadata.SchemaRelationshipSyncService>();
+        services.TryAddTransient<Services.Metadata.ISchemaGraphService, Services.Metadata.SchemaGraphService>();
         services.TryAddTransient<IAnomalyDetectionService, AnomalyDetectionService>();
         services.TryAddTransient<IDataQualitySqlGenerator, DataQualitySqlGenerator>();
         services.TryAddTransient<IDataQualityEvaluationService, DataQualityEvaluationService>();
