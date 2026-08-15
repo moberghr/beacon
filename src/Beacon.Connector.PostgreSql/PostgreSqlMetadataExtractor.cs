@@ -57,7 +57,8 @@ public class PostgreSqlMetadataExtractor : IDatabaseMetadataExtractor
                 a.attname AS column_name,
                 fn.nspname AS foreign_schema_name,
                 fc.relname AS foreign_table_name,
-                fa.attname AS foreign_column_name
+                fa.attname AS foreign_column_name,
+                con.conname AS constraint_name
             FROM pg_constraint con
             JOIN pg_class c ON con.conrelid = c.oid
             JOIN pg_namespace n ON c.relnamespace = n.oid
@@ -74,7 +75,11 @@ public class PostgreSqlMetadataExtractor : IDatabaseMetadataExtractor
             .GroupBy(fk => $"{fk.table_schema}.{fk.table_name}.{fk.column_name}")
             .ToDictionary(
                 g => g.Key,
-                g => (TableName: (string)g.First().foreign_table_name, ColumnName: (string)g.First().foreign_column_name)
+                g => (
+                    TableName: (string)g.First().foreign_table_name,
+                    ColumnName: (string)g.First().foreign_column_name,
+                    SchemaName: (string?)g.First().foreign_schema_name,
+                    ConstraintName: (string?)g.First().constraint_name)
             );
 
         const string indexesQuery = @"
@@ -108,7 +113,10 @@ public class PostgreSqlMetadataExtractor : IDatabaseMetadataExtractor
                         ForeignKeyColumn: hasFk ? fkInfo.ColumnName : null,
                         DefaultValue: c.column_default?.ToString(),
                         MaxLength: c.character_maximum_length as int?,
-                        Description: null
+                        Description: null,
+                        SampleValues: null,
+                        ForeignKeySchema: hasFk ? fkInfo.SchemaName : null,
+                        ForeignKeyConstraintName: hasFk ? fkInfo.ConstraintName : null
                     );
                 }).ToList();
 

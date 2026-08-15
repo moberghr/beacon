@@ -1,4 +1,5 @@
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Models.Metadata;
 
 namespace Beacon.AI.Services.Knowledge;
 
@@ -94,6 +95,22 @@ public record SmartSchemaContext
     /// Keys: lowercase table name AND lowercase "schema.table". Values: lowercase column names.
     /// </summary>
     public Dictionary<string, HashSet<string>> SchemaCatalog { get; init; } = [];
+
+    /// <summary>
+    /// True when related tables were dropped to stay inside the detailed-table cap. The rendered context
+    /// states the omitted count so a partial neighbourhood is never mistaken for a complete one
+    /// (pgGraph's <c>capped := true</c> contract).
+    /// </summary>
+    public bool Capped { get; init; }
+
+    /// <summary>Number of related tables omitted by the cap. Zero when <see cref="Capped"/> is false.</summary>
+    public int OmittedTableCount { get; init; }
+
+    /// <summary>
+    /// Join paths between the retrieved tables, rendered into <see cref="FullContext"/> as explicit join
+    /// chains so the model is not left to infer joins from foreign-key columns alone.
+    /// </summary>
+    public IReadOnlyList<SchemaJoinPath> JoinPaths { get; init; } = [];
 }
 
 public record LearnedPatternInfo(

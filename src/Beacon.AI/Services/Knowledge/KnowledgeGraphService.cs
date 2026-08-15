@@ -4,6 +4,8 @@ using Beacon.AI.Services.Embeddings;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Helpers;
+using Beacon.Core.Models.Metadata;
+using Beacon.Core.Services.Metadata;
 using Beacon.Core.Services.Providers;
 using System.Globalization;
 using System.Text;
@@ -14,8 +16,17 @@ internal sealed class KnowledgeGraphService(
     IDbContextFactory<BeaconContext> contextFactory,
     IMcpSettingsProvider settingsProvider,
     IBeaconEmbeddingService embeddingService,
+    ISchemaGraphService schemaGraphService,
     ILogger<KnowledgeGraphService> logger) : IKnowledgeGraphService
 {
+    // Detailed-table budget for the smart-retrieval path. Kept as a named constant because the coverage
+    // block reports against it — a silently different cap and reported cap would misdescribe the context.
+    private const int MaxDetailedTables = 20;
+
+    // Cap on join paths rendered into the small-schema fast path. A 40-table schema has 780 possible
+    // pairs; past a few dozen paths the block stops grounding and starts crowding out the schema itself.
+    private const int MaxRenderedJoinPaths = 40;
+
     // EF Core provider name for the Npgsql backend. Compared as a string so Beacon.AI stays off the
     // Npgsql package (§2.4) yet can branch to the pgvector <=> raw query on PostgreSQL data sources.
     private const string NpgsqlProviderName = "Npgsql.EntityFrameworkCore.PostgreSQL";
@@ -937,7 +948,7 @@ internal sealed class KnowledgeGraphService(
                 Columns = m.Columns.Select(c => new SchemaColumn(
                     c.ColumnName, c.DataType, c.IsPrimaryKey, c.IsNullable,
                     c.ForeignKeyTable, c.ForeignKeyColumn, c.Description,
-                    c.MaxLength, c.SampleValues
+                    c.MaxLength, c.SampleValues, c.ForeignKeySchema
                 )).ToList()
             })
             .ToListAsync(ct);
@@ -958,6 +969,12 @@ internal sealed class KnowledgeGraphService(
 
             foreach (var t in allTables)
                 SchemaContextFormatter.AppendTableWithFullColumns(sb, t.SchemaName, t.TableName, t.TableDescription, t.Columns, isApi);
+
+            // Small schemas send every table, but they still need the relationship graph: on a warehouse
+            // that declares no foreign keys the column listing carries no join information at all, so
+            // inferred relationships are the only thing telling the model how these tables connect.
+            var allPaths = await GetJoinPathsForAllTablesAsync(dataSourceId, ct);
+            SchemaContextFormatter.AppendJoinPaths(sb, allPaths);
 
             // Part A: inject human-verified golden query examples ABOVE the mined learned patterns — they are
             // human-verified, so they outrank machine-mined patterns. Empty (behaviour-preserving) when
@@ -997,49 +1014,16 @@ internal sealed class KnowledgeGraphService(
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        // Expand one FK hop: tables that matched tables reference + tables that reference matched tables
-        var fkConnected = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var t in allTables.Where(t => matchedTableNames.Contains($"{t.SchemaName}.{t.TableName}")))
-        {
-            foreach (var col in t.Columns.Where(c => c.ForeignKeyTable != null))
-            {
-                // Find the schema for the FK target
-                var fkTarget = allTables.FirstOrDefault(at =>
-                    at.TableName.Equals(col.ForeignKeyTable, StringComparison.OrdinalIgnoreCase));
-                if (fkTarget != null)
-                    fkConnected.Add($"{fkTarget.SchemaName}.{fkTarget.TableName}");
-            }
-        }
+        // Expand through the registered relationship graph: join paths between matched tables, the
+        // intermediate tables those paths need (including link tables), then direct neighbours. Falls
+        // back to the pre-graph one-hop expansion if the graph cannot be built.
+        var tableShapes = allTables
+            .Select(x => (x.SchemaName, x.TableName, Columns: (IReadOnlyList<SchemaColumn>)x.Columns))
+            .ToList();
 
-        // Reverse FK: tables that reference matched tables
-        foreach (var t in allTables)
-        {
-            var qualifiedName = $"{t.SchemaName}.{t.TableName}";
-            if (matchedTableNames.Contains(qualifiedName)) continue;
-
-            foreach (var col in t.Columns.Where(c => c.ForeignKeyTable != null))
-            {
-                if (allTables.Any(at =>
-                    matchedTableNames.Contains($"{at.SchemaName}.{at.TableName}") &&
-                    at.TableName.Equals(col.ForeignKeyTable, StringComparison.OrdinalIgnoreCase)))
-                {
-                    fkConnected.Add(qualifiedName);
-                    break;
-                }
-            }
-        }
-
-        // Remove already-matched from FK set
-        fkConnected.ExceptWith(matchedTableNames);
-
-        // Cap detailed tables at ~20 (prioritize search matches over FK connections)
-        var detailedTables = new HashSet<string>(matchedTableNames, StringComparer.OrdinalIgnoreCase);
-        var remainingSlots = 20 - detailedTables.Count;
-        if (remainingSlots > 0)
-        {
-            foreach (var fk in fkConnected.Take(remainingSlots))
-                detailedTables.Add(fk);
-        }
+        var expansion = await ExpandRelatedTablesAsync(dataSourceId, matchedTableNames, tableShapes, ct);
+        var detailedTables = new HashSet<string>(expansion.DetailedTables, StringComparer.OrdinalIgnoreCase);
+        detailedTables.UnionWith(matchedTableNames);
 
         // Build two-section context
         var smartSb = new StringBuilder();
@@ -1061,6 +1045,11 @@ internal sealed class KnowledgeGraphService(
             foreach (var t in otherTables)
                 SchemaContextFormatter.AppendTableCompact(smartSb, t.SchemaName, t.TableName, t.TableDescription, t.Columns, isApi);
         }
+
+        // Explicit join chains for the retrieved tables, verified and inferred kept apart so an inferred
+        // join is never presented as fact.
+        SchemaContextFormatter.AppendJoinPaths(smartSb, expansion.JoinPaths);
+        SchemaContextFormatter.AppendCoverage(smartSb, expansion.Capped, expansion.OmittedTableCount, detailedTables.Count);
 
         // Part A: inject human-verified golden query examples ABOVE the mined learned patterns (same
         // behaviour-preserving fallback as the fast path — empty string when nothing to inject).
@@ -1086,7 +1075,10 @@ internal sealed class KnowledgeGraphService(
             RelevantTables = [.. detailedTables],
             TotalTableCount = allTables.Count,
             DatabaseDialect = dialect,
-            SchemaCatalog = catalog
+            SchemaCatalog = catalog,
+            Capped = expansion.Capped,
+            OmittedTableCount = expansion.OmittedTableCount,
+            JoinPaths = expansion.JoinPaths
         };
     }
 
@@ -1415,7 +1407,7 @@ internal sealed class KnowledgeGraphService(
                 Columns = m.Columns.Select(c => new SchemaColumn(
                     c.ColumnName, c.DataType, c.IsPrimaryKey, c.IsNullable,
                     c.ForeignKeyTable, c.ForeignKeyColumn, c.Description,
-                    c.MaxLength, c.SampleValues
+                    c.MaxLength, c.SampleValues, c.ForeignKeySchema
                 )).ToList()
             })
             .ToListAsync(ct);
@@ -1830,5 +1822,162 @@ internal sealed class KnowledgeGraphService(
         public int Id { get; init; }
         public string Question { get; init; } = "";
         public string GoldSql { get; init; } = "";
+    }
+
+    /// <summary>
+    /// Join paths for the whole schema, used on the small-schema fast path where every table is already
+    /// described. Bounded by <see cref="MaxRenderedJoinPaths"/> so a densely-connected small schema
+    /// cannot flood the prompt. Fails CLOSED — no paths rather than no answer.
+    /// </summary>
+    private async Task<IReadOnlyList<SchemaJoinPath>> GetJoinPathsForAllTablesAsync(
+        int dataSourceId,
+        CancellationToken ct)
+    {
+        try
+        {
+            var graph = await schemaGraphService.GetGraphAsync(dataSourceId, ct);
+            if (graph.EdgeCount == 0)
+            {
+                return [];
+            }
+
+            var names = graph.Nodes
+                .Select(x => x.QualifiedName)
+                .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var paths = new List<SchemaJoinPath>();
+            for (var i = 0; i < names.Count && paths.Count < MaxRenderedJoinPaths; i++)
+            {
+                for (var j = i + 1; j < names.Count && paths.Count < MaxRenderedJoinPaths; j++)
+                {
+                    // Only direct and link-table-bridged joins here: the full pairwise set on a 40-table
+                    // schema is 780 paths, and the long ones add noise rather than grounding.
+                    var path = graph.FindPath(names[i], names[j], maxDepth: 2);
+                    if (path != null)
+                    {
+                        paths.Add(path);
+                    }
+                }
+            }
+
+            return paths;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Schema graph join-path rendering failed for data source {DataSourceId}; context sent without join paths.", dataSourceId);
+            return [];
+        }
+    }
+
+    /// <summary>
+    /// Expands the retrieved tables into the set worth describing in full, using the registered
+    /// relationship graph so join paths, link tables and multi-hop routes are grounded rather than
+    /// guessed. Fails CLOSED: a graph-construction error degrades to the pre-graph one-hop foreign-key
+    /// expansion, so a question that answered before this feature existed still answers.
+    /// </summary>
+    private async Task<SchemaExpansion> ExpandRelatedTablesAsync(
+        int dataSourceId,
+        IReadOnlyCollection<string> matchedTableNames,
+        IReadOnlyList<(string SchemaName, string TableName, IReadOnlyList<SchemaColumn> Columns)> allTables,
+        CancellationToken ct)
+    {
+        try
+        {
+            var graph = await schemaGraphService.GetGraphAsync(dataSourceId, ct);
+            if (graph.EdgeCount > 0)
+            {
+                return graph.Expand(matchedTableNames, MaxDetailedTables);
+            }
+
+            // No registered relationships yet (metadata refreshed before this feature, or a warehouse
+            // whose inference found nothing). The foreign-key columns still carry information.
+            logger.LogDebug("Schema graph for data source {DataSourceId} has no edges; using foreign-key expansion.", dataSourceId);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Schema graph expansion failed for data source {DataSourceId}; falling back to foreign-key expansion.", dataSourceId);
+        }
+
+        return ExpandByForeignKeyHop(matchedTableNames, allTables);
+    }
+
+    /// <summary>
+    /// Pre-graph fallback: one foreign-key hop in each direction. Target resolution goes through
+    /// <see cref="ForeignKeyTargetResolver"/>, so a duplicate table name across schemas resolves
+    /// correctly instead of picking whichever table sorts first.
+    /// </summary>
+    private static SchemaExpansion ExpandByForeignKeyHop(
+        IReadOnlyCollection<string> matchedTableNames,
+        IReadOnlyList<(string SchemaName, string TableName, IReadOnlyList<SchemaColumn> Columns)> allTables)
+    {
+        var resolverTables = allTables
+            .Select(x =>
+                new TableMetadataDto(
+                    x.SchemaName,
+                    x.TableName,
+                    x.Columns
+                        .Select(y =>
+                            new ColumnMetadataDto(
+                                y.ColumnName, y.DataType, y.IsNullable, y.IsPrimaryKey,
+                                y.ForeignKeyTable != null, 0, y.ForeignKeyTable, y.ForeignKeyColumn,
+                                null, null, null, null, y.ForeignKeySchema, null))
+                        .ToList(),
+                    [],
+                    null))
+            .ToList();
+
+        var matched = new HashSet<string>(matchedTableNames, StringComparer.OrdinalIgnoreCase);
+        var related = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var table in resolverTables)
+        {
+            var qualifiedName = $"{table.SchemaName}.{table.TableName}";
+            var foreignKeyColumns = table.Columns
+                .Where(x => x.ForeignKeyTable != null)
+                .ToList();
+
+            foreach (var column in foreignKeyColumns)
+            {
+                var target = ForeignKeyTargetResolver.Resolve(resolverTables, table.SchemaName, column);
+                if (target == null)
+                {
+                    continue;
+                }
+
+                var targetName = $"{target.SchemaName}.{target.TableName}";
+
+                // Forward: a matched table references this target.
+                if (matched.Contains(qualifiedName))
+                {
+                    related.Add(targetName);
+                }
+
+                // Reverse: this table references a matched target.
+                if (matched.Contains(targetName))
+                {
+                    related.Add(qualifiedName);
+                }
+            }
+        }
+
+        related.ExceptWith(matched);
+
+        var detailed = new HashSet<string>(matched, StringComparer.OrdinalIgnoreCase);
+        var remainingSlots = MaxDetailedTables - detailed.Count;
+        var admitted = remainingSlots > 0 ? related.Take(remainingSlots).ToList() : [];
+        detailed.UnionWith(admitted);
+
+        var omitted = related.Count - admitted.Count;
+
+        return new SchemaExpansion([.. detailed], [], Capped: omitted > 0, OmittedTableCount: omitted);
     }
 }

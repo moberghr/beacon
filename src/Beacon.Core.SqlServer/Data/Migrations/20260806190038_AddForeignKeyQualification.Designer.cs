@@ -4,6 +4,7 @@ using Beacon.Core.SqlServer.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Beacon.Core.SqlServer.Data.Migrations
 {
     [DbContext(typeof(SqlServerBeaconContext))]
-    partial class SqlServerBeaconContextModelSnapshot : ModelSnapshot
+    [Migration("20260806190038_AddForeignKeyQualification")]
+    partial class AddForeignKeyQualification
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -2603,90 +2606,6 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.ToTable("IndexMetadata", "beacon");
                 });
 
-            modelBuilder.Entity("Beacon.Core.Data.Entities.Metadata.SchemaRelationship", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime?>("ArchivedTime")
-                        .HasColumnType("datetime2");
-
-                    b.Property<int>("Cardinality")
-                        .HasColumnType("int");
-
-                    b.Property<double>("Confidence")
-                        .HasColumnType("float");
-
-                    b.Property<string>("ConstraintName")
-                        .HasMaxLength(300)
-                        .HasColumnType("nvarchar(300)");
-
-                    b.Property<DateTime>("CreatedTime")
-                        .HasColumnType("datetime2");
-
-                    b.Property<int>("DataSourceId")
-                        .HasColumnType("int");
-
-                    b.Property<bool>("IsVerified")
-                        .HasColumnType("bit");
-
-                    b.Property<string>("Label")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<int>("Origin")
-                        .HasColumnType("int");
-
-                    b.Property<string>("SourceColumn")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<string>("SourceSchema")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.Property<string>("SourceTable")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<string>("TargetColumn")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<string>("TargetSchema")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.Property<string>("TargetTable")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<int?>("VerifiedByUserId")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime?>("VerifiedTime")
-                        .HasColumnType("datetime2");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("DataSourceId", "Origin");
-
-                    b.HasIndex("DataSourceId", "SourceSchema", "SourceTable", "SourceColumn", "TargetSchema", "TargetTable", "TargetColumn")
-                        .IsUnique();
-
-                    b.ToTable("SchemaRelationships", "beacon");
-                });
-
             modelBuilder.Entity("Beacon.Core.Data.Entities.Notification", b =>
                 {
                     b.Property<int>("Id")
@@ -4087,17 +4006,6 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("DatabaseMetadata");
-                });
-
-            modelBuilder.Entity("Beacon.Core.Data.Entities.Metadata.SchemaRelationship", b =>
-                {
-                    b.HasOne("Beacon.Core.Data.Entities.DataSource", "DataSource")
-                        .WithMany()
-                        .HasForeignKey("DataSourceId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("DataSource");
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.Notification", b =>

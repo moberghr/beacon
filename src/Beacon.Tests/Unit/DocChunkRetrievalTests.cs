@@ -1,4 +1,6 @@
 using FluentAssertions;
+using Beacon.Core.Services.Metadata;
+using Beacon.Core.Models.Metadata;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -110,7 +112,9 @@ public class DocChunkRetrievalTests
             .ReturnsAsync(new McpSettingsData { EnableSemanticRetrieval = true });
 
         return new KnowledgeGraphService(
-            factory.Object, settings.Object, embedder, NullLogger<KnowledgeGraphService>.Instance);
+            factory.Object, settings.Object, embedder, Mock.Of<ISchemaGraphService>(x => x.GetGraphAsync(It.IsAny<int>(), It.IsAny<CancellationToken>())
+                == Task.FromResult(SchemaGraph.Build(Array.Empty<TableMetadataDto>(), Array.Empty<SchemaRelationshipEdge>()))),
+            NullLogger<KnowledgeGraphService>.Instance);
     }
 
     private static Mock<DbSet<T>> BuildDbSet<T>(IEnumerable<T> data) where T : class

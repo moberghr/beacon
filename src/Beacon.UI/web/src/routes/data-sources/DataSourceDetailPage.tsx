@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { AlertTriangle, Database, Key, Layers, RefreshCw, X } from 'lucide-react';
+import { AlertTriangle, Database, GitFork, Key, Layers, RefreshCw, X } from 'lucide-react';
 import {
   PageHeader,
   Button,
@@ -114,6 +114,13 @@ export default function DataSourceDetailPage() {
         }
         actions={
           <>
+            <Button
+              type="button"
+              onClick={() => navigate(`/data-sources/${entry.id}/relationships`)}
+              icon={<GitFork />}
+            >
+              Relationships
+            </Button>
             <Button
               type="button"
               onClick={async () => {

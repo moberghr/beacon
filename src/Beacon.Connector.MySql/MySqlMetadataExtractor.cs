@@ -39,8 +39,10 @@ public class MySqlMetadataExtractor : IDatabaseMetadataExtractor
                 TABLE_SCHEMA AS table_schema,
                 TABLE_NAME AS table_name,
                 COLUMN_NAME AS column_name,
+                REFERENCED_TABLE_SCHEMA AS foreign_schema_name,
                 REFERENCED_TABLE_NAME AS foreign_table_name,
-                REFERENCED_COLUMN_NAME AS foreign_column_name
+                REFERENCED_COLUMN_NAME AS foreign_column_name,
+                CONSTRAINT_NAME AS constraint_name
             FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
             WHERE TABLE_SCHEMA = @DatabaseName
               AND REFERENCED_TABLE_NAME IS NOT NULL";
@@ -50,7 +52,11 @@ public class MySqlMetadataExtractor : IDatabaseMetadataExtractor
             .GroupBy(fk => $"{fk.table_schema}.{fk.table_name}.{fk.column_name}")
             .ToDictionary(
                 g => g.Key,
-                g => (TableName: (string)g.First().foreign_table_name, ColumnName: (string)g.First().foreign_column_name)
+                g => (
+                    TableName: (string)g.First().foreign_table_name,
+                    ColumnName: (string)g.First().foreign_column_name,
+                    SchemaName: (string?)g.First().foreign_schema_name,
+                    ConstraintName: (string?)g.First().constraint_name)
             );
 
         const string indexesQuery = @"
@@ -87,7 +93,10 @@ public class MySqlMetadataExtractor : IDatabaseMetadataExtractor
                         DefaultValue: c.column_default?.ToString(),
                         // CHARACTER_MAXIMUM_LENGTH is boxed as long, so `as int?` is always null — convert explicitly.
                         MaxLength: c.character_maximum_length == null ? (int?)null : Convert.ToInt32(c.character_maximum_length),
-                        Description: null
+                        Description: null,
+                        SampleValues: null,
+                        ForeignKeySchema: hasFk ? fkInfo.SchemaName : null,
+                        ForeignKeyConstraintName: hasFk ? fkInfo.ConstraintName : null
                     );
                 }).ToList();
 
