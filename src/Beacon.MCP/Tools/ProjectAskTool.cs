@@ -222,6 +222,7 @@ internal sealed class ProjectAskTool(
 
         // Pre-execution schema validation
         var schemaCheck = schemaValidator.Validate(generatedSql, smartContext.SchemaCatalog, smartContext.DatabaseDialect);
+        signal.SetColumnsUsed(schemaCheck.ColumnsUsed);
         if (!schemaCheck.IsValid && repairAttempts < maxRepairAttempts)
         {
             repairAttempts++;
@@ -240,6 +241,7 @@ internal sealed class ProjectAskTool(
                     signal.SetRetry(preValidationRetry, retrySchemaCheck.IsValid);
                     if (retrySchemaCheck.IsValid)
                     {
+                        signal.SetColumnsUsed(retrySchemaCheck.ColumnsUsed);
                         text += $"*Initial query had schema errors ({schemaCheck.Error}), retried.*\n\n";
                         text += $"### Corrected SQL\n```sql\n{preValidationRetry}\n```\n\n";
                         generatedSql = preValidationRetry;

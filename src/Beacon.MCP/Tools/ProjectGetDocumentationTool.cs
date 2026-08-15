@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Beacon.AI.Services.Documentation;
@@ -18,7 +19,8 @@ internal sealed class ProjectGetDocumentationTool(
     IDbContextFactory<BeaconContext> contextFactory,
     IProjectContext projectContext,
     McpProjectContextManager sessionManager,
-    McpAuditService auditService)
+    McpAuditService auditService,
+    ILogger<ProjectGetDocumentationTool> logger)
 {
     [McpServerTool(Name = "get_documentation")]
     [Description("Get AI-generated documentation for the project, a specific data source, or a specific table/endpoint. Includes schema details, relationships, code references, quality scores, and lineage.")]
@@ -93,7 +95,9 @@ internal sealed class ProjectGetDocumentationTool(
             sw.Stop();
             await auditService.LogToolCallAsync(null, projectContext.UserId, "get_documentation",
                 datasource_name ?? table_name, null, projectId == 0 ? null : projectId, (int)sw.ElapsedMilliseconds, null, ex.Message, CancellationToken.None);
-            return ToolHelper.Error(ex.Message);
+            // §1.11 — ex.Message can quote user input; type only here, full detail is in the audit log.
+            logger.LogError("MCP tool {Tool} failed with {ExceptionType} (detail in MCP audit log)", "get_documentation", ex.GetType().Name);
+            return ToolHelper.Error(ToolHelper.CallerSafeMessage(ex, "get_documentation"));
         }
     }
 

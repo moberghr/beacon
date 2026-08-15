@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Beacon.AI.Services.Knowledge;
@@ -12,7 +13,8 @@ internal sealed class ProjectSearchTool(
     IKnowledgeGraphService knowledgeGraph,
     IProjectContext projectContext,
     McpProjectContextManager sessionManager,
-    McpAuditService auditService)
+    McpAuditService auditService,
+    ILogger<ProjectSearchTool> logger)
 {
     [McpServerTool(Name = "search")]
     [Description("Search tables, columns, and documentation across all data sources in the project by keyword. Returns matching items with descriptions, quality scores, and relevance.")]
@@ -78,7 +80,9 @@ internal sealed class ProjectSearchTool(
             sw.Stop();
             await auditService.LogToolCallAsync(null, projectContext.UserId, "search",
                 query, null, projectId == 0 ? null : projectId, (int)sw.ElapsedMilliseconds, null, ex.Message, CancellationToken.None);
-            return ToolHelper.Error(ex.Message);
+            // §1.11 — ex.Message can quote user input; type only here, full detail is in the audit log.
+            logger.LogError("MCP tool {Tool} failed with {ExceptionType} (detail in MCP audit log)", "search", ex.GetType().Name);
+            return ToolHelper.Error(ToolHelper.CallerSafeMessage(ex, "search"));
         }
     }
 }

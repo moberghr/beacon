@@ -1,9 +1,6 @@
-using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using ModelContextProtocol.Server;
 using Beacon.Core.Services;
-using Beacon.Core.Services.Validation;
 using Beacon.MCP.Services;
 using Beacon.MCP.Tools;
 
@@ -56,8 +53,7 @@ public static class ServiceConfiguration
             {
                 options.IdleTimeout = TimeSpan.FromMinutes(30);
             })
-            .WithToolsFromAssembly(typeof(ServiceConfiguration).Assembly)
-            .WithResourcesFromAssembly(typeof(ServiceConfiguration).Assembly);
+            .WithToolsFromAssembly(typeof(ServiceConfiguration).Assembly);
 
         // Playground (public facade for UI)
         services.TryAddTransient<IMcpPlaygroundService, McpPlaygroundService>();

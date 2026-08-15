@@ -319,8 +319,11 @@ app.MapHub<BeaconHub>("/beacon/api/hub").RequireAuthorization(BeaconApiEndpoints
 // JobStatusChanged push to /beacon/api/hub is handled by JobStatusChangedBehavior, a Warp
 // pipeline behavior auto-registered by the Warp source generator — no manual filter wiring.
 
-// Beacon MCP Server - available at /beacon/mcp (Streamable HTTP, SDK transport)
-app.MapMcp("/beacon/mcp").RequireAuthorization();
+// Beacon MCP Server - available at /beacon/mcp (Streamable HTTP, SDK transport).
+// §1.4 — the MCP tools ask/query execute SQL, so the route requires the same Execute scope
+// as the REST SQL endpoints; a Read-scoped API key must not reach SQL execution through MCP.
+// Cookie/OIDC callers are unaffected (the policy only constrains api_key identities).
+app.MapMcp("/beacon/mcp").RequireAuthorization(BeaconApiEndpoints.ExecuteScopePolicyName);
 
 // Warp Dashboard - available at /warp — Admin-only (§7.4).
 app.UseWarpUI(warpUiOptions =>

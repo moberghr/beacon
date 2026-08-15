@@ -44,6 +44,30 @@ public class ExecuteScopeWiringTests
         _factory?.Dispose();
     }
 
+    [Test]
+    public void McpEndpoints_CarryExecuteScopePolicy()
+    {
+        var endpointSource = _factory!.Services.GetRequiredService<EndpointDataSource>();
+
+        var mcpEndpoints = endpointSource.Endpoints
+            .OfType<RouteEndpoint>()
+            .Where(x => (x.RoutePattern.RawText ?? "").TrimStart('/').StartsWith("beacon/mcp", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        mcpEndpoints.Should().NotBeEmpty("the MCP server should be mapped at /beacon/mcp");
+
+        foreach (var endpoint in mcpEndpoints)
+        {
+            var policies = endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>()
+                .Select(x => x.Policy)
+                .ToList();
+
+            policies.Should().Contain(
+                BeaconApiEndpoints.ExecuteScopePolicyName,
+                $"MCP endpoint '{endpoint.RoutePattern.RawText}' can execute SQL via ask/query and must require the Execute scope (§1.4)");
+        }
+    }
+
     [TestCase("ExecuteQueryPreview")]
     [TestCase("ExecuteStepPreview")]
     public void SqlExecutionEndpoint_CarriesExecuteScopePolicy(string endpointName)

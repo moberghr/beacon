@@ -10,7 +10,7 @@ namespace Beacon.MCP.Services;
 
 internal sealed class McpPlaygroundService(IServiceProvider serviceProvider) : IMcpPlaygroundService
 {
-    public IReadOnlyList<string> ToolNames => ["get_context", "ask", "query", "get_documentation", "search"];
+    public IReadOnlyList<string> ToolNames => ["get_context", "ask", "query", "get_documentation", "search", "feedback"];
 
     public async Task<McpPlaygroundResult> ExecuteToolAsync(
         string toolName, Dictionary<string, object?> arguments, int projectId, CancellationToken ct)
@@ -79,6 +79,13 @@ internal sealed class McpPlaygroundService(IServiceProvider serviceProvider) : I
                     query: arguments.GetValueOrDefault("query")?.ToString() ?? "",
                     project_id: projectId,
                     max_results: arguments.GetValueOrDefault("max_results") is int maxR ? maxR : null,
+                    cancellationToken: ct),
+
+                "feedback" => await sp.GetRequiredService<FeedbackTool>().ExecuteAsync(
+                    signal_id: arguments.GetValueOrDefault("signal_id") is int sid ? sid : 0,
+                    verdict: arguments.GetValueOrDefault("verdict")?.ToString() ?? "",
+                    corrected_sql: arguments.GetValueOrDefault("corrected_sql")?.ToString(),
+                    note: arguments.GetValueOrDefault("note")?.ToString(),
                     cancellationToken: ct),
 
                 _ => ToolHelper.Error($"Unknown tool: {toolName}")
