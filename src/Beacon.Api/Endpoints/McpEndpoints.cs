@@ -98,8 +98,11 @@ internal static class McpEndpoints
         mcp.MapGet("/tools", (IMediator m, CancellationToken ct) => m.Send(new GetMcpToolsQuery(), ct))
             .WithName("GetMcpTools");
 
+        // §1.4 — the playground dispatches ask/query, which execute SQL; same Execute scope as
+        // the MCP route and the REST SQL endpoints, so a Read-scoped key can't run SQL through it.
         mcp.MapPost("/tools/run", (RunMcpToolCommand body, IMediator m, CancellationToken ct) => m.Send(body, ct))
-            .WithName("RunMcpTool");
+            .WithName("RunMcpTool")
+            .RequireAuthorization(BeaconApiEndpoints.ExecuteScopePolicyName);
 
         mcp.MapGet("/learning-stats", ([FromQuery] int? projectId, IMediator m, CancellationToken ct) =>
                 m.Send(new GetLearningStatsQuery { ProjectId = projectId }, ct))

@@ -38,6 +38,7 @@ internal sealed class CrossSourceQueryService(
         var failedSources = new List<(string Name, string Reason)>();
 
         var sourceQueries = new List<(RoutedSource Source, string Sql, string SchemaContext)>();
+        var columnsUsed = new HashSet<string>(StringComparer.Ordinal);
         foreach (var source in sources)
         {
             var smartContext = await knowledgeGraph.GetSmartContextForAskAsync(source.DataSourceId, question, ct);
@@ -58,8 +59,10 @@ internal sealed class CrossSourceQueryService(
                 var retriedSql = await sqlGenerationService.RetryWithErrorAsync(
                     llmProvider, systemPrompt, sql, schemaCheck.Error!, smartContext.FullContext, null, question, ct);
 
-                var retryValid = retriedSql != null
-                    && schemaValidator.Validate(retriedSql, smartContext.SchemaCatalog, smartContext.DatabaseDialect).IsValid;
+                var retryCheck = retriedSql != null
+                    ? schemaValidator.Validate(retriedSql, smartContext.SchemaCatalog, smartContext.DatabaseDialect)
+                    : null;
+                var retryValid = retryCheck?.IsValid == true;
                 if (retriedSql != null)
                 {
                     signal.SetRetry(retriedSql, retryValid);
@@ -73,12 +76,19 @@ internal sealed class CrossSourceQueryService(
                 }
 
                 sql = retriedSql!;
+                columnsUsed.UnionWith(retryCheck!.ColumnsUsed);
+            }
+            else
+            {
+                columnsUsed.UnionWith(schemaCheck.ColumnsUsed);
             }
 
             sourceQueries.Add((source, sql, smartContext.FullContext));
 
             text += $"### Source: {source.DataSourceName}\n```sql\n{sql}\n```\n\n";
         }
+
+        signal.SetColumnsUsed(columnsUsed.ToList());
 
         if (!execute)
         {

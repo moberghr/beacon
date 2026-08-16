@@ -213,7 +213,7 @@ Record whether a previous `ask` answer was correct. A `correct` verdict is saved
 | `corrected_sql` | string | No | The corrected SQL, if you fixed it |
 | `note` | string | No | A short note |
 
-Every `ask` response ends with a `_signal_id: N_` marker — pass that value back here.
+Every `ask` response that ran a data query ends with a `_signal_id: N_` marker — pass that value back here. Conceptual answers from the knowledge base don't record a query signal and carry no marker.
 
 ## Safety & Guardrails
 

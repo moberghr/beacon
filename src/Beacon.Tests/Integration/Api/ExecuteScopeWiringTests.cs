@@ -70,6 +70,7 @@ public class ExecuteScopeWiringTests
 
     [TestCase("ExecuteQueryPreview")]
     [TestCase("ExecuteStepPreview")]
+    [TestCase("RunMcpTool")]
     public void SqlExecutionEndpoint_CarriesExecuteScopePolicy(string endpointName)
     {
         var endpointSource = _factory!.Services.GetRequiredService<EndpointDataSource>();

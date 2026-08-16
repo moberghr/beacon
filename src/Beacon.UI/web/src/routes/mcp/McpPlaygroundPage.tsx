@@ -26,6 +26,10 @@ export default function McpPlaygroundPage() {
   const [schemaName, setSchemaName] = useState('');
   const [maxResults, setMaxResults] = useState(20);
   const [maxRows, setMaxRows] = useState(100);
+  const [signalId, setSignalId] = useState('');
+  const [verdict, setVerdict] = useState<'correct' | 'incorrect'>('correct');
+  const [correctedSql, setCorrectedSql] = useState('');
+  const [note, setNote] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const chatRef = useRef<HTMLDivElement>(null);
   const messageIdRef = useRef(0);
@@ -65,6 +69,12 @@ export default function McpPlaygroundPage() {
         if (schemaName.trim()) args.schema_name = schemaName.trim();
         return args;
       }
+      case 'feedback': {
+        const args: Record<string, unknown> = { signal_id: Number(signalId.trim()), verdict };
+        if (correctedSql.trim()) args.corrected_sql = correctedSql.trim();
+        if (note.trim()) args.note = note.trim();
+        return args;
+      }
       default:
         return {};
     }
@@ -80,6 +90,8 @@ export default function McpPlaygroundPage() {
         return `${datasource ? `[${datasource}] ` : ''}${text}`;
       case 'get_documentation':
         return [datasource, tableName, schemaName].filter(Boolean).join(' / ') || 'Project documentation';
+      case 'feedback':
+        return `feedback: signal ${signalId} → ${verdict}`;
       default:
         return 'get_context';
     }
@@ -140,7 +152,9 @@ export default function McpPlaygroundPage() {
   const canSend =
     !runMutation.isPending &&
     projectId !== null &&
-    (tool === 'get_context' || (tool === 'get_documentation' ? true : text.trim().length > 0));
+    (tool === 'get_context' ||
+      tool === 'get_documentation' ||
+      (tool === 'feedback' ? /^\d+$/.test(signalId.trim()) : text.trim().length > 0));
 
   return (
     <div className="flex flex-col gap-3 p-7 h-[calc(100vh-80px)]">
@@ -302,6 +316,38 @@ export default function McpPlaygroundPage() {
             <Button variant="primary" type="button" onClick={send} disabled={!canSend}>
               Send
             </Button>
+          </div>
+        )}
+        {tool === 'feedback' && (
+          <div className="flex flex-col gap-2">
+            <div className="flex gap-2">
+              <Input
+                className="w-32"
+                value={signalId}
+                onChange={e => setSignalId(e.target.value)}
+                placeholder="signal_id"
+                disabled={runMutation.isPending}
+              />
+              <Select value={verdict} onChange={e => setVerdict(e.target.value as 'correct' | 'incorrect')}>
+                <option value="correct">correct</option>
+                <option value="incorrect">incorrect</option>
+              </Select>
+              <Input
+                className="flex-1"
+                value={note}
+                onChange={e => setNote(e.target.value)}
+                placeholder="Note (optional)"
+              />
+              <Button variant="primary" type="button" onClick={send} disabled={!canSend}>
+                Send
+              </Button>
+            </div>
+            <Textarea
+              rows={2}
+              value={correctedSql}
+              onChange={e => setCorrectedSql(e.target.value)}
+              placeholder="Corrected SQL (optional)"
+            />
           </div>
         )}
       </Card>
