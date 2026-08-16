@@ -29,6 +29,10 @@ internal sealed class McpSignalBuilder
     private int _executionTimeMs;
     private bool _isSuccessful;
 
+    // The SQL of record for the current ask flow — lets callers read it back without
+    // building a throwaway signal entity.
+    public string? GeneratedSql => _generatedSql;
+
     public McpSignalBuilder SetTool(string tool) { _tool = tool; return this; }
     public McpSignalBuilder SetQuestion(string question) { _question = question; return this; }
     public McpSignalBuilder SetProjectId(int? projectId) { _projectId = projectId; return this; }

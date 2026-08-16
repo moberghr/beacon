@@ -93,6 +93,12 @@ Once connected, your AI assistant can use the tools described below. Try asking:
 
 The server is mounted with `app.MapMcp("/beacon/mcp").RequireAuthorization(...)` and enforces the Execute scope for API-key callers (§1.4). Clients exchange JSON-RPC messages with the single `/beacon/mcp` endpoint over the Streamable HTTP transport; the server streams responses back on the same connection.
 
+**Protocol niceties the server publishes:**
+
+- The `initialize` response carries **server instructions** describing the recommended tool workflow, and every tool is published with a human-readable **title** and **annotations** (`readOnlyHint`, `idempotentHint`, `destructiveHint`, `openWorldHint`) so clients can reason about safety before calling.
+- `query` and `ask` responses include machine-readable **`structuredContent`** (columns, rows, row count, truncation flag — plus the generated SQL and `signal_id` for `ask`) alongside the markdown text, so agents don't have to parse tables back out of prose.
+- **Truncated results say so explicitly** — row-capped query results, paged search results, and concise documentation exports all end with a note stating that more data exists and how to get it (raise `max_rows`, repeat with the next `offset`, or pass `response_format: "detailed"`).
+
 ## Tools
 
 The MCP server exposes **6 tools** that AI clients can call.
@@ -183,12 +189,13 @@ Retrieve AI-generated documentation at three levels of detail.
 | `datasource_name` | string | No | Get docs for a specific data source |
 | `table_name` | string | No | Get detailed docs for a specific table or API endpoint |
 | `schema_name` | string | No | Schema name or API tag (optional qualifier for table_name) |
+| `response_format` | string | No | `concise` (summary sections) or `detailed` (everything). Project level defaults to `concise`; data-source and table level default to `detailed` |
 
 **Three levels:**
 
-1. **Project level** (no parameters) — Full generated project documentation
-2. **Data source level** (`datasource_name` only) — Tables, schemas, code references, quality scores
-3. **Table level** (`table_name`) — Columns with types, relationships, code references, quality rules, lineage
+1. **Project level** (no parameters) — Full generated project documentation. Defaults to `concise`: the export is cut at ~8,000 characters on a line boundary with an explicit truncation note; pass `response_format: "detailed"` for the full document
+2. **Data source level** (`datasource_name` only) — Tables, schemas, code references, quality scores. Defaults to `detailed`; `concise` omits the LLM schema context section
+3. **Table level** (`table_name`) — Columns with types, relationships, quality rules; `detailed` (the default) adds code references and lineage, `concise` omits them
 
 ### `search`
 
@@ -199,8 +206,9 @@ Search tables, columns, and documentation across all data sources in the project
 | `query` | string | **Yes** | — | Search keyword (e.g., "customer", "order_date", "revenue") |
 | `project_id` | integer | No | — | Specify project if needed |
 | `max_results` | integer | No | `20` | Maximum results to return (max: 50) |
+| `offset` | integer | No | `0` | Result offset for paging — use with `max_results` to page through large result sets |
 
-Results include item type (`[TABLE]`, `[COLUMN]`, `[DOC]`), data source, and description.
+Each result line includes the item type (`[TABLE]`, `[COLUMN]`, `[DOC]`), the data source and schema-qualified table (plus the column name for column hits), and the description, ordered by relevance. When more matches exist beyond the current page, the response ends with an explicit note giving the `offset` to request next.
 
 ### `feedback`
 

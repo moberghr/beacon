@@ -49,9 +49,9 @@ internal sealed class QueryExecutionService(
             }
 
             var text = $"### Results ({rows.Count} rows)\n\n";
-            text += ToolHelper.FormatResultsAsMarkdown(rows);
+            text += ToolHelper.FormatResultsAsMarkdown(rows, maxRows);
 
-            return new QueryExecutionResult(text, null, rows.Count, true);
+            return new QueryExecutionResult(text, null, rows.Count, true, ToolHelper.BuildStructuredPayload(rows, maxRows));
         }
 
         if (!result.Success)

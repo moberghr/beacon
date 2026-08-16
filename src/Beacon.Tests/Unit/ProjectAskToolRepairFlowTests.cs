@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
@@ -75,15 +76,43 @@ public class ProjectAskToolRepairFlowTests
             .ReturnsAsync(new QueryExecutionResult("### Results (3 rows)\n", null, 3, true));
 
         var signal = new McpSignalBuilder();
-        var (text, _) = await CreateTool().GenerateAndExecuteSqlAsync(
+        var outcome = await CreateTool().GenerateAndExecuteSqlAsync(
             _llmProvider.Object, DataSourceId, Question, _settings, execute: true, signal, CancellationToken.None);
 
-        text.Should().Contain("failed dry-run validation");
-        text.Should().Contain(CorrectedSql);
+        outcome.Text.Should().Contain("failed dry-run validation");
+        outcome.Text.Should().Contain(CorrectedSql);
         _queryExecution.Verify(x => x.ExecuteAsync(DataSourceId, CorrectedSql, 100, It.IsAny<CancellationToken>()), Times.Once);
         _queryExecution.Verify(x => x.ExecuteAsync(DataSourceId, GeneratedSql, It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
         signal.Build().DryRunFailed.Should().BeTrue();
         signal.Build().DryRunError.Should().Contain("bogus");
+
+        // ask's structured payload after a repair: generated_sql stays the initial SQL of record,
+        // corrected_sql carries the adopted repair, signal_id passes through.
+        var structured = ProjectAskTool.BuildAskStructuredContent(42, outcome.GeneratedSql, outcome.CorrectedSql, outcome.ResultPayload)!.AsObject();
+        structured["signal_id"]!.GetValue<int>().Should().Be(42);
+        structured["generated_sql"]!.GetValue<string>().Should().Be(GeneratedSql);
+        structured["corrected_sql"]!.GetValue<string>().Should().Be(CorrectedSql);
+    }
+
+    [Test]
+    public async Task StructuredContent_WithoutRepair_CarriesGeneratedSqlAndOmitsCorrectedSql()
+    {
+        SetupCleanDryRun();
+        _queryExecution
+            .Setup(x => x.ExecuteAsync(DataSourceId, GeneratedSql, 100, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new QueryExecutionResult("### Results (2 rows)\n", null, 2, true));
+
+        var signal = new McpSignalBuilder();
+        var outcome = await CreateTool().GenerateAndExecuteSqlAsync(
+            _llmProvider.Object, DataSourceId, Question, _settings, execute: true, signal, CancellationToken.None);
+
+        outcome.GeneratedSql.Should().Be(GeneratedSql);
+        outcome.CorrectedSql.Should().BeNull();
+
+        var structured = ProjectAskTool.BuildAskStructuredContent(7, outcome.GeneratedSql, outcome.CorrectedSql, outcome.ResultPayload)!.AsObject();
+        structured["signal_id"]!.GetValue<int>().Should().Be(7);
+        structured["generated_sql"]!.GetValue<string>().Should().Be(GeneratedSql);
+        structured.ContainsKey("corrected_sql").Should().BeFalse();
     }
 
     [Test]
@@ -243,6 +272,44 @@ public class ProjectAskToolRepairFlowTests
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
+    [Test]
+    public void BuildAskStructuredContent_ResultPayload_MergesKeysAlongsideSqlAndSignal()
+    {
+        var payload = new JsonObject
+        {
+            ["columns"] = new JsonArray("id", "name"),
+            ["rows"] = new JsonArray(new JsonArray(1, "acme")),
+            ["row_count"] = 1,
+            ["truncated"] = false
+        };
+
+        var structured = ProjectAskTool.BuildAskStructuredContent(42, GeneratedSql, null, payload)!.AsObject();
+
+        structured["signal_id"]!.GetValue<int>().Should().Be(42);
+        structured["generated_sql"]!.GetValue<string>().Should().Be(GeneratedSql);
+        structured["columns"]!.AsArray().Select(x => x!.GetValue<string>()).Should().Equal("id", "name");
+        structured["row_count"]!.GetValue<int>().Should().Be(1);
+        structured["truncated"]!.GetValue<bool>().Should().BeFalse();
+        var row = structured["rows"]!.AsArray().Single()!.AsArray();
+        row[0]!.GetValue<int>().Should().Be(1);
+        row[1]!.GetValue<string>().Should().Be("acme");
+    }
+
+    [Test]
+    public void BuildAskStructuredContent_NullSignalId_OmitsSignalIdKey()
+    {
+        var structured = ProjectAskTool.BuildAskStructuredContent(null, GeneratedSql, null, null)!.AsObject();
+
+        structured.ContainsKey("signal_id").Should().BeFalse();
+        structured["generated_sql"]!.GetValue<string>().Should().Be(GeneratedSql);
+    }
+
+    [Test]
+    public void BuildAskStructuredContent_AllNullArguments_ReturnsNull()
+    {
+        ProjectAskTool.BuildAskStructuredContent(null, null, null, null).Should().BeNull();
+    }
+
     private void SetupCleanDryRun()
     {
         _queryExecution
@@ -258,7 +325,6 @@ public class ProjectAskToolRepairFlowTests
             settingsProvider: null!,
             serviceProvider: null!,
             projectContext: null!,
-            sessionManager: null!,
             auditService: null!,
             signalService: null!,
             new SqlSchemaValidator(),

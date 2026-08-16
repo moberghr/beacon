@@ -799,12 +799,7 @@ internal sealed class KnowledgeGraphService(
         var queryLower = query.ToLower();
 
         // Search tables
-        var matchingTables = await context.DatabaseMetadata
-            .Where(m => dsIds.Contains(m.DataSourceId))
-            .Where(m => m.TableName.ToLower().Contains(queryLower) ||
-                        (m.TableDescription != null && m.TableDescription.ToLower().Contains(queryLower)))
-            .Select(m => new { m.DataSourceId, DataSourceName = m.DataSource.Name, m.SchemaName, m.TableName, m.TableDescription })
-            .Take(maxResults)
+        var matchingTables = await BuildMatchingTablesQuery(context, dsIds, queryLower, maxResults)
             .ToListAsync(ct);
 
         foreach (var table in matchingTables)
@@ -822,20 +817,7 @@ internal sealed class KnowledgeGraphService(
         }
 
         // Search columns
-        var matchingColumns = await context.ColumnMetadata
-            .Where(c => dsIds.Contains(c.DatabaseMetadata.DataSourceId))
-            .Where(c => c.ColumnName.ToLower().Contains(queryLower) ||
-                        (c.Description != null && c.Description.ToLower().Contains(queryLower)))
-            .Select(c => new
-            {
-                c.DatabaseMetadata.DataSourceId,
-                DataSourceName = c.DatabaseMetadata.DataSource.Name,
-                c.DatabaseMetadata.SchemaName,
-                c.DatabaseMetadata.TableName,
-                c.ColumnName,
-                c.Description
-            })
-            .Take(maxResults)
+        var matchingColumns = await BuildMatchingColumnsQuery(context, dsIds, queryLower, maxResults)
             .ToListAsync(ct);
 
         foreach (var col in matchingColumns)
@@ -854,11 +836,7 @@ internal sealed class KnowledgeGraphService(
         }
 
         // Search project documentation
-        var docSections = await context.ProjectDocumentationSections
-            .Where(s => s.Documentation.ProjectId == projectId)
-            .Where(s => s.Content.ToLower().Contains(queryLower))
-            .Select(s => new { ProjectName = s.Documentation.Project.Name, s.Title, s.Content })
-            .Take(maxResults / 2)
+        var docSections = await BuildDocSectionsQuery(context, projectId, queryLower, maxResults / 2)
             .ToListAsync(ct);
 
         foreach (var doc in docSections)
@@ -874,7 +852,69 @@ internal sealed class KnowledgeGraphService(
             });
         }
 
-        return results.OrderByDescending(r => r.Relevance).Take(maxResults).ToList();
+        return OrderForDeterministicPaging(results, maxResults);
+    }
+
+    // SearchProjectAsync sub-queries, exposed as IQueryable builders so translation tests can run
+    // ToQueryString() on the REAL query shapes (InternalsVisibleTo Beacon.Tests). Projections target
+    // named row records instead of anonymous types — EF projects into the ctor identically. Ordering
+    // sits BEFORE the projection because EF cannot compose OrderBy over ctor-projected members; the
+    // sort keys are the same columns, so the generated ORDER BY is unchanged.
+    internal static IQueryable<TableSearchRow> BuildMatchingTablesQuery(BeaconContext context, List<int> dsIds, string queryLower, int maxResults)
+    {
+        return context.DatabaseMetadata
+            .Where(x => dsIds.Contains(x.DataSourceId))
+            .Where(x => x.TableName.ToLower().Contains(queryLower) ||
+                        (x.TableDescription != null && x.TableDescription.ToLower().Contains(queryLower)))
+            .OrderBy(x => x.SchemaName)
+            .ThenBy(x => x.TableName)
+            .Select(x =>
+                new TableSearchRow(x.DataSourceId, x.DataSource.Name, x.SchemaName, x.TableName, x.TableDescription))
+            .Take(maxResults);
+    }
+
+    internal static IQueryable<ColumnSearchRow> BuildMatchingColumnsQuery(BeaconContext context, List<int> dsIds, string queryLower, int maxResults)
+    {
+        return context.ColumnMetadata
+            .Where(x => dsIds.Contains(x.DatabaseMetadata.DataSourceId))
+            .Where(x => x.ColumnName.ToLower().Contains(queryLower) ||
+                        (x.Description != null && x.Description.ToLower().Contains(queryLower)))
+            .OrderBy(x => x.DatabaseMetadata.SchemaName)
+            .ThenBy(x => x.DatabaseMetadata.TableName)
+            .ThenBy(x => x.ColumnName)
+            .Select(x =>
+                new ColumnSearchRow(
+                    x.DatabaseMetadata.DataSourceId,
+                    x.DatabaseMetadata.DataSource.Name,
+                    x.DatabaseMetadata.SchemaName,
+                    x.DatabaseMetadata.TableName,
+                    x.ColumnName,
+                    x.Description))
+            .Take(maxResults);
+    }
+
+    internal static IQueryable<DocSectionSearchRow> BuildDocSectionsQuery(BeaconContext context, int projectId, string queryLower, int maxResults)
+    {
+        return context.ProjectDocumentationSections
+            .Where(x => x.Documentation.ProjectId == projectId)
+            .Where(x => x.Content.ToLower().Contains(queryLower))
+            .OrderBy(x => x.Title)
+            .Select(x =>
+                new DocSectionSearchRow(x.Documentation.Project.Name, x.Title, x.Content))
+            .Take(maxResults);
+    }
+
+    // Deterministic paging: ties inside a coarse relevance band must not reshuffle between calls.
+    internal static List<SearchResult> OrderForDeterministicPaging(IEnumerable<SearchResult> results, int maxResults)
+    {
+        return results
+            .OrderByDescending(x => x.Relevance)
+            .ThenBy(x => x.DataSourceName)
+            .ThenBy(x => x.SchemaName)
+            .ThenBy(x => x.TableName)
+            .ThenBy(x => x.ColumnName)
+            .Take(maxResults)
+            .ToList();
     }
 
     public async Task<string> GetProjectContextForLlmAsync(int projectId, CancellationToken ct = default)
@@ -1981,3 +2021,10 @@ internal sealed class KnowledgeGraphService(
         return new SchemaExpansion([.. detailed], [], Capped: omitted > 0, OmittedTableCount: omitted);
     }
 }
+
+// Row shapes of the SearchProjectAsync sub-queries (see the Build*Query methods above).
+internal sealed record TableSearchRow(int DataSourceId, string DataSourceName, string SchemaName, string TableName, string? TableDescription);
+
+internal sealed record ColumnSearchRow(int DataSourceId, string DataSourceName, string SchemaName, string TableName, string ColumnName, string? Description);
+
+internal sealed record DocSectionSearchRow(string ProjectName, string Title, string Content);

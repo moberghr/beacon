@@ -16,11 +16,10 @@ internal sealed class GetContextTool(
     IKnowledgeGraphService knowledgeGraph,
     IDbContextFactory<BeaconContext> contextFactory,
     IProjectContext projectContext,
-    McpProjectContextManager sessionManager,
     McpAuditService auditService,
     ILogger<GetContextTool> logger)
 {
-    [McpServerTool(Name = "get_context")]
+    [McpServerTool(Name = "get_context", Title = "Project Overview", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
     [Description("Get an overview of the project: its data sources, schemas, tables, quality scores, and documentation status. This is the starting point for understanding what data is available.")]
     public async Task<CallToolResult> ExecuteAsync(
         [Description("Optional. If your API key has access to multiple projects, specify which one.")]
@@ -28,7 +27,7 @@ internal sealed class GetContextTool(
         CancellationToken cancellationToken = default)
     {
         var sw = Stopwatch.StartNew();
-        var resolveError = ToolHelper.ResolveProjectId(projectContext, sessionManager, project_id, out var projectId);
+        var resolveError = ToolHelper.ResolveProjectId(projectContext, project_id, out var projectId);
         if (resolveError != null) return ToolHelper.Error(resolveError);
 
         // No McpSignalService call here: McpQuerySignal models the SQL query-learning loop

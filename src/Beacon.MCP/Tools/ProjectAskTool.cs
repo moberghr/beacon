@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
@@ -20,7 +21,6 @@ internal sealed class ProjectAskTool(
     IMcpSettingsProvider settingsProvider,
     IServiceProvider serviceProvider,
     IProjectContext projectContext,
-    McpProjectContextManager sessionManager,
     McpAuditService auditService,
     McpSignalService signalService,
     SqlSchemaValidator schemaValidator,
@@ -33,7 +33,7 @@ internal sealed class ProjectAskTool(
     ICrossSourceQueryService crossSourceQueryService,
     ILogger<ProjectAskTool> logger)
 {
-    [McpServerTool(Name = "ask")]
+    [McpServerTool(Name = "ask", Title = "Ask a Data Question", ReadOnly = true, Idempotent = false, Destructive = false, OpenWorld = false)]
     [Description("Ask a natural language question about your data or project. For data queries, Beacon auto-detects the right data source(s), generates SQL, and executes it. For conceptual questions (e.g., 'how do notifications work?'), it answers from project documentation and knowledge base.")]
     public async Task<CallToolResult> ExecuteAsync(
         [Description("Your question in natural language (e.g., 'How many orders were placed last week?')")]
@@ -54,7 +54,7 @@ internal sealed class ProjectAskTool(
         if (string.IsNullOrEmpty(question))
             return await FailAsync(signal, sw, null, question ?? "", "Missing required parameter: question", cancellationToken);
 
-        var resolveError = ToolHelper.ResolveProjectId(projectContext, sessionManager, project_id, out var projectId);
+        var resolveError = ToolHelper.ResolveProjectId(projectContext, project_id, out var projectId);
         if (resolveError != null)
             return await FailAsync(signal, sw, null, question, resolveError, cancellationToken);
 
@@ -107,6 +107,9 @@ internal sealed class ProjectAskTool(
             }
 
             var askSucceeded = true;
+            JsonNode? resultPayload = null;
+            string? generatedSql = null;
+            string? correctedSql = null;
 
             // Generate and execute SQL
             if (routing.Sources.Count == 1)
@@ -115,10 +118,13 @@ internal sealed class ProjectAskTool(
                 text += $"## Data Source: {source.DataSourceName}\n";
                 text += $"**Reasoning:** {source.Reason}\n\n";
 
-                var (sqlText, sqlSucceeded) = await GenerateAndExecuteSqlAsync(
+                var outcome = await GenerateAndExecuteSqlAsync(
                     llmProvider, source.DataSourceId, question, settings, execute, signal, cancellationToken);
-                text += sqlText;
-                askSucceeded = sqlSucceeded;
+                text += outcome.Text;
+                askSucceeded = outcome.Succeeded;
+                resultPayload = outcome.ResultPayload;
+                generatedSql = outcome.GeneratedSql;
+                correctedSql = outcome.CorrectedSql;
             }
             else
             {
@@ -131,6 +137,9 @@ internal sealed class ProjectAskTool(
                     llmProvider, routing.Sources, question, settings, execute, signal, cancellationToken);
                 text += crossText;
                 askSucceeded = crossSucceeded;
+                // Cross-source flow builds its markdown internally; structured content for this path
+                // carries signal_id + generated_sql (from the signal builder) only — no columns/rows payload.
+                generatedSql = signal.GeneratedSql;
             }
 
             sw.Stop();
@@ -142,7 +151,7 @@ internal sealed class ProjectAskTool(
             {
                 text += $"\n\n_signal_id: {id}_";
             }
-            return ToolHelper.Success(text);
+            return ToolHelper.Success(text, BuildAskStructuredContent(signalId, generatedSql, correctedSql, resultPayload));
         }
         catch (Exception ex)
         {
@@ -159,7 +168,7 @@ internal sealed class ProjectAskTool(
     }
 
     // Internal for repair-flow tests (InternalsVisibleTo Beacon.Tests)
-    internal async Task<(string Text, bool Succeeded)> GenerateAndExecuteSqlAsync(
+    internal async Task<AskSqlOutcome> GenerateAndExecuteSqlAsync(
         ILlmProvider llmProvider,
         int dataSourceId,
         string question,
@@ -203,6 +212,11 @@ internal sealed class ProjectAskTool(
 
         signal.SetGeneratedSql(generatedSql, tablesUsed);
 
+        // The SQL shown under "### Generated SQL" — kept stable for the structured payload even
+        // when a repair below reassigns generatedSql to a corrected candidate.
+        var initialSql = generatedSql;
+        string? correctedSql = null;
+
         var text = $"### Generated SQL\n```sql\n{generatedSql}\n```\n\n";
         if (votingNote != null)
         {
@@ -214,7 +228,7 @@ internal sealed class ProjectAskTool(
         {
             signal.SetExecutionFailed(validationError);
             text += $"**Validation Error:** {validationError}\n";
-            return (text, false);
+            return new AskSqlOutcome(text, false, null, initialSql, null);
         }
 
         // Explicit budget shared by ALL repair triggers (schema, dry-run, execution error, empty result)
@@ -247,6 +261,7 @@ internal sealed class ProjectAskTool(
                         text += $"*Initial query had schema errors ({schemaCheck.Error}), retried.*\n\n";
                         text += $"### Corrected SQL\n```sql\n{preValidationRetry}\n```\n\n";
                         generatedSql = preValidationRetry;
+                        correctedSql = preValidationRetry;
                     }
                 }
             }
@@ -254,7 +269,7 @@ internal sealed class ProjectAskTool(
 
         if (!execute)
         {
-            return (text, true);
+            return new AskSqlOutcome(text, true, null, initialSql, correctedSql);
         }
 
         // Dry-run through the provider (EXPLAIN / sp_describe_first_result_set) before real execution.
@@ -279,6 +294,7 @@ internal sealed class ProjectAskTool(
                     text += $"*Initial query failed dry-run validation ({dryRunError}), retried.*\n\n";
                     text += $"### Corrected SQL\n```sql\n{dryRunRetry}\n```\n\n";
                     generatedSql = dryRunRetry;
+                    correctedSql = dryRunRetry;
                 }
             }
         }
@@ -308,7 +324,7 @@ internal sealed class ProjectAskTool(
                     text += $"*Initial query failed ({execResult.ErrorMessage}), retried with corrected SQL.*\n\n";
                     text += $"### Corrected SQL\n```sql\n{retriedSql}\n```\n\n";
                     text += retryExec.FormattedResult ?? $"**Execution Error:** {retryExec.ErrorMessage}\n";
-                    return (text, retryExec.IsSuccess);
+                    return new AskSqlOutcome(text, retryExec.IsSuccess, retryExec.Structured, initialSql, retriedSql);
                 }
             }
         }
@@ -336,7 +352,7 @@ internal sealed class ProjectAskTool(
                         text += "*Initial query returned zero rows, retried with corrected SQL.*\n\n";
                         text += $"### Corrected SQL\n```sql\n{emptyRetry}\n```\n\n";
                         text += retryExec.FormattedResult;
-                        return (text, true);
+                        return new AskSqlOutcome(text, true, retryExec.Structured, initialSql, emptyRetry);
                     }
 
                     signal.SetRetry(emptyRetry, false);
@@ -346,7 +362,7 @@ internal sealed class ProjectAskTool(
 
         text += execResult.FormattedResult ?? $"**Execution Error:** {execResult.ErrorMessage}\n";
 
-        return (text, execResult.IsSuccess);
+        return new AskSqlOutcome(text, execResult.IsSuccess, execResult.Structured, initialSql, correctedSql);
     }
 
     // Non-zero so the N samples diverge; provider-agnostic (§9.4) — no per-provider tuning.
@@ -539,5 +555,58 @@ internal sealed class ProjectAskTool(
             left.Trim().TrimEnd(';'),
             right.Trim().TrimEnd(';'),
             StringComparison.OrdinalIgnoreCase);
+    }
+
+    // Machine-readable companion to the markdown answer: { signal_id, generated_sql, corrected_sql?,
+    // columns?, rows?, row_count?, truncated? }. The columns/rows payload is present only when the
+    // single-source SQL path executed and produced rows; cross-source and execute:false carry the
+    // SQL/signal fields only. Returns null when nothing is available (e.g. knowledge-path callers
+    // never reach here). Internal for unit tests (InternalsVisibleTo Beacon.Tests).
+    internal static JsonNode? BuildAskStructuredContent(int? signalId, string? generatedSql, string? correctedSql, JsonNode? resultPayload)
+    {
+        var structured = new JsonObject();
+        if (signalId is { } id)
+        {
+            structured["signal_id"] = id;
+        }
+
+        if (generatedSql != null)
+        {
+            structured["generated_sql"] = generatedSql;
+        }
+
+        if (correctedSql != null)
+        {
+            structured["corrected_sql"] = correctedSql;
+        }
+
+        if (resultPayload is JsonObject payload)
+        {
+            foreach (var property in payload.ToList())
+            {
+                structured[property.Key] = property.Value?.DeepClone();
+            }
+        }
+
+        return structured.Count > 0 ? structured : null;
+    }
+}
+
+// Return value of ProjectAskTool.GenerateAndExecuteSqlAsync. ResultPayload is the structured
+// { columns, rows, row_count, truncated } node from the execution that produced the answer (null when
+// execution was skipped, failed, or returned no rows); GeneratedSql is the SQL shown under
+// "### Generated SQL"; CorrectedSql is the repair the flow adopted, when any. The 2-arity Deconstruct
+// preserves the original (Text, Succeeded) tuple shape for existing call sites and tests.
+internal sealed record AskSqlOutcome(
+    string Text,
+    bool Succeeded,
+    JsonNode? ResultPayload = null,
+    string? GeneratedSql = null,
+    string? CorrectedSql = null)
+{
+    public void Deconstruct(out string text, out bool succeeded)
+    {
+        text = Text;
+        succeeded = Succeeded;
     }
 }

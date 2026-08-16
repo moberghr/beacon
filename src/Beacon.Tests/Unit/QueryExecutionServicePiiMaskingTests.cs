@@ -37,6 +37,12 @@ public class QueryExecutionServicePiiMaskingTests
         result.FormattedResult.Should().NotContain(RawEmail);
         result.FormattedResult.Should().Contain("a***m");   // masked email
         result.FormattedResult.Should().Contain("Alice");   // non-PII column untouched
+
+        // The structured channel must carry the SAME masked rows — never the raw values.
+        var structuredValues = StructuredRowValues(result);
+        structuredValues.Should().Contain("a***m");
+        structuredValues.Should().Contain("Alice");
+        structuredValues.Should().NotContain(RawEmail);
     }
 
     [Test]
@@ -48,6 +54,16 @@ public class QueryExecutionServicePiiMaskingTests
 
         result.IsSuccess.Should().BeTrue();
         result.FormattedResult.Should().Contain(RawEmail);
+        StructuredRowValues(result).Should().Contain(RawEmail);
+    }
+
+    private static List<string?> StructuredRowValues(QueryExecutionResult result)
+    {
+        result.Structured.Should().NotBeNull();
+        return result.Structured!["rows"]!.AsArray()
+            .SelectMany(x => x!.AsArray())
+            .Select(x => x?.GetValue<string>())
+            .ToList();
     }
 
     private static QueryExecutionService BuildService(bool piiDetectionOn)

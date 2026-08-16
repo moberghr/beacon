@@ -1,5 +1,7 @@
 using System.Collections.Generic;
 using System.Data.Common;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using ModelContextProtocol.Protocol;
 using Beacon.Core.Data;
@@ -11,37 +13,26 @@ namespace Beacon.MCP.Tools;
 internal static class ToolHelper
 {
     /// <summary>
-    /// Resolves the active project ID from context + session manager.
-    /// Returns null on success (with projectId set), or an error message string.
+    /// Resolves the active project ID as a pure per-call function of the request-scoped context
+    /// and the explicit project_id parameter — no cross-call state, so any instance behind a load
+    /// balancer resolves identically. Returns null on success (with projectId set), or an error
+    /// message string.
     /// </summary>
     public static string? ResolveProjectId(
         IProjectContext context,
-        McpProjectContextManager sessionManager,
         int? requestedProjectId,
         out int projectId)
     {
         projectId = 0;
-        var key = McpProjectContextManager.MakeKey(context.UserId, context.ApiKeyId);
-        var state = sessionManager.GetOrCreate(key);
-
-        // If session already has an active project and no override requested, use it
-        if (state.ActiveProjectId.HasValue && requestedProjectId == null)
-        {
-            projectId = state.ActiveProjectId.Value;
-            context.ActiveProjectId = projectId;
-            return null;
-        }
 
         if (requestedProjectId.HasValue)
         {
+            // A null AllowedProjectIds means unrestricted; an empty list denies everything (fail closed).
             if (context.AllowedProjectIds != null && !context.AllowedProjectIds.Contains(requestedProjectId.Value))
+            {
                 return $"Access denied: your API key does not have access to project {requestedProjectId.Value}.";
+            }
 
-            // An explicit per-call project_id is resolved into the request-scoped context ONLY.
-            // It must NOT be written back to the shared (user+apiKey) session state: a concurrent
-            // call on the same key that omits project_id would otherwise read this value and
-            // execute against the wrong project. Sticky state is reserved for the single-project
-            // auto-resolve below, which is unambiguous.
             projectId = requestedProjectId.Value;
             context.ActiveProjectId = projectId;
             return null;
@@ -49,12 +40,13 @@ internal static class ToolHelper
 
         // No project requested — try auto-resolve
         if (context.AllowedProjectIds == null || context.AllowedProjectIds.Count == 0)
+        {
             return "No projects are associated with this API key. Create a project and regenerate your API key with project access.";
+        }
 
         if (context.AllowedProjectIds.Count == 1)
         {
             projectId = context.AllowedProjectIds[0];
-            state.ActiveProjectId = projectId;
             context.ActiveProjectId = projectId;
             return null;
         }
@@ -121,6 +113,22 @@ internal static class ToolHelper
     }
 
     /// <summary>
+    /// Builds the machine-readable companion to <see cref="FormatResultsAsMarkdown(IReadOnlyList{Dictionary{string, object?}}, int)"/>:
+    /// { "columns": [..], "rows": [[..], ..], "row_count": N, "truncated": bool }. The rows array honors the
+    /// same maxRows budget as the markdown table; row_count is the total row count received, and truncated is
+    /// true whenever a truncation notice would appear in the markdown (rows.Count >= maxRows).
+    /// </summary>
+    public static JsonNode BuildStructuredPayload(IReadOnlyList<Dictionary<string, object?>> rows, int maxRows = 100)
+    {
+        return BuildStructuredPayloadInternal(rows, maxRows);
+    }
+
+    public static JsonNode BuildStructuredPayload(List<IDictionary<string, object?>> rows, int maxRows = 100)
+    {
+        return BuildStructuredPayloadInternal(rows, maxRows);
+    }
+
+    /// <summary>
     /// Maps an exception to a message safe to return to the MCP caller. Business-rule and domain
     /// exceptions (§2.9) are written for the caller and pass through; database provider errors are
     /// surfaced so an agent can correct its own SQL; anything else stays internal — full detail
@@ -135,7 +143,16 @@ internal static class ToolHelper
         };
 
     public static CallToolResult Success(string text) =>
-        new() { Content = [new TextContentBlock { Text = text }] };
+        Success(text, null);
+
+    // SDK 2.2's CallToolResult.StructuredContent is a JsonElement?, so the JsonNode payload the
+    // tools build is converted at this single boundary; null structured leaves the field unset.
+    public static CallToolResult Success(string text, JsonNode? structured) =>
+        new()
+        {
+            Content = [new TextContentBlock { Text = text }],
+            StructuredContent = structured == null ? null : JsonSerializer.SerializeToElement(structured)
+        };
 
     public static CallToolResult Error(string message) =>
         new() { Content = [new TextContentBlock { Text = message }], IsError = true };
@@ -154,6 +171,66 @@ internal static class ToolHelper
                 row.TryGetValue(c, out var v) ? (v?.ToString() ?? "NULL") : "NULL")) + " |\n";
         }
 
+        // Result-budget honesty: never silently drop rows. rows.Count == maxRows most likely means
+        // the SQL-level row cap was hit, so the full result set may be larger than what came back.
+        if (rows.Count > maxRows)
+        {
+            text += $"\n_Showing {maxRows} of {rows.Count} rows (truncated). Narrow the query or raise max_rows._\n";
+        }
+        else if (rows.Count == maxRows)
+        {
+            text += $"\n_Row cap of {maxRows} reached — the result set may be truncated._\n";
+        }
+
         return text;
+    }
+
+    private static JsonNode BuildStructuredPayloadInternal<T>(IReadOnlyList<T> rows, int maxRows) where T : IDictionary<string, object?>
+    {
+        var columns = rows.Count > 0
+            ? rows[0].Keys.ToList()
+            : new List<string>();
+
+        var rowsNode = new JsonArray();
+        foreach (var row in rows.Take(maxRows))
+        {
+            var rowNode = new JsonArray();
+            foreach (var column in columns)
+            {
+                rowNode.Add(row.TryGetValue(column, out var value) ? ToJsonValue(value) : null);
+            }
+
+            rowsNode.Add(rowNode);
+        }
+
+        return new JsonObject
+        {
+            ["columns"] = new JsonArray(columns.Select(x => (JsonNode?)JsonValue.Create(x)).ToArray()),
+            ["rows"] = rowsNode,
+            ["row_count"] = rows.Count,
+            ["truncated"] = rows.Count > 0 && rows.Count >= maxRows
+        };
+    }
+
+    private static JsonNode? ToJsonValue(object? value)
+    {
+        return value switch
+        {
+            null => null,
+            bool x => JsonValue.Create(x),
+            string x => JsonValue.Create(x),
+            byte x => JsonValue.Create(x),
+            sbyte x => JsonValue.Create(x),
+            short x => JsonValue.Create(x),
+            ushort x => JsonValue.Create(x),
+            int x => JsonValue.Create(x),
+            uint x => JsonValue.Create(x),
+            long x => JsonValue.Create(x),
+            ulong x => JsonValue.Create(x),
+            float x => JsonValue.Create(x),
+            double x => JsonValue.Create(x),
+            decimal x => JsonValue.Create(x),
+            _ => JsonValue.Create(value.ToString())
+        };
     }
 }

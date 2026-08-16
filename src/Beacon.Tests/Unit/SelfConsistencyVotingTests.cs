@@ -296,7 +296,6 @@ public class SelfConsistencyVotingTests
             settingsProvider: null!,
             serviceProvider: null!,
             projectContext: null!,
-            sessionManager: null!,
             auditService: null!,
             signalService: null!,
             new SqlSchemaValidator(),

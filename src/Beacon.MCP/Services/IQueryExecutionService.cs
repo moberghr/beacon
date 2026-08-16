@@ -1,3 +1,5 @@
+using System.Text.Json.Nodes;
+
 namespace Beacon.MCP.Services;
 
 internal interface IQueryExecutionService
@@ -11,4 +13,7 @@ internal interface IQueryExecutionService
     Task<string?> ValidateAsync(int dataSourceId, string sql, CancellationToken ct);
 }
 
-internal record QueryExecutionResult(string? FormattedResult, string? ErrorMessage, int RowCount, bool IsSuccess);
+// Structured carries the machine-readable { columns, rows, row_count, truncated } payload built from the
+// same (PII-masked) rows as FormattedResult; null on failure, on empty results, and in tests that only
+// exercise the markdown path.
+internal record QueryExecutionResult(string? FormattedResult, string? ErrorMessage, int RowCount, bool IsSuccess, JsonNode? Structured = null);

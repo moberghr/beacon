@@ -396,6 +396,83 @@ public class QueryTranslationTests : QueryTranslationTestBase
             }));
     }
 
+    // ─── Project search (KnowledgeGraphService.SearchProjectAsync) ───
+
+    /// <summary>
+    /// Translates the REAL table sub-query of <c>KnowledgeGraphService.SearchProjectAsync</c>
+    /// (via the extracted <c>BuildMatchingTablesQuery</c>) and guards its deterministic
+    /// ORDER BY schema_name, table_name — paging must not reshuffle between calls.
+    /// </summary>
+    [Test]
+    public void SearchProjectTablesOrdering_Translates()
+    {
+        var dsIds = new List<int> { 1, 2 };
+
+        AssertQueryTranslates(ctx => Beacon.AI.Services.Knowledge.KnowledgeGraphService
+            .BuildMatchingTablesQuery(ctx, dsIds, "order", 20));
+
+        var sql = Beacon.AI.Services.Knowledge.KnowledgeGraphService
+            .BuildMatchingTablesQuery(Context, dsIds, "order", 20)
+            .ToQueryString();
+
+        Assert.That(sql, Does.Contain("ORDER BY"), "expected deterministic ordering on the table sub-query");
+        var orderBy = sql[sql.IndexOf("ORDER BY", StringComparison.Ordinal)..];
+        Assert.That(orderBy, Does.Contain("schema_name"));
+        Assert.That(orderBy, Does.Contain("table_name"));
+        Assert.That(orderBy.IndexOf("schema_name", StringComparison.Ordinal),
+            Is.LessThan(orderBy.IndexOf("table_name", StringComparison.Ordinal)),
+            "schema_name must be the primary sort key");
+    }
+
+    /// <summary>
+    /// Translates the REAL column sub-query of <c>KnowledgeGraphService.SearchProjectAsync</c>
+    /// (via <c>BuildMatchingColumnsQuery</c>) and guards its deterministic
+    /// ORDER BY schema_name, table_name, column_name.
+    /// </summary>
+    [Test]
+    public void SearchProjectColumnsOrdering_Translates()
+    {
+        var dsIds = new List<int> { 1, 2 };
+
+        AssertQueryTranslates(ctx => Beacon.AI.Services.Knowledge.KnowledgeGraphService
+            .BuildMatchingColumnsQuery(ctx, dsIds, "order", 20));
+
+        var sql = Beacon.AI.Services.Knowledge.KnowledgeGraphService
+            .BuildMatchingColumnsQuery(Context, dsIds, "order", 20)
+            .ToQueryString();
+
+        Assert.That(sql, Does.Contain("ORDER BY"), "expected deterministic ordering on the column sub-query");
+        var orderBy = sql[sql.IndexOf("ORDER BY", StringComparison.Ordinal)..];
+        Assert.That(orderBy, Does.Contain("schema_name"));
+        Assert.That(orderBy, Does.Contain("table_name"));
+        Assert.That(orderBy, Does.Contain("column_name"));
+        Assert.That(orderBy.IndexOf("schema_name", StringComparison.Ordinal),
+            Is.LessThan(orderBy.IndexOf("table_name", StringComparison.Ordinal)),
+            "schema_name must sort before table_name");
+        Assert.That(orderBy.IndexOf("table_name", StringComparison.Ordinal),
+            Is.LessThan(orderBy.IndexOf("column_name", StringComparison.Ordinal)),
+            "table_name must sort before column_name");
+    }
+
+    /// <summary>
+    /// Translates the REAL documentation sub-query of <c>KnowledgeGraphService.SearchProjectAsync</c>
+    /// (via <c>BuildDocSectionsQuery</c>) and guards its deterministic ORDER BY title.
+    /// </summary>
+    [Test]
+    public void SearchProjectDocSectionsOrdering_Translates()
+    {
+        AssertQueryTranslates(ctx => Beacon.AI.Services.Knowledge.KnowledgeGraphService
+            .BuildDocSectionsQuery(ctx, 1, "revenue", 10));
+
+        var sql = Beacon.AI.Services.Knowledge.KnowledgeGraphService
+            .BuildDocSectionsQuery(Context, 1, "revenue", 10)
+            .ToQueryString();
+
+        Assert.That(sql, Does.Contain("ORDER BY"), "expected deterministic ordering on the documentation sub-query");
+        var orderBy = sql[sql.IndexOf("ORDER BY", StringComparison.Ordinal)..];
+        Assert.That(orderBy, Does.Contain("title"));
+    }
+
     private static int CountJsonArrayElements(string json)
     {
         // Mirrors the private helper in AiActorService. EF Core treats this as a

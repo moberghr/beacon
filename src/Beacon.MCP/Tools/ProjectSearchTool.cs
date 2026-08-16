@@ -12,12 +12,11 @@ namespace Beacon.MCP.Tools;
 internal sealed class ProjectSearchTool(
     IKnowledgeGraphService knowledgeGraph,
     IProjectContext projectContext,
-    McpProjectContextManager sessionManager,
     McpAuditService auditService,
     ILogger<ProjectSearchTool> logger)
 {
-    [McpServerTool(Name = "search")]
-    [Description("Search tables, columns, and documentation across all data sources in the project by keyword. Returns matching items with descriptions, quality scores, and relevance.")]
+    [McpServerTool(Name = "search", Title = "Search Catalog", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
+    [Description("Search tables, columns, and documentation across all data sources in the project by keyword. Returns matching items with descriptions, ordered by relevance. Page through large result sets with max_results and offset.")]
     public async Task<CallToolResult> ExecuteAsync(
         [Description("Search keyword (e.g., 'customer', 'order_date', 'revenue')")]
         string query,
@@ -25,21 +24,31 @@ internal sealed class ProjectSearchTool(
         int? project_id = null,
         [Description("Maximum results to return (default: 20, max: 50)")]
         int? max_results = null,
+        [Description("Result offset for paging (default: 0, max: 200). Use with max_results to page through large result sets.")]
+        int? offset = null,
         CancellationToken cancellationToken = default)
     {
         var sw = Stopwatch.StartNew();
         var maxResults = Math.Min(max_results ?? 20, 50);
+        var offsetValue = Math.Max(offset ?? 0, 0);
+
+        if (offsetValue > 200)
+        {
+            return ToolHelper.Error("offset must be between 0 and 200.");
+        }
 
         if (string.IsNullOrEmpty(query))
             return ToolHelper.Error("Missing required parameter: query");
 
-        var resolveError = ToolHelper.ResolveProjectId(projectContext, sessionManager, project_id, out var projectId);
+        var resolveError = ToolHelper.ResolveProjectId(projectContext, project_id, out var projectId);
         if (resolveError != null) return ToolHelper.Error(resolveError);
 
         // No McpSignalService call here (audit-only) — see GetContextTool for the full rationale.
         try
         {
-            var results = await knowledgeGraph.SearchProjectAsync(query, projectId, maxResults, cancellationToken);
+            // Over-fetch by one past the requested window so "more available" is detected
+            // without a second round-trip; the window is cut in memory below.
+            var results = await knowledgeGraph.SearchProjectAsync(query, projectId, offsetValue + maxResults + 1, cancellationToken);
 
             if (results.Count == 0)
             {
@@ -49,10 +58,27 @@ internal sealed class ProjectSearchTool(
                 return ToolHelper.Success($"No results found for '{query}'.");
             }
 
-            var text = $"# Search Results for '{query}'\n\n";
-            text += $"**{results.Count} results found**\n\n";
+            var window = results
+                .Skip(offsetValue)
+                .Take(maxResults)
+                .ToList();
 
-            foreach (var r in results)
+            if (window.Count == 0)
+            {
+                // Offset points past the end — the fetch came back short of the over-fetch
+                // budget, so results.Count is the true total.
+                sw.Stop();
+                await auditService.LogToolCallAsync(null, projectContext.UserId, "search",
+                    query, null, projectId, (int)sw.ElapsedMilliseconds, 0, null, cancellationToken);
+                return ToolHelper.Success($"No results at offset {offsetValue} for '{query}' — only {results.Count} results exist.");
+            }
+
+            var text = $"# Search Results for '{query}'\n\n";
+            text += offsetValue > 0
+                ? $"**Showing {window.Count} results (offset {offsetValue})**\n\n"
+                : $"**{window.Count} results found**\n\n";
+
+            foreach (var r in window)
             {
                 var icon = r.Type switch
                 {
@@ -70,9 +96,14 @@ internal sealed class ProjectSearchTool(
                 text += "\n";
             }
 
+            if (results.Count > offsetValue + maxResults)
+            {
+                text += $"\n_More results available — repeat with offset={offsetValue + maxResults}._\n";
+            }
+
             sw.Stop();
             await auditService.LogToolCallAsync(null, projectContext.UserId, "search",
-                query, null, projectId, (int)sw.ElapsedMilliseconds, results.Count, null, cancellationToken);
+                query, null, projectId, (int)sw.ElapsedMilliseconds, window.Count, null, cancellationToken);
             return ToolHelper.Success(text);
         }
         catch (Exception ex)
