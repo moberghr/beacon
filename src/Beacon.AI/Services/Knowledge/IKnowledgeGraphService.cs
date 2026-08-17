@@ -10,7 +10,13 @@ public interface IKnowledgeGraphService
     Task<string> GetContextForLlmAsync(int dataSourceId, string? schemaName = null, string? tableName = null, CancellationToken ct = default);
     Task<string> GetProjectContextForLlmAsync(int projectId, CancellationToken ct = default);
     Task<List<DataSourceKnowledge>> GetProjectDataSourcesAsync(int projectId, CancellationToken ct = default);
-    Task<SmartSchemaContext> GetSmartContextForAskAsync(int dataSourceId, string question, CancellationToken ct = default);
+    /// <summary>
+    /// Assembles the smart grounding context for an ask against one data source. The caller's
+    /// AUTHORIZED <paramref name="projectId"/> is an explicit parameter (never derived from the data
+    /// source): a data source can be shared by several projects, and project-scoped grounding
+    /// (glossary terms, golden eval cases) must never leak across them.
+    /// </summary>
+    Task<SmartSchemaContext> GetSmartContextForAskAsync(int dataSourceId, int projectId, string question, CancellationToken ct = default);
 
     /// <summary>
     /// Builds the schema catalog for a data source — the same
@@ -20,7 +26,15 @@ public interface IKnowledgeGraphService
     /// </summary>
     Task<Dictionary<string, HashSet<string>>> GetSchemaCatalogAsync(int dataSourceId, CancellationToken ct = default);
     Task<string> GetTablesContextAsync(int dataSourceId, IEnumerable<string> tableNames, CancellationToken ct = default);
-    Task<List<LearnedPatternInfo>> GetRelevantPatternsAsync(int dataSourceId, List<string> tableNames, string? question = null, int maxPatterns = 10, int budgetChars = 1500, CancellationToken ct = default);
+
+    /// <summary>
+    /// Selects the learned patterns to inject for an ask. The caller's AUTHORIZED
+    /// <paramref name="projectId"/> is an explicit parameter for the same reason as on
+    /// <see cref="GetSmartContextForAskAsync"/>: a data source can be shared by several projects and
+    /// learned patterns are project-scoped — one project's mined lessons (which quote real questions
+    /// and SQL) must never be injected into another project's context.
+    /// </summary>
+    Task<List<LearnedPatternInfo>> GetRelevantPatternsAsync(int dataSourceId, int projectId, List<string> tableNames, string? question = null, int maxPatterns = 10, int budgetChars = 1500, CancellationToken ct = default);
 
     /// <summary>
     /// Embeds the RAW question (doc chunks are embedded RAW at index time — no masking) and returns the

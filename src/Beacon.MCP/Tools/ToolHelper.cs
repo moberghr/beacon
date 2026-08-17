@@ -169,27 +169,46 @@ internal static class ToolHelper
         if (rows.Count == 0) return "No results returned.\n";
 
         var columns = rows[0].Keys.ToList();
-        var text = "| " + string.Join(" | ", columns) + " |\n";
-        text += "| " + string.Join(" | ", columns.Select(_ => "---")) + " |\n";
+        var sb = new StringBuilder();
+        sb.Append("| ").Append(string.Join(" | ", columns)).Append(" |\n");
+        sb.Append("| ").Append(string.Join(" | ", columns.Select(_ => "---"))).Append(" |\n");
 
+        // The markdown table honors the same size budget as the structured payload (chars here,
+        // bytes there — chars are the cheaper conservative proxy): a row set with wide cell values
+        // can blow the response past what MCP clients accept even when the row COUNT is within
+        // maxRows. Stop emitting rows once the budget is reached and say so explicitly.
+        var budgetReached = false;
         foreach (var row in rows.Take(maxRows))
         {
-            text += "| " + string.Join(" | ", columns.Select(c =>
+            var line = "| " + string.Join(" | ", columns.Select(c =>
                 row.TryGetValue(c, out var v) ? (v?.ToString() ?? "NULL") : "NULL")) + " |\n";
+
+            if (sb.Length + line.Length > MaxStructuredPayloadBytes)
+            {
+                budgetReached = true;
+                break;
+            }
+
+            sb.Append(line);
+        }
+
+        if (budgetReached)
+        {
+            sb.Append("\n_Further rows omitted — response size budget reached._\n");
         }
 
         // Result-budget honesty: never silently drop rows. rows.Count == maxRows most likely means
         // the SQL-level row cap was hit, so the full result set may be larger than what came back.
         if (rows.Count > maxRows)
         {
-            text += $"\n_Showing {maxRows} of {rows.Count} rows (truncated). Narrow the query or raise max_rows._\n";
+            sb.Append($"\n_Showing {maxRows} of {rows.Count} rows (truncated). Narrow the query or raise max_rows._\n");
         }
         else if (rows.Count == maxRows)
         {
-            text += $"\n_Row cap of {maxRows} reached — the result set may be truncated._\n";
+            sb.Append($"\n_Row cap of {maxRows} reached — the result set may be truncated._\n");
         }
 
-        return text;
+        return sb.ToString();
     }
 
     private static JsonNode BuildStructuredPayloadInternal<T>(IReadOnlyList<T> rows, int maxRows) where T : IDictionary<string, object?>

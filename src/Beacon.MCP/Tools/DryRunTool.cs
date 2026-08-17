@@ -26,13 +26,14 @@ internal sealed class DryRunTool(
     IMcpSettingsProvider settingsProvider,
     IProjectContext projectContext,
     McpAuditService auditService,
+    McpSignalService signalService,
     ILogger<DryRunTool> logger)
 {
     // The dry-run preview applies the same default row budget the query tool uses, capped by settings.
     private const int DefaultMaxRows = 100;
 
     [McpServerTool(Name = "dry_run", Title = "Validate SQL Without Executing", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
-    [Description("Validate a SQL query through all of Beacon's safety gates — read-only guardrail, AST validation, schema column check, and a provider dry-run (EXPLAIN) — without executing it. Returns the exact SQL that would run (with the row limit applied) and any issues found. If the data source has no extracted schema metadata yet, the schema gate reports an advisory issue and the verdict is invalid (the column check could not be performed); the provider dry-run still runs. Use before query.")]
+    [Description("Validate a SQL query through all of Beacon's safety gates — read-only guardrail, AST validation, schema column check, and a provider dry-run (EXPLAIN) — without executing it. Returns the exact SQL that would run (with the row limit applied) and any issues found. If the data source has no extracted schema metadata yet, the schema gate reports an advisory issue and the verdict is invalid (the column check could not be performed); the provider dry-run still runs. Engines without a provider dry-run strategy (e.g. SQLite) report that gate as skipped with an advisory issue, so a query that could not be validated is never reported as valid. Use before query.")]
     public async Task<CallToolResult> ExecuteAsync(
         [Description("Name of the data source to validate against (preferred)")]
         string? datasource_name = null,
@@ -46,23 +47,33 @@ internal sealed class DryRunTool(
     {
         var sw = Stopwatch.StartNew();
 
-        // No McpSignalService call here: dry_run validates caller-authored SQL without generating or
-        // executing anything, so it produces none of the SQL-learning-loop outcomes McpQuerySignal
-        // models. Audit-only — see GetContextTool for the canonical rationale.
+        // dry_run IS part of the SQL-learning loop (unlike the read tools — see GetContextTool): the
+        // caller-authored SQL passing or failing the gates is exactly the outcome McpQuerySignal models
+        // (Question = GeneratedSql = the SQL under validation). §9.5 — recorded on every path, failures
+        // included (codex PR-11 R4).
+        var signal = new McpSignalBuilder()
+            .SetTool("dry_run")
+            .SetQuestion(sql ?? "")
+            .SetUserId(projectContext.UserId);
+
         if (string.IsNullOrEmpty(sql))
         {
-            return await FailAsync(sw, null, datasource_id, sql, "Missing required parameter: sql", cancellationToken);
+            return await FailAsync(signal, sw, null, datasource_id, sql, "Missing required parameter: sql", cancellationToken);
         }
+
+        signal.SetGeneratedSql(sql, SqlParsingHelper.ExtractTableNamesFromSql(sql));
 
         var resolveError = ToolHelper.ResolveProjectId(projectContext, project_id, out var projectId);
         if (resolveError != null)
         {
-            return await FailAsync(sw, null, datasource_id, sql, resolveError, cancellationToken);
+            return await FailAsync(signal, sw, null, datasource_id, sql, resolveError, cancellationToken);
         }
+
+        signal.SetProjectId(projectId);
 
         if (datasource_id == null && string.IsNullOrEmpty(datasource_name))
         {
-            return await FailAsync(sw, projectId, null, sql, "Provide either datasource_name or datasource_id.", cancellationToken);
+            return await FailAsync(signal, sw, projectId, null, sql, "Provide either datasource_name or datasource_id.", cancellationToken);
         }
 
         if (datasource_id == null && !string.IsNullOrEmpty(datasource_name))
@@ -70,16 +81,18 @@ internal sealed class DryRunTool(
             var (resolvedId, nameError) = await ToolHelper.ResolveDataSourceByNameAsync(contextFactory, projectId, datasource_name, cancellationToken);
             if (nameError != null)
             {
-                return await FailAsync(sw, projectId, null, sql, nameError, cancellationToken);
+                return await FailAsync(signal, sw, projectId, null, sql, nameError, cancellationToken);
             }
 
             datasource_id = resolvedId;
         }
 
+        signal.SetDataSourceId(datasource_id);
+
         var projectError = await ToolHelper.ValidateDataSourceInProjectAsync(contextFactory, projectId, datasource_id!.Value, cancellationToken);
         if (projectError != null)
         {
-            return await FailAsync(sw, projectId, datasource_id, sql, projectError, cancellationToken);
+            return await FailAsync(signal, sw, projectId, datasource_id, sql, projectError, cancellationToken);
         }
 
         try
@@ -92,7 +105,7 @@ internal sealed class DryRunTool(
 
             if (dataSource.DataSourceType == DataSourceType.Api)
             {
-                return await FailAsync(sw, projectId, datasource_id, sql,
+                return await FailAsync(signal, sw, projectId, datasource_id, sql,
                     "dry_run validates SQL only — API data sources are not supported.", cancellationToken);
             }
 
@@ -148,15 +161,24 @@ internal sealed class DryRunTool(
             // Gate 4: provider dry-run (EXPLAIN / sp_describe_first_result_set) — ONLY when every
             // previous gate passed; running EXPLAIN on a known-write statement is pointless and unsafe.
             // The schema-skip advisory alone does not block it: the parsers passed, so the provider
-            // dry-run is the only column check still available.
+            // dry-run is the only column check still available. An engine WITHOUT a dry-run strategy
+            // reports Skipped — surfaced as an advisory issue mirroring the empty-catalog pattern
+            // (verdict invalid: the caller asked for a validation that could not be performed).
             var providerGateRan = false;
+            var providerGateSkipped = false;
             if (issues.Count == 0 || (schemaCheckSkipped && issues.Count == 1))
             {
                 providerGateRan = true;
-                var providerError = await queryExecutionService.ValidateAsync(datasource_id.Value, sql, cancellationToken);
-                if (providerError != null)
+                var providerOutcome = await queryExecutionService.ValidateAsync(datasource_id.Value, sql, cancellationToken);
+                if (providerOutcome.Skipped)
                 {
-                    issues.Add(("provider_dry_run", providerError));
+                    providerGateSkipped = true;
+                    issues.Add(("provider_dry_run",
+                        providerOutcome.Error ?? "Provider dry-run is not supported for this engine — validation was skipped. Verify the query manually."));
+                }
+                else if (providerOutcome.Error != null)
+                {
+                    issues.Add(("provider_dry_run", providerOutcome.Error));
                 }
             }
 
@@ -164,29 +186,38 @@ internal sealed class DryRunTool(
             var maxRows = Math.Min(DefaultMaxRows, settings.MaxRowLimit);
             var executableSql = valid ? guardrailService.ApplyRowLimit(sql, maxRows, dialect) : null;
 
-            var text = BuildMarkdown(valid, issues, astGateRan, providerGateRan, executableSql, piiColumns);
+            var text = BuildMarkdown(valid, issues, astGateRan, providerGateRan, providerGateSkipped, executableSql, piiColumns);
             var structured = BuildStructuredContent(valid, issues, executableSql, piiColumns);
 
+            // Signal fields mirror the ask flow's failure taxonomy: schema-gate issues → schema
+            // validation failure, provider gate → dry-run failure, guardrail/AST → execution
+            // validation failure. IsSuccessful is the verdict itself.
+            RecordGateFailuresOnSignal(signal, issues, providerGateSkipped);
             sw.Stop();
+            signal.SetResult(null, (int)sw.ElapsedMilliseconds, valid);
             await auditService.LogToolCallAsync(null, projectContext.UserId, "dry_run",
                 sql, datasource_id, projectId, (int)sw.ElapsedMilliseconds, null, null, cancellationToken);
+            await signalService.RecordSignalAsync(signal.Build(), cancellationToken);
             return ToolHelper.Success(text, structured);
         }
         catch (Exception ex)
         {
             sw.Stop();
+            signal.SetExecutionFailed(ex.Message);
+            signal.SetResult(null, (int)sw.ElapsedMilliseconds, false);
             await auditService.LogToolCallAsync(null, projectContext.UserId, "dry_run",
                 sql, datasource_id, projectId, (int)sw.ElapsedMilliseconds, null, ex.Message, CancellationToken.None);
+            await signalService.RecordSignalAsync(signal.Build(), CancellationToken.None);
             // §1.11 — ex.Message can quote the user's SQL; type only here, full detail is in the audit log.
             logger.LogError("MCP tool {Tool} failed with {ExceptionType} (detail in MCP audit log)", "dry_run", ex.GetType().Name);
             return ToolHelper.Error(ToolHelper.CallerSafeMessage(ex, "dry_run"));
         }
     }
 
-    // §1.7 — audit must be recorded on every outcome, including the early-exit failures before the
-    // gate pipeline (missing input, project/data-source resolution, access denied). Audit-only, no
-    // signal — see the rationale at the top of ExecuteAsync.
+    // §1.7/§9.5 — audit AND signal must be recorded on every outcome, including the early-exit
+    // failures before the gate pipeline (missing input, project/data-source resolution, access denied).
     private async Task<CallToolResult> FailAsync(
+        McpSignalBuilder signal,
         Stopwatch sw,
         int? projectId,
         int? dataSourceId,
@@ -195,8 +226,11 @@ internal sealed class DryRunTool(
         CancellationToken cancellationToken)
     {
         sw.Stop();
+        signal.SetExecutionFailed(error);
+        signal.SetResult(null, (int)sw.ElapsedMilliseconds, false);
         await auditService.LogToolCallAsync(null, projectContext.UserId, "dry_run",
             sql, dataSourceId, projectId, (int)sw.ElapsedMilliseconds, null, error, cancellationToken);
+        await signalService.RecordSignalAsync(signal.Build(), cancellationToken);
         return ToolHelper.Error(error);
     }
 
@@ -205,6 +239,7 @@ internal sealed class DryRunTool(
         IReadOnlyList<(string Gate, string Error)> issues,
         bool astGateRan,
         bool providerGateRan,
+        bool providerGateSkipped,
         string? executableSql,
         IReadOnlyList<string> piiColumns)
     {
@@ -217,9 +252,7 @@ internal sealed class DryRunTool(
             ? GateLine("ast", issues)
             : "- – ast — skipped (read-only enforcement disabled)\n";
         text += GateLine("schema", issues);
-        text += providerGateRan
-            ? GateLine("provider_dry_run", issues)
-            : "- – provider_dry_run — skipped (fix the issues above first)\n";
+        text += ProviderGateLine(providerGateRan, providerGateSkipped, issues);
 
         if (executableSql != null)
         {
@@ -234,6 +267,18 @@ internal sealed class DryRunTool(
         return text;
     }
 
+    private static string ProviderGateLine(bool ran, bool skipped, IReadOnlyList<(string Gate, string Error)> issues)
+    {
+        if (skipped)
+        {
+            return "- – provider_dry_run — not supported for this engine (skipped)\n";
+        }
+
+        return ran
+            ? GateLine("provider_dry_run", issues)
+            : "- – provider_dry_run — skipped (fix the issues above first)\n";
+    }
+
     private static string GateLine(string gate, IReadOnlyList<(string Gate, string Error)> issues)
     {
         var error = issues
@@ -242,6 +287,37 @@ internal sealed class DryRunTool(
             .FirstOrDefault();
 
         return error == null ? $"- ✓ {gate}\n" : $"- ✗ {gate} — {error}\n";
+    }
+
+    // Maps the collected gate issues onto McpQuerySignal's failure taxonomy: the schema gate maps to
+    // SchemaValidationFailed, the provider dry-run to DryRunFailed, and the parser gates
+    // (guardrail/AST) to ExecutionFailed — the same fields the ask flow populates, so dry_run rows
+    // aggregate alongside ask rows in the learning loop. A SKIPPED provider gate is NOT a dry-run
+    // failure: the query was never presented to the provider, so the dry-run failure fields stay
+    // unset (the advisory issue still makes the verdict invalid; recording it as DryRunFailed would
+    // poison the learning loop with a failure that never happened).
+    private static void RecordGateFailuresOnSignal(
+        McpSignalBuilder signal, IReadOnlyList<(string Gate, string Error)> issues, bool providerGateSkipped)
+    {
+        foreach (var (gate, error) in issues)
+        {
+            switch (gate)
+            {
+                case "schema":
+                    signal.SetSchemaValidationFailed(error);
+                    break;
+                case "provider_dry_run":
+                    if (!providerGateSkipped)
+                    {
+                        signal.SetDryRunFailed(error);
+                    }
+
+                    break;
+                default:
+                    signal.SetExecutionFailed(error);
+                    break;
+            }
+        }
     }
 
     // Machine-readable companion to the markdown verdict:

@@ -4,13 +4,14 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Protocol;
 using Beacon.Core.Services;
+using Beacon.MCP.Discovery;
 using Beacon.MCP.Tools;
 
 namespace Beacon.MCP.Services;
 
 internal sealed class McpPlaygroundService(IServiceProvider serviceProvider) : IMcpPlaygroundService
 {
-    public IReadOnlyList<string> ToolNames => ["get_context", "ask", "query", "get_documentation", "search", "feedback", "dry_run", "get_query_context"];
+    public IReadOnlyList<string> ToolNames => McpToolCatalog.Names;
 
     public async Task<McpPlaygroundResult> ExecuteToolAsync(
         string toolName, Dictionary<string, object?> arguments, int projectId, CancellationToken ct)

@@ -119,7 +119,7 @@ internal sealed class ProjectAskTool(
                 text += $"**Reasoning:** {source.Reason}\n\n";
 
                 var outcome = await GenerateAndExecuteSqlAsync(
-                    llmProvider, source.DataSourceId, question, settings, execute, signal, cancellationToken);
+                    llmProvider, source.DataSourceId, projectId, question, settings, execute, signal, cancellationToken);
                 text += outcome.Text;
                 askSucceeded = outcome.Succeeded;
                 resultPayload = outcome.ResultPayload;
@@ -134,7 +134,7 @@ internal sealed class ProjectAskTool(
                 text += "\n";
 
                 var (crossText, crossSucceeded) = await crossSourceQueryService.ExecuteAsync(
-                    llmProvider, routing.Sources, question, settings, execute, signal, cancellationToken);
+                    llmProvider, routing.Sources, projectId, question, settings, execute, signal, cancellationToken);
                 text += crossText;
                 askSucceeded = crossSucceeded;
                 // Cross-source flow builds its markdown internally; structured content for this path
@@ -167,17 +167,20 @@ internal sealed class ProjectAskTool(
         }
     }
 
-    // Internal for repair-flow tests (InternalsVisibleTo Beacon.Tests)
+    // Internal for repair-flow tests (InternalsVisibleTo Beacon.Tests). projectId is the caller's
+    // AUTHORIZED project — project-scoped grounding (glossary, golden cases) keys on it, never on the
+    // data source's own project links (codex PR-11 R4 fix).
     internal async Task<AskSqlOutcome> GenerateAndExecuteSqlAsync(
         ILlmProvider llmProvider,
         int dataSourceId,
+        int projectId,
         string question,
         Core.Models.McpSettingsData settings,
         bool execute,
         McpSignalBuilder signal,
         CancellationToken ct)
     {
-        var smartContext = await knowledgeGraph.GetSmartContextForAskAsync(dataSourceId, question, ct);
+        var smartContext = await knowledgeGraph.GetSmartContextForAskAsync(dataSourceId, projectId, question, ct);
         signal.SetDataSourceId(dataSourceId);
 
         // Self-consistency voting pre-stage (spec §⑤). Runs ONLY when enabled and execution is
@@ -482,7 +485,11 @@ internal sealed class ProjectAskTool(
     {
         try
         {
-            return await queryExecutionService.ValidateAsync(dataSourceId, sql, ct);
+            var outcome = await queryExecutionService.ValidateAsync(dataSourceId, sql, ct);
+
+            // A skipped provider dry-run (engine has no EXPLAIN strategy) checked nothing — treat it
+            // like the infrastructure-failure path below: never spend a repair attempt on it.
+            return outcome.Skipped ? null : outcome.Error;
         }
         catch (OperationCanceledException)
         {

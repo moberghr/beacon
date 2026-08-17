@@ -24,10 +24,8 @@ internal sealed class FirstRunSetupMiddleware(
             return;
         }
 
-        var path = context.Request.Path.Value ?? "";
-
         // Skip for setup page, static files, and framework endpoints
-        if (IsExcludedPath(path))
+        if (IsExcludedPath(context.Request.Path))
         {
             await next(context);
             return;
@@ -45,10 +43,20 @@ internal sealed class FirstRunSetupMiddleware(
         await next(context);
     }
 
-    private static bool IsExcludedPath(string path)
+    private static bool IsExcludedPath(PathString requestPath)
     {
+        var path = requestPath.Value ?? "";
         if (path.Contains("/setup", StringComparison.OrdinalIgnoreCase))
+        {
             return true;
+        }
+
+        // MCP discovery documents (/.well-known/*) are anonymous machine endpoints — a first-run
+        // HTML redirect to /setup would corrupt them for remote MCP clients probing the server.
+        if (requestPath.StartsWithSegments("/.well-known", StringComparison.Ordinal))
+        {
+            return true;
+        }
 
         return MiddlewarePathHelper.IsStaticOrFrameworkPath(path);
     }

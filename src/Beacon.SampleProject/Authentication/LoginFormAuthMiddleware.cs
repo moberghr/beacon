@@ -22,10 +22,8 @@ internal sealed class LoginFormAuthMiddleware(
             return;
         }
 
-        var path = context.Request.Path.Value ?? "";
-
         // Allow access to login page, static files, and Blazor endpoints
-        if (IsAllowedPath(path))
+        if (IsAllowedPath(context.Request.Path))
         {
             await next(context);
             return;
@@ -43,8 +41,10 @@ internal sealed class LoginFormAuthMiddleware(
         await next(context);
     }
 
-    private bool IsAllowedPath(string path)
+    private bool IsAllowedPath(PathString requestPath)
     {
+        var path = requestPath.Value ?? "";
+
         // Allow React auth landing pages (anonymous routes mounted at root)
         if (path.Equals("/login", StringComparison.OrdinalIgnoreCase) ||
             path.Equals("/logout", StringComparison.OrdinalIgnoreCase) ||
@@ -85,6 +85,17 @@ internal sealed class LoginFormAuthMiddleware(
 
         // Allow OpenAPI document
         if (path.StartsWith("/openapi", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        // Allow well-known discovery documents (RFC 9728 protected-resource metadata, MCP server
+        // card) — anonymous by design so remote MCP clients can bootstrap OAuth discovery. Match
+        // Ordinal: RFC 8615 well-known URIs are registered lowercase, and the mapped endpoints only
+        // answer the exact-case path, so a mixed-case variant must fall through to the login redirect
+        // instead of the SPA. StartsWithSegments (not raw StartsWith) so a sibling path like
+        // "/.well-knownX" never matches.
+        if (requestPath.StartsWithSegments("/.well-known", StringComparison.Ordinal))
         {
             return true;
         }

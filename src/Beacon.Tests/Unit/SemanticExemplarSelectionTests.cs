@@ -30,6 +30,7 @@ namespace Beacon.Tests.Unit;
 public class SemanticExemplarSelectionTests
 {
     private const int DataSourceId = 1;
+    private const int ProjectId = 1;
     private const string Question = "How many orders were placed in 2023?";
 
     private static readonly List<string> TableNames = ["public.orders"];
@@ -76,7 +77,7 @@ public class SemanticExemplarSelectionTests
         var service = BuildService(embedder, patterns, embeddings, semanticEnabled: true, exemplarTopK: topK);
 
         var result = await service.GetRelevantPatternsAsync(
-            DataSourceId, TableNames, Question, ct: CancellationToken.None);
+            DataSourceId, ProjectId, TableNames, Question, ct: CancellationToken.None);
 
         var commonQueries = result.Where(x => x.PatternType == nameof(McpPatternType.CommonQuery)).ToList();
 
@@ -123,7 +124,7 @@ public class SemanticExemplarSelectionTests
             new UnavailableEmbeddingService(), patterns, embeddings, semanticEnabled: true, exemplarTopK: 3);
 
         var result = await service.GetRelevantPatternsAsync(
-            DataSourceId, TableNames, Question, ct: CancellationToken.None);
+            DataSourceId, ProjectId, TableNames, Question, ct: CancellationToken.None);
 
         // Overlap ranking returns the correction first (type priority 4 beats CommonQuery's 1).
         result[0].PatternType.Should().Be(nameof(McpPatternType.SchemaCorrection));
@@ -161,16 +162,87 @@ public class SemanticExemplarSelectionTests
         var service = BuildService(embedder, patterns, embeddings, semanticEnabled: false, exemplarTopK: 3);
 
         var result = await service.GetRelevantPatternsAsync(
-            DataSourceId, TableNames, Question, ct: CancellationToken.None);
+            DataSourceId, ProjectId, TableNames, Question, ct: CancellationToken.None);
 
         var commonQueries = result.Where(x => x.PatternType == nameof(McpPatternType.CommonQuery)).ToList();
         commonQueries.Should().HaveCount(5);
         commonQueries.Select(SqlToId).Should().Equal(1, 2, 3, 4, 5);
     }
 
+    [Test]
+    public async Task GetRelevantPatterns_TwoProjectsSharingADataSource_SemanticPathReturnsOnlyTheCallersProjectsPatterns()
+    {
+        // The leak this guards against (R5/C1): learned patterns are mined PER PROJECT, but their
+        // exemplar embeddings are data-source-scoped — on a shared data source, project B's lesson
+        // (quoting its real question/SQL) is a perfect NN hit for project A's ask. Both the kNN
+        // project scope and the ProjectId filter on the loaded bank must keep it out.
+        const int otherProjectId = 99;
+        var embedder = new FakeEmbeddingService();
+        var queryVector = await embedder.EmbedAsync(EmbeddingMaskingHelper.Mask(Question), CancellationToken.None);
+
+        var ownPattern = NewCommonQuery(1, ProjectId, "SELECT 1");
+        var foreignPattern = NewCommonQuery(2, otherProjectId, "SELECT 2");
+
+        // BOTH lessons store the query-identical vector — each is a perfect NN hit for the shared data source.
+        var embeddings = new List<McpEmbedding>
+        {
+            NewExemplarEmbedding(1, queryVector),
+            NewExemplarEmbedding(2, queryVector, otherProjectId)
+        };
+
+        var service = BuildService(
+            embedder, [ownPattern, foreignPattern], embeddings, semanticEnabled: true, exemplarTopK: 5);
+
+        var result = await service.GetRelevantPatternsAsync(
+            DataSourceId, ProjectId, TableNames, Question, ct: CancellationToken.None);
+
+        var returnedIds = result.Select(SqlToId).ToList();
+        returnedIds.Should().Contain(1, "the caller's own project's lesson must be injected");
+        returnedIds.Should().NotContain(2,
+            "another project's lesson must NEVER leak through a shared data source");
+    }
+
+    [Test]
+    public async Task GetRelevantPatterns_TwoProjectsSharingADataSource_OverlapFallbackReturnsOnlyTheCallersProjectsPatterns()
+    {
+        // Same isolation on the fallback path: with the embedder unavailable, the table-overlap
+        // ranking runs over the loaded bank — the ProjectId filter on that bank is the only gate.
+        const int otherProjectId = 99;
+        var ownPattern = NewCommonQuery(1, ProjectId, "SELECT 1");
+        var foreignPattern = NewCommonQuery(2, otherProjectId, "SELECT 2");
+
+        var service = BuildService(
+            new UnavailableEmbeddingService(), [ownPattern, foreignPattern], embeddings: [],
+            semanticEnabled: true, exemplarTopK: 5);
+
+        var result = await service.GetRelevantPatternsAsync(
+            DataSourceId, ProjectId, TableNames, Question, ct: CancellationToken.None);
+
+        var returnedIds = result.Select(SqlToId).ToList();
+        returnedIds.Should().Contain(1);
+        returnedIds.Should().NotContain(2,
+            "the overlap fallback must respect project isolation exactly like the semantic path");
+    }
+
     // ExampleSql is "SELECT {id}" so the returned few-shot demos can be mapped back to their pattern id.
     private static int SqlToId(LearnedPatternInfo info) =>
         int.Parse(info.ExampleSql!["SELECT ".Length..]);
+
+    private static McpLearnedPattern NewCommonQuery(int id, int projectId, string exampleSql) =>
+        new()
+        {
+            Id = id,
+            DataSourceId = DataSourceId,
+            ProjectId = projectId,
+            SchemaName = "public",
+            TableName = "orders",
+            PatternType = McpPatternType.CommonQuery,
+            PatternContent = $"common query {id}",
+            ExampleQuestion = $"example question {id}",
+            ExampleSql = exampleSql,
+            Confidence = 0.9,
+            Status = McpPatternStatus.Approved
+        };
 
     private static List<McpLearnedPattern> BuildExemplars(IEnumerable<int> ids) =>
         ids.Select(id => new McpLearnedPattern
@@ -202,11 +274,12 @@ public class SemanticExemplarSelectionTests
             Status = McpPatternStatus.Approved
         };
 
-    private static McpEmbedding NewExemplarEmbedding(int ownerId, float[] vector) =>
+    private static McpEmbedding NewExemplarEmbedding(int ownerId, float[] vector, int projectId = ProjectId) =>
         new()
         {
             Id = 1000 + ownerId,
             DataSourceId = DataSourceId,
+            ProjectId = projectId,
             OwnerType = McpEmbeddingOwnerType.Exemplar,
             OwnerId = ownerId,
             EmbeddingBytes = EmbeddingCodec.ToBytes(vector),

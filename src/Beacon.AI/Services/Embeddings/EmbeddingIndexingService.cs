@@ -137,6 +137,7 @@ internal sealed class EmbeddingIndexingService(
                 new ExemplarSource
                 {
                     Id = x.Id,
+                    ProjectId = x.ProjectId,
                     ExampleQuestion = x.ExampleQuestion,
                     PatternContent = x.PatternContent
                 })
@@ -218,6 +219,9 @@ internal sealed class EmbeddingIndexingService(
                     row.Model = EmbeddingModelName;
                     row.Dimensions = dimensions;
                     row.EmbeddingVersion = CurrentEmbeddingVersion;
+                    // R5/C1: keeps the project stamp current on every re-index — also heals exemplar
+                    // rows indexed before ProjectId stamping existed (metadata/golden inputs carry null).
+                    row.ProjectId = input.ProjectId;
                     vectorWrites.Add((row, vectors[i]));
                 }
                 else
@@ -225,6 +229,7 @@ internal sealed class EmbeddingIndexingService(
                     var newRow = new McpEmbedding
                     {
                         DataSourceId = dataSourceId,
+                        ProjectId = input.ProjectId,
                         OwnerType = input.OwnerType,
                         OwnerId = input.OwnerId,
                         EmbeddingBytes = bytes,
@@ -286,10 +291,14 @@ internal sealed class EmbeddingIndexingService(
         {
             // Prefer the natural-language ExampleQuestion; fall back to PatternContent for lessons that
             // carry no question (corrections/joins/doc-gaps) so they still get a similarity-rankable vector.
+            // The owning ProjectId is stamped onto the embedding row (R5/C1) so exemplar retrieval can
+            // scope the kNN by data source AND project — a shared data source must never surface another
+            // project's exemplar vectors.
             inputs.Add(new EmbeddingInput(
                 McpEmbeddingOwnerType.Exemplar,
                 exemplar.Id,
-                EmbeddingMaskingHelper.Mask(exemplar.ExampleQuestion ?? exemplar.PatternContent)));
+                EmbeddingMaskingHelper.Mask(exemplar.ExampleQuestion ?? exemplar.PatternContent),
+                exemplar.ProjectId));
         }
 
         // Golden cases embed their masked verified question (same masking as exemplars) so they rank by
@@ -323,7 +332,7 @@ internal sealed class EmbeddingIndexingService(
             : $"{qualified}: {description}";
     }
 
-    private readonly record struct EmbeddingInput(McpEmbeddingOwnerType OwnerType, int OwnerId, string Text);
+    private readonly record struct EmbeddingInput(McpEmbeddingOwnerType OwnerType, int OwnerId, string Text, int? ProjectId = null);
 
     private sealed class TableSource
     {
@@ -344,6 +353,7 @@ internal sealed class EmbeddingIndexingService(
     private sealed class ExemplarSource
     {
         public int Id { get; set; }
+        public int ProjectId { get; set; }
         public string? ExampleQuestion { get; set; }
         public string PatternContent { get; set; } = null!;
     }

@@ -31,6 +31,7 @@ internal sealed class PatternReplayVerifier(
                 .Select(x =>
                     new RelevantCase
                     {
+                        ProjectId = x.ProjectId,
                         Question = x.Question,
                         GoldSql = x.GoldSql,
                         GoldResultFingerprint = x.GoldResultFingerprint
@@ -58,9 +59,9 @@ internal sealed class PatternReplayVerifier(
             try
             {
                 var baseline = await evalService.EvaluateCasePassesAsync(
-                    candidate.DataSourceId, evalCase.Question, evalCase.GoldSql, evalCase.GoldResultFingerprint, null, ct);
+                    candidate.DataSourceId, evalCase.ProjectId, evalCase.Question, evalCase.GoldSql, evalCase.GoldResultFingerprint, null, ct);
                 var candidateEval = await evalService.EvaluateCasePassesAsync(
-                    candidate.DataSourceId, evalCase.Question, evalCase.GoldSql, evalCase.GoldResultFingerprint, lessonBlock, ct);
+                    candidate.DataSourceId, evalCase.ProjectId, evalCase.Question, evalCase.GoldSql, evalCase.GoldResultFingerprint, lessonBlock, ct);
 
                 // A case we could not actually measure — gold or generated failed to execute on either pass
                 // (a transient DB/connection error or a guardrail/AST rejection, NOT a clean pass/fail) — is
@@ -151,6 +152,7 @@ internal sealed class PatternReplayVerifier(
 
     private sealed class RelevantCase
     {
+        public int ProjectId { get; init; }
         public string Question { get; init; } = null!;
         public string GoldSql { get; init; } = null!;
         public string? GoldResultFingerprint { get; init; }

@@ -79,7 +79,7 @@ public class GlossaryInjectionTests
         var service = BuildService(embedder, terms, embeddings, semanticEnabled: true, glossaryTopK: topK);
 
         var block = await service.BuildGlossaryBlockAsync(
-            DataSourceId, Question, new McpSettingsData { EnableSemanticRetrieval = true, GlossaryTopK = topK },
+            ProjectId, Question, new McpSettingsData { EnableSemanticRetrieval = true, GlossaryTopK = topK },
             CancellationToken.None);
 
         block.Should().Contain("## Business Glossary");
@@ -102,6 +102,61 @@ public class GlossaryInjectionTests
     }
 
     [Test]
+    public async Task BuildGlossaryBlock_TwoProjectsSharingADataSource_ReturnsOnlyTheCallersProjectsTerms()
+    {
+        // The leak this guards against (codex PR-11 R4): the block builder used to DERIVE the project
+        // from the data source's first (lowest-Id) ProjectDataSources link — a data source shared by two
+        // projects served the lower project's terms to the other project's callers. The project is now
+        // the caller's authorized projectId, passed explicitly.
+        var embedder = new FakeEmbeddingService();
+        var queryVector = await embedder.EmbedAsync(EmbeddingMaskingHelper.Mask(Question), CancellationToken.None);
+
+        const int otherProjectId = 1; // LOWER than ProjectId — the old lowest-link derivation would pick it
+        var terms = new List<McpGlossaryTerm>
+        {
+            NewTerm(1, "revenue", "Total sales amount recognized", isActive: true),
+            new()
+            {
+                Id = 2,
+                ProjectId = otherProjectId,
+                Term = "secret metric",
+                Definition = "OTHER PROJECT'S DEFINITION",
+                IsActive = true
+            }
+        };
+
+        // BOTH terms store the query-identical vector — each is a perfect hit absent project scoping.
+        var embeddings = new List<McpEmbedding>
+        {
+            NewGlossaryEmbedding(1, queryVector),
+            new()
+            {
+                Id = 600,
+                DataSourceId = 0,
+                ProjectId = otherProjectId,
+                OwnerType = McpEmbeddingOwnerType.GlossaryTerm,
+                OwnerId = 2,
+                EmbeddingBytes = EmbeddingCodec.ToBytes(queryVector),
+                Model = "bge-small-en-v1.5",
+                Dimensions = 384,
+                EmbeddingVersion = 1
+            }
+        };
+
+        var service = BuildService(embedder, terms, embeddings, semanticEnabled: true, glossaryTopK: 5);
+
+        var block = await service.BuildGlossaryBlockAsync(
+            ProjectId, Question, new McpSettingsData { EnableSemanticRetrieval = true, GlossaryTopK = 5 },
+            CancellationToken.None);
+
+        block.Should().Contain("Total sales amount recognized",
+            "the caller's own project's terms must be injected");
+        block.Should().NotContain("secret metric");
+        block.Should().NotContain("OTHER PROJECT'S DEFINITION",
+            "another project's glossary must NEVER leak through a shared data source");
+    }
+
+    [Test]
     public async Task BuildGlossaryBlock_WhenEmbedderUnavailable_InjectsNothing()
     {
         // Behaviour-preserving fallback: no embedder → no glossary block at all, even with active terms + vectors.
@@ -115,7 +170,7 @@ public class GlossaryInjectionTests
             new UnavailableEmbeddingService(), terms, embeddings, semanticEnabled: true, glossaryTopK: 5);
 
         var block = await service.BuildGlossaryBlockAsync(
-            DataSourceId, Question, new McpSettingsData { EnableSemanticRetrieval = true, GlossaryTopK = 5 },
+            ProjectId, Question, new McpSettingsData { EnableSemanticRetrieval = true, GlossaryTopK = 5 },
             CancellationToken.None);
 
         block.Should().BeEmpty();
@@ -136,7 +191,7 @@ public class GlossaryInjectionTests
         var service = BuildService(embedder, terms, embeddings, semanticEnabled: false, glossaryTopK: 5);
 
         var block = await service.BuildGlossaryBlockAsync(
-            DataSourceId, Question, new McpSettingsData { EnableSemanticRetrieval = false, GlossaryTopK = 5 },
+            ProjectId, Question, new McpSettingsData { EnableSemanticRetrieval = false, GlossaryTopK = 5 },
             CancellationToken.None);
 
         block.Should().BeEmpty();

@@ -124,6 +124,7 @@ public class SelfConsistencyVotingTests
     // ---- Flow: voting layered on top of the repair loop in ProjectAskTool ----
 
     private const int DataSourceId = 7;
+    private const int ProjectId = 42;
     private const string Question = "How many orders last week?";
 
     private const string WinnerSql = "SELECT count(*) FROM orders";
@@ -151,7 +152,7 @@ public class SelfConsistencyVotingTests
         _settings = new McpSettingsData { EnableSelfConsistency = true };
 
         _knowledgeGraph
-            .Setup(x => x.GetSmartContextForAskAsync(DataSourceId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(x => x.GetSmartContextForAskAsync(DataSourceId, ProjectId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SmartSchemaContext
             {
                 FullContext = "schema-context",
@@ -167,7 +168,7 @@ public class SelfConsistencyVotingTests
         // Clean dry-run so the repair loop does not fire on the winner.
         _queryExecution
             .Setup(x => x.ValidateAsync(DataSourceId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((string?)null);
+            .ReturnsAsync(ProviderDryRunOutcome.Valid());
     }
 
     [Test]
@@ -209,7 +210,7 @@ public class SelfConsistencyVotingTests
 
         var signal = new McpSignalBuilder();
         var (text, succeeded) = await CreateTool().GenerateAndExecuteSqlAsync(
-            _llmProvider.Object, DataSourceId, Question, _settings, execute: true, signal, CancellationToken.None);
+            _llmProvider.Object, DataSourceId, ProjectId, Question, _settings, execute: true, signal, CancellationToken.None);
 
         succeeded.Should().BeTrue();
         // Winner = first-seen member of the majority result-set group.
@@ -256,7 +257,7 @@ public class SelfConsistencyVotingTests
 
         var signal = new McpSignalBuilder();
         var (text, succeeded) = await CreateTool().GenerateAndExecuteSqlAsync(
-            _llmProvider.Object, DataSourceId, Question, _settings, execute: true, signal, CancellationToken.None);
+            _llmProvider.Object, DataSourceId, ProjectId, Question, _settings, execute: true, signal, CancellationToken.None);
 
         succeeded.Should().BeTrue();
         // The no-winner fallback is surfaced, not silent (SF-F6): voting emits a note explaining it produced
@@ -281,7 +282,7 @@ public class SelfConsistencyVotingTests
 
         var signal = new McpSignalBuilder();
         var (text, _) = await CreateTool().GenerateAndExecuteSqlAsync(
-            _llmProvider.Object, DataSourceId, Question, _settings, execute: true, signal, CancellationToken.None);
+            _llmProvider.Object, DataSourceId, ProjectId, Question, _settings, execute: true, signal, CancellationToken.None);
 
         text.Should().NotContain("Self-consistency");
         _sqlGeneration.Verify(x => x.GenerateCandidatesAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(),

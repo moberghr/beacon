@@ -27,7 +27,8 @@ namespace Beacon.Tests.Unit;
 /// real logic against a mocked <see cref="BeaconContext"/> backed by the async-queryable doubles (no DB,
 /// no forbidden <c>UseInMemoryDatabase</c> — §4.7). The raw pgvector path needs a live DB, so the context
 /// spoofs a non-Npgsql provider and the deterministic in-memory cosine path runs with
-/// <see cref="FakeEmbeddingService"/>. Golden cases are data-source-scoped (no project resolution).
+/// <see cref="FakeEmbeddingService"/>. Golden-case EMBEDDINGS are data-source-scoped, but the loaded
+/// cases are hard-filtered by the caller's authorized ProjectId (codex PR-11 R4).
 /// </summary>
 [TestFixture]
 public class GoldenExemplarInjectionTests
@@ -83,7 +84,7 @@ public class GoldenExemplarInjectionTests
         });
 
         var block = await service.BuildGoldenExemplarBlockAsync(
-            DataSourceId, Question,
+            DataSourceId, ProjectId, Question,
             new McpSettingsData
             {
                 EnableGoldenExemplars = true,
@@ -111,6 +112,54 @@ public class GoldenExemplarInjectionTests
     }
 
     [Test]
+    public async Task BuildGoldenExemplarBlock_TwoProjectsSharingADataSource_ReturnsOnlyTheCallersProjectsCases()
+    {
+        // The leak this guards against (codex PR-11 R4): golden-case embeddings are data-source-scoped,
+        // so a shared data source retrieves BOTH projects' cases as NN hits — the ProjectId filter on the
+        // loaded rows is the only thing keeping project B's gold SQL out of project A's ask.
+        var embedder = new FakeEmbeddingService();
+        var queryVector = await embedder.EmbedAsync(EmbeddingMaskingHelper.Mask(Question), CancellationToken.None);
+
+        const int otherProjectId = 99;
+        var cases = new List<McpEvalCase>
+        {
+            NewCase(1, Question, "SELECT count(*) FROM orders WHERE status = 4", isActive: true),
+            new()
+            {
+                Id = 2,
+                ProjectId = otherProjectId,
+                DataSourceId = DataSourceId,
+                Question = Question,
+                GoldSql = "SELECT secret_margin FROM other_project_finances",
+                IsActive = true
+            }
+        };
+
+        // BOTH cases store the query-identical vector — each is a perfect NN hit for the shared data source.
+        var embeddings = new List<McpEmbedding>
+        {
+            NewGoldenEmbedding(1, queryVector),
+            NewGoldenEmbedding(2, queryVector)
+        };
+
+        var settings = new McpSettingsData
+        {
+            EnableGoldenExemplars = true,
+            EnableSemanticRetrieval = true,
+            GoldenExemplarTopK = 5,
+            GoldenExemplarBudgetChars = 4000
+        };
+        var service = BuildService(embedder, cases, embeddings, settings);
+
+        var block = await service.BuildGoldenExemplarBlockAsync(DataSourceId, ProjectId, Question, settings, CancellationToken.None);
+
+        block.Should().Contain("SELECT count(*) FROM orders WHERE status = 4",
+            "the caller's own project's golden case must be injected");
+        block.Should().NotContain("other_project_finances",
+            "another project's gold SQL must NEVER leak through a shared data source");
+    }
+
+    [Test]
     public async Task BuildGoldenExemplarBlock_WhenDisabled_InjectsNothing()
     {
         var embedder = new FakeEmbeddingService();
@@ -128,7 +177,7 @@ public class GoldenExemplarInjectionTests
         };
         var service = BuildService(embedder, cases, embeddings, settings);
 
-        var block = await service.BuildGoldenExemplarBlockAsync(DataSourceId, Question, settings, CancellationToken.None);
+        var block = await service.BuildGoldenExemplarBlockAsync(DataSourceId, ProjectId, Question, settings, CancellationToken.None);
 
         block.Should().BeEmpty();
     }
@@ -147,7 +196,7 @@ public class GoldenExemplarInjectionTests
         };
         var service = BuildService(new UnavailableEmbeddingService(), cases, embeddings, settings);
 
-        var block = await service.BuildGoldenExemplarBlockAsync(DataSourceId, Question, settings, CancellationToken.None);
+        var block = await service.BuildGoldenExemplarBlockAsync(DataSourceId, ProjectId, Question, settings, CancellationToken.None);
 
         block.Should().BeEmpty();
     }
@@ -183,7 +232,7 @@ public class GoldenExemplarInjectionTests
         };
         var service = BuildService(embedder, cases, embeddings, settings);
 
-        var block = await service.BuildGoldenExemplarBlockAsync(DataSourceId, Question, settings, CancellationToken.None);
+        var block = await service.BuildGoldenExemplarBlockAsync(DataSourceId, ProjectId, Question, settings, CancellationToken.None);
 
         block.Should().Contain("## Verified query examples (authoritative)", "at least the header + one example is emitted");
         RenderedCaseIds(block).Count.Should().BeLessThan(3, "the budget must trim later entries");
@@ -266,7 +315,7 @@ public class GoldenExemplarInjectionTests
         var context = new SmartContextTestContext(dataSource, tables, patterns, cases, embeddings);
         var service = BuildServiceForContext(embedder, context, settings);
 
-        var result = await service.GetSmartContextForAskAsync(DataSourceId, Question, CancellationToken.None);
+        var result = await service.GetSmartContextForAskAsync(DataSourceId, ProjectId, Question, CancellationToken.None);
         var full = result.FullContext;
 
         var goldenIdx = full.IndexOf("## Verified query examples (authoritative)", StringComparison.Ordinal);
@@ -315,6 +364,7 @@ public class GoldenExemplarInjectionTests
         {
             Id = id,
             DataSourceId = DataSourceId,
+            ProjectId = ProjectId,
             OwnerType = ownerType,
             OwnerId = ownerId,
             EmbeddingBytes = EmbeddingCodec.ToBytes(vector),

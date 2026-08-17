@@ -61,7 +61,8 @@ public class GetQueryContextToolTests
         text.Should().NotContain("_Truncated at");
 
         _knowledgeGraph.Verify(
-            x => x.GetSmartContextForAskAsync(WarehouseId, Question, It.IsAny<CancellationToken>()), Times.Once);
+            x => x.GetSmartContextForAskAsync(WarehouseId, ProjectId, Question, It.IsAny<CancellationToken>()), Times.Once,
+            "the caller's authorized projectId must be threaded into grounding (codex PR-11 R4)");
 
         var structured = result.StructuredContent!.Value;
         structured.GetProperty("data_source_id").GetInt32().Should().Be(WarehouseId);
@@ -90,7 +91,7 @@ public class GetQueryContextToolTests
         text.Should().Contain("Pass datasource_name or datasource_id");
 
         _knowledgeGraph.Verify(
-            x => x.GetSmartContextForAskAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            x => x.GetSmartContextForAskAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 
@@ -104,7 +105,7 @@ public class GetQueryContextToolTests
         GetText(result).Should().StartWith("# Query Context: crm (PostgreSQL)");
 
         _knowledgeGraph.Verify(
-            x => x.GetSmartContextForAskAsync(CrmId, Question, It.IsAny<CancellationToken>()), Times.Once);
+            x => x.GetSmartContextForAskAsync(CrmId, ProjectId, Question, It.IsAny<CancellationToken>()), Times.Once);
 
         var structured = result.StructuredContent!.Value;
         structured.GetProperty("data_source_id").GetInt32().Should().Be(CrmId);
@@ -158,7 +159,7 @@ public class GetQueryContextToolTests
         GetText(result).Should().Be("Missing required parameter: question");
 
         _knowledgeGraph.Verify(
-            x => x.GetSmartContextForAskAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            x => x.GetSmartContextForAskAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
             Times.Never);
 
         _auditLogs.Should().ContainSingle("§1.7 — early-exit errors must still record an audit row");
@@ -172,7 +173,7 @@ public class GetQueryContextToolTests
         // Mirrors DryRunToolTests.SchemaCatalogThrows: the catch path must still record an audit
         // row (§1.7) carrying the resolved project + data source and the raw error.
         _knowledgeGraph
-            .Setup(x => x.GetSmartContextForAskAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(x => x.GetSmartContextForAskAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new InvalidOperationException("knowledge graph offline"));
 
         var result = await CreateTool(multiSource: false).ExecuteAsync(
@@ -213,7 +214,7 @@ public class GetQueryContextToolTests
     private void SetupSmartContext(string fullContext)
     {
         _knowledgeGraph
-            .Setup(x => x.GetSmartContextForAskAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(x => x.GetSmartContextForAskAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SmartSchemaContext
             {
                 FullContext = fullContext,

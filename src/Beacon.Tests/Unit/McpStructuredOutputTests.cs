@@ -134,6 +134,43 @@ public class McpStructuredOutputTests
 
         text.Should().NotContain("truncated");
         text.Should().NotContain("Row cap");
+        text.Should().NotContain("response size budget");
+    }
+
+    [Test]
+    public void FormatResultsAsMarkdown_WideCellRows_StopsAtSizeBudget_AndAppendsBudgetNotice()
+    {
+        // codex PR-11 R4: the markdown table honors the same size budget as the structured payload.
+        // 20 rows × ~64KB cells ≈ 1.2MB raw — far past MaxStructuredPayloadBytes (256KB) even though
+        // the row COUNT is comfortably inside maxRows.
+        var wideCell = new string('x', 65536);
+        var rows = Enumerable.Range(1, 20)
+            .Select(i =>
+                new Dictionary<string, object?>
+                {
+                    ["id"] = i,
+                    ["blob"] = wideCell
+                })
+            .ToList();
+
+        var text = ToolHelper.FormatResultsAsMarkdown(rows, maxRows: 100);
+
+        text.Should().Contain("_Further rows omitted — response size budget reached._");
+        text.Length.Should().BeLessThan(ToolHelper.MaxStructuredPayloadBytes + wideCell.Length,
+            "row emission must stop once the budget is reached");
+        // Header + separator + at least one data row are always emitted before the budget can trip.
+        text.Split('\n').Count(x => x.StartsWith("|")).Should().BeGreaterThan(2);
+        text.Split('\n').Count(x => x.StartsWith("|")).Should().BeLessThan(22, "not all 20 rows can fit the budget");
+    }
+
+    [Test]
+    public void FormatResultsAsMarkdown_SmallRowSet_NoBudgetNotice_AllRowsEmitted()
+    {
+        var text = ToolHelper.FormatResultsAsMarkdown(MakeRows(2), maxRows: 100);
+
+        text.Should().NotContain("response size budget");
+        // Header + separator + both data rows — nothing dropped for size.
+        text.Split('\n').Count(x => x.StartsWith("|")).Should().Be(4);
     }
 
     [Test]

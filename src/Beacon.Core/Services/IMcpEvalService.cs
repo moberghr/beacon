@@ -35,10 +35,13 @@ public interface IMcpEvalService
     /// Returns a <see cref="CaseEvaluation"/> carrying whether the case passed AND whether it was actually
     /// measurable (both gold and generated executed) — an infra/guardrail execution failure is NOT a clean
     /// pass/fail and must be excluded by the caller. Runs NO judge and performs NO persistence — it never
-    /// mutates the data source or the eval store.
+    /// mutates the data source or the eval store. <paramref name="projectId"/> is the eval case's own
+    /// ProjectId, threaded into smart-context assembly so project-scoped grounding (glossary, golden
+    /// exemplars) never crosses projects sharing a data source.
     /// </summary>
     Task<CaseEvaluation> EvaluateCasePassesAsync(
         int dataSourceId,
+        int projectId,
         string question,
         string goldSql,
         string? goldResultFingerprint,

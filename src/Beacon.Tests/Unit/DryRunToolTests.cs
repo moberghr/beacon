@@ -40,6 +40,7 @@ public class DryRunToolTests
     private Mock<IQueryExecutionService> _queryExecution = null!;
     private Mock<IKnowledgeGraphService> _knowledgeGraph = null!;
     private List<McpAuditLog> _auditLogs = null!;
+    private List<McpQuerySignal> _signals = null!;
 
     [SetUp]
     public void SetUp()
@@ -48,6 +49,7 @@ public class DryRunToolTests
         _queryExecution = new Mock<IQueryExecutionService>();
         _knowledgeGraph = new Mock<IKnowledgeGraphService>();
         _auditLogs = [];
+        _signals = [];
 
         _knowledgeGraph
             .Setup(x => x.GetSchemaCatalogAsync(DataSourceId, It.IsAny<CancellationToken>()))
@@ -65,7 +67,7 @@ public class DryRunToolTests
 
         _queryExecution
             .Setup(x => x.ValidateAsync(DataSourceId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((string?)null);
+            .ReturnsAsync(ProviderDryRunOutcome.Valid());
     }
 
     [Test]
@@ -99,6 +101,18 @@ public class DryRunToolTests
         _auditLogs[0].ErrorMessage.Should().BeNull();
         _auditLogs[0].DataSourceId.Should().Be(DataSourceId);
         _auditLogs[0].ProjectId.Should().Be(ProjectId);
+
+        // §9.5 (codex PR-11 R4) — dry_run is part of the SQL loop, so a signal is recorded: the SQL
+        // under validation is both the Question and the GeneratedSql, and IsSuccessful is the verdict.
+        _signals.Should().ContainSingle();
+        _signals[0].Tool.Should().Be("dry_run");
+        _signals[0].Question.Should().Be(ValidSql);
+        _signals[0].GeneratedSql.Should().Be(ValidSql);
+        _signals[0].ProjectId.Should().Be(ProjectId);
+        _signals[0].DataSourceId.Should().Be(DataSourceId);
+        _signals[0].IsSuccessful.Should().BeTrue();
+        _signals[0].SchemaValidationFailed.Should().BeFalse();
+        _signals[0].DryRunFailed.Should().BeFalse();
     }
 
     [Test]
@@ -130,6 +144,13 @@ public class DryRunToolTests
             .ToList();
         gates.Should().Contain("guardrail");
         gates.Should().Contain("ast");
+
+        // Parser-gate (guardrail/AST) failures map onto the execution-validation failure fields.
+        // Both parser gates failed here; the builder keeps the last-written error (the AST one).
+        _signals.Should().ContainSingle();
+        _signals[0].IsSuccessful.Should().BeFalse();
+        _signals[0].ExecutionFailed.Should().BeTrue();
+        _signals[0].ExecutionError.Should().Contain("Only SELECT queries");
     }
 
     [Test]
@@ -151,6 +172,12 @@ public class DryRunToolTests
         issues.Should().ContainSingle(x => x.GetProperty("gate").GetString() == "schema");
         _queryExecution.Verify(
             x => x.ValidateAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+
+        // Schema-gate issues map onto the schema-validation failure fields, mirroring the ask flow.
+        _signals.Should().ContainSingle();
+        _signals[0].IsSuccessful.Should().BeFalse();
+        _signals[0].SchemaValidationFailed.Should().BeTrue();
+        _signals[0].SchemaValidationError.Should().Contain("nonexistent_col");
     }
 
     [Test]
@@ -187,7 +214,7 @@ public class DryRunToolTests
         const string providerError = "relation \"customers\" does not exist";
         _queryExecution
             .Setup(x => x.ValidateAsync(DataSourceId, ValidSql, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(providerError);
+            .ReturnsAsync(new ProviderDryRunOutcome(providerError, false));
 
         var result = await CreateTool().ExecuteAsync(
             datasource_id: DataSourceId, sql: ValidSql, cancellationToken: CancellationToken.None);
@@ -203,6 +230,48 @@ public class DryRunToolTests
         issues.Should().ContainSingle(x => x.GetProperty("gate").GetString() == "provider_dry_run");
         issues[0].GetProperty("error").GetString().Should().Be(providerError);
         structured.GetProperty("executable_sql").ValueKind.Should().Be(JsonValueKind.Null);
+
+        // Provider-gate issues map onto the dry-run failure fields, mirroring the ask flow.
+        _signals.Should().ContainSingle();
+        _signals[0].IsSuccessful.Should().BeFalse();
+        _signals[0].DryRunFailed.Should().BeTrue();
+        _signals[0].DryRunError.Should().Be(providerError);
+    }
+
+    [Test]
+    public async Task SkippedProviderDryRun_RendersSkippedGate_AddsAdvisoryIssue_InvalidatesVerdict()
+    {
+        // codex PR-11 R4: an engine without a dry-run strategy (e.g. SQLite) reports Skipped — the gate
+        // renders as skipped and an advisory issue makes the verdict invalid, mirroring the
+        // empty-catalog pattern: a validation the tool could not perform must never read as valid.
+        const string skipReason = "Provider dry-run validation is not supported for engine SQLite — the query was not validated against the live database.";
+        _queryExecution
+            .Setup(x => x.ValidateAsync(DataSourceId, ValidSql, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ProviderDryRunOutcome(skipReason, true));
+
+        var result = await CreateTool().ExecuteAsync(
+            datasource_id: DataSourceId, sql: ValidSql, cancellationToken: CancellationToken.None);
+
+        (result.IsError ?? false).Should().BeFalse("an INVALID verdict is still a successful dry run");
+        var text = GetText(result);
+        text.Should().Contain("INVALID");
+        text.Should().Contain("- – provider_dry_run — not supported for this engine (skipped)");
+        text.Should().NotContain("✓ provider_dry_run", "a skipped provider dry-run must never render as passed");
+        text.Should().NotContain("### SQL that would execute");
+
+        var structured = result.StructuredContent!.Value;
+        structured.GetProperty("valid").GetBoolean().Should().BeFalse();
+        var issues = structured.GetProperty("issues").EnumerateArray().ToList();
+        issues.Should().ContainSingle(x => x.GetProperty("gate").GetString() == "provider_dry_run");
+        issues[0].GetProperty("error").GetString().Should().Be(skipReason);
+
+        // A SKIPPED gate is not a dry-run FAILURE: the provider never saw the query, so the signal's
+        // dry-run failure fields stay unset — only the verdict (IsSuccessful) reflects the advisory.
+        _signals.Should().ContainSingle();
+        _signals[0].IsSuccessful.Should().BeFalse();
+        _signals[0].DryRunFailed.Should().BeFalse(
+            "a validation that never ran must not be recorded as a dry-run failure in the learning loop");
+        _signals[0].DryRunError.Should().BeNull();
     }
 
     [Test]
@@ -220,6 +289,12 @@ public class DryRunToolTests
         _auditLogs.Should().ContainSingle("§1.7 — early-exit errors must still record an audit row");
         _auditLogs[0].Tool.Should().Be("dry_run");
         _auditLogs[0].ErrorMessage.Should().Be("Missing required parameter: sql");
+
+        // §9.5 — the signal is recorded on EVERY path, early-exit failures included.
+        _signals.Should().ContainSingle();
+        _signals[0].Tool.Should().Be("dry_run");
+        _signals[0].IsSuccessful.Should().BeFalse();
+        _signals[0].ExecutionFailed.Should().BeTrue();
     }
 
     [Test]
@@ -290,7 +365,7 @@ public class DryRunToolTests
         // (§4.7 — async-queryable doubles, no DB). Mirrors FeedbackToolTests.
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory.Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(() => new DryRunTestContext(_auditLogs));
+            .ReturnsAsync(() => new DryRunTestContext(_auditLogs, _signals));
 
         var settingsProvider = new Mock<IMcpSettingsProvider>();
         settingsProvider.Setup(x => x.GetSettingsAsync(It.IsAny<CancellationToken>()))
@@ -299,6 +374,7 @@ public class DryRunToolTests
         var projectContext = new McpProjectContext { UserId = 1, AllowedProjectIds = [ProjectId] };
 
         var auditService = new McpAuditService(factory.Object, NullLogger<McpAuditService>.Instance);
+        var signalService = new McpSignalService(factory.Object, settingsProvider.Object, NullLogger<McpSignalService>.Instance);
 
         return new DryRunTool(
             factory.Object,
@@ -310,6 +386,7 @@ public class DryRunToolTests
             settingsProvider.Object,
             projectContext,
             auditService,
+            signalService,
             NullLogger<DryRunTool>.Instance);
     }
 
@@ -330,11 +407,14 @@ public class DryRunToolTests
                 .Options;
 
         private readonly Mock<DbSet<McpAuditLog>> _auditSet = new();
+        private readonly Mock<DbSet<McpQuerySignal>> _signalSet = new();
 
-        public DryRunTestContext(List<McpAuditLog> auditLogs) : base(Options, "beacon")
+        public DryRunTestContext(List<McpAuditLog> auditLogs, List<McpQuerySignal> signals) : base(Options, "beacon")
         {
             _auditSet.Setup(x => x.Add(It.IsAny<McpAuditLog>()))
                 .Callback<McpAuditLog>(auditLogs.Add);
+            _signalSet.Setup(x => x.Add(It.IsAny<McpQuerySignal>()))
+                .Callback<McpQuerySignal>(signals.Add);
         }
 
         public override DbSet<TEntity> Set<TEntity>() where TEntity : class
@@ -342,6 +422,11 @@ public class DryRunToolTests
             if (typeof(TEntity) == typeof(McpAuditLog))
             {
                 return (DbSet<TEntity>)(object)_auditSet.Object;
+            }
+
+            if (typeof(TEntity) == typeof(McpQuerySignal))
+            {
+                return (DbSet<TEntity>)(object)_signalSet.Object;
             }
 
             if (typeof(TEntity) == typeof(DataSource))

@@ -84,7 +84,7 @@ public class PatternReplayVerifierTests
         // Candidate pass: extraContext carries the candidate's OWN content + example question + example SQL.
         eval.Verify(
             x => x.EvaluateCasePassesAsync(
-                DataSourceId, "q1", It.IsAny<string>(), It.IsAny<string?>(),
+                DataSourceId, 1, "q1", It.IsAny<string>(), It.IsAny<string?>(),
                 It.Is<string?>(s => s != null
                     && s.Contains(candidate.PatternContent)
                     && s.Contains(candidate.ExampleQuestion!)
@@ -95,7 +95,7 @@ public class PatternReplayVerifierTests
         // Baseline pass: NO extra context — the null-vs-injected distinction is preserved.
         eval.Verify(
             x => x.EvaluateCasePassesAsync(
-                DataSourceId, "q1", It.IsAny<string>(), It.IsAny<string?>(),
+                DataSourceId, 1, "q1", It.IsAny<string>(), It.IsAny<string?>(),
                 It.Is<string?>(s => s == null),
                 It.IsAny<CancellationToken>()),
             Times.Once);
@@ -152,7 +152,7 @@ public class PatternReplayVerifierTests
         // With no relevant cases the verifier must not attempt any generation/execution at all.
         eval.Verify(
             x => x.EvaluateCasePassesAsync(
-                It.IsAny<int>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string>(), It.IsAny<string>(),
                 It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
@@ -235,7 +235,7 @@ public class PatternReplayVerifierTests
         var service = BuildEvalService(llm, provider, generatedSql: "SELECT 1 AS n");
 
         var evaluation = await service.EvaluateCasePassesAsync(
-            DataSourceId, "how many orders?", goldSql: "DELETE FROM orders", goldResultFingerprint: null,
+            DataSourceId, 1, "how many orders?", goldSql: "DELETE FROM orders", goldResultFingerprint: null,
             extraContext: null, CancellationToken.None);
 
         // The mutating gold SQL is never handed to the provider for execution.
@@ -292,11 +292,11 @@ public class PatternReplayVerifierTests
         Mock<IMcpEvalService> eval, string question, bool baselinePass, bool candidatePass, bool measurable = true)
     {
         eval.Setup(x => x.EvaluateCasePassesAsync(
-                DataSourceId, question, It.IsAny<string>(), It.IsAny<string?>(),
+                DataSourceId, 1, question, It.IsAny<string>(), It.IsAny<string?>(),
                 It.Is<string?>(s => s == null), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new CaseEvaluation(baselinePass, measurable));
         eval.Setup(x => x.EvaluateCasePassesAsync(
-                DataSourceId, question, It.IsAny<string>(), It.IsAny<string?>(),
+                DataSourceId, 1, question, It.IsAny<string>(), It.IsAny<string?>(),
                 It.Is<string?>(s => s != null), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new CaseEvaluation(candidatePass, measurable));
     }
@@ -332,7 +332,7 @@ public class PatternReplayVerifierTests
 
         var knowledge = new Mock<IKnowledgeGraphService>();
         knowledge
-            .Setup(x => x.GetSmartContextForAskAsync(DataSourceId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(x => x.GetSmartContextForAskAsync(DataSourceId, It.IsAny<int>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SmartSchemaContext { FullContext = "schema", DatabaseDialect = "PostgreSql" });
 
         var sqlGen = new Mock<ISqlGenerationService>();
