@@ -124,6 +124,51 @@ public class ProjectGetDocumentationResponseFormatTests
         BodyBefore(truncated, TruncationNotice).Should().Be(new string('x', ProjectGetDocumentationTool.ConciseCharBudget));
     }
 
+    [Test]
+    public void TruncateForConcise_HardCutOnSurrogatePair_NeverSplitsIt()
+    {
+        // Place an emoji (surrogate pair) so its low surrogate sits exactly AT the budget index —
+        // the hard cut would otherwise keep a dangling high surrogate as the last char.
+        var document = new string('x', ProjectGetDocumentationTool.ConciseCharBudget - 1)
+            + "\U0001F600"
+            + new string('y', 500);
+
+        var truncated = ProjectGetDocumentationTool.TruncateForConcise(document);
+
+        var body = BodyBefore(truncated, TruncationNotice);
+        char.IsHighSurrogate(body[^1]).Should().BeFalse();
+        body.Should().Be(new string('x', ProjectGetDocumentationTool.ConciseCharBudget - 1));
+    }
+
+    [Test]
+    public void TruncateForConcise_CutInsideCodeFence_ClosesTheFence()
+    {
+        // Open a fence near the end of the budget so the cut lands inside the code block.
+        var prefixLength = ProjectGetDocumentationTool.ConciseCharBudget - 100;
+        var document = BuildLinedDocument(totalChars: prefixLength)
+            + "```sql\n"
+            + string.Concat(Enumerable.Repeat("select 1;\n", 200));
+
+        var truncated = ProjectGetDocumentationTool.TruncateForConcise(document);
+
+        var body = BodyBefore(truncated, TruncationNotice);
+        CountOccurrences(body, "```").Should().Be(2, "an opened fence must be closed before the notice");
+        body.TrimEnd('\n').Should().EndWith("```");
+    }
+
+    private static int CountOccurrences(string text, string token)
+    {
+        var count = 0;
+        var index = 0;
+        while ((index = text.IndexOf(token, index, StringComparison.Ordinal)) >= 0)
+        {
+            count++;
+            index += token.Length;
+        }
+
+        return count;
+    }
+
     private static async Task<string> ExecuteProjectLevelAsync(string export, string? responseFormat)
     {
         var documentationService = new Mock<IProjectDocumentationService>();

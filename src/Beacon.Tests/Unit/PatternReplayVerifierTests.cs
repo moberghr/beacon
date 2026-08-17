@@ -84,7 +84,7 @@ public class PatternReplayVerifierTests
         // Candidate pass: extraContext carries the candidate's OWN content + example question + example SQL.
         eval.Verify(
             x => x.EvaluateCasePassesAsync(
-                DataSourceId, "q1", It.IsAny<string>(), It.IsAny<string?>(),
+                DataSourceId, 1, "q1", It.IsAny<string>(), It.IsAny<string?>(),
                 It.Is<string?>(s => s != null
                     && s.Contains(candidate.PatternContent)
                     && s.Contains(candidate.ExampleQuestion!)
@@ -95,10 +95,49 @@ public class PatternReplayVerifierTests
         // Baseline pass: NO extra context — the null-vs-injected distinction is preserved.
         eval.Verify(
             x => x.EvaluateCasePassesAsync(
-                DataSourceId, "q1", It.IsAny<string>(), It.IsAny<string?>(),
+                DataSourceId, 1, "q1", It.IsAny<string>(), It.IsAny<string?>(),
                 It.Is<string?>(s => s == null),
                 It.IsAny<CancellationToken>()),
             Times.Once);
+    }
+
+    [Test]
+    public async Task VerifyAsync_SharedDataSource_ReplaysOnlyTheCandidatesOwnProjectCases()
+    {
+        // R6-1: two projects share the same data source and BOTH have active golden cases referencing
+        // the candidate's table. The candidate belongs to project 1, so only project 1's cases may be
+        // replayed — project 2's case must never influence the verdict or even reach the eval service.
+        var candidate = BuildCandidate();
+        var eval = new Mock<IMcpEvalService>();
+
+        ScriptCase(eval, question: "q1", baselinePass: false, candidatePass: true);
+
+        var cases = new[]
+        {
+            EvalCase("q1", goldSql: "SELECT id FROM public.loans"),
+            EvalCase("q2-other-project", goldSql: "SELECT count(*) FROM public.loans", projectId: 2)
+        };
+
+        var verifier = BuildVerifier(eval, cases);
+
+        var verdict = await verifier.VerifyAsync(candidate, minFlips: 1, CancellationToken.None);
+
+        verdict.RelevantCases.Should().Be(1, "project 2's case on the shared data source is out of scope");
+        verdict.Flipped.Should().Be(1);
+        verdict.Regressions.Should().Be(0);
+        verdict.Passed.Should().BeTrue();
+
+        // Project 2's case never reaches the eval service at all — neither by project id nor question.
+        eval.Verify(
+            x => x.EvaluateCasePassesAsync(
+                It.IsAny<int>(), 2, It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        eval.Verify(
+            x => x.EvaluateCasePassesAsync(
+                It.IsAny<int>(), It.IsAny<int>(), "q2-other-project", It.IsAny<string>(),
+                It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 
     [Test]
@@ -152,7 +191,7 @@ public class PatternReplayVerifierTests
         // With no relevant cases the verifier must not attempt any generation/execution at all.
         eval.Verify(
             x => x.EvaluateCasePassesAsync(
-                It.IsAny<int>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string>(), It.IsAny<string>(),
                 It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
@@ -235,7 +274,7 @@ public class PatternReplayVerifierTests
         var service = BuildEvalService(llm, provider, generatedSql: "SELECT 1 AS n");
 
         var evaluation = await service.EvaluateCasePassesAsync(
-            DataSourceId, "how many orders?", goldSql: "DELETE FROM orders", goldResultFingerprint: null,
+            DataSourceId, 1, "how many orders?", goldSql: "DELETE FROM orders", goldResultFingerprint: null,
             extraContext: null, CancellationToken.None);
 
         // The mutating gold SQL is never handed to the provider for execution.
@@ -271,12 +310,12 @@ public class PatternReplayVerifierTests
         };
     }
 
-    private static McpEvalCase EvalCase(string question, string goldSql)
+    private static McpEvalCase EvalCase(string question, string goldSql, int projectId = 1)
     {
         return new McpEvalCase
         {
             Id = question.GetHashCode() & 0x7fffffff,
-            ProjectId = 1,
+            ProjectId = projectId,
             DataSourceId = DataSourceId,
             Question = question,
             GoldSql = goldSql,
@@ -292,11 +331,11 @@ public class PatternReplayVerifierTests
         Mock<IMcpEvalService> eval, string question, bool baselinePass, bool candidatePass, bool measurable = true)
     {
         eval.Setup(x => x.EvaluateCasePassesAsync(
-                DataSourceId, question, It.IsAny<string>(), It.IsAny<string?>(),
+                DataSourceId, 1, question, It.IsAny<string>(), It.IsAny<string?>(),
                 It.Is<string?>(s => s == null), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new CaseEvaluation(baselinePass, measurable));
         eval.Setup(x => x.EvaluateCasePassesAsync(
-                DataSourceId, question, It.IsAny<string>(), It.IsAny<string?>(),
+                DataSourceId, 1, question, It.IsAny<string>(), It.IsAny<string?>(),
                 It.Is<string?>(s => s != null), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new CaseEvaluation(candidatePass, measurable));
     }
@@ -332,7 +371,7 @@ public class PatternReplayVerifierTests
 
         var knowledge = new Mock<IKnowledgeGraphService>();
         knowledge
-            .Setup(x => x.GetSmartContextForAskAsync(DataSourceId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(x => x.GetSmartContextForAskAsync(DataSourceId, It.IsAny<int>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SmartSchemaContext { FullContext = "schema", DatabaseDialect = "PostgreSql" });
 
         var sqlGen = new Mock<ISqlGenerationService>();

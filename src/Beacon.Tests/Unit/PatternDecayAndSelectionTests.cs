@@ -93,7 +93,7 @@ public class PatternDecayAndSelectionTests
         var service = BuildKnowledgeService(embedder, patterns, embeddings, semanticEnabled: true, exemplarTopK: topK);
 
         var result = await service.GetRelevantPatternsAsync(
-            DataSourceId, TableNames, Question, ct: CancellationToken.None);
+            DataSourceId, ProjectId, TableNames, Question, ct: CancellationToken.None);
 
         // Exactly the top-k nearest across ALL types, in descending-similarity order — no backfill because
         // every seeded lesson had an embedding, so nothing falls through to the table-overlap ranking.
@@ -133,7 +133,7 @@ public class PatternDecayAndSelectionTests
             embedder, [validPattern, stalePattern], embeddings, semanticEnabled: true, exemplarTopK: 3);
 
         var result = await service.GetRelevantPatternsAsync(
-            DataSourceId, TableNames, Question, ct: CancellationToken.None);
+            DataSourceId, ProjectId, TableNames, Question, ct: CancellationToken.None);
 
         var returnedIds = result.Select(SqlToId).ToList();
         returnedIds.Should().NotContain(2, "a superseded lesson is never injected, even as the nearest vector hit");
@@ -230,6 +230,7 @@ public class PatternDecayAndSelectionTests
         {
             Id = 1000 + ownerId,
             DataSourceId = DataSourceId,
+            ProjectId = ProjectId,
             OwnerType = McpEmbeddingOwnerType.Exemplar,
             OwnerId = ownerId,
             EmbeddingBytes = EmbeddingCodec.ToBytes(vector),

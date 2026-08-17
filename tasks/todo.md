@@ -1,11 +1,14 @@
-# tasks/todo.md — batch: mcp-tier0-hardening
+# tasks/todo.md — tier 2: mcp-grounding-surface (wf-20260816T073527Z-4a8b18)
 
-- [ ] 1. Scope-gate /beacon/mcp with ExecuteScopePolicyName (test-first in ExecuteScopeWiringTests)
-- [ ] 2. Non-leaking error returns in 4 MCP tools (DbException pass-through in query; ILogger; tests)
-- [ ] 3. Remove dead wiring (.WithResourcesFromAssembly, session methods)
-- [ ] 4. feedback tool in McpPlaygroundService
-- [ ] 5. .mcp.json → streamable HTTP root
-- [ ] 6. docs/site mcp-server.md accuracy pass
-- [ ] 7. ColumnsUsed populated (validator exposes columns; builder setter; ask call sites; tests)
-- [ ] Review: pre-commit gate + security-and-hardening (finding 1)
-- [ ] Verify: dotnet build WarningLevel=0 + dotnet test + csharp_diagnostics on changed files
+Gate: satisfied by standing user directive ("implement all tiers … move on"); rigor MAX (4 batches, security hardening, 2 external contracts). Deferred (schema): promoted golden tools, question-matched instructions, per-project settings.
+
+- [ ] C1 dry_run tool + tests
+- [ ] C2 get_query_context tool + tests + docs page
+- [ ] C3 semantic search fusion (RRF + fail-open) + tests
+- [ ] C4 postgres read-only backstop (default interface method) + routing tests
+- [ ] Drift check vs sidecar
+- [ ] Stage 1 compliance review → fixes
+- [ ] Stage 2 test/arch/silent-failure (MAX) → fixes
+- [ ] Verify: build + full suite + wiring script
+- [ ] Commit, PR (base feature/mcp-tier1-protocol-hygiene, assignee @me), codex terra review
+- [ ] Collect codex PR #10 result (task-msvhqa1e-jarb6v) and apply blockers to tier-1 branch

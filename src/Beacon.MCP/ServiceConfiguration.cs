@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using ModelContextProtocol.AspNetCore;
 using Beacon.Core.Services;
+using Beacon.MCP.Discovery;
 using Beacon.MCP.Services;
 using Beacon.MCP.Tools;
 
@@ -27,6 +28,8 @@ public static class ServiceConfiguration
         services.AddScoped<ProjectGetDocumentationTool>();
         services.AddScoped<ProjectSearchTool>();
         services.AddScoped<FeedbackTool>();
+        services.AddScoped<DryRunTool>();
+        services.AddScoped<GetQueryContextTool>();
 
         // SQL schema validator (pre-execution column check)
         services.AddSingleton<SqlSchemaValidator>();
@@ -47,24 +50,28 @@ public static class ServiceConfiguration
         services
             .AddMcpServer(options =>
             {
-                options.ServerInfo = new() { Name = "Beacon", Version = "2.0.5" };
+                options.ServerInfo = new() { Name = McpDiscoveryDocuments.ServerName, Version = McpDiscoveryDocuments.ServerVersion };
                 options.ServerInstructions =
                     "Beacon gives agents governed access to a project's data sources.\n" +
-                    "Recommended workflow:\n" +
+                    "Recommended workflow for writing your own SQL:\n" +
                     "1. get_context — project overview: data sources, table counts, documentation status.\n" +
                     "2. search — find tables, columns, and docs by keyword before writing SQL.\n" +
-                    "3. get_documentation — schema detail for a data source, table, or API endpoint.\n" +
-                    "4. query — run read-only SQL (SELECT/WITH only) against one data source; results are row-capped and PII-masked (when PII detection is enabled).\n" +
-                    "5. ask — natural-language question; Beacon routes to the right source(s), generates schema-grounded SQL, executes, and appends a _signal_id: N_ marker.\n" +
-                    "6. feedback — after you verify an ask answer, report verdict 'correct' or 'incorrect' with that signal_id; correct answers become verified examples that improve future generation.\n" +
+                    "3. get_query_context — grounding for a specific question: table schemas with real sample values, verified join paths, human-verified example queries, and the business glossary. Use this before writing SQL by hand.\n" +
+                    "4. dry_run — validate your SQL through every safety gate (read-only guardrail, AST, schema columns, provider EXPLAIN) without executing it.\n" +
+                    "5. query — run the validated read-only SQL (SELECT/WITH only); results are row-capped and PII-masked (when PII detection is enabled).\n" +
+                    "Or let Beacon do it: ask — natural-language question; Beacon routes to the right source(s), generates schema-grounded SQL, executes, and appends a _signal_id: N_ marker.\n" +
+                    "Close the loop: feedback — after you verify an ask answer, report verdict 'correct' or 'incorrect' with that signal_id; correct answers become verified examples that improve future generation.\n" +
+                    "get_documentation gives deeper schema/lineage detail for a data source, table, or API endpoint.\n" +
                     "Auth: API keys need the Execute or Admin scope for this endpoint. Keys can be project-restricted — pass project_id on every call when your key has access to more than one project.\n" +
                     "SQL dialect follows the target data source's engine (PostgreSQL, SQL Server, MySQL, BigQuery, Snowflake, Databricks). Write statements are rejected at multiple layers; don't attempt them.";
             })
             .WithHttpTransport(options =>
             {
-                // Hybrid serving (SDK 2.2): legacy initialize-handshake clients get a session;
-                // stateless-protocol (2026-07-28) clients are served without one, so any instance
-                // behind a plain load balancer can answer any request.
+                // Hybrid serving (SDK 2.2): stateless-protocol (2026-07-28) clients are served
+                // without a session, so for THOSE clients any instance behind a plain load balancer
+                // can answer any request. Legacy initialize-handshake clients still get an
+                // Mcp-Session-Id and their follow-up requests must land on the instance holding
+                // that session — multi-instance deployments need session affinity for them.
                 options.SessionMode = HttpServerSessionMode.StatefulForInitializeClients;
                 options.IdleTimeout = TimeSpan.FromMinutes(30);
             })

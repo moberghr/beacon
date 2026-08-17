@@ -1,5 +1,7 @@
 using System.Collections.Generic;
 using System.Data.Common;
+using System.Globalization;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
@@ -12,6 +14,11 @@ namespace Beacon.MCP.Tools;
 
 internal static class ToolHelper
 {
+    // Byte budget for the serialized structured payload (256 KB). The structured payload doubles the
+    // markdown table in the same response, so an unbounded rows array with wide values can blow the
+    // response past what MCP clients accept even when the row COUNT is within maxRows.
+    internal const int MaxStructuredPayloadBytes = 262144;
+
     /// <summary>
     /// Resolves the active project ID as a pure per-call function of the request-scoped context
     /// and the explicit project_id parameter — no cross-call state, so any instance behind a load
@@ -162,27 +169,51 @@ internal static class ToolHelper
         if (rows.Count == 0) return "No results returned.\n";
 
         var columns = rows[0].Keys.ToList();
-        var text = "| " + string.Join(" | ", columns) + " |\n";
-        text += "| " + string.Join(" | ", columns.Select(_ => "---")) + " |\n";
+        var sb = new StringBuilder();
+        sb.Append("| ").Append(string.Join(" | ", columns)).Append(" |\n");
+        sb.Append("| ").Append(string.Join(" | ", columns.Select(_ => "---"))).Append(" |\n");
 
+        // The markdown table honors the same size budget as the structured payload, measured in
+        // UTF-8 BYTES on both sides (R6-4: counting UTF-16 chars against a byte limit under-counts
+        // multibyte content — emoji/CJK cells could blow past MaxStructuredPayloadBytes on the
+        // wire): a row set with wide cell values can blow the response past what MCP clients accept
+        // even when the row COUNT is within maxRows. Stop emitting rows once the budget is reached
+        // and say so explicitly.
+        var emittedBytes = Encoding.UTF8.GetByteCount(sb.ToString());
+        var budgetReached = false;
         foreach (var row in rows.Take(maxRows))
         {
-            text += "| " + string.Join(" | ", columns.Select(c =>
+            var line = "| " + string.Join(" | ", columns.Select(c =>
                 row.TryGetValue(c, out var v) ? (v?.ToString() ?? "NULL") : "NULL")) + " |\n";
+
+            var lineBytes = Encoding.UTF8.GetByteCount(line);
+            if (emittedBytes + lineBytes > MaxStructuredPayloadBytes)
+            {
+                budgetReached = true;
+                break;
+            }
+
+            emittedBytes += lineBytes;
+            sb.Append(line);
+        }
+
+        if (budgetReached)
+        {
+            sb.Append("\n_Further rows omitted — response size budget reached._\n");
         }
 
         // Result-budget honesty: never silently drop rows. rows.Count == maxRows most likely means
         // the SQL-level row cap was hit, so the full result set may be larger than what came back.
         if (rows.Count > maxRows)
         {
-            text += $"\n_Showing {maxRows} of {rows.Count} rows (truncated). Narrow the query or raise max_rows._\n";
+            sb.Append($"\n_Showing {maxRows} of {rows.Count} rows (truncated). Narrow the query or raise max_rows._\n");
         }
         else if (rows.Count == maxRows)
         {
-            text += $"\n_Row cap of {maxRows} reached — the result set may be truncated._\n";
+            sb.Append($"\n_Row cap of {maxRows} reached — the result set may be truncated._\n");
         }
 
-        return text;
+        return sb.ToString();
     }
 
     private static JsonNode BuildStructuredPayloadInternal<T>(IReadOnlyList<T> rows, int maxRows) where T : IDictionary<string, object?>
@@ -191,8 +222,32 @@ internal static class ToolHelper
             ? rows[0].Keys.ToList()
             : new List<string>();
 
+        var rowBudget = Math.Min(rows.Count, maxRows);
+        var payload = BuildPayloadNode(rows, columns, rowBudget, maxRows);
+
+        // Enforce the byte budget: halve the row count until the serialized payload fits (or no
+        // rows are left), then say so explicitly — never silently return an oversized payload.
+        var trimmedForSize = false;
+        while (rowBudget > 0 && SerializedByteCount(payload) > MaxStructuredPayloadBytes)
+        {
+            rowBudget /= 2;
+            trimmedForSize = true;
+            payload = BuildPayloadNode(rows, columns, rowBudget, maxRows);
+        }
+
+        if (trimmedForSize)
+        {
+            payload["truncated"] = true;
+            payload["rows_omitted_for_size"] = true;
+        }
+
+        return payload;
+    }
+
+    private static JsonObject BuildPayloadNode<T>(IReadOnlyList<T> rows, List<string> columns, int rowBudget, int maxRows) where T : IDictionary<string, object?>
+    {
         var rowsNode = new JsonArray();
-        foreach (var row in rows.Take(maxRows))
+        foreach (var row in rows.Take(rowBudget))
         {
             var rowNode = new JsonArray();
             foreach (var column in columns)
@@ -212,8 +267,16 @@ internal static class ToolHelper
         };
     }
 
+    private static int SerializedByteCount(JsonNode payload)
+    {
+        return Encoding.UTF8.GetByteCount(payload.ToJsonString());
+    }
+
     private static JsonNode? ToJsonValue(object? value)
     {
+        // Temporal and Guid values get explicit culture-invariant branches — the ToString() fallback
+        // is culture-sensitive, so a comma-decimal or non-Gregorian server culture would leak localized
+        // date text into the machine-readable payload. "O" is the ISO-8601 round-trip format.
         return value switch
         {
             null => null,
@@ -230,7 +293,12 @@ internal static class ToolHelper
             float x => JsonValue.Create(x),
             double x => JsonValue.Create(x),
             decimal x => JsonValue.Create(x),
-            _ => JsonValue.Create(value.ToString())
+            DateTime x => JsonValue.Create(x.ToString("O", CultureInfo.InvariantCulture)),
+            DateTimeOffset x => JsonValue.Create(x.ToString("O", CultureInfo.InvariantCulture)),
+            DateOnly x => JsonValue.Create(x.ToString("O", CultureInfo.InvariantCulture)),
+            TimeOnly x => JsonValue.Create(x.ToString("O", CultureInfo.InvariantCulture)),
+            Guid x => JsonValue.Create(x.ToString()),
+            _ => JsonValue.Create(Convert.ToString(value, CultureInfo.InvariantCulture))
         };
     }
 }

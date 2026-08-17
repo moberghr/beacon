@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Http;
 using Beacon.Core;
+using Beacon.MCP.Discovery;
 
 namespace Beacon.SampleProject.Authentication;
 
@@ -22,10 +23,8 @@ internal sealed class LoginFormAuthMiddleware(
             return;
         }
 
-        var path = context.Request.Path.Value ?? "";
-
         // Allow access to login page, static files, and Blazor endpoints
-        if (IsAllowedPath(path))
+        if (IsAllowedPath(context.Request.Path))
         {
             await next(context);
             return;
@@ -43,8 +42,10 @@ internal sealed class LoginFormAuthMiddleware(
         await next(context);
     }
 
-    private bool IsAllowedPath(string path)
+    private bool IsAllowedPath(PathString requestPath)
     {
+        var path = requestPath.Value ?? "";
+
         // Allow React auth landing pages (anonymous routes mounted at root)
         if (path.Equals("/login", StringComparison.OrdinalIgnoreCase) ||
             path.Equals("/logout", StringComparison.OrdinalIgnoreCase) ||
@@ -85,6 +86,18 @@ internal sealed class LoginFormAuthMiddleware(
 
         // Allow OpenAPI document
         if (path.StartsWith("/openapi", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        // Allow the MCP discovery documents (RFC 9728 protected-resource metadata, MCP server
+        // card) — anonymous by design so remote MCP clients can bootstrap OAuth discovery. ONLY
+        // the exact mapped paths (shared constants, R6-2) are allow-listed: a /.well-known prefix
+        // match would let /.well-known/anything reach the SPA fallback anonymously. Match Ordinal:
+        // RFC 8615 well-known URIs are registered lowercase, and the mapped endpoints only answer
+        // the exact-case path, so a mixed-case variant must fall through to the login redirect
+        // instead of the SPA.
+        if (McpDiscoveryEndpoints.AnonymousDiscoveryPaths.Contains(path, StringComparer.Ordinal))
         {
             return true;
         }

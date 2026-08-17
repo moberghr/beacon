@@ -7,6 +7,7 @@ using Beacon.AI.Services.Learning;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Models;
 using Beacon.Core.Services;
 using Beacon.Tests.Common;
 
@@ -78,6 +79,38 @@ public class McpLearningDetectionTests
             x => x.ExtractAsync(It.IsAny<FailureCluster>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
+    [Test]
+    public async Task AggregateLearnedPatternsAsync_DryRunSignals_AreNeverMined()
+    {
+        // R6-3: dry_run signals carry SQL in Question (not natural language) and land
+        // IsSuccessful=false on gate rejections without any execution — the aggregation query must
+        // keep them OUT of pattern mining entirely (they stay in the signals table for other
+        // analytics). The ask cluster is the control proving the pipeline ran end-to-end; the
+        // dry_run cluster targets a DIFFERENT table so any leak is unambiguous.
+        var signals = new List<McpQuerySignal>
+        {
+            CorrectionSignal(),
+            CorrectionSignal(),
+            CorrectionSignal(),
+            DryRunCorrectionSignal(),
+            DryRunCorrectionSignal(),
+            DryRunCorrectionSignal()
+        };
+
+        var captured = new List<McpLearnedPattern>();
+        var service = BuildAggregationService(signals, captured);
+
+        await service.AggregateLearnedPatternsAsync(CancellationToken.None);
+
+        // Control: the ask cluster WAS mined — so the absence below is the filter, not a dead run.
+        captured.Should().Contain(x =>
+            x.PatternType == McpPatternType.SchemaCorrection && x.ColumnName == "created_at");
+
+        // The dry_run cluster (public.tickets / status_x) left no trace in ANY detector.
+        captured.Should().NotContain(x => x.TableName == "tickets");
+        captured.Should().NotContain(x => x.ColumnName == "status_x");
+    }
+
     private static McpQuerySignal CorrectionSignal()
     {
         return new McpQuerySignal
@@ -95,6 +128,60 @@ public class McpLearningDetectionTests
             TablesUsed = "[\"public.orders\"]",
             IsSuccessful = true
         };
+    }
+
+    // A dry_run signal shaped EXACTLY like a mineable correction cluster member — if the taxonomy
+    // filter ever leaks it into the detectors, a public.tickets/status_x pattern appears.
+    private static McpQuerySignal DryRunCorrectionSignal()
+    {
+        return new McpQuerySignal
+        {
+            Tool = "dry_run",
+            Question = "SELECT id FROM public.tickets WHERE status_x = 'open'",
+            ProjectId = ProjectId,
+            DataSourceId = DataSourceId,
+            SchemaValidationFailed = true,
+            SchemaValidationError = "Column 'status_x' does not exist on 't'. Available: status, id",
+            RetryAttempted = true,
+            RetrySucceeded = true,
+            GeneratedSql = "SELECT id FROM public.tickets WHERE status_x = 'open'",
+            CorrectedSql = "SELECT id FROM public.tickets WHERE status = 'open'",
+            TablesUsed = "[\"public.tickets\"]",
+            IsSuccessful = false
+        };
+    }
+
+    private static McpLearningAggregationService BuildAggregationService(
+        List<McpQuerySignal> signals, List<McpLearnedPattern> captured)
+    {
+        var patternSet = BuildDbSet(Array.Empty<McpLearnedPattern>());
+        patternSet
+            .Setup(x => x.Add(It.IsAny<McpLearnedPattern>()))
+            .Callback<McpLearnedPattern>(captured.Add);
+
+        var context = new DetectionTestContext(patternSet.Object, BuildDbSet(signals).Object);
+
+        var factory = new Mock<IDbContextFactory<BeaconContext>>();
+        factory
+            .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(context);
+
+        var settingsProvider = new Mock<IMcpSettingsProvider>();
+        settingsProvider
+            .Setup(x => x.GetSettingsAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new McpSettingsData
+            {
+                EnableLearning = true,
+                LearningSignalRetentionDays = 90,
+                EnableReplayVerification = false
+            });
+
+        return new McpLearningAggregationService(
+            factory.Object,
+            settingsProvider.Object,
+            NullLogger<McpLearningAggregationService>.Instance,
+            lessonExtractor: null,
+            replayVerifier: null);
     }
 
     private static (McpLearningAggregationService Service, BeaconContext Context) BuildService(
@@ -149,11 +236,13 @@ public class McpLearningDetectionTests
                 .Options;
 
         private readonly DbSet<McpLearnedPattern> _patterns;
+        private readonly DbSet<McpQuerySignal>? _signals;
 
-        public DetectionTestContext(DbSet<McpLearnedPattern> patterns)
+        public DetectionTestContext(DbSet<McpLearnedPattern> patterns, DbSet<McpQuerySignal>? signals = null)
             : base(Options, "beacon")
         {
             _patterns = patterns;
+            _signals = signals;
         }
 
         public override DbSet<TEntity> Set<TEntity>() where TEntity : class
@@ -161,6 +250,11 @@ public class McpLearningDetectionTests
             if (typeof(TEntity) == typeof(McpLearnedPattern))
             {
                 return (DbSet<TEntity>)(object)_patterns;
+            }
+
+            if (typeof(TEntity) == typeof(McpQuerySignal) && _signals != null)
+            {
+                return (DbSet<TEntity>)(object)_signals;
             }
 
             return base.Set<TEntity>();

@@ -188,9 +188,27 @@ internal sealed class ProjectGetDocumentationTool(
         if (cut <= 0)
         {
             cut = ConciseCharBudget;
+
+            // Never split a surrogate pair on the hard cut: if the char AT the boundary is a low
+            // surrogate, the kept text would end with its dangling high surrogate — back off one
+            // char so the whole pair is dropped instead of emitting invalid UTF-16.
+            if (char.IsLowSurrogate(markdown[cut]))
+            {
+                cut--;
+            }
         }
 
-        return markdown[..cut].TrimEnd('\n')
+        var kept = markdown[..cut].TrimEnd('\n');
+
+        // A cut inside a fenced code block leaves the fence open, so the truncation notice (and
+        // anything a renderer shows after it) would be swallowed into the code block. An odd number
+        // of ``` markers in the kept text means an open fence — close it before the notice.
+        if (CountFenceMarkers(kept) % 2 == 1)
+        {
+            kept += "\n```";
+        }
+
+        return kept
             + "\n\n_Truncated (concise). Pass response_format: \"detailed\" for the full document._\n";
     }
 
@@ -400,5 +418,18 @@ internal sealed class ProjectGetDocumentationTool(
         }
 
         return text;
+    }
+
+    private static int CountFenceMarkers(string text)
+    {
+        var count = 0;
+        var index = 0;
+        while ((index = text.IndexOf("```", index, StringComparison.Ordinal)) >= 0)
+        {
+            count++;
+            index += 3;
+        }
+
+        return count;
     }
 }

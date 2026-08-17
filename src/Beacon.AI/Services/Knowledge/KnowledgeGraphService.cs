@@ -306,6 +306,7 @@ internal sealed class KnowledgeGraphService(
             .Where(s => terms.Any(t => s.Content.ToLower().Contains(t)))
             .Select(s => new
             {
+                s.Id,
                 ProjectName = s.Documentation.Project.Name,
                 s.Title,
                 s.Content
@@ -322,7 +323,8 @@ internal sealed class KnowledgeGraphService(
                 SchemaName = string.Empty,
                 TableName = string.Empty,
                 Description = TruncateContent(docSection.Content, 200),
-                Relevance = 0.5
+                Relevance = 0.5,
+                DocIdentity = $"docsection:{docSection.Id}"
             });
         }
 
@@ -380,10 +382,13 @@ internal sealed class KnowledgeGraphService(
     }
 
     // Stable identity for fusing/de-duplicating a SearchResult across the lexical and dense arms.
+    // Documentation results dedupe on their per-row DocIdentity when present — the truncated preview
+    // text alone collapses two distinct docs sharing a 200-char prefix into one result.
     private static string FusionKey(SearchResult result) => result.Type switch
     {
         "column" => $"c|{result.DataSourceId}|{result.SchemaName}|{result.TableName}|{result.ColumnName}",
         "table" => $"t|{result.DataSourceId}|{result.SchemaName}|{result.TableName}",
+        _ when result.DocIdentity != null => $"{result.Type}|{result.DocIdentity}",
         _ => $"{result.Type}|{result.DataSourceName}|{result.Description}"
     };
 
@@ -397,9 +402,18 @@ internal sealed class KnowledgeGraphService(
         var queryVector = await embeddingService.EmbedAsync(query, ct);
 
         var hits = context.Database.ProviderName == NpgsqlProviderName
-            ? await GetNearestPostgresAsync(context, queryVector, dataSourceId, MetadataOwnerTypes, limit, ct, projectId: null)
-            : await GetNearestInMemoryAsync(context, queryVector, dataSourceId, MetadataOwnerTypes, limit, ct, projectId: null);
+            ? await GetNearestPostgresAsync(context, queryVector, [dataSourceId], MetadataOwnerTypes, limit, ct, projectId: null)
+            : await GetNearestInMemoryAsync(context, queryVector, [dataSourceId], MetadataOwnerTypes, limit, ct, projectId: null);
 
+        return await MapMetadataHitsToResultsAsync(context, hits, ct);
+    }
+
+    // MetadataTable OwnerId == DatabaseMetadata.Id; MetadataColumn OwnerId == ColumnMetadata.Id. Maps
+    // hits back to table/column SearchResults preserving the vector-similarity order. Shared by the
+    // data-source dense arm (SearchAsync) and the project semantic arm (SearchProjectAsync).
+    private static async Task<List<SearchResult>> MapMetadataHitsToResultsAsync(
+        BeaconContext context, List<EmbeddingHit> hits, CancellationToken ct)
+    {
         if (hits.Count == 0)
         {
             return [];
@@ -501,7 +515,7 @@ internal sealed class KnowledgeGraphService(
     }
 
     private static async Task<List<EmbeddingHit>> GetNearestPostgresAsync(
-        BeaconContext context, float[] queryVector, int dataSourceId, int[] ownerTypes, int limit, CancellationToken ct, int? projectId = null)
+        BeaconContext context, float[] queryVector, int[] dataSourceIds, int[] ownerTypes, int limit, CancellationToken ct, int? projectId = null)
     {
         // The query vector is our own floats, formatted invariantly, but still passed as a parameter
         // (never string-concatenated) and cast to vector(384) so pgvector can use the <=> HNSW index (§1.10).
@@ -509,14 +523,30 @@ internal sealed class KnowledgeGraphService(
 
         // Only the EF-mapped columns are selected — the DB-managed `embedding` vector column is left out so
         // Npgsql never has to read the vector type (no Pgvector handler is registered on this data source).
-        // ownerTypes is our own enum-constant array, passed as a single parameterized integer[] via
-        // owner_type = ANY(...) — never string-interpolated (§1.10). When a projectId scope is supplied
-        // (project-scoped rows like doc-chunks/glossary), the filter is project_id INSTEAD OF
-        // data_source_id; otherwise it stays data_source_id exactly as before. Both branches stay fully
-        // parameterized and select every mapped McpEmbedding column (project_id added in B1) so
-        // FromSqlInterpolated can materialize the entity.
+        // ownerTypes and dataSourceIds are our own arrays, each passed as a single parameterized integer[]
+        // via `= ANY(...)` — never string-interpolated (§1.10). Scope selection:
+        // - projectId alone (empty dataSourceIds): project-scoped rows like doc-chunks/glossary — the
+        //   filter is project_id INSTEAD OF data_source_id.
+        // - dataSourceIds alone: data-source-scoped metadata rows; the project semantic arm can scan all
+        //   of a project's data sources in one globally-ranked kNN (single-source callers pass a
+        //   one-element array).
+        // - BOTH: exemplar retrieval (R5/C1) — data_source_id AND project_id, so a shared data source
+        //   never surfaces another project's exemplar vectors in the top-k.
+        // All branches stay fully parameterized and select every mapped McpEmbedding column
+        // (project_id added in B1) so FromSqlInterpolated can materialize the entity.
         FormattableString sql;
-        if (projectId.HasValue)
+        if (projectId.HasValue && dataSourceIds.Length > 0)
+        {
+            sql = $@"
+                SELECT id, data_source_id, project_id, owner_type, owner_id, embedding_bytes, model, dimensions, embedding_version, created_time
+                FROM mcp_embeddings
+                WHERE data_source_id = ANY({dataSourceIds})
+                  AND project_id = {projectId.Value}
+                  AND owner_type = ANY({ownerTypes})
+                ORDER BY embedding <=> {vectorLiteral}::vector(384)
+                LIMIT {limit}";
+        }
+        else if (projectId.HasValue)
         {
             sql = $@"
                 SELECT id, data_source_id, project_id, owner_type, owner_id, embedding_bytes, model, dimensions, embedding_version, created_time
@@ -531,7 +561,7 @@ internal sealed class KnowledgeGraphService(
             sql = $@"
                 SELECT id, data_source_id, project_id, owner_type, owner_id, embedding_bytes, model, dimensions, embedding_version, created_time
                 FROM mcp_embeddings
-                WHERE data_source_id = {dataSourceId}
+                WHERE data_source_id = ANY({dataSourceIds})
                   AND owner_type = ANY({ownerTypes})
                 ORDER BY embedding <=> {vectorLiteral}::vector(384)
                 LIMIT {limit}";
@@ -549,17 +579,29 @@ internal sealed class KnowledgeGraphService(
     }
 
     private static async Task<List<EmbeddingHit>> GetNearestInMemoryAsync(
-        BeaconContext context, float[] queryVector, int dataSourceId, int[] ownerTypes, int limit, CancellationToken ct, int? projectId = null)
+        BeaconContext context, float[] queryVector, int[] dataSourceIds, int[] ownerTypes, int limit, CancellationToken ct, int? projectId = null)
     {
         var ownerTypeFilter = ownerTypes
             .Select(x => (McpEmbeddingOwnerType)x)
             .ToList();
 
-        // Scope by project_id when a projectId is supplied (project-scoped doc-chunk/glossary rows),
-        // otherwise by data_source_id exactly as before for metadata/exemplar rows.
-        var scoped = projectId.HasValue
-            ? context.McpEmbeddings.Where(x => x.ProjectId == projectId)
-            : context.McpEmbeddings.Where(x => x.DataSourceId == dataSourceId);
+        // Scope selection mirrors the Postgres branch: project_id alone for project-scoped
+        // doc-chunk/glossary rows; data_source_id alone for metadata rows (an id set, so the project
+        // semantic arm can scan all of a project's data sources; single-source callers pass one
+        // element); BOTH for exemplar retrieval (R5/C1) so a shared data source never surfaces
+        // another project's exemplar vectors in the top-k.
+        IQueryable<McpEmbedding> scoped = context.McpEmbeddings;
+        if (projectId.HasValue)
+        {
+            scoped = scoped.Where(x => x.ProjectId == projectId);
+        }
+
+        if (!projectId.HasValue || dataSourceIds.Length > 0)
+        {
+            scoped = scoped
+                .Where(x => x.DataSourceId != null)
+                .Where(x => dataSourceIds.Contains(x.DataSourceId!.Value));
+        }
 
         var candidates = await scoped
             .Where(x => ownerTypeFilter.Contains(x.OwnerType))
@@ -848,11 +890,180 @@ internal sealed class KnowledgeGraphService(
                 SchemaName = string.Empty,
                 TableName = string.Empty,
                 Description = TruncateContent(doc.Content, 200),
-                Relevance = 0.5
+                Relevance = 0.5,
+                DocIdentity = $"docsection:{doc.Id}"
             });
         }
 
-        return OrderForDeterministicPaging(results, maxResults);
+        // Keyword arm — exactly the result returned before the semantic arm existed, and the
+        // behaviour-preserving fallback whenever embeddings are unavailable or the semantic arm fails.
+        var keywordRanked = OrderForDeterministicPaging(results, maxResults);
+
+        return await ApplyProjectSemanticFusionAsync(context, keywordRanked, query, projectId, dsIds, maxResults, ct);
+    }
+
+    /// <summary>
+    /// Semantic arm + fusion for project search (the MCP <c>search</c> tool). Fully fail-open: any gate
+    /// not satisfied (no local embedder, semantic retrieval disabled, no vectors indexed) or ANY error in
+    /// the semantic arm returns <paramref name="keywordRanked"/> unchanged, so the tool behaves exactly as
+    /// keyword-only search did. Mirrors the fail-open discipline of the grounding blocks
+    /// (<see cref="BuildGlossaryBlockAsync"/> / <see cref="BuildGoldenExemplarBlockAsync"/>): rethrow OCE
+    /// so a shutdown/timeout unwinds; otherwise log identifiers only (§1.11 — never the query text) and
+    /// fall back. Internal so SearchFusionTests exercise the REAL fail-open path.
+    /// </summary>
+    internal async Task<List<SearchResult>> ApplyProjectSemanticFusionAsync(
+        BeaconContext context,
+        List<SearchResult> keywordRanked,
+        string query,
+        int projectId,
+        List<int> dsIds,
+        int maxResults,
+        CancellationToken ct)
+    {
+        if (!embeddingService.IsAvailable)
+        {
+            return keywordRanked;
+        }
+
+        try
+        {
+            var settings = await settingsProvider.GetSettingsAsync(ct);
+            if (!settings.EnableSemanticRetrieval)
+            {
+                return keywordRanked;
+            }
+
+            var semanticRanked = await BuildProjectSemanticArmAsync(context, query, projectId, dsIds, maxResults * 2, ct);
+            if (semanticRanked.Count == 0)
+            {
+                // No vectors indexed yet (or nothing matched) — nothing to fuse; keep keyword behaviour.
+                return keywordRanked;
+            }
+
+            return FuseProjectSearchArms(keywordRanked, semanticRanked, maxResults);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Semantic search arm failed for project {ProjectId}; returning keyword-only results.", projectId);
+            return keywordRanked;
+        }
+    }
+
+    // Fuses the keyword-ranked and semantic-ranked arms via RRF, re-weights Relevance with the fused
+    // score, and re-applies the deterministic paging order: fused score (as Relevance) descending, then
+    // the existing name tie-breaks — equal fused scores must not reshuffle between calls.
+    internal static List<SearchResult> FuseProjectSearchArms(
+        IReadOnlyList<SearchResult> keywordRanked,
+        IReadOnlyList<SearchResult> semanticRanked,
+        int maxResults)
+    {
+        var fused = ReciprocalRankFusion.FuseWithScores(
+            new[] { keywordRanked, semanticRanked },
+            FusionKey);
+
+        return OrderForDeterministicPaging(
+            fused.Select(x => x.Item with { Relevance = x.Score }),
+            maxResults);
+    }
+
+    // Dense (semantic) arm for project search: embed the RAW keyword once — metadata and doc chunks are
+    // embedded RAW at index time (BuildTableText/BuildColumnText, blurb + chunk); masking is a question-
+    // specific exemplar/golden-case convention and would move an arbitrary keyword into a different
+    // representation region. Then kNN over the project's data-source-scoped table/column embeddings and
+    // its project-scoped doc-chunk embeddings, mapping hits back to the same SearchResult shapes the
+    // keyword arm produces. Doc-chunk hits follow the metadata hits: the two kNN calls return rank-only
+    // hits with no scores comparable across scopes, and the keyword arm ranks documentation below
+    // tables/columns the same way. Exemplar, GoldenCase and GlossaryTerm embeddings are deliberately
+    // excluded — they ground SQL generation and have no table/column/doc identity in the result shape.
+    private async Task<List<SearchResult>> BuildProjectSemanticArmAsync(
+        BeaconContext context, string query, int projectId, List<int> dsIds, int limit, CancellationToken ct)
+    {
+        var queryVector = await embeddingService.EmbedAsync(query, ct);
+        var dataSourceIds = dsIds.ToArray();
+
+        var metadataHits = context.Database.ProviderName == NpgsqlProviderName
+            ? await GetNearestPostgresAsync(context, queryVector, dataSourceIds, MetadataOwnerTypes, limit, ct, projectId: null)
+            : await GetNearestInMemoryAsync(context, queryVector, dataSourceIds, MetadataOwnerTypes, limit, ct, projectId: null);
+
+        var semantic = await MapMetadataHitsToResultsAsync(context, metadataHits, ct);
+
+        var docLimit = Math.Max(1, limit / 2);
+        var docHits = context.Database.ProviderName == NpgsqlProviderName
+            ? await GetNearestPostgresAsync(context, queryVector, [], DocChunkOwnerTypes, docLimit, ct, projectId: projectId)
+            : await GetNearestInMemoryAsync(context, queryVector, [], DocChunkOwnerTypes, docLimit, ct, projectId: projectId);
+
+        semantic.AddRange(await MapDocChunkHitsToResultsAsync(context, docHits, projectId, ct));
+
+        return semantic;
+    }
+
+    // DocChunk OwnerId == McpDocChunk.Id. Maps hits back to "documentation" results in the shape the
+    // keyword arm produces (project name as the source, truncated chunk text as the description),
+    // preserving the vector-similarity order. Relevance is a placeholder (0) — RRF assigns the fused score.
+    // DocIdentity uses the chunk's SOURCE SECTION id ("docsection:{SourceSectionId}") — the same
+    // namespace the keyword arm emits for ProjectDocumentationSection rows — so a section retrieved by
+    // BOTH arms fuses into one result instead of appearing twice under disjoint identities. Two chunks
+    // of the SAME section consequently collapse too: fusion granularity for documentation is the
+    // section, matching what the keyword arm returns.
+    private static async Task<List<SearchResult>> MapDocChunkHitsToResultsAsync(
+        BeaconContext context, List<EmbeddingHit> hits, int projectId, CancellationToken ct)
+    {
+        if (hits.Count == 0)
+        {
+            return [];
+        }
+
+        var projectName = await context.Projects
+            .Where(x => x.Id == projectId)
+            .Select(x => x.Name)
+            .FirstOrDefaultAsync(ct);
+
+        if (projectName == null)
+        {
+            return [];
+        }
+
+        var ownerIds = hits
+            .Select(x => x.OwnerId)
+            .ToList();
+
+        var chunks = await context.McpDocChunks
+            .Where(x => x.ProjectId == projectId)
+            .Where(x => ownerIds.Contains(x.Id))
+            .Select(x =>
+                new
+                {
+                    x.Id,
+                    x.SourceSectionId,
+                    x.ChunkText
+                })
+            .ToListAsync(ct);
+
+        var chunksById = chunks.ToDictionary(x => x.Id);
+
+        var results = new List<SearchResult>();
+        foreach (var hit in hits)
+        {
+            if (chunksById.TryGetValue(hit.OwnerId, out var chunk))
+            {
+                results.Add(new SearchResult
+                {
+                    Type = "documentation",
+                    DataSourceName = projectName,
+                    SchemaName = string.Empty,
+                    TableName = string.Empty,
+                    Description = TruncateContent(chunk.ChunkText, 200),
+                    Relevance = 0,
+                    DocIdentity = $"docsection:{chunk.SourceSectionId}"
+                });
+            }
+        }
+
+        return results;
     }
 
     // SearchProjectAsync sub-queries, exposed as IQueryable builders so translation tests can run
@@ -868,6 +1079,8 @@ internal sealed class KnowledgeGraphService(
                         (x.TableDescription != null && x.TableDescription.ToLower().Contains(queryLower)))
             .OrderBy(x => x.SchemaName)
             .ThenBy(x => x.TableName)
+            .ThenBy(x => x.DataSourceId)
+            .ThenBy(x => x.Id)
             .Select(x =>
                 new TableSearchRow(x.DataSourceId, x.DataSource.Name, x.SchemaName, x.TableName, x.TableDescription))
             .Take(maxResults);
@@ -882,6 +1095,8 @@ internal sealed class KnowledgeGraphService(
             .OrderBy(x => x.DatabaseMetadata.SchemaName)
             .ThenBy(x => x.DatabaseMetadata.TableName)
             .ThenBy(x => x.ColumnName)
+            .ThenBy(x => x.DatabaseMetadata.DataSourceId)
+            .ThenBy(x => x.Id)
             .Select(x =>
                 new ColumnSearchRow(
                     x.DatabaseMetadata.DataSourceId,
@@ -899,20 +1114,27 @@ internal sealed class KnowledgeGraphService(
             .Where(x => x.Documentation.ProjectId == projectId)
             .Where(x => x.Content.ToLower().Contains(queryLower))
             .OrderBy(x => x.Title)
+            .ThenBy(x => x.Id)
             .Select(x =>
-                new DocSectionSearchRow(x.Documentation.Project.Name, x.Title, x.Content))
+                new DocSectionSearchRow(x.Id, x.Documentation.Project.Name, x.Title, x.Content))
             .Take(maxResults);
     }
 
     // Deterministic paging: ties inside a coarse relevance band must not reshuffle between calls.
+    // DataSourceId disambiguates two data sources sharing a display name, so the chain is unique for
+    // table/column results. SearchResult carries no per-row id for documentation results (DataSourceId
+    // is 0 and schema/table are empty there), so Description is their last-resort key — two doc
+    // sections with identical truncated content remain a residual (harmless) tie.
     internal static List<SearchResult> OrderForDeterministicPaging(IEnumerable<SearchResult> results, int maxResults)
     {
         return results
             .OrderByDescending(x => x.Relevance)
             .ThenBy(x => x.DataSourceName)
+            .ThenBy(x => x.DataSourceId)
             .ThenBy(x => x.SchemaName)
             .ThenBy(x => x.TableName)
             .ThenBy(x => x.ColumnName)
+            .ThenBy(x => x.Description)
             .Take(maxResults)
             .ToList();
     }
@@ -968,7 +1190,7 @@ internal sealed class KnowledgeGraphService(
         return results;
     }
 
-    public async Task<SmartSchemaContext> GetSmartContextForAskAsync(int dataSourceId, string question, CancellationToken ct = default)
+    public async Task<SmartSchemaContext> GetSmartContextForAskAsync(int dataSourceId, int projectId, string question, CancellationToken ct = default)
     {
         await using var context = await contextFactory.CreateDbContextAsync(ct);
         var dataSource = await context.DataSources.FirstOrDefaultAsync(ds => ds.Id == dataSourceId, ct)
@@ -994,7 +1216,7 @@ internal sealed class KnowledgeGraphService(
             .ToListAsync(ct);
 
         var totalColumns = allTables.Sum(t => t.Columns.Count);
-        var catalog = BuildSchemaCatalog(allTables.Select(t => (t.SchemaName, t.TableName, (IEnumerable<SchemaColumn>)t.Columns)));
+        var catalog = BuildSchemaCatalog(allTables.Select(x => (x.SchemaName, x.TableName, x.Columns.Select(y => y.ColumnName))));
         var dialect = dataSource.DatabaseEngineType?.ToString();
         var mcpSettings = await settingsProvider.GetSettingsAsync(ct);
 
@@ -1019,13 +1241,13 @@ internal sealed class KnowledgeGraphService(
             // Part A: inject human-verified golden query examples ABOVE the mined learned patterns — they are
             // human-verified, so they outrank machine-mined patterns. Empty (behaviour-preserving) when
             // disabled, the embedder is off, or no golden case is near.
-            sb.Append(await BuildGoldenExemplarBlockAsync(dataSourceId, question, mcpSettings, ct));
+            sb.Append(await BuildGoldenExemplarBlockAsync(dataSourceId, projectId, question, mcpSettings, ct));
 
             // Inject learned patterns
             if (mcpSettings.EnableLearning)
             {
                 var allTableNames = allTables.Select(t => $"{t.SchemaName}.{t.TableName}").ToList();
-                var learnedPatterns = await GetRelevantPatternsAsync(dataSourceId, allTableNames, question,
+                var learnedPatterns = await GetRelevantPatternsAsync(dataSourceId, projectId, allTableNames, question,
                     budgetChars: mcpSettings.LearningInjectionBudgetChars, ct: ct);
                 sb.Append(FormatLearnedPatternsForLlm(learnedPatterns));
             }
@@ -1033,7 +1255,7 @@ internal sealed class KnowledgeGraphService(
             // Tier-3 ⑪: append the business-glossary block after the learned patterns. Empty (nothing
             // injected) when the embedder is off, semantic retrieval is disabled, or no term is near —
             // behaviour-preserving relative to pre-glossary output.
-            sb.Append(await BuildGlossaryBlockAsync(dataSourceId, question, mcpSettings, ct));
+            sb.Append(await BuildGlossaryBlockAsync(projectId, question, mcpSettings, ct));
 
             return new SmartSchemaContext
             {
@@ -1093,20 +1315,20 @@ internal sealed class KnowledgeGraphService(
 
         // Part A: inject human-verified golden query examples ABOVE the mined learned patterns (same
         // behaviour-preserving fallback as the fast path — empty string when nothing to inject).
-        smartSb.Append(await BuildGoldenExemplarBlockAsync(dataSourceId, question, mcpSettings, ct));
+        smartSb.Append(await BuildGoldenExemplarBlockAsync(dataSourceId, projectId, question, mcpSettings, ct));
 
         // Inject learned patterns for relevant tables
         if (mcpSettings.EnableLearning)
         {
             var relevantTableNames = detailedTables.ToList();
-            var smartPatterns = await GetRelevantPatternsAsync(dataSourceId, relevantTableNames, question,
+            var smartPatterns = await GetRelevantPatternsAsync(dataSourceId, projectId, relevantTableNames, question,
                 budgetChars: mcpSettings.LearningInjectionBudgetChars, ct: ct);
             smartSb.Append(FormatLearnedPatternsForLlm(smartPatterns));
         }
 
         // Tier-3 ⑪: append the business-glossary block after the learned patterns (same behaviour-preserving
         // fallback as the fast path — empty string when nothing to inject).
-        smartSb.Append(await BuildGlossaryBlockAsync(dataSourceId, question, mcpSettings, ct));
+        smartSb.Append(await BuildGlossaryBlockAsync(projectId, question, mcpSettings, ct));
 
         return new SmartSchemaContext
         {
@@ -1120,6 +1342,25 @@ internal sealed class KnowledgeGraphService(
             OmittedTableCount = expansion.OmittedTableCount,
             JoinPaths = expansion.JoinPaths
         };
+    }
+
+    public async Task<Dictionary<string, HashSet<string>>> GetSchemaCatalogAsync(int dataSourceId, CancellationToken ct = default)
+    {
+        // Same catalog GetSmartContextForAskAsync computes (shared BuildSchemaCatalog), but loading
+        // only table/column names — none of the LLM-context assembly (search, join paths, exemplars).
+        await using var context = await contextFactory.CreateDbContextAsync(ct);
+        var tables = await context.DatabaseMetadata
+            .Where(x => x.DataSourceId == dataSourceId)
+            .Select(x =>
+                new
+                {
+                    x.SchemaName,
+                    x.TableName,
+                    ColumnNames = x.Columns.Select(y => y.ColumnName).ToList()
+                })
+            .ToListAsync(ct);
+
+        return BuildSchemaCatalog(tables.Select(x => (x.SchemaName, x.TableName, (IEnumerable<string>)x.ColumnNames)));
     }
 
     public async Task<IReadOnlyList<DocChunkHit>> GetRelevantDocChunksAsync(int projectId, string question, int topK, CancellationToken ct = default)
@@ -1158,8 +1399,8 @@ internal sealed class KnowledgeGraphService(
             // Same provider branch as the metadata dense arm, but scoped by project_id (not data_source_id)
             // and filtered to the DocChunk owner type.
             var hits = context.Database.ProviderName == NpgsqlProviderName
-                ? await GetNearestPostgresAsync(context, queryVector, dataSourceId: 0, DocChunkOwnerTypes, limit, ct, projectId: projectId)
-                : await GetNearestInMemoryAsync(context, queryVector, dataSourceId: 0, DocChunkOwnerTypes, limit, ct, projectId: projectId);
+                ? await GetNearestPostgresAsync(context, queryVector, dataSourceIds: [], DocChunkOwnerTypes, limit, ct, projectId: projectId)
+                : await GetNearestInMemoryAsync(context, queryVector, dataSourceIds: [], DocChunkOwnerTypes, limit, ct, projectId: projectId);
 
             if (hits.Count == 0)
             {
@@ -1212,12 +1453,15 @@ internal sealed class KnowledgeGraphService(
     /// Builds the "## Business Glossary" block injected into the smart context (Tier-3 ⑪): the top-K glossary
     /// terms nearest to the masked question, each rendered as term → definition → target column/metric.
     /// This is now the mechanism that supersedes the dead <c>McpPatternType.BusinessTermMapping</c> learned-
-    /// pattern path (that enum value is left in place but no longer produced). Returns "" — injecting nothing,
-    /// behaviour-preserving — when the embedder is unavailable, semantic retrieval is disabled, the data
-    /// source maps to no project, or no active term is near. Internal so it can be unit-tested directly
-    /// without standing up the full <see cref="GetSmartContextForAskAsync"/> schema path.
+    /// pattern path (that enum value is left in place but no longer produced). Glossary terms are
+    /// project-scoped, and the project is the caller's AUTHORIZED <paramref name="projectId"/> — passed
+    /// explicitly, never derived from the data source, because a data source shared by several projects
+    /// must never leak one project's terms into another's ask (codex PR-11 R4 fix). Returns "" — injecting
+    /// nothing, behaviour-preserving — when the embedder is unavailable, semantic retrieval is disabled,
+    /// or no active term is near. Internal so it can be unit-tested directly without standing up the full
+    /// <see cref="GetSmartContextForAskAsync"/> schema path.
     /// </summary>
-    internal async Task<string> BuildGlossaryBlockAsync(int dataSourceId, string question, McpSettingsData settings, CancellationToken ct)
+    internal async Task<string> BuildGlossaryBlockAsync(int projectId, string question, McpSettingsData settings, CancellationToken ct)
     {
         if (!embeddingService.IsAvailable || !settings.EnableSemanticRetrieval)
         {
@@ -1232,21 +1476,6 @@ internal sealed class KnowledgeGraphService(
         {
             await using var context = await contextFactory.CreateDbContextAsync(ct);
 
-            // Glossary terms are project-scoped; resolve the project from the data source via the same
-            // ProjectDataSources join the rest of the service uses. A data source can belong to more than one
-            // project — take the first (lowest-Id) link, matching how the knowledge-answer path scopes a single
-            // project per ask. No linked project → nothing to inject.
-            var projectId = await context.ProjectDataSources
-                .Where(x => x.DataSourceId == dataSourceId)
-                .OrderBy(x => x.ProjectId)
-                .Select(x => (int?)x.ProjectId)
-                .FirstOrDefaultAsync(ct);
-
-            if (projectId is not { } scopedProjectId)
-            {
-                return "";
-            }
-
             var limit = Math.Max(1, settings.GlossaryTopK);
 
             // Mask the question exactly as the terms were embedded at index time (Mask(term + synonyms)) so
@@ -1255,8 +1484,8 @@ internal sealed class KnowledgeGraphService(
 
             // Same provider branch as the doc-chunk path, scoped by project_id and filtered to GlossaryTerm.
             var hits = context.Database.ProviderName == NpgsqlProviderName
-                ? await GetNearestPostgresAsync(context, maskedVector, dataSourceId: 0, GlossaryOwnerTypes, limit, ct, projectId: scopedProjectId)
-                : await GetNearestInMemoryAsync(context, maskedVector, dataSourceId: 0, GlossaryOwnerTypes, limit, ct, projectId: scopedProjectId);
+                ? await GetNearestPostgresAsync(context, maskedVector, dataSourceIds: [], GlossaryOwnerTypes, limit, ct, projectId: projectId)
+                : await GetNearestInMemoryAsync(context, maskedVector, dataSourceIds: [], GlossaryOwnerTypes, limit, ct, projectId: projectId);
 
             if (hits.Count == 0)
             {
@@ -1270,7 +1499,7 @@ internal sealed class KnowledgeGraphService(
                 .ToList();
 
             var terms = await context.McpGlossaryTerms
-                .Where(x => x.ProjectId == scopedProjectId)
+                .Where(x => x.ProjectId == projectId)
                 .Where(x => x.IsActive)
                 .Where(x => ownerIds.Contains(x.Id))
                 .Select(x =>
@@ -1319,7 +1548,7 @@ internal sealed class KnowledgeGraphService(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Glossary retrieval failed for data source {DataSourceId}; injecting no glossary block.", dataSourceId);
+            logger.LogWarning(ex, "Glossary retrieval failed for project {ProjectId}; injecting no glossary block.", projectId);
             return "";
         }
     }
@@ -1331,9 +1560,12 @@ internal sealed class KnowledgeGraphService(
     /// machine-mined patterns. Returns "" — injecting nothing, behaviour-preserving — when golden exemplars are
     /// disabled, the embedder is unavailable, semantic retrieval is off, or no active golden case is near. Fails
     /// CLOSED (log + "") on transient retrieval errors, mirroring <see cref="BuildGlossaryBlockAsync"/>. Golden
-    /// cases are data-source-scoped, so retrieval keys on dataSourceId (not projectId). Internal for unit tests.
+    /// cases key their EMBEDDINGS on dataSourceId, but <see cref="McpEvalCase"/> carries a ProjectId and the
+    /// caller's AUTHORIZED <paramref name="projectId"/> is a hard filter on the loaded cases — a data source
+    /// shared by several projects must never leak one project's gold SQL into another's ask (codex PR-11 R4
+    /// fix). Internal for unit tests.
     /// </summary>
-    internal async Task<string> BuildGoldenExemplarBlockAsync(int dataSourceId, string question, McpSettingsData settings, CancellationToken ct)
+    internal async Task<string> BuildGoldenExemplarBlockAsync(int dataSourceId, int projectId, string question, McpSettingsData settings, CancellationToken ct)
     {
         if (!settings.EnableGoldenExemplars || !embeddingService.IsAvailable || !settings.EnableSemanticRetrieval)
         {
@@ -1352,8 +1584,8 @@ internal sealed class KnowledgeGraphService(
 
             // Data-source-scoped (projectId omitted) — same NN helpers, GoldenCase owner type.
             var hits = context.Database.ProviderName == NpgsqlProviderName
-                ? await GetNearestPostgresAsync(context, maskedVector, dataSourceId, GoldenCaseOwnerTypes, limit, ct)
-                : await GetNearestInMemoryAsync(context, maskedVector, dataSourceId, GoldenCaseOwnerTypes, limit, ct);
+                ? await GetNearestPostgresAsync(context, maskedVector, [dataSourceId], GoldenCaseOwnerTypes, limit, ct)
+                : await GetNearestInMemoryAsync(context, maskedVector, [dataSourceId], GoldenCaseOwnerTypes, limit, ct);
 
             if (hits.Count == 0)
             {
@@ -1361,13 +1593,16 @@ internal sealed class KnowledgeGraphService(
             }
 
             // GoldenCase OwnerId == McpEvalCase.Id. Load the hit cases (ACTIVE only — a stale vector for a
-            // deactivated case maps to no active row and is skipped), then re-project in similarity order.
+            // deactivated case maps to no active row and is skipped; and ONLY the caller's project — a hit
+            // from another project sharing this data source maps to no row and is skipped), then re-project
+            // in similarity order.
             var ownerIds = hits
                 .Select(x => x.OwnerId)
                 .ToList();
 
             var cases = await context.McpEvalCases
                 .Where(x => x.DataSourceId == dataSourceId)
+                .Where(x => x.ProjectId == projectId)
                 .Where(x => x.IsActive)
                 .Where(x => ownerIds.Contains(x.Id))
                 .Select(x =>
@@ -1467,12 +1702,12 @@ internal sealed class KnowledgeGraphService(
     }
 
     private static Dictionary<string, HashSet<string>> BuildSchemaCatalog(
-        IEnumerable<(string SchemaName, string TableName, IEnumerable<SchemaColumn> Columns)> tables)
+        IEnumerable<(string SchemaName, string TableName, IEnumerable<string> ColumnNames)> tables)
     {
         var catalog = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (schema, table, columns) in tables)
+        foreach (var (schema, table, columnNames) in tables)
         {
-            var cols = columns.Select(c => c.ColumnName.ToLowerInvariant()).ToHashSet();
+            var cols = columnNames.Select(x => x.ToLowerInvariant()).ToHashSet();
             catalog[table.ToLowerInvariant()] = cols;
             catalog[$"{schema}.{table}".ToLowerInvariant()] = cols;
         }
@@ -1537,7 +1772,7 @@ internal sealed class KnowledgeGraphService(
     }
 
     public async Task<List<LearnedPatternInfo>> GetRelevantPatternsAsync(
-        int dataSourceId, List<string> tableNames, string? question = null,
+        int dataSourceId, int projectId, List<string> tableNames, string? question = null,
         int maxPatterns = 10, int budgetChars = 1500, CancellationToken ct = default)
     {
         await using var context = await contextFactory.CreateDbContextAsync(ct);
@@ -1550,8 +1785,12 @@ internal sealed class KnowledgeGraphService(
         // nearest lessons of ANY type out of it by embedding similarity, and the table-overlap ranking
         // orders the rest. Stale (superseded) lessons are filtered out here so they are NEVER injected
         // into a prompt on either path (§ Architecture ⑧ temporal decay) — history stays in the table.
+        // The ProjectId filter is load-bearing (R5/C1): a data source shared by several projects mines
+        // patterns for each of them, and another project's lessons (quoting its real questions/SQL)
+        // must never reach this caller's prompt — same isolation as the golden-exemplar block.
         var patterns = await context.McpLearnedPatterns
             .Where(x => x.DataSourceId == dataSourceId)
+            .Where(x => x.ProjectId == projectId)
             .Where(x => x.Status == McpPatternStatus.Approved || x.Status == McpPatternStatus.AutoApproved)
             .Where(x => x.SupersededAt == null)
             .OrderByDescending(x => x.Confidence)
@@ -1587,7 +1826,7 @@ internal sealed class KnowledgeGraphService(
             try
             {
                 var semanticRanked = await BuildSemanticRankingAsync(
-                    context, patterns, lowerTables, question!, dataSourceId, settings.ExemplarTopK, ct);
+                    context, patterns, lowerTables, question!, dataSourceId, projectId, settings.ExemplarTopK, ct);
                 if (semanticRanked != null)
                 {
                     return ApplyBudget(semanticRanked, maxPatterns, budgetChars);
@@ -1616,16 +1855,20 @@ internal sealed class KnowledgeGraphService(
     // were not in the top-k are intentionally dropped — that is the point of top-k over blanket injection.
     // Returns null when no exemplar vector maps back to a loaded pattern, so the caller falls back to full
     // overlap ranking.
+    // The kNN is scoped by data source AND the caller's authorized project (R5/C1) so another project's
+    // exemplars on a shared data source can neither be selected nor occupy top-k slots. Exemplar rows
+    // indexed before ProjectId stamping (project_id NULL) simply don't match — fail-closed, healed by the
+    // next re-index; the project-filtered bank mapping below is the isolation backstop either way.
     private async Task<List<PatternCandidate>?> BuildSemanticRankingAsync(
         BeaconContext context, List<PatternCandidate> patterns, HashSet<string> lowerTables,
-        string question, int dataSourceId, int exemplarTopK, CancellationToken ct)
+        string question, int dataSourceId, int projectId, int exemplarTopK, CancellationToken ct)
     {
         var topK = Math.Max(1, exemplarTopK);
         var maskedVector = await embeddingService.EmbedAsync(EmbeddingMaskingHelper.Mask(question), ct);
 
         var hits = context.Database.ProviderName == NpgsqlProviderName
-            ? await GetNearestPostgresAsync(context, maskedVector, dataSourceId, ExemplarOwnerTypes, topK, ct, projectId: null)
-            : await GetNearestInMemoryAsync(context, maskedVector, dataSourceId, ExemplarOwnerTypes, topK, ct, projectId: null);
+            ? await GetNearestPostgresAsync(context, maskedVector, [dataSourceId], ExemplarOwnerTypes, topK, ct, projectId: projectId)
+            : await GetNearestInMemoryAsync(context, maskedVector, [dataSourceId], ExemplarOwnerTypes, topK, ct, projectId: projectId);
 
         if (hits.Count == 0)
         {
@@ -1634,7 +1877,7 @@ internal sealed class KnowledgeGraphService(
 
         // Exemplar OwnerId == McpLearnedPattern.Id. Map hits (already in similarity order) back to the loaded
         // bank of ALL types, preserving that order; ignore ids not in the bank (e.g. a hit whose pattern was
-        // superseded and filtered out of the bank above).
+        // superseded and filtered out of the bank above, or one belonging to another project).
         var patternsById = patterns.ToDictionary(x => x.Id);
 
         var selected = new List<PatternCandidate>();
@@ -2027,4 +2270,4 @@ internal sealed record TableSearchRow(int DataSourceId, string DataSourceName, s
 
 internal sealed record ColumnSearchRow(int DataSourceId, string DataSourceName, string SchemaName, string TableName, string ColumnName, string? Description);
 
-internal sealed record DocSectionSearchRow(string ProjectName, string Title, string Content);
+internal sealed record DocSectionSearchRow(int Id, string ProjectName, string Title, string Content);

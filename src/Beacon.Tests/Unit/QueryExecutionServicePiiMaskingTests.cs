@@ -81,9 +81,10 @@ public class QueryExecutionServicePiiMaskingTests
                 new Dictionary<string, object?> { ["email"] = RawEmail, ["name"] = "Alice" }
             ]
         };
+        // QueryExecutionService routes through the database-level read-only path (§1.5 backstop).
         var provider = new Mock<IDataSourceProvider>();
         provider
-            .Setup(x => x.ExecuteQueryAsync(
+            .Setup(x => x.ExecuteReadOnlyQueryAsync(
                 It.IsAny<DataSource>(),
                 It.IsAny<string>(),
                 It.IsAny<Dictionary<string, object?>>(),

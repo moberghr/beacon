@@ -23,14 +23,18 @@ internal sealed class PatternReplayVerifier(
         List<RelevantCase> allCases;
         await using (var context = await contextFactory.CreateDbContextAsync(ct))
         {
-            // Scope by data source in SQL; the table-reference match (case-insensitive substring on both
-            // "Table" and "Schema.Table") is applied in memory since it can't translate reliably.
+            // Scope by project AND data source in SQL (R6-1: on a data source shared across projects, a
+            // candidate from project A must never be judged against project B's golden cases); the
+            // table-reference match (case-insensitive substring on both "Table" and "Schema.Table") is
+            // applied in memory since it can't translate reliably.
             allCases = await context.McpEvalCases
                 .Where(x => x.IsActive)
+                .Where(x => x.ProjectId == candidate.ProjectId)
                 .Where(x => x.DataSourceId == candidate.DataSourceId)
                 .Select(x =>
                     new RelevantCase
                     {
+                        ProjectId = x.ProjectId,
                         Question = x.Question,
                         GoldSql = x.GoldSql,
                         GoldResultFingerprint = x.GoldResultFingerprint
@@ -58,9 +62,9 @@ internal sealed class PatternReplayVerifier(
             try
             {
                 var baseline = await evalService.EvaluateCasePassesAsync(
-                    candidate.DataSourceId, evalCase.Question, evalCase.GoldSql, evalCase.GoldResultFingerprint, null, ct);
+                    candidate.DataSourceId, evalCase.ProjectId, evalCase.Question, evalCase.GoldSql, evalCase.GoldResultFingerprint, null, ct);
                 var candidateEval = await evalService.EvaluateCasePassesAsync(
-                    candidate.DataSourceId, evalCase.Question, evalCase.GoldSql, evalCase.GoldResultFingerprint, lessonBlock, ct);
+                    candidate.DataSourceId, evalCase.ProjectId, evalCase.Question, evalCase.GoldSql, evalCase.GoldResultFingerprint, lessonBlock, ct);
 
                 // A case we could not actually measure — gold or generated failed to execute on either pass
                 // (a transient DB/connection error or a guardrail/AST rejection, NOT a clean pass/fail) — is
@@ -151,6 +155,7 @@ internal sealed class PatternReplayVerifier(
 
     private sealed class RelevantCase
     {
+        public int ProjectId { get; init; }
         public string Question { get; init; } = null!;
         public string GoldSql { get; init; } = null!;
         public string? GoldResultFingerprint { get; init; }

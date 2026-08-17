@@ -25,7 +25,10 @@ internal sealed class QueryExecutionService(
         var provider = providerFactory.GetProvider(dataSource.DataSourceType);
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeoutCts.CancelAfter(TimeSpan.FromSeconds(30));
-        var result = await provider.ExecuteQueryAsync(dataSource, limitedSql, new Dictionary<string, object?>(), timeoutCts.Token);
+        // §1.5 backstop — read-only execution path. The database-level guarantee is PostgreSQL-only
+        // today (IDataSourceProvider.SupportsDatabaseReadOnlyEnforcement); other engines and
+        // non-database providers forward to normal execution and rely on the parser gates upstream.
+        var result = await provider.ExecuteReadOnlyQueryAsync(dataSource, limitedSql, new Dictionary<string, object?>(), timeoutCts.Token);
 
         if (result.Success && result.Rows?.Count > 0)
         {
@@ -62,7 +65,7 @@ internal sealed class QueryExecutionService(
         return new QueryExecutionResult("No results returned.\n", null, 0, true);
     }
 
-    public async Task<string?> ValidateAsync(int dataSourceId, string sql, CancellationToken ct)
+    public async Task<ProviderDryRunOutcome> ValidateAsync(int dataSourceId, string sql, CancellationToken ct)
     {
         await using var context = await contextFactory.CreateDbContextAsync(ct);
         var dataSource = await context.DataSources
@@ -75,11 +78,15 @@ internal sealed class QueryExecutionService(
 
         if (result.IsValid)
         {
-            return null;
+            return ProviderDryRunOutcome.Valid();
         }
 
-        return result.Errors is { Count: > 0 }
+        var message = result.Errors is { Count: > 0 }
             ? string.Join("; ", result.Errors)
             : "Query validation failed.";
+
+        // Skipped = the engine has no dry-run strategy; the message carries the skip reason so callers
+        // can surface it, but it is NOT a validation failure.
+        return new ProviderDryRunOutcome(message, result.Skipped);
     }
 }
