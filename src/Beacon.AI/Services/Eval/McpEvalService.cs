@@ -96,6 +96,7 @@ internal sealed class McpEvalService(
                     new EvalCaseData
                     {
                         Id = x.Id,
+                        ProjectId = x.ProjectId,
                         DataSourceId = x.DataSourceId,
                         Question = x.Question,
                         GoldSql = x.GoldSql,
@@ -185,8 +186,8 @@ internal sealed class McpEvalService(
             // SAME method with an extraContext suffix. Normal runs keep the default sampling temperature
             // (null → 0.1) so headline eval behaviour is unchanged; only replay forces temperature 0.
             var outcome = await GenerateExecuteCompareAsync(
-                dataSource, evalCase.Question, evalCase.GoldSql, evalCase.GoldResultFingerprint, null, settings,
-                generationTemperature: null, ct);
+                dataSource, evalCase.ProjectId, evalCase.Question, evalCase.GoldSql, evalCase.GoldResultFingerprint,
+                null, settings, generationTemperature: null, ct);
 
             var failureTag = DetermineFailureTag(
                 outcome.Passed, outcome.GeneratedTables, outcome.RelevantTables, outcome.GoldExec, outcome.GeneratedExec);
@@ -234,6 +235,7 @@ internal sealed class McpEvalService(
 
     public async Task<CaseEvaluation> EvaluateCasePassesAsync(
         int dataSourceId,
+        int projectId,
         string question,
         string goldSql,
         string? goldResultFingerprint,
@@ -253,7 +255,7 @@ internal sealed class McpEvalService(
         // is pinned to temperature 0 so a baseline↔candidate flip reflects the injected lesson, not sampling
         // noise (both the baseline and candidate replay generations run through here).
         var outcome = await GenerateExecuteCompareAsync(
-            dataSource, question, goldSql, goldResultFingerprint, extraContext, settings,
+            dataSource, projectId, question, goldSql, goldResultFingerprint, extraContext, settings,
             generationTemperature: 0.0m, ct);
 
         // Measurable ONLY when both sides actually executed — a guardrail/AST rejection or a provider/
@@ -272,6 +274,7 @@ internal sealed class McpEvalService(
     /// </summary>
     private async Task<CaseOutcome> GenerateExecuteCompareAsync(
         DataSource dataSource,
+        int projectId,
         string question,
         string goldSql,
         string? goldResultFingerprint,
@@ -280,7 +283,7 @@ internal sealed class McpEvalService(
         decimal? generationTemperature,
         CancellationToken ct)
     {
-        var smartContext = await knowledgeGraph.GetSmartContextForAskAsync(dataSource.Id, question, ct);
+        var smartContext = await knowledgeGraph.GetSmartContextForAskAsync(dataSource.Id, projectId, question, ct);
         var dialect = smartContext.DatabaseDialect ?? dataSource.DatabaseEngineType?.ToString();
 
         // The candidate lesson is injected as a suffix on the smart-context string only — generation is the
@@ -502,6 +505,7 @@ internal sealed class McpEvalService(
     private sealed class EvalCaseData
     {
         public int Id { get; init; }
+        public int ProjectId { get; init; }
         public int DataSourceId { get; init; }
         public string Question { get; init; } = null!;
         public string GoldSql { get; init; } = null!;

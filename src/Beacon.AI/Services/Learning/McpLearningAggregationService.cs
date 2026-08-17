@@ -67,9 +67,18 @@ internal sealed class McpLearningAggregationService(
         BeaconContext context, int projectId, McpSettingsData settings, ExtractionStats extraction, CancellationToken ct)
     {
         var cutoff = DateTime.UtcNow.AddDays(-settings.LearningSignalRetentionDays);
+
+        // Mine ONLY the taxonomy the detectors expect: ask (NL question → generated SQL) and query
+        // (caller SQL executed for real). dry_run signals stay in the table for other analytics, but
+        // their Question is the SQL under validation — not natural language — and a gate rejection
+        // lands IsSuccessful=false without any execution, so letting them in would pollute NL-pattern
+        // mining and inflate documentation-gap error rates (R6-3).
         var signals = await context.McpQuerySignals
-            .Where(s => s.ProjectId == projectId && s.CreatedTime >= cutoff && s.DataSourceId != null)
-            .OrderByDescending(s => s.CreatedTime)
+            .Where(x => x.ProjectId == projectId)
+            .Where(x => x.CreatedTime >= cutoff)
+            .Where(x => x.DataSourceId != null)
+            .Where(x => x.Tool == "ask" || x.Tool == "query")
+            .OrderByDescending(x => x.CreatedTime)
             .ToListAsync(ct);
 
         if (signals.Count < 3) return; // Not enough data

@@ -56,7 +56,7 @@ public class McpPlaygroundServiceTests
             });
 
         _knowledgeGraph
-            .Setup(x => x.GetSmartContextForAskAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(x => x.GetSmartContextForAskAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SmartSchemaContext
             {
                 FullContext = "## Relevant Tables (full schema)\n\norders(id, placed_time)\n",
@@ -65,7 +65,7 @@ public class McpPlaygroundServiceTests
 
         _queryExecution
             .Setup(x => x.ValidateAsync(DataSourceId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((string?)null);
+            .ReturnsAsync(ProviderDryRunOutcome.Valid());
     }
 
     [Test]
@@ -101,7 +101,7 @@ public class McpPlaygroundServiceTests
         result.IsError.Should().BeFalse(result.Text);
         result.Text.Should().StartWith("# Query Context: warehouse (PostgreSQL)");
         _knowledgeGraph.Verify(
-            x => x.GetSmartContextForAskAsync(DataSourceId, Question, It.IsAny<CancellationToken>()), Times.Once,
+            x => x.GetSmartContextForAskAsync(DataSourceId, ProjectId, Question, It.IsAny<CancellationToken>()), Times.Once,
             "the dispatch arm must hand question and datasource_id to the real GetQueryContextTool");
     }
 
@@ -195,6 +195,7 @@ public class McpPlaygroundServiceTests
             settingsProvider.Object,
             x.GetRequiredService<IProjectContext>(),
             x.GetRequiredService<McpAuditService>(),
+            new McpSignalService(factory.Object, settingsProvider.Object, NullLogger<McpSignalService>.Instance),
             NullLogger<DryRunTool>.Instance));
 
         services.AddScoped(x => new GetQueryContextTool(
@@ -248,6 +249,7 @@ public class McpPlaygroundServiceTests
                 .Options;
 
         private readonly Mock<DbSet<McpAuditLog>> _auditSet = new();
+        private readonly Mock<DbSet<McpQuerySignal>> _signalSet = new();
 
         public PlaygroundTestContext() : base(Options, "beacon")
         {
@@ -258,6 +260,11 @@ public class McpPlaygroundServiceTests
             if (typeof(TEntity) == typeof(McpAuditLog))
             {
                 return (DbSet<TEntity>)(object)_auditSet.Object;
+            }
+
+            if (typeof(TEntity) == typeof(McpQuerySignal))
+            {
+                return (DbSet<TEntity>)(object)_signalSet.Object;
             }
 
             if (typeof(TEntity) == typeof(DataSource))

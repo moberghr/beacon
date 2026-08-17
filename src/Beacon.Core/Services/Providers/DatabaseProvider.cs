@@ -133,6 +133,22 @@ internal class DatabaseProvider(
                 };
             }
 
+            // Engines without a dry-run strategy must NOT fall through as valid — nothing would have
+            // been checked. Return an explicit skipped result the caller can distinguish (and must not
+            // repair against). Checked BEFORE opening a connection: there is nothing to connect for.
+            if (!SupportsDryRunValidation(dataSource.DatabaseEngineType.Value))
+            {
+                return new QueryValidationResult
+                {
+                    IsValid = false,
+                    Skipped = true,
+                    Errors = new List<string>
+                    {
+                        $"Provider dry-run validation is not supported for engine {dataSource.DatabaseEngineType.Value} — the query was not validated against the live database."
+                    }
+                };
+            }
+
             // Basic validation: try to prepare the query without executing
             var connectionString = encryptionService.Decrypt(dataSource.EncryptedConnectionData);
             await using var connection = DbConnectionFactory.CreateConnection(
@@ -142,7 +158,6 @@ internal class DatabaseProvider(
             await connection.OpenAsync(cancellationToken);
 
             // Engine-specific dry-run: validates syntax and column binding without executing the query.
-            // Engines without a strategy report valid (unknown != failure).
             switch (dataSource.DatabaseEngineType)
             {
                 case DatabaseEngineType.PostgreSQL:
@@ -293,6 +308,18 @@ internal class DatabaseProvider(
     private static bool SupportsReadOnlyTransaction(DatabaseEngineType engineType)
     {
         return engineType == DatabaseEngineType.PostgreSQL;
+    }
+
+    // Engines with an actual dry-run strategy in ValidateQueryAsync's switch: EXPLAIN
+    // (PostgreSQL/MySQL/Snowflake) or sp_describe_first_result_set (MSSQL/Synapse). Everything else
+    // (SQLite today, any future engine until a strategy is added) reports Skipped.
+    private static bool SupportsDryRunValidation(DatabaseEngineType engineType)
+    {
+        return engineType is DatabaseEngineType.PostgreSQL
+            or DatabaseEngineType.MySQL
+            or DatabaseEngineType.Snowflake
+            or DatabaseEngineType.MSSQL
+            or DatabaseEngineType.AzureSynapse;
     }
 
     private static string ResolveDialect(DatabaseEngineType engineType)

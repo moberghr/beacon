@@ -155,6 +155,56 @@ public class SearchFusionTests
         MakeTable("invoices", relevance: 0.8)
     ];
 
+    [Test]
+    public void FuseProjectSearchArms_TwoDocSectionsSharingA200CharPrefix_StayDistinctResults()
+    {
+        // codex PR-11 R4: documentation results dedupe on their stable DocIdentity, not on the truncated
+        // 200-char Description preview — chunks of two DIFFERENT sections sharing a long common prefix
+        // must NOT collapse into one. (Both arms emit "docsection:{sectionId}": the keyword arm the
+        // section's own id, the semantic arm the chunk's SourceSectionId.)
+        var sharedPrefix = new string('p', 200);
+        var sectionOneChunk = MakeDoc("docsection:11", sharedPrefix);
+        var sectionTwoChunk = MakeDoc("docsection:12", sharedPrefix);
+
+        var fused = KnowledgeGraphService.FuseProjectSearchArms(
+            keywordRanked: [],
+            semanticRanked: [sectionOneChunk, sectionTwoChunk],
+            maxResults: 10);
+
+        fused.Should().HaveCount(2, "distinct sections with identical truncated previews must stay distinct");
+        fused.Select(x => x.DocIdentity).Should().BeEquivalentTo(["docsection:11", "docsection:12"]);
+    }
+
+    [Test]
+    public void FuseProjectSearchArms_SameDocIdentityInBothArms_FusesIntoOneResult()
+    {
+        // Cross-arm dedup is real, not vacuous: the keyword arm emits the section's own id and the
+        // semantic arm the chunk's SourceSectionId, so a section retrieved by both arms shares one
+        // "docsection:{id}" identity and must fuse into a single result.
+        var keywordSide = MakeDoc("docsection:5", "how notifications work");
+        var semanticSide = MakeDoc("docsection:5", "how notifications work (chunk of section 5)");
+
+        var fused = KnowledgeGraphService.FuseProjectSearchArms(
+            keywordRanked: [keywordSide],
+            semanticRanked: [semanticSide],
+            maxResults: 10);
+
+        fused.Should().ContainSingle("the same section retrieved by both arms is one result");
+        fused[0].DocIdentity.Should().Be("docsection:5");
+    }
+
+    private static SearchResult MakeDoc(string docIdentity, string description) =>
+        new()
+        {
+            Type = "documentation",
+            DataSourceName = "proj",
+            SchemaName = string.Empty,
+            TableName = string.Empty,
+            Description = description,
+            Relevance = 0.5,
+            DocIdentity = docIdentity
+        };
+
     private static SearchResult MakeTable(string tableName, double relevance = 0.8) =>
         new()
         {

@@ -43,6 +43,9 @@ internal sealed class GetQueryContextTool(
         // No McpSignalService call here: this tool reads the assembled grounding context without
         // generating or executing SQL, so it produces none of the SQL-learning-loop outcomes
         // McpQuerySignal models. Audit-only — see GetContextTool for the canonical rationale.
+        // RECORDED WAIVER (codex PR-11 R4): the review suggested recording signals here too; declined —
+        // read tools stay audit-only per the documented convention above. dry_run, by contrast, DOES
+        // record signals: caller-authored SQL passing/failing the gates is exactly what the loop learns from.
         if (string.IsNullOrEmpty(question))
         {
             return await FailAsync(sw, null, datasource_id, question, "Missing required parameter: question", cancellationToken);
@@ -105,7 +108,7 @@ internal sealed class GetQueryContextTool(
                 .FirstOrDefaultAsync(cancellationToken)
                 ?? throw new InvalidOperationException($"Data source {dataSourceId} not found");
 
-            var smartContext = await knowledgeGraph.GetSmartContextForAskAsync(dataSourceId, question, cancellationToken);
+            var smartContext = await knowledgeGraph.GetSmartContextForAskAsync(dataSourceId, projectId, question, cancellationToken);
 
             // The max_chars budget applies to the grounding context itself; the fixed header and the
             // truncation note ride outside it, so raising max_chars is a pure context gain.

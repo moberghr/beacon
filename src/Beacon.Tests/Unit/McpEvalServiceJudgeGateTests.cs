@@ -145,7 +145,7 @@ public class McpEvalServiceJudgeGateTests
 
         var knowledge = new Mock<IKnowledgeGraphService>();
         knowledge
-            .Setup(x => x.GetSmartContextForAskAsync(DataSourceId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(x => x.GetSmartContextForAskAsync(DataSourceId, It.IsAny<int>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SmartSchemaContext { FullContext = "schema", DatabaseDialect = "PostgreSql" });
 
         // Generation is mocked so the ONLY path that can reach ILlmProvider is the judge.

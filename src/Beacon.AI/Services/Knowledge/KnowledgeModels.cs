@@ -67,6 +67,16 @@ public record SearchResult
     public string? ColumnName { get; init; }
     public string? Description { get; init; }
     public double Relevance { get; init; }
+
+    /// <summary>
+    /// Stable identity for documentation results: "docsection:{ProjectDocumentationSection.Id}" from
+    /// BOTH arms — the keyword arm emits the section's own id, the semantic arm the chunk's
+    /// <c>McpDocChunk.SourceSectionId</c> (their shared ancestor) — so the same section retrieved by
+    /// both arms fuses into one result. RRF fusion dedupes on it when present — the truncated 200-char
+    /// <see cref="Description"/> preview alone would collapse two distinct docs sharing a prefix into
+    /// one result. Null for table/column results.
+    /// </summary>
+    public string? DocIdentity { get; init; }
 }
 
 public record LineageInfo

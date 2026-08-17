@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using ModelContextProtocol.AspNetCore;
 using Beacon.Core.Services;
+using Beacon.MCP.Discovery;
 using Beacon.MCP.Services;
 using Beacon.MCP.Tools;
 
@@ -49,7 +50,7 @@ public static class ServiceConfiguration
         services
             .AddMcpServer(options =>
             {
-                options.ServerInfo = new() { Name = "Beacon", Version = "2.0.5" };
+                options.ServerInfo = new() { Name = McpDiscoveryDocuments.ServerName, Version = McpDiscoveryDocuments.ServerVersion };
                 options.ServerInstructions =
                     "Beacon gives agents governed access to a project's data sources.\n" +
                     "Recommended workflow for writing your own SQL:\n" +

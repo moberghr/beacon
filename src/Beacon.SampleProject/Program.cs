@@ -21,6 +21,7 @@ using Beacon.Connector.Databricks;
 using Beacon.Connector.Api;
 using Beacon.Connector.BigQuery;
 using Beacon.MCP;
+using Beacon.MCP.Discovery;
 using Beacon.Api;
 using Beacon.Api.Endpoints;
 using Beacon.Api.Hubs;
@@ -261,6 +262,12 @@ app.UseStaticFiles();
 // also translated instead of surfacing as raw 500s.
 app.UseApiExceptionHandler("/beacon/api");
 
+// MCP discovery challenge decoration (tier 3): adds the RFC 9728 WWW-Authenticate
+// resource_metadata pointer to every 401 from /beacon/mcp. Response-header-only — it never
+// authenticates or short-circuits; registered before ApiKeyAuthMiddleware so the OnStarting hook
+// also covers the 401s that the API-key/JWT middlewares write directly. §1.9 order below is untouched.
+app.UseMcpResourceMetadataChallenge();
+
 // API key auth must run before cookie auth to prevent redirect for MCP clients
 app.UseMiddleware<ApiKeyAuthMiddleware>();
 
@@ -324,6 +331,11 @@ app.MapHub<BeaconHub>("/beacon/api/hub").RequireAuthorization(BeaconApiEndpoints
 // as the REST SQL endpoints; a Read-scoped API key must not reach SQL execution through MCP.
 // Cookie/OIDC callers are unaffected (the policy only constrains api_key identities).
 app.MapMcp("/beacon/mcp").RequireAuthorization(BeaconApiEndpoints.ExecuteScopePolicyName);
+
+// MCP discovery documents (tier 3, anonymous by design): RFC 9728 protected-resource metadata at
+// /.well-known/oauth-protected-resource (+ /beacon/mcp path-inserted variant) and the SEP-2127
+// (draft) server card at /.well-known/mcp/server-card.json. Allow-listed in LoginFormAuthMiddleware.
+app.MapMcpDiscovery();
 
 // Warp Dashboard - available at /warp — Admin-only (§7.4).
 app.UseWarpUI(warpUiOptions =>

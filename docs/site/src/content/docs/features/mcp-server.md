@@ -101,6 +101,36 @@ The server is mounted with `app.MapMcp("/beacon/mcp").RequireAuthorization(...)`
 - `query` and `ask` responses include machine-readable **`structuredContent`** (columns, rows, row count, truncation flag — plus the generated SQL and `signal_id` for `ask`) alongside the markdown text, so agents don't have to parse tables back out of prose.
 - **Truncated results say so explicitly** — row-capped query results, paged search results, and concise documentation exports all end with a note stating that more data exists and how to get it (raise `max_rows`, repeat with the next `offset`, or pass `response_format: "detailed"`).
 
+## Connecting from Remote Clients
+
+Remote MCP clients with a "connect by URL" flow — **claude.ai** (Settings → Connectors → Add custom connector), **ChatGPT** (developer mode connectors), **VS Code** (`MCP: Add Server` → HTTP) — need just one URL:
+
+```
+https://your-beacon-host/beacon/mcp
+```
+
+Authentication is a bearer token in the `Authorization` header — a Beacon API key with the `Execute` or `Admin` scope (`Read` keys cannot reach the SQL-executing tools). Paste the key wherever the client asks for a token/header; clients that probe the URL first will find the discovery documents below and learn the auth requirements automatically.
+
+### Discovery endpoints
+
+Beacon publishes anonymous, read-only discovery metadata so remote clients can bootstrap a connection without documentation:
+
+| Endpoint | What it serves |
+|----------|----------------|
+| `/.well-known/oauth-protected-resource` | [RFC 9728](https://datatracker.ietf.org/doc/rfc9728/) protected-resource metadata: the resource identifier, `scopes_supported` (`Execute`, `Admin`), bearer-header auth. When SSO is enabled (`Beacon:Authentication:Oidc`), `authorization_servers` lists the configured OIDC authority; API-key-only deployments omit it |
+| `/.well-known/oauth-protected-resource/beacon/mcp` | The same document at the RFC 9728 path-inserted variant clients derive from the `/beacon/mcp` resource path |
+| `/.well-known/mcp/server-card.json` | A server card (per the draft SEP-2127 proposal): server name and version, transport (`streamable-http`), endpoint URL, auth summary, and the full tool list with titles |
+
+Unauthenticated requests to `/beacon/mcp` answer `401` with a `WWW-Authenticate: Bearer resource_metadata="…"` header pointing at the metadata document, so OAuth-capable clients discover the auth requirements from the challenge itself (RFC 9728 §5.1).
+
+Behind a reverse proxy, set `Beacon:PublicBaseUrl` (e.g. `https://beacon.example.com`) so the discovery documents advertise the public origin; when unset, the URLs are derived from the incoming request.
+
+A registry manifest for the official [MCP registry](https://registry.modelcontextprotocol.io) ships in `deploy/registry/server.json` with a publishing runbook alongside it — publishing is a deliberate out-of-band step (DNS verification of the namespace domain).
+
+:::note[Deferred]
+**MCP Apps** (interactive `ui://` results, e.g. rendering query results as tables inside the client) and the **MCP tasks extension** (long-running `ask` calls returning a task handle) are deliberately not part of this release — Apps waits on the `ModelContextProtocol.Extensions.Apps` package being published, and task-handle semantics for `ask` change its wire contract and deserve their own release.
+:::
+
 ## Tools
 
 The MCP server exposes **8 tools** that AI clients can call.

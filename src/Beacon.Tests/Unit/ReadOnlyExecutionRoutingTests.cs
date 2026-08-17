@@ -273,6 +273,43 @@ public class ReadOnlyExecutionRoutingTests
         connection.TransactionOf("SELECT 1").Should().BeNull();
     }
 
+    [Test]
+    public async Task DatabaseProvider_ValidateQueryAsync_EngineWithoutDryRunStrategy_ReportsSkippedNotValid()
+    {
+        // codex PR-11 R4: engines without an EXPLAIN / sp_describe_first_result_set strategy used to fall
+        // through the dry-run switch as IsValid=true — a vacuous gate. They now report an explicit
+        // skipped result (before any connection is opened) so callers can surface it honestly.
+        var dataSource = new DataSource
+        {
+            Id = SqlDataSourceId,
+            Name = "sqlite-cache",
+            DataSourceType = DataSourceType.Database,
+            EncryptedConnectionData = "encrypted",
+            DatabaseEngineType = DatabaseEngineType.SQLite
+        };
+
+        var result = await CreateDatabaseProvider().ValidateQueryAsync(
+            dataSource, "SELECT 1", CancellationToken.None);
+
+        result.IsValid.Should().BeFalse("nothing was checked, so the query must not be reported valid");
+        result.Skipped.Should().BeTrue();
+        result.Errors.Should().ContainSingle(x => x.Contains("not supported for engine SQLite"));
+    }
+
+    [Test]
+    public async Task DatabaseProvider_ValidateQueryAsync_PostgresEngine_RunsExplainAndReportsValidNotSkipped()
+    {
+        var connection = new RecordingDbConnection();
+        DbConnectionFactory.Register(DatabaseEngineType.PostgreSQL, x => connection);
+
+        var result = await CreateDatabaseProvider().ValidateQueryAsync(
+            PostgresDataSource(), "SELECT 1", CancellationToken.None);
+
+        result.IsValid.Should().BeTrue();
+        result.Skipped.Should().BeFalse();
+        connection.ExecutedCommands.Should().Equal("EXPLAIN SELECT 1");
+    }
+
     private static DatabaseProvider CreateDatabaseProvider()
     {
         var encryption = new Mock<IEncryptionService>();
