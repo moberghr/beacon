@@ -164,6 +164,35 @@ public class McpStructuredOutputTests
     }
 
     [Test]
+    public void FormatResultsAsMarkdown_MultibyteWideCells_BudgetIsEnforcedInUtf8Bytes()
+    {
+        // R6-4: the budget is a BYTE limit and multibyte content is ~3-4 bytes per char in UTF-8 —
+        // counting UTF-16 chars would emit several times the wire budget. 4096 repeats of a 7-glyph
+        // CJK/emoji block ≈ 90KB per cell in UTF-8, so only ~2 rows fit the 256KB budget while a
+        // char-counted loop would have emitted ~8 rows (~720KB on the wire).
+        var multibyteCell = string.Concat(Enumerable.Repeat("画🔥漢字テスト", 4096));
+        var rows = Enumerable.Range(1, 20)
+            .Select(x =>
+                new Dictionary<string, object?>
+                {
+                    ["id"] = x,
+                    ["blob"] = multibyteCell
+                })
+            .ToList();
+
+        var text = ToolHelper.FormatResultsAsMarkdown(rows, maxRows: 100);
+
+        text.Should().Contain("_Further rows omitted — response size budget reached._");
+
+        var oneRowSlackBytes = Encoding.UTF8.GetByteCount($"| 1 | {multibyteCell} |\n");
+        Encoding.UTF8.GetByteCount(text).Should().BeLessThanOrEqualTo(
+            ToolHelper.MaxStructuredPayloadBytes + oneRowSlackBytes,
+            "the emitted markdown must stay within the byte budget plus at most one row's slack");
+        // Header + separator + at least one data row are always emitted before the budget can trip.
+        text.Split('\n').Count(x => x.StartsWith("|")).Should().BeGreaterThan(2);
+    }
+
+    [Test]
     public void FormatResultsAsMarkdown_SmallRowSet_NoBudgetNotice_AllRowsEmitted()
     {
         var text = ToolHelper.FormatResultsAsMarkdown(MakeRows(2), maxRows: 100);

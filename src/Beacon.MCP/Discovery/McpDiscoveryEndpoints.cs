@@ -31,6 +31,19 @@ public static class McpDiscoveryEndpoints
     private const string OidcConfigSection = "Beacon:Authentication:Oidc";
     private const string CacheControlValue = "public, max-age=3600";
 
+    /// <summary>
+    /// The exact anonymous discovery paths mapped by <see cref="MapMcpDiscovery"/> — the single
+    /// source of truth for the host's auth middlewares. Their allow-lists must cover ONLY these
+    /// exact paths, never a <c>/.well-known</c> prefix: a prefix match would let
+    /// <c>/.well-known/anything</c> reach the SPA fallback anonymously (R6-2).
+    /// </summary>
+    public static readonly IReadOnlyList<string> AnonymousDiscoveryPaths =
+    [
+        McpDiscoveryDocuments.ProtectedResourceMetadataPath,
+        $"{McpDiscoveryDocuments.ProtectedResourceMetadataPath}{McpDiscoveryDocuments.McpPath}",
+        McpDiscoveryDocuments.ServerCardPath
+    ];
+
     public static IEndpointRouteBuilder MapMcpDiscovery(this IEndpointRouteBuilder endpoints)
     {
         // Startup-time (once, not per-request): without Beacon:PublicBaseUrl the discovery documents
@@ -48,13 +61,15 @@ public static class McpDiscoveryEndpoints
 
         // Bare well-known path (spec'd probe target) + the RFC 9728 path-inserted variant that
         // clients derive from the /beacon/mcp resource identifier — same document from both.
-        endpoints.MapGet(McpDiscoveryDocuments.ProtectedResourceMetadataPath, HandleProtectedResourceMetadata)
+        // Mapped from AnonymousDiscoveryPaths so the routes can never drift from the exact paths
+        // the host middlewares allow-list.
+        endpoints.MapGet(AnonymousDiscoveryPaths[0], HandleProtectedResourceMetadata)
             .AllowAnonymous()
             .ExcludeFromDescription();
-        endpoints.MapGet($"{McpDiscoveryDocuments.ProtectedResourceMetadataPath}{McpDiscoveryDocuments.McpPath}", HandleProtectedResourceMetadata)
+        endpoints.MapGet(AnonymousDiscoveryPaths[1], HandleProtectedResourceMetadata)
             .AllowAnonymous()
             .ExcludeFromDescription();
-        endpoints.MapGet(McpDiscoveryDocuments.ServerCardPath, HandleServerCard)
+        endpoints.MapGet(AnonymousDiscoveryPaths[2], HandleServerCard)
             .AllowAnonymous()
             .ExcludeFromDescription();
 
@@ -99,12 +114,15 @@ public static class McpDiscoveryEndpoints
 
     /// <summary>
     /// Computes the <c>WWW-Authenticate</c> value that carries the RFC 9728 <c>resource_metadata</c>
-    /// parameter, or null when the response header must stay untouched. Rules:
-    /// no existing header → a fresh <c>Bearer resource_metadata="…"</c> challenge; an existing Bearer
-    /// challenge without the parameter (JwtBearerAuthMiddleware writes a bare <c>Bearer</c> on invalid
-    /// tokens) → the parameter is appended, preserving any existing auth-params; a challenge already
-    /// carrying <c>resource_metadata</c> or using a non-Bearer scheme → untouched (null).
-    /// Internal for unit tests (InternalsVisibleTo Beacon.Tests).
+    /// parameter, or null when the response header must stay untouched. The existing value is parsed
+    /// into comma-separated challenges (pragmatic RFC 7235 parse — a quote-aware comma split, where a
+    /// segment whose first token is not <c>key=value</c> is a scheme token starting a new challenge).
+    /// Rules (R6-5): no existing header → a fresh <c>Bearer resource_metadata="…"</c> challenge; a
+    /// Bearer challenge already carrying a <c>resource_metadata</c> auth-param → untouched (null); a
+    /// Bearer challenge without it (JwtBearerAuthMiddleware writes a bare <c>Bearer</c> on invalid
+    /// tokens) → the parameter is appended to THAT challenge, preserving its auth-params; no Bearer
+    /// challenge at all → a SEPARATE <c>Bearer resource_metadata="…"</c> challenge is appended rather
+    /// than mutating a foreign scheme. Internal for unit tests (InternalsVisibleTo Beacon.Tests).
     /// </summary>
     internal static string? BuildResourceMetadataChallenge(string? existingValue, string metadataUrl)
     {
@@ -114,23 +132,27 @@ public static class McpDiscoveryEndpoints
             return $"Bearer {parameter}";
         }
 
-        if (existingValue.Contains("resource_metadata", StringComparison.OrdinalIgnoreCase))
+        var challenges = SplitChallenges(existingValue);
+        var bearerIndex = challenges.FindIndex(x => IsBearerChallenge(x));
+        if (bearerIndex < 0)
+        {
+            // resource_metadata is a Bearer auth-param (RFC 9728 §5.1) — never mutate a foreign
+            // scheme; advertise Bearer as its own additional challenge instead.
+            return $"{existingValue.Trim()}, Bearer {parameter}";
+        }
+
+        if (challenges.Any(x => IsBearerChallenge(x) && CarriesResourceMetadata(x)))
         {
             return null;
         }
 
-        var trimmed = existingValue.Trim();
-        if (trimmed.Equals("Bearer", StringComparison.OrdinalIgnoreCase))
-        {
-            return $"Bearer {parameter}";
-        }
+        // Append the parameter to the first Bearer challenge, preserving its existing auth-params.
+        var bearerChallenge = challenges[bearerIndex];
+        challenges[bearerIndex] = bearerChallenge.Count == 1 && !bearerChallenge[0].Any(char.IsWhiteSpace)
+            ? [$"{bearerChallenge[0]} {parameter}"]
+            : [.. bearerChallenge, parameter];
 
-        if (trimmed.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
-        {
-            return $"{trimmed}, {parameter}";
-        }
-
-        return null;
+        return string.Join(", ", challenges.Select(x => string.Join(", ", x)));
     }
 
     private static IResult HandleProtectedResourceMetadata(HttpContext context, IConfiguration configuration)
@@ -162,5 +184,103 @@ public static class McpDiscoveryEndpoints
         return string.IsNullOrWhiteSpace(configured)
             ? $"{request.Scheme}://{request.Host}"
             : configured.TrimEnd('/');
+    }
+
+    // Pragmatic RFC 7235 parse: split the header on top-level commas (quoted strings respected),
+    // then group segments into challenges — a segment whose first token is not `key=value` is a
+    // scheme token starting a new challenge; a `key=value` first token is an auth-param continuing
+    // the previous one. Each challenge is its list of comma-separated segments.
+    private static List<List<string>> SplitChallenges(string headerValue)
+    {
+        var challenges = new List<List<string>>();
+        foreach (var segment in SplitTopLevelSegments(headerValue))
+        {
+            if (challenges.Count == 0 || !FirstToken(segment).Contains('='))
+            {
+                challenges.Add([segment]);
+                continue;
+            }
+
+            challenges[^1].Add(segment);
+        }
+
+        return challenges;
+    }
+
+    private static List<string> SplitTopLevelSegments(string headerValue)
+    {
+        var segments = new List<string>();
+        var start = 0;
+        var inQuotes = false;
+        for (var i = 0; i < headerValue.Length; i++)
+        {
+            var current = headerValue[i];
+            if (inQuotes && current == '\\')
+            {
+                i++;
+                continue;
+            }
+
+            if (current == '"')
+            {
+                inQuotes = !inQuotes;
+                continue;
+            }
+
+            if (current == ',' && !inQuotes)
+            {
+                AddTrimmedNonEmpty(segments, headerValue[start..i]);
+                start = i + 1;
+            }
+        }
+
+        AddTrimmedNonEmpty(segments, headerValue[start..]);
+        return segments;
+    }
+
+    private static void AddTrimmedNonEmpty(List<string> segments, string segment)
+    {
+        var trimmed = segment.Trim();
+        if (trimmed.Length > 0)
+        {
+            segments.Add(trimmed);
+        }
+    }
+
+    private static string FirstToken(string segment)
+    {
+        var separatorIndex = segment.IndexOfAny([' ', '\t']);
+        return separatorIndex < 0 ? segment : segment[..separatorIndex];
+    }
+
+    // The scheme is the challenge's first token — "BearerX" is NOT the Bearer scheme, and scheme
+    // comparison is case-insensitive (RFC 7235 §2.1).
+    private static bool IsBearerChallenge(List<string> challenge)
+    {
+        return FirstToken(challenge[0]).Equals("Bearer", StringComparison.OrdinalIgnoreCase);
+    }
+
+    // True when the Bearer challenge carries a resource_metadata auth-param — exact param-NAME
+    // match, never a substring test (a foreign param value merely containing the text
+    // "resource_metadata" must not count as the parameter being present).
+    private static bool CarriesResourceMetadata(List<string> challenge)
+    {
+        var parameters = new List<string>();
+        var schemeRemainder = challenge[0][FirstToken(challenge[0]).Length..].Trim();
+        if (schemeRemainder.Length > 0)
+        {
+            parameters.Add(schemeRemainder);
+        }
+
+        parameters.AddRange(challenge.Skip(1));
+        return parameters
+            .Select(x => ParameterName(x))
+            .Any(x => string.Equals(x, "resource_metadata", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string? ParameterName(string parameter)
+    {
+        var equalsIndex = parameter.IndexOf('=');
+        return equalsIndex < 0 ? null : parameter[..equalsIndex].Trim();
     }
 }

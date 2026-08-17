@@ -173,22 +173,27 @@ internal static class ToolHelper
         sb.Append("| ").Append(string.Join(" | ", columns)).Append(" |\n");
         sb.Append("| ").Append(string.Join(" | ", columns.Select(_ => "---"))).Append(" |\n");
 
-        // The markdown table honors the same size budget as the structured payload (chars here,
-        // bytes there — chars are the cheaper conservative proxy): a row set with wide cell values
-        // can blow the response past what MCP clients accept even when the row COUNT is within
-        // maxRows. Stop emitting rows once the budget is reached and say so explicitly.
+        // The markdown table honors the same size budget as the structured payload, measured in
+        // UTF-8 BYTES on both sides (R6-4: counting UTF-16 chars against a byte limit under-counts
+        // multibyte content — emoji/CJK cells could blow past MaxStructuredPayloadBytes on the
+        // wire): a row set with wide cell values can blow the response past what MCP clients accept
+        // even when the row COUNT is within maxRows. Stop emitting rows once the budget is reached
+        // and say so explicitly.
+        var emittedBytes = Encoding.UTF8.GetByteCount(sb.ToString());
         var budgetReached = false;
         foreach (var row in rows.Take(maxRows))
         {
             var line = "| " + string.Join(" | ", columns.Select(c =>
                 row.TryGetValue(c, out var v) ? (v?.ToString() ?? "NULL") : "NULL")) + " |\n";
 
-            if (sb.Length + line.Length > MaxStructuredPayloadBytes)
+            var lineBytes = Encoding.UTF8.GetByteCount(line);
+            if (emittedBytes + lineBytes > MaxStructuredPayloadBytes)
             {
                 budgetReached = true;
                 break;
             }
 
+            emittedBytes += lineBytes;
             sb.Append(line);
         }
 

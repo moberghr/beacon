@@ -23,10 +23,13 @@ internal sealed class PatternReplayVerifier(
         List<RelevantCase> allCases;
         await using (var context = await contextFactory.CreateDbContextAsync(ct))
         {
-            // Scope by data source in SQL; the table-reference match (case-insensitive substring on both
-            // "Table" and "Schema.Table") is applied in memory since it can't translate reliably.
+            // Scope by project AND data source in SQL (R6-1: on a data source shared across projects, a
+            // candidate from project A must never be judged against project B's golden cases); the
+            // table-reference match (case-insensitive substring on both "Table" and "Schema.Table") is
+            // applied in memory since it can't translate reliably.
             allCases = await context.McpEvalCases
                 .Where(x => x.IsActive)
+                .Where(x => x.ProjectId == candidate.ProjectId)
                 .Where(x => x.DataSourceId == candidate.DataSourceId)
                 .Select(x =>
                     new RelevantCase

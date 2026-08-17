@@ -102,6 +102,45 @@ public class PatternReplayVerifierTests
     }
 
     [Test]
+    public async Task VerifyAsync_SharedDataSource_ReplaysOnlyTheCandidatesOwnProjectCases()
+    {
+        // R6-1: two projects share the same data source and BOTH have active golden cases referencing
+        // the candidate's table. The candidate belongs to project 1, so only project 1's cases may be
+        // replayed — project 2's case must never influence the verdict or even reach the eval service.
+        var candidate = BuildCandidate();
+        var eval = new Mock<IMcpEvalService>();
+
+        ScriptCase(eval, question: "q1", baselinePass: false, candidatePass: true);
+
+        var cases = new[]
+        {
+            EvalCase("q1", goldSql: "SELECT id FROM public.loans"),
+            EvalCase("q2-other-project", goldSql: "SELECT count(*) FROM public.loans", projectId: 2)
+        };
+
+        var verifier = BuildVerifier(eval, cases);
+
+        var verdict = await verifier.VerifyAsync(candidate, minFlips: 1, CancellationToken.None);
+
+        verdict.RelevantCases.Should().Be(1, "project 2's case on the shared data source is out of scope");
+        verdict.Flipped.Should().Be(1);
+        verdict.Regressions.Should().Be(0);
+        verdict.Passed.Should().BeTrue();
+
+        // Project 2's case never reaches the eval service at all — neither by project id nor question.
+        eval.Verify(
+            x => x.EvaluateCasePassesAsync(
+                It.IsAny<int>(), 2, It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        eval.Verify(
+            x => x.EvaluateCasePassesAsync(
+                It.IsAny<int>(), It.IsAny<int>(), "q2-other-project", It.IsAny<string>(),
+                It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Test]
     public async Task VerifyAsync_FlipsOneButRegressesAnother_FailsOnRegression()
     {
         var candidate = BuildCandidate();
@@ -271,12 +310,12 @@ public class PatternReplayVerifierTests
         };
     }
 
-    private static McpEvalCase EvalCase(string question, string goldSql)
+    private static McpEvalCase EvalCase(string question, string goldSql, int projectId = 1)
     {
         return new McpEvalCase
         {
             Id = question.GetHashCode() & 0x7fffffff,
-            ProjectId = 1,
+            ProjectId = projectId,
             DataSourceId = DataSourceId,
             Question = question,
             GoldSql = goldSql,
