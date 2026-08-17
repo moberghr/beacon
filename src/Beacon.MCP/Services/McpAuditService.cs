@@ -37,42 +37,4 @@ internal sealed class McpAuditService(
         }
     }
 
-    public async Task<McpSession?> GetOrCreateSessionAsync(string sessionId, int? userId, int? apiKeyId, CancellationToken ct = default)
-    {
-        await using var context = await contextFactory.CreateDbContextAsync(ct);
-        var session = await context.McpSessions.FirstOrDefaultAsync(s => s.SessionId == sessionId, ct);
-
-        if (session == null)
-        {
-            session = new McpSession
-            {
-                SessionId = sessionId,
-                UserId = userId,
-                ApiKeyId = apiKeyId
-            };
-            context.McpSessions.Add(session);
-            await context.SaveChangesAsync(ct);
-        }
-
-        return session;
-    }
-
-    public async Task UpdateSessionActivityAsync(string sessionId, CancellationToken ct = default)
-    {
-        try
-        {
-            await using var context = await contextFactory.CreateDbContextAsync(ct);
-            var session = await context.McpSessions.FirstOrDefaultAsync(s => s.SessionId == sessionId, ct);
-            if (session != null)
-            {
-                session.LastActivityAt = DateTime.UtcNow;
-                session.QueriesExecuted++;
-                await context.SaveChangesAsync(ct);
-            }
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Failed to update MCP session activity for session {SessionId}", sessionId);
-        }
-    }
 }

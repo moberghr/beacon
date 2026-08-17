@@ -56,6 +56,12 @@ internal sealed class McpSignalBuilder
         return this;
     }
 
+    public McpSignalBuilder SetColumnsUsed(IReadOnlyList<string> columns)
+    {
+        _columnsUsed = columns.Count > 0 ? columns.ToList() : null;
+        return this;
+    }
+
     public McpSignalBuilder SetSchemaValidationFailed(string error)
     {
         _schemaValidationFailed = true;

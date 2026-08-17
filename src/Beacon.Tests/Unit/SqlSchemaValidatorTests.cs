@@ -98,4 +98,24 @@ public class SqlSchemaValidatorTests
 
         result.IsValid.Should().BeTrue();
     }
+
+    [Test]
+    public void Validate_CollectsReferencedColumns()
+    {
+        var sql = "SELECT o.id, c.name FROM orders o JOIN customers c ON c.id = o.customer_id WHERE o.total > 10";
+
+        var result = _validator.Validate(sql, Catalog(), "PostgreSQL");
+
+        result.IsValid.Should().BeTrue();
+        result.ColumnsUsed.Should().Contain(["id", "name", "customer_id", "total"]);
+    }
+
+    [Test]
+    public void Validate_InvalidColumn_StillCollectsReferencedColumns()
+    {
+        var result = _validator.Validate("SELECT bogus FROM orders", Catalog(), "PostgreSQL");
+
+        result.IsValid.Should().BeFalse();
+        result.ColumnsUsed.Should().Contain("bogus");
+    }
 }

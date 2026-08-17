@@ -1,7 +1,9 @@
 using System.Collections.Generic;
+using System.Data.Common;
 using Microsoft.EntityFrameworkCore;
 using ModelContextProtocol.Protocol;
 using Beacon.Core.Data;
+using Beacon.Core.Models;
 using Beacon.MCP.Services;
 
 namespace Beacon.MCP.Tools;
@@ -117,6 +119,20 @@ internal static class ToolHelper
     {
         return FormatResultsAsMarkdownInternal(rows, maxRows);
     }
+
+    /// <summary>
+    /// Maps an exception to a message safe to return to the MCP caller. Business-rule and domain
+    /// exceptions (§2.9) are written for the caller and pass through; database provider errors are
+    /// surfaced so an agent can correct its own SQL; anything else stays internal — full detail
+    /// goes to the audit trail and server log, never the wire.
+    /// </summary>
+    public static string CallerSafeMessage(Exception ex, string tool) =>
+        ex switch
+        {
+            InvalidOperationException or BeaconException => ex.Message,
+            DbException => $"Query failed: {ex.Message}",
+            _ => $"The {tool} tool failed due to an unexpected internal error. Retry the call; if the problem persists, ask your Beacon administrator to check the audit log."
+        };
 
     public static CallToolResult Success(string text) =>
         new() { Content = [new TextContentBlock { Text = text }] };

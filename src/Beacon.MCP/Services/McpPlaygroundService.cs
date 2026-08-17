@@ -10,7 +10,7 @@ namespace Beacon.MCP.Services;
 
 internal sealed class McpPlaygroundService(IServiceProvider serviceProvider) : IMcpPlaygroundService
 {
-    public IReadOnlyList<string> ToolNames => ["get_context", "ask", "query", "get_documentation", "search"];
+    public IReadOnlyList<string> ToolNames => ["get_context", "ask", "query", "get_documentation", "search", "feedback"];
 
     public async Task<McpPlaygroundResult> ExecuteToolAsync(
         string toolName, Dictionary<string, object?> arguments, int projectId, CancellationToken ct)
@@ -54,31 +54,38 @@ internal sealed class McpPlaygroundService(IServiceProvider serviceProvider) : I
                     project_id: projectId, cancellationToken: ct),
 
                 "ask" => await sp.GetRequiredService<ProjectAskTool>().ExecuteAsync(
-                    question: arguments.GetValueOrDefault("question")?.ToString() ?? "",
+                    question: GetString(arguments, "question") ?? "",
                     project_id: projectId,
-                    execute: arguments.GetValueOrDefault("execute") is bool exec ? exec : true,
+                    execute: GetBool(arguments, "execute") ?? true,
                     cancellationToken: ct),
 
                 "query" => await sp.GetRequiredService<ProjectQueryTool>().ExecuteAsync(
-                    datasource_name: arguments.GetValueOrDefault("datasource_name")?.ToString(),
-                    datasource_id: arguments.GetValueOrDefault("datasource_id") is int dsId ? dsId : null,
-                    sql: arguments.GetValueOrDefault("sql")?.ToString(),
-                    api_query: arguments.GetValueOrDefault("api_query")?.ToString(),
-                    max_rows: arguments.GetValueOrDefault("max_rows") is int mr ? mr : null,
+                    datasource_name: GetString(arguments, "datasource_name"),
+                    datasource_id: GetInt(arguments, "datasource_id"),
+                    sql: GetString(arguments, "sql"),
+                    api_query: GetString(arguments, "api_query"),
+                    max_rows: GetInt(arguments, "max_rows"),
                     project_id: projectId,
                     cancellationToken: ct),
 
                 "get_documentation" => await sp.GetRequiredService<ProjectGetDocumentationTool>().ExecuteAsync(
                     project_id: projectId,
-                    datasource_name: arguments.GetValueOrDefault("datasource_name")?.ToString(),
-                    table_name: arguments.GetValueOrDefault("table_name")?.ToString(),
-                    schema_name: arguments.GetValueOrDefault("schema_name")?.ToString(),
+                    datasource_name: GetString(arguments, "datasource_name"),
+                    table_name: GetString(arguments, "table_name"),
+                    schema_name: GetString(arguments, "schema_name"),
                     cancellationToken: ct),
 
                 "search" => await sp.GetRequiredService<ProjectSearchTool>().ExecuteAsync(
-                    query: arguments.GetValueOrDefault("query")?.ToString() ?? "",
+                    query: GetString(arguments, "query") ?? "",
                     project_id: projectId,
-                    max_results: arguments.GetValueOrDefault("max_results") is int maxR ? maxR : null,
+                    max_results: GetInt(arguments, "max_results"),
+                    cancellationToken: ct),
+
+                "feedback" => await sp.GetRequiredService<FeedbackTool>().ExecuteAsync(
+                    signal_id: GetInt(arguments, "signal_id") ?? 0,
+                    verdict: GetString(arguments, "verdict") ?? "",
+                    corrected_sql: GetString(arguments, "corrected_sql"),
+                    note: GetString(arguments, "note"),
                     cancellationToken: ct),
 
                 _ => ToolHelper.Error($"Unknown tool: {toolName}")
@@ -90,8 +97,59 @@ internal sealed class McpPlaygroundService(IServiceProvider serviceProvider) : I
         }
         catch (Exception ex)
         {
-            return new McpPlaygroundResult($"Error: {ex.Message}", true);
+            // §1.11 — same caller-safe mapping as the MCP transport path; raw ex.Message may quote user input.
+            return new McpPlaygroundResult(ToolHelper.CallerSafeMessage(ex, toolName), true);
         }
+    }
+
+    // HTTP playground callers arrive via System.Text.Json, so argument values are JsonElement,
+    // not CLR primitives — unwrap both shapes so in-process (typed) and HTTP callers behave alike.
+    private static string? GetString(Dictionary<string, object?> arguments, string key)
+    {
+        var value = arguments.GetValueOrDefault(key);
+        if (value is JsonElement { ValueKind: JsonValueKind.String } element)
+        {
+            return element.GetString();
+        }
+
+        return value?.ToString();
+    }
+
+    private static int? GetInt(Dictionary<string, object?> arguments, string key)
+    {
+        var value = arguments.GetValueOrDefault(key);
+        if (value is int number)
+        {
+            return number;
+        }
+
+        if (value is long longNumber)
+        {
+            return (int)longNumber;
+        }
+
+        if (value is JsonElement { ValueKind: JsonValueKind.Number } element && element.TryGetInt32(out var parsed))
+        {
+            return parsed;
+        }
+
+        return value is string text && int.TryParse(text, out var fromText) ? fromText : null;
+    }
+
+    private static bool? GetBool(Dictionary<string, object?> arguments, string key)
+    {
+        var value = arguments.GetValueOrDefault(key);
+        if (value is bool flag)
+        {
+            return flag;
+        }
+
+        if (value is JsonElement { ValueKind: JsonValueKind.True or JsonValueKind.False } element)
+        {
+            return element.GetBoolean();
+        }
+
+        return value is string text && bool.TryParse(text, out var fromText) ? fromText : null;
     }
 
     // Mirrors ProjectContextFactory's fail-closed reading of the API-key 'allowed_projects' claim.

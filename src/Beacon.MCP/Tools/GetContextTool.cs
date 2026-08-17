@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Beacon.AI.Services.Knowledge;
@@ -16,7 +17,8 @@ internal sealed class GetContextTool(
     IDbContextFactory<BeaconContext> contextFactory,
     IProjectContext projectContext,
     McpProjectContextManager sessionManager,
-    McpAuditService auditService)
+    McpAuditService auditService,
+    ILogger<GetContextTool> logger)
 {
     [McpServerTool(Name = "get_context")]
     [Description("Get an overview of the project: its data sources, schemas, tables, quality scores, and documentation status. This is the starting point for understanding what data is available.")]
@@ -98,7 +100,9 @@ internal sealed class GetContextTool(
             sw.Stop();
             await auditService.LogToolCallAsync(null, projectContext.UserId, "get_context",
                 project_id?.ToString(), null, projectId == 0 ? null : projectId, (int)sw.ElapsedMilliseconds, null, ex.Message, CancellationToken.None);
-            return ToolHelper.Error(ex.Message);
+            // §1.11 — ex.Message can quote user input; type only here, full detail is in the audit log.
+            logger.LogError("MCP tool {Tool} failed with {ExceptionType} (detail in MCP audit log)", "get_context", ex.GetType().Name);
+            return ToolHelper.Error(ToolHelper.CallerSafeMessage(ex, "get_context"));
         }
     }
 }

@@ -14,14 +14,14 @@ The MCP server is **project-centric**: each API key is scoped to one or more pro
 - Execute direct SQL queries against any data source in your project
 - Search tables, columns, and documentation by keyword
 - Retrieve AI-generated documentation for your project, data sources, or individual tables
-- Access project resources (schemas, quality reports, documentation)
+- Record feedback on answers — a `correct` verdict becomes a verified example that grounds future SQL generation
 
 ## Quick Start
 
 ### 1. Create an API Key
 
 Go to **API Keys** in the React UI (`/api-keys`) and create a new key:
-- Choose a **scope**: `Read`, `Execute`, or `Admin`
+- Choose a **scope**: `Read`, `Execute`, or `Admin` — the MCP endpoint requires `Execute` or `Admin`, because its tools can run SQL; `Read` keys are limited to the REST read API
 - Optionally restrict to specific **projects**
 - Copy the key — it's shown only once (the key is SHA256-hashed before storage and never persisted in plaintext)
 
@@ -89,13 +89,13 @@ Once connected, your AI assistant can use the tools described below. Try asking:
 |----------|-------|
 | **Endpoint** | `/beacon/mcp` |
 | **Transport** | Streamable HTTP + JSON-RPC 2.0 (via `ModelContextProtocol.AspNetCore`) |
-| **Authentication** | Required — `Authorization: Bearer sk-sem_...` header |
+| **Authentication** | Required — `Authorization: Bearer sk-sem_...` header with `Execute` or `Admin` scope |
 
-The server is mounted with `app.MapMcp("/beacon/mcp").RequireAuthorization()`. Clients exchange JSON-RPC messages with the single `/beacon/mcp` endpoint over the Streamable HTTP transport; the server streams responses back on the same connection.
+The server is mounted with `app.MapMcp("/beacon/mcp").RequireAuthorization(...)` and enforces the Execute scope for API-key callers (§1.4). Clients exchange JSON-RPC messages with the single `/beacon/mcp` endpoint over the Streamable HTTP transport; the server streams responses back on the same connection.
 
 ## Tools
 
-The MCP server exposes **5 tools** that AI clients can call.
+The MCP server exposes **6 tools** that AI clients can call.
 
 ![MCP Playground](/img/screenshots/mcp-playground-dark.png)
 
@@ -111,17 +111,24 @@ Get an overview of the project: data sources, schemas, tables, quality scores, a
 ```
 # Project: E-Commerce Analytics
 
-2 data sources, 1 repository, documentation available
+**Data Sources:** 2
+**Documentation:** Generated
+**Repositories:** 1
 
 ## Data Sources
 
-### production-db (PostgreSQL)
-- 45 tables, 3 schemas
-- Quality: 87%
-- Code references: 124
+### production-db (ID: 4)
+- **Type:** PostgreSQL
+- **Tables:** 45
+- **Quality:** 87%
+- **Code References:** 124
+- **Schemas:** public (40 tables), audit (5 tables)
 
-### analytics-api (REST API)
-- 12 endpoints, 2 tags
+### analytics-api (ID: 7)
+- **Type:** Api
+- **Endpoints:** 12
+- **Code References:** 9
+- **Tags:** users (7 endpoints), orders (5 endpoints)
 ```
 
 ### `ask`
@@ -193,18 +200,20 @@ Search tables, columns, and documentation across all data sources in the project
 | `project_id` | integer | No | — | Specify project if needed |
 | `max_results` | integer | No | `20` | Maximum results to return (max: 50) |
 
-Results include item type (`[TABLE]`, `[COLUMN]`, `[DOC]`), data source, description, and quality score.
+Results include item type (`[TABLE]`, `[COLUMN]`, `[DOC]`), data source, and description.
 
-## Resources
+### `feedback`
 
-The MCP server also exposes **4 resources per project** that clients can read directly.
+Record whether a previous `ask` answer was correct. A `correct` verdict is saved as a verified example (golden pair) that grounds future SQL generation for the same data source.
 
-| Resource URI | Description |
-|-------------|-------------|
-| `beacon://project/{id}/documentation` | AI-generated project documentation (markdown) |
-| `beacon://project/{id}/schema` | Full schema context across all data sources |
-| `beacon://project/{id}/quality` | Data quality report with scores and trends |
-| `beacon://project/{id}/report` | Comprehensive project report (sources, repos, stats) |
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `signal_id` | integer | **Yes** | The `signal_id` from the `ask` response you are rating |
+| `verdict` | string | **Yes** | `correct` or `incorrect` |
+| `corrected_sql` | string | No | The corrected SQL, if you fixed it |
+| `note` | string | No | A short note |
+
+Every `ask` response that ran a data query ends with a `_signal_id: N_` marker — pass that value back here. Conceptual answers from the knowledge base don't record a query signal and carry no marker.
 
 ## Safety & Guardrails
 
@@ -217,9 +226,9 @@ The MCP server enforces several safety measures:
 | **PII detection** | Automatically detects and flags sensitive data patterns | Enabled |
 | **Query timeout** | Queries are cancelled after 30 seconds | Always on |
 | **Audit logging** | Every tool call is recorded by `McpAuditService` with user, timing, and parameters | Always on |
-| **Usage signals** | Every tool call is recorded by `McpSignalService` to feed the learning loop | Always on |
+| **Usage signals** | `ask` and `query` calls are recorded by `McpSignalService` to feed the learning loop | Always on |
 
-Both `McpAuditService` and `McpSignalService` fire on every tool invocation, including the failure path — they are never short-circuited.
+`McpAuditService` fires on every tool invocation, including the failure path — it is never short-circuited. `McpSignalService` records the SQL-learning tools (`ask`, `query`); the read-only catalog tools are audit-only by design.
 
 ## SQL Accuracy Stack
 
@@ -245,7 +254,7 @@ This loop runs entirely in the background and requires no configuration.
 
 Administrators can customize the MCP server behavior at **MCP Settings** in the React UI (`/mcp-settings`):
 
-- **Custom tool descriptions** — Override the default description for each tool
+- **Custom tool descriptions** — Stored per tool but not yet applied to the live tool list (wiring ships in a follow-up)
 - **System prompt** — Customize the LLM prompt used for SQL generation in the `ask` tool
 - **Global instruction** — Additional instructions injected into every `ask` request
 - **Max row limit** — Change the maximum rows returned (default: 1000)

@@ -152,7 +152,9 @@ internal sealed class ProjectAskTool(
             await auditService.LogToolCallAsync(null, projectContext.UserId, "ask",
                 question, null, projectId == 0 ? null : projectId, (int)sw.ElapsedMilliseconds, null, ex.Message, CancellationToken.None);
             await signalService.RecordSignalAsync(signal.Build(), CancellationToken.None);
-            return ToolHelper.Error(ex.Message);
+            // §1.11 — ex.Message can quote user input; type only here, full detail is in the audit log.
+            logger.LogError("MCP tool {Tool} failed with {ExceptionType} (detail in MCP audit log)", "ask", ex.GetType().Name);
+            return ToolHelper.Error(ToolHelper.CallerSafeMessage(ex, "ask"));
         }
     }
 
@@ -222,6 +224,7 @@ internal sealed class ProjectAskTool(
 
         // Pre-execution schema validation
         var schemaCheck = schemaValidator.Validate(generatedSql, smartContext.SchemaCatalog, smartContext.DatabaseDialect);
+        signal.SetColumnsUsed(schemaCheck.ColumnsUsed);
         if (!schemaCheck.IsValid && repairAttempts < maxRepairAttempts)
         {
             repairAttempts++;
@@ -240,6 +243,7 @@ internal sealed class ProjectAskTool(
                     signal.SetRetry(preValidationRetry, retrySchemaCheck.IsValid);
                     if (retrySchemaCheck.IsValid)
                     {
+                        signal.SetColumnsUsed(retrySchemaCheck.ColumnsUsed);
                         text += $"*Initial query had schema errors ({schemaCheck.Error}), retried.*\n\n";
                         text += $"### Corrected SQL\n```sql\n{preValidationRetry}\n```\n\n";
                         generatedSql = preValidationRetry;

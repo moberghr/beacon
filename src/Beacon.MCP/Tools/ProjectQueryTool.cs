@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Beacon.Core.Data;
@@ -23,7 +24,8 @@ internal sealed class ProjectQueryTool(
     IProjectContext projectContext,
     McpProjectContextManager sessionManager,
     McpAuditService auditService,
-    McpSignalService signalService)
+    McpSignalService signalService,
+    ILogger<ProjectQueryTool> logger)
 {
     [McpServerTool(Name = "query")]
     [Description("Execute a query against a specific data source within the project. For databases: pass SQL. For API sources: pass a JSON query definition.")]
@@ -186,7 +188,9 @@ internal sealed class ProjectQueryTool(
             await auditService.LogToolCallAsync(null, projectContext.UserId, "query",
                 sql ?? api_query, datasource_id, projectId == 0 ? null : projectId, (int)sw.ElapsedMilliseconds, null, ex.Message, CancellationToken.None);
             await signalService.RecordSignalAsync(signal.Build(), CancellationToken.None);
-            return ToolHelper.Error($"Query execution failed: {ex.Message}");
+            // §1.11 — ex.Message can quote the user's SQL; type only here, full detail is in the audit log.
+            logger.LogError("MCP tool {Tool} failed with {ExceptionType} (detail in MCP audit log)", "query", ex.GetType().Name);
+            return ToolHelper.Error(ToolHelper.CallerSafeMessage(ex, "query"));
         }
     }
 

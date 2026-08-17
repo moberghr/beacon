@@ -47,10 +47,14 @@ internal sealed class SqlSchemaValidator
         statements.Visit(visitor);
         visitor.ValidateCollectedReferences();
 
-        if (visitor.Errors.Count == 0)
-            return SqlValidationResult.Ok;
+        var columnsUsed = visitor.GetReferencedColumns();
 
-        return new SqlValidationResult(false, string.Join("; ", visitor.Errors.Distinct()));
+        if (visitor.Errors.Count == 0)
+        {
+            return new SqlValidationResult(true, null) { ColumnsUsed = columnsUsed };
+        }
+
+        return new SqlValidationResult(false, string.Join("; ", visitor.Errors.Distinct())) { ColumnsUsed = columnsUsed };
     }
 
     private sealed class SchemaValidationVisitor(Dictionary<string, HashSet<string>> catalog) : Visitor
@@ -162,6 +166,18 @@ internal sealed class SqlSchemaValidator
             return ControlFlow.Continue;
         }
 
+        // Column names the visited SQL references (lowercase, distinct), regardless of whether
+        // they validated — the learning loop wants what the query touched, not what passed.
+        public IReadOnlyList<string> GetReferencedColumns()
+        {
+            return _qualifiedRefs
+                .Select(x => x.Column)
+                .Concat(_bareRefs)
+                .Select(x => x.ToLowerInvariant())
+                .Distinct()
+                .ToList();
+        }
+
         public void ValidateCollectedReferences()
         {
             foreach (var (qualifier, column) in _qualifiedRefs)
@@ -234,4 +250,7 @@ internal sealed class SqlSchemaValidator
 public record SqlValidationResult(bool IsValid, string? Error)
 {
     public static readonly SqlValidationResult Ok = new(true, null);
+
+    /// <summary>Column names the SQL references (lowercase, distinct), collected during the AST walk.</summary>
+    public IReadOnlyList<string> ColumnsUsed { get; init; } = [];
 }

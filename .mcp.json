@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "beacon": {
-      "type": "sse",
-      "url": "http://localhost:5296/beacon/mcp/sse",
+      "type": "http",
+      "url": "http://localhost:5296/beacon/mcp",
       "headers": {
         "Authorization": "Bearer ${BEACON_MCP_API_KEY}"
       }
