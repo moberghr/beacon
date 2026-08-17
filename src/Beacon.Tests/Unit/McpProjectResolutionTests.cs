@@ -9,69 +9,86 @@ using Beacon.MCP.Tools;
 namespace Beacon.Tests.Unit;
 
 /// <summary>
-/// Guards the data-isolation fix in <see cref="ToolHelper.ResolveProjectId"/>: an explicit
-/// per-call project_id must resolve into request-scoped context only and must NOT be written
-/// to the shared (user+apiKey) session state, or a concurrent call on the same key that omits
-/// project_id would inherit it and execute against the wrong project.
+/// Guards the stateless design of <see cref="ToolHelper.ResolveProjectId"/>: project resolution is
+/// a pure per-call function of the request-scoped context and the explicit project_id parameter.
+/// There is no cross-call session state — a project selected on one call must never influence a
+/// concurrent or subsequent call, so any instance behind a load balancer resolves identically.
 /// </summary>
 [TestFixture]
 public class McpProjectResolutionTests
 {
-    private McpProjectContextManager _sessions = null!;
-
-    [SetUp]
-    public void SetUp() => _sessions = new McpProjectContextManager();
-
-    private static McpProjectContext MultiProjectKey() =>
+    private static McpProjectContext MultiProjectContext() =>
         new() { UserId = 1, ApiKeyId = 9, AllowedProjectIds = [5, 6, 7] };
 
     [Test]
-    public void ExplicitProjectId_DoesNotLeakToConcurrentNoArgCall_OnSameKey()
+    public void ExplicitProjectId_InAllowedList_Resolves()
     {
-        // Call A selects project 5 explicitly.
-        var ctxA = MultiProjectKey();
-        var errA = ToolHelper.ResolveProjectId(ctxA, _sessions, requestedProjectId: 5, out var projectIdA);
-        errA.Should().BeNull();
-        projectIdA.Should().Be(5);
-        ctxA.ActiveProjectId.Should().Be(5);
+        var ctx = MultiProjectContext();
 
-        // A concurrent call B on the SAME api key omits project_id. It must NOT inherit A's choice.
-        var ctxB = MultiProjectKey();
-        var errB = ToolHelper.ResolveProjectId(ctxB, _sessions, requestedProjectId: null, out var projectIdB);
+        var error = ToolHelper.ResolveProjectId(ctx, requestedProjectId: 5, out var projectId);
 
-        errB.Should().Contain("Specify project_id");
-        projectIdB.Should().Be(0);
-        projectIdB.Should().NotBe(5);
+        error.Should().BeNull();
+        projectId.Should().Be(5);
+        ctx.ActiveProjectId.Should().Be(5);
+    }
 
-        // The explicit selection must never have touched shared session state.
-        var key = McpProjectContextManager.MakeKey(1, 9);
-        _sessions.GetOrCreate(key).ActiveProjectId.Should().BeNull();
+    [Test]
+    public void ExplicitProjectId_NullAllowedList_IsUnrestricted()
+    {
+        var ctx = new McpProjectContext { UserId = 1, ApiKeyId = 9, AllowedProjectIds = null };
+
+        var error = ToolHelper.ResolveProjectId(ctx, requestedProjectId: 12, out var projectId);
+
+        error.Should().BeNull();
+        projectId.Should().Be(12);
+        ctx.ActiveProjectId.Should().Be(12);
     }
 
     [Test]
     public void ExplicitProjectId_NotInAllowedList_IsDenied()
     {
-        var ctx = MultiProjectKey();
+        var ctx = MultiProjectContext();
 
-        var error = ToolHelper.ResolveProjectId(ctx, _sessions, requestedProjectId: 99, out var projectId);
+        var error = ToolHelper.ResolveProjectId(ctx, requestedProjectId: 99, out var projectId);
 
         error.Should().Contain("Access denied");
         projectId.Should().Be(0);
     }
 
     [Test]
-    public void SingleProjectKey_NoArg_ResolvesAndBecomesSticky()
+    public void ExplicitProjectId_EmptyAllowedList_IsDenied_FailClosed()
+    {
+        var ctx = new McpProjectContext { UserId = 1, ApiKeyId = 9, AllowedProjectIds = [] };
+
+        var error = ToolHelper.ResolveProjectId(ctx, requestedProjectId: 5, out var projectId);
+
+        error.Should().Contain("Access denied");
+        projectId.Should().Be(0);
+    }
+
+    [Test]
+    public void SingleProject_NoArg_AutoResolves()
     {
         var ctx = new McpProjectContext { UserId = 2, ApiKeyId = 3, AllowedProjectIds = [42] };
 
-        var error = ToolHelper.ResolveProjectId(ctx, _sessions, requestedProjectId: null, out var projectId);
+        var error = ToolHelper.ResolveProjectId(ctx, requestedProjectId: null, out var projectId);
 
         error.Should().BeNull();
         projectId.Should().Be(42);
+        ctx.ActiveProjectId.Should().Be(42);
+    }
 
-        // Single-project auto-resolution is the only writer of sticky state — unambiguous, safe.
-        var key = McpProjectContextManager.MakeKey(2, 3);
-        _sessions.GetOrCreate(key).ActiveProjectId.Should().Be(42);
+    [Test]
+    public void MultiProject_NoArg_ReturnsErrorListingIds()
+    {
+        var ctx = MultiProjectContext();
+
+        var error = ToolHelper.ResolveProjectId(ctx, requestedProjectId: null, out var projectId);
+
+        error.Should().Contain("Multiple projects available");
+        error.Should().Contain("5, 6, 7");
+        error.Should().Contain("Specify project_id");
+        projectId.Should().Be(0);
     }
 
     [Test]
@@ -79,10 +96,40 @@ public class McpProjectResolutionTests
     {
         var ctx = new McpProjectContext { UserId = 4, ApiKeyId = 5, AllowedProjectIds = [] };
 
-        var error = ToolHelper.ResolveProjectId(ctx, _sessions, requestedProjectId: null, out var projectId);
+        var error = ToolHelper.ResolveProjectId(ctx, requestedProjectId: null, out var projectId);
 
         error.Should().Contain("No projects");
         projectId.Should().Be(0);
+    }
+
+    [Test]
+    public void NullAllowedProjects_NoArg_ReturnsActionableError()
+    {
+        var ctx = new McpProjectContext { UserId = 4, ApiKeyId = 5, AllowedProjectIds = null };
+
+        var error = ToolHelper.ResolveProjectId(ctx, requestedProjectId: null, out var projectId);
+
+        error.Should().Contain("No projects");
+        projectId.Should().Be(0);
+    }
+
+    [Test]
+    public void ExplicitProjectId_DoesNotLeakToSubsequentNoArgCall()
+    {
+        // Call A selects project 5 explicitly.
+        var ctxA = MultiProjectContext();
+        var errA = ToolHelper.ResolveProjectId(ctxA, requestedProjectId: 5, out var projectIdA);
+        errA.Should().BeNull();
+        projectIdA.Should().Be(5);
+
+        // Call B on the SAME api key omits project_id. Resolution is pure per-call —
+        // it must NOT inherit A's choice through any shared state.
+        var ctxB = MultiProjectContext();
+        var errB = ToolHelper.ResolveProjectId(ctxB, requestedProjectId: null, out var projectIdB);
+
+        errB.Should().Contain("Specify project_id");
+        projectIdB.Should().Be(0);
+        ctxB.ActiveProjectId.Should().BeNull();
     }
 
     // --- B7 fail-closed: ProjectContextFactory.Create must never produce a null AllowedProjectIds ---
@@ -96,7 +143,6 @@ public class McpProjectResolutionTests
 
         var services = new ServiceCollection();
         services.AddSingleton<McpProjectContext>();
-        services.AddSingleton<McpProjectContextManager>();
         services.AddSingleton<IHttpContextAccessor>(new HttpContextAccessor { HttpContext = httpContext });
 
         return services.BuildServiceProvider();

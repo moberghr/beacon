@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
@@ -17,6 +18,7 @@ namespace Beacon.Tests.Unit;
 public class ProjectAskToolRepairFlowTests
 {
     private const int DataSourceId = 7;
+    private const int ProjectId = 42;
     private const string Question = "How many orders last week?";
     private const string NonCountQuestion = "Show me the orders placed last week";
     private const string GeneratedSql = "SELECT count(*) FROM orders";
@@ -40,7 +42,7 @@ public class ProjectAskToolRepairFlowTests
         _settings = new McpSettingsData();
 
         _knowledgeGraph
-            .Setup(x => x.GetSmartContextForAskAsync(DataSourceId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(x => x.GetSmartContextForAskAsync(DataSourceId, ProjectId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SmartSchemaContext
             {
                 FullContext = "schema-context",
@@ -62,10 +64,10 @@ public class ProjectAskToolRepairFlowTests
     {
         _queryExecution
             .Setup(x => x.ValidateAsync(DataSourceId, GeneratedSql, It.IsAny<CancellationToken>()))
-            .ReturnsAsync("column \"bogus\" does not exist");
+            .ReturnsAsync(new ProviderDryRunOutcome("column \"bogus\" does not exist", false));
         _queryExecution
             .Setup(x => x.ValidateAsync(DataSourceId, CorrectedSql, It.IsAny<CancellationToken>()))
-            .ReturnsAsync((string?)null);
+            .ReturnsAsync(ProviderDryRunOutcome.Valid());
         _sqlGeneration
             .Setup(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), GeneratedSql,
                 "column \"bogus\" does not exist", It.IsAny<string>(), null, Question, It.IsAny<CancellationToken>()))
@@ -75,15 +77,43 @@ public class ProjectAskToolRepairFlowTests
             .ReturnsAsync(new QueryExecutionResult("### Results (3 rows)\n", null, 3, true));
 
         var signal = new McpSignalBuilder();
-        var (text, _) = await CreateTool().GenerateAndExecuteSqlAsync(
-            _llmProvider.Object, DataSourceId, Question, _settings, execute: true, signal, CancellationToken.None);
+        var outcome = await CreateTool().GenerateAndExecuteSqlAsync(
+            _llmProvider.Object, DataSourceId, ProjectId, Question, _settings, execute: true, signal, CancellationToken.None);
 
-        text.Should().Contain("failed dry-run validation");
-        text.Should().Contain(CorrectedSql);
+        outcome.Text.Should().Contain("failed dry-run validation");
+        outcome.Text.Should().Contain(CorrectedSql);
         _queryExecution.Verify(x => x.ExecuteAsync(DataSourceId, CorrectedSql, 100, It.IsAny<CancellationToken>()), Times.Once);
         _queryExecution.Verify(x => x.ExecuteAsync(DataSourceId, GeneratedSql, It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
         signal.Build().DryRunFailed.Should().BeTrue();
         signal.Build().DryRunError.Should().Contain("bogus");
+
+        // ask's structured payload after a repair: generated_sql stays the initial SQL of record,
+        // corrected_sql carries the adopted repair, signal_id passes through.
+        var structured = ProjectAskTool.BuildAskStructuredContent(42, outcome.GeneratedSql, outcome.CorrectedSql, outcome.ResultPayload)!.AsObject();
+        structured["signal_id"]!.GetValue<int>().Should().Be(42);
+        structured["generated_sql"]!.GetValue<string>().Should().Be(GeneratedSql);
+        structured["corrected_sql"]!.GetValue<string>().Should().Be(CorrectedSql);
+    }
+
+    [Test]
+    public async Task StructuredContent_WithoutRepair_CarriesGeneratedSqlAndOmitsCorrectedSql()
+    {
+        SetupCleanDryRun();
+        _queryExecution
+            .Setup(x => x.ExecuteAsync(DataSourceId, GeneratedSql, 100, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new QueryExecutionResult("### Results (2 rows)\n", null, 2, true));
+
+        var signal = new McpSignalBuilder();
+        var outcome = await CreateTool().GenerateAndExecuteSqlAsync(
+            _llmProvider.Object, DataSourceId, ProjectId, Question, _settings, execute: true, signal, CancellationToken.None);
+
+        outcome.GeneratedSql.Should().Be(GeneratedSql);
+        outcome.CorrectedSql.Should().BeNull();
+
+        var structured = ProjectAskTool.BuildAskStructuredContent(7, outcome.GeneratedSql, outcome.CorrectedSql, outcome.ResultPayload)!.AsObject();
+        structured["signal_id"]!.GetValue<int>().Should().Be(7);
+        structured["generated_sql"]!.GetValue<string>().Should().Be(GeneratedSql);
+        structured.ContainsKey("corrected_sql").Should().BeFalse();
     }
 
     [Test]
@@ -103,7 +133,7 @@ public class ProjectAskToolRepairFlowTests
 
         var signal = new McpSignalBuilder();
         var (text, _) = await CreateTool().GenerateAndExecuteSqlAsync(
-            _llmProvider.Object, DataSourceId, NonCountQuestion, _settings, execute: true, signal, CancellationToken.None);
+            _llmProvider.Object, DataSourceId, ProjectId, NonCountQuestion, _settings, execute: true, signal, CancellationToken.None);
 
         text.Should().Contain("returned zero rows, retried");
         text.Should().Contain("### Results (5 rows)");
@@ -126,7 +156,7 @@ public class ProjectAskToolRepairFlowTests
 
         var signal = new McpSignalBuilder();
         var (text, _) = await CreateTool().GenerateAndExecuteSqlAsync(
-            _llmProvider.Object, DataSourceId, NonCountQuestion, _settings, execute: true, signal, CancellationToken.None);
+            _llmProvider.Object, DataSourceId, ProjectId, NonCountQuestion, _settings, execute: true, signal, CancellationToken.None);
 
         text.Should().Contain("No results returned.");
         _queryExecution.Verify(x => x.ExecuteAsync(DataSourceId, It.IsAny<string>(), 100, It.IsAny<CancellationToken>()), Times.Once);
@@ -150,7 +180,7 @@ public class ProjectAskToolRepairFlowTests
 
         var signal = new McpSignalBuilder();
         var (text, _) = await CreateTool().GenerateAndExecuteSqlAsync(
-            _llmProvider.Object, DataSourceId, NonCountQuestion, _settings, execute: true, signal, CancellationToken.None);
+            _llmProvider.Object, DataSourceId, ProjectId, NonCountQuestion, _settings, execute: true, signal, CancellationToken.None);
 
         text.Should().Contain("No results returned.");
         text.Should().NotContain("### Results");
@@ -164,7 +194,7 @@ public class ProjectAskToolRepairFlowTests
         // then the zero-row/empty branch must NOT fire a third repair.
         _queryExecution
             .Setup(x => x.ValidateAsync(DataSourceId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync("dry-run error");
+            .ReturnsAsync(new ProviderDryRunOutcome("dry-run error", false));
         _sqlGeneration
             .Setup(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(),
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
@@ -175,7 +205,7 @@ public class ProjectAskToolRepairFlowTests
 
         var signal = new McpSignalBuilder();
         var (text, _) = await CreateTool().GenerateAndExecuteSqlAsync(
-            _llmProvider.Object, DataSourceId, Question, _settings, execute: true, signal, CancellationToken.None);
+            _llmProvider.Object, DataSourceId, ProjectId, Question, _settings, execute: true, signal, CancellationToken.None);
 
         _sqlGeneration.Verify(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(),
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
@@ -193,7 +223,7 @@ public class ProjectAskToolRepairFlowTests
 
         var signal = new McpSignalBuilder();
         var (text, _) = await CreateTool().GenerateAndExecuteSqlAsync(
-            _llmProvider.Object, DataSourceId, Question, _settings, execute: true, signal, CancellationToken.None);
+            _llmProvider.Object, DataSourceId, ProjectId, Question, _settings, execute: true, signal, CancellationToken.None);
 
         text.Should().Contain("No results returned.");
         _sqlGeneration.Verify(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(),
@@ -217,11 +247,33 @@ public class ProjectAskToolRepairFlowTests
     {
         var signal = new McpSignalBuilder();
         var (text, _) = await CreateTool().GenerateAndExecuteSqlAsync(
-            _llmProvider.Object, DataSourceId, Question, _settings, execute: false, signal, CancellationToken.None);
+            _llmProvider.Object, DataSourceId, ProjectId, Question, _settings, execute: false, signal, CancellationToken.None);
 
         text.Should().Contain(GeneratedSql);
         _queryExecution.Verify(x => x.ValidateAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
         _queryExecution.Verify(x => x.ExecuteAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Test]
+    public async Task SkippedProviderDryRun_NeverTriggersRepair_AndNeverBlocksExecution()
+    {
+        // An engine without a dry-run strategy reports Skipped — NOTHING was checked, so the ask flow
+        // must not burn a repair attempt on it (codex PR-11 R4).
+        _queryExecution
+            .Setup(x => x.ValidateAsync(DataSourceId, GeneratedSql, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ProviderDryRunOutcome("Provider dry-run validation is not supported for engine SQLite", true));
+        _queryExecution
+            .Setup(x => x.ExecuteAsync(DataSourceId, GeneratedSql, 100, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new QueryExecutionResult("### Results (2 rows)\n", null, 2, true));
+
+        var signal = new McpSignalBuilder();
+        var (text, _) = await CreateTool().GenerateAndExecuteSqlAsync(
+            _llmProvider.Object, DataSourceId, ProjectId, Question, _settings, execute: true, signal, CancellationToken.None);
+
+        text.Should().Contain("### Results (2 rows)");
+        _sqlGeneration.Verify(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        signal.Build().DryRunFailed.Should().BeFalse("a skipped dry-run is not a dry-run failure");
     }
 
     [Test]
@@ -236,18 +288,56 @@ public class ProjectAskToolRepairFlowTests
 
         var signal = new McpSignalBuilder();
         var (text, _) = await CreateTool().GenerateAndExecuteSqlAsync(
-            _llmProvider.Object, DataSourceId, Question, _settings, execute: true, signal, CancellationToken.None);
+            _llmProvider.Object, DataSourceId, ProjectId, Question, _settings, execute: true, signal, CancellationToken.None);
 
         text.Should().Contain("### Results (2 rows)");
         _sqlGeneration.Verify(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(),
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
+    [Test]
+    public void BuildAskStructuredContent_ResultPayload_MergesKeysAlongsideSqlAndSignal()
+    {
+        var payload = new JsonObject
+        {
+            ["columns"] = new JsonArray("id", "name"),
+            ["rows"] = new JsonArray(new JsonArray(1, "acme")),
+            ["row_count"] = 1,
+            ["truncated"] = false
+        };
+
+        var structured = ProjectAskTool.BuildAskStructuredContent(42, GeneratedSql, null, payload)!.AsObject();
+
+        structured["signal_id"]!.GetValue<int>().Should().Be(42);
+        structured["generated_sql"]!.GetValue<string>().Should().Be(GeneratedSql);
+        structured["columns"]!.AsArray().Select(x => x!.GetValue<string>()).Should().Equal("id", "name");
+        structured["row_count"]!.GetValue<int>().Should().Be(1);
+        structured["truncated"]!.GetValue<bool>().Should().BeFalse();
+        var row = structured["rows"]!.AsArray().Single()!.AsArray();
+        row[0]!.GetValue<int>().Should().Be(1);
+        row[1]!.GetValue<string>().Should().Be("acme");
+    }
+
+    [Test]
+    public void BuildAskStructuredContent_NullSignalId_OmitsSignalIdKey()
+    {
+        var structured = ProjectAskTool.BuildAskStructuredContent(null, GeneratedSql, null, null)!.AsObject();
+
+        structured.ContainsKey("signal_id").Should().BeFalse();
+        structured["generated_sql"]!.GetValue<string>().Should().Be(GeneratedSql);
+    }
+
+    [Test]
+    public void BuildAskStructuredContent_AllNullArguments_ReturnsNull()
+    {
+        ProjectAskTool.BuildAskStructuredContent(null, null, null, null).Should().BeNull();
+    }
+
     private void SetupCleanDryRun()
     {
         _queryExecution
             .Setup(x => x.ValidateAsync(DataSourceId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((string?)null);
+            .ReturnsAsync(ProviderDryRunOutcome.Valid());
     }
 
     private ProjectAskTool CreateTool()
@@ -258,7 +348,6 @@ public class ProjectAskToolRepairFlowTests
             settingsProvider: null!,
             serviceProvider: null!,
             projectContext: null!,
-            sessionManager: null!,
             auditService: null!,
             signalService: null!,
             new SqlSchemaValidator(),

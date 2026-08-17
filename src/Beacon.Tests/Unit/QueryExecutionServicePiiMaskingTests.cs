@@ -37,6 +37,12 @@ public class QueryExecutionServicePiiMaskingTests
         result.FormattedResult.Should().NotContain(RawEmail);
         result.FormattedResult.Should().Contain("a***m");   // masked email
         result.FormattedResult.Should().Contain("Alice");   // non-PII column untouched
+
+        // The structured channel must carry the SAME masked rows — never the raw values.
+        var structuredValues = StructuredRowValues(result);
+        structuredValues.Should().Contain("a***m");
+        structuredValues.Should().Contain("Alice");
+        structuredValues.Should().NotContain(RawEmail);
     }
 
     [Test]
@@ -48,6 +54,16 @@ public class QueryExecutionServicePiiMaskingTests
 
         result.IsSuccess.Should().BeTrue();
         result.FormattedResult.Should().Contain(RawEmail);
+        StructuredRowValues(result).Should().Contain(RawEmail);
+    }
+
+    private static List<string?> StructuredRowValues(QueryExecutionResult result)
+    {
+        result.Structured.Should().NotBeNull();
+        return result.Structured!["rows"]!.AsArray()
+            .SelectMany(x => x!.AsArray())
+            .Select(x => x?.GetValue<string>())
+            .ToList();
     }
 
     private static QueryExecutionService BuildService(bool piiDetectionOn)
@@ -65,9 +81,10 @@ public class QueryExecutionServicePiiMaskingTests
                 new Dictionary<string, object?> { ["email"] = RawEmail, ["name"] = "Alice" }
             ]
         };
+        // QueryExecutionService routes through the database-level read-only path (§1.5 backstop).
         var provider = new Mock<IDataSourceProvider>();
         provider
-            .Setup(x => x.ExecuteQueryAsync(
+            .Setup(x => x.ExecuteReadOnlyQueryAsync(
                 It.IsAny<DataSource>(),
                 It.IsAny<string>(),
                 It.IsAny<Dictionary<string, object?>>(),

@@ -18,11 +18,12 @@ internal sealed class ProjectGetDocumentationTool(
     IProjectDocumentationService documentationService,
     IDbContextFactory<BeaconContext> contextFactory,
     IProjectContext projectContext,
-    McpProjectContextManager sessionManager,
     McpAuditService auditService,
     ILogger<ProjectGetDocumentationTool> logger)
 {
-    [McpServerTool(Name = "get_documentation")]
+    internal const int ConciseCharBudget = 8000;
+
+    [McpServerTool(Name = "get_documentation", Title = "Get Documentation", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
     [Description("Get AI-generated documentation for the project, a specific data source, or a specific table/endpoint. Includes schema details, relationships, code references, quality scores, and lineage.")]
     public async Task<CallToolResult> ExecuteAsync(
         [Description("Optional. Specify project if your API key has access to multiple projects.")]
@@ -33,10 +34,27 @@ internal sealed class ProjectGetDocumentationTool(
         string? table_name = null,
         [Description("Optional. Schema name or API tag to narrow scope.")]
         string? schema_name = null,
+        [Description("'concise' (summary sections) or 'detailed' (everything). Project-level export defaults to concise; table-level defaults to detailed.")]
+        string? response_format = null,
         CancellationToken cancellationToken = default)
     {
         var sw = Stopwatch.StartNew();
-        var resolveError = ToolHelper.ResolveProjectId(projectContext, sessionManager, project_id, out var projectId);
+
+        string? format = null;
+        if (!string.IsNullOrEmpty(response_format))
+        {
+            format = response_format.ToLowerInvariant();
+            if (format != "concise" && format != "detailed")
+            {
+                sw.Stop();
+                var validationError = "response_format must be 'concise' or 'detailed'.";
+                await auditService.LogToolCallAsync(null, projectContext.UserId, "get_documentation",
+                    datasource_name ?? table_name, null, null, (int)sw.ElapsedMilliseconds, null, validationError, cancellationToken);
+                return ToolHelper.Error(validationError);
+            }
+        }
+
+        var resolveError = ToolHelper.ResolveProjectId(projectContext, project_id, out var projectId);
         if (resolveError != null) return ToolHelper.Error(resolveError);
 
         // No McpSignalService call here (audit-only) — see GetContextTool for the full rationale.
@@ -45,7 +63,9 @@ internal sealed class ProjectGetDocumentationTool(
             // If no data source specified, return full project documentation
             if (string.IsNullOrEmpty(datasource_name) && string.IsNullOrEmpty(table_name))
             {
-                var docResult = await GetProjectDocumentationAsync(projectId, cancellationToken);
+                // The full project export can be very large — concise is the project-level default.
+                var concise = (format ?? "concise") == "concise";
+                var docResult = await GetProjectDocumentationAsync(projectId, concise, cancellationToken);
                 sw.Stop();
                 await auditService.LogToolCallAsync(null, projectContext.UserId, "get_documentation",
                     null, null, projectId, (int)sw.ElapsedMilliseconds, null, null, cancellationToken);
@@ -72,17 +92,20 @@ internal sealed class ProjectGetDocumentationTool(
             if (dsId == null)
                 return ToolHelper.Error("Could not resolve data source.");
 
+            // Table- and data-source-level docs are bounded — detailed is the default there.
+            var includeDetailSections = (format ?? "detailed") == "detailed";
+
             string result;
             if (!string.IsNullOrEmpty(table_name))
             {
                 var (resolvedSchema, isApi) = await ResolveSchemaAndTypeAsync(dsId.Value, cancellationToken);
                 if (string.IsNullOrEmpty(schema_name))
                     schema_name = resolvedSchema;
-                result = await GetTableDocumentationAsync(dsId.Value, schema_name, table_name, isApi, cancellationToken);
+                result = await GetTableDocumentationAsync(dsId.Value, schema_name, table_name, isApi, includeDetailSections, cancellationToken);
             }
             else
             {
-                result = await GetDataSourceDocumentationAsync(dsId.Value, cancellationToken);
+                result = await GetDataSourceDocumentationAsync(dsId.Value, includeDetailSections, cancellationToken);
             }
 
             sw.Stop();
@@ -137,27 +160,76 @@ internal sealed class ProjectGetDocumentationTool(
         return (schema, isApi);
     }
 
-    private async Task<string> GetProjectDocumentationAsync(int projectId, CancellationToken ct)
+    private async Task<string> GetProjectDocumentationAsync(int projectId, bool concise, CancellationToken ct)
     {
         var markdown = await documentationService.ExportLatestToMarkdownAsync(projectId, ct);
-        return markdown ?? "No documentation has been generated for this project yet. Use the Beacon UI to generate project documentation.";
+        if (markdown == null)
+        {
+            return "No documentation has been generated for this project yet. Use the Beacon UI to generate project documentation.";
+        }
+
+        return concise ? TruncateForConcise(markdown) : markdown;
     }
 
-    private async Task<string> GetTableDocumentationAsync(int dataSourceId, string schemaName, string tableName, bool isApi, CancellationToken ct)
+    /// <summary>
+    /// Concise project-level export: cut the markdown at the last line boundary within the first
+    /// <see cref="ConciseCharBudget"/> chars and say so explicitly. Documents that already fit are
+    /// returned unchanged — the notice only appears when content was actually dropped.
+    /// Internal for unit tests (InternalsVisibleTo Beacon.Tests).
+    /// </summary>
+    internal static string TruncateForConcise(string markdown)
+    {
+        if (markdown.Length <= ConciseCharBudget)
+        {
+            return markdown;
+        }
+
+        var cut = markdown.LastIndexOf('\n', ConciseCharBudget - 1);
+        if (cut <= 0)
+        {
+            cut = ConciseCharBudget;
+
+            // Never split a surrogate pair on the hard cut: if the char AT the boundary is a low
+            // surrogate, the kept text would end with its dangling high surrogate — back off one
+            // char so the whole pair is dropped instead of emitting invalid UTF-16.
+            if (char.IsLowSurrogate(markdown[cut]))
+            {
+                cut--;
+            }
+        }
+
+        var kept = markdown[..cut].TrimEnd('\n');
+
+        // A cut inside a fenced code block leaves the fence open, so the truncation notice (and
+        // anything a renderer shows after it) would be swallowed into the code block. An odd number
+        // of ``` markers in the kept text means an open fence — close it before the notice.
+        if (CountFenceMarkers(kept) % 2 == 1)
+        {
+            kept += "\n```";
+        }
+
+        return kept
+            + "\n\n_Truncated (concise). Pass response_format: \"detailed\" for the full document._\n";
+    }
+
+    private async Task<string> GetTableDocumentationAsync(int dataSourceId, string schemaName, string tableName, bool isApi, bool includeDetailSections, CancellationToken ct)
     {
         var knowledgeTask = knowledgeGraph.GetTableKnowledgeAsync(dataSourceId, schemaName, tableName, ct);
-        var lineageTask = knowledgeGraph.GetLineageAsync(dataSourceId, schemaName, tableName, ct);
-        await Task.WhenAll(knowledgeTask, lineageTask);
 
-        var knowledge = knowledgeTask.Result;
-        var lineage = lineageTask.Result;
+        // Concise omits the lineage section entirely, so skip the lookup as well.
+        var lineageTask = includeDetailSections
+            ? knowledgeGraph.GetLineageAsync(dataSourceId, schemaName, tableName, ct)
+            : null;
+
+        var knowledge = await knowledgeTask;
+        var lineage = lineageTask != null ? await lineageTask : null;
 
         return isApi
-            ? FormatApiEndpointDocumentation(knowledge, lineage)
-            : FormatTableDocumentation(knowledge, lineage);
+            ? FormatApiEndpointDocumentation(knowledge, lineage, includeDetailSections)
+            : FormatTableDocumentation(knowledge, lineage, includeDetailSections);
     }
 
-    private static string FormatApiEndpointDocumentation(TableKnowledge knowledge, LineageInfo lineage)
+    private static string FormatApiEndpointDocumentation(TableKnowledge knowledge, LineageInfo? lineage, bool includeDetailSections)
     {
         var text = $"# {knowledge.TableName}\n";
         text += $"**API:** {knowledge.DataSourceName} (ID: {knowledge.DataSourceId})\n";
@@ -180,13 +252,19 @@ internal sealed class ProjectGetDocumentationTool(
         }
 
         text += FormatQualitySection(knowledge);
-        text += FormatCodeReferencesSection(knowledge);
-        text += FormatLineageSection(lineage);
+        if (includeDetailSections)
+        {
+            text += FormatCodeReferencesSection(knowledge);
+            if (lineage != null)
+            {
+                text += FormatLineageSection(lineage);
+            }
+        }
 
         return text;
     }
 
-    private static string FormatTableDocumentation(TableKnowledge knowledge, LineageInfo lineage)
+    private static string FormatTableDocumentation(TableKnowledge knowledge, LineageInfo? lineage, bool includeDetailSections)
     {
         var text = $"# {knowledge.SchemaName}.{knowledge.TableName}\n";
         text += $"**Data Source:** {knowledge.DataSourceName} (ID: {knowledge.DataSourceId})\n\n";
@@ -221,8 +299,14 @@ internal sealed class ProjectGetDocumentationTool(
         }
 
         text += FormatQualitySection(knowledge);
-        text += FormatCodeReferencesSection(knowledge);
-        text += FormatLineageSection(lineage);
+        if (includeDetailSections)
+        {
+            text += FormatCodeReferencesSection(knowledge);
+            if (lineage != null)
+            {
+                text += FormatLineageSection(lineage);
+            }
+        }
 
         return text;
     }
@@ -292,14 +376,17 @@ internal sealed class ProjectGetDocumentationTool(
         return text;
     }
 
-    private async Task<string> GetDataSourceDocumentationAsync(int dataSourceId, CancellationToken ct)
+    private async Task<string> GetDataSourceDocumentationAsync(int dataSourceId, bool includeDetailSections, CancellationToken ct)
     {
         var knowledgeTask = knowledgeGraph.GetDataSourceKnowledgeAsync(dataSourceId, ct);
-        var llmContextTask = knowledgeGraph.GetContextForLlmAsync(dataSourceId, ct: ct);
-        await Task.WhenAll(knowledgeTask, llmContextTask);
 
-        var knowledge = knowledgeTask.Result;
-        var llmContext = llmContextTask.Result;
+        // Concise omits the "Detailed Context" section entirely, so skip the lookup as well.
+        var llmContextTask = includeDetailSections
+            ? knowledgeGraph.GetContextForLlmAsync(dataSourceId, ct: ct)
+            : null;
+
+        var knowledge = await knowledgeTask;
+        var llmContext = llmContextTask != null ? await llmContextTask : null;
         var isApi = knowledge.DataSourceType == DataSourceType.Api;
 
         var text = $"# {knowledge.Name}\n\n";
@@ -331,5 +418,18 @@ internal sealed class ProjectGetDocumentationTool(
         }
 
         return text;
+    }
+
+    private static int CountFenceMarkers(string text)
+    {
+        var count = 0;
+        var index = 0;
+        while ((index = text.IndexOf("```", index, StringComparison.Ordinal)) >= 0)
+        {
+            count++;
+            index += 3;
+        }
+
+        return count;
     }
 }

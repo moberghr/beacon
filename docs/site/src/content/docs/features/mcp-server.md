@@ -11,8 +11,10 @@ The MCP server is **project-centric**: each API key is scoped to one or more pro
 
 **What you can do through MCP:**
 - Ask natural language questions and get SQL + results back
+- Pull the exact grounding context Beacon uses for SQL generation — schemas with real sample values, verified join paths, human-verified examples — and write your own SQL (`get_query_context` → `dry_run` → `query`)
+- Validate SQL through every safety gate without executing it
 - Execute direct SQL queries against any data source in your project
-- Search tables, columns, and documentation by keyword
+- Search tables, columns, and documentation by keyword, fused with embedding-based semantic matching when a local embedder is enabled
 - Retrieve AI-generated documentation for your project, data sources, or individual tables
 - Record feedback on answers — a `correct` verdict becomes a verified example that grounds future SQL generation
 
@@ -93,9 +95,45 @@ Once connected, your AI assistant can use the tools described below. Try asking:
 
 The server is mounted with `app.MapMcp("/beacon/mcp").RequireAuthorization(...)` and enforces the Execute scope for API-key callers (§1.4). Clients exchange JSON-RPC messages with the single `/beacon/mcp` endpoint over the Streamable HTTP transport; the server streams responses back on the same connection.
 
+**Protocol niceties the server publishes:**
+
+- The `initialize` response carries **server instructions** describing the recommended tool workflow, and every tool is published with a human-readable **title** and **annotations** (`readOnlyHint`, `idempotentHint`, `destructiveHint`, `openWorldHint`) so clients can reason about safety before calling.
+- `query` and `ask` responses include machine-readable **`structuredContent`** (columns, rows, row count, truncation flag — plus the generated SQL and `signal_id` for `ask`) alongside the markdown text, so agents don't have to parse tables back out of prose.
+- **Truncated results say so explicitly** — row-capped query results, paged search results, and concise documentation exports all end with a note stating that more data exists and how to get it (raise `max_rows`, repeat with the next `offset`, or pass `response_format: "detailed"`).
+
+## Connecting from Remote Clients
+
+Remote MCP clients with a "connect by URL" flow — **claude.ai** (Settings → Connectors → Add custom connector), **ChatGPT** (developer mode connectors), **VS Code** (`MCP: Add Server` → HTTP) — need just one URL:
+
+```
+https://your-beacon-host/beacon/mcp
+```
+
+Authentication is a bearer token in the `Authorization` header — a Beacon API key with the `Execute` or `Admin` scope (`Read` keys cannot reach the SQL-executing tools). Paste the key wherever the client asks for a token/header; clients that probe the URL first will find the discovery documents below and learn the auth requirements automatically.
+
+### Discovery endpoints
+
+Beacon publishes anonymous, read-only discovery metadata so remote clients can bootstrap a connection without documentation:
+
+| Endpoint | What it serves |
+|----------|----------------|
+| `/.well-known/oauth-protected-resource` | [RFC 9728](https://datatracker.ietf.org/doc/rfc9728/) protected-resource metadata: the resource identifier, `scopes_supported` (`Execute`, `Admin`), bearer-header auth. When SSO is enabled (`Beacon:Authentication:Oidc`), `authorization_servers` lists the configured OIDC authority; API-key-only deployments omit it |
+| `/.well-known/oauth-protected-resource/beacon/mcp` | The same document at the RFC 9728 path-inserted variant clients derive from the `/beacon/mcp` resource path |
+| `/.well-known/mcp/server-card.json` | A server card (per the draft SEP-2127 proposal): server name and version, transport (`streamable-http`), endpoint URL, auth summary, and the full tool list with titles |
+
+Unauthenticated requests to `/beacon/mcp` answer `401` with a `WWW-Authenticate: Bearer resource_metadata="…"` header pointing at the metadata document, so OAuth-capable clients discover the auth requirements from the challenge itself (RFC 9728 §5.1).
+
+Behind a reverse proxy, set `Beacon:PublicBaseUrl` (e.g. `https://beacon.example.com`) so the discovery documents advertise the public origin; when unset, the URLs are derived from the incoming request.
+
+A registry manifest for the official [MCP registry](https://registry.modelcontextprotocol.io) ships in `deploy/registry/server.json` with a publishing runbook alongside it — publishing is a deliberate out-of-band step (DNS verification of the namespace domain).
+
+:::note[Deferred]
+**MCP Apps** (interactive `ui://` results, e.g. rendering query results as tables inside the client) and the **MCP tasks extension** (long-running `ask` calls returning a task handle) are deliberately not part of this release — Apps waits on the `ModelContextProtocol.Extensions.Apps` package being published, and task-handle semantics for `ask` change its wire contract and deserve their own release.
+:::
+
 ## Tools
 
-The MCP server exposes **6 tools** that AI clients can call.
+The MCP server exposes **8 tools** that AI clients can call.
 
 ![MCP Playground](/img/screenshots/mcp-playground-dark.png)
 
@@ -173,6 +211,46 @@ Execute a direct SQL query against a specific data source. Use this when you alr
 }
 ```
 
+### `get_query_context`
+
+Get the grounding context Beacon assembles internally for the `ask` tool, scoped to your question — so **you** (or your agent) can write well-grounded SQL instead of delegating generation to Beacon's LLM. The context contains M-Schema table renderings *with real sample values*, join paths (verified foreign keys and inferred relationships kept apart), coverage notes when the table neighbourhood was capped, human-verified golden query examples, learned patterns from usage, and matching business-glossary terms.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `question` | string | **Yes** | — | The question you plan to answer with SQL — the context is retrieved and ranked against it |
+| `datasource_name` | string | No* | — | Name of the data source to ground against |
+| `datasource_id` | integer | No* | — | ID of the data source (alternative to name) |
+| `project_id` | integer | No | — | Specify project if needed |
+| `max_chars` | integer | No | `12000` | Maximum characters of context returned (min 1000, max 30000) |
+
+*If the project has exactly one data source it is auto-selected; with several, pass `datasource_name` or `datasource_id` (the error lists the candidates as `id: name` pairs).
+
+The response opens with a header naming the data source and SQL dialect, followed by the grounding context. Sections marked **(authoritative)** are human-verified. When the context exceeds `max_chars` it is cut at the last complete section and ends with an explicit truncation note. `structuredContent` carries `data_source_id`, `data_source`, `dialect`, and `truncated`.
+
+**Intended workflow:** `get_query_context` → write your own SQL → `dry_run` to validate → `query` to execute. Use this instead of `ask` when your agent wants full control over the SQL it runs.
+
+### `dry_run`
+
+Validate a SQL query through all of Beacon's safety gates **without executing it**. Use before `query` to catch problems for free.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `datasource_name` | string | No* | Name of the data source to validate against |
+| `datasource_id` | integer | No* | ID of the data source (alternative to name) |
+| `sql` | string | **Yes** | The SQL query to validate (SELECT only) |
+| `project_id` | integer | No | Specify project if needed |
+
+*Either `datasource_name` or `datasource_id` is required.
+
+**The four gates**, in order:
+
+1. **`guardrail`** — the regex read-only backstop plus PII detection (reports the columns that would be masked)
+2. **`ast`** — dialect-aware AST parse rejecting DML/DDL, stacked queries, and comment-hidden writes (skipped only when read-only enforcement is disabled)
+3. **`schema`** — schema-catalog column check that catches hallucinated tables/columns without a database round-trip
+4. **`provider_dry_run`** — the database's own validation (`EXPLAIN` / `sp_describe_first_result_set`); runs only when every earlier gate passed
+
+Gate issues are collected rather than first-failure-wins, so one call reports everything to fix. The response gives a per-gate verdict and, when valid, the exact SQL that would execute with the row limit applied. `structuredContent` carries the machine-readable verdict: `{ valid, issues: [{gate, error}], executable_sql, pii_columns }`. An INVALID verdict is still a successful tool call — `isError` is reserved for resolution failures.
+
 ### `get_documentation`
 
 Retrieve AI-generated documentation at three levels of detail.
@@ -183,24 +261,26 @@ Retrieve AI-generated documentation at three levels of detail.
 | `datasource_name` | string | No | Get docs for a specific data source |
 | `table_name` | string | No | Get detailed docs for a specific table or API endpoint |
 | `schema_name` | string | No | Schema name or API tag (optional qualifier for table_name) |
+| `response_format` | string | No | `concise` (summary sections) or `detailed` (everything). Project level defaults to `concise`; data-source and table level default to `detailed` |
 
 **Three levels:**
 
-1. **Project level** (no parameters) — Full generated project documentation
-2. **Data source level** (`datasource_name` only) — Tables, schemas, code references, quality scores
-3. **Table level** (`table_name`) — Columns with types, relationships, code references, quality rules, lineage
+1. **Project level** (no parameters) — Full generated project documentation. Defaults to `concise`: the export is cut at ~8,000 characters on a line boundary with an explicit truncation note; pass `response_format: "detailed"` for the full document
+2. **Data source level** (`datasource_name` only) — Tables, schemas, code references, quality scores. Defaults to `detailed`; `concise` omits the LLM schema context section
+3. **Table level** (`table_name`) — Columns with types, relationships, quality rules; `detailed` (the default) adds code references and lineage, `concise` omits them
 
 ### `search`
 
-Search tables, columns, and documentation across all data sources in the project.
+Search tables, columns, and documentation across all data sources in the project. Keyword matching is fused with embedding-based semantic matching (reciprocal rank fusion) when a local embedder is enabled; without one, search is keyword-only.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `query` | string | **Yes** | — | Search keyword (e.g., "customer", "order_date", "revenue") |
 | `project_id` | integer | No | — | Specify project if needed |
 | `max_results` | integer | No | `20` | Maximum results to return (max: 50) |
+| `offset` | integer | No | `0` | Result offset for paging — use with `max_results` to page through large result sets |
 
-Results include item type (`[TABLE]`, `[COLUMN]`, `[DOC]`), data source, and description.
+Each result line includes the item type (`[TABLE]`, `[COLUMN]`, `[DOC]`), the data source and schema-qualified table (plus the column name for column hits), and the description, ordered by relevance. When more matches exist beyond the current page, the response ends with an explicit note giving the `offset` to request next.
 
 ### `feedback`
 

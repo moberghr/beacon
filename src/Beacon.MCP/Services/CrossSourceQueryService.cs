@@ -28,6 +28,7 @@ internal sealed class CrossSourceQueryService(
     public async Task<(string Text, bool Succeeded)> ExecuteAsync(
         ILlmProvider llmProvider,
         List<RoutedSource> sources,
+        int projectId,
         string question,
         McpSettingsData settings,
         bool execute,
@@ -41,7 +42,7 @@ internal sealed class CrossSourceQueryService(
         var columnsUsed = new HashSet<string>(StringComparer.Ordinal);
         foreach (var source in sources)
         {
-            var smartContext = await knowledgeGraph.GetSmartContextForAskAsync(source.DataSourceId, question, ct);
+            var smartContext = await knowledgeGraph.GetSmartContextForAskAsync(source.DataSourceId, projectId, question, ct);
 
             var sqlResult = await sqlGenerationService.GenerateAsync(
                 llmProvider, smartContext.FullContext, question, settings, ct);
@@ -147,7 +148,10 @@ internal sealed class CrossSourceQueryService(
             var provider = providerFactory.GetProvider(dataSource.DataSourceType);
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeoutCts.CancelAfter(TimeSpan.FromSeconds(30));
-            var result = await provider.ExecuteQueryAsync(dataSource, limitedSql, new Dictionary<string, object?>(), timeoutCts.Token);
+            // §1.5 backstop — per-source execution goes through the read-only path. The database-level
+            // guarantee is PostgreSQL-only today (IDataSourceProvider.SupportsDatabaseReadOnlyEnforcement);
+            // other engines forward to normal execution and rely on the parser gates above.
+            var result = await provider.ExecuteReadOnlyQueryAsync(dataSource, limitedSql, new Dictionary<string, object?>(), timeoutCts.Token);
 
             if (!result.Success)
             {
@@ -311,7 +315,10 @@ internal sealed class CrossSourceQueryService(
         {
             var provider = providerFactory.GetProvider(dataSource.DataSourceType);
             var dryRun = await provider.ValidateQueryAsync(dataSource, sql, ct);
-            if (dryRun.IsValid)
+
+            // Skipped = the engine has no dry-run strategy — nothing was checked, so there is nothing
+            // to repair; proceed exactly like the infrastructure-failure path below.
+            if (dryRun.IsValid || dryRun.Skipped)
             {
                 return sql;
             }
@@ -364,7 +371,7 @@ internal sealed class CrossSourceQueryService(
         {
             var provider = providerFactory.GetProvider(dataSource.DataSourceType);
             var reDryRun = await provider.ValidateQueryAsync(dataSource, retriedSql, ct);
-            if (!reDryRun.IsValid)
+            if (!reDryRun.IsValid && !reDryRun.Skipped)
             {
                 signal.SetRetry(retriedSql, false);
 

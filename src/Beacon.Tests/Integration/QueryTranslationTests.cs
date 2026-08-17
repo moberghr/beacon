@@ -396,6 +396,123 @@ public class QueryTranslationTests : QueryTranslationTestBase
             }));
     }
 
+    // ─── Project search (KnowledgeGraphService.SearchProjectAsync) ───
+
+    /// <summary>
+    /// Translates the REAL table sub-query of <c>KnowledgeGraphService.SearchProjectAsync</c>
+    /// (via the extracted <c>BuildMatchingTablesQuery</c>) and guards its deterministic
+    /// ORDER BY schema_name, table_name, data_source_id, id — the trailing unique keys stop
+    /// same-named tables from different data sources reshuffling/dropping between pages.
+    /// </summary>
+    [Test]
+    public void SearchProjectTablesOrdering_Translates()
+    {
+        var dsIds = new List<int> { 1, 2 };
+
+        AssertQueryTranslates(ctx => Beacon.AI.Services.Knowledge.KnowledgeGraphService
+            .BuildMatchingTablesQuery(ctx, dsIds, "order", 20));
+
+        var sql = Beacon.AI.Services.Knowledge.KnowledgeGraphService
+            .BuildMatchingTablesQuery(Context, dsIds, "order", 20)
+            .ToQueryString();
+
+        Assert.That(sql, Does.Contain("ORDER BY"), "expected deterministic ordering on the table sub-query");
+        var orderBy = sql[sql.IndexOf("ORDER BY", StringComparison.Ordinal)..];
+        Assert.That(orderBy, Does.Contain("schema_name"));
+        Assert.That(orderBy, Does.Contain("table_name"));
+        Assert.That(orderBy, Does.Contain("data_source_id"));
+        Assert.That(orderBy.IndexOf("schema_name", StringComparison.Ordinal),
+            Is.LessThan(orderBy.IndexOf("table_name", StringComparison.Ordinal)),
+            "schema_name must be the primary sort key");
+        Assert.That(orderBy.IndexOf("table_name", StringComparison.Ordinal),
+            Is.LessThan(orderBy.IndexOf("data_source_id", StringComparison.Ordinal)),
+            "table_name must sort before data_source_id");
+
+        // The snake_case Npgsql provider emits the PK unquoted and alias-qualified (e.g. "d1.id"),
+        // so assert on the final ORDER BY line: data_source_id immediately followed by the PK as
+        // the last sort key.
+        Assert.That(FinalOrderByLine(sql), Does.Match(@"data_source_id, \w+\.id$"),
+            "data_source_id must sort before the unique PK, and the PK must be the final sort key");
+    }
+
+    /// <summary>
+    /// Translates the REAL column sub-query of <c>KnowledgeGraphService.SearchProjectAsync</c>
+    /// (via <c>BuildMatchingColumnsQuery</c>) and guards its deterministic
+    /// ORDER BY schema_name, table_name, column_name, data_source_id, id — the trailing unique
+    /// keys stop same-named columns from different data sources reshuffling/dropping between pages.
+    /// </summary>
+    [Test]
+    public void SearchProjectColumnsOrdering_Translates()
+    {
+        var dsIds = new List<int> { 1, 2 };
+
+        AssertQueryTranslates(ctx => Beacon.AI.Services.Knowledge.KnowledgeGraphService
+            .BuildMatchingColumnsQuery(ctx, dsIds, "order", 20));
+
+        var sql = Beacon.AI.Services.Knowledge.KnowledgeGraphService
+            .BuildMatchingColumnsQuery(Context, dsIds, "order", 20)
+            .ToQueryString();
+
+        Assert.That(sql, Does.Contain("ORDER BY"), "expected deterministic ordering on the column sub-query");
+        var orderBy = sql[sql.IndexOf("ORDER BY", StringComparison.Ordinal)..];
+        Assert.That(orderBy, Does.Contain("schema_name"));
+        Assert.That(orderBy, Does.Contain("table_name"));
+        Assert.That(orderBy, Does.Contain("column_name"));
+        Assert.That(orderBy, Does.Contain("data_source_id"));
+        Assert.That(orderBy.IndexOf("schema_name", StringComparison.Ordinal),
+            Is.LessThan(orderBy.IndexOf("table_name", StringComparison.Ordinal)),
+            "schema_name must sort before table_name");
+        Assert.That(orderBy.IndexOf("table_name", StringComparison.Ordinal),
+            Is.LessThan(orderBy.IndexOf("column_name", StringComparison.Ordinal)),
+            "table_name must sort before column_name");
+        Assert.That(orderBy.IndexOf("column_name", StringComparison.Ordinal),
+            Is.LessThan(orderBy.IndexOf("data_source_id", StringComparison.Ordinal)),
+            "column_name must sort before data_source_id");
+
+        // The snake_case Npgsql provider emits the PK unquoted and alias-qualified (e.g. "d1.id"),
+        // so assert on the final ORDER BY line: data_source_id immediately followed by the PK as
+        // the last sort key.
+        Assert.That(FinalOrderByLine(sql), Does.Match(@"data_source_id, \w+\.id$"),
+            "data_source_id must sort before the unique PK, and the PK must be the final sort key");
+    }
+
+    /// <summary>
+    /// Translates the REAL documentation sub-query of <c>KnowledgeGraphService.SearchProjectAsync</c>
+    /// (via <c>BuildDocSectionsQuery</c>) and guards its deterministic ORDER BY title, id — the
+    /// trailing PK stops same-titled sections reshuffling/dropping between pages.
+    /// </summary>
+    [Test]
+    public void SearchProjectDocSectionsOrdering_Translates()
+    {
+        AssertQueryTranslates(ctx => Beacon.AI.Services.Knowledge.KnowledgeGraphService
+            .BuildDocSectionsQuery(ctx, 1, "revenue", 10));
+
+        var sql = Beacon.AI.Services.Knowledge.KnowledgeGraphService
+            .BuildDocSectionsQuery(Context, 1, "revenue", 10)
+            .ToQueryString();
+
+        Assert.That(sql, Does.Contain("ORDER BY"), "expected deterministic ordering on the documentation sub-query");
+        var orderBy = sql[sql.IndexOf("ORDER BY", StringComparison.Ordinal)..];
+        Assert.That(orderBy, Does.Contain("title"));
+
+        // The snake_case Npgsql provider emits the PK unquoted and alias-qualified (e.g. "d.id"),
+        // so assert on the final ORDER BY line: title immediately followed by the PK as the last
+        // sort key.
+        Assert.That(FinalOrderByLine(sql), Does.Match(@"title, \w+\.id$"),
+            "title must sort before the unique PK, and the PK must be the final sort key");
+    }
+
+    // The outermost ORDER BY clause of the generated SQL, cut at its end-of-line — the ordering the
+    // database actually applies to the returned page.
+    private static string FinalOrderByLine(string sql)
+    {
+        var start = sql.LastIndexOf("ORDER BY", StringComparison.Ordinal);
+        Assert.That(start, Is.GreaterThanOrEqualTo(0), "expected an ORDER BY clause");
+
+        var end = sql.IndexOf('\n', start);
+        return end < 0 ? sql[start..] : sql[start..end];
+    }
+
     private static int CountJsonArrayElements(string json)
     {
         // Mirrors the private helper in AiActorService. EF Core treats this as a

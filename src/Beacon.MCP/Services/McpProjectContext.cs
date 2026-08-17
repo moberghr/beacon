@@ -1,7 +1,6 @@
 using System.Security.Claims;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -21,33 +20,6 @@ internal sealed class McpProjectContext : IProjectContext
     public int? ActiveProjectId { get; set; }
     public int? UserId { get; set; }
     public int? ApiKeyId { get; set; }
-}
-
-internal sealed class ProjectSessionState
-{
-    public int? ActiveProjectId { get; set; }
-}
-
-internal sealed class McpProjectContextManager
-{
-    private static readonly TimeSpan SlidingExpiration = TimeSpan.FromMinutes(30);
-    private readonly MemoryCache _cache = new(new MemoryCacheOptions());
-
-    public ProjectSessionState GetOrCreate(string key)
-    {
-        return _cache.GetOrCreate(key, entry =>
-        {
-            entry.SlidingExpiration = SlidingExpiration;
-
-            return new ProjectSessionState();
-        })!;
-    }
-
-    public void Remove(string key)
-        => _cache.Remove(key);
-
-    public static string MakeKey(int? userId, int? apiKeyId)
-        => $"u{userId}-k{apiKeyId}";
 }
 
 internal static class ProjectContextFactory
@@ -91,12 +63,6 @@ internal static class ProjectContextFactory
                         .LogWarning(ex, "Failed to parse 'allowed_projects' claim for user {UserId}; denying all project access.", ctx.UserId);
                 }
             }
-
-            // Restore active project from session manager
-            var sessionManager = sp.GetRequiredService<McpProjectContextManager>();
-            var key = McpProjectContextManager.MakeKey(ctx.UserId, ctx.ApiKeyId);
-            var state = sessionManager.GetOrCreate(key);
-            ctx.ActiveProjectId = state.ActiveProjectId;
         }
 
         return ctx;

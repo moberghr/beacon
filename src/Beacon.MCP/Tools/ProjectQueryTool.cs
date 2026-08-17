@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Protocol;
@@ -22,12 +23,11 @@ internal sealed class ProjectQueryTool(
     SqlReadOnlyAstValidator readOnlyAstValidator,
     IMcpSettingsProvider settingsProvider,
     IProjectContext projectContext,
-    McpProjectContextManager sessionManager,
     McpAuditService auditService,
     McpSignalService signalService,
     ILogger<ProjectQueryTool> logger)
 {
-    [McpServerTool(Name = "query")]
+    [McpServerTool(Name = "query", Title = "Run Read-Only Query", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
     [Description("Execute a query against a specific data source within the project. For databases: pass SQL. For API sources: pass a JSON query definition.")]
     public async Task<CallToolResult> ExecuteAsync(
         [Description("Name of the data source to query (preferred)")]
@@ -51,7 +51,7 @@ internal sealed class ProjectQueryTool(
             .SetQuestion(sql ?? api_query ?? "")
             .SetUserId(projectContext.UserId);
 
-        var resolveError = ToolHelper.ResolveProjectId(projectContext, sessionManager, project_id, out var projectId);
+        var resolveError = ToolHelper.ResolveProjectId(projectContext, project_id, out var projectId);
         if (resolveError != null)
             return await FailAsync(signal, sw, null, null, sql ?? api_query, resolveError, cancellationToken);
 
@@ -145,7 +145,13 @@ internal sealed class ProjectQueryTool(
             var provider = providerFactory.GetProvider(dataSource.DataSourceType);
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeoutCts.CancelAfter(TimeSpan.FromSeconds(30));
-            var result = await provider.ExecuteQueryAsync(dataSource, queryText, new Dictionary<string, object?>(), timeoutCts.Token);
+            // §1.5 backstop — SQL executes through the read-only path. The database-level guarantee
+            // is PostgreSQL-only today (IDataSourceProvider.SupportsDatabaseReadOnlyEnforcement);
+            // other engines forward to normal execution and rely on the parser gates above. API
+            // sources have no SQL engine, so they stay on the normal execution path.
+            var result = isApi
+                ? await provider.ExecuteQueryAsync(dataSource, queryText, new Dictionary<string, object?>(), timeoutCts.Token)
+                : await provider.ExecuteReadOnlyQueryAsync(dataSource, queryText, new Dictionary<string, object?>(), timeoutCts.Token);
 
             if (!result.Success)
             {
@@ -159,6 +165,7 @@ internal sealed class ProjectQueryTool(
             }
 
             var text = $"# Query Results\n\n**Data Source:** {dataSource.Name}\n**Rows:** {result.Rows?.Count ?? 0}\n\n";
+            JsonNode? structured = null;
 
             if (result.Rows != null && result.Rows.Count > 0)
             {
@@ -171,6 +178,7 @@ internal sealed class ProjectQueryTool(
                 }
 
                 text += ToolHelper.FormatResultsAsMarkdown(rows, maxRows);
+                structured = ToolHelper.BuildStructuredPayload(rows, maxRows);
             }
 
             sw.Stop();
@@ -178,7 +186,7 @@ internal sealed class ProjectQueryTool(
             await auditService.LogToolCallAsync(null, projectContext.UserId, "query",
                 sql ?? api_query, datasource_id, projectId, (int)sw.ElapsedMilliseconds, result.Rows?.Count, null, cancellationToken);
             await signalService.RecordSignalAsync(signal.Build(), cancellationToken);
-            return ToolHelper.Success(text);
+            return ToolHelper.Success(text, structured);
         }
         catch (Exception ex)
         {

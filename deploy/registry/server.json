@@ -1,0 +1,17 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
+  "name": "hr.moberg/beacon",
+  "description": "Governed, read-only access to a project's data sources: natural-language ask, schema-grounded SQL generation, catalog search, documentation, and SQL validation tools.",
+  "repository": {
+    "url": "https://github.com/moberghr/beacon",
+    "source": "github"
+  },
+  "version": "2.0.5",
+  "websiteUrl": "https://moberghr.github.io/beacon/",
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://beacon.moberg.hr/beacon/mcp"
+    }
+  ]
+}

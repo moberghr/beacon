@@ -197,3 +197,23 @@
 **Rule:** When you add endpoints and cannot run the host, call them through `fetchJson<T>(path, init)` from `src/lib/api.ts` instead of `beaconApi()`. It routes through the same `beaconFetch` wrapper (CSRF priming, antiforgery-mismatch retry, credentials) that the generated client uses, and is already the established pattern in `routes/home/queries.ts` and the auth pages. Keep the hand-written strict result interfaces either way (2026-06-02 lesson). NEVER hand-add methods to `src/api/generated/beacon-api.ts`.
 
 **When it applies:** any new `/beacon/api/*` endpoint consumed by the React app while the host cannot be started.
+
+## MCP SDK list-tools filters hand you process-wide singleton Tool instances — clone, never mutate (2026-08-16)
+
+**What happened:** A list-tools request filter applied admin description overrides by assigning `tool.Description = override`. The SDK (ModelContextProtocol 2.2) exposes each tool's `ProtocolTool` as a per-process singleton, so the first override permanently destroyed the compiled `[Description]` — clearing the admin field could never restore it. Unit tests passed because they built throwaway `Tool` objects; the compliance review only caught it by decompiling the SDK and tracing object identity.
+
+**Rule:** In any MCP request filter (or handler) that rewrites protocol objects, clone the object and replace the list element — never mutate what the SDK handed you. When testing such code, include a regression test that runs the rewrite twice against the SAME instances (set → cleared) and asserts the original is untouched.
+
+**Why it matters:** Server-wide mutable state written from a request path is invisible in per-call tests and surfaces as "settings changes don't apply until restart" bug reports.
+
+**When it applies:** Beacon.MCP filters/handlers touching `Tool`, `Resource`, `Prompt`, or any SDK protocol type; any cached/singleton object rewritten per request.
+
+## Per-batch green does not mean tier-level correct — cross-batch conflicts need a whole-diff review (2026-08-16)
+
+**What happened:** Five sequential implementer batches each finished with a green build and green targeted tests. The whole-diff compliance review then found: one batch's filter re-introduced exactly the cross-call state another batch existed to delete, and the stateless-resolution batch silently nulled the project attribution a previous tier's audit write relied on.
+
+**Rule:** After multi-batch (or multi-subagent) implementation, always run at least one review pass over the ENTIRE diff against the spec's invariants — batch-local verification cannot see conflicts between batches.
+
+**Why it matters:** Each subagent optimizes its own acceptance criteria; invariants that span batches ("no cross-call state anywhere", "every audit row carries a project") belong to no single batch.
+
+**When it applies:** Any /mtk implement run on the subagent path; any tier/PR assembled from multiple independent work units.

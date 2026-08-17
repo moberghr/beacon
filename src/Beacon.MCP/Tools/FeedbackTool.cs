@@ -1,9 +1,11 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using MediatR;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
+using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.McpEval;
 using Beacon.MCP.Services;
@@ -12,13 +14,13 @@ namespace Beacon.MCP.Tools;
 
 [McpServerToolType]
 internal sealed class FeedbackTool(
+    IDbContextFactory<BeaconContext> contextFactory,
     IProjectContext projectContext,
-    McpProjectContextManager sessionManager,
     McpAuditService auditService,
     IMediator mediator,
     ILogger<FeedbackTool> logger)
 {
-    [McpServerTool(Name = "feedback")]
+    [McpServerTool(Name = "feedback", Title = "Record Answer Feedback", ReadOnly = false, Idempotent = true, Destructive = false, OpenWorld = false)]
     [Description("Record whether a previous `ask` answer was correct. Pass the signal_id from that ask response. A 'correct' verdict is saved as a verified example that improves future answers.")]
     public async Task<CallToolResult> ExecuteAsync(
         [Description("The signal_id from the ask response you are rating")] int signal_id,
@@ -33,9 +35,14 @@ internal sealed class FeedbackTool(
         // contain PII; the command may persist them, but they must NEVER reach audit parameters or logs.
         var auditParameters = $"signal_id={signal_id};verdict={verdict}";
 
-        // The active project (if any) is recorded for the audit trail; feedback itself is not project-scoped,
-        // so we never gate on project resolution here.
-        var projectId = ResolveActiveProjectId();
+        // Feedback itself is not project-scoped, so we never gate on project resolution here. The audit
+        // row is attributed to the project of the signal being rated (the transport path carries no
+        // active project); null when the signal doesn't exist — the handler rejects that below.
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        var projectId = await context.McpQuerySignals
+            .Where(x => x.Id == signal_id)
+            .Select(x => x.ProjectId)
+            .FirstOrDefaultAsync(cancellationToken);
 
         if (!TryParseVerdict(verdict, out var parsedVerdict))
         {
@@ -64,13 +71,6 @@ internal sealed class FeedbackTool(
                 auditParameters, null, projectId, (int)sw.ElapsedMilliseconds, null, ex.Message, CancellationToken.None);
             return ToolHelper.Error(ex.Message);
         }
-    }
-
-    private int? ResolveActiveProjectId()
-    {
-        var key = McpProjectContextManager.MakeKey(projectContext.UserId, projectContext.ApiKeyId);
-        var state = sessionManager.GetOrCreate(key);
-        return projectContext.ActiveProjectId ?? state.ActiveProjectId;
     }
 
     private static bool TryParseVerdict(string verdict, out McpUserVerdict parsed)

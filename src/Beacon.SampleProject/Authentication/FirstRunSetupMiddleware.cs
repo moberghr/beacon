@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Http;
 using Beacon.Core;
 using Beacon.Core.Services;
+using Beacon.MCP.Discovery;
 
 namespace Beacon.SampleProject.Authentication;
 
@@ -24,10 +25,8 @@ internal sealed class FirstRunSetupMiddleware(
             return;
         }
 
-        var path = context.Request.Path.Value ?? "";
-
         // Skip for setup page, static files, and framework endpoints
-        if (IsExcludedPath(path))
+        if (IsExcludedPath(context.Request.Path))
         {
             await next(context);
             return;
@@ -45,10 +44,21 @@ internal sealed class FirstRunSetupMiddleware(
         await next(context);
     }
 
-    private static bool IsExcludedPath(string path)
+    private static bool IsExcludedPath(PathString requestPath)
     {
+        var path = requestPath.Value ?? "";
         if (path.Contains("/setup", StringComparison.OrdinalIgnoreCase))
+        {
             return true;
+        }
+
+        // The MCP discovery documents are anonymous machine endpoints — a first-run HTML redirect
+        // to /setup would corrupt them for remote MCP clients probing the server. ONLY the exact
+        // mapped paths (shared constants, R6-2) are excluded, never all of /.well-known.
+        if (McpDiscoveryEndpoints.AnonymousDiscoveryPaths.Contains(path, StringComparer.Ordinal))
+        {
+            return true;
+        }
 
         return MiddlewarePathHelper.IsStaticOrFrameworkPath(path);
     }

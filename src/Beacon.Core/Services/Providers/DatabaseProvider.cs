@@ -68,64 +68,31 @@ internal class DatabaseProvider(
         }
     }
 
-    public async Task<ProviderQueryResult> ExecuteQueryAsync(
+    public Task<ProviderQueryResult> ExecuteQueryAsync(
         DataSource dataSource,
         string query,
         Dictionary<string, object?> parameters,
         CancellationToken cancellationToken = default)
     {
-        var stopwatch = Stopwatch.StartNew();
+        return ExecuteQueryCoreAsync(dataSource, query, parameters, enforceReadOnly: false, cancellationToken);
+    }
 
-        try
-        {
-            if (!dataSource.DatabaseEngineType.HasValue)
-                throw new BeaconException("DatabaseEngineType is required for Database data sources");
+    public Task<ProviderQueryResult> ExecuteReadOnlyQueryAsync(
+        DataSource dataSource,
+        string query,
+        Dictionary<string, object?> parameters,
+        CancellationToken cancellationToken = default)
+    {
+        return ExecuteQueryCoreAsync(dataSource, query, parameters, enforceReadOnly: true, cancellationToken);
+    }
 
-            var connectionString = encryptionService.Decrypt(dataSource.EncryptedConnectionData);
-            await using var connection = DbConnectionFactory.CreateConnection(
-                dataSource.DatabaseEngineType.Value,
-                connectionString);
-
-            await connection.OpenAsync(cancellationToken);
-
-            var commandDefinition = new CommandDefinition(
-                query,
-                parameters,
-                cancellationToken: cancellationToken,
-                commandTimeout: 120);
-
-            var result = await connection.QueryAsync(commandDefinition);
-            var rows = ConvertDapperResultsToRows(result.AsList());
-
-            stopwatch.Stop();
-
-            return new ProviderQueryResult
-            {
-                Rows = rows,
-                TotalRows = rows.Count,
-                ExecutionTimeMs = stopwatch.Elapsed.TotalMilliseconds,
-                Success = true,
-                Metadata = new Dictionary<string, object?>
-                {
-                    ["DatabaseEngine"] = dataSource.DatabaseEngineType.Value.ToString()
-                }
-            };
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Query execution failed for database data source {DataSourceId}", dataSource.Id);
-
-            stopwatch.Stop();
-
-            return new ProviderQueryResult
-            {
-                Rows = new List<Dictionary<string, object?>>(),
-                TotalRows = 0,
-                ExecutionTimeMs = stopwatch.Elapsed.TotalMilliseconds,
-                Success = false,
-                ErrorMessage = ex.Message
-            };
-        }
+    // Honest capability report: the database-level backstop exists ONLY for engines with a working
+    // read-only transaction path here (PostgreSQL today — see SupportsReadOnlyTransaction). For every
+    // other engine ExecuteReadOnlyQueryAsync degrades to plain execution and callers rely on the
+    // parser gates alone.
+    public bool SupportsDatabaseReadOnlyEnforcement(DatabaseEngineType? engine)
+    {
+        return engine.HasValue && SupportsReadOnlyTransaction(engine.Value);
     }
 
     public Task<DataSourceMetadata> GetMetadataAsync(
@@ -166,6 +133,22 @@ internal class DatabaseProvider(
                 };
             }
 
+            // Engines without a dry-run strategy must NOT fall through as valid — nothing would have
+            // been checked. Return an explicit skipped result the caller can distinguish (and must not
+            // repair against). Checked BEFORE opening a connection: there is nothing to connect for.
+            if (!SupportsDryRunValidation(dataSource.DatabaseEngineType.Value))
+            {
+                return new QueryValidationResult
+                {
+                    IsValid = false,
+                    Skipped = true,
+                    Errors = new List<string>
+                    {
+                        $"Provider dry-run validation is not supported for engine {dataSource.DatabaseEngineType.Value} — the query was not validated against the live database."
+                    }
+                };
+            }
+
             // Basic validation: try to prepare the query without executing
             var connectionString = encryptionService.Decrypt(dataSource.EncryptedConnectionData);
             await using var connection = DbConnectionFactory.CreateConnection(
@@ -175,7 +158,6 @@ internal class DatabaseProvider(
             await connection.OpenAsync(cancellationToken);
 
             // Engine-specific dry-run: validates syntax and column binding without executing the query.
-            // Engines without a strategy report valid (unknown != failure).
             switch (dataSource.DatabaseEngineType)
             {
                 case DatabaseEngineType.PostgreSQL:
@@ -212,6 +194,132 @@ internal class DatabaseProvider(
                 Errors = new List<string> { ex.Message }
             };
         }
+    }
+
+    private async Task<ProviderQueryResult> ExecuteQueryCoreAsync(
+        DataSource dataSource,
+        string query,
+        Dictionary<string, object?> parameters,
+        bool enforceReadOnly,
+        CancellationToken cancellationToken)
+    {
+        var stopwatch = Stopwatch.StartNew();
+
+        try
+        {
+            if (!dataSource.DatabaseEngineType.HasValue)
+            {
+                throw new BeaconException("DatabaseEngineType is required for Database data sources");
+            }
+
+            var connectionString = encryptionService.Decrypt(dataSource.EncryptedConnectionData);
+            await using var connection = DbConnectionFactory.CreateConnection(
+                dataSource.DatabaseEngineType.Value,
+                connectionString);
+
+            await connection.OpenAsync(cancellationToken);
+
+            // §1.5 backstop — parser-level read-only enforcement alone is bypassable (SQL injection past
+            // the regex/AST gates), so the database itself rejects writes: any write attempt inside a
+            // READ ONLY transaction fails server-side (PostgreSQL 25006 read_only_sql_transaction),
+            // regardless of what the parsers missed.
+            var useReadOnlyTransaction = enforceReadOnly
+                && SupportsDatabaseReadOnlyEnforcement(dataSource.DatabaseEngineType);
+
+            if (useReadOnlyTransaction)
+            {
+                // Session-scoped outer belt: SET TRANSACTION READ ONLY alone is transaction-scoped —
+                // an injected "COMMIT; <write>" ends the transaction and the write runs autocommit.
+                // With default_transaction_read_only = on, every transaction on this session
+                // (implicit autocommit ones included) is read-only, so that write fails server-side
+                // too. Runs ON THE CONNECTION (no transaction) before the transaction begins. Npgsql
+                // resets session state when the connection returns to the pool, so no manual cleanup
+                // is needed here.
+                await connection.ExecuteAsync(new CommandDefinition(
+                    "SET default_transaction_read_only = on",
+                    cancellationToken: cancellationToken));
+            }
+
+            await using var transaction = useReadOnlyTransaction
+                ? await connection.BeginTransactionAsync(cancellationToken)
+                : null;
+
+            if (transaction != null)
+            {
+                // Inner belt: the explicit transaction is additionally opened READ ONLY.
+                await connection.ExecuteAsync(new CommandDefinition(
+                    "SET TRANSACTION READ ONLY",
+                    transaction: transaction,
+                    cancellationToken: cancellationToken));
+            }
+
+            var commandDefinition = new CommandDefinition(
+                query,
+                parameters,
+                transaction: transaction,
+                cancellationToken: cancellationToken,
+                commandTimeout: 120);
+
+            var result = await connection.QueryAsync(commandDefinition);
+            var rows = ConvertDapperResultsToRows(result.AsList());
+
+            if (transaction != null)
+            {
+                // Reads inside a READ ONLY transaction commit fine.
+                await transaction.CommitAsync(cancellationToken);
+            }
+
+            stopwatch.Stop();
+
+            return new ProviderQueryResult
+            {
+                Rows = rows,
+                TotalRows = rows.Count,
+                ExecutionTimeMs = stopwatch.Elapsed.TotalMilliseconds,
+                Success = true,
+                Metadata = new Dictionary<string, object?>
+                {
+                    ["DatabaseEngine"] = dataSource.DatabaseEngineType.Value.ToString()
+                }
+            };
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Query execution failed for database data source {DataSourceId}", dataSource.Id);
+
+            stopwatch.Stop();
+
+            return new ProviderQueryResult
+            {
+                Rows = new List<Dictionary<string, object?>>(),
+                TotalRows = 0,
+                ExecutionTimeMs = stopwatch.Elapsed.TotalMilliseconds,
+                Success = false,
+                ErrorMessage = ex.Message
+            };
+        }
+    }
+
+    // PostgreSQL supports the session-level default_transaction_read_only backstop plus
+    // SET TRANSACTION READ ONLY as the first statement of an open transaction. MySQL 5.7+ supports
+    // read-only transactions too — deferred: requires START TRANSACTION READ ONLY plumbing through
+    // the Dapper transaction begin; PostgreSQL ships first. MSSQL/Synapse/Snowflake have no
+    // READ ONLY transaction mode — those engines keep parser-level enforcement only.
+    private static bool SupportsReadOnlyTransaction(DatabaseEngineType engineType)
+    {
+        return engineType == DatabaseEngineType.PostgreSQL;
+    }
+
+    // Engines with an actual dry-run strategy in ValidateQueryAsync's switch: EXPLAIN
+    // (PostgreSQL/MySQL/Snowflake) or sp_describe_first_result_set (MSSQL/Synapse). Everything else
+    // (SQLite today, any future engine until a strategy is added) reports Skipped.
+    private static bool SupportsDryRunValidation(DatabaseEngineType engineType)
+    {
+        return engineType is DatabaseEngineType.PostgreSQL
+            or DatabaseEngineType.MySQL
+            or DatabaseEngineType.Snowflake
+            or DatabaseEngineType.MSSQL
+            or DatabaseEngineType.AzureSynapse;
     }
 
     private static string ResolveDialect(DatabaseEngineType engineType)
