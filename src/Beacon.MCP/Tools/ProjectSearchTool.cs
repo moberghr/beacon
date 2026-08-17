@@ -16,7 +16,7 @@ internal sealed class ProjectSearchTool(
     ILogger<ProjectSearchTool> logger)
 {
     [McpServerTool(Name = "search", Title = "Search Catalog", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
-    [Description("Search tables, columns, and documentation across all data sources in the project by keyword. Returns matching items with descriptions, ordered by relevance. Page through large result sets with max_results and offset.")]
+    [Description("Search tables, columns, and documentation across all data sources in the project by keyword and, when embeddings are enabled, semantic similarity. Returns matching items with descriptions, ordered by relevance. Page through large result sets with max_results and offset.")]
     public async Task<CallToolResult> ExecuteAsync(
         [Description("Search keyword (e.g., 'customer', 'order_date', 'revenue')")]
         string query,

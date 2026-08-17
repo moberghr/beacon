@@ -11,8 +11,10 @@ The MCP server is **project-centric**: each API key is scoped to one or more pro
 
 **What you can do through MCP:**
 - Ask natural language questions and get SQL + results back
+- Pull the exact grounding context Beacon uses for SQL generation — schemas with real sample values, verified join paths, human-verified examples — and write your own SQL (`get_query_context` → `dry_run` → `query`)
+- Validate SQL through every safety gate without executing it
 - Execute direct SQL queries against any data source in your project
-- Search tables, columns, and documentation by keyword
+- Search tables, columns, and documentation by keyword, fused with embedding-based semantic matching when a local embedder is enabled
 - Retrieve AI-generated documentation for your project, data sources, or individual tables
 - Record feedback on answers — a `correct` verdict becomes a verified example that grounds future SQL generation
 
@@ -101,7 +103,7 @@ The server is mounted with `app.MapMcp("/beacon/mcp").RequireAuthorization(...)`
 
 ## Tools
 
-The MCP server exposes **6 tools** that AI clients can call.
+The MCP server exposes **8 tools** that AI clients can call.
 
 ![MCP Playground](/img/screenshots/mcp-playground-dark.png)
 
@@ -179,6 +181,46 @@ Execute a direct SQL query against a specific data source. Use this when you alr
 }
 ```
 
+### `get_query_context`
+
+Get the grounding context Beacon assembles internally for the `ask` tool, scoped to your question — so **you** (or your agent) can write well-grounded SQL instead of delegating generation to Beacon's LLM. The context contains M-Schema table renderings *with real sample values*, join paths (verified foreign keys and inferred relationships kept apart), coverage notes when the table neighbourhood was capped, human-verified golden query examples, learned patterns from usage, and matching business-glossary terms.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `question` | string | **Yes** | — | The question you plan to answer with SQL — the context is retrieved and ranked against it |
+| `datasource_name` | string | No* | — | Name of the data source to ground against |
+| `datasource_id` | integer | No* | — | ID of the data source (alternative to name) |
+| `project_id` | integer | No | — | Specify project if needed |
+| `max_chars` | integer | No | `12000` | Maximum characters of context returned (min 1000, max 30000) |
+
+*If the project has exactly one data source it is auto-selected; with several, pass `datasource_name` or `datasource_id` (the error lists the candidates as `id: name` pairs).
+
+The response opens with a header naming the data source and SQL dialect, followed by the grounding context. Sections marked **(authoritative)** are human-verified. When the context exceeds `max_chars` it is cut at the last complete section and ends with an explicit truncation note. `structuredContent` carries `data_source_id`, `data_source`, `dialect`, and `truncated`.
+
+**Intended workflow:** `get_query_context` → write your own SQL → `dry_run` to validate → `query` to execute. Use this instead of `ask` when your agent wants full control over the SQL it runs.
+
+### `dry_run`
+
+Validate a SQL query through all of Beacon's safety gates **without executing it**. Use before `query` to catch problems for free.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `datasource_name` | string | No* | Name of the data source to validate against |
+| `datasource_id` | integer | No* | ID of the data source (alternative to name) |
+| `sql` | string | **Yes** | The SQL query to validate (SELECT only) |
+| `project_id` | integer | No | Specify project if needed |
+
+*Either `datasource_name` or `datasource_id` is required.
+
+**The four gates**, in order:
+
+1. **`guardrail`** — the regex read-only backstop plus PII detection (reports the columns that would be masked)
+2. **`ast`** — dialect-aware AST parse rejecting DML/DDL, stacked queries, and comment-hidden writes (skipped only when read-only enforcement is disabled)
+3. **`schema`** — schema-catalog column check that catches hallucinated tables/columns without a database round-trip
+4. **`provider_dry_run`** — the database's own validation (`EXPLAIN` / `sp_describe_first_result_set`); runs only when every earlier gate passed
+
+Gate issues are collected rather than first-failure-wins, so one call reports everything to fix. The response gives a per-gate verdict and, when valid, the exact SQL that would execute with the row limit applied. `structuredContent` carries the machine-readable verdict: `{ valid, issues: [{gate, error}], executable_sql, pii_columns }`. An INVALID verdict is still a successful tool call — `isError` is reserved for resolution failures.
+
 ### `get_documentation`
 
 Retrieve AI-generated documentation at three levels of detail.
@@ -199,7 +241,7 @@ Retrieve AI-generated documentation at three levels of detail.
 
 ### `search`
 
-Search tables, columns, and documentation across all data sources in the project.
+Search tables, columns, and documentation across all data sources in the project. Keyword matching is fused with embedding-based semantic matching (reciprocal rank fusion) when a local embedder is enabled; without one, search is keyword-only.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|

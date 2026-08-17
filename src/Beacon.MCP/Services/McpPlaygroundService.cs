@@ -10,7 +10,7 @@ namespace Beacon.MCP.Services;
 
 internal sealed class McpPlaygroundService(IServiceProvider serviceProvider) : IMcpPlaygroundService
 {
-    public IReadOnlyList<string> ToolNames => ["get_context", "ask", "query", "get_documentation", "search", "feedback"];
+    public IReadOnlyList<string> ToolNames => ["get_context", "ask", "query", "get_documentation", "search", "feedback", "dry_run", "get_query_context"];
 
     public async Task<McpPlaygroundResult> ExecuteToolAsync(
         string toolName, Dictionary<string, object?> arguments, int projectId, CancellationToken ct)
@@ -73,12 +73,29 @@ internal sealed class McpPlaygroundService(IServiceProvider serviceProvider) : I
                     datasource_name: GetString(arguments, "datasource_name"),
                     table_name: GetString(arguments, "table_name"),
                     schema_name: GetString(arguments, "schema_name"),
+                    response_format: GetString(arguments, "response_format"),
                     cancellationToken: ct),
 
                 "search" => await sp.GetRequiredService<ProjectSearchTool>().ExecuteAsync(
                     query: GetString(arguments, "query") ?? "",
                     project_id: projectId,
                     max_results: GetInt(arguments, "max_results"),
+                    offset: GetInt(arguments, "offset"),
+                    cancellationToken: ct),
+
+                "dry_run" => await sp.GetRequiredService<DryRunTool>().ExecuteAsync(
+                    datasource_name: GetString(arguments, "datasource_name"),
+                    datasource_id: GetInt(arguments, "datasource_id"),
+                    sql: GetString(arguments, "sql"),
+                    project_id: projectId,
+                    cancellationToken: ct),
+
+                "get_query_context" => await sp.GetRequiredService<GetQueryContextTool>().ExecuteAsync(
+                    question: GetString(arguments, "question") ?? "",
+                    datasource_name: GetString(arguments, "datasource_name"),
+                    datasource_id: GetInt(arguments, "datasource_id"),
+                    project_id: projectId,
+                    max_chars: GetInt(arguments, "max_chars"),
                     cancellationToken: ct),
 
                 "feedback" => await sp.GetRequiredService<FeedbackTool>().ExecuteAsync(

@@ -145,7 +145,13 @@ internal sealed class ProjectQueryTool(
             var provider = providerFactory.GetProvider(dataSource.DataSourceType);
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeoutCts.CancelAfter(TimeSpan.FromSeconds(30));
-            var result = await provider.ExecuteQueryAsync(dataSource, queryText, new Dictionary<string, object?>(), timeoutCts.Token);
+            // §1.5 backstop — SQL executes through the read-only path. The database-level guarantee
+            // is PostgreSQL-only today (IDataSourceProvider.SupportsDatabaseReadOnlyEnforcement);
+            // other engines forward to normal execution and rely on the parser gates above. API
+            // sources have no SQL engine, so they stay on the normal execution path.
+            var result = isApi
+                ? await provider.ExecuteQueryAsync(dataSource, queryText, new Dictionary<string, object?>(), timeoutCts.Token)
+                : await provider.ExecuteReadOnlyQueryAsync(dataSource, queryText, new Dictionary<string, object?>(), timeoutCts.Token);
 
             if (!result.Success)
             {

@@ -1,5 +1,7 @@
 using System.Collections.Generic;
 using System.Data.Common;
+using System.Globalization;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
@@ -12,6 +14,11 @@ namespace Beacon.MCP.Tools;
 
 internal static class ToolHelper
 {
+    // Byte budget for the serialized structured payload (256 KB). The structured payload doubles the
+    // markdown table in the same response, so an unbounded rows array with wide values can blow the
+    // response past what MCP clients accept even when the row COUNT is within maxRows.
+    internal const int MaxStructuredPayloadBytes = 262144;
+
     /// <summary>
     /// Resolves the active project ID as a pure per-call function of the request-scoped context
     /// and the explicit project_id parameter — no cross-call state, so any instance behind a load
@@ -191,8 +198,32 @@ internal static class ToolHelper
             ? rows[0].Keys.ToList()
             : new List<string>();
 
+        var rowBudget = Math.Min(rows.Count, maxRows);
+        var payload = BuildPayloadNode(rows, columns, rowBudget, maxRows);
+
+        // Enforce the byte budget: halve the row count until the serialized payload fits (or no
+        // rows are left), then say so explicitly — never silently return an oversized payload.
+        var trimmedForSize = false;
+        while (rowBudget > 0 && SerializedByteCount(payload) > MaxStructuredPayloadBytes)
+        {
+            rowBudget /= 2;
+            trimmedForSize = true;
+            payload = BuildPayloadNode(rows, columns, rowBudget, maxRows);
+        }
+
+        if (trimmedForSize)
+        {
+            payload["truncated"] = true;
+            payload["rows_omitted_for_size"] = true;
+        }
+
+        return payload;
+    }
+
+    private static JsonObject BuildPayloadNode<T>(IReadOnlyList<T> rows, List<string> columns, int rowBudget, int maxRows) where T : IDictionary<string, object?>
+    {
         var rowsNode = new JsonArray();
-        foreach (var row in rows.Take(maxRows))
+        foreach (var row in rows.Take(rowBudget))
         {
             var rowNode = new JsonArray();
             foreach (var column in columns)
@@ -212,8 +243,16 @@ internal static class ToolHelper
         };
     }
 
+    private static int SerializedByteCount(JsonNode payload)
+    {
+        return Encoding.UTF8.GetByteCount(payload.ToJsonString());
+    }
+
     private static JsonNode? ToJsonValue(object? value)
     {
+        // Temporal and Guid values get explicit culture-invariant branches — the ToString() fallback
+        // is culture-sensitive, so a comma-decimal or non-Gregorian server culture would leak localized
+        // date text into the machine-readable payload. "O" is the ISO-8601 round-trip format.
         return value switch
         {
             null => null,
@@ -230,7 +269,12 @@ internal static class ToolHelper
             float x => JsonValue.Create(x),
             double x => JsonValue.Create(x),
             decimal x => JsonValue.Create(x),
-            _ => JsonValue.Create(value.ToString())
+            DateTime x => JsonValue.Create(x.ToString("O", CultureInfo.InvariantCulture)),
+            DateTimeOffset x => JsonValue.Create(x.ToString("O", CultureInfo.InvariantCulture)),
+            DateOnly x => JsonValue.Create(x.ToString("O", CultureInfo.InvariantCulture)),
+            TimeOnly x => JsonValue.Create(x.ToString("O", CultureInfo.InvariantCulture)),
+            Guid x => JsonValue.Create(x.ToString()),
+            _ => JsonValue.Create(Convert.ToString(value, CultureInfo.InvariantCulture))
         };
     }
 }

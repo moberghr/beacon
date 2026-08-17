@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
+using System.Text;
 using System.Text.Json.Nodes;
 using FluentAssertions;
 using ModelContextProtocol.Protocol;
@@ -152,6 +154,69 @@ public class McpStructuredOutputTests
     {
         ToolHelper.Success("plain", null).StructuredContent.Should().BeNull();
         ToolHelper.Success("plain").StructuredContent.Should().BeNull();
+    }
+
+    [Test]
+    public void BuildStructuredPayload_TemporalValues_SerializeInvariantIso8601()
+    {
+        var originalCulture = CultureInfo.CurrentCulture;
+        CultureInfo.CurrentCulture = new CultureInfo("de-DE");
+        try
+        {
+            var rows = new List<Dictionary<string, object?>>
+            {
+                new()
+                {
+                    ["created"] = new DateTime(2026, 8, 16, 13, 5, 30, DateTimeKind.Utc),
+                    ["offset"] = new DateTimeOffset(2026, 8, 16, 13, 5, 30, TimeSpan.FromHours(2)),
+                    ["amount"] = 1234.5d
+                }
+            };
+
+            var payload = ToolHelper.BuildStructuredPayload(rows).AsObject();
+            var row = payload["rows"]!.AsArray()[0]!.AsArray();
+
+            row[0]!.GetValue<string>().Should().Be("2026-08-16T13:05:30.0000000Z");
+            row[1]!.GetValue<string>().Should().Be("2026-08-16T13:05:30.0000000+02:00");
+            row[2]!.GetValue<double>().Should().Be(1234.5d);
+            payload.ToJsonString().Should().NotContain("16.08.2026");
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = originalCulture;
+        }
+    }
+
+    [Test]
+    public void BuildStructuredPayload_OverByteBudget_TrimsRowsAndFlagsOmission()
+    {
+        // ~1 KB per row × 1000 rows ≈ 1 MB serialized — far over the 256 KB budget.
+        var wideValue = new string('x', 1024);
+        var rows = Enumerable.Range(1, 1000)
+            .Select(x =>
+                new Dictionary<string, object?>
+                {
+                    ["id"] = x,
+                    ["blob"] = wideValue
+                })
+            .ToList();
+
+        var payload = ToolHelper.BuildStructuredPayload(rows, maxRows: 1000).AsObject();
+
+        payload["rows"]!.AsArray().Count.Should().BeLessThan(1000);
+        payload["truncated"]!.GetValue<bool>().Should().BeTrue();
+        payload["rows_omitted_for_size"]!.GetValue<bool>().Should().BeTrue();
+        payload["row_count"]!.GetValue<int>().Should().Be(1000);
+        Encoding.UTF8.GetByteCount(payload.ToJsonString()).Should().BeLessThanOrEqualTo(ToolHelper.MaxStructuredPayloadBytes);
+    }
+
+    [Test]
+    public void BuildStructuredPayload_UnderByteBudget_HasNoOmissionFlag()
+    {
+        var payload = ToolHelper.BuildStructuredPayload(MakeRows(3), maxRows: 100).AsObject();
+
+        payload.ContainsKey("rows_omitted_for_size").Should().BeFalse();
+        payload["rows"]!.AsArray().Count.Should().Be(3);
     }
 
     private static List<Dictionary<string, object?>> MakeRows(int count)

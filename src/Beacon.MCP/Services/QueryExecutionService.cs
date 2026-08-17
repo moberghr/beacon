@@ -25,7 +25,10 @@ internal sealed class QueryExecutionService(
         var provider = providerFactory.GetProvider(dataSource.DataSourceType);
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeoutCts.CancelAfter(TimeSpan.FromSeconds(30));
-        var result = await provider.ExecuteQueryAsync(dataSource, limitedSql, new Dictionary<string, object?>(), timeoutCts.Token);
+        // §1.5 backstop — read-only execution path. The database-level guarantee is PostgreSQL-only
+        // today (IDataSourceProvider.SupportsDatabaseReadOnlyEnforcement); other engines and
+        // non-database providers forward to normal execution and rely on the parser gates upstream.
+        var result = await provider.ExecuteReadOnlyQueryAsync(dataSource, limitedSql, new Dictionary<string, object?>(), timeoutCts.Token);
 
         if (result.Success && result.Rows?.Count > 0)
         {

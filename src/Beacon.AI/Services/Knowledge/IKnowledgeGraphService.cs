@@ -11,6 +11,14 @@ public interface IKnowledgeGraphService
     Task<string> GetProjectContextForLlmAsync(int projectId, CancellationToken ct = default);
     Task<List<DataSourceKnowledge>> GetProjectDataSourcesAsync(int projectId, CancellationToken ct = default);
     Task<SmartSchemaContext> GetSmartContextForAskAsync(int dataSourceId, string question, CancellationToken ct = default);
+
+    /// <summary>
+    /// Builds the schema catalog for a data source — the same
+    /// <see cref="SmartSchemaContext.SchemaCatalog"/> shape <see cref="GetSmartContextForAskAsync"/>
+    /// computes (keys: lowercase table name AND lowercase "schema.table"; values: lowercase column
+    /// names) — WITHOUT the heavy LLM-context assembly. Use for pre-execution column validation.
+    /// </summary>
+    Task<Dictionary<string, HashSet<string>>> GetSchemaCatalogAsync(int dataSourceId, CancellationToken ct = default);
     Task<string> GetTablesContextAsync(int dataSourceId, IEnumerable<string> tableNames, CancellationToken ct = default);
     Task<List<LearnedPatternInfo>> GetRelevantPatternsAsync(int dataSourceId, List<string> tableNames, string? question = null, int maxPatterns = 10, int budgetChars = 1500, CancellationToken ct = default);
 

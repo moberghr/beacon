@@ -147,7 +147,10 @@ internal sealed class CrossSourceQueryService(
             var provider = providerFactory.GetProvider(dataSource.DataSourceType);
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeoutCts.CancelAfter(TimeSpan.FromSeconds(30));
-            var result = await provider.ExecuteQueryAsync(dataSource, limitedSql, new Dictionary<string, object?>(), timeoutCts.Token);
+            // §1.5 backstop — per-source execution goes through the read-only path. The database-level
+            // guarantee is PostgreSQL-only today (IDataSourceProvider.SupportsDatabaseReadOnlyEnforcement);
+            // other engines forward to normal execution and rely on the parser gates above.
+            var result = await provider.ExecuteReadOnlyQueryAsync(dataSource, limitedSql, new Dictionary<string, object?>(), timeoutCts.Token);
 
             if (!result.Success)
             {

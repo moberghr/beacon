@@ -70,6 +70,36 @@ public class SearchProjectDeterministicPagingTests
         sorted[0].Should().BeSameAs(exactMatch, "relevance outranks every alphabetical tie-break key");
     }
 
+    [Test]
+    public void EqualRelevance_SameNameKeys_DataSourceIdBreaksTheTieDeterministically()
+    {
+        // Two data sources sharing a display name: every name key is equal, so DataSourceId is the
+        // only disambiguator left — both input orders must come out identical, lower id first.
+        var lowId = MakeResult("src-a", "public", "orders", null, dataSourceId: 1);
+        var highId = MakeResult("src-a", "public", "orders", null, dataSourceId: 2);
+
+        var onePass = KnowledgeGraphService.OrderForDeterministicPaging([highId, lowId], 2);
+        var otherPass = KnowledgeGraphService.OrderForDeterministicPaging([lowId, highId], 2);
+
+        onePass.Select(x => x.DataSourceId).Should().Equal(1, 2);
+        otherPass.Select(x => x.DataSourceId).Should().Equal(1, 2);
+    }
+
+    [Test]
+    public void EqualRelevance_DocumentationResults_DescriptionBreaksTheTieDeterministically()
+    {
+        // Documentation results carry no per-row id (DataSourceId is 0, schema/table are shared),
+        // so Description is their last-resort key — both input orders must come out identical.
+        var billing = MakeDocResult("Billing overview: invoices and dunning");
+        var orders = MakeDocResult("Orders overview: lifecycle and states");
+
+        var onePass = KnowledgeGraphService.OrderForDeterministicPaging([orders, billing], 2);
+        var otherPass = KnowledgeGraphService.OrderForDeterministicPaging([billing, orders], 2);
+
+        onePass.Select(x => x.Description).Should().Equal(billing.Description, orders.Description);
+        otherPass.Select(x => x.Description).Should().Equal(onePass.Select(x => x.Description));
+    }
+
     private static string Key(SearchResult result) =>
         $"{result.DataSourceName}|{result.SchemaName}|{result.TableName}|{result.ColumnName}";
 
@@ -83,14 +113,26 @@ public class SearchProjectDeterministicPagingTests
         MakeResult("src-b", "public", "orders", null)
     ];
 
-    private static SearchResult MakeResult(string dataSourceName, string schemaName, string tableName, string? columnName, double relevance = 0.8) =>
+    private static SearchResult MakeResult(string dataSourceName, string schemaName, string tableName, string? columnName, double relevance = 0.8, int dataSourceId = 0) =>
         new()
         {
             Type = columnName == null ? "table" : "column",
+            DataSourceId = dataSourceId,
             DataSourceName = dataSourceName,
             SchemaName = schemaName,
             TableName = tableName,
             ColumnName = columnName,
             Relevance = relevance
+        };
+
+    private static SearchResult MakeDocResult(string description) =>
+        new()
+        {
+            Type = "documentation",
+            DataSourceName = "proj",
+            SchemaName = "",
+            TableName = "Data Model",
+            Description = description,
+            Relevance = 0.5
         };
 }
