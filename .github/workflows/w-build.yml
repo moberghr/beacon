@@ -28,6 +28,17 @@ jobs:
       with:
         dotnet-version: '10.0.x'
 
+    # Beacon.UI shells out to `npm ci` during a Release build. Without this the runner's default
+    # Node is used, which floats: Node 24's npm rejected a package-lock.json that Node 22's npm
+    # accepts, failing the build on missing @esbuild/* optional platform entries. Pin it so CI
+    # resolves the lock the same way local development does — bump this and the lock together.
+    - name: Setup Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+        cache: npm
+        cache-dependency-path: src/Beacon.UI/web/package-lock.json
+
     - name: Determine version
       id: version
       run: |
