@@ -3,7 +3,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Beacon.Core.Services.Security;
 
-namespace Beacon.SampleProject.Authentication;
+namespace Beacon.Api.Authentication;
 
 public sealed class ApiKeyAuthMiddleware(RequestDelegate next)
 {

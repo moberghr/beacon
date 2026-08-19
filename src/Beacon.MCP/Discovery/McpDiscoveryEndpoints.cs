@@ -1,3 +1,4 @@
+using Beacon.Core.Mcp;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -32,17 +33,14 @@ public static class McpDiscoveryEndpoints
     private const string CacheControlValue = "public, max-age=3600";
 
     /// <summary>
-    /// The exact anonymous discovery paths mapped by <see cref="MapMcpDiscovery"/> — the single
-    /// source of truth for the host's auth middlewares. Their allow-lists must cover ONLY these
-    /// exact paths, never a <c>/.well-known</c> prefix: a prefix match would let
-    /// <c>/.well-known/anything</c> reach the SPA fallback anonymously (R6-2).
+    /// The exact anonymous discovery paths mapped by <see cref="MapMcpDiscovery"/>. Forwards to
+    /// <see cref="McpDiscoveryPaths.AnonymousDiscoveryPaths"/> in Beacon.Core, which is the single
+    /// source of truth: the auth middlewares in Beacon.Api allow-list the same list, and Api must
+    /// not reference MCP (§2.4). Allow-lists must cover ONLY these exact paths, never a
+    /// <c>/.well-known</c> prefix — a prefix match would let <c>/.well-known/anything</c> reach the
+    /// SPA fallback anonymously (R6-2).
     /// </summary>
-    public static readonly IReadOnlyList<string> AnonymousDiscoveryPaths =
-    [
-        McpDiscoveryDocuments.ProtectedResourceMetadataPath,
-        $"{McpDiscoveryDocuments.ProtectedResourceMetadataPath}{McpDiscoveryDocuments.McpPath}",
-        McpDiscoveryDocuments.ServerCardPath
-    ];
+    public static IReadOnlyList<string> AnonymousDiscoveryPaths => McpDiscoveryPaths.AnonymousDiscoveryPaths;
 
     public static IEndpointRouteBuilder MapMcpDiscovery(this IEndpointRouteBuilder endpoints)
     {

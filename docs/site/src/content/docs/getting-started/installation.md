@@ -99,37 +99,55 @@ On the **first run** Beacon walks you through a setup flow that creates the init
 
 ## Path B — Embed Beacon as NuGet Packages
 
-Embed Beacon into your own ASP.NET Core app by referencing the `Beacon.*` packages.
+Embed Beacon into your own ASP.NET Core app by referencing the `Moberg.Beacon.*` packages.
 
 ### B1. Install NuGet packages
 
 ```bash
 # Core + metadata DB provider (choose one provider)
-dotnet add package Beacon.Core
-dotnet add package Beacon.Core.PostgreSql   # or: Beacon.Core.SqlServer
+dotnet add package Moberg.Beacon.Core
+dotnet add package Moberg.Beacon.Core.PostgreSql   # or: Moberg.Beacon.Core.SqlServer
 
 # UI (React SPA shipped as a Razor Class Library), REST API, AI, MCP
-dotnet add package Beacon.UI
-dotnet add package Beacon.Api
-dotnet add package Beacon.AI
-dotnet add package Beacon.MCP
+dotnet add package Moberg.Beacon.UI
+dotnet add package Moberg.Beacon.Api
+dotnet add package Moberg.Beacon.AI
+dotnet add package Moberg.Beacon.MCP
 
 # Data-source connectors — add only the ones you need
-dotnet add package Beacon.Connector.PostgreSql
-dotnet add package Beacon.Connector.SqlServer
-dotnet add package Beacon.Connector.MySql
-dotnet add package Beacon.Connector.BigQuery
-dotnet add package Beacon.Connector.Snowflake
-dotnet add package Beacon.Connector.Databricks
-dotnet add package Beacon.Connector.AzureSynapse
-dotnet add package Beacon.Connector.CloudWatch
-dotnet add package Beacon.Connector.Api
+dotnet add package Moberg.Beacon.Connector.PostgreSql
+dotnet add package Moberg.Beacon.Connector.SqlServer
+dotnet add package Moberg.Beacon.Connector.MySql
+dotnet add package Moberg.Beacon.Connector.BigQuery
+dotnet add package Moberg.Beacon.Connector.Snowflake
+dotnet add package Moberg.Beacon.Connector.Databricks
+dotnet add package Moberg.Beacon.Connector.AzureSynapse
+dotnet add package Moberg.Beacon.Connector.CloudWatch
+dotnet add package Moberg.Beacon.Connector.Api
 ```
+
+:::note
+Package IDs carry the `Moberg.` prefix; namespaces and assemblies do not. You install
+`Moberg.Beacon.Core` but still write `using Beacon.Core;`.
+:::
+
+:::caution
+If your build fails with `CS9137: The 'interceptors' feature is not enabled in this namespace`,
+add this to your `.csproj`. The .NET 10 OpenAPI source generator emits interceptors when
+`AddOpenApi()` / `MapOpenApi()` are used alongside the Beacon packages, and the consuming
+project has to opt in:
+
+```xml
+<PropertyGroup>
+  <InterceptorsNamespaces>$(InterceptorsNamespaces);Microsoft.AspNetCore.OpenApi.Generated</InterceptorsNamespaces>
+</PropertyGroup>
+```
+:::
 
 You will also need a job runner for scheduled work — see [B5](#b5-provide-a-scheduler-implementation).
 
 :::note
-The `Beacon.Core.PostgreSql` / `Beacon.Core.SqlServer` provider you choose is for Beacon's **metadata** database. The data sources you **monitor** are wired separately via the connector packages, and you can mix any of the nine connectors regardless of which metadata provider you use.
+The `Moberg.Beacon.Core.PostgreSql` / `Moberg.Beacon.Core.SqlServer` provider you choose is for Beacon's **metadata** database. The data sources you **monitor** are wired separately via the connector packages, and you can mix any of the nine connectors regardless of which metadata provider you use.
 :::
 
 ### B2. Generate the encryption key
@@ -165,6 +183,8 @@ This is the full host setup, modeled on `src/Beacon.SampleProject/Program.cs`:
 ```csharp
 using Beacon.AI;
 using Beacon.Api;
+using Beacon.Api.Endpoints;  // MapBeaconApi / MapLoginEndpoints
+using Beacon.Api.Hubs;       // BeaconHub
 using Beacon.Core;
 using Beacon.Core.PostgreSql;
 using Beacon.MCP;
@@ -175,7 +195,7 @@ var builder = WebApplication.CreateBuilder(args);
 // 1. Your job runner (see B5) — register it here, e.g. Moberg Warp's AddWarpWorker(...)
 
 // 2. Host identity + SignalR plumbing
-builder.Services.AddBeaconHostInfrastructure();
+builder.Services.AddBeaconHostInfrastructure<YourClaimsTransformation>();  // your IClaimsTransformation
 
 // 3. Core services, scheduler, connectors, metadata provider
 builder.Services.AddBeaconServices(builder.Configuration, options =>
@@ -263,6 +283,13 @@ Update the connection string in `appsettings.json`:
 ### B5. Provide a scheduler implementation
 
 Beacon does not bundle a job runner — it schedules work through the `IBeaconScheduler` abstraction, so it plugs into whatever your host already uses. Beacon calls `AddOrUpdate` when a subscription is created or its cron changes, and `Remove` when it's deleted or disabled; your implementation maps those calls onto recurring jobs that invoke `IJobService.ExecuteQuery(subscriptionId)`.
+
+No Beacon package references a job runner. All the background work itself already ships with the
+packages you installed — `IJobService` (MCP eval, learned-pattern aggregation, signal cleanup,
+embedding reindex, subscription execution) in `Moberg.Beacon.Core`, and documentation generation
+plus AI actor think-cycles in `Moberg.Beacon.AI`. What you supply is a thin adapter per job that
+forwards to those services on your runner's terms. `src/Beacon.SampleProject/Warp/Jobs/` is the
+reference implementation of that pattern, written against Moberg Warp.
 
 ```csharp
 using Beacon.Core.Worker;

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Beacon.Core.Mcp;
 using ModelContextProtocol;
 using ModelContextProtocol.Authentication;
 
@@ -16,9 +17,11 @@ internal static class McpDiscoveryDocuments
     public const string ServerName = "Beacon";
     public const string ServerVersion = "2.0.5";
 
-    public const string McpPath = "/beacon/mcp";
-    public const string ProtectedResourceMetadataPath = "/.well-known/oauth-protected-resource";
-    public const string ServerCardPath = "/.well-known/mcp/server-card.json";
+    // Aliases only — the paths themselves live in Beacon.Core so the auth middlewares in
+    // Beacon.Api can allow-list the exact same values without Api referencing MCP (§2.4).
+    public const string McpPath = McpDiscoveryPaths.McpPath;
+    public const string ProtectedResourceMetadataPath = McpDiscoveryPaths.ProtectedResourceMetadataPath;
+    public const string ServerCardPath = McpDiscoveryPaths.ServerCardPath;
     public const string DocumentationUrl = "https://moberghr.github.io/beacon/features/mcp-server/";
 
     public static readonly IReadOnlyList<string> ScopesSupported = ["Execute", "Admin"];

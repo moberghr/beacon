@@ -311,18 +311,23 @@ Prefer Beacon inside your existing ASP.NET Core host? Install the packages you n
 
 | Package | Purpose |
 |---|---|
-| `Beacon.Core` | Core domain, CQRS handlers, EF model (required) |
-| `Beacon.Core.PostgreSql` / `Beacon.Core.SqlServer` | EF Core provider + migrations for Beacon's metadata DB |
-| `Beacon.UI` | React SPA shipped as a Razor Class Library (served at `/`) |
-| `Beacon.Api` | REST minimal-API endpoints + OpenAPI |
-| `Beacon.MCP` | MCP server (tools, guardrails, discovery endpoints) |
-| `Beacon.AI` | LLM integration, auto-documentation, anomaly detection (optional) |
-| `Beacon.Connector.*` | One per engine: `PostgreSql`, `SqlServer`, `MySql`, `BigQuery`, `Snowflake`, `Databricks`, `AzureSynapse`, `CloudWatch`, `Api` |
+| `Moberg.Beacon.Core` | Core domain, CQRS handlers, EF model (required) |
+| `Moberg.Beacon.Core.PostgreSql` / `Moberg.Beacon.Core.SqlServer` | EF Core provider + migrations for Beacon's metadata DB |
+| `Moberg.Beacon.UI` | React SPA shipped as a Razor Class Library (served at `/`) |
+| `Moberg.Beacon.Api` | REST minimal-API endpoints + OpenAPI |
+| `Moberg.Beacon.MCP` | MCP server (tools, guardrails, discovery endpoints) |
+| `Moberg.Beacon.AI` | LLM integration, auto-documentation, anomaly detection (optional) |
+| `Moberg.Beacon.Connector.*` | One per engine: `PostgreSql`, `SqlServer`, `MySql`, `BigQuery`, `Snowflake`, `Databricks`, `AzureSynapse`, `CloudWatch`, `Api` |
+
+Package IDs carry the `Moberg.` prefix; namespaces and assemblies stay `Beacon.*`. If your build
+hits `CS9137` (interceptors not enabled), add
+`<InterceptorsNamespaces>$(InterceptorsNamespaces);Microsoft.AspNetCore.OpenApi.Generated</InterceptorsNamespaces>`
+to your `.csproj` — see the [installation guide](https://moberghr.github.io/beacon/getting-started/installation/).
 
 ```bash
-dotnet add package Beacon.Core.PostgreSql
-dotnet add package Beacon.UI
-dotnet add package Beacon.Connector.PostgreSql
+dotnet add package Moberg.Beacon.Core.PostgreSql
+dotnet add package Moberg.Beacon.UI
+dotnet add package Moberg.Beacon.Connector.PostgreSql
 ```
 
 ```csharp
@@ -330,6 +335,9 @@ using Beacon.Core;
 using Beacon.Core.PostgreSql;
 using Beacon.Connector.PostgreSql;
 using Beacon.UI;
+using Beacon.AI;             // AddBeaconAI
+using Beacon.MCP;            // AddBeaconMcp
+using Beacon.Api.Endpoints;  // MapBeaconApi
 
 var builder = WebApplication.CreateBuilder(args);
 

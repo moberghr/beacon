@@ -28,6 +28,7 @@ using Beacon.Api.Hubs;
 using Beacon.Api.OpenApi;
 using Microsoft.AspNetCore.OpenApi;
 using Beacon.Api.SignalR;
+using Beacon.Api.Authentication;
 using Beacon.SampleProject.Authentication;
 using Beacon.SampleProject.Middleware;
 using Beacon.SampleProject.Services;
@@ -92,7 +93,7 @@ builder.Services.AddWarpServer<WarpDbContext>(opt =>
 
 // Host-level identity + SignalR plumbing (claims transformer, Hangfire → SignalR bridge,
 // SignalR user-id provider). Registered together via AuthServiceExtensions (§2.12).
-builder.Services.AddBeaconHostInfrastructure();
+builder.Services.AddBeaconHostInfrastructure<SampleClaimsTransformation>();
 
 // ============================================================================
 // BEACON SETUP
@@ -159,7 +160,8 @@ if (oidcEnabled && !string.IsNullOrWhiteSpace(mcpJwksEndpoint))
     });
 }
 
-// (Claims transformer registered via AddBeaconHostInfrastructure above.)
+// (Claims transformer supplied to AddBeaconHostInfrastructure above — the shipped helper takes it
+// as a type argument rather than hardcoding this sample's implementation.)
 
 // Step 3: Add Beacon AI services (required for AI features)
 builder.Services.AddBeaconAI(builder.Configuration);

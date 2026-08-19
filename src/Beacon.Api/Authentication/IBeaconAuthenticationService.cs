@@ -1,6 +1,6 @@
 using Beacon.Core.Authentication;
 
-namespace Beacon.SampleProject.Authentication;
+namespace Beacon.Api.Authentication;
 
 /// <summary>
 /// Service that coordinates between the authentication provider and ASP.NET Core cookie authentication.

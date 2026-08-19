@@ -8,9 +8,9 @@
         <!-- RCL static web assets are exposed at /_content/Beacon.UI/* in consuming apps. -->
         <StaticWebAssetBasePath>/</StaticWebAssetBasePath>
 
-        <!-- NuGet packaging metadata. Consumers reference this package to get the React SPA + MapBeaconUi(). -->
+        <!-- NuGet packaging metadata. Consumers reference this package to get the React SPA + MapBeaconUi().
+             PackageId comes from Directory.Build.props (Moberg.Beacon.UI) — do not set it here. -->
         <IsPackable>true</IsPackable>
-        <PackageId>Beacon.UI</PackageId>
         <Description>Beacon React SPA packaged as an ASP.NET Core Razor Class Library. Adds `app.MapBeaconUi()` to host the UI from any .NET 10 web app.</Description>
         <Authors>Moberg</Authors>
 
@@ -20,6 +20,12 @@
         <BuildReactInDebug Condition="'$(BuildReactInDebug)' == ''">false</BuildReactInDebug>
         <ShouldBuildReact Condition="'$(Configuration)' == 'Release' Or '$(BuildReactInDebug)' == 'true'">true</ShouldBuildReact>
         <ShouldBuildReact Condition="'$(ShouldBuildReact)' == ''">false</ShouldBuildReact>
+        <!-- A no-build pack (dotnet pack with NoBuild=true) still runs AssignTargetPaths, which would
+             re-trigger BuildReactApp below. Vite emits content-hashed filenames and clears wwwroot,
+             so that second build leaves the static web asset manifest (written by the preceding
+             dotnet build) pointing at deleted hashes, and pack fails with NU5019. Reuse the
+             existing wwwroot output instead. -->
+        <ShouldBuildReact Condition="'$(NoBuild)' == 'true'">false</ShouldBuildReact>
 
         <!-- Exclude the React source tree from the C# compile + RCL content scan.
              Only wwwroot (vite build output) ships as static web assets. -->

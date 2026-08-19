@@ -3,7 +3,7 @@ using Microsoft.Extensions.Logging;
 using Beacon.Core;
 using Beacon.Core.Authorization;
 
-namespace Beacon.SampleProject.Authentication;
+namespace Beacon.Api.Authentication;
 
 internal sealed class BeaconAuthorizationMiddleware(
     RequestDelegate next,
