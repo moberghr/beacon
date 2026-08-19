@@ -36,7 +36,7 @@ Connector.*          → Core
 Core.PostgreSql/Sql  → Core
 ```
 
-§2.5 _(removed — `Beacon.UI` and `Beacon.Web` were both deleted in the Phase 3 cutover. The host is `Beacon.SampleProject`; the UI is the React app at `src/Beacon.SampleProject/web/`.)_
+§2.5 _(revised — `Beacon.Web` was deleted in the Phase 3 cutover. `Beacon.UI` remains, but as a Razor Class Library: the React app lives at `src/Beacon.UI/web/`, builds into `src/Beacon.UI/wwwroot/`, and is served at root `/`. The host is `Beacon.SampleProject`.)_
 
 ## What this codebase deliberately does NOT use
 

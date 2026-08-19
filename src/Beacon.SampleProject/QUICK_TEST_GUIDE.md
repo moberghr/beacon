@@ -1,13 +1,19 @@
 # Quick Authorization Test Guide
 
+> ⚠️ **Historical — pre-Phase-3 (Blazor era).** The demo users below came from the basic-auth sample wiring
+> that no longer exists. The host now walks you through **first-run admin setup** — there are no hardcoded
+> credentials — and the UI is served at the root URL, not `/beacon`. Read this as an illustration of the
+> role model only. Current guidance: the
+> [Authorization guide](https://moberghr.github.io/beacon/features/authorization/) and
+> [User Management](https://moberghr.github.io/beacon/features/user-management/).
+
 ## 🚀 Start the Application
 
 ```bash
-cd Beacon.SampleProject
-dotnet run
+dotnet run --project Beacon.SampleProject --no-launch-profile
 ```
 
-Then navigate to: **https://localhost:7187/beacon**
+Then navigate to: **https://localhost:7187/**
 
 ## 👥 Test Users
 

@@ -9,6 +9,8 @@ Beacon exposes a **Model Context Protocol (MCP)** server that lets AI assistants
 
 The MCP server is **project-centric**: each API key is scoped to one or more projects, and all tools automatically resolve which data sources, schemas, and documentation to use based on the active project.
 
+Project resolution is **stateless** — it is computed per call, with no session memory. If the key is restricted to a single project, that project is used automatically; if it can reach several, pass `project_id` on every call (the error lists the candidates when you don't).
+
 **What you can do through MCP:**
 - Ask natural language questions and get SQL + results back
 - Pull the exact grounding context Beacon uses for SQL generation — schemas with real sample values, verified join paths, human-verified examples — and write your own SQL (`get_query_context` → `dry_run` → `query`)
@@ -247,7 +249,7 @@ Validate a SQL query through all of Beacon's safety gates **without executing it
 1. **`guardrail`** — the regex read-only backstop plus PII detection (reports the columns that would be masked)
 2. **`ast`** — dialect-aware AST parse rejecting DML/DDL, stacked queries, and comment-hidden writes (skipped only when read-only enforcement is disabled)
 3. **`schema`** — schema-catalog column check that catches hallucinated tables/columns without a database round-trip
-4. **`provider_dry_run`** — the database's own validation (`EXPLAIN` / `sp_describe_first_result_set`); runs only when every earlier gate passed
+4. **`provider_dry_run`** — the database's own validation (`EXPLAIN` / `sp_describe_first_result_set`); runs only when every earlier gate passed. Engines with no dry-run strategy (SQLite and friends) report the gate as **skipped** rather than silently passing, and the verdict is invalid with an advisory issue — a validation that never ran is never counted as a pass
 
 Gate issues are collected rather than first-failure-wins, so one call reports everything to fix. The response gives a per-gate verdict and, when valid, the exact SQL that would execute with the row limit applied. `structuredContent` carries the machine-readable verdict: `{ valid, issues: [{gate, error}], executable_sql, pii_columns }`. An INVALID verdict is still a successful tool call — `isError` is reserved for resolution failures.
 
@@ -271,7 +273,7 @@ Retrieve AI-generated documentation at three levels of detail.
 
 ### `search`
 
-Search tables, columns, and documentation across all data sources in the project. Keyword matching is fused with embedding-based semantic matching (reciprocal rank fusion) when a local embedder is enabled; without one, search is keyword-only.
+Search tables, columns, and documentation across all data sources in the project. Keyword matching is fused with embedding-based semantic matching (reciprocal rank fusion) when a [local embedder](/features/knowledge-base/#local-embeddings) is configured; without one, search falls back to keyword-only rather than failing.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
@@ -306,42 +308,61 @@ The MCP server enforces several safety measures:
 | **PII detection** | Automatically detects and flags sensitive data patterns | Enabled |
 | **Query timeout** | Queries are cancelled after 30 seconds | Always on |
 | **Audit logging** | Every tool call is recorded by `McpAuditService` with user, timing, and parameters | Always on |
-| **Usage signals** | `ask` and `query` calls are recorded by `McpSignalService` to feed the learning loop | Always on |
+| **Usage signals** | `ask`, `query`, and `dry_run` calls are recorded by `McpSignalService` to feed the learning loop | Always on |
 
-`McpAuditService` fires on every tool invocation, including the failure path — it is never short-circuited. `McpSignalService` records the SQL-learning tools (`ask`, `query`); the read-only catalog tools are audit-only by design.
+`McpAuditService` fires on every tool invocation, including the failure path — it is never short-circuited. `McpSignalService` records the three SQL-carrying tools (`ask`, `query`, `dry_run`); the catalog tools (`get_context`, `search`, `get_documentation`, `get_query_context`) are audit-only by design.
 
 ## SQL Accuracy Stack
 
 Natural-language questions through the `ask` tool don't go through a naive prompt-to-SQL pipe. Every generated query passes a layered accuracy stack:
 
-1. **M-Schema grounding** — the LLM context contains a structured schema rendering (column name, type, nullability, description) *including real sample values* from each column, so filters match actual data formats (`'shipped'` vs `'SHIPPED'`).
+1. **Grounded context** — before generation, Beacon assembles an M-Schema rendering (column name, type, nullability, description) *including real sample values* so filters match actual data formats (`'shipped'` vs `'SHIPPED'`), plus curated join paths, matching business-glossary terms, human-verified query examples, and lessons mined from past usage. See the [Knowledge Base guide](/features/knowledge-base/) for what goes in and how you curate it.
 2. **AST read-only validation** — generated SQL is parsed into an abstract syntax tree with a dialect-aware parser (PostgreSQL, SQL Server, MySQL, BigQuery, Snowflake, Databricks). DML/DDL statements, stacked queries, and comment-hidden writes are rejected before anything reaches your database — defense-in-depth beyond the regex guardrail.
-3. **Dry-run repair loop** — if execution fails, the SQL is retried with the database error and a refreshed schema context; truncated or degenerate repairs are rejected rather than executed.
-4. **Row limits & PII masking** — results are capped and sensitive values (emails, phone numbers, SSNs, credit cards, tokens, and custom regex patterns) are masked (`a***z`) before leaving the server.
+3. **Database read-only backstop** — on PostgreSQL, MCP-executed SQL additionally runs inside a `READ ONLY` transaction, so a write that somehow slipped past both parsers is still refused by the database itself. Other engines rely on the parser gates and connector-level enforcement.
+4. **Dry-run repair loop** — if execution fails, the SQL is retried with the database error and a refreshed schema context; truncated or degenerate repairs are rejected rather than executed.
+5. **Row limits & PII masking** — results are capped and sensitive values (emails, phone numbers, SSNs, credit cards, tokens, and custom regex patterns) are masked (`a***z`) before leaving the server.
 
 ## Learning Loop
 
-The MCP server is self-improving. `McpSignalService` records a usage signal for every tool invocation (which questions were asked, which data sources and tables were used, whether execution succeeded). Recurring background jobs then process these signals:
+The MCP server is self-improving. `McpSignalService` records a usage signal for every SQL-carrying call — the question, the generated SQL, the tables and columns referenced, the routing decision, and the outcome. Recurring background jobs turn those signals into knowledge that grounds future generation:
 
 ![MCP Learning](/img/screenshots/mcp-learning-dark.png)
 
-- **Pattern aggregation** runs every 6 hours, consolidating recorded signals into learned query patterns that improve routing and SQL generation for the `ask` tool.
-- **Signal cleanup** runs daily, removing old signals to keep the learning store compact.
+| Job | Schedule | What it does |
+|---|---|---|
+| `mcp-learning-aggregate` | Every 6 hours | Mines `ask` / `query` signals into learned patterns, retires stale ones, and runs replay verification |
+| `mcp-learning-cleanup` | Daily 03:00 | Drops signals past the retention window |
+| `mcp-embedding-reindex` | Every 12 hours | Re-embeds schema metadata and exemplars |
+| `mcp-docchunk-reindex` | Every 12 hours | Re-chunks and re-embeds project documentation |
 
-This loop runs entirely in the background and requires no configuration.
+Two things are worth knowing about how patterns get promoted:
+
+- A candidate pattern is not trusted on a confidence score alone. Before promotion, Beacon **replays the project's golden cases** with and without the candidate injected, and keeps it only if it flips at least one case from failing to passing.
+- `dry_run` signals are recorded for analytics but **excluded from mining** — their "question" is SQL, not natural language, and gate rejections would skew the failure statistics.
+
+Review the queue on the **MCP Learning** page (`/mcp-learning`), where pending patterns and proposed documentation patches can be approved or rejected. The full mechanics — lesson extraction, decay, retention, and every setting — are in the [Knowledge Base guide](/features/knowledge-base/#the-learning-loop).
 
 ## Configuration
 
-Administrators can customize the MCP server behavior at **MCP Settings** in the React UI (`/mcp-settings`):
+Administrators can customize the MCP server behavior at **MCP Settings** in the React UI (`/mcp-settings`), organised into four tabs:
 
-- **Custom tool descriptions** — Stored per tool but not yet applied to the live tool list (wiring ships in a follow-up)
-- **System prompt** — Customize the LLM prompt used for SQL generation in the `ask` tool
-- **Global instruction** — Additional instructions injected into every `ask` request
-- **Max row limit** — Change the maximum rows returned (default: 1000)
-- **Read-only enforcement** — Toggle SELECT-only restriction
-- **PII detection** — Enable/disable and add custom PII regex patterns
+**Pre-prompt**
+- **Ask tool system prompt** — the LLM prompt used for SQL generation in the `ask` tool
+- **Global instruction** — prepended to the user context of every LLM-aware tool
 
-These settings are part of [Admin Settings](/features/admin-settings/); changes take effect without a restart.
+**Tool descriptions**
+- Override the description returned by `tools/list` for `get_context`, `ask`, `query`, `get_documentation`, and `search`. Leave a field blank to keep the built-in description. Overrides are applied to the live tool list, so connected clients see your wording. `dry_run`, `get_query_context`, and `feedback` currently use their built-in descriptions only.
+
+**Guardrails**
+- **Max row limit** — the ceiling on rows returned (default: 1000)
+- **Read-only enforcement** — toggle the SELECT-only restriction
+- **PII detection** — enable/disable, plus custom PII regex patterns
+- **Learning** — master switch, auto-approve threshold, injection budget, and signal retention window
+
+**Context preview**
+- Render the grounding context for a project exactly as the tools would assemble it — useful for spotting missing documentation before an agent hits it.
+
+Changes take effect without a restart. These settings are part of [Admin Settings](/features/admin-settings/); the retrieval, exemplar, and eval knobs that aren't on this page are settable through `PUT /beacon/api/mcp/settings` and documented in the [Knowledge Base guide](/features/knowledge-base/#settings-reference).
 
 ## MCP Playground
 
@@ -409,3 +430,12 @@ The server streams the JSON-RPC response back on the same connection.
 **Connection drops or timeouts** — Streaming connections may be interrupted by proxies or load balancers. Reconnect by re-initializing against `/beacon/mcp` — a fresh session will be created.
 
 **Authentication fails** — Verify your API key starts with `sk-sem_`, hasn't expired, and hasn't been revoked. Check the `Authorization: Bearer` header format.
+
+**Answers miss obvious joins or misread a business term** — the model can only use what it was given. Check the [Knowledge Base guide](/features/knowledge-base/): register the join path, add the glossary term, or promote a correct answer to a golden example.
+
+## See Also
+
+- [Knowledge Base & Grounding](/features/knowledge-base/) — what grounds generated SQL, and how to curate it
+- [API Keys](/features/api-keys/) — scopes, project restrictions, and rotation
+- [Admin Settings](/features/admin-settings/) — LLM provider configuration
+- [AI Integration](/features/ai-integration/) — documentation generation that feeds the MCP catalog tools

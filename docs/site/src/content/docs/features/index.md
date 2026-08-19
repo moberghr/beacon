@@ -23,7 +23,10 @@ Deliver query results via Email, Microsoft Teams, Slack, or Jira. Configure reci
 Extract, transform, and load data between databases using multi-step ETL pipelines. Supports cross-database migrations with scheduling and retry.
 
 ### [MCP Server](/features/mcp-server/)
-Connect AI assistants (Claude, Cursor, Windsurf) to your data through the Model Context Protocol. Natural language queries, schema search, and documentation — all project-scoped with API key authentication, M-Schema-grounded SQL generation, AST read-only validation, and a self-improving learning loop.
+Connect AI assistants (Claude, Cursor, Windsurf, claude.ai, ChatGPT, VS Code) to your data through the Model Context Protocol. Eight tools covering natural-language questions, grounding context, SQL validation, direct queries, catalog search, documentation, and answer feedback — all project-scoped with API key authentication, AST read-only validation, and a self-improving learning loop.
+
+### [Knowledge Base & Grounding](/features/knowledge-base/)
+What Beacon puts in front of the model before it writes SQL: M-Schema with real sample values, curated join paths, a business glossary, human-verified golden examples, mined learned patterns, and local semantic retrieval.
 
 ## Operations & Quality
 

@@ -45,13 +45,15 @@ builder.Services.AddBeacon(builder.Configuration, options =>
 ```
 
 The React SPA (shipped as the `Beacon.UI` Razor Class Library) is served at the root URL `/`. REST endpoints
-are exposed under `/beacon/api/*`, the MCP server at `/beacon/mcp`, and the Hangfire dashboard at `/hangfire`.
+are exposed under `/beacon/api/*`, the MCP server at `/beacon/mcp`, and — in the sample host, which uses
+[Moberg Warp](https://moberghr.github.io/warp/) as its `IBeaconScheduler` implementation — the background-job
+dashboard at `/warp`.
 
 ## Documentation
 
-- [Full Documentation](https://github.com/MiBu/semantico)
-- [Getting Started Guide](https://github.com/MiBu/semantico/wiki)
+- [Full Documentation](https://moberghr.github.io/beacon)
+- [Getting Started Guide](https://moberghr.github.io/beacon)
 
 ## License
 
-GNU AGPL v3.0 or Commercial license - see [LICENSE](https://github.com/MiBu/semantico/blob/main/LICENSE)
+GNU AGPL v3.0 or Commercial license - see [LICENSE](https://github.com/moberghr/beacon/blob/main/LICENSE)

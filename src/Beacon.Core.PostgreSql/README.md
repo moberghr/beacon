@@ -70,9 +70,9 @@ GRANT ALL ON SCHEMA beacon TO postgres;
 
 ## Documentation
 
-- [Full Documentation](https://github.com/MiBu/semantico)
-- [Installation Guide](https://github.com/MiBu/semantico/wiki)
+- [Full Documentation](https://moberghr.github.io/beacon)
+- [Installation Guide](https://moberghr.github.io/beacon)
 
 ## License
 
-GNU AGPL v3.0 or Commercial license - see [LICENSE](https://github.com/MiBu/semantico/blob/main/LICENSE)
+GNU AGPL v3.0 or Commercial license - see [LICENSE](https://github.com/moberghr/beacon/blob/main/LICENSE)

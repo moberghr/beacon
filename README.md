@@ -12,7 +12,7 @@ so your team *and* your AI assistants can watch, query, and move data safely.
 [![Docs](https://img.shields.io/badge/docs-moberghr.github.io%2Fbeacon-430cda)](https://moberghr.github.io/beacon)
 [![NuGet](https://img.shields.io/badge/NuGet-Beacon.*-430cda)](https://www.nuget.org/)
 [![License](https://img.shields.io/badge/license-AGPL--3.0%20or%20Commercial-430cda)](LICENSING.md)
-[![.NET](https://img.shields.io/badge/.NET-9.0-430cda)](https://dotnet.microsoft.com/)
+[![.NET](https://img.shields.io/badge/.NET-10.0-430cda)](https://dotnet.microsoft.com/)
 [![MCP](https://img.shields.io/badge/MCP-Streamable%20HTTP-430cda)](https://moberghr.github.io/beacon/features/mcp-server/)
 
 [Documentation](https://moberghr.github.io/beacon) ·
@@ -46,8 +46,8 @@ It ships in two forms: a **self-hostable application** (clone and run) and **NuG
 
 | | What you get |
 |---|---|
-| **AI-grade SQL accuracy** | Natural-language questions become SQL grounded in an **M-Schema context with real sample values**, validated by a **multi-dialect AST parser**, and self-corrected through a **dry-run repair loop** — not a naive prompt-to-SQL pipe. |
-| **A self-improving MCP server** | Every MCP query records a usage signal — intent, generated SQL, routing, outcome, timing. A **learning loop** turns those signals into approved schema clarifications and documentation patches, so answers get better with use. |
+| **AI-grade SQL accuracy** | Natural-language questions become SQL grounded in an **M-Schema context with real sample values**, curated **join paths**, your **business glossary**, and **human-verified query examples** — then validated by a **multi-dialect AST parser** and self-corrected through a **dry-run repair loop**. Not a naive prompt-to-SQL pipe. |
+| **A self-improving MCP server** | Every SQL-carrying MCP call records a usage signal — intent, generated SQL, routing, outcome, timing. A **learning loop** mines those into lessons, and a candidate is only promoted if **replaying your golden test cases** proves it makes generation measurably better. |
 | **Security as a default, not an add-on** | AES-256-GCM–encrypted connection strings, SHA256-hashed scoped API keys shown exactly once, read-only enforcement at the connector level, PII detection and masking, login rate limiting, antiforgery, OIDC/SSO, and JWT for MCP clients. |
 | **Cross-database queries** | Chain query steps across engines and join the results in in-memory SQLite (`@@result1`, `@@result2`) — no data warehouse required. |
 | **Embeddable** | `AddBeaconServices()` drops the whole platform — UI, API, MCP server, scheduler — into your existing ASP.NET Core host. Your app, your auth, your domain. |
@@ -111,21 +111,27 @@ Open **http://localhost:5173**. On first run, Beacon applies its EF Core migrati
 | `/beacon/api/health` | Health check |
 | `/openapi/v1.json` | OpenAPI document (drives the typed TS client) |
 | `/beacon/mcp` | MCP server (Streamable HTTP, auth required) |
+| `/.well-known/oauth-protected-resource` | RFC 9728 protected-resource metadata (anonymous) |
+| `/.well-known/mcp/server-card.json` | MCP server card — transport, auth, tool list (anonymous) |
 | `/beacon/api/hub` | SignalR hub (real-time events) |
+| `/warp` | Background-job dashboard (admin-only) |
 
 📚 [Detailed quick-start guide →](https://moberghr.github.io/beacon/getting-started/quick-start/)
 
 ## 🔌 The MCP server: safe hands for your AI
 
-Beacon ships a **Model Context Protocol** server over Streamable HTTP at `/beacon/mcp`. It exposes five tools —
+Beacon ships a **Model Context Protocol** server over Streamable HTTP at `/beacon/mcp`. It exposes eight tools —
 
 | Tool | What it does |
 |---|---|
 | `get_context` | Project overview: data sources, schemas, tables, quality scores, documentation status |
 | `ask` | Natural-language question → intent classification → data-source routing → grounded SQL → guarded execution |
+| `get_query_context` | The exact grounding context `ask` uses — M-Schema with sample values, join paths, glossary, verified examples — so an agent can write its own SQL |
+| `dry_run` | Validate SQL through every safety gate **without executing it** |
 | `query` | Direct SQL (SELECT-only, enforced) against a specific data source |
-| `search` | Full-text search over schemas and documentation |
+| `search` | Keyword + semantic search over schemas and documentation |
 | `get_documentation` | AI-generated documentation at project / data-source / table level |
+| `feedback` | Rate an answer — a `correct` verdict becomes a verified example that grounds future generation |
 
 — and every call passes through the same guardrail stack:
 
@@ -133,11 +139,15 @@ Beacon ships a **Model Context Protocol** server over Streamable HTTP at `/beaco
 Natural-language question
         │
         ▼
-M-Schema grounding ──── schema + column types + REAL sample values in the LLM context
-        │
+Grounded context ─────── M-Schema with REAL sample values, curated join paths,
+        │                 business glossary, human-verified query examples,
+        │                 lessons mined from past usage
         ▼
 AST read-only validation ── SQL parsed per dialect; DML/DDL, stacked queries,
         │                    comment-hidden writes rejected before execution
+        ▼
+READ ONLY transaction ── on PostgreSQL, execution is additionally wrapped so the
+        │                 database itself refuses a write that slipped the parsers
         ▼
 Dry-run repair loop ──── failed SQL retried with the error + refreshed schema;
         │                 truncated repairs rejected
@@ -145,13 +155,13 @@ Dry-run repair loop ──── failed SQL retried with the error + refreshed s
 Row limits + PII masking ── configurable caps; emails, SSNs, tokens, credit
         │                    cards masked (`a***z`), custom patterns supported
         ▼
-Audit + usage signal ──── every invocation logged (user, SQL, timing, rows,
-                           outcome) and fed to the learning loop
+Audit + usage signal ──── every invocation audited (user, timing, parameters);
+                           SQL-carrying calls also feed the learning loop
 ```
 
-Authentication is never anonymous: cookie session, **scoped API key**, or **JWT bearer** (OIDC).
+Authentication is never anonymous: cookie session, **scoped API key**, or **JWT bearer** (OIDC). Remote clients that connect by URL — claude.ai, ChatGPT, VS Code — get RFC 9728 protected-resource metadata and an MCP server card from anonymous `/.well-known/*` discovery endpoints, plus a `WWW-Authenticate` challenge that points at them.
 
-📚 [MCP server documentation →](https://moberghr.github.io/beacon/features/mcp-server/)
+📚 [MCP server documentation →](https://moberghr.github.io/beacon/features/mcp-server/) · [Knowledge base & grounding →](https://moberghr.github.io/beacon/features/knowledge-base/)
 
 ## 🏗️ Architecture
 
@@ -267,6 +277,15 @@ sequenceDiagram
 - **AI actors**: LLM-driven monitoring agents whose plans go through a human **approval workflow** before execution
 - Runtime-swappable provider (OpenAI / Anthropic / Azure OpenAI / AWS Bedrock) behind a rate-limited queue with budget tracking
 
+### 🧠 Knowledge base & grounding
+- **Schema relationships** you curate: foreign keys, naming-inferred proposals you accept or reject, and hand-declared join paths — with a schema-health view of what's still unreachable
+- **Business glossary** mapping your organisation's vocabulary to columns and metric expressions
+- **Golden examples + eval harness**: verified question→SQL pairs that both ground generation and act as a regression suite, scored by result-set fingerprint
+- **Local semantic retrieval**: an in-process ONNX embedding model (no egress, optional) fused with keyword search via reciprocal rank fusion, with pgvector on PostgreSQL
+- Every retrieval path is **project-scoped** — projects sharing a data source never see each other's glossary, examples, or lessons
+
+📚 [Knowledge base documentation →](https://moberghr.github.io/beacon/features/knowledge-base/)
+
 > ⚠️ AI features are experimental. Review AI-generated content before relying on it.
 
 ### 🔐 Security & governance
@@ -284,7 +303,7 @@ sequenceDiagram
 - React 18 + Vite + TypeScript + Tailwind UI with a typed OpenAPI client (`npm run codegen`, NSwag)
 - **Mock mode** (`npm run dev:mock`) — full UI without a backend, powered by MSW
 - One MediatR handler per REST endpoint, OpenAPI contract-tested in CI
-- 150+ backend tests (NUnit) including EF Core → SQL translation tests; Vitest + RTL + MSW on the frontend
+- 650+ backend tests (NUnit) including EF Core → SQL translation tests; Vitest + RTL + MSW on the frontend
 
 ## 📦 Embed Beacon in your own app
 
@@ -296,7 +315,7 @@ Prefer Beacon inside your existing ASP.NET Core host? Install the packages you n
 | `Beacon.Core.PostgreSql` / `Beacon.Core.SqlServer` | EF Core provider + migrations for Beacon's metadata DB |
 | `Beacon.UI` | React SPA shipped as a Razor Class Library (served at `/`) |
 | `Beacon.Api` | REST minimal-API endpoints + OpenAPI |
-| `Beacon.MCP` | MCP server (tools + resources) |
+| `Beacon.MCP` | MCP server (tools, guardrails, discovery endpoints) |
 | `Beacon.AI` | LLM integration, auto-documentation, anomaly detection (optional) |
 | `Beacon.Connector.*` | One per engine: `PostgreSql`, `SqlServer`, `MySql`, `BigQuery`, `Snowflake`, `Databricks`, `AzureSynapse`, `CloudWatch`, `Api` |
 
@@ -369,7 +388,7 @@ openssl rand -base64 32
 | `Beacon.Core` | Domain, CQRS handlers, services, EF model — everything points here |
 | `Beacon.Core.PostgreSql` / `Beacon.Core.SqlServer` | Provider-specific `BeaconContext` + EF migrations |
 | `Beacon.AI` | LLM integration, auto-documentation, anomaly detection, NL → SQL |
-| `Beacon.MCP` | MCP server: tools, resources, guardrails, learning loop |
+| `Beacon.MCP` | MCP server: tools, guardrails, discovery endpoints, learning loop |
 | `Beacon.Api` | REST minimal-API endpoints + OpenAPI for the React shell |
 | `Beacon.UI` | React SPA (`web/`) shipped as a Razor Class Library, served at `/` |
 | `Beacon.SampleProject` | Host / composition root (Kestrel, DI wiring, scheduler, middleware, auth) |
@@ -389,9 +408,9 @@ openssl rand -base64 32
 ## 🔧 Requirements
 
 - **.NET 10 SDK** and **Node.js 18+** (for building the React UI)
-- **PostgreSQL 12+** or **SQL Server 2019+** for Beacon's metadata database
+- **PostgreSQL 12+** or **SQL Server 2019+** for Beacon's metadata database — on PostgreSQL the **pgvector** extension must be available on the server (a migration runs `CREATE EXTENSION IF NOT EXISTS vector`)
 - **32-character encryption key** (`Beacon:EncryptionKey`) — required
-- *(Optional)* LLM API key for AI features · SMTP provider for email notifications
+- *(Optional)* LLM API key for AI features · SMTP provider for email notifications · a local ONNX embedding model for semantic retrieval
 
 ## 🤝 Support & contributing
 

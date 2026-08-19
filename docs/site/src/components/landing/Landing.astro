@@ -29,7 +29,7 @@ const HERO_MCP = `<span class="k-dim">// Point any MCP client at Beacon — read
   <span class="k-purple">"mcpServers"</span>: {
     <span class="k-purple">"beacon"</span>: {
       <span class="k-purple">"url"</span>: <span class="k-yellow">"https://beacon.acme.com/beacon/mcp"</span>,
-      <span class="k-purple">"headers"</span>: { <span class="k-purple">"Authorization"</span>: <span class="k-yellow">"Bearer bk_live_…"</span> }
+      <span class="k-purple">"headers"</span>: { <span class="k-purple">"Authorization"</span>: <span class="k-yellow">"Bearer sk-sem_…"</span> }
     }
   }
 }
@@ -80,7 +80,7 @@ const FEATURES = [
   {
     icon: '<path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8"/>',
     title: 'AI-grade SQL accuracy',
-    desc: 'Natural-language questions become SQL grounded in an M-Schema context with real sample values, validated by a multi-dialect AST parser, and self-corrected through a dry-run repair loop — not a naive prompt-to-SQL pipe.',
+    desc: 'Natural-language questions become SQL grounded in an M-Schema context with real sample values, curated join paths, your business glossary, and human-verified query examples — then validated by a multi-dialect AST parser and self-corrected through a dry-run repair loop.',
   },
   {
     icon: '<path d="M12 2L3 7v6c0 5 4 9 9 10 5-1 9-5 9-10V7l-9-5z"/>',
@@ -90,7 +90,7 @@ const FEATURES = [
   {
     icon: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>',
     title: 'A self-improving MCP server',
-    desc: 'Every query records a usage signal — intent, generated SQL, routing, outcome, timing. A learning loop turns signals into approved schema clarifications and documentation patches, so answers get better with use.',
+    desc: 'Every SQL-carrying call records a usage signal — intent, generated SQL, routing, outcome, timing. A learning loop mines those into lessons, and promotes one only when replaying your golden test cases proves it makes generation measurably better.',
   },
   {
     icon: '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>',
@@ -157,7 +157,7 @@ const marqueeItems = [...MARQUEE, ...MARQUEE];
             </a>
           </div>
           <div class="heroStats">
-            <span>.NET 10</span><span>9 data sources</span><span>Governed MCP</span><span>AGPL / Commercial</span><span>150+ tests</span>
+            <span>.NET 10</span><span>9 data sources</span><span>Governed MCP</span><span>AGPL / Commercial</span><span>650+ tests</span>
           </div>
         </div>
         <div class="heroRight">

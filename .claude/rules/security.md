@@ -16,11 +16,13 @@
 
 ## MCP guardrails
 
-§1.5 **MCP query execution is read-only enforced.** All MCP-executed SQL is read-only at the connector level. Do not add a code path that bypasses the read-only check, even for "trusted" sessions.
+§1.5 **MCP query execution is read-only enforced, defense-in-depth.** Regex guardrail → dialect-aware `SqlReadOnlyAstValidator` → on PostgreSQL, `ExecuteReadOnlyQueryAsync` runs the statement inside a `READ ONLY` transaction. MCP call sites (`ProjectQueryTool`, `QueryExecutionService`, `CrossSourceQueryService`, `DryRunTool`, `McpEvalService`) MUST use the read-only variant; non-MCP call sites are unaffected. `IDataSourceProvider.SupportsDatabaseReadOnlyEnforcement` reports honestly (PostgreSQL only today) — do not claim coverage a provider does not have. Do not add a code path that bypasses these checks, even for "trusted" sessions.
 
 §1.6 **PII detection and row limits stay on.** Both are configurable per project; do not disable them in code or default config without explicit approval.
 
-§1.7 **Audit + signal logging is non-optional.** Every MCP tool invocation goes through `McpAuditService` and `McpSignalService`. Do not short-circuit either, even on the error path.
+§1.7 **Audit logging is non-optional.** Every MCP tool invocation goes through `McpAuditService`, including the error path — never short-circuit it. Learning signals (`McpSignalService`) are recorded for the SQL-carrying tools only; see §9.5.
+
+§1.12 **Grounding retrieval is project-scoped, and scoping is authorization.** Glossary terms, golden exemplars, learned patterns, and replay eval cases are filtered by the caller's authorized `projectId` — NOT by data source. A data source shared across projects must never leak one project's questions, SQL, or definitions into another's prompt. Any new retrieval block must thread the authorized `projectId` through and hard-filter on it.
 
 ## Auth middleware
 
