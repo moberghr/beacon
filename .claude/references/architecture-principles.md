@@ -6,21 +6,20 @@
 
 ## Solution shape
 
-17 projects, single solution (`Beacon.sln`), all targeting `net9.0`. Schema-qualified namespaces (`Beacon.*`) match folder structure 1:1.
+18 projects, single solution (`Beacon.slnx`, XML solution format), all targeting `net10.0`, with package versions centrally managed in `Directory.Packages.props`. Schema-qualified namespaces (`Beacon.*`) match folder structure 1:1.
 
 | Project | Role |
 |---|---|
 | `Beacon.Core` | Domain entities, MediatR handlers, services, abstract `BeaconContext`, fluent EF Core configuration. |
 | `Beacon.Core.PostgreSql` | Concrete `PostgreSqlBeaconContext`, snake_case migrations. |
 | `Beacon.Core.SqlServer` | Concrete `SqlServerBeaconContext`, PascalCase migrations. |
-| `Beacon.AI` | LLM providers, semantic search, knowledge graph, dbt integration, AI Actor handlers. |
-| `Beacon.MCP` | Streamable HTTP MCP server (`/beacon/mcp`) with 5 tools + 4 resources. |
+| `Beacon.AI` | LLM providers, semantic search, knowledge graph, local ONNX embeddings, learning/eval services, dbt integration, AI Actor handlers. |
+| `Beacon.MCP` | Streamable HTTP MCP server (`/beacon/mcp`) with 8 tools, no resources, plus the anonymous `/.well-known` discovery documents. |
+| `Beacon.Api` | Minimal-API REST endpoints (`/beacon/api/*`) + OpenAPI for the React shell. |
 | `Beacon.Connector.{PostgreSql,SqlServer,MySql,BigQuery,Snowflake,Databricks,AzureSynapse,CloudWatch,Api}` | Data-source connectors implementing `IDataSourceProvider`. |
-| `Beacon.UI` | Blazor Server + MudBlazor; auth middleware. |
+| `Beacon.UI` | Razor Class Library shipping the built React SPA (`web/` → `wwwroot/`), served at root `/`. |
 | `Beacon.SampleProject` | Composition root (host project). |
-| `Beacon.Tests` | NUnit 4 + Moq + FluentAssertions + bUnit. |
-
-⚠️ **Inconsistency:** `Beacon.Web/` exists as an empty directory. The solution may still reference it. Treat as removed.
+| `Beacon.Tests` | NUnit 4 + Moq + FluentAssertions. |
 
 ## Layer dependencies
 
@@ -41,7 +40,7 @@ Core.{Pg,Sql}        → Core
 - **DI via builder pattern.** `BeaconBuilder` enables fluent registration; connectors register via `Add{Engine}Connector()`. Each project has a `ServiceConfiguration.cs` (or `ServiceCollectionExtensions.cs`) — never inline `Program.cs` registration.
 - **`IDbContextFactory<BeaconContext>` everywhere.** No repository pattern. No long-lived `DbContext`.
 - **Soft delete via `ArchivableBaseEntity` + global query filter** (`HasQueryFilter(x => x.ArchivedTime == null)`).
-- **Background jobs via Hangfire** (PostgreSQL storage, 1s poll, retries off).
+- **Background jobs via Moberg.Warp** (dedicated `WarpDbContext` on the `warp` schema, 1s poll, retries off by default), enqueued through the `IBeaconScheduler` abstraction.
 - **Async + `CancellationToken` propagated through every layer.**
 
 ## What this codebase deliberately does NOT use
@@ -50,7 +49,7 @@ Core.{Pg,Sql}        → Core
 - No domain events / `INotification`.
 - No AutoMapper / Mapster — manual mapping only.
 - No FluentValidation — inline validation, throw `InvalidOperationException`.
-- No `BackgroundService` / `IHostedService` — Hangfire instead.
+- No `BackgroundService` / `IHostedService` — Moberg.Warp instead.
 - No `UseInMemoryDatabase` in tests.
 
 ⚠️ **Inconsistency: `Result<>` pattern.** New handlers throw exceptions for failure (per the design intent), but the following files still use a legacy `Result<>` shape:
@@ -77,23 +76,23 @@ Leave existing code alone; do not propagate to new handlers.
 
 ## MCP server
 
-- Streamable HTTP at `/beacon/mcp`, gated by `RequireAuthorization()`.
-- 5 tools (`get_context`, `ask`, `query`, `get_documentation`, `search`) + 4 resources per project.
-- `ask` is two-phase: routing LLM → SQL generation. Cross-source queries materialize into in-memory SQLite for the join step.
-- Read-only enforcement, PII detection/masking, and row limits are guardrails on every query path.
-- `McpAuditService` and `McpSignalService` record audit + learning signals for every invocation.
+- Streamable HTTP at `/beacon/mcp`, gated by the Execute-scope policy (§7.5). Hybrid session mode; project resolution is stateless.
+- 8 tools (`get_context`, `ask`, `query`, `get_query_context`, `dry_run`, `search`, `get_documentation`, `feedback`), no resources.
+- Anonymous discovery: RFC 9728 protected-resource metadata + SEP-2127 (draft) server card under `/.well-known`; registry manifest in `deploy/registry/`.
+- `ask` is two-phase: routing LLM → SQL generation, grounded by `KnowledgeGraphService.GetSmartContextForAskAsync` (M-Schema + join paths + glossary + golden exemplars + learned patterns). Cross-source queries materialize into in-memory SQLite for the join step.
+- Read-only enforcement (regex → AST → PostgreSQL `READ ONLY` transaction), PII detection/masking, and row limits are guardrails on every query path.
+- `McpAuditService` records every invocation; `McpSignalService` records the SQL-carrying tools only (§9.5). Learned patterns are gated on golden-case replay verification before promotion.
 
 ## Testing
 
 - Primary strategy: **EF Core LINQ → SQL translation tests** via `ToQueryString()` against `NpgsqlTestContext` (no real DB). See `src/Beacon.Tests/Integration/QueryTranslationTests.cs`.
-- NUnit 4 + Moq + FluentAssertions + bUnit. No xUnit, no NSubstitute.
-
-⚠️ **Inconsistency:** `Beacon.Tests.csproj` references `Microsoft.EntityFrameworkCore.InMemory 9.0.4` even though the project standard forbids `UseInMemoryDatabase`. The package is dead weight; remove on next unrelated edit.
+- NUnit 4 + Moq + FluentAssertions. No xUnit, no NSubstitute, no bUnit (no Razor UI remains). Frontend: Vitest + RTL + MSW under `src/Beacon.UI/web/src`.
+- `Microsoft.EntityFrameworkCore.InMemory` is NOT referenced and must not be re-added (§4.7). Use `NpgsqlTestContext` or the async-queryable doubles in `src/Beacon.Tests/Common/TestAsyncQueryable.cs`.
 
 ## Hosting & infrastructure
 
-- ASP.NET Core / Kestrel, Blazor Server, MudBlazor.
-- Hangfire dashboard at `/hangfire`.
+- ASP.NET Core / Kestrel serving the React SPA at root `/` (Blazor / MudBlazor removed in the Phase 3 cutover).
+- Moberg.Warp background jobs on PostgreSQL; dashboard at `/warp` (admin-only). Hangfire was removed.
 - GitHub Actions (`.github/workflows/w-build.yml`) handles CI; release triggers NuGet pack + push for `IsPackable=true` projects.
 - No containerization, no IaC in-repo.
 

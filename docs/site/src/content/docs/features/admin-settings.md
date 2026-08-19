@@ -216,11 +216,14 @@ Settings are cached in memory for 1 hour to minimize database queries. The cache
 
 ## MCP Settings
 
-MCP server behavior has its own admin page at `/mcp-settings`: custom tool descriptions, the SQL-generation system prompt, a global instruction injected into every `ask` request, max row limits, read-only enforcement, and PII detection with custom patterns. See the [MCP Server Guide](/features/mcp-server/#configuration) for details. Like LLM settings, MCP settings apply immediately — no restart required.
+MCP server behavior has its own admin page at `/mcp-settings`, organised into four tabs — **Pre-prompt** (SQL-generation system prompt, global instruction), **Tool descriptions** (overrides applied to the live `tools/list` response), **Guardrails** (max row limit, read-only enforcement, PII detection with custom patterns, and the learning knobs), and **Context preview** (see the grounding context for a project exactly as the tools assemble it).
+
+See the [MCP Server Guide](/features/mcp-server/#configuration) for details. Additional retrieval, exemplar, and eval settings that aren't on this page are settable through `PUT /beacon/api/mcp/settings` — see the [Knowledge Base guide](/features/knowledge-base/#settings-reference). Like LLM settings, MCP settings apply immediately — no restart required.
 
 ## See Also
 
 - [AI Integration](/features/ai-integration/) - AI features that use LLM configuration
 - [MCP Server](/features/mcp-server/) - MCP settings, guardrails, and the learning loop
+- [Knowledge Base & Grounding](/features/knowledge-base/) - Retrieval, exemplar, and eval settings
 - [User Management](/features/user-management/) - Role-based access to Admin Settings
 - [Configuration Guide](/getting-started/configuration/) - Startup configuration reference

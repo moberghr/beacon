@@ -115,6 +115,10 @@ AI-generated documentation includes:
 AI-generated descriptions may be inaccurate or incomplete. Always validate documentation against actual schema and business requirements before relying on it.
 :::
 
+:::note[Documentation feeds retrieval]
+Generated documentation is not just for humans. It is chunked, optionally embedded, and retrieved as grounding context when an AI assistant asks a question through the MCP server — so improving a table description measurably improves generated SQL. See [Knowledge Base & Grounding](/features/knowledge-base/#documentation-chunking).
+:::
+
 ### Export Formats
 
 #### Markdown Export
@@ -556,6 +560,8 @@ AiAlertConfiguration
 ## Related Features
 
 - [Admin Settings](/features/admin-settings/) - Configure and hot-swap LLM providers at runtime
+- [Knowledge Base & Grounding](/features/knowledge-base/) - How generated docs, join paths, and glossary terms ground SQL generation
+- [MCP Server](/features/mcp-server/) - Expose all of this to AI assistants over the Model Context Protocol
 - [Data Sources](/features/data-sources/) - Configure data sources for AI analysis
 - [Subscriptions](/features/subscriptions/) - Use AI-generated queries in subscriptions
 - [Anomaly Detection](/features/anomaly-detection/) - Statistical anomaly detection complement to AI

@@ -1,5 +1,14 @@
 # Authorization Example Setup
 
+> ⚠️ **Historical — pre-Phase-3 (Blazor era).** The RBAC concepts here still hold, but the wiring shown
+> (`UseBeaconUI()`, `AddBlazorUI("/beacon")`, `AddBeaconUI()`, the basic-auth demo users, the `/beacon` UI
+> path) no longer exists. The UI is now a React SPA at root `/`, the host has first-run admin setup with no
+> hardcoded credentials, and the middleware order is defined in `Program.cs`.
+>
+> For current guidance see the [Authorization guide](https://moberghr.github.io/beacon/features/authorization/)
+> and [User Management](https://moberghr.github.io/beacon/features/user-management/); `Program.cs` is the
+> canonical wiring reference.
+
 This document explains the authorization implementation in the Beacon Sample Project.
 
 ## Overview
@@ -134,6 +143,8 @@ app.UseBeaconUI()
 ```
 
 ## Authorization Flow
+
+> The ASCII flow below still shows the Blazor-era shell. Substitute "React SPA at `/`" for "Blazor UI"; the middleware chain itself is unchanged.
 
 ```
 ┌─────────────────┐

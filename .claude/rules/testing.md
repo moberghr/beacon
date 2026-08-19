@@ -6,7 +6,7 @@
 
 §4.1 **Framework set:** NUnit 4 + Moq + FluentAssertions. All tests live in `src/Beacon.Tests/`. Do NOT introduce xUnit, MSTest, NSubstitute, or FakeItEasy.
 
-§4.2 **Test project target:** `net9.0`, matches the rest of the solution.
+§4.2 **Test project target:** `net10.0`, matches the rest of the solution.
 
 ## Query translation tests (primary strategy)
 

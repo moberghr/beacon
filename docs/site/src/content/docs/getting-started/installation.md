@@ -16,6 +16,7 @@ Before you begin, ensure you have:
 
 - **.NET 10.0 SDK** or later
 - **PostgreSQL 12+** or **SQL Server 2019+** for Beacon's metadata database
+- On PostgreSQL, the **[pgvector](https://github.com/pgvector/pgvector) extension available on the server** — a migration runs `CREATE EXTENSION IF NOT EXISTS vector`, so startup migrations fail without it
 - **Node.js 18+** and npm — only needed to build or run the React frontend from source
 - **Visual Studio 2022**, **Rider**, or **VS Code** with C# support
 - An **encryption key** (`Beacon:EncryptionKey`) — required (see [Step 2](#step-2-generate-the-encryption-key))

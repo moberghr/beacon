@@ -3,7 +3,7 @@ description: .NET testing supplement — xUnit, fixtures, TestContainers, snapsh
 globs: ["**/*Tests.cs", "**/*.Tests/**/*.cs"]
 alwaysApply: false
 ---
-<!-- Customized by setup-bootstrap on 2026-05-04. Detected: NUnit 4, Moq, FluentAssertions, bUnit. -->
+<!-- Customized by setup-bootstrap on 2026-05-04. Detected: NUnit 4, Moq, FluentAssertions. (bUnit was dropped with the Blazor UI in the Phase 3 cutover.) -->
 
 # .NET Testing Supplement
 

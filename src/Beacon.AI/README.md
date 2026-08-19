@@ -173,7 +173,7 @@ This package includes:
 
 ## Documentation
 
-For complete documentation, visit: https://github.com/MiBu/semantico
+For complete documentation, visit: https://moberghr.github.io/beacon
 
 ## License
 
@@ -181,8 +181,8 @@ GNU AGPL v3.0 or Commercial license - see LICENSE file for details
 
 ## Support
 
-- GitHub Issues: https://github.com/MiBu/semantico/issues
-- Documentation: https://github.com/MiBu/semantico/wiki
+- GitHub Issues: https://github.com/moberghr/beacon/issues
+- Documentation: https://moberghr.github.io/beacon
 
 ## Related Packages
 

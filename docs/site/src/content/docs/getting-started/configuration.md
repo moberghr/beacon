@@ -93,6 +93,20 @@ options.BaseUrl = builder.Configuration["Beacon:BaseUrl"]; // from config
 The SPA is served at the root `/`, so notification links resolve to paths like `{BaseUrl}/notifications/{id}` — no `/beacon` UI prefix.
 :::
 
+### Public Base URL (behind a reverse proxy)
+
+`Beacon:PublicBaseUrl` is the public origin advertised in the MCP discovery documents (`/.well-known/*`) and in the `WWW-Authenticate: Bearer resource_metadata="…"` challenge that unauthenticated MCP requests receive.
+
+```json
+{
+  "Beacon": {
+    "PublicBaseUrl": "https://beacon.example.com"
+  }
+}
+```
+
+Leave it empty and those URLs are derived from the incoming request's `Host` header — which a client or a misconfigured proxy controls. The host logs a startup warning when it is unset. Set it in any deployment that sits behind a proxy or load balancer. See the [MCP Server guide](/features/mcp-server/#discovery-endpoints).
+
 ## Encryption Key Configuration (Required)
 
 `Beacon:EncryptionKey` is **required**. It encrypts sensitive data — most importantly data-source connection strings — at rest using AES-256.
@@ -709,6 +723,40 @@ Beacon introspects the schemas of your monitored data sources to power the datab
 | `LoadTableNamesOnly` | Load only table names, skipping columns |
 | `IncludeSchemas` | Whitelist — only load these schemas |
 | `ExcludeSchemas` | Blacklist — skip these schemas |
+
+## Local Embeddings (Optional)
+
+Beacon can run a **local ONNX embedding model in-process** to add semantic retrieval to catalog search and to the grounding context it builds for AI-generated SQL. There is no network egress — the model and tokenizer are local files you supply.
+
+Embeddings are **disabled by default**; without them every retrieval path falls back to keyword/lexical matching rather than failing.
+
+```json
+{
+  "Beacon": {
+    "Embeddings": {
+      "Enabled": true,
+      "ModelPath": "/opt/beacon/models/bge-small-en-v1.5.onnx",
+      "TokenizerPath": "/opt/beacon/models/vocab.txt"
+    }
+  }
+}
+```
+
+| Setting | Description |
+|---------|-------------|
+| `Enabled` | Master switch (default `false`) |
+| `ModelPath` | Path to the ONNX model file — a 384-dimension bge-small-en-v1.5 |
+| `TokenizerPath` | Path to the WordPiece (BERT) vocabulary file |
+
+Both files must exist and `Enabled` must be `true`, or the service reports itself unavailable and callers take the lexical path.
+
+:::caution[pgvector on PostgreSQL]
+On PostgreSQL, Beacon stores the vectors in a **pgvector** column with an HNSW cosine index so nearest-neighbour search runs in the database. The migration that creates it runs `CREATE EXTENSION IF NOT EXISTS vector`, so the **pgvector extension must be available on the PostgreSQL server** and the Beacon database user must be allowed to create it — otherwise migrations fail on startup. On managed Postgres this usually means enabling the extension for the instance first.
+
+On SQL Server the same vectors are compared in memory from their byte representation; semantic retrieval works there without any extension.
+:::
+
+Indexing runs as recurring background jobs (`mcp-embedding-reindex` and `mcp-docchunk-reindex`, every 12 hours). See the [Knowledge Base guide](/features/knowledge-base/#semantic-retrieval).
 
 ## Security
 

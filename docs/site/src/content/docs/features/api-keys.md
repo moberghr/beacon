@@ -59,6 +59,7 @@ Keys can optionally be restricted to specific projects via the `allowedProjectId
 **How enforcement works:**
 
 - SQL-executing REST endpoints (e.g. query preview and step preview under `/beacon/api/queries`) require the `Execute` or `Admin` scope for API-key callers.
+- The **MCP endpoint** `/beacon/mcp` requires the `Execute` or `Admin` scope as a whole, because its tools can run SQL. A `Read` key cannot open an MCP session at all — see the [MCP Server guide](/features/mcp-server/).
 - Scopes are attached to the request as claims by the API-key authentication middleware and evaluated by authorization policies on each request.
 - Interactive browser sessions (cookie/OIDC) carry no scope claims and are not scope-gated — they are governed by user roles instead. Scopes constrain **API-key identities only**.
 

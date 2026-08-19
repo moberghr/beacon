@@ -111,6 +111,7 @@ export default defineConfig({
           label: 'AI & MCP',
           items: [
             { label: 'MCP Server', link: '/features/mcp-server/' },
+            { label: 'Knowledge Base & Grounding', link: '/features/knowledge-base/' },
             { label: 'AI Integration', link: '/features/ai-integration/' },
             { label: 'AI Actors', link: '/features/ai-actors/' },
           ],

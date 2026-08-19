@@ -16,11 +16,11 @@
 
 ## MCP signal/audit
 
-§9.5 **`McpSignalService` records usage signals for the learning loop**, and `McpAuditService` records the audit trail. Both fire on every MCP tool invocation, including the failure path. Never short-circuit either.
+§9.5 **`McpAuditService` records the audit trail on EVERY MCP tool invocation**, including the failure path — never short-circuit it. **`McpSignalService` records learning signals only for the SQL-carrying tools** (`ask`, `query`, `dry_run`), also on the failure path; the catalog tools (`get_context`, `search`, `get_documentation`, `get_query_context`) are audit-only by design. `dry_run` signals are recorded but **excluded from NL pattern mining** in `McpLearningAggregationService` (their "question" is SQL) — keep that filter.
 
 ## Stale/legacy
 
-§9.6 _(removed — `Beacon.Web/` and `src/Beacon.UI/` were both deleted in the Phase 3 cutover.)_
+§9.6 _(revised — `Beacon.Web/` was deleted in the Phase 3 cutover. `src/Beacon.UI/` still exists as the Razor Class Library that ships the built React SPA — see §9.2.)_
 
 §9.7 ⚠️ **`Result<>` legacy in auth + `TemplateValidator`.** `src/Beacon.Core/Adapters/Shared/TemplateValidator.cs`, `src/Beacon.Core/Authorization/Providers/*.cs`, and `src/Beacon.Core/Authentication/Providers/{Hybrid,Jwt}*.cs` still use a `Result<>` shape. New code throws (`InvalidOperationException` / `BeaconException`) per §2.9. Do not propagate `Result<>` to new handlers.
 

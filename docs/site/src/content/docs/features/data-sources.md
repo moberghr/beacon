@@ -155,6 +155,18 @@ Exclude Schemas: pg_catalog, information_schema, pg_toast
 
 This loads only tables from the `public` and `app` schemas, capped at 200 tables.
 
+## Schema Relationships
+
+Loaded metadata tells Beacon what tables exist; **schema relationships** tell it how to join them. Open a data source and go to **Schema relationships** (`/data-sources/{id}/relationships`) to review and curate them.
+
+- **Foreign key** relationships come from the database's declared constraints and are verified by default.
+- **Inferred** relationships are proposed from column naming with a confidence score. Click **Discover** to preview proposals without saving, then accept the ones that are correct.
+- **Manual** relationships are declared by hand and are treated as verified.
+
+Only verified relationships are presented to the SQL generator as authoritative join paths; unverified inferences are passed separately and explicitly flagged. The page opens with a **schema health** panel — table and relationship counts, how many are unverified, connected groups, isolated tables, and detected junction tables — which is the fastest way to see which parts of a schema an AI assistant currently has no way to reach.
+
+See the [Knowledge Base guide](/features/knowledge-base/#schema-relationships) for how join paths are used during generation, and the REST endpoints for managing them.
+
 ## Connection Best Practices
 
 ### Use Read-Only Users
@@ -303,4 +315,5 @@ Server=sqlserver;Database=db;User Id=user;Password=pass;TrustServerCertificate=T
 
 - [Queries](/features/queries/) - Create queries using this data source
 - [Data Migration](/features/data-migration/) - Move data between connected sources
+- [Knowledge Base & Grounding](/features/knowledge-base/) - Join paths, glossary, and the grounding context built from this metadata
 - [Configuration](/getting-started/configuration/) - Connection string reference
