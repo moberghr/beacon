@@ -12,7 +12,7 @@ using Beacon.Core.Models;
 using Beacon.Core.Models.UserManagement;
 using Beacon.Core.Services;
 
-namespace Beacon.SampleProject.Authentication;
+namespace Beacon.Api.Authentication;
 
 internal static class OidcEventHandlers
 {

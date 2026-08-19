@@ -1,4 +1,4 @@
-namespace Beacon.SampleProject.Authentication;
+namespace Beacon.Api.Authentication;
 
 internal static class MiddlewarePathHelper
 {

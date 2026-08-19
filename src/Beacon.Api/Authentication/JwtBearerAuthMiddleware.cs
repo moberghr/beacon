@@ -4,7 +4,7 @@ using Microsoft.Extensions.Logging;
 using Beacon.Core.Authentication;
 using Beacon.Core.Authentication.Providers;
 
-namespace Beacon.SampleProject.Authentication;
+namespace Beacon.Api.Authentication;
 
 /// <summary>
 /// Middleware that validates JWT bearer tokens from the Authorization header.

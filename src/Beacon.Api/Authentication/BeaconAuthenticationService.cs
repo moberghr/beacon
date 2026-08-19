@@ -5,7 +5,7 @@ using Microsoft.AspNetCore.Http;
 using Beacon.Core;
 using Beacon.Core.Authentication;
 
-namespace Beacon.SampleProject.Authentication;
+namespace Beacon.Api.Authentication;
 
 /// <summary>
 /// Implementation that calls the authentication provider and manages ASP.NET Core cookie authentication.

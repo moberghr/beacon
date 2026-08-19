@@ -1,0 +1,15 @@
+<Project>
+
+  <PropertyGroup>
+    <!-- NuGet package IDs are namespaced under the Moberg prefix, matching Moberg.Warp.* and
+         Moberg.DbConfig.*. The bare `Beacon.*` prefix is unusable: `Beacon.API` on nuget.org is
+         owned by a third party (so `Beacon.Api` would 403 on push), and the same third-party
+         ownership means `Beacon.*` can never be prefix-reserved.
+
+         Only the package ID is prefixed — assembly names, namespaces, and project names stay
+         `Beacon.*`. Projects must NOT set <PackageId> themselves; a project-level value would
+         override this one, since Directory.Build.props is imported before the project body. -->
+    <PackageId>Moberg.$(MSBuildProjectName)</PackageId>
+  </PropertyGroup>
+
+</Project>

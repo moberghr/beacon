@@ -1,14 +1,14 @@
 using Microsoft.AspNetCore.Http;
 using Beacon.Core;
-using Beacon.MCP.Discovery;
+using Beacon.Core.Mcp;
 
-namespace Beacon.SampleProject.Authentication;
+namespace Beacon.Api.Authentication;
 
 /// <summary>
 /// Middleware that redirects unauthenticated users to the login page.
 /// Only active when login form is enabled.
 /// </summary>
-internal sealed class LoginFormAuthMiddleware(
+public sealed class LoginFormAuthMiddleware(
     RequestDelegate next,
     BeaconConfiguration configuration,
     string basePath)
@@ -97,7 +97,7 @@ internal sealed class LoginFormAuthMiddleware(
         // RFC 8615 well-known URIs are registered lowercase, and the mapped endpoints only answer
         // the exact-case path, so a mixed-case variant must fall through to the login redirect
         // instead of the SPA.
-        if (McpDiscoveryEndpoints.AnonymousDiscoveryPaths.Contains(path, StringComparer.Ordinal))
+        if (McpDiscoveryPaths.AnonymousDiscoveryPaths.Contains(path, StringComparer.Ordinal))
         {
             return true;
         }

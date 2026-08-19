@@ -1,15 +1,15 @@
 using Microsoft.AspNetCore.Http;
 using Beacon.Core;
 using Beacon.Core.Services;
-using Beacon.MCP.Discovery;
+using Beacon.Core.Mcp;
 
-namespace Beacon.SampleProject.Authentication;
+namespace Beacon.Api.Authentication;
 
 /// <summary>
 /// Middleware that redirects to the setup page if no users exist (first-run scenario).
 /// Only active when User Management is enabled.
 /// </summary>
-internal sealed class FirstRunSetupMiddleware(
+public sealed class FirstRunSetupMiddleware(
     RequestDelegate next,
     BeaconConfiguration configuration,
     string basePath)
@@ -55,7 +55,7 @@ internal sealed class FirstRunSetupMiddleware(
         // The MCP discovery documents are anonymous machine endpoints — a first-run HTML redirect
         // to /setup would corrupt them for remote MCP clients probing the server. ONLY the exact
         // mapped paths (shared constants, R6-2) are excluded, never all of /.well-known.
-        if (McpDiscoveryEndpoints.AnonymousDiscoveryPaths.Contains(path, StringComparer.Ordinal))
+        if (McpDiscoveryPaths.AnonymousDiscoveryPaths.Contains(path, StringComparer.Ordinal))
         {
             return true;
         }

@@ -2,13 +2,13 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Http;
 
-namespace Beacon.SampleProject.Authentication;
+namespace Beacon.Api.Authentication;
 
 /// <summary>
 /// Explicitly authenticates requests using the cookie scheme within the Beacon pipeline.
 /// This ensures Beacon routes use cookie auth without overriding the host app's default scheme.
 /// </summary>
-internal sealed class BeaconCookieAuthMiddleware(RequestDelegate next)
+public sealed class BeaconCookieAuthMiddleware(RequestDelegate next)
 {
     public async Task InvokeAsync(HttpContext context)
     {

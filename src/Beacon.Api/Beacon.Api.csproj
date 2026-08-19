@@ -5,8 +5,9 @@
         <Nullable>enable</Nullable>
         <ImplicitUsings>enable</ImplicitUsings>
 
+        <!-- PackageId comes from Directory.Build.props (Moberg.Beacon.Api) — do not set it here.
+             The bare `Beacon.Api` ID is owned by a third party on nuget.org. -->
         <IsPackable>true</IsPackable>
-        <PackageId>Beacon.Api</PackageId>
         <Description>Beacon REST API endpoints + SignalR hub. Adds `app.MapBeaconApi()` to expose /beacon/api/* on any .NET 10 web app.</Description>
         <Authors>Moberg</Authors>
     </PropertyGroup>

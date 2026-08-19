@@ -14,9 +14,8 @@ using Beacon.Core.Authentication;
 using Beacon.Core.Authentication.Providers;
 using Beacon.Core.Authorization;
 using Beacon.Core.Data;
-using Beacon.SampleProject.Services;
 
-namespace Beacon.SampleProject.Authentication;
+namespace Beacon.Api.Authentication;
 
 /// <summary>
 /// Authentication-related service registration helpers, formerly in Beacon.UI.ServiceExtensions.
@@ -173,9 +172,10 @@ public static class AuthServiceExtensions
     /// a Warp pipeline behavior auto-registered by the source generator. Kept here (§2.12) so
     /// <c>Program.cs</c> stays a thin composition root.
     /// </summary>
-    public static IServiceCollection AddBeaconHostInfrastructure(this IServiceCollection services)
+    public static IServiceCollection AddBeaconHostInfrastructure<TClaimsTransformation>(this IServiceCollection services)
+        where TClaimsTransformation : class, Microsoft.AspNetCore.Authentication.IClaimsTransformation
     {
-        services.AddScoped<Microsoft.AspNetCore.Authentication.IClaimsTransformation, SampleClaimsTransformation>();
+        services.AddScoped<Microsoft.AspNetCore.Authentication.IClaimsTransformation, TClaimsTransformation>();
         services.AddSingleton<IUserIdProvider, HubUserIdProvider>();
         return services;
     }
