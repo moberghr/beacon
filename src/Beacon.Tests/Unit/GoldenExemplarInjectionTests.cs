@@ -327,6 +327,139 @@ public class GoldenExemplarInjectionTests
             "human-verified golden examples must rank ABOVE machine-mined patterns");
     }
 
+    // ---------- TEST-2: value-matches wiring into GetSmartContextForAskAsync ----------
+
+    private const string ValueMatchesBlock =
+        "\n## Value matches (from live data — use these exact values in filters)\n- \"refunded\" → sales.orders.status = 'REFUNDED'\n";
+
+    [Test]
+    public async Task GetSmartContext_FastPath_ValueMatchesBlockPlacedAboveGoldenExemplars()
+    {
+        var embedder = new FakeEmbeddingService();
+        var (context, settings) = await BuildOneTableGoldenCaseScenarioAsync(embedder);
+        var valueGrounding = Mock.Of<IValueGroundingService>(x => x.BuildValueMatchesBlockAsync(
+            It.IsAny<int>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<ValueGroundingTable>>(), It.IsAny<McpSettingsData>(), It.IsAny<CancellationToken>())
+            == Task.FromResult(ValueMatchesBlock));
+
+        var service = BuildServiceForContext(embedder, context, settings, valueGrounding);
+        var result = await service.GetSmartContextForAskAsync(DataSourceId, ProjectId, Question, CancellationToken.None);
+
+        result.UsedSmartRetrieval.Should().BeFalse("a single table stays on the fast path");
+        AssertValueMatchesBeforeGoldenExemplars(result.FullContext);
+    }
+
+    // A genuine smart-path (>40 table) end-to-end variant of this test was attempted and dropped: it
+    // requires GetSmartContextForAskAsync's SearchAsync to run, and SearchAsync's `context.DatabaseMetadata
+    // .AsQueryable()` call resolves through an EF Core 10 call-site optimization that only recognizes a
+    // REAL DbContext-backed DbSet, silently rewrapping our mocked DbSet in a plain (non-async) EnumerableQuery
+    // and breaking ToListAsync — a pre-existing test-double/EF-interceptor incompatibility with SearchAsync,
+    // not a batch-B9 finding, and out of scope for a review-fix pass to work around in production code.
+    // GetSmartContextForAskAsync calls the SAME internal BuildValueMatchesBlockAsync wrapper method on
+    // both the fast path (line ~989) and the smart path (line ~1077) immediately before
+    // BuildGoldenExemplarBlockAsync, so the fast-path test above and the gating/fail-closed tests below
+    // exercise the identical shared method the smart path also calls.
+
+    [Test]
+    public async Task GetSmartContext_ValueGroundingDisabled_InjectsNoValueMatchesBlockAndNeverCallsTheService()
+    {
+        var embedder = new FakeEmbeddingService();
+        var (context, settings) = await BuildOneTableGoldenCaseScenarioAsync(embedder);
+        settings.EnableValueGrounding = false;
+
+        var valueGrounding = new Mock<IValueGroundingService>();
+        valueGrounding
+            .Setup(x => x.BuildValueMatchesBlockAsync(
+                It.IsAny<int>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<ValueGroundingTable>>(), It.IsAny<McpSettingsData>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ValueMatchesBlock);
+
+        var service = BuildServiceForContext(embedder, context, settings, valueGrounding.Object);
+        var result = await service.GetSmartContextForAskAsync(DataSourceId, ProjectId, Question, CancellationToken.None);
+
+        result.FullContext.Should().NotContain("## Value matches");
+        valueGrounding.Verify(
+            x => x.BuildValueMatchesBlockAsync(
+                It.IsAny<int>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<ValueGroundingTable>>(), It.IsAny<McpSettingsData>(), It.IsAny<CancellationToken>()),
+            Times.Never, "R8 — the gate lives in GetSmartContextForAskAsync, before the service is ever called");
+    }
+
+    [Test]
+    public async Task GetSmartContext_ValueGroundingServiceThrows_FailsClosedAndStillReturnsContext()
+    {
+        var embedder = new FakeEmbeddingService();
+        var (context, settings) = await BuildOneTableGoldenCaseScenarioAsync(embedder);
+
+        var valueGrounding = new Mock<IValueGroundingService>();
+        valueGrounding
+            .Setup(x => x.BuildValueMatchesBlockAsync(
+                It.IsAny<int>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<ValueGroundingTable>>(), It.IsAny<McpSettingsData>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("probe failed"));
+
+        var service = BuildServiceForContext(embedder, context, settings, valueGrounding.Object);
+
+        var act = async () => await service.GetSmartContextForAskAsync(DataSourceId, ProjectId, Question, CancellationToken.None);
+
+        var result = await act.Should().NotThrowAsync();
+        result.Subject.FullContext.Should().NotContain("## Value matches");
+        result.Subject.FullContext.Should().Contain("## Verified query examples (authoritative)",
+            "the rest of the context still builds normally when value grounding fails closed");
+    }
+
+    private static void AssertValueMatchesBeforeGoldenExemplars(string fullContext)
+    {
+        var valueIdx = fullContext.IndexOf("## Value matches", StringComparison.Ordinal);
+        var goldenIdx = fullContext.IndexOf("## Verified query examples (authoritative)", StringComparison.Ordinal);
+
+        valueIdx.Should().BeGreaterThan(-1, "the value-matches block must be injected");
+        goldenIdx.Should().BeGreaterThan(-1, "the golden-exemplar block must be injected");
+        valueIdx.Should().BeLessThan(goldenIdx, "value matches render right before the golden-exemplar block");
+    }
+
+    private static async Task<(SmartContextTestContext Context, McpSettingsData Settings)> BuildOneTableGoldenCaseScenarioAsync(IBeaconEmbeddingService embedder)
+    {
+        var dataSource = new DataSource
+        {
+            Id = DataSourceId,
+            Name = "Sales DB",
+            DataSourceType = DataSourceType.Database,
+            DatabaseEngineType = DatabaseEngineType.PostgreSQL,
+            EncryptedConnectionData = "unused-in-test"
+        };
+
+        var tables = new List<DatabaseMetadata>
+        {
+            new()
+            {
+                Id = 10,
+                DataSourceId = DataSourceId,
+                DataSource = dataSource,
+                SchemaName = "public",
+                TableName = "orders",
+                TableDescription = "orders",
+                Columns = new List<ColumnMetadata> { new() { Id = 101, ColumnName = "status", DataType = "int" } }
+            }
+        };
+
+        var cases = new List<McpEvalCase>
+        {
+            NewCase(700, Question, "SELECT count(*) FROM orders WHERE status = 4", isActive: true)
+        };
+        var embeddingsSetup = new List<McpEmbedding>
+        {
+            NewGoldenEmbedding(700, await embedder.EmbedAsync(EmbeddingMaskingHelper.Mask(Question), CancellationToken.None))
+        };
+
+        var settings = new McpSettingsData
+        {
+            EnableGoldenExemplars = true,
+            EnableSemanticRetrieval = true,
+            EnableValueGrounding = true,
+            GoldenExemplarTopK = 5
+        };
+
+        var context = new SmartContextTestContext(dataSource, tables, new List<McpLearnedPattern>(), cases, embeddingsSetup);
+        return (context, settings);
+    }
+
     private static List<int> RenderedCaseIds(string block)
     {
         // Map the rendered gold SQL back to its seeded case id via the SQL text to assert similarity order.
@@ -384,7 +517,8 @@ public class GoldenExemplarInjectionTests
     }
 
     private static KnowledgeGraphService BuildServiceForContext(
-        IBeaconEmbeddingService embedder, BeaconContext context, McpSettingsData settings)
+        IBeaconEmbeddingService embedder, BeaconContext context, McpSettingsData settings,
+        IValueGroundingService? valueGrounding = null)
     {
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory
@@ -402,6 +536,9 @@ public class GoldenExemplarInjectionTests
             embedder,
             Mock.Of<ISchemaGraphService>(x => x.GetGraphAsync(It.IsAny<int>(), It.IsAny<CancellationToken>())
                 == Task.FromResult(SchemaGraph.Build(Array.Empty<TableMetadataDto>(), Array.Empty<SchemaRelationshipEdge>()))),
+            valueGrounding ?? Mock.Of<IValueGroundingService>(x => x.BuildValueMatchesBlockAsync(
+                It.IsAny<int>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<ValueGroundingTable>>(), It.IsAny<McpSettingsData>(), It.IsAny<CancellationToken>())
+                == Task.FromResult("")),
             NullLogger<KnowledgeGraphService>.Instance);
     }
 
@@ -478,6 +615,8 @@ public class GoldenExemplarInjectionTests
         private readonly DbSet<McpEmbedding> _embeddings;
         private readonly DbSet<ProjectDataSource> _links;
         private readonly DbSet<McpGlossaryTerm> _terms;
+        private readonly DbSet<ColumnMetadata> _columnMetadata;
+        private readonly DbSet<ProjectDocumentationSection> _docSections;
         private DatabaseFacade? _database;
 
         public SmartContextTestContext(
@@ -494,6 +633,10 @@ public class GoldenExemplarInjectionTests
             _embeddings = BuildDbSet(embeddings).Object;
             _links = BuildDbSet(new List<ProjectDataSource>()).Object;
             _terms = BuildDbSet(new List<McpGlossaryTerm>()).Object;
+            // Empty — only reached by the smart path's SearchAsync (table/column/doc-section search);
+            // no test seeds column-level or documentation search hits.
+            _columnMetadata = BuildDbSet(new List<ColumnMetadata>()).Object;
+            _docSections = BuildDbSet(new List<ProjectDocumentationSection>()).Object;
         }
 
         public override DatabaseFacade Database => _database ??= new NonNpgsqlDatabaseFacade(this);
@@ -507,6 +650,8 @@ public class GoldenExemplarInjectionTests
             if (typeof(TEntity) == typeof(McpEmbedding)) return (DbSet<TEntity>)(object)_embeddings;
             if (typeof(TEntity) == typeof(ProjectDataSource)) return (DbSet<TEntity>)(object)_links;
             if (typeof(TEntity) == typeof(McpGlossaryTerm)) return (DbSet<TEntity>)(object)_terms;
+            if (typeof(TEntity) == typeof(ColumnMetadata)) return (DbSet<TEntity>)(object)_columnMetadata;
+            if (typeof(TEntity) == typeof(ProjectDocumentationSection)) return (DbSet<TEntity>)(object)_docSections;
             return base.Set<TEntity>();
         }
 

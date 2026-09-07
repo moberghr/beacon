@@ -14,7 +14,7 @@ internal record SchemaColumn(
     string ColumnName, string DataType, bool IsPrimaryKey, bool IsNullable,
     string? ForeignKeyTable, string? ForeignKeyColumn, string? Description,
     int? MaxLength = null, string? SampleValuesJson = null,
-    string? ForeignKeySchema = null);
+    string? ForeignKeySchema = null, bool SampleValuesComplete = false);
 
 /// <summary>
 /// Renders schema context for LLM grounding in an M-Schema-style structured format:
@@ -55,7 +55,9 @@ internal static class SchemaContextFormatter
             var examples = DeserializeSampleValues(col.SampleValuesJson);
             if (examples is { Count: > 0 })
             {
-                sb.Append($", Examples: [{string.Join(", ", examples)}]");
+                sb.Append(col.SampleValuesComplete
+                    ? $", Values (all {examples.Count}): [{string.Join(", ", examples)}]"
+                    : $", Examples: [{string.Join(", ", examples)}]");
             }
 
             sb.AppendLine(")");

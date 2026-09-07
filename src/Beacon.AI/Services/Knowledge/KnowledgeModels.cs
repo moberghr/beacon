@@ -121,6 +121,14 @@ public record SmartSchemaContext
     /// chains so the model is not left to infer joins from foreign-key columns alone.
     /// </summary>
     public IReadOnlyList<SchemaJoinPath> JoinPaths { get; init; } = [];
+
+    /// <summary>
+    /// Primary-key column set per table, keyed like <see cref="SchemaCatalog"/> (lowercase <c>table</c>
+    /// and lowercase <c>schema.table</c>; values are lowercase column names). Feeds the semantic
+    /// linter's FANOUT_AGGREGATE check.
+    /// </summary>
+    public IReadOnlyDictionary<string, IReadOnlySet<string>> PrimaryKeyCatalog { get; init; } =
+        new Dictionary<string, IReadOnlySet<string>>();
 }
 
 public record LearnedPatternInfo(

@@ -1,6 +1,6 @@
 using FluentAssertions;
 using NUnit.Framework;
-using Beacon.MCP.Services;
+using Beacon.Core.Services.Validation;
 
 namespace Beacon.Tests.Unit;
 

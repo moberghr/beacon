@@ -217,3 +217,43 @@
 **Why it matters:** Each subagent optimizes its own acceptance criteria; invariants that span batches ("no cross-call state anywhere", "every audit row carries a project") belong to no single batch.
 
 **When it applies:** Any /mtk implement run on the subagent path; any tier/PR assembled from multiple independent work units.
+
+## Beacon.AI cannot reach Beacon.Core internals — extract a public helper instead of duplicating a security primitive (2026-09-04)
+
+**What happened:** Two batches of the `ask` SQL-correctness run needed Core helpers from Beacon.AI: `ColumnValueSampler.ContainsPiiValue` (caught by the plan-gap reviewer before coding → extracted as public `PiiValueScreen`) and `SqlIdentifierGuard` (missed in planning; the implementer duplicated the whitelist regex locally, the architecture reviewer flagged it, and the fix pass made the guard public). `Beacon.Core` grants `InternalsVisibleTo` only to `Beacon.SampleProject`, `Beacon.Api`, `Beacon.Tests`.
+
+**Rule:** When a plan has Beacon.AI (or MCP) call a Core type, check its accessibility during planning (`grep -n 'internal' <file>`). If it is internal, the plan must either make it public (preferred for small, dependency-free static helpers) or extract a public helper — never let an implementer copy a security-relevant whitelist/escape routine. Add the visibility change to the manifest up front.
+
+**When it applies:** any cross-project call into Beacon.Core from Beacon.AI/Beacon.MCP; especially SQL-composition, PII, and validation helpers.
+
+## New settings columns: migration `defaultValue` must equal the code default (2026-09-04)
+
+**What happened:** `AddGoldenExemplarSettings` (2026-07) added `enable_golden_exemplars` with `defaultValue: false` while the entity default is `true`, so every pre-existing `mcp_settings` row silently had the feature OFF. The `AddAskCorrectnessGrounding` migration was written with matching defaults (`true/12/true/2/false`) and verified by grepping both providers' migration files.
+
+**Rule:** For every new column on a settings/config entity, set the migration `defaultValue` to the C# initializer value and verify it on BOTH providers before the batch is accepted (grep `defaultValue` in the new migration files). EF does not read C# initializers as DB defaults. Consider a one-off follow-up to flip `enable_golden_exemplars` for existing rows.
+
+**When it applies:** any `McpSettings`/app-settings entity change; any default-on feature flag persisted as a column.
+
+## `validate-handoff.sh` must be run with the branch base, not `main` (2026-09-04)
+
+**What happened:** The mtk drift script defaults its base ref to `main`; on a long-lived feature branch it reported dozens of "files touched but not in change_manifest" that were earlier commits on the branch. Passing the run's base commit (`abc75cf`) as the second argument reduced the report to the expected pre-existing dirty paths, the `tasks/todo.md` progress file, and the git-mv delete.
+
+**Rule:** Call `validate-handoff.sh <sidecar.json> <base-sha-of-this-run>` and read "declared but not touched" for `delete` entries as expected (a rename shows only the new path). Keep an orchestrator-side `comm` of `git diff --name-only <base>` vs manifest as the authoritative check.
+
+**When it applies:** every mtk Phase 3.5 drift check on a feature branch.
+
+## Optional enrichment arms must fail closed INCLUDING the voting arm (2026-09-04)
+
+**What happened:** Self-consistency voting requested N-1 extra candidates concurrently via `Task.WhenAll`; a non-`AiServiceException` from one provider call (rate limit, network) propagated and would have failed the whole `ask` even though the already-validated single candidate existed. The silent-failure hunter caught it after implementation; the fix pass wrapped the vote in the standard fail-closed pattern and guarded each candidate individually. Related: the per-probe timeout catch in `ValueGroundingService` returned null without logging.
+
+**Rule:** The 2026-07-13 fail-closed rule applies to *every* optional arm, not only retrieval blocks: voting, lint-repair, value probes, DISTINCT sampling. Each catch must (a) rethrow `OperationCanceledException`, (b) log a warning with identifiers only, (c) return the baseline. A `catch` with no log is a finding even when it degrades correctly.
+
+**When it applies:** any `try/catch` added to `AskSqlPipeline`, `KnowledgeGraphService`, `ValueGroundingService`, `ColumnValueSampler`.
+
+## Subagent implementers can be killed mid-batch by API spend limits — treat as NO_RESPONSE and respawn narrowed (2026-09-04)
+
+**What happened:** The first B1 implementer (Opus) was terminated by an org spend-limit 429 after creating 5 files but before wiring DI/tests. The working tree was consistent (Beacon.AI built), so the respawn (Sonnet) received an "ALREADY DONE / REMAINING" note and finished in 12 minutes. Sonnet completed all remaining batches; Opus was not needed.
+
+**Rule:** On an implementer failure notification, first `git status` + build the touched project to assess the partial state, then respawn ONCE with the same bundle plus an explicit done/remaining list; only escalate to inline-MAX if the second dispatch also fails. Default to Sonnet for implementers in this repo — the batch bundles are specific enough that Opus buys little.
+
+**When it applies:** every mtk subagent-path run.

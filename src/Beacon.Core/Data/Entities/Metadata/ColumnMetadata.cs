@@ -34,4 +34,10 @@ public class ColumnMetadata : BaseEntity
     public int? MaxLength { get; set; }
     public string? Description { get; set; }
     public string? SampleValues { get; set; }
+
+    /// <summary>
+    /// True when <see cref="SampleValues"/> holds every distinct value of this column (a bounded
+    /// DISTINCT probe returned at most 12 rows), false when it is only a 5-row sample.
+    /// </summary>
+    public bool SampleValuesComplete { get; set; }
 }

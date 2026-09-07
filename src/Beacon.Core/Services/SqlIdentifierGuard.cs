@@ -7,7 +7,7 @@ namespace Beacon.Core.Services;
 /// directly into SQL text because identifiers cannot be parameterized. Per §1.10, every such
 /// identifier must be whitelist-validated before it reaches a query string.
 /// </summary>
-internal static partial class SqlIdentifierGuard
+public static partial class SqlIdentifierGuard
 {
     [GeneratedRegex("^[A-Za-z_][A-Za-z0-9_]*$")]
     private static partial Regex IdentifierRegex();
