@@ -391,6 +391,7 @@ public sealed class SqlSemanticLinter
         }
 
         var groupByKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var groupedProjectionIndexes = new HashSet<int>();
         if (select.GroupBy is GroupByExpression.Expressions groupByExpressions)
         {
             foreach (var groupByItem in groupByExpressions.ColumnNames)
@@ -406,14 +407,27 @@ public sealed class SqlSemanticLinter
                         groupByKeys.Add(idents[^1]);
                         groupByKeys.Add(string.Join(".", idents));
                         break;
+
+                    case Expression.LiteralValue { Value: Value.Number number }
+                        when int.TryParse(number.Value, out var position) && position >= 1 && position <= select.Projection.Count:
+                        // Positional GROUP BY (`GROUP BY 1, 2`, PostgreSQL/MySQL/etc.) names the
+                        // projection item at that 1-based index.
+                        groupedProjectionIndexes.Add(position - 1);
+                        break;
                 }
             }
         }
 
-        foreach (var item in select.Projection)
+        for (var index = 0; index < select.Projection.Count; index++)
         {
+            var item = select.Projection[index];
             var expression = GetSelectItemExpression(item);
             if (expression == null || FindAggregateFunctions(expression).Any())
+            {
+                continue;
+            }
+
+            if (groupedProjectionIndexes.Contains(index))
             {
                 continue;
             }
@@ -475,7 +489,9 @@ public sealed class SqlSemanticLinter
         switch (expression)
         {
             case Expression.Function function:
-                if (IsAggregateName(function.Name))
+                // COUNT(*) OVER (...) is a window function: it never collapses rows, so it neither
+                // requires a GROUP BY nor fans out over a join. Only a bare aggregate call counts.
+                if (function.Over == null && IsAggregateName(function.Name))
                 {
                     yield return function;
                 }

@@ -81,7 +81,9 @@ internal sealed class EvalReadOnlySqlExecutor(
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeoutCts.CancelAfter(ExecutionTimeout);
 
-        return await provider.ExecuteQueryAsync(dataSource, limitedSql, new Dictionary<string, object?>(), timeoutCts.Token);
+        // §1.5 backstop — the read-only execution path (database-level READ ONLY transaction on PostgreSQL;
+        // other engines forward to normal execution and rely on the parser gates above).
+        return await provider.ExecuteReadOnlyQueryAsync(dataSource, limitedSql, new Dictionary<string, object?>(), timeoutCts.Token);
     }
 
     // The pipeline seam addresses a data source by id; the provider needs the entity. Loaded once and

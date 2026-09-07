@@ -365,10 +365,13 @@ internal sealed class ColumnValueSampler(
             return $"SELECT DISTINCT TOP {probeLimit} [{bracketColumn}] FROM (SELECT TOP {DomainProbeInnerScanRowCount} [{bracketColumn}] FROM [{bracketSchema}].[{bracketTable}] WHERE [{bracketColumn}] IS NOT NULL) x";
         }
 
-        var quotedColumn = SqlIdentifierGuard.EscapeQuote(column, '"');
-        var quotedSchema = SqlIdentifierGuard.EscapeQuote(schema, '"');
-        var quotedTable = SqlIdentifierGuard.EscapeQuote(table, '"');
-        return $"SELECT DISTINCT \"{quotedColumn}\" FROM (SELECT \"{quotedColumn}\" FROM \"{quotedSchema}\".\"{quotedTable}\" WHERE \"{quotedColumn}\" IS NOT NULL LIMIT {DomainProbeInnerScanRowCount}) x LIMIT {probeLimit}";
+        // MySQL only treats "..." as an identifier under ANSI_QUOTES; default sql_mode reads it as a
+        // string literal, so quote with backticks exactly like BuildSampleQuery does.
+        var quoteChar = engineType == DatabaseEngineType.MySQL ? '`' : '"';
+        var quotedColumn = $"{quoteChar}{SqlIdentifierGuard.EscapeQuote(column, quoteChar)}{quoteChar}";
+        var quotedSchema = $"{quoteChar}{SqlIdentifierGuard.EscapeQuote(schema, quoteChar)}{quoteChar}";
+        var quotedTable = $"{quoteChar}{SqlIdentifierGuard.EscapeQuote(table, quoteChar)}{quoteChar}";
+        return $"SELECT DISTINCT {quotedColumn} FROM (SELECT {quotedColumn} FROM {quotedSchema}.{quotedTable} WHERE {quotedColumn} IS NOT NULL LIMIT {DomainProbeInnerScanRowCount}) x LIMIT {probeLimit}";
     }
 
     internal static string? FormatValue(object value)

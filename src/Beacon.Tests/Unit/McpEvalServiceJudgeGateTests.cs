@@ -97,7 +97,7 @@ public class McpEvalServiceJudgeGateTests
 
         // The mutating gold SQL is never handed to the provider for execution.
         provider.Verify(
-            x => x.ExecuteQueryAsync(
+            x => x.ExecuteReadOnlyQueryAsync(
                 It.IsAny<DataSource>(),
                 It.Is<string>(s => s.Contains("DELETE")),
                 It.IsAny<Dictionary<string, object?>>(),
@@ -211,13 +211,13 @@ public class McpEvalServiceJudgeGateTests
         if (failingExecution is { } fail)
         {
             provider
-                .Setup(x => x.ExecuteQueryAsync(
+                .Setup(x => x.ExecuteReadOnlyQueryAsync(
                     It.IsAny<DataSource>(), fail.Sql, It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(new ProviderQueryResult { Success = false, ErrorMessage = fail.Error });
         }
 
         provider
-            .Setup(x => x.ExecuteQueryAsync(
+            .Setup(x => x.ExecuteReadOnlyQueryAsync(
                 It.IsAny<DataSource>(), It.Is<string>(s => s.Contains("SELECT 1")),
                 It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ProviderQueryResult
@@ -226,7 +226,7 @@ public class McpEvalServiceJudgeGateTests
                 Rows = [new Dictionary<string, object?> { ["n"] = 1 }]
             });
         provider
-            .Setup(x => x.ExecuteQueryAsync(
+            .Setup(x => x.ExecuteReadOnlyQueryAsync(
                 It.IsAny<DataSource>(), It.Is<string>(s => s.Contains("SELECT 2")),
                 It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ProviderQueryResult

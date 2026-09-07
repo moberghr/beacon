@@ -262,7 +262,7 @@ public class PatternReplayVerifierTests
         var llm = new Mock<ILlmProvider>();
         var provider = new Mock<IDataSourceProvider>();
         provider
-            .Setup(x => x.ExecuteQueryAsync(
+            .Setup(x => x.ExecuteReadOnlyQueryAsync(
                 It.IsAny<DataSource>(), It.IsAny<string>(),
                 It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ProviderQueryResult
@@ -279,7 +279,7 @@ public class PatternReplayVerifierTests
 
         // The mutating gold SQL is never handed to the provider for execution.
         provider.Verify(
-            x => x.ExecuteQueryAsync(
+            x => x.ExecuteReadOnlyQueryAsync(
                 It.IsAny<DataSource>(),
                 It.Is<string>(s => s.Contains("DELETE")),
                 It.IsAny<Dictionary<string, object?>>(),
