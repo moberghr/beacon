@@ -137,6 +137,40 @@ public class SqlSemanticLinterTests
         findings.Should().NotContain(x => x.Code == "GROUP_BY_MISMATCH");
     }
 
+    [TestCase("PostgreSQL")]
+    [TestCase("MySQL")]
+    public void Lint_PositionalGroupBy_DoesNotFlagGroupByMismatch(string dialect)
+    {
+        // `GROUP BY 1` names the first projection item; it must count as present, not a mismatch.
+        const string sql = "SELECT o.status, COUNT(*) AS c FROM sales.orders o GROUP BY 1";
+
+        var findings = _linter.Lint(sql, dialect, EmptyContext);
+
+        findings.Should().NotContain(x => x.Code == "GROUP_BY_MISMATCH");
+    }
+
+    [Test]
+    public void Lint_PositionalGroupByCoveringOnlySomeColumns_FlagsTheUncoveredOne()
+    {
+        const string sql = "SELECT o.status, o.region, COUNT(*) AS c FROM sales.orders o GROUP BY 1";
+
+        var findings = _linter.Lint(sql, Dialect, EmptyContext);
+
+        findings.Should().ContainSingle(x => x.Code == "GROUP_BY_MISMATCH");
+        findings.Single().Message.Should().Contain("region");
+    }
+
+    [Test]
+    public void Lint_WindowFunction_IsNotTreatedAsAnAggregate()
+    {
+        // COUNT(*) OVER () never collapses rows, so plain columns beside it need no GROUP BY.
+        const string sql = "SELECT o.id, o.status, COUNT(*) OVER () AS total FROM sales.orders o";
+
+        var findings = _linter.Lint(sql, Dialect, EmptyContext);
+
+        findings.Should().NotContain(x => x.Code == "GROUP_BY_MISMATCH");
+    }
+
     // NF2: GROUP BY can reference the projection's OWN alias rather than the underlying column
     // (`o.customer_id AS cust ... GROUP BY cust`) — that must count as present, not a mismatch.
     [TestCase("PostgreSQL")]

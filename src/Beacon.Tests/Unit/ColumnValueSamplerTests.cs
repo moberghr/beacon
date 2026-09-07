@@ -71,12 +71,14 @@ public class ColumnValueSamplerTests
     }
 
     [Test]
-    public void BuildDistinctProbeQuery_MySql_UsesDoubleQuotesAndBoundedLimits()
+    public void BuildDistinctProbeQuery_MySql_UsesBackticksAndBoundedLimits()
     {
         var sql = ColumnValueSampler.BuildDistinctProbeQuery(DatabaseEngineType.MySQL, "shop", "orders", "status");
 
+        // Default MySQL sql_mode reads "status" as a string literal, not an identifier — same backtick
+        // rule as BuildSampleQuery_MySql_UsesBackticksAndLimit.
         sql.Should().Be(
-            "SELECT DISTINCT \"status\" FROM (SELECT \"status\" FROM \"shop\".\"orders\" WHERE \"status\" IS NOT NULL LIMIT 1000) x LIMIT 13");
+            "SELECT DISTINCT `status` FROM (SELECT `status` FROM `shop`.`orders` WHERE `status` IS NOT NULL LIMIT 1000) x LIMIT 13");
     }
 
     [Test]

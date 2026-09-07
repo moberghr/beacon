@@ -38,6 +38,17 @@ public class ValueGroundingServiceTests
     }
 
     [Test]
+    public void ExtractLiterals_PossessiveApostrophe_DoesNotOpenAQuotedSpan()
+    {
+        // The apostrophe in "customer's" is glued to a letter, so it is not a quote delimiter; only
+        // 'Berlin' is a quoted span. Previously "s orders from" was extracted as a literal and probed.
+        var literals = ValueGroundingService.ExtractLiterals("show the customer's orders from 'Berlin'");
+
+        literals.Should().Contain("Berlin");
+        literals.Should().NotContain(x => x.StartsWith("s "));
+    }
+
+    [Test]
     public void ExtractLiterals_CapitalisedMultiWordRun_ExtractedAsSinglePhrase()
     {
         var literals = ValueGroundingService.ExtractLiterals("show revenue for stores in New York please");
@@ -147,11 +158,12 @@ public class ValueGroundingServiceTests
     }
 
     [Test]
-    public void BuildProbeSql_MySql_UsesDoubleQuotesAndLimit()
+    public void BuildProbeSql_MySql_UsesBackticksAndLimit()
     {
         var sql = ValueGroundingService.BuildProbeSql(DatabaseEngineType.MySQL, "shop", "orders", "status", "refunded");
 
-        sql.Should().Be("SELECT DISTINCT \"status\" FROM \"shop\".\"orders\" WHERE LOWER(\"status\") LIKE '%refunded%' LIMIT 3");
+        // Default MySQL sql_mode reads "status" as a string literal, not an identifier.
+        sql.Should().Be("SELECT DISTINCT `status` FROM `shop`.`orders` WHERE LOWER(`status`) LIKE '%refunded%' LIMIT 3");
     }
 
     [Test]
@@ -245,7 +257,7 @@ public class ValueGroundingServiceTests
 
         block.Should().Contain("sales.orders.status = 'REFUNDED'");
         provider.Verify(
-            x => x.ExecuteQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()),
+            x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 
@@ -262,7 +274,7 @@ public class ValueGroundingServiceTests
 
         var provider = new Mock<IDataSourceProvider>();
         provider
-            .Setup(x => x.ExecuteQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+            .Setup(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ProviderQueryResult
             {
                 Success = true,
@@ -276,7 +288,7 @@ public class ValueGroundingServiceTests
         // Reaching the provider at all proves the constructed SELECT passed the REAL AST read-only gate.
         block.Should().Contain("sales.orders.status = 'REFUNDED'");
         provider.Verify(
-            x => x.ExecuteQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()),
+            x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()),
             Times.Once);
     }
 
@@ -295,7 +307,7 @@ public class ValueGroundingServiceTests
 
         var provider = new Mock<IDataSourceProvider>();
         provider
-            .Setup(x => x.ExecuteQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+            .Setup(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ProviderQueryResult
             {
                 Success = true,
@@ -326,7 +338,7 @@ public class ValueGroundingServiceTests
 
         var provider = new Mock<IDataSourceProvider>();
         provider
-            .Setup(x => x.ExecuteQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+            .Setup(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ProviderQueryResult { Success = true, Rows = [new Dictionary<string, object?> { ["v"] = "X" }] });
         var (service, _) = BuildService(provider);
 
@@ -338,7 +350,7 @@ public class ValueGroundingServiceTests
             DataSourceId, "orders that were 'refunded' in Germany", tables, settings, CancellationToken.None);
 
         provider.Verify(
-            x => x.ExecuteQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()),
+            x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()),
             Times.Once, "only ValueGroundingMaxProbes probes may execute across the whole call");
     }
 
@@ -369,7 +381,7 @@ public class ValueGroundingServiceTests
 
         block.Should().Be("");
         provider.Verify(
-            x => x.ExecuteQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()),
+            x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 
@@ -392,7 +404,7 @@ public class ValueGroundingServiceTests
         var tables = new[] { new ValueGroundingTable("sales", "orders", new[] { new ValueGroundingColumn("status", "varchar", false, null, null) }) };
         var provider = new Mock<IDataSourceProvider>();
         provider
-            .Setup(x => x.ExecuteQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+            .Setup(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new InvalidOperationException("connection lost"));
         var (service, _) = BuildService(provider);
 

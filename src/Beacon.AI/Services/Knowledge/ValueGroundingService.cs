@@ -49,7 +49,9 @@ internal sealed class ValueGroundingService(
         "status", "type", "state", "code", "country", "category", "name", "kind", "label"
     ];
 
-    private static readonly Regex QuotedSpanRegex = new("[\"']([^\"']+)[\"']", RegexOptions.Compiled);
+    // A quote counts as a delimiter only when it is not glued to a letter/digit on the outside, so a
+    // possessive/contraction apostrophe ("customer's orders from 'Berlin'") cannot open a bogus span.
+    private static readonly Regex QuotedSpanRegex = new(@"(?<![\p{L}\p{N}])[""']([^""']+)[""'](?![\p{L}\p{N}])", RegexOptions.Compiled);
     private static readonly Regex SentenceSplitRegex = new(@"(?<=[.!?])\s+", RegexOptions.Compiled);
     private static readonly Regex DateLikeRegex = new(@"^\d{1,4}[-/]\d{1,2}[-/]\d{1,4}$", RegexOptions.Compiled);
     private static readonly Regex AllowedCharsetRegex = new(@"^[\p{L}\p{N} .\-_/&']+$", RegexOptions.Compiled);
@@ -289,10 +291,13 @@ internal sealed class ValueGroundingService(
             return $"SELECT DISTINCT TOP {ProbeResultLimit} [{bracketColumn}] FROM [{bracketSchema}].[{bracketTable}] WHERE LOWER([{bracketColumn}]) LIKE '{pattern}'";
         }
 
-        var quotedSchema = SqlIdentifierGuard.EscapeQuote(validSchema, '"');
-        var quotedTable = SqlIdentifierGuard.EscapeQuote(validTable, '"');
-        var quotedColumn = SqlIdentifierGuard.EscapeQuote(validColumn, '"');
-        return $"SELECT DISTINCT \"{quotedColumn}\" FROM \"{quotedSchema}\".\"{quotedTable}\" WHERE LOWER(\"{quotedColumn}\") LIKE '{pattern}' LIMIT {ProbeResultLimit}";
+        // MySQL only treats "..." as an identifier under ANSI_QUOTES; default sql_mode reads it as a
+        // string literal, so quote with backticks (same rule as ColumnValueSampler's probes).
+        var quoteChar = engine == DatabaseEngineType.MySQL ? '`' : '"';
+        var quotedSchema = $"{quoteChar}{SqlIdentifierGuard.EscapeQuote(validSchema, quoteChar)}{quoteChar}";
+        var quotedTable = $"{quoteChar}{SqlIdentifierGuard.EscapeQuote(validTable, quoteChar)}{quoteChar}";
+        var quotedColumn = $"{quoteChar}{SqlIdentifierGuard.EscapeQuote(validColumn, quoteChar)}{quoteChar}";
+        return $"SELECT DISTINCT {quotedColumn} FROM {quotedSchema}.{quotedTable} WHERE LOWER({quotedColumn}) LIKE '{pattern}' LIMIT {ProbeResultLimit}";
     }
 
     /// <summary>
@@ -329,7 +334,8 @@ internal sealed class ValueGroundingService(
     {
         var sql = BuildProbeSql(dataSource.DatabaseEngineType, candidate.Schema, candidate.Table, candidate.Column.ColumnName, literal);
 
-        // R3/§1.5 — every probe passes the AST read-only gate before it ever reaches the provider.
+        // R3/§1.5 — every probe passes the AST read-only gate before it ever reaches the provider, and
+        // executes through the read-only variant so PostgreSQL additionally runs it in a READ ONLY transaction.
         var astError = astValidator.Validate(sql, dialect);
         if (astError != null)
         {
@@ -342,7 +348,7 @@ internal sealed class ValueGroundingService(
         ProviderQueryResult result;
         try
         {
-            result = await provider.ExecuteQueryAsync(dataSource, sql, new Dictionary<string, object?>(), timeoutCts.Token);
+            result = await provider.ExecuteReadOnlyQueryAsync(dataSource, sql, new Dictionary<string, object?>(), timeoutCts.Token);
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
