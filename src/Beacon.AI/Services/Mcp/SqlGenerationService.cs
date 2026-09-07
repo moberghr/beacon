@@ -161,18 +161,38 @@ internal sealed class SqlGenerationService(TimeProvider? timeProvider = null, IL
     /// Consumes a leading comment block (optionally after a code-fence opening line) of the form
     /// <c>-- assumptions:</c> / <c>-- "assumption text"</c> / <c>-- clarification: ...</c> and returns the
     /// parsed assumptions/clarification plus the remainder with those lines removed — the fence line, if
-    /// any, is left in place so <see cref="CleanSqlResponse"/> can still strip it normally. A response with
-    /// no leading <c>--</c> line yields an empty assumptions list, a null clarification, and the content
-    /// unchanged (R4 — no block behaves exactly as today).
+    /// any, is left in place so <see cref="CleanSqlResponse"/> can still strip it normally. Leading blank
+    /// lines and any prose before the first fence are skipped over, the same way <see cref="CleanSqlResponse"/>
+    /// skips them, so a comment block inside the fence is still lifted out rather than leaking into the SQL
+    /// (where the regex guardrail would reject it for not starting with SELECT). A response with no leading
+    /// <c>--</c> line yields an empty assumptions list, a null clarification, and the content unchanged
+    /// (R4 — no block behaves exactly as today).
     /// </summary>
     private static (IReadOnlyList<string> Assumptions, string? ClarificationHint, string Remainder) ParseLeadingComments(string content)
     {
         var lines = content.Replace("\r\n", "\n").Split('\n');
 
         var bodyStart = 0;
-        if (lines.Length > 0 && lines[0].TrimStart().StartsWith("```", StringComparison.Ordinal))
+        while (bodyStart < lines.Length && string.IsNullOrWhiteSpace(lines[bodyStart]))
         {
-            bodyStart = 1;
+            bodyStart++;
+        }
+
+        if (bodyStart < lines.Length && lines[bodyStart].TrimStart().StartsWith("```", StringComparison.Ordinal))
+        {
+            bodyStart++;
+        }
+        else if (bodyStart < lines.Length && !lines[bodyStart].TrimStart().StartsWith("--", StringComparison.Ordinal))
+        {
+            // Prose before a fenced block ("Here is the SQL:\n```sql\n-- assumptions: ..."). CleanSqlResponse
+            // extracts the fence body, so the comment block must be parsed from just inside that fence.
+            var fenceIndex = Array.FindIndex(lines, bodyStart, x => x.TrimStart().StartsWith("```", StringComparison.Ordinal));
+            if (fenceIndex < 0)
+            {
+                return ([], null, content);
+            }
+
+            bodyStart = fenceIndex + 1;
         }
 
         var assumptions = new List<string>();

@@ -50,6 +50,36 @@ public class SelfConsistencyVotingTests
     }
 
     [Test]
+    public void ResultFingerprint_RawRowsOnly_DifferentCellValuesWithSameRowCount_DoNotMatch()
+    {
+        // The eval executor formats nothing and exposes raw rows — voting must fingerprint the rows, not
+        // just the row count, or every executed candidate with N rows would "agree" regardless of content.
+        var one = new AskExecutionResult(null, null, 1, true, Rows: [new Dictionary<string, object?> { ["id"] = 1 }]);
+        var nine = new AskExecutionResult(null, null, 1, true, Rows: [new Dictionary<string, object?> { ["id"] = 9 }]);
+
+        AskSqlPipeline.ResultFingerprint(one)
+            .Should().NotBe(AskSqlPipeline.ResultFingerprint(nine));
+    }
+
+    [Test]
+    public void ResultFingerprint_RawRowsOnly_SameRowsDifferentOrder_Match()
+    {
+        var ascending = new AskExecutionResult(null, null, 2, true, Rows:
+        [
+            new Dictionary<string, object?> { ["id"] = 1 },
+            new Dictionary<string, object?> { ["id"] = 2 }
+        ]);
+        var descending = new AskExecutionResult(null, null, 2, true, Rows:
+        [
+            new Dictionary<string, object?> { ["id"] = 2 },
+            new Dictionary<string, object?> { ["id"] = 1 }
+        ]);
+
+        AskSqlPipeline.ResultFingerprint(ascending)
+            .Should().Be(AskSqlPipeline.ResultFingerprint(descending));
+    }
+
+    [Test]
     public void ResultFingerprint_DifferentRows_DoNotMatch()
     {
         var one = new AskExecutionResult(

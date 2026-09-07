@@ -243,6 +243,67 @@ public class SqlGenerationPromptTests
     }
 
     [Test]
+    public async Task GenerateAsync_LeadingBlankLineBeforeAssumptionsBlock_StillLiftsTheBlockOutOfTheSql()
+    {
+        // A leading newline must not leave the `--` lines inside the SQL — the regex guardrail would then
+        // reject the query for not starting with SELECT.
+        _llmProvider
+            .Setup(x => x.CompleteAsync(It.IsAny<LlmRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new LlmResponse
+            {
+                Content = "\n\n-- assumptions:\n-- \"last week\" = the 7 days before today\nSELECT id FROM sales.orders;"
+            });
+        var service = new SqlGenerationService(_clock);
+
+        var result = await service.GenerateAsync(_llmProvider.Object, SchemaContext, Question, _settings, CancellationToken.None);
+
+        result.Sql.Should().Be("SELECT id FROM sales.orders;");
+        result.Assumptions.Should().ContainSingle().Which.Should().Be("\"last week\" = the 7 days before today");
+    }
+
+    [Test]
+    public async Task GenerateAsync_ProseBeforeFencedAssumptionsBlock_StillLiftsTheBlockOutOfTheSql()
+    {
+        _llmProvider
+            .Setup(x => x.CompleteAsync(It.IsAny<LlmRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new LlmResponse
+            {
+                Content = """
+                    Here is the query:
+
+                    ```sql
+                    -- assumptions:
+                    -- "last week" = the 7 days before today
+                    -- clarification: Calendar week or rolling 7 days?
+                    SELECT id FROM sales.orders;
+                    ```
+                    """
+            });
+        var service = new SqlGenerationService(_clock);
+
+        var result = await service.GenerateAsync(_llmProvider.Object, SchemaContext, Question, _settings, CancellationToken.None);
+
+        result.Sql.Should().Be("SELECT id FROM sales.orders;");
+        result.Sql.Should().NotContain("--");
+        result.Assumptions.Should().ContainSingle().Which.Should().Be("\"last week\" = the 7 days before today");
+        result.ClarificationHint.Should().Be("Calendar week or rolling 7 days?");
+    }
+
+    [Test]
+    public async Task GenerateAsync_ProseWithoutFenceAndNoCommentBlock_BehavesAsPreChange()
+    {
+        _llmProvider
+            .Setup(x => x.CompleteAsync(It.IsAny<LlmRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new LlmResponse { Content = "Here is the query: SELECT id FROM sales.orders;" });
+        var service = new SqlGenerationService(_clock);
+
+        var result = await service.GenerateAsync(_llmProvider.Object, SchemaContext, Question, _settings, CancellationToken.None);
+
+        result.Sql.Should().Be("SELECT id FROM sales.orders;");
+        result.Assumptions.Should().BeEmpty();
+    }
+
+    [Test]
     public async Task GenerateAsync_ClarificationLine_ParsesClarificationHint()
     {
         _llmProvider
