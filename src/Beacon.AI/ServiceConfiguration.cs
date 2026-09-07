@@ -89,6 +89,10 @@ public static class ServiceConfiguration
         // Knowledge Graph
         services.TryAddTransient<IKnowledgeGraphService, KnowledgeGraphService>();
 
+        // Ask-time value grounding (spec item 5) — probes candidate string columns for literal-looking
+        // words in the question, fail-closed, gated by EnableValueGrounding.
+        services.TryAddTransient<IValueGroundingService, ValueGroundingService>();
+
         // Project Documentation (living knowledge base)
         services.TryAddTransient<IProjectDocumentationService, ProjectDocumentationService>();
 
@@ -127,8 +131,16 @@ public static class ServiceConfiguration
         // MCP pipeline services (used by ProjectAskTool orchestrator)
         services.TryAddTransient<IIntentClassifier, IntentClassifier>();
         services.TryAddTransient<IDataSourceRouter, DataSourceRouter>();
+        // SqlGenerationService's optional TimeProvider ctor param resolves from Beacon.Core's
+        // TryAddSingleton<TimeProvider>(TimeProvider.System) registration when the host wires both
+        // AddBeaconCore and AddBeaconAI; the ctor default (TimeProvider.System) only matters for
+        // standalone construction (e.g. tests), so no separate registration is needed here.
         services.TryAddTransient<ISqlGenerationService, SqlGenerationService>();
         services.TryAddTransient<IKnowledgeAnswerService, KnowledgeAnswerService>();
+
+        // Shared generate → validate → repair → execute core (§ Architecture ①). Both the MCP `ask` tool
+        // and the eval harness run this SAME instance type with the SAME repair budget (SC1).
+        services.TryAddTransient<IAskSqlPipeline, AskSqlPipeline>();
 
         return services;
     }

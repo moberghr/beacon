@@ -162,6 +162,14 @@ public static class ServiceConfiguration
         // Shared by MCP tools, query-builder step persistence, and step execution.
         services.TryAddSingleton<SqlReadOnlyAstValidator>();
 
+        // SQL schema validator (pre-execution column check; moved from Beacon.MCP so the shared
+        // AskSqlPipeline in Beacon.AI can depend on it without referencing Beacon.MCP, §2.4).
+        services.TryAddSingleton<SqlSchemaValidator>();
+
+        // Semantic linter (undeclared join / fan-out aggregate / GROUP BY mismatch; pure, stateless —
+        // no I/O, so a plain singleton is enough, matching the other validators on this surface).
+        services.TryAddSingleton<SqlSemanticLinter>();
+
         // Rate limiter (singleton so the in-memory sliding windows are shared across requests)
         services.TryAddSingleton<Services.Security.RateLimiter>();
 

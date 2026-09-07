@@ -3,7 +3,17 @@ using Beacon.Core.Models;
 
 namespace Beacon.AI.Services.Mcp;
 
-public record SqlGenerationResult(string Sql, List<string> TablesUsed);
+/// <summary>
+/// <paramref name="Assumptions"/> and <paramref name="ClarificationHint"/> are parsed from a leading
+/// <c>-- assumptions:</c> / <c>-- clarification:</c> comment block the model may emit before the SQL
+/// (spec item 3). Both default to <c>null</c> so <c>new SqlGenerationResult(sql, tables)</c> still
+/// compiles; callers that need a non-null view use <c>Assumptions ?? []</c>.
+/// </summary>
+public record SqlGenerationResult(
+    string Sql,
+    List<string> TablesUsed,
+    IReadOnlyList<string>? Assumptions = null,
+    string? ClarificationHint = null);
 
 public interface ISqlGenerationService
 {

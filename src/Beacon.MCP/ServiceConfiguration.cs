@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using ModelContextProtocol.AspNetCore;
+using Beacon.AI.Services.Mcp;
 using Beacon.Core.Services;
 using Beacon.MCP.Discovery;
 using Beacon.MCP.Services;
@@ -31,13 +32,15 @@ public static class ServiceConfiguration
         services.AddScoped<DryRunTool>();
         services.AddScoped<GetQueryContextTool>();
 
-        // SQL schema validator (pre-execution column check)
-        services.AddSingleton<SqlSchemaValidator>();
-
+        // SQL schema validator is registered by Beacon.Core (moved to Beacon.Core.Services.Validation, §2.4)
         // AST read-only validator is registered by Beacon.Core (relocated to Beacon.Core.Services.Validation, §1.5)
 
         // Query execution
         services.TryAddTransient<IQueryExecutionService, QueryExecutionService>();
+
+        // Ask SQL pipeline executor seam: adapts IQueryExecutionService onto IAskSqlPipeline's execution
+        // interface (§ Architecture ①) so ProjectAskTool never touches the pipeline's execution details.
+        services.TryAddTransient<IAskSqlExecutor, AskSqlExecutor>();
 
         // Cross-source query service
         services.TryAddTransient<ICrossSourceQueryService, CrossSourceQueryService>();

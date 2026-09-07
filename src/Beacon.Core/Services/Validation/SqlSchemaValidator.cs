@@ -2,13 +2,13 @@ using SqlParser;
 using SqlParser.Ast;
 using SqlParser.Dialects;
 
-namespace Beacon.MCP.Services;
+namespace Beacon.Core.Services.Validation;
 
 /// <summary>
 /// Validates generated SQL against the known schema catalog before executing against the database.
 /// Catches column-doesn't-exist errors without a DB round-trip.
 /// </summary>
-internal sealed class SqlSchemaValidator
+public sealed class SqlSchemaValidator
 {
     /// <param name="sql">The SQL to validate.</param>
     /// <param name="catalog">Map of lowercase table/schema.table names to lowercase column sets.</param>
@@ -19,7 +19,9 @@ internal sealed class SqlSchemaValidator
         string? dialect = null)
     {
         if (string.IsNullOrWhiteSpace(sql) || catalog.Count == 0)
+        {
             return SqlValidationResult.Ok;
+        }
 
         Dialect sqlDialect = (dialect ?? "").ToLowerInvariant() switch
         {

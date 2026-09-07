@@ -17,6 +17,7 @@ internal sealed class KnowledgeGraphService(
     IMcpSettingsProvider settingsProvider,
     IBeaconEmbeddingService embeddingService,
     ISchemaGraphService schemaGraphService,
+    IValueGroundingService valueGroundingService,
     ILogger<KnowledgeGraphService> logger) : IKnowledgeGraphService
 {
     // Detailed-table budget for the smart-retrieval path. Kept as a named constant because the coverage
@@ -1210,13 +1211,14 @@ internal sealed class KnowledgeGraphService(
                 Columns = m.Columns.Select(c => new SchemaColumn(
                     c.ColumnName, c.DataType, c.IsPrimaryKey, c.IsNullable,
                     c.ForeignKeyTable, c.ForeignKeyColumn, c.Description,
-                    c.MaxLength, c.SampleValues, c.ForeignKeySchema
+                    c.MaxLength, c.SampleValues, c.ForeignKeySchema, c.SampleValuesComplete
                 )).ToList()
             })
             .ToListAsync(ct);
 
         var totalColumns = allTables.Sum(t => t.Columns.Count);
         var catalog = BuildSchemaCatalog(allTables.Select(x => (x.SchemaName, x.TableName, x.Columns.Select(y => y.ColumnName))));
+        var primaryKeyCatalog = BuildPrimaryKeyCatalog(allTables.Select(t => (t.SchemaName, t.TableName, (IEnumerable<SchemaColumn>)t.Columns)));
         var dialect = dataSource.DatabaseEngineType?.ToString();
         var mcpSettings = await settingsProvider.GetSettingsAsync(ct);
 
@@ -1237,6 +1239,17 @@ internal sealed class KnowledgeGraphService(
             // inferred relationships are the only thing telling the model how these tables connect.
             var allPaths = await GetJoinPathsForAllTablesAsync(dataSourceId, ct);
             SchemaContextFormatter.AppendJoinPaths(sb, allPaths);
+
+            // Item 5: ask-time value grounding — real values found for literal-looking words in the
+            // question, injected right before the golden exemplars so the model sees them alongside the
+            // schema. Skipped for API sources (no SQL to probe) and gated by EnableValueGrounding.
+            if (mcpSettings.EnableValueGrounding && !isApi)
+            {
+                var valueGroundingTables = allTables
+                    .Select(t => new ValueGroundingTable(t.SchemaName, t.TableName, ToValueGroundingColumns(t.Columns)))
+                    .ToList();
+                sb.Append(await BuildValueMatchesBlockAsync(dataSourceId, question, valueGroundingTables, mcpSettings, ct));
+            }
 
             // Part A: inject human-verified golden query examples ABOVE the mined learned patterns — they are
             // human-verified, so they outrank machine-mined patterns. Empty (behaviour-preserving) when
@@ -1263,7 +1276,9 @@ internal sealed class KnowledgeGraphService(
                 UsedSmartRetrieval = false,
                 TotalTableCount = allTables.Count,
                 DatabaseDialect = dialect,
-                SchemaCatalog = catalog
+                SchemaCatalog = catalog,
+                PrimaryKeyCatalog = primaryKeyCatalog,
+                JoinPaths = allPaths
             };
         }
 
@@ -1313,6 +1328,17 @@ internal sealed class KnowledgeGraphService(
         SchemaContextFormatter.AppendJoinPaths(smartSb, expansion.JoinPaths);
         SchemaContextFormatter.AppendCoverage(smartSb, expansion.Capped, expansion.OmittedTableCount, detailedTables.Count);
 
+        // Item 5: ask-time value grounding, scoped to the detailed tables only (same set rendered with
+        // full columns above) — same gating as the fast path.
+        if (mcpSettings.EnableValueGrounding && !isApi)
+        {
+            var valueGroundingTables = allTables
+                .Where(t => detailedTables.Contains($"{t.SchemaName}.{t.TableName}"))
+                .Select(t => new ValueGroundingTable(t.SchemaName, t.TableName, ToValueGroundingColumns(t.Columns)))
+                .ToList();
+            smartSb.Append(await BuildValueMatchesBlockAsync(dataSourceId, question, valueGroundingTables, mcpSettings, ct));
+        }
+
         // Part A: inject human-verified golden query examples ABOVE the mined learned patterns (same
         // behaviour-preserving fallback as the fast path — empty string when nothing to inject).
         smartSb.Append(await BuildGoldenExemplarBlockAsync(dataSourceId, projectId, question, mcpSettings, ct));
@@ -1338,6 +1364,7 @@ internal sealed class KnowledgeGraphService(
             TotalTableCount = allTables.Count,
             DatabaseDialect = dialect,
             SchemaCatalog = catalog,
+            PrimaryKeyCatalog = primaryKeyCatalog,
             Capped = expansion.Capped,
             OmittedTableCount = expansion.OmittedTableCount,
             JoinPaths = expansion.JoinPaths
@@ -1447,6 +1474,44 @@ internal sealed class KnowledgeGraphService(
             logger.LogWarning(ex, "Dense doc-chunk retrieval failed for project {ProjectId}; falling back to char-truncated documentation.", projectId);
             return [];
         }
+    }
+
+    /// <summary>
+    /// Fail-closed wrapper around <see cref="IValueGroundingService.BuildValueMatchesBlockAsync"/>, mirroring
+    /// <see cref="BuildGlossaryBlockAsync"/>: a transient probe/embedding/provider error must NOT fail the
+    /// whole `ask` (this is called from <see cref="GetSmartContextForAskAsync"/>). Rethrows
+    /// <see cref="OperationCanceledException"/> so a shutdown/timeout unwinds; any other exception is logged
+    /// (count only — never the literal or probe SQL, §1.11) and yields "" (2026-07-13 lesson). Internal so it
+    /// can be unit-tested directly.
+    /// </summary>
+    internal async Task<string> BuildValueMatchesBlockAsync(
+        int dataSourceId, string question, IReadOnlyList<ValueGroundingTable> tables, McpSettingsData settings, CancellationToken ct)
+    {
+        try
+        {
+            return await valueGroundingService.BuildValueMatchesBlockAsync(dataSourceId, question, tables, settings, ct);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Value grounding failed for data source {DataSourceId}; injecting no value-matches block.", dataSourceId);
+            return "";
+        }
+    }
+
+    /// <summary>
+    /// Projects the internal <see cref="SchemaColumn"/> shape into the public <see cref="ValueGroundingColumn"/>
+    /// shape <see cref="IValueGroundingService"/> takes — kept internal-type-free so the interface can stay
+    /// public (Moq's proxy generation for a mocked seam needs a public or Castle-visible internal interface).
+    /// </summary>
+    private static IReadOnlyList<ValueGroundingColumn> ToValueGroundingColumns(IEnumerable<SchemaColumn> columns)
+    {
+        return columns
+            .Select(x => new ValueGroundingColumn(x.ColumnName, x.DataType, x.IsPrimaryKey, x.MaxLength, x.SampleValuesJson))
+            .ToList();
     }
 
     /// <summary>
@@ -1682,7 +1747,7 @@ internal sealed class KnowledgeGraphService(
                 Columns = m.Columns.Select(c => new SchemaColumn(
                     c.ColumnName, c.DataType, c.IsPrimaryKey, c.IsNullable,
                     c.ForeignKeyTable, c.ForeignKeyColumn, c.Description,
-                    c.MaxLength, c.SampleValues, c.ForeignKeySchema
+                    c.MaxLength, c.SampleValues, c.ForeignKeySchema, c.SampleValuesComplete
                 )).ToList()
             })
             .ToListAsync(ct);
@@ -1710,6 +1775,24 @@ internal sealed class KnowledgeGraphService(
             var cols = columnNames.Select(x => x.ToLowerInvariant()).ToHashSet();
             catalog[table.ToLowerInvariant()] = cols;
             catalog[$"{schema}.{table}".ToLowerInvariant()] = cols;
+        }
+        return catalog;
+    }
+
+    // Feeds SqlSemanticLinter's FANOUT_AGGREGATE check: whether a join column is the FULL primary key
+    // of the table it targets (a composite PK joined on one column is never "full", so it still fans out).
+    private static Dictionary<string, IReadOnlySet<string>> BuildPrimaryKeyCatalog(
+        IEnumerable<(string SchemaName, string TableName, IEnumerable<SchemaColumn> Columns)> tables)
+    {
+        var catalog = new Dictionary<string, IReadOnlySet<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (schema, table, columns) in tables)
+        {
+            var primaryKeyColumns = (IReadOnlySet<string>)columns
+                .Where(c => c.IsPrimaryKey)
+                .Select(c => c.ColumnName.ToLowerInvariant())
+                .ToHashSet();
+            catalog[table.ToLowerInvariant()] = primaryKeyColumns;
+            catalog[$"{schema}.{table}".ToLowerInvariant()] = primaryKeyColumns;
         }
         return catalog;
     }

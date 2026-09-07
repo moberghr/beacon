@@ -110,8 +110,49 @@ public class McpEvalServiceJudgeGateTests
             "the gold SQL was rejected read-only before execution, so the case could not be scored as passing");
     }
 
+    // TEST-1 (SC1, CRITICAL): a generation whose FIRST candidate fails execution once must still be
+    // scored by the SAME repair-then-pass rule production `ask` gets — the eval harness runs the case
+    // through the real AskSqlPipeline (via McpEvalService), not a bare GenerateAsync call, so its own
+    // execution-repair loop gets exactly one chance to fix the SQL before the case is compared to gold.
+    [Test]
+    public async Task RunAsync_ExecutionRepairSucceeds_ScoresCasePassAndFailureTagNone()
+    {
+        const string badSql = "SELECT bad_col FROM orders";
+        const string fixedSql = "SELECT 1 AS n";
+        const string executionError = "column \"bad_col\" does not exist";
+
+        var llm = new Mock<ILlmProvider>();
+
+        var sqlGen = new Mock<ISqlGenerationService>();
+        sqlGen
+            .Setup(x => x.GenerateAsync(
+                It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<McpSettingsData>(), It.IsAny<CancellationToken>(), It.IsAny<decimal?>()))
+            .ReturnsAsync(new SqlGenerationResult(badSql, ["orders"]));
+        sqlGen
+            .Setup(x => x.RetryWithErrorAsync(
+                It.IsAny<ILlmProvider>(), It.IsAny<string>(), badSql, It.IsAny<string>(),
+                It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(fixedSql);
+
+        var captured = new List<McpEvalResult>();
+        var (service, _, _) = BuildService(
+            llm, judgeEnabled: false, capturedResults: captured,
+            sqlGenOverride: sqlGen, failingExecution: (badSql, executionError));
+
+        await service.RunAsync(RunId, CancellationToken.None);
+
+        // Generation never reached the judge or any other LLM call — the repair itself is served by
+        // the mocked ISqlGenerationService, so the ONLY thing left to assert is the persisted outcome.
+        captured.Should().ContainSingle();
+        captured[0].Passed.Should().BeTrue("the execution-repair loop fixed the SQL before comparing to gold");
+        captured[0].FailureTag.Should().Be(McpEvalFailureTag.None);
+        captured[0].GeneratedSql.Should().Be(fixedSql);
+    }
+
     private static (McpEvalService Service, McpEvalRun Run, Mock<IDataSourceProvider> Provider) BuildService(
-        Mock<ILlmProvider> llm, bool judgeEnabled, List<McpEvalResult> capturedResults, string goldSql = "SELECT 1 AS n")
+        Mock<ILlmProvider> llm, bool judgeEnabled, List<McpEvalResult> capturedResults, string goldSql = "SELECT 1 AS n",
+        Mock<ISqlGenerationService>? sqlGenOverride = null, (string Sql, string Error)? failingExecution = null)
     {
         var run = new McpEvalRun { Id = RunId, ProjectId = 1, Status = "Running" };
         var evalCase = new McpEvalCase
@@ -147,18 +188,34 @@ public class McpEvalServiceJudgeGateTests
         knowledge
             .Setup(x => x.GetSmartContextForAskAsync(DataSourceId, It.IsAny<int>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SmartSchemaContext { FullContext = "schema", DatabaseDialect = "PostgreSql" });
+        // Only reached by the pipeline's execution-repair path (TEST-1); harmless default otherwise.
+        knowledge
+            .Setup(x => x.GetTablesContextAsync(It.IsAny<int>(), It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("");
 
-        // Generation is mocked so the ONLY path that can reach ILlmProvider is the judge.
-        var sqlGen = new Mock<ISqlGenerationService>();
-        sqlGen
-            .Setup(x => x.GenerateAsync(
-                It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(),
-                It.IsAny<McpSettingsData>(), It.IsAny<CancellationToken>(), It.IsAny<decimal?>()))
-            .ReturnsAsync(new SqlGenerationResult("SELECT 2 AS n", ["orders"]));
+        // Generation is mocked so the ONLY path that can reach ILlmProvider is the judge — unless the
+        // caller supplies its own (TEST-1: a mock that also drives RetryWithErrorAsync).
+        var sqlGen = sqlGenOverride ?? new Mock<ISqlGenerationService>();
+        if (sqlGenOverride == null)
+        {
+            sqlGen
+                .Setup(x => x.GenerateAsync(
+                    It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(),
+                    It.IsAny<McpSettingsData>(), It.IsAny<CancellationToken>(), It.IsAny<decimal?>()))
+                .ReturnsAsync(new SqlGenerationResult("SELECT 2 AS n", ["orders"]));
+        }
 
         // Provider returns DIFFERENT rows for gold ("SELECT 1") vs generated ("SELECT 2") — both succeed,
         // so fingerprints differ, the case does not pass, and the judge's precondition is satisfied.
         var provider = new Mock<IDataSourceProvider>();
+        if (failingExecution is { } fail)
+        {
+            provider
+                .Setup(x => x.ExecuteQueryAsync(
+                    It.IsAny<DataSource>(), fail.Sql, It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new ProviderQueryResult { Success = false, ErrorMessage = fail.Error });
+        }
+
         provider
             .Setup(x => x.ExecuteQueryAsync(
                 It.IsAny<DataSource>(), It.Is<string>(s => s.Contains("SELECT 1")),
@@ -204,10 +261,19 @@ public class McpEvalServiceJudgeGateTests
                 MaxRowLimit = 1000
             });
 
+        var pipeline = new AskSqlPipeline(
+            knowledge.Object,
+            sqlGen.Object,
+            guardrail.Object,
+            new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),
+            new SqlSchemaValidator(),
+            new SqlSemanticLinter(),
+            NullLogger<AskSqlPipeline>.Instance);
+
         var service = new McpEvalService(
             factory.Object,
             knowledge.Object,
-            sqlGen.Object,
+            pipeline,
             providerFactory.Object,
             guardrail.Object,
             new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),

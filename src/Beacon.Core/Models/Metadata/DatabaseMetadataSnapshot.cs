@@ -38,7 +38,8 @@ public record ColumnMetadataDto(
     string? Description,
     IReadOnlyList<string>? SampleValues = null,
     string? ForeignKeySchema = null,
-    string? ForeignKeyConstraintName = null
+    string? ForeignKeyConstraintName = null,
+    bool SampleValuesComplete = false
 );
 
 public record IndexMetadataDto(

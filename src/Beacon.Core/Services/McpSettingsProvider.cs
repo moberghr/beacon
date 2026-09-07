@@ -89,7 +89,11 @@ internal sealed class McpSettingsProvider(
             DocChunkTopK = entity.DocChunkTopK,
             EnableGoldenExemplars = entity.EnableGoldenExemplars,
             GoldenExemplarTopK = entity.GoldenExemplarTopK,
-            GoldenExemplarBudgetChars = entity.GoldenExemplarBudgetChars
+            GoldenExemplarBudgetChars = entity.GoldenExemplarBudgetChars,
+            EnableValueGrounding = entity.EnableValueGrounding,
+            ValueGroundingMaxProbes = entity.ValueGroundingMaxProbes,
+            EnableSemanticLint = entity.EnableSemanticLint,
+            SelfConsistencyMinTables = entity.SelfConsistencyMinTables
         };
     }
 }

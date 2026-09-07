@@ -18,11 +18,12 @@ using Beacon.Core.Services.Validation;
 namespace Beacon.AI.Services.Eval;
 
 /// <summary>
-/// Executes the MCP text-to-SQL eval harness (§ Architecture ①). For each active golden case it
-/// generates SQL through the AI pipeline, then executes BOTH the gold and the generated SQL strictly
-/// read-only via the Core-level <see cref="IDataSourceProviderFactory"/> — applying
-/// <see cref="SqlReadOnlyAstValidator"/> + <see cref="IQueryGuardrailService"/> ITSELF before every
-/// execution (read-only is NOT inherited from any wrapper; §1.5, lesson 2026-07-03). Execution-accuracy
+/// Executes the MCP text-to-SQL eval harness (§ Architecture ①). For each active golden case it runs the
+/// generated side through the SAME <see cref="IAskSqlPipeline"/> instance type production `ask` uses
+/// (SC1), via a per-case <see cref="EvalReadOnlySqlExecutor"/> that forces read-only regardless of the
+/// per-project flag; the gold SQL executes through that SAME executor
+/// (<see cref="SqlReadOnlyAstValidator"/> + <see cref="IQueryGuardrailService"/> applied before every
+/// execution — read-only is NOT inherited from any wrapper; §1.5, lesson 2026-07-03). Execution-accuracy
 /// is scored by comparing result-set fingerprints, and a failure tag distinguishes retrieval from
 /// SQL-reasoning from execution failures. The LLM-as-judge is invoked ONLY when
 /// <c>EnableEvalJudge</c> is true and, when invoked, sees only a PII-redacted representation (§1.6/§1.11).
@@ -32,7 +33,7 @@ namespace Beacon.AI.Services.Eval;
 internal sealed class McpEvalService(
     IDbContextFactory<BeaconContext> contextFactory,
     IKnowledgeGraphService knowledgeGraph,
-    ISqlGenerationService sqlGenerationService,
+    IAskSqlPipeline askSqlPipeline,
     IDataSourceProviderFactory providerFactory,
     IQueryGuardrailService guardrailService,
     SqlReadOnlyAstValidator readOnlyAstValidator,
@@ -43,9 +44,6 @@ internal sealed class McpEvalService(
     // Hard cap on rows handed to the (opt-in, PII-redacted) judge so a large result set never balloons
     // the prompt — the judge only needs a structural sample to spot a cosmetic-only difference.
     private const int MaxJudgeRows = 20;
-
-    // Per-statement execution ceiling, matching the MCP query executor.
-    private static readonly TimeSpan ExecutionTimeout = TimeSpan.FromSeconds(30);
 
     public async Task<int> StartRunAsync(int? projectId, int? userId, CancellationToken ct)
     {
@@ -251,7 +249,7 @@ internal sealed class McpEvalService(
             ?? throw new InvalidOperationException($"Data source {dataSourceId} not found.");
 
         // Reuses the exact read-only generate+execute+compare core (SqlReadOnlyAstValidator + guardrail
-        // via ExecuteReadOnlyAsync) — no judge, no persistence. Safe for the replay gate (§1.5). Generation
+        // via EvalReadOnlySqlExecutor) — no judge, no persistence. Safe for the replay gate (§1.5). Generation
         // is pinned to temperature 0 so a baseline↔candidate flip reflects the injected lesson, not sampling
         // noise (both the baseline and candidate replay generations run through here).
         var outcome = await GenerateExecuteCompareAsync(
@@ -266,11 +264,12 @@ internal sealed class McpEvalService(
     }
 
     /// <summary>
-    /// The reusable read-only core shared by the normal run and the replay-verification gate: fetch the
-    /// smart context, append the optional <paramref name="extraContext"/> (a candidate learned-pattern block)
-    /// to it, generate SQL, execute BOTH the gold and generated SQL strictly read-only via
-    /// <see cref="ExecuteReadOnlyAsync"/> (AST + guardrail, ReadOnly forced true), and compare result-set
-    /// fingerprints (with the frozen-gold-fingerprint fallback). Performs NO judge and NO persistence.
+    /// The reusable read-only core shared by the normal run and the replay-verification gate: run the
+    /// SAME <see cref="IAskSqlPipeline"/> instance type that production `ask` runs (SC1) — generate,
+    /// validate, repair, execute — via a per-case <see cref="EvalReadOnlySqlExecutor"/> (read-only forced,
+    /// AST + guardrail applied on every execution, §1.5), then execute the gold SQL through that SAME
+    /// executor and compare result-set fingerprints (with the frozen-gold-fingerprint fallback). Performs
+    /// NO judge and NO persistence.
     /// </summary>
     private async Task<CaseOutcome> GenerateExecuteCompareAsync(
         DataSource dataSource,
@@ -284,18 +283,30 @@ internal sealed class McpEvalService(
         CancellationToken ct)
     {
         var smartContext = await knowledgeGraph.GetSmartContextForAskAsync(dataSource.Id, projectId, question, ct);
-        var dialect = smartContext.DatabaseDialect ?? dataSource.DatabaseEngineType?.ToString();
 
-        // The candidate lesson is injected as a suffix on the smart-context string only — generation is the
-        // only thing that changes between the baseline and candidate replay passes.
-        var fullContext = string.IsNullOrEmpty(extraContext)
-            ? smartContext.FullContext
-            : smartContext.FullContext + extraContext;
+        var evalExecutor = new EvalReadOnlySqlExecutor(contextFactory, providerFactory, guardrailService, readOnlyAstValidator, settings);
+        evalExecutor.UseDataSource(dataSource);
 
-        var generated = await sqlGenerationService.GenerateAsync(llmProvider, fullContext, question, settings, ct, generationTemperature);
+        var outcome = await askSqlPipeline.RunAsync(
+            llmProvider,
+            dataSource.Id,
+            projectId,
+            question,
+            settings,
+            evalExecutor,
+            new AskSqlPipelineOptions(
+                ExtraContext: extraContext,
+                GenerationTemperature: generationTemperature,
+                AllowSelfConsistency: generationTemperature is null),
+            ct);
 
-        var goldExec = await ExecuteReadOnlyAsync(dataSource, goldSql, dialect, settings, ct);
-        var generatedExec = await ExecuteReadOnlyAsync(dataSource, generated.Sql, dialect, settings, ct);
+        var goldExec = await evalExecutor.ExecuteReadOnlyAsync(dataSource.Id, goldSql, ct);
+        var generatedExec = new ProviderQueryResult
+        {
+            Success = outcome.Execution?.IsSuccess ?? false,
+            ErrorMessage = outcome.Execution?.ErrorMessage ?? outcome.ValidationError ?? outcome.SchemaValidationError,
+            Rows = outcome.Execution?.Rows?.ToList() ?? []
+        };
 
         // Gold fingerprint prefers a fresh execution; falls back to the frozen fingerprint captured
         // at promotion time when the gold SQL can no longer execute.
@@ -310,48 +321,7 @@ internal sealed class McpEvalService(
             && goldFingerprint != null
             && generatedFingerprint == goldFingerprint;
 
-        return new CaseOutcome(passed, generated.Sql, generated.TablesUsed, smartContext.RelevantTables, goldExec, generatedExec);
-    }
-
-    /// <summary>
-    /// Executes SQL strictly read-only. Read-only is enforced HERE (not inherited): the regex guardrail
-    /// runs first, then the AST validator (fail-closed on parse failure), then the row-limit is applied,
-    /// and only then does the provider execute. Applies to BOTH the gold and the generated SQL.
-    /// </summary>
-    private async Task<ProviderQueryResult> ExecuteReadOnlyAsync(
-        DataSource dataSource,
-        string sql,
-        string? dialect,
-        McpSettingsData settings,
-        CancellationToken ct)
-    {
-        // ReadOnly is forced true regardless of the per-project EnforceReadOnly flag — the eval harness
-        // must never mutate a live data source.
-        var guardrail = guardrailService.ValidateQuery(sql, new QueryGuardrailOptions
-        {
-            ReadOnly = true,
-            DetectPii = settings.EnablePiiDetection,
-            CustomPiiPatterns = settings.CustomPiiPatterns.Count > 0 ? settings.CustomPiiPatterns : null
-        });
-
-        if (!guardrail.IsValid)
-        {
-            return new ProviderQueryResult { Success = false, ErrorMessage = guardrail.Error };
-        }
-
-        var astError = readOnlyAstValidator.Validate(sql, dialect);
-        if (astError != null)
-        {
-            return new ProviderQueryResult { Success = false, ErrorMessage = astError };
-        }
-
-        var limitedSql = guardrailService.ApplyRowLimit(sql, settings.MaxRowLimit, dataSource.DatabaseEngineType?.ToString());
-        var provider = providerFactory.GetProvider(dataSource.DataSourceType);
-
-        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timeoutCts.CancelAfter(ExecutionTimeout);
-
-        return await provider.ExecuteQueryAsync(dataSource, limitedSql, new Dictionary<string, object?>(), timeoutCts.Token);
+        return new CaseOutcome(passed, outcome.FinalSql, outcome.TablesUsed, smartContext.RelevantTables, goldExec, generatedExec);
     }
 
     private async Task<string?> RunJudgeAsync(

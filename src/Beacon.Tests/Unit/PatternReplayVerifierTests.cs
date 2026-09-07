@@ -407,10 +407,19 @@ public class PatternReplayVerifierTests
                 MaxRowLimit = 1000
             });
 
+        var pipeline = new AskSqlPipeline(
+            knowledge.Object,
+            sqlGen.Object,
+            guardrail.Object,
+            new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),
+            new SqlSchemaValidator(),
+            new SqlSemanticLinter(),
+            NullLogger<AskSqlPipeline>.Instance);
+
         return new McpEvalService(
             factory.Object,
             knowledge.Object,
-            sqlGen.Object,
+            pipeline,
             providerFactory.Object,
             guardrail.Object,
             new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),

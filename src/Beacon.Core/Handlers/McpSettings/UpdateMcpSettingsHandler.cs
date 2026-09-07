@@ -85,6 +85,12 @@ internal sealed class UpdateMcpSettingsHandler(
         entity.GoldenExemplarTopK = data.GoldenExemplarTopK;
         entity.GoldenExemplarBudgetChars = data.GoldenExemplarBudgetChars;
 
+        // Ask-correctness grounding settings
+        entity.EnableValueGrounding = data.EnableValueGrounding;
+        entity.ValueGroundingMaxProbes = data.ValueGroundingMaxProbes;
+        entity.EnableSemanticLint = data.EnableSemanticLint;
+        entity.SelfConsistencyMinTables = data.SelfConsistencyMinTables;
+
         await context.SaveChangesAsync(cancellationToken);
         settingsProvider.InvalidateCache();
     }

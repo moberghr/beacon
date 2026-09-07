@@ -45,4 +45,10 @@ public class McpSettings : BaseEntity
     public bool EnableGoldenExemplars { get; set; } = true;
     public int GoldenExemplarTopK { get; set; } = 4;
     public int GoldenExemplarBudgetChars { get; set; } = 2000;
+
+    // Ask-correctness grounding settings
+    public bool EnableValueGrounding { get; set; } = true;
+    public int ValueGroundingMaxProbes { get; set; } = 12;
+    public bool EnableSemanticLint { get; set; } = true;
+    public int SelfConsistencyMinTables { get; set; } = 2;
 }

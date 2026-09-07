@@ -42,6 +42,40 @@ public class SchemaContextFormatterTests
     }
 
     [Test]
+    public void AppendTableWithFullColumns_CompleteDomain_RendersValuesAllN()
+    {
+        var sb = new StringBuilder();
+        var columns = new List<SchemaColumn>
+        {
+            new("status", "text", false, true, null, null, null,
+                SampleValuesJson: "[\"A\",\"I\",\"P\",\"R\",\"X\"]", SampleValuesComplete: true)
+        };
+
+        SchemaContextFormatter.AppendTableWithFullColumns(sb, "public", "orders", null, columns, isApi: false);
+        var output = sb.ToString();
+
+        output.Should().Contain("Values (all 5): [A, I, P, R, X]");
+        output.Should().NotContain("Examples:");
+    }
+
+    [Test]
+    public void AppendTableWithFullColumns_IncompleteDomain_StillRendersExamples()
+    {
+        var sb = new StringBuilder();
+        var columns = new List<SchemaColumn>
+        {
+            new("status", "text", false, true, null, null, null,
+                SampleValuesJson: "[\"A\",\"I\"]", SampleValuesComplete: false)
+        };
+
+        SchemaContextFormatter.AppendTableWithFullColumns(sb, "public", "orders", null, columns, isApi: false);
+        var output = sb.ToString();
+
+        output.Should().Contain("Examples: [A, I]");
+        output.Should().NotContain("Values (all");
+    }
+
+    [Test]
     public void AppendTableWithFullColumns_InvalidSampleJson_RendersWithoutExamples()
     {
         var sb = new StringBuilder();

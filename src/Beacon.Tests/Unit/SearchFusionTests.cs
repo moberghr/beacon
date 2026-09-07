@@ -229,6 +229,9 @@ public class SearchFusionTests
             settings.Object,
             embedder,
             Mock.Of<ISchemaGraphService>(),
+            Mock.Of<IValueGroundingService>(x => x.BuildValueMatchesBlockAsync(
+                It.IsAny<int>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<ValueGroundingTable>>(), It.IsAny<McpSettingsData>(), It.IsAny<CancellationToken>())
+                == Task.FromResult("")),
             NullLogger<KnowledgeGraphService>.Instance);
     }
 
