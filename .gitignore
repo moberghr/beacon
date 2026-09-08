@@ -362,6 +362,10 @@ docs/plans/
 tasks/todo.md
 .claude/.mtk-cache/
 .claude/references.index
+.claude/settings.local.json
+.claude/analytics.json
+.claude/repo-health-latest.md
+.claude/repo-health-latest.json
 .mtk/
 
 # React (post-Phase-3-cutover — UI now lives in src/Beacon.UI/)

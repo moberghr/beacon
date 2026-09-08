@@ -90,3 +90,9 @@ Full reference docs (read on-demand by skills and review agents):
 <!-- mtk-setup: v7.2.0
      coding-guidelines: moberghr/coding-guidelines@4043387ca2c70ed0cd76e005861f5c471908c3bb
      generated: 2026-05-04T00:00:00Z -->
+
+<!-- mtk-stamp
+audited-against: bece471c091130f4332baec7296b48e99471bb9c
+audited-at: 2026-09-08T09:59:48Z
+mtk-version: 7.35.0
+-->
