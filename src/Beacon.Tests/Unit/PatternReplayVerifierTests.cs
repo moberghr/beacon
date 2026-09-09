@@ -397,7 +397,7 @@ public class PatternReplayVerifierTests
             .Setup(x => x.IsPiiColumn(It.IsAny<string>(), It.IsAny<IReadOnlyList<string>?>()))
             .Returns(false);
 
-        var settings = new Mock<IMcpSettingsProvider>();
+        var settings = SettingsProviderMock.Create();
         settings
             .Setup(x => x.GetSettingsAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(new McpSettingsData

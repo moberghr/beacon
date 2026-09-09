@@ -77,7 +77,7 @@ internal sealed class ProjectQueryTool(
         if (projectError != null)
             return await FailAsync(signal, sw, projectId, datasource_id, sql ?? api_query, projectError, cancellationToken);
 
-        var settings = await settingsProvider.GetSettingsAsync(cancellationToken);
+        var settings = await settingsProvider.GetEffectiveSettingsAsync(projectId, cancellationToken);
         var maxRows = Math.Min(max_rows ?? 100, settings.MaxRowLimit);
 
         try

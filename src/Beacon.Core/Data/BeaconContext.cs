@@ -145,6 +145,7 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
     public DbSet<McpAuditLog> McpAuditLogs => Set<McpAuditLog>();
 
     public DbSet<McpSettings> McpSettings => Set<McpSettings>();
+    public DbSet<McpProjectSettings> McpProjectSettings => Set<McpProjectSettings>();
 
     // MCP Learning
     public DbSet<McpQuerySignal> McpQuerySignals => Set<McpQuerySignal>();
@@ -1369,6 +1370,26 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             entity.Property(e => e.DocChunkOverlapSentences).HasDefaultValue(1);
             entity.Property(e => e.GlossaryTopK).HasDefaultValue(5);
             entity.Property(e => e.DocChunkTopK).HasDefaultValue(6);
+            entity.Property(e => e.RetainQueryContent).HasDefaultValue(true);
+            entity.Property(e => e.StatementTimeoutSeconds).HasDefaultValue(30);
+            entity.Property(e => e.MaxResultBytes).HasDefaultValue(262144);
+            entity.Property(e => e.MaxExplainCost).HasPrecision(18, 2);
+            entity.Property(e => e.MaxConcurrentQueriesPerKey).HasDefaultValue(4);
+            entity.Property(e => e.AllowExplicitFeedbackContent).HasDefaultValue(true);
+        });
+
+        // Per-project overrides: one row per project, every column nullable (null = inherit the global row).
+        // The row is deleted with its project; resolution lives in McpSettingsProvider.
+        modelBuilder.Entity<McpProjectSettings>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.ProjectId).IsUnique();
+            entity.HasOne(e => e.Project)
+                .WithMany()
+                .HasForeignKey(e => e.ProjectId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.Property(e => e.CustomPiiPatterns).HasMaxLength(4000);
+            entity.Property(e => e.MaxExplainCost).HasPrecision(18, 2);
         });
     }
 
@@ -1383,6 +1404,7 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             entity.Property(e => e.SchemaValidationError).HasMaxLength(4000);
             entity.Property(e => e.ExecutionError).HasMaxLength(4000);
             entity.Property(e => e.DryRunError).HasMaxLength(4000);
+            entity.Property(e => e.CallerHash).HasMaxLength(128);
 
             entity.HasIndex(e => e.ProjectId);
             entity.HasIndex(e => e.DataSourceId);

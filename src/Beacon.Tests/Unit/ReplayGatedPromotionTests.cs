@@ -195,7 +195,7 @@ public class ReplayGatedPromotionTests
             .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(context);
 
-        var settingsProvider = new Mock<IMcpSettingsProvider>();
+        var settingsProvider = SettingsProviderMock.Create();
 
         var service = new McpLearningAggregationService(
             factory.Object,

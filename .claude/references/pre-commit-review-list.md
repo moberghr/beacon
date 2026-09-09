@@ -21,3 +21,7 @@
 9. **Tests added for new public methods / handlers.** Non-trivial LINQ → translation test in `QueryTranslationTests.cs`. Pure logic → NUnit unit test. React UI → Vitest + RTL. NEVER `UseInMemoryDatabase`.
 
 10. **Build + format clean.** `dotnet build --property WarningLevel=0` passes, `dotnet format --verify-no-changes` passes, no new warnings introduced.
+
+11. **A derived READ must not feed a full-row WRITE.** If a GET applies policy (locks, ceilings, defaults, RBAC-filtered fields) and the matching PUT replaces every field, the writer must either receive the raw stored values + derivation metadata or treat "derived value echoed back unchanged" as not-an-edit (`UpdateMcpSettingsHandler.KeepStoredWhenClamped`, `McpLockPolicy.KeepStored`). One unrelated save otherwise bakes the policy value into the row. Flag any settings/config handler pair where the GET calls a `*Effective*`/resolved accessor.
+
+12. **A shared test double must vary on a newly added discriminator.** When a call gains a project/tenant/user/dialect parameter, `It.IsAny<int>()` on that parameter in a shared mock helper hides a wrong-id regression across every fixture. The helper must accept a per-id map (`SettingsProviderMock.Create(projectSettings:)`) and at least one consumer test per switched call site must assert a differing value follows the id and `Verify` that no other id was requested.

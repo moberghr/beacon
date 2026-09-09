@@ -111,6 +111,110 @@ public class McpLearningDetectionTests
         captured.Should().NotContain(x => x.ColumnName == "status_x");
     }
 
+    [Test]
+    public async Task AggregateLearnedPatternsAsync_ProjectWithLearningOff_IsSkipped_WhileOthersAreMined()
+    {
+        // T-F003: the per-project effective EnableLearning is the inner gate. Project 1 inherits the global ON;
+        // project 2 overrides to OFF — its (otherwise mineable) invoices cluster must leave no pattern.
+        var signals = new List<McpQuerySignal>
+        {
+            CorrectionSignal(),
+            CorrectionSignal(),
+            CorrectionSignal(),
+            CorrectionSignalFor(projectId: 2, table: "public.invoices", badColumn: "amount_x", goodColumn: "amount"),
+            CorrectionSignalFor(projectId: 2, table: "public.invoices", badColumn: "amount_x", goodColumn: "amount"),
+            CorrectionSignalFor(projectId: 2, table: "public.invoices", badColumn: "amount_x", goodColumn: "amount")
+        };
+        var captured = new List<McpLearnedPattern>();
+        var service = BuildAggregationService(signals, captured, perProject: new Dictionary<int, McpSettingsData>
+        {
+            [2] = new McpSettingsData { EnableLearning = false, LearningSignalRetentionDays = 90 }
+        });
+
+        await service.AggregateLearnedPatternsAsync(CancellationToken.None);
+
+        captured.Should().Contain(x => x.PatternType == McpPatternType.SchemaCorrection && x.ColumnName == "created_at",
+            "project 1 (learning on) is still mined — proves the run happened");
+        captured.Should().NotContain(x => x.TableName == "invoices" || x.ColumnName == "amount_x",
+            "project 2 has learning switched off via its effective settings");
+    }
+
+    [Test]
+    public async Task CleanupOldSignalsAsync_UsesEachProjectsRetentionWindow_AndTheGlobalWindowForProjectlessSignals()
+    {
+        // T-F003: retention is per project. Project 1 keeps 10 days, project 2 keeps 100, projectless signals
+        // keep the global 90. Only the rows older than THEIR window are deleted.
+        var p1Old = AgedSignal(projectId: 1, ageDays: 15);
+        var p1Fresh = AgedSignal(projectId: 1, ageDays: 5);
+        var p2Old = AgedSignal(projectId: 2, ageDays: 95);
+        var noneOld = AgedSignal(projectId: null, ageDays: 95);
+        var noneFresh = AgedSignal(projectId: null, ageDays: 30);
+        var signals = new List<McpQuerySignal> { p1Old, p1Fresh, p2Old, noneOld, noneFresh };
+        var service = BuildAggregationService(signals, [], perProject: new Dictionary<int, McpSettingsData>
+        {
+            [1] = new McpSettingsData { EnableLearning = true, LearningSignalRetentionDays = 10 },
+            [2] = new McpSettingsData { EnableLearning = true, LearningSignalRetentionDays = 100 }
+        });
+
+        await service.CleanupOldSignalsAsync(ct: CancellationToken.None);
+
+        signals.Should().Equal([p1Fresh, p2Old, noneFresh],
+            "p1's 15-day row exceeds its 10-day window; p2's 95-day row is kept ONLY because of its 100-day override (the global 90 would drop it); the 95-day projectless row exceeds the global 90");
+    }
+
+    [Test]
+    public async Task CleanupOldSignalsAsync_ExplicitRetentionDays_WinsOverEveryWindow()
+    {
+        var p1 = AgedSignal(projectId: 1, ageDays: 15);
+        var p2 = AgedSignal(projectId: 2, ageDays: 15);
+        var none = AgedSignal(projectId: null, ageDays: 15);
+        var fresh = AgedSignal(projectId: 1, ageDays: 1);
+        var signals = new List<McpQuerySignal> { p1, p2, none, fresh };
+        var service = BuildAggregationService(signals, [], perProject: new Dictionary<int, McpSettingsData>
+        {
+            [1] = new McpSettingsData { EnableLearning = true, LearningSignalRetentionDays = 100 },
+            [2] = new McpSettingsData { EnableLearning = true, LearningSignalRetentionDays = 100 }
+        });
+
+        await service.CleanupOldSignalsAsync(retentionDays: 7, ct: CancellationToken.None);
+
+        signals.Should().Equal([fresh], "an explicit retentionDays argument overrides both project and global windows");
+    }
+
+    private static McpQuerySignal AgedSignal(int? projectId, int ageDays)
+    {
+        return new McpQuerySignal
+        {
+            Tool = "ask",
+            Question = "q",
+            ProjectId = projectId,
+            DataSourceId = DataSourceId,
+            CreatedTime = DateTime.UtcNow.AddDays(-ageDays),
+            IsSuccessful = true
+        };
+    }
+
+    private static McpQuerySignal CorrectionSignalFor(int projectId, string table, string badColumn, string goodColumn)
+    {
+        var shortTable = table.Contains('.') ? table[(table.IndexOf('.') + 1)..] : table;
+
+        return new McpQuerySignal
+        {
+            Tool = "ask",
+            Question = $"{shortTable} created last month",
+            ProjectId = projectId,
+            DataSourceId = DataSourceId,
+            SchemaValidationFailed = true,
+            SchemaValidationError = $"Column '{badColumn}' does not exist on 'l'. Available: {goodColumn}, id",
+            RetryAttempted = true,
+            RetrySucceeded = true,
+            GeneratedSql = $"SELECT id FROM {table} WHERE {badColumn} > 0",
+            CorrectedSql = $"SELECT id FROM {table} WHERE {goodColumn} > 0",
+            TablesUsed = $"[\"{table}\"]",
+            IsSuccessful = true
+        };
+    }
+
     private static McpQuerySignal CorrectionSignal()
     {
         return new McpQuerySignal
@@ -152,29 +256,40 @@ public class McpLearningDetectionTests
     }
 
     private static McpLearningAggregationService BuildAggregationService(
-        List<McpQuerySignal> signals, List<McpLearnedPattern> captured)
+        List<McpQuerySignal> signals,
+        List<McpLearnedPattern> captured,
+        IReadOnlyDictionary<int, McpSettingsData>? perProject = null)
     {
         var patternSet = BuildDbSet(Array.Empty<McpLearnedPattern>());
         patternSet
             .Setup(x => x.Add(It.IsAny<McpLearnedPattern>()))
             .Callback<McpLearnedPattern>(captured.Add);
 
-        var context = new DetectionTestContext(patternSet.Object, BuildDbSet(signals).Object);
+        // ExecuteDeleteAsync over the double removes the matched rows from the backing list (CleanupOldSignalsAsync).
+        var signalSet = BuildDbSet(signals, matched =>
+        {
+            foreach (var row in matched)
+            {
+                signals.Remove(row);
+            }
+
+            return matched.Count;
+        });
+        var context = new DetectionTestContext(patternSet.Object, signalSet.Object);
 
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory
             .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(context);
 
-        var settingsProvider = new Mock<IMcpSettingsProvider>();
-        settingsProvider
-            .Setup(x => x.GetSettingsAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new McpSettingsData
+        var settingsProvider = SettingsProviderMock.Create(
+            new McpSettingsData
             {
                 EnableLearning = true,
                 LearningSignalRetentionDays = 90,
                 EnableReplayVerification = false
-            });
+            },
+            projectSettings: perProject);
 
         return new McpLearningAggregationService(
             factory.Object,
@@ -201,7 +316,7 @@ public class McpLearningDetectionTests
 
         var service = new McpLearningAggregationService(
             factory.Object,
-            Mock.Of<IMcpSettingsProvider>(),
+            SettingsProviderMock.Create().Object,
             NullLogger<McpLearningAggregationService>.Instance,
             lessonExtractor: extractor,
             replayVerifier: null);
@@ -209,14 +324,14 @@ public class McpLearningDetectionTests
         return (service, context);
     }
 
-    private static Mock<DbSet<T>> BuildDbSet<T>(IEnumerable<T> data) where T : class
+    private static Mock<DbSet<T>> BuildDbSet<T>(IEnumerable<T> data, Func<IReadOnlyList<T>, int>? onExecuteDelete = null) where T : class
     {
         var queryable = data.AsQueryable();
         var set = new Mock<DbSet<T>>();
         set.As<IAsyncEnumerable<T>>()
             .Setup(x => x.GetAsyncEnumerator(It.IsAny<CancellationToken>()))
             .Returns(() => new TestAsyncEnumerator<T>(data.GetEnumerator()));
-        set.As<IQueryable<T>>().Setup(x => x.Provider).Returns(new TestAsyncQueryProvider<T>(queryable.Provider));
+        set.As<IQueryable<T>>().Setup(x => x.Provider).Returns(new TestAsyncQueryProvider<T>(queryable.Provider, onExecuteDelete));
         set.As<IQueryable<T>>().Setup(x => x.Expression).Returns(queryable.Expression);
         set.As<IQueryable<T>>().Setup(x => x.ElementType).Returns(queryable.ElementType);
         set.As<IQueryable<T>>().Setup(x => x.GetEnumerator()).Returns(() => data.GetEnumerator());

@@ -13,6 +13,8 @@ using Beacon.Core.Services.Validation;
 using Beacon.Tests.Common;
 using Beacon.MCP.Services;
 using Beacon.MCP.Tools;
+using Microsoft.EntityFrameworkCore;
+using Beacon.Core.Data;
 
 namespace Beacon.Tests.Unit;
 
@@ -253,6 +255,57 @@ public class ProjectAskToolRepairFlowTests
     // "lint" trigger (SF-2), which has no dedicated McpQuerySignal field and falls through to SetRetry
     // (when a corrected SQL was adopted) plus an informational log.
     [Test]
+    public async Task ExecuteAsync_ResolvesEffectiveSettingsForTheAuthorizedProject_NotTheGlobalRow()
+    {
+        // NF-1: the ask tool resolves settings for the AUTHORIZED project. Global says MaxRowLimit 1000, project 42
+        // says 10; the knowledge branch must receive the project's effective settings, and no other project id
+        // may be asked for.
+        var settingsProvider = SettingsProviderMock.Create(
+            new McpSettingsData { MaxRowLimit = 1000 },
+            projectSettings: new Dictionary<int, McpSettingsData> { [ProjectId] = new McpSettingsData { MaxRowLimit = 10 } });
+
+        var serviceProvider = new Mock<IServiceProvider>();
+        serviceProvider.Setup(x => x.GetService(typeof(ILlmProvider))).Returns(_llmProvider.Object);
+
+        var intentClassifier = new Mock<IIntentClassifier>();
+        intentClassifier
+            .Setup(x => x.ClassifyAsync(It.IsAny<ILlmProvider>(), Question, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(IntentClassification.Knowledge);
+
+        McpSettingsData? handed = null;
+        var knowledgeAnswer = new Mock<IKnowledgeAnswerService>();
+        knowledgeAnswer
+            .Setup(x => x.AnswerAsync(It.IsAny<ILlmProvider>(), ProjectId, Question, It.IsAny<McpSettingsData>(), It.IsAny<CancellationToken>()))
+            .Callback<ILlmProvider, int, string, McpSettingsData, CancellationToken>((_, _, _, settings, _) => handed = settings)
+            .ReturnsAsync("answer");
+
+        // Audit + signal services are best-effort (§1.7): a bare factory keeps their paths runnable without a DB.
+        var factory = new Mock<IDbContextFactory<BeaconContext>>();
+        var tool = new ProjectAskTool(
+            Mock.Of<IKnowledgeGraphService>(),
+            settingsProvider.Object,
+            serviceProvider.Object,
+            new McpProjectContext { UserId = 1, AllowedProjectIds = [ProjectId] },
+            new McpAuditService(factory.Object, NullLogger<McpAuditService>.Instance),
+            new McpSignalService(factory.Object, settingsProvider.Object, NullLogger<McpSignalService>.Instance),
+            Mock.Of<IAskSqlPipeline>(),
+            _executor.Object,
+            intentClassifier.Object,
+            Mock.Of<IDataSourceRouter>(),
+            knowledgeAnswer.Object,
+            Mock.Of<ICrossSourceQueryService>(),
+            NullLogger<ProjectAskTool>.Instance);
+
+        var result = await tool.ExecuteAsync(Question, cancellationToken: CancellationToken.None);
+
+        (result.IsError ?? false).Should().BeFalse();
+        handed.Should().NotBeNull();
+        handed!.MaxRowLimit.Should().Be(10, "project 42's override, not the global 1000");
+        settingsProvider.Verify(x => x.GetEffectiveSettingsAsync(ProjectId, It.IsAny<CancellationToken>()), Times.AtLeastOnce);
+        settingsProvider.Verify(x => x.GetEffectiveSettingsAsync(It.Is<int>(id => id != ProjectId), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Test]
     public async Task GenerateAndExecuteSqlAsync_MapsEveryRepairTriggerOntoTheSignal()
     {
         var canned = new AskSqlOutcome(
@@ -289,7 +342,7 @@ public class ProjectAskToolRepairFlowTests
 
         var tool = new ProjectAskTool(
             Mock.Of<IKnowledgeGraphService>(),
-            Mock.Of<IMcpSettingsProvider>(),
+            SettingsProviderMock.Create().Object,
             Mock.Of<IServiceProvider>(),
             Mock.Of<IProjectContext>(),
             null!,
@@ -370,7 +423,7 @@ public class ProjectAskToolRepairFlowTests
 
         var tool = new ProjectAskTool(
             Mock.Of<IKnowledgeGraphService>(),
-            Mock.Of<IMcpSettingsProvider>(),
+            SettingsProviderMock.Create().Object,
             Mock.Of<IServiceProvider>(),
             Mock.Of<IProjectContext>(),
             null!,

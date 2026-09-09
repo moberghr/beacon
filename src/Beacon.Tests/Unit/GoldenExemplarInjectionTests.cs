@@ -525,7 +525,7 @@ public class GoldenExemplarInjectionTests
             .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(context);
 
-        var settingsProvider = new Mock<IMcpSettingsProvider>();
+        var settingsProvider = SettingsProviderMock.Create();
         settingsProvider
             .Setup(x => x.GetSettingsAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(settings);

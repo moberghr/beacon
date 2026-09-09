@@ -205,6 +205,13 @@ public static class ServiceConfiguration
         // Embed token service (HS256 mint/validate for embeddable Beacon integrations)
         services.Configure<EmbedTokenOptions>(configuration.GetSection("Beacon:EmbedToken"));
         services.AddSingleton<IValidateOptions<EmbedTokenOptions>, EmbedTokenOptionsValidator>();
+
+        // Deployment-level MCP locks and ceilings (Beacon:Mcp). An absent section = no locks, no ceilings.
+        // ValidateOnStart so a non-positive ceiling fails the host at boot, not on the first query.
+        services.AddOptions<Configuration.McpDeploymentOptions>()
+            .Bind(configuration.GetSection(Configuration.McpDeploymentOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<Configuration.McpDeploymentOptions>, Configuration.McpDeploymentOptionsValidator>();
         services.TryAddSingleton<TimeProvider>(TimeProvider.System);
         services.TryAddSingleton<IEmbedTokenService, EmbedTokenService>();
 

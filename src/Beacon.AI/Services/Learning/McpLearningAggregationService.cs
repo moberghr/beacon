@@ -23,8 +23,8 @@ internal sealed class McpLearningAggregationService(
         {
             await using var context = await contextFactory.CreateDbContextAsync(ct);
             projectIds = await context.McpQuerySignals
-                .Where(s => s.ProjectId != null)
-                .Select(s => s.ProjectId!.Value)
+                .Where(x => x.ProjectId != null)
+                .Select(x => x.ProjectId!.Value)
                 .Distinct()
                 .ToListAsync(ct);
         }
@@ -38,8 +38,16 @@ internal sealed class McpLearningAggregationService(
         {
             try
             {
+                // Per-project effective settings (retention window, replay gate, thresholds); a project that has
+                // learning switched off is skipped while the global switch stays the outer gate.
+                var projectSettings = await settingsProvider.GetEffectiveSettingsAsync(projectId, ct);
+                if (!projectSettings.EnableLearning)
+                {
+                    continue;
+                }
+
                 await using var projectContext = await contextFactory.CreateDbContextAsync(ct);
-                await AggregateForProjectAsync(projectContext, projectId, settings, extraction, ct);
+                await AggregateForProjectAsync(projectContext, projectId, projectSettings, extraction, ct);
             }
             catch (OperationCanceledException)
             {
@@ -650,16 +658,37 @@ internal sealed class McpLearningAggregationService(
             var settings = await settingsProvider.GetSettingsAsync(ct);
             if (!settings.EnableLearning) return;
 
+            await using var context = await contextFactory.CreateDbContextAsync(ct);
+
+            // Retention is a per-project setting: delete each project's signals with that project's effective
+            // window; signals with no project use the global window. An explicit retentionDays argument wins.
+            var projectIds = await context.McpQuerySignals
+                .Where(x => x.ProjectId != null)
+                .Select(x => x.ProjectId!.Value)
+                .Distinct()
+                .ToListAsync(ct);
+
+            var deleted = 0;
+            foreach (var projectId in projectIds)
+            {
+                var projectSettings = await settingsProvider.GetEffectiveSettingsAsync(projectId, ct);
+                var projectDays = retentionDays > 0 ? retentionDays : projectSettings.LearningSignalRetentionDays;
+                var projectCutoff = DateTime.UtcNow.AddDays(-projectDays);
+                deleted += await context.McpQuerySignals
+                    .Where(x => x.ProjectId == projectId)
+                    .Where(x => x.CreatedTime < projectCutoff)
+                    .ExecuteDeleteAsync(ct);
+            }
+
             var days = retentionDays > 0 ? retentionDays : settings.LearningSignalRetentionDays;
             var cutoff = DateTime.UtcNow.AddDays(-days);
-
-            await using var context = await contextFactory.CreateDbContextAsync(ct);
-            var deleted = await context.McpQuerySignals
-                .Where(s => s.CreatedTime < cutoff)
+            deleted += await context.McpQuerySignals
+                .Where(x => x.ProjectId == null)
+                .Where(x => x.CreatedTime < cutoff)
                 .ExecuteDeleteAsync(ct);
 
             if (deleted > 0)
-                logger.LogInformation("Cleaned up {Count} old MCP query signals (retention: {Days} days)", deleted, days);
+                logger.LogInformation("Cleaned up {Count} old MCP query signals (global retention: {Days} days; per-project windows applied)", deleted, days);
         }
         catch (Exception ex)
         {

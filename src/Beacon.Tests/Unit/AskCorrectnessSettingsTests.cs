@@ -2,8 +2,10 @@ using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Moq;
 using NUnit.Framework;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities.Metadata;
 using Beacon.Core.Handlers.McpSettings;
@@ -82,7 +84,7 @@ public class AskCorrectnessSettingsTests
 
         var factory = BuildFactory(entity);
         using var cache = new MemoryCache(new MemoryCacheOptions());
-        var provider = new McpSettingsProvider(factory, cache, NullLogger<McpSettingsProvider>.Instance);
+        var provider = new McpSettingsProvider(factory, cache, Options.Create(new McpDeploymentOptions()), NullLogger<McpSettingsProvider>.Instance);
 
         var data = await provider.GetSettingsAsync();
 
@@ -99,8 +101,8 @@ public class AskCorrectnessSettingsTests
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory.Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>())).ReturnsAsync(context);
 
-        var settingsProvider = new Mock<IMcpSettingsProvider>();
-        var handler = new UpdateMcpSettingsHandler(factory.Object, settingsProvider.Object);
+        var settingsProvider = SettingsProviderMock.Create();
+        var handler = new UpdateMcpSettingsHandler(factory.Object, settingsProvider.Object, Options.Create(new McpDeploymentOptions()));
 
         var data = new McpSettingsData
         {
