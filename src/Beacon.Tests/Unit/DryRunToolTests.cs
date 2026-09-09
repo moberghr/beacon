@@ -21,12 +21,13 @@ using Beacon.Tests.Common;
 namespace Beacon.Tests.Unit;
 
 /// <summary>
-/// The <c>dry_run</c> MCP tool: validates SQL through every safety gate (guardrail, AST read-only,
+/// The <c>dry_run</c> MCP tool: validates SQL through every safety gate (read-only = guardrail + AST,
 /// schema catalog, provider dry-run) WITHOUT executing. Gate issues are collected — not
-/// first-failure-wins — except the provider dry-run, which only runs when every prior gate passed
-/// (EXPLAIN on a known-write statement would be unsafe). The AST and schema validators are the real
-/// implementations (both are concrete classes with no DB dependency); data-source resolution runs
-/// against async-queryable doubles (§4.7), mirroring FeedbackToolTests.
+/// first-failure-wins — except that a read-only failure leaves the schema gate unevaluated and the
+/// provider dry-run only runs when every prior gate passed (EXPLAIN on a known-write statement would be
+/// unsafe). The gate is the real <c>SqlExecutionGate</c> over the real AST and schema validators with the
+/// guardrail mocked; data-source resolution runs against async-queryable doubles (§4.7), mirroring
+/// FeedbackToolTests.
 /// </summary>
 [TestFixture]
 public class DryRunToolTests
@@ -81,8 +82,7 @@ public class DryRunToolTests
         text.Should().Contain("# Dry Run");
         text.Should().Contain("VALID");
         text.Should().NotContain("INVALID");
-        text.Should().Contain("- ✓ guardrail");
-        text.Should().Contain("- ✓ ast");
+        text.Should().Contain("- ✓ read_only");
         text.Should().Contain("- ✓ schema");
         text.Should().Contain("- ✓ provider_dry_run");
         text.Should().Contain("### SQL that would execute");
@@ -116,7 +116,7 @@ public class DryRunToolTests
     }
 
     [Test]
-    public async Task Insert_CollectsGuardrailAndAstIssues_AndSkipsProviderDryRun()
+    public async Task Insert_ReportsReadOnlyIssue_SkipsSchemaAndProviderDryRun()
     {
         const string insertSql = "INSERT INTO customers (id) VALUES (1)";
         SetupGuardrailValidation(isValid: false, error: "Only SELECT queries are allowed", piiColumns: null);
@@ -127,8 +127,8 @@ public class DryRunToolTests
         (result.IsError ?? false).Should().BeFalse("an INVALID verdict is still a successful dry run");
         var text = GetText(result);
         text.Should().Contain("INVALID");
-        text.Should().Contain("- ✗ guardrail — Only SELECT queries are allowed");
-        text.Should().Contain("- ✗ ast");
+        text.Should().Contain("- ✗ read_only [guardrail] — Only SELECT queries are allowed");
+        text.Should().Contain("- – schema — not evaluated (read-only gate failed)");
         text.Should().Contain("- – provider_dry_run — skipped");
         text.Should().NotContain("### SQL that would execute");
 
@@ -139,18 +139,39 @@ public class DryRunToolTests
         var structured = result.StructuredContent!.Value;
         structured.GetProperty("valid").GetBoolean().Should().BeFalse();
         structured.GetProperty("executable_sql").ValueKind.Should().Be(JsonValueKind.Null);
-        var gates = structured.GetProperty("issues").EnumerateArray()
-            .Select(x => x.GetProperty("gate").GetString())
-            .ToList();
-        gates.Should().Contain("guardrail");
-        gates.Should().Contain("ast");
+        var issues = structured.GetProperty("issues").EnumerateArray().ToList();
+        issues.Should().ContainSingle(x => x.GetProperty("gate").GetString() == "read_only");
+        issues[0].GetProperty("code").GetString().Should().Be("guardrail");
 
-        // Parser-gate (guardrail/AST) failures map onto the execution-validation failure fields.
-        // Both parser gates failed here; the builder keeps the last-written error (the AST one).
+        // Read-only gate failures map onto the execution-validation failure fields. One verdict per gate:
+        // the schema gate is not evaluated on a statement that may not run at all.
         _signals.Should().ContainSingle();
         _signals[0].IsSuccessful.Should().BeFalse();
         _signals[0].ExecutionFailed.Should().BeTrue();
         _signals[0].ExecutionError.Should().Contain("Only SELECT queries");
+    }
+
+    [Test]
+    public async Task SelectInto_PassesMockedGuardrail_ButAstRejects_ReportsReadOnlyAstCode()
+    {
+        // The guardrail mock passes everything; the REAL AST validator inside the gate catches SELECT ... INTO.
+        const string sql = "SELECT id INTO t2 FROM customers";
+
+        var result = await CreateTool().ExecuteAsync(
+            datasource_id: DataSourceId, sql: sql, cancellationToken: CancellationToken.None);
+
+        (result.IsError ?? false).Should().BeFalse();
+        var text = GetText(result);
+        text.Should().Contain("INVALID");
+        text.Should().Contain("- ✗ read_only [ast]");
+        text.Should().Contain("- – schema — not evaluated (read-only gate failed)");
+
+        var structured = result.StructuredContent!.Value;
+        var issues = structured.GetProperty("issues").EnumerateArray().ToList();
+        issues.Should().ContainSingle(x => x.GetProperty("gate").GetString() == "read_only");
+        issues[0].GetProperty("code").GetString().Should().Be("ast");
+        _queryExecution.Verify(
+            x => x.ValidateAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Test]
@@ -378,9 +399,7 @@ public class DryRunToolTests
 
         return new DryRunTool(
             factory.Object,
-            _guardrail.Object,
-            new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),
-            new SqlSchemaValidator(),
+            TestSqlGate.Create(_guardrail.Object),
             _knowledgeGraph.Object,
             _queryExecution.Object,
             settingsProvider.Object,

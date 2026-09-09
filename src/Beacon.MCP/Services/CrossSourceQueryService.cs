@@ -18,8 +18,7 @@ internal sealed class CrossSourceQueryService(
     IDbContextFactory<BeaconContext> contextFactory,
     IDataSourceProviderFactory providerFactory,
     IQueryGuardrailService guardrailService,
-    SqlReadOnlyAstValidator readOnlyAstValidator,
-    SqlSchemaValidator schemaValidator,
+    ISqlExecutionGate gate,
     IKnowledgeGraphService knowledgeGraph,
     ISqlGenerationService sqlGenerationService,
     ILoggerFactory loggerFactory,
@@ -48,22 +47,32 @@ internal sealed class CrossSourceQueryService(
                 llmProvider, smartContext.FullContext, question, settings, ct);
             var sql = sqlResult.Sql;
 
-            // Pre-execution schema validation with one bounded repair, mirroring the single-source flow
-            var schemaCheck = schemaValidator.Validate(sql, smartContext.SchemaCatalog, smartContext.DatabaseDialect);
-            if (!schemaCheck.IsValid)
+            // Pre-execution schema validation with one bounded repair, mirroring the single-source flow.
+            // Only the SCHEMA verdict is acted on here: this loop also runs for execute=false (preview),
+            // which never enforced read-only on SQL that is only rendered — the read-only gate runs in the
+            // execution loop below, before anything reaches a provider.
+            var schemaReport = gate.Evaluate(SqlGateRequest.FromSettings(sql, smartContext.DatabaseDialect, settings) with
             {
-                signal.SetSchemaValidationFailed(schemaCheck.Error!);
+                Catalog = smartContext.SchemaCatalog
+            });
+            var schemaVerdict = schemaReport.Verdicts.Schema;
+            if (schemaVerdict.Status == SqlGateStatus.Fail)
+            {
+                signal.SetSchemaValidationFailed(schemaVerdict.Message!);
                 logger.LogInformation("Schema pre-validation failed for {DataSourceName}, retrying. Error: {Error}",
-                    source.DataSourceName, schemaCheck.Error);
+                    source.DataSourceName, schemaVerdict.Message);
 
                 var systemPrompt = settings.AskSystemPrompt ?? "You are a SQL expert. Return ONLY the SQL query.";
                 var retriedSql = await sqlGenerationService.RetryWithErrorAsync(
-                    llmProvider, systemPrompt, sql, schemaCheck.Error!, smartContext.FullContext, null, question, ct);
+                    llmProvider, systemPrompt, sql, schemaVerdict.Message!, smartContext.FullContext, null, question, ct);
 
-                var retryCheck = retriedSql != null
-                    ? schemaValidator.Validate(retriedSql, smartContext.SchemaCatalog, smartContext.DatabaseDialect)
+                var retryReport = retriedSql != null
+                    ? gate.Evaluate(SqlGateRequest.FromSettings(retriedSql, smartContext.DatabaseDialect, settings) with
+                    {
+                        Catalog = smartContext.SchemaCatalog
+                    })
                     : null;
-                var retryValid = retryCheck?.IsValid == true;
+                var retryValid = retryReport?.Verdicts.Schema.Status is SqlGateStatus.Pass or SqlGateStatus.Skipped;
                 if (retriedSql != null)
                 {
                     signal.SetRetry(retriedSql, retryValid);
@@ -71,17 +80,17 @@ internal sealed class CrossSourceQueryService(
 
                 if (!retryValid)
                 {
-                    failedSources.Add((source.DataSourceName, $"Schema validation failed: {schemaCheck.Error}"));
-                    text += $"### Source: {source.DataSourceName}\n**Schema Validation Error:** {schemaCheck.Error}\n\n";
+                    failedSources.Add((source.DataSourceName, $"Schema validation failed: {schemaVerdict.Message}"));
+                    text += $"### Source: {source.DataSourceName}\n**Schema Validation Error:** {schemaVerdict.Message}\n\n";
                     continue;
                 }
 
                 sql = retriedSql!;
-                columnsUsed.UnionWith(retryCheck!.ColumnsUsed);
+                columnsUsed.UnionWith(retryReport!.ColumnsUsed);
             }
             else
             {
-                columnsUsed.UnionWith(schemaCheck.ColumnsUsed);
+                columnsUsed.UnionWith(schemaReport.ColumnsUsed);
             }
 
             sourceQueries.Add((source, sql, smartContext.FullContext));
@@ -109,19 +118,6 @@ internal sealed class CrossSourceQueryService(
         for (var i = 0; i < sourceQueries.Count; i++)
         {
             var (source, sql, schemaContext) = sourceQueries[i];
-            var validation = guardrailService.ValidateQuery(sql, new QueryGuardrailOptions
-            {
-                ReadOnly = settings.EnforceReadOnly,
-                DetectPii = settings.EnablePiiDetection,
-                CustomPiiPatterns = settings.CustomPiiPatterns.Count > 0 ? settings.CustomPiiPatterns : null
-            });
-
-            if (!validation.IsValid)
-            {
-                failedSources.Add((source.DataSourceName, validation.Error ?? "Validation failed"));
-                text += $"**Validation Error for {source.DataSourceName}:** {validation.Error}\n";
-                continue;
-            }
 
             await using var context = await contextFactory.CreateDbContextAsync(ct);
             var dataSource = await context.DataSources
@@ -129,22 +125,35 @@ internal sealed class CrossSourceQueryService(
                 .FirstOrDefaultAsync(ct)
                 ?? throw new InvalidOperationException($"Data source {source.DataSourceId} not found");
 
-            // AST-based read-only defense-in-depth on top of the regex guardrail (§1.5)
-            if (settings.EnforceReadOnly)
+            var dialect = dataSource.DatabaseEngineType?.ToString();
+
+            // Read-only gate (regex guardrail + AST, §1.5) BEFORE the provider dry-run — a write statement
+            // must never reach EXPLAIN.
+            var readOnlyReport = gate.Evaluate(SqlGateRequest.FromSettings(sql, dialect, settings));
+            if (readOnlyReport.Blocked)
             {
-                var astError = readOnlyAstValidator.Validate(sql, dataSource.DatabaseEngineType?.ToString());
-                if (astError != null)
-                {
-                    failedSources.Add((source.DataSourceName, astError));
-                    text += $"**Validation Error for {source.DataSourceName}:** {astError}\n";
-                    continue;
-                }
+                failedSources.Add((source.DataSourceName, readOnlyReport.BlockReason ?? "Validation failed"));
+                text += $"**Validation Error for {source.DataSourceName}:** {readOnlyReport.BlockReason}\n";
+                continue;
             }
 
             // Dry-run before execution: one bounded repair per source, never a hard block
             sql = await DryRunWithRepairAsync(llmProvider, dataSource, source, sql, schemaContext, question, settings, signal, ct);
 
-            var limitedSql = guardrailService.ApplyRowLimit(sql, 500, dataSource.DatabaseEngineType?.ToString());
+            // The row cap is computed on the SQL that ACTUALLY runs (the repair above may have replaced it),
+            // and honours the operator's MaxRowLimit instead of a hardcoded constant.
+            var finalReport = gate.Evaluate(SqlGateRequest.FromSettings(sql, dialect, settings) with
+            {
+                MaxRows = settings.MaxRowLimit
+            });
+            if (finalReport.Blocked)
+            {
+                failedSources.Add((source.DataSourceName, finalReport.BlockReason ?? "Validation failed"));
+                text += $"**Validation Error for {source.DataSourceName}:** {finalReport.BlockReason}\n";
+                continue;
+            }
+
+            var limitedSql = finalReport.FinalSql;
             var provider = providerFactory.GetProvider(dataSource.DataSourceType);
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeoutCts.CancelAfter(TimeSpan.FromSeconds(30));
@@ -233,32 +242,15 @@ internal sealed class CrossSourceQueryService(
 
         text += $"\n### Join Query\n```sql\n{translatedSql}\n```\n\n";
 
-        // The join SQL is LLM-generated from the user's question — run the same regex guardrail (write-op
-        // + PII pattern detection) applied to each per-source query above, so the final join is not a gap.
-        var joinGuardrail = guardrailService.ValidateQuery(translatedSql, new QueryGuardrailOptions
+        // The join SQL is LLM-generated from the user's question — run the same read-only gate (regex
+        // guardrail + AST, §1.5) applied to each per-source query above before it touches the in-memory
+        // SQLite store, so the final join is not a gap.
+        var joinReport = gate.Evaluate(SqlGateRequest.FromSettings(translatedSql, "SQLite", settings));
+        if (joinReport.Blocked)
         {
-            ReadOnly = settings.EnforceReadOnly,
-            DetectPii = settings.EnablePiiDetection,
-            CustomPiiPatterns = settings.CustomPiiPatterns.Count > 0 ? settings.CustomPiiPatterns : null
-        });
-
-        if (!joinGuardrail.IsValid)
-        {
-            text += $"**Validation Error for join query:** {joinGuardrail.Error}\n";
+            text += $"**Validation Error for join query:** {joinReport.BlockReason}\n";
 
             return (text, false);
-        }
-
-        // AST read-only enforcement before running it against the in-memory SQLite store (defense-in-depth, §1.5).
-        if (settings.EnforceReadOnly)
-        {
-            var joinAstError = readOnlyAstValidator.Validate(translatedSql, "SQLite");
-            if (joinAstError != null)
-            {
-                text += $"**Validation Error for join query:** {joinAstError}\n";
-
-                return (text, false);
-            }
         }
 
         var (joinResults, execTimeMs, timedOut) = await memDb.ExecuteQueryAsync(translatedSql, 30);
@@ -350,18 +342,8 @@ internal sealed class CrossSourceQueryService(
             return sql;
         }
 
-        var retryValidation = guardrailService.ValidateQuery(retriedSql, new QueryGuardrailOptions
-        {
-            ReadOnly = settings.EnforceReadOnly,
-            DetectPii = settings.EnablePiiDetection,
-            CustomPiiPatterns = settings.CustomPiiPatterns.Count > 0 ? settings.CustomPiiPatterns : null
-        });
-        if (!retryValidation.IsValid)
-        {
-            return sql;
-        }
-
-        if (settings.EnforceReadOnly && readOnlyAstValidator.Validate(retriedSql, dataSource.DatabaseEngineType?.ToString()) != null)
+        // The retry must clear the same read-only gate the original did before it can be adopted.
+        if (gate.Evaluate(SqlGateRequest.FromSettings(retriedSql, dataSource.DatabaseEngineType?.ToString(), settings)).Blocked)
         {
             return sql;
         }

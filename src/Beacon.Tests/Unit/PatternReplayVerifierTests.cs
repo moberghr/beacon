@@ -410,10 +410,7 @@ public class PatternReplayVerifierTests
         var pipeline = new AskSqlPipeline(
             knowledge.Object,
             sqlGen.Object,
-            guardrail.Object,
-            new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),
-            new SqlSchemaValidator(),
-            new SqlSemanticLinter(),
+            TestSqlGate.Create(guardrail.Object),
             NullLogger<AskSqlPipeline>.Instance);
 
         return new McpEvalService(
@@ -422,7 +419,7 @@ public class PatternReplayVerifierTests
             pipeline,
             providerFactory.Object,
             guardrail.Object,
-            new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),
+            TestSqlGate.Create(guardrail.Object),
             settings.Object,
             llm.Object,
             NullLogger<McpEvalService>.Instance);

@@ -170,6 +170,10 @@ public static class ServiceConfiguration
         // no I/O, so a plain singleton is enough, matching the other validators on this surface).
         services.TryAddSingleton<SqlSemanticLinter>();
 
+        // The one pre-execution gate every MCP SQL path runs (guardrail → AST → schema → lint → row limit).
+        // Transient because IQueryGuardrailService is transient; the gate itself is stateless.
+        services.TryAddTransient<ISqlExecutionGate, SqlExecutionGate>();
+
         // Rate limiter (singleton so the in-memory sliding windows are shared across requests)
         services.TryAddSingleton<Services.Security.RateLimiter>();
 

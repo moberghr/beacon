@@ -143,10 +143,12 @@ public class SqlReadOnlyAstValidatorTests
         error.Should().NotBeNullOrWhiteSpace();
     }
 
-    [Test]
-    public void Validate_EmptySql_IsAllowedThrough()
+    [TestCase("")]
+    [TestCase("   \n")]
+    public void Validate_EmptySql_IsRejected(string sql)
     {
-        _validator.Validate("", "PostgreSQL").Should().BeNull();
+        // The gate is the sole authority at some call sites, so "nothing to validate" must fail closed.
+        _validator.Validate(sql, "PostgreSQL").Should().NotBeNullOrWhiteSpace();
     }
 
     [Test]

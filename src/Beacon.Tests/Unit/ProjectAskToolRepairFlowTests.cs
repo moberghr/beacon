@@ -10,6 +10,7 @@ using Beacon.Core.Models;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
+using Beacon.Tests.Common;
 using Beacon.MCP.Services;
 using Beacon.MCP.Tools;
 
@@ -511,10 +512,7 @@ public class ProjectAskToolRepairFlowTests
         return new AskSqlPipeline(
             _knowledgeGraph.Object,
             _sqlGeneration.Object,
-            _guardrail.Object,
-            new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),
-            new SqlSchemaValidator(),
-            new SqlSemanticLinter(),
+            TestSqlGate.Create(_guardrail.Object),
             NullLogger<AskSqlPipeline>.Instance);
     }
 }

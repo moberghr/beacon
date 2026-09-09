@@ -1,5 +1,3 @@
-using Beacon.Core.Helpers;
-
 namespace Beacon.MCP.Services;
 
 internal static class SqlParsingHelper
@@ -12,11 +10,6 @@ internal static class SqlParsingHelper
         if (msg.Contains("does not exist") || msg.Contains("column") && msg.Contains("not found"))
             return true;
         return false;
-    }
-
-    internal static List<string> ExtractTableNamesFromSql(string sql)
-    {
-        return SqlTableNameExtractor.ExtractTableNames(sql);
     }
 
     internal static string CleanSqlResponse(string content)

@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
+using Beacon.AI.Services.Knowledge;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Services;
@@ -20,7 +21,8 @@ internal sealed class ProjectQueryTool(
     IDbContextFactory<BeaconContext> contextFactory,
     IDataSourceProviderFactory providerFactory,
     IQueryGuardrailService guardrailService,
-    SqlReadOnlyAstValidator readOnlyAstValidator,
+    ISqlExecutionGate gate,
+    IKnowledgeGraphService knowledgeGraph,
     IMcpSettingsProvider settingsProvider,
     IProjectContext projectContext,
     McpAuditService auditService,
@@ -102,44 +104,32 @@ internal sealed class ProjectQueryTool(
                     return await FailAsync(signal, sw, projectId, datasource_id, sql ?? api_query,
                         "Missing required parameter: sql", cancellationToken);
 
-                signal.SetGeneratedSql(sql, SqlParsingHelper.ExtractTableNamesFromSql(sql));
-
-                var validation = guardrailService.ValidateQuery(sql, new QueryGuardrailOptions
+                // One shared gate (§1.5): regex guardrail → AST read-only → schema catalog (blocking here — a
+                // hallucinated column is refused before it reaches the warehouse) → row limit. Tables come
+                // from the AST walk (aliases resolved, CTEs excluded), not from a regex over the text.
+                var catalog = await knowledgeGraph.GetSchemaCatalogAsync(datasource_id.Value, cancellationToken);
+                var report = gate.Evaluate(SqlGateRequest.FromSettings(sql, dataSource.DatabaseEngineType?.ToString(), settings) with
                 {
-                    ReadOnly = settings.EnforceReadOnly,
-                    DetectPii = settings.EnablePiiDetection,
-                    CustomPiiPatterns = settings.CustomPiiPatterns.Count > 0 ? settings.CustomPiiPatterns : null
+                    Catalog = catalog,
+                    BlockOnSchemaFailure = true,
+                    MaxRows = maxRows
                 });
-                if (!validation.IsValid)
+                signal.SetGeneratedSql(sql, report.TablesUsed.ToList());
+
+                if (report.Blocked)
                 {
+                    var blockReason = report.BlockReason ?? "Query validation failed";
                     sw.Stop();
-                    signal.SetExecutionFailed(validation.Error ?? "Query validation failed");
+                    signal.SetExecutionFailed(blockReason);
                     signal.SetResult(null, (int)sw.ElapsedMilliseconds, false);
                     await auditService.LogToolCallAsync(null, projectContext.UserId, "query",
-                        sql, datasource_id, projectId, (int)sw.ElapsedMilliseconds, null, validation.Error, cancellationToken);
+                        sql, datasource_id, projectId, (int)sw.ElapsedMilliseconds, null, blockReason, cancellationToken);
                     await signalService.RecordSignalAsync(signal.Build(), cancellationToken);
-                    return ToolHelper.Error($"Query validation failed: {validation.Error}");
+                    return ToolHelper.Error($"Query validation failed: {blockReason}");
                 }
 
-                piiColumns = validation.PiiColumns;
-
-                // AST-based read-only defense-in-depth on top of the regex guardrail (§1.5)
-                if (settings.EnforceReadOnly)
-                {
-                    var astError = readOnlyAstValidator.Validate(sql, dataSource.DatabaseEngineType?.ToString());
-                    if (astError != null)
-                    {
-                        sw.Stop();
-                        signal.SetExecutionFailed(astError);
-                        signal.SetResult(null, (int)sw.ElapsedMilliseconds, false);
-                        await auditService.LogToolCallAsync(null, projectContext.UserId, "query",
-                            sql, datasource_id, projectId, (int)sw.ElapsedMilliseconds, null, astError, cancellationToken);
-                        await signalService.RecordSignalAsync(signal.Build(), cancellationToken);
-                        return ToolHelper.Error($"Query validation failed: {astError}");
-                    }
-                }
-
-                queryText = guardrailService.ApplyRowLimit(sql, maxRows, dataSource.DatabaseEngineType?.ToString());
+                piiColumns = report.PiiColumns.Count > 0 ? report.PiiColumns.ToList() : null;
+                queryText = report.FinalSql;
             }
 
             var provider = providerFactory.GetProvider(dataSource.DataSourceType);

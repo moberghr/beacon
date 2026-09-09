@@ -9,6 +9,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using NUnit.Framework;
+using Beacon.AI.Services.Knowledge;
 using Beacon.Connector.PostgreSql;
 using Beacon.Connector.SqlServer;
 using Beacon.Core;
@@ -373,11 +374,18 @@ public class ReadOnlyExecutionRoutingTests
             settingsProvider.Object,
             NullLogger<McpSignalService>.Instance);
 
+        // Empty catalog → the schema gate reports Skipped, so routing is exercised without a catalog.
+        var knowledgeGraph = new Mock<IKnowledgeGraphService>();
+        knowledgeGraph
+            .Setup(x => x.GetSchemaCatalogAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
+
         return new ProjectQueryTool(
             factory.Object,
             providerFactory.Object,
             guardrail.Object,
-            new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),
+            TestSqlGate.Create(guardrail.Object),
+            knowledgeGraph.Object,
             settingsProvider.Object,
             projectContext,
             auditService,

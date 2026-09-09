@@ -36,7 +36,7 @@ internal sealed class McpEvalService(
     IAskSqlPipeline askSqlPipeline,
     IDataSourceProviderFactory providerFactory,
     IQueryGuardrailService guardrailService,
-    SqlReadOnlyAstValidator readOnlyAstValidator,
+    ISqlExecutionGate sqlGate,
     IMcpSettingsProvider settingsProvider,
     ILlmProvider llmProvider,
     ILogger<McpEvalService> logger) : IMcpEvalService
@@ -284,7 +284,7 @@ internal sealed class McpEvalService(
     {
         var smartContext = await knowledgeGraph.GetSmartContextForAskAsync(dataSource.Id, projectId, question, ct);
 
-        var evalExecutor = new EvalReadOnlySqlExecutor(contextFactory, providerFactory, guardrailService, readOnlyAstValidator, settings);
+        var evalExecutor = new EvalReadOnlySqlExecutor(contextFactory, providerFactory, sqlGate, settings);
         evalExecutor.UseDataSource(dataSource);
 
         var outcome = await askSqlPipeline.RunAsync(

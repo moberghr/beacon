@@ -19,7 +19,7 @@ public sealed class SqlReadOnlyAstValidator(ILogger<SqlReadOnlyAstValidator> log
     {
         if (string.IsNullOrWhiteSpace(sql))
         {
-            return null;
+            return "Empty SQL is not a valid read-only statement. Submit a SELECT query.";
         }
 
         Sequence<Statement> statements;
@@ -139,17 +139,6 @@ public sealed class SqlReadOnlyAstValidator(ILogger<SqlReadOnlyAstValidator> log
 
     private static Dialect ResolveDialect(string? dialect)
     {
-        return (dialect ?? "").ToLowerInvariant() switch
-        {
-            "postgresql" or "postgres" => new PostgreSqlDialect(),
-            "sqlserver" or "mssql" or "microsoftsqlserver" or "azuresynapse" => new MsSqlDialect(),
-            "mysql" or "mariadb" => new MySqlDialect(),
-            "sqlite" => new SQLiteDialect(),
-            "bigquery" => new BigQueryDialect(),
-            "snowflake" => new SnowflakeDialect(),
-            "databricks" => new DatabricksDialect(),
-            "duckdb" => new DuckDbDialect(),
-            _ => new GenericDialect()
-        };
+        return SqlDialects.Resolve(dialect);
     }
 }

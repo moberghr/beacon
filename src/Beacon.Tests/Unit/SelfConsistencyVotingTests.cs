@@ -9,6 +9,7 @@ using Beacon.Core.Models;
 using Beacon.Core.Models.Ai;
 using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
+using Beacon.Tests.Common;
 
 namespace Beacon.Tests.Unit;
 
@@ -617,10 +618,7 @@ public class SelfConsistencyVotingTests
         return new AskSqlPipeline(
             _knowledgeGraph.Object,
             _sqlGeneration.Object,
-            _guardrail.Object,
-            new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),
-            new SqlSchemaValidator(),
-            new SqlSemanticLinter(),
+            TestSqlGate.Create(_guardrail.Object),
             NullLogger<AskSqlPipeline>.Instance);
     }
 }

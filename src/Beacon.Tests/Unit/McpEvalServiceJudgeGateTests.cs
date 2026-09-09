@@ -210,9 +210,10 @@ public class McpEvalServiceJudgeGateTests
         var provider = new Mock<IDataSourceProvider>();
         if (failingExecution is { } fail)
         {
+            // The gate appends the row cap to the SQL the executor runs, so match on the statement prefix.
             provider
                 .Setup(x => x.ExecuteReadOnlyQueryAsync(
-                    It.IsAny<DataSource>(), fail.Sql, It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+                    It.IsAny<DataSource>(), It.Is<string>(s => s.StartsWith(fail.Sql)), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(new ProviderQueryResult { Success = false, ErrorMessage = fail.Error });
         }
 
@@ -264,10 +265,7 @@ public class McpEvalServiceJudgeGateTests
         var pipeline = new AskSqlPipeline(
             knowledge.Object,
             sqlGen.Object,
-            guardrail.Object,
-            new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),
-            new SqlSchemaValidator(),
-            new SqlSemanticLinter(),
+            TestSqlGate.Create(guardrail.Object),
             NullLogger<AskSqlPipeline>.Instance);
 
         var service = new McpEvalService(
@@ -276,7 +274,7 @@ public class McpEvalServiceJudgeGateTests
             pipeline,
             providerFactory.Object,
             guardrail.Object,
-            new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),
+            TestSqlGate.Create(guardrail.Object),
             settings.Object,
             llm.Object,
             NullLogger<McpEvalService>.Instance);

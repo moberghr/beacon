@@ -1,3 +1,55 @@
+# Todo — Shared SQL execution gate (2026-09-08)
+
+**Scope:** internal-refactoring · security_impact: requires-audit-trail · **Rigor: MAX** (score 16 — 4 batches, 20 non-mechanical files → +7, 6 external contracts → +4 (cap), security +3; hard floor HIGH via batches ≥ 3 and security)
+Spec: `docs/specs/2026-09-08-sql-execution-gate.md`
+Plan: `docs/plans/2026-09-08-sql-execution-gate.md`
+Parent: `docs/plans/2026-09-08-warehouse-engine.md` Wave 0.1
+Branch: `feature/sql-execution-gate` (off `origin/main` @ 60d686f)
+
+## B1 — Core primitives (W0)
+- [x] `SqlDialects.Resolve` shared resolver (+ azuresynapse) in `SqlReadOnlyAstValidator.cs`
+- [x] `SqlReadOnlyAstValidator`: whitespace-only SQL rejected; test flipped
+- [x] `SqlSchemaValidator`: `TablesUsed`, `Checked`, projection-alias awareness; tests SC5 / SC9 / Checked
+- [x] `SqlRowLimitRewriter` (AST-decided, text-applied) + `SqlRowLimitRewriterTests` (SC3, 11 cases)
+- [x] `QueryGuardrailService.ApplyRowLimit` delegates; 3 regression tests added; 8 existing unchanged
+- [x] Checkpoint: build + 4 fixtures green (97/97)
+
+## B2 — Gate (W1)
+- [x] `ISqlExecutionGate` + records; `SqlExecutionGate` composition per verdict table
+- [x] DI: `TryAddTransient<ISqlExecutionGate, SqlExecutionGate>` in Core
+- [x] `Tests/Common/TestSqlGate.cs`
+- [x] `SqlExecutionGateTests` (SC2 six adversarial cases, SC5, Skipped codes, BlockOnSchemaFailure, EnforceReadOnly=false semantics)
+- [ ] Checkpoint: build + fixture green
+
+## B3 — AI callers (W2)
+- [x] `AskSqlPipeline` ctor + all validation via gate; AST tables at execution repair
+- [x] `EvalReadOnlySqlExecutor` via gate (EnforceReadOnly forced, MaxRows = MaxRowLimit)
+- [x] `McpEvalService` ctor swap
+- [x] Five fixtures: helpers only (SC8)
+- [x] Checkpoint: build + 5 fixtures green + `git diff --stat` confined to helpers
+
+## B4 — MCP callers (W2)
+- [x] `ProjectQueryTool`: gate with catalog, blocking schema, AST tables, FinalSql
+- [x] `DryRunTool`: gates 1-3 via gate; `read_only` verdict + code; schema skipped codes
+- [x] `CrossSourceQueryService`: gate for source / repair / join; `MaxRowLimit`
+- [x] `SqlParsingHelper.ExtractTableNamesFromSql` removed
+- [x] Tests: `DryRunToolTests` (g), `McpPlaygroundServiceTests`, `ReadOnlyExecutionRoutingTests` ctors; new `ProjectQueryToolSchemaGateTests` (SC4)
+- [x] Checkpoint: build + 4 fixtures green; SC1 + SC6 greps clean
+
+## Final
+- [x] Full `dotnet test` vs Phase 2.9 baseline (811/5/816) (SC7: 5 inherited env-red harness tests)
+- [x] Behavioural diff written (sidecar implement.behavioral_diff)
+- [x] Spec-drift check clean
+
+## Post-implementation review
+- [x] Stage 1 `compliance-reviewer` against sealed spec (NEEDS_CHANGES → fixed)
+- [x] Stage 2 `test-reviewer`, `architecture-reviewer`, `silent-failure-hunter` (MAX) — 1 iteration
+- [x] Adversarial pass on gate + rewriter (lesson 2026-07-03) — OFFSET-without-FETCH and derived-subquery gaps fixed
+- [x] Audit + signal on every early exit (§1.7/§9.5); no SQL in logs (§1.11) — confirmed by compliance lane
+- [x] Update parent plan Wave 0.1 status
+
+---
+
 # Todo — MCP `ask` SQL correctness (2026-09-04)
 
 **Scope:** new-feature · security_impact: new-query-surface · **Rigor: MAX** (score 38 — 8 batches, 53 files, 8 external contracts, security +3)

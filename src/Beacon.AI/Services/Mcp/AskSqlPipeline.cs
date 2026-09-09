@@ -1,9 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Beacon.AI.Services.Knowledge;
 using Beacon.AI.Services.LlmProviders;
-using Beacon.Core.Helpers;
 using Beacon.Core.Models;
-using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
 
 namespace Beacon.AI.Services.Mcp;
@@ -13,15 +11,16 @@ namespace Beacon.AI.Services.Mcp;
 /// <c>ProjectAskTool.GenerateAndExecuteSqlAsync</c> (spec item ①). Control flow, rendered messages and the
 /// shared repair budget of 2 are unchanged; the only substitutions are structural: signal-builder calls
 /// became <see cref="AskSqlOutcome"/> fields, query-execution calls became <see cref="IAskSqlExecutor"/>
-/// calls, and MCP's table-name helper became Core's <see cref="SqlTableNameExtractor"/> (§2.4).
+/// calls, and every guardrail / AST / schema / lint check goes through the one shared
+/// <see cref="ISqlExecutionGate"/> (spec <c>sql-execution-gate</c>) so a later gate is added once for
+/// every path. Adoption rules per repair point are preserved exactly: schema and lint repairs require
+/// the retry to clear the schema gate too; dry-run, execution-error and empty-result repairs require
+/// only the read-only gate, as before.
 /// </summary>
 internal sealed class AskSqlPipeline(
     IKnowledgeGraphService knowledgeGraph,
     ISqlGenerationService sqlGenerationService,
-    IQueryGuardrailService guardrailService,
-    SqlReadOnlyAstValidator readOnlyAstValidator,
-    SqlSchemaValidator schemaValidator,
-    SqlSemanticLinter semanticLinter,
+    ISqlExecutionGate gate,
     ILogger<AskSqlPipeline> logger) : IAskSqlPipeline
 {
     // Non-zero so the N samples diverge; provider-agnostic (§9.4) — no per-provider tuning.
@@ -46,6 +45,25 @@ internal sealed class AskSqlPipeline(
 
         var execute = options.Execute;
         var repairs = new List<AskRepairStep>();
+
+        // Built once and reused by every gate evaluation below (NF1) so the SQL that ultimately runs — after
+        // a dry-run, execution or empty-result repair swaps it out — is re-linted against the same join /
+        // PK / catalog context rather than describing stale, already-superseded SQL.
+        var lintContext = new SchemaLintContext(
+            smartContext.JoinPaths.SelectMany(x => x.Steps).ToList(),
+            smartContext.PrimaryKeyCatalog,
+            smartContext.SchemaCatalog);
+
+        // Full gate: read-only + schema catalog + semantic lint. Used for the selected candidate and for the
+        // schema / lint repairs, whose adoption depends on the schema verdict.
+        SqlGateReport EvaluateFull(string sql)
+        {
+            return gate.Evaluate(SqlGateRequest.FromSettings(sql, smartContext.DatabaseDialect, settings) with
+            {
+                Catalog = smartContext.SchemaCatalog,
+                LintContext = lintContext
+            });
+        }
 
         // The single low-temperature candidate is ALWAYS generated first (spec §⑥b): its distinct
         // table count decides whether self-consistency voting runs at all (R7), and it is itself one
@@ -128,9 +146,10 @@ internal sealed class AskSqlPipeline(
             text += votingNote;
         }
 
-        var validationError = ValidateGeneratedSql(generatedSql, settings, smartContext.DatabaseDialect);
-        if (validationError != null)
+        var initialReport = EvaluateFull(generatedSql);
+        if (initialReport.Blocked)
         {
+            var validationError = initialReport.BlockReason;
             text += $"**Validation Error:** {validationError}\n";
             return new AskSqlOutcome(initialSql, generatedSql, tables, false, text, null,
                 validationError, null, null, repairs, false, votingNote, assumptions, clarificationHint, [],
@@ -145,32 +164,36 @@ internal sealed class AskSqlPipeline(
         string? dryRunError = null;
         var emptyResultRetried = false;
 
-        // Pre-execution schema validation
-        var schemaCheck = schemaValidator.Validate(generatedSql, smartContext.SchemaCatalog, smartContext.DatabaseDialect);
-        columnsUsed = schemaCheck.ColumnsUsed;
-        if (!schemaCheck.IsValid && repairAttempts < maxRepairAttempts)
+        // Pre-execution schema validation — the verdict comes from the same gate evaluation that cleared
+        // read-only above. A Skipped verdict (no catalog yet) is not a failure, matching the validator's
+        // previous fail-open behaviour on an empty catalog.
+        var currentReport = initialReport;
+        columnsUsed = currentReport.ColumnsUsed;
+        var schemaVerdict = currentReport.Verdicts.Schema;
+        if (schemaVerdict.Status == SqlGateStatus.Fail && repairAttempts < maxRepairAttempts)
         {
             repairAttempts++;
-            schemaValidationError = schemaCheck.Error!;
-            logger.LogInformation("Schema pre-validation failed, retrying. Error: {Error}", schemaCheck.Error);
+            schemaValidationError = schemaVerdict.Message!;
+            logger.LogInformation("Schema pre-validation failed, retrying. Error: {Error}", schemaVerdict.Message);
 
             var preValidationRetry = await sqlGenerationService.RetryWithErrorAsync(
-                llmProvider, systemPrompt, generatedSql, schemaCheck.Error!,
+                llmProvider, systemPrompt, generatedSql, schemaVerdict.Message!,
                 fullContext, null, question, ct);
 
             var schemaRepairSql = (string?)null;
             var schemaRepairOk = false;
             if (preValidationRetry != null)
             {
-                if (ValidateGeneratedSql(preValidationRetry, settings, smartContext.DatabaseDialect) == null)
+                var retryReport = EvaluateFull(preValidationRetry);
+                if (!retryReport.Blocked)
                 {
-                    var retrySchemaCheck = schemaValidator.Validate(preValidationRetry, smartContext.SchemaCatalog, smartContext.DatabaseDialect);
                     schemaRepairSql = preValidationRetry;
-                    schemaRepairOk = retrySchemaCheck.IsValid;
-                    if (retrySchemaCheck.IsValid)
+                    schemaRepairOk = retryReport.Verdicts.Schema.Status != SqlGateStatus.Fail;
+                    if (schemaRepairOk)
                     {
-                        columnsUsed = retrySchemaCheck.ColumnsUsed;
-                        text += $"*Initial query had schema errors ({schemaCheck.Error}), retried.*\n\n";
+                        currentReport = retryReport;
+                        columnsUsed = retryReport.ColumnsUsed;
+                        text += $"*Initial query had schema errors ({schemaVerdict.Message}), retried.*\n\n";
                         text += $"### Corrected SQL\n```sql\n{preValidationRetry}\n```\n\n";
                         generatedSql = preValidationRetry;
                         correctedSql = preValidationRetry;
@@ -178,21 +201,13 @@ internal sealed class AskSqlPipeline(
                 }
             }
 
-            repairs.Add(new AskRepairStep("schema", schemaCheck.Error!, schemaRepairSql, schemaRepairOk));
+            repairs.Add(new AskRepairStep("schema", schemaVerdict.Message!, schemaRepairSql, schemaRepairOk));
         }
-
-        // Built once and reused by every re-lint below (NF1) so the SQL that ultimately runs — after a
-        // dry-run, execution or empty-result repair swaps it out — is re-linted against the same join /
-        // PK / catalog context rather than describing stale, already-superseded SQL.
-        var lintContext = new SchemaLintContext(
-            smartContext.JoinPaths.SelectMany(x => x.Steps).ToList(),
-            smartContext.PrimaryKeyCatalog,
-            smartContext.SchemaCatalog);
 
         IReadOnlyList<SqlLintFinding> RelintFinalSql(string finalSql)
         {
             return settings.EnableSemanticLint
-                ? semanticLinter.Lint(finalSql, smartContext.DatabaseDialect, lintContext)
+                ? EvaluateFull(finalSql).LintFindings
                 : [];
         }
 
@@ -204,7 +219,8 @@ internal sealed class AskSqlPipeline(
         IReadOnlyList<SqlLintFinding> lintFindings = [];
         if (settings.EnableSemanticLint)
         {
-            var initialLintFindings = semanticLinter.Lint(generatedSql, smartContext.DatabaseDialect, lintContext);
+            // currentReport already describes generatedSql (the initial candidate or the adopted schema repair).
+            var initialLintFindings = currentReport.LintFindings;
             lintFindings = initialLintFindings;
 
             if (initialLintFindings.Count > 0 && repairAttempts < maxRepairAttempts)
@@ -219,12 +235,12 @@ internal sealed class AskSqlPipeline(
 
                 var lintRepairSql = (string?)null;
                 var lintRepairOk = false;
-                if (lintRetry != null && ValidateGeneratedSql(lintRetry, settings, smartContext.DatabaseDialect) == null)
+                if (lintRetry != null)
                 {
-                    var retryLintSchemaCheck = schemaValidator.Validate(lintRetry, smartContext.SchemaCatalog, smartContext.DatabaseDialect);
-                    if (retryLintSchemaCheck.IsValid)
+                    var retryReport = EvaluateFull(lintRetry);
+                    if (!retryReport.Blocked && retryReport.Verdicts.Schema.Status != SqlGateStatus.Fail)
                     {
-                        var retryLintFindings = semanticLinter.Lint(lintRetry, smartContext.DatabaseDialect, lintContext);
+                        var retryLintFindings = retryReport.LintFindings;
                         if (retryLintFindings.Count < initialLintFindings.Count)
                         {
                             lintRepairSql = lintRetry;
@@ -304,7 +320,8 @@ internal sealed class AskSqlPipeline(
         {
             repairAttempts++;
             logger.LogInformation("SQL error detected, retrying. Error: {Error}", execResult.ErrorMessage);
-            var tableNames = SqlTableNameExtractor.ExtractTableNames(generatedSql);
+            // AST-resolved tables (aliases resolved, CTEs excluded) — generatedSql already cleared the gate.
+            var tableNames = gate.Evaluate(SqlGateRequest.FromSettings(generatedSql, smartContext.DatabaseDialect, settings)).TablesUsed.ToList();
             var tablesContext = tableNames.Count > 0
                 ? await knowledgeGraph.GetTablesContextAsync(dataSourceId, tableNames, ct)
                 : null;
@@ -483,7 +500,10 @@ internal sealed class AskSqlPipeline(
             smartContext.PrimaryKeyCatalog,
             smartContext.SchemaCatalog);
 
-        return semanticLinter.Lint(sql, smartContext.DatabaseDialect, lintContext).Count;
+        return gate.Evaluate(SqlGateRequest.FromSettings(sql, smartContext.DatabaseDialect, settings) with
+        {
+            LintContext = lintContext
+        }).LintFindings.Count;
     }
 
     // Result-set majority vote. Groups the SUCCESSFULLY-executed candidates by fingerprint and
@@ -565,28 +585,14 @@ internal sealed class AskSqlPipeline(
         }
     }
 
+    // Read-only gate only (regex guardrail + AST validator, §1.5) — the check every candidate and every
+    // dry-run / execution-error / empty-result repair must clear before it may execute. Returns the block
+    // reason, or null when the SQL may proceed.
     private string? ValidateGeneratedSql(string sql, McpSettingsData settings, string? dialect)
     {
-        var validation = guardrailService.ValidateQuery(sql, BuildGuardrailOptions(settings));
-        if (!validation.IsValid)
-        {
-            return validation.Error;
-        }
+        var report = gate.Evaluate(SqlGateRequest.FromSettings(sql, dialect, settings));
 
-        // AST-based read-only defense-in-depth on top of the regex guardrail (§1.5)
-        return settings.EnforceReadOnly
-            ? readOnlyAstValidator.Validate(sql, dialect)
-            : null;
-    }
-
-    private static QueryGuardrailOptions BuildGuardrailOptions(McpSettingsData settings)
-    {
-        return new QueryGuardrailOptions
-        {
-            ReadOnly = settings.EnforceReadOnly,
-            DetectPii = settings.EnablePiiDetection,
-            CustomPiiPatterns = settings.CustomPiiPatterns.Count > 0 ? settings.CustomPiiPatterns : null
-        };
+        return report.Blocked ? report.BlockReason : null;
     }
 
     private static bool SqlEquals(string left, string right)
