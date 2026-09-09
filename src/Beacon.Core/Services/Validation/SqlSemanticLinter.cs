@@ -120,7 +120,7 @@ public sealed class SqlSemanticLinter
 
         CheckUndeclaredJoins(equalities, context, findings);
         CheckFanoutAggregate(select, scope, context, equalities, findings);
-        CheckGroupByMismatch(select, findings);
+        CheckGroupByMismatch(select, scope, context, findings);
     }
 
     private static void ProcessTableWithJoins(TableWithJoins tableWithJoins, QueryScope scope, SchemaLintContext context, List<JoinEquality> equalities, List<SqlLintFinding> findings, IReadOnlySet<string> ambientOpaque)
@@ -319,6 +319,13 @@ public sealed class SqlSemanticLinter
 
             foreach (var aggregate in FindAggregateFunctions(expression))
             {
+                // COUNT(DISTINCT x) / SUM(DISTINCT x) collapse duplicates before aggregating, so the extra
+                // rows a one-to-many join contributes cannot inflate them — no fan-out to report.
+                if (IsDistinctAggregate(aggregate))
+                {
+                    continue;
+                }
+
                 var argColumn = GetSingleColumnArg(aggregate);
                 if (argColumn == null)
                 {
@@ -374,7 +381,7 @@ public sealed class SqlSemanticLinter
         }
     }
 
-    private static void CheckGroupByMismatch(Select select, List<SqlLintFinding> findings)
+    private static void CheckGroupByMismatch(Select select, QueryScope scope, SchemaLintContext context, List<SqlLintFinding> findings)
     {
         var hasAggregate = select.Projection.Any(item =>
             GetSelectItemExpression(item) is { } expression && FindAggregateFunctions(expression).Any());
@@ -392,6 +399,10 @@ public sealed class SqlSemanticLinter
 
         var groupByKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var groupedProjectionIndexes = new HashSet<int>();
+
+        // Resolved "<catalog table key>.<column>" entries for every GROUP BY column that maps onto a real
+        // table in this scope — the basis of the functional-dependency check below.
+        var groupedResolvedColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if (select.GroupBy is GroupByExpression.Expressions groupByExpressions)
         {
             foreach (var groupByItem in groupByExpressions.ColumnNames)
@@ -400,12 +411,14 @@ public sealed class SqlSemanticLinter
                 {
                     case Expression.Identifier identifier:
                         groupByKeys.Add(identifier.Ident.Value);
+                        AddResolvedColumn(groupedResolvedColumns, ResolveColumnTable(null, scope), identifier.Ident.Value);
                         break;
 
                     case Expression.CompoundIdentifier compound:
                         var idents = compound.Idents.Select(x => x.Value).ToList();
                         groupByKeys.Add(idents[^1]);
                         groupByKeys.Add(string.Join(".", idents));
+                        AddResolvedColumn(groupedResolvedColumns, ResolveColumnTable(string.Join(".", idents.Take(idents.Count - 1)), scope), idents[^1]);
                         break;
 
                     case Expression.LiteralValue { Value: Value.Number number }
@@ -413,6 +426,11 @@ public sealed class SqlSemanticLinter
                         // Positional GROUP BY (`GROUP BY 1, 2`, PostgreSQL/MySQL/etc.) names the
                         // projection item at that 1-based index.
                         groupedProjectionIndexes.Add(position - 1);
+                        if (TryGetPlainColumn(GetSelectItemExpression(select.Projection[position - 1])) is { } positional)
+                        {
+                            AddResolvedColumn(groupedResolvedColumns, ResolveColumnTable(positional.Qualifier, scope), positional.Column);
+                        }
+
                         break;
                 }
             }
@@ -432,25 +450,15 @@ public sealed class SqlSemanticLinter
                 continue;
             }
 
-            string column;
-            string? qualified = null;
-            switch (expression)
+            // A constant, expression or CASE — not a plain column reference. Skip rather than guess
+            // (§3.x "non-constant" is a narrowing rule, not licence to over-report).
+            if (TryGetPlainColumn(expression) is not { } plainColumn)
             {
-                case Expression.Identifier identifier:
-                    column = identifier.Ident.Value;
-                    break;
-
-                case Expression.CompoundIdentifier compound:
-                    var idents = compound.Idents.Select(x => x.Value).ToList();
-                    column = idents[^1];
-                    qualified = string.Join(".", idents);
-                    break;
-
-                default:
-                    // A constant, expression or CASE — not a plain column reference. Skip rather than
-                    // guess (§3.x "non-constant" is a narrowing rule, not licence to over-report).
-                    continue;
+                continue;
             }
+
+            var (qualifier, column) = plainColumn;
+            var qualified = qualifier != null ? $"{qualifier}.{column}" : null;
 
             // NF2: GROUP BY can reference the projection's OWN alias (e.g. `o.customer_id AS cust ...
             // GROUP BY cust`) rather than the underlying column — accept that as a match too.
@@ -458,13 +466,58 @@ public sealed class SqlSemanticLinter
             var presentInGroupBy = groupByKeys.Contains(column)
                 || (qualified != null && groupByKeys.Contains(qualified))
                 || (alias != null && groupByKeys.Contains(alias));
-            if (!presentInGroupBy)
+            if (presentInGroupBy)
             {
-                findings.Add(new SqlLintFinding(
-                    "GROUP_BY_MISMATCH",
-                    $"Column '{column}' is selected without an aggregate but is not in GROUP BY."));
+                continue;
             }
+
+            // Functional dependency: when the column's table is grouped by its FULL primary key, every other
+            // column of that table is determined by the group (`SELECT c.id, c.name, COUNT(*) ... GROUP BY
+            // c.id`) — legal SQL on PostgreSQL/MySQL and never semantically wrong, so not a finding.
+            if (IsFunctionallyDependentOnGroupedPrimaryKey(qualifier, scope, context, groupedResolvedColumns))
+            {
+                continue;
+            }
+
+            findings.Add(new SqlLintFinding(
+                "GROUP_BY_MISMATCH",
+                $"Column '{column}' is selected without an aggregate but is not in GROUP BY."));
         }
+    }
+
+    private static bool IsFunctionallyDependentOnGroupedPrimaryKey(string? qualifier, QueryScope scope, SchemaLintContext context, IReadOnlySet<string> groupedResolvedColumns)
+    {
+        var tableKey = ResolveColumnTable(qualifier, scope);
+        if (tableKey == null)
+        {
+            return false;
+        }
+
+        if (!context.PrimaryKeys.TryGetValue(tableKey, out var primaryKey) || primaryKey.Count == 0)
+        {
+            return false;
+        }
+
+        return primaryKey.All(x => groupedResolvedColumns.Contains($"{tableKey}.{x}"));
+    }
+
+    private static void AddResolvedColumn(HashSet<string> resolvedColumns, string? tableKey, string column)
+    {
+        if (tableKey != null)
+        {
+            resolvedColumns.Add($"{tableKey}.{column}");
+        }
+    }
+
+    private static (string? Qualifier, string Column)? TryGetPlainColumn(Expression? expression)
+    {
+        return expression switch
+        {
+            Expression.Identifier identifier => (null, identifier.Ident.Value),
+            Expression.CompoundIdentifier compound when compound.Idents.Count >= 2 =>
+                (string.Join(".", compound.Idents.Take(compound.Idents.Count - 1).Select(x => x.Value)), compound.Idents[^1].Value),
+            _ => null
+        };
     }
 
     private static Expression? GetSelectItemExpression(SelectItem item)
@@ -491,9 +544,51 @@ public sealed class SqlSemanticLinter
             case Expression.Function function:
                 // COUNT(*) OVER (...) is a window function: it never collapses rows, so it neither
                 // requires a GROUP BY nor fans out over a join. Only a bare aggregate call counts.
-                if (function.Over == null && IsAggregateName(function.Name))
+                if (function.Over != null)
+                {
+                    yield break;
+                }
+
+                if (IsAggregateName(function.Name))
                 {
                     yield return function;
+                    yield break;
+                }
+
+                // A scalar wrapper around an aggregate — ROUND(AVG(x), 2), COALESCE(SUM(x), 0) — still
+                // aggregates, so look through its arguments; otherwise the whole GROUP BY / fan-out check
+                // silently switches off for the most common way models render aggregates.
+                if (function.Args is FunctionArguments.List { ArgumentList.Args: { } args })
+                {
+                    foreach (var arg in args)
+                    {
+                        if (arg is FunctionArg.Unnamed { FunctionArgExpression: FunctionArgExpression.FunctionExpression argExpression })
+                        {
+                            foreach (var found in FindAggregateFunctions(argExpression.Expression))
+                            {
+                                yield return found;
+                            }
+                        }
+                    }
+                }
+
+                yield break;
+
+            case Expression.Case caseExpression:
+                foreach (var branch in (caseExpression.Conditions ?? []).Concat(caseExpression.Results ?? []))
+                {
+                    foreach (var found in FindAggregateFunctions(branch))
+                    {
+                        yield return found;
+                    }
+                }
+
+                if (caseExpression.ElseResult != null)
+                {
+                    foreach (var found in FindAggregateFunctions(caseExpression.ElseResult))
+                    {
+                        yield return found;
+                    }
                 }
 
                 yield break;
@@ -541,6 +636,11 @@ public sealed class SqlSemanticLinter
     {
         var last = name.Values.LastOrDefault()?.Value;
         return last != null && AggregateFunctionNames.Contains(last);
+    }
+
+    private static bool IsDistinctAggregate(Expression.Function function)
+    {
+        return function.Args is FunctionArguments.List { ArgumentList.DuplicateTreatment: DuplicateTreatment.Distinct };
     }
 
     private static (string? Qualifier, string Column)? GetSingleColumnArg(Expression.Function function)

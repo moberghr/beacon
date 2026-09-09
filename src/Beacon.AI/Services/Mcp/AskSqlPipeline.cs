@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Beacon.AI.Services.Eval;
 using Beacon.AI.Services.Knowledge;
 using Beacon.AI.Services.LlmProviders;
 using Beacon.Core.Helpers;
@@ -520,11 +521,18 @@ internal sealed class AskSqlPipeline(
 
     // Order-independent result-set fingerprint for self-consistency voting: two candidates returning the
     // same rows in a different order (no stable ORDER BY) must produce the same fingerprint so they count as
-    // agreeing. AskExecutionResult exposes the formatted markdown table, so canonicalize by trimming
-    // and ordinally sorting its non-empty lines — the header/separator lines are identical across same-shaped
-    // results, so the sort is stable and only row order is neutralized. Internal for unit tests.
+    // agreeing. The MCP executor exposes the formatted markdown table, so canonicalize by trimming and
+    // ordinally sorting its non-empty lines — the header/separator lines are identical across same-shaped
+    // results, so the sort is stable and only row order is neutralized. The eval executor formats nothing
+    // and exposes raw rows instead, so fall back to the row-multiset fingerprint there — otherwise every
+    // executed candidate with the same row count would "agree" regardless of content. Internal for unit tests.
     internal static string ResultFingerprint(AskExecutionResult result)
     {
+        if (result.FormattedResult == null && result.Rows != null)
+        {
+            return $"{result.IsSuccess}|{result.RowCount}|{ResultSetFingerprint.Compute(result.Rows)}";
+        }
+
         var canonical = string.Join(
             "\n",
             (result.FormattedResult ?? "")

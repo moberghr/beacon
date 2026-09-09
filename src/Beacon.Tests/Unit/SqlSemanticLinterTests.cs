@@ -23,6 +23,25 @@ public class SqlSemanticLinterTests
         PrimaryKeys: new Dictionary<string, IReadOnlySet<string>>(),
         Catalog: new Dictionary<string, HashSet<string>>());
 
+    // orders (1) → order_items (many), order_items keyed by its own id: joining orders to order_items on
+    // order_id fans an aggregate over orders out.
+    private static SchemaLintContext FanoutContext()
+    {
+        return new SchemaLintContext(
+            KnownJoins:
+            [
+                new SchemaJoinStep(
+                    "sales.orders", "id", "sales.order_items", "order_id",
+                    "FK", SchemaRelationshipOrigin.ForeignKey, IsVerified: true, Confidence: 1.0, ToIsJunction: false)
+            ],
+            PrimaryKeys: new Dictionary<string, IReadOnlySet<string>>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["sales.order_items"] = new HashSet<string> { "id" },
+                ["order_items"] = new HashSet<string> { "id" }
+            },
+            Catalog: new Dictionary<string, HashSet<string>>());
+    }
+
     [Test]
     public void Lint_JoinOnUndeclaredPair_FlagsUndeclaredJoin()
     {
@@ -114,6 +133,110 @@ public class SqlSemanticLinterTests
         var findings = _linter.Lint(sql, Dialect, context);
 
         findings.Should().NotContain(x => x.Code == "FANOUT_AGGREGATE");
+    }
+
+    [Test]
+    public void Lint_CountDistinctOverTableJoinedOnNonPrimaryKey_DoesNotFlagFanoutAggregate()
+    {
+        // DISTINCT collapses the duplicate rows the one-to-many join introduces, so the aggregate cannot inflate.
+        const string sql = "SELECT COUNT(DISTINCT o.id) FROM sales.orders o JOIN sales.order_items i ON o.id = i.order_id";
+
+        var findings = _linter.Lint(sql, Dialect, FanoutContext());
+
+        findings.Should().NotContain(x => x.Code == "FANOUT_AGGREGATE");
+    }
+
+    [Test]
+    public void Lint_AggregateWrappedInScalarFunction_StillFlagsFanoutAggregate()
+    {
+        // COALESCE(SUM(...), 0) and ROUND(AVG(...), 2) are how models usually render aggregates — the
+        // walk must look through the scalar wrapper or the check silently switches off.
+        const string sql = "SELECT COALESCE(SUM(o.amount), 0) FROM sales.orders o JOIN sales.order_items i ON o.id = i.order_id";
+
+        var findings = _linter.Lint(sql, Dialect, FanoutContext());
+
+        findings.Should().ContainSingle(x => x.Code == "FANOUT_AGGREGATE");
+    }
+
+    [Test]
+    public void Lint_AggregateWrappedInScalarFunction_StillFlagsGroupByMismatch()
+    {
+        const string sql = "SELECT o.customer_id, ROUND(AVG(o.amount), 2) AS avg_amount FROM sales.orders o";
+
+        var findings = _linter.Lint(sql, Dialect, EmptyContext);
+
+        findings.Should().ContainSingle(x => x.Code == "GROUP_BY_MISMATCH");
+        findings.Single().Message.Should().Contain("customer_id");
+    }
+
+    [Test]
+    public void Lint_AggregateInsideCaseBranch_StillFlagsGroupByMismatch()
+    {
+        const string sql = "SELECT o.customer_id, CASE WHEN SUM(o.amount) > 100 THEN 'big' ELSE 'small' END AS bucket FROM sales.orders o";
+
+        var findings = _linter.Lint(sql, Dialect, EmptyContext);
+
+        findings.Should().ContainSingle(x => x.Code == "GROUP_BY_MISMATCH");
+    }
+
+    [TestCase("SELECT c.id, c.name, COUNT(o.id) FROM sales.customers c JOIN sales.orders o ON o.customer_id = c.id GROUP BY c.id")]
+    [TestCase("SELECT c.name, COUNT(o.id) FROM sales.customers c JOIN sales.orders o ON o.customer_id = c.id GROUP BY c.id")]
+    [TestCase("SELECT c.id, c.name, COUNT(o.id) FROM sales.customers c JOIN sales.orders o ON o.customer_id = c.id GROUP BY 1")]
+    public void Lint_NonAggregatedColumnFunctionallyDependentOnGroupedPrimaryKey_DoesNotFlagGroupByMismatch(string sql)
+    {
+        // Grouping by a table's full primary key determines every other column of that table — legal on
+        // PostgreSQL/MySQL and never semantically wrong, so it must not burn a repair attempt.
+        var context = new SchemaLintContext(
+            KnownJoins: [],
+            PrimaryKeys: new Dictionary<string, IReadOnlySet<string>>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["sales.customers"] = new HashSet<string> { "id" },
+                ["customers"] = new HashSet<string> { "id" }
+            },
+            Catalog: new Dictionary<string, HashSet<string>>());
+
+        var findings = _linter.Lint(sql, Dialect, context);
+
+        findings.Should().NotContain(x => x.Code == "GROUP_BY_MISMATCH");
+    }
+
+    [Test]
+    public void Lint_NonAggregatedColumnFromOtherTable_WhenOnlyOneTablesPrimaryKeyIsGrouped_StillFlagsGroupByMismatch()
+    {
+        // c.id covers c.name but says nothing about o.status — that one is still a real mismatch.
+        const string sql = "SELECT c.name, o.status, COUNT(o.id) FROM sales.customers c JOIN sales.orders o ON o.customer_id = c.id GROUP BY c.id";
+
+        var context = new SchemaLintContext(
+            KnownJoins: [],
+            PrimaryKeys: new Dictionary<string, IReadOnlySet<string>>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["sales.customers"] = new HashSet<string> { "id" },
+                ["sales.orders"] = new HashSet<string> { "id" }
+            },
+            Catalog: new Dictionary<string, HashSet<string>>());
+
+        var findings = _linter.Lint(sql, Dialect, context);
+
+        findings.Should().ContainSingle(x => x.Code == "GROUP_BY_MISMATCH")
+            .Which.Message.Should().Contain("status");
+    }
+
+    [Test]
+    public void Lint_CompositePrimaryKeyOnlyPartiallyGrouped_StillFlagsGroupByMismatch()
+    {
+        const string sql = "SELECT i.order_id, i.line_no, i.sku, SUM(i.qty) FROM sales.order_items i GROUP BY i.order_id";
+
+        var context = new SchemaLintContext(
+            KnownJoins: [],
+            PrimaryKeys: new Dictionary<string, IReadOnlySet<string>>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["sales.order_items"] = new HashSet<string> { "order_id", "line_no" }
+            },
+            Catalog: new Dictionary<string, HashSet<string>>());
+
+        var findings = _linter.Lint(sql, Dialect, context);
+
+        findings.Should().HaveCount(2).And.OnlyContain(x => x.Code == "GROUP_BY_MISMATCH");
     }
 
     [Test]
