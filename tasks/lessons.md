@@ -387,3 +387,66 @@
 **Why it matters:** Six wasted dispatches and roughly an hour, for a batch that was already done.
 
 **When it applies:** Any mtk implement run on the subagent or dynamic-workflow path whose batch verification is one long command.
+
+## `EnsureSchemaOperation` hides its schema in `Name`, not `Schema` (2026-09-11)
+
+**What happened:** `SchemaAwareMigrationsSqlGenerator` retargeted `Schema` / `PrincipalSchema` /
+`NewSchema` across ~23 `MigrationOperation` types and was reviewed clean by three lanes. It still
+missed `EnsureSchemaOperation`, whose schema name lives in a property called **`Name`** — and that
+operation is the *first statement of the first migration* (`20260420103830_Initial.cs:14`,
+`migrationBuilder.EnsureSchema(name: "beacon")`). A fresh SQL Server deploy configured for
+`tenant_a` created an empty `beacon` schema next to correctly-placed tables. No error, no log.
+
+**Rule:** When rewriting EF migration operations, enumerate the schema-bearing types **by
+reflection over the pinned assemblies** — do not enumerate them by reading the switch or by
+memory. Property names are not uniform: most carry `Schema`, `EnsureSchemaOperation` and
+`DropSchemaOperation` carry `Name`, and `AlterTableOperation.OldTable` /
+`AlterColumnOperation.OldColumn` carry nested snapshots a top-level type switch never sees. Pair
+the switch with a `default:` branch that reflection-checks for an unhandled schema-bearing type
+and throws, so the next EF release cannot repeat the omission silently.
+
+**Why it matters:** this is the exact silent-split failure the feature existed to eliminate, and it
+survived a compliance, architecture and test review. Only an adversarial silent-failure pass that
+*built and ran* the generator caught it.
+
+**When it applies:** any `IMigrationsSqlGenerator` / `MigrationOperation` rewriting work.
+
+## Check what Core actually references before justifying duplication by layering (2026-09-11)
+
+**What happened:** The schema spec's "elegance check" rejected a shared helper on the grounds that
+"Beacon.Core must not reference either provider package" (§2.4), estimating the duplicated body at
+~25 lines. Two review lanes independently found the real figure was ~130 lines per provider, and
+that `Beacon.Core.csproj` **already** references `Microsoft.EntityFrameworkCore.Relational` (where
+every `MigrationOperation` type lives) *and* `Microsoft.EntityFrameworkCore.SqlServer`. The
+duplication was never forced. After extraction the two generators went 176/180 → 42/46 lines.
+
+**Rule:** Before citing §2.4 to justify duplicating logic across the provider projects, grep the
+target project's `.csproj` for what it already references, and measure the duplicated block. §2.4
+forbids a *ProjectReference* between siblings — it does not forbid Core hosting logic that only
+touches packages Core already has.
+
+**Why it matters:** two copies of a 23-case type switch drift. They already had: the missing
+`DropSequenceOperation` case existed in neither copy, and `EnsureSchemaOperation` had to be fixed
+in one place only because the extraction happened first.
+
+**When it applies:** any dual-provider work in `Beacon.Core.{PostgreSql,SqlServer}`.
+
+## A spec requirement with no test can ship as a no-op (2026-09-11)
+
+**What happened:** The schema spec carried an EARS bullet — "If the history table and the
+model-derived tables would resolve to different schemas, then the system shall fail at
+configuration time rather than at first migration." The implementation shipped
+`BeaconSchemaOptionsExtension.Validate(IDbContextOptions)` as an **empty method body**. Build
+green, 949 tests green, and the compliance/architecture/test lanes all passed over it, because
+nothing in the test manifest pinned that requirement.
+
+**Rule:** Every EARS bullet under "Unwanted behaviours" needs a named entry in the spec's test
+manifest before the spec leaves the drafting phase. An interface method that a framework calls for
+you (`Validate`, `ApplyServices`, `OnConfiguring`) is the easiest place for a requirement to
+evaporate — an empty override is indistinguishable from a satisfied one at build time.
+
+**Why it matters:** the unimplemented requirement was precisely the guard against reintroducing the
+bug the whole feature existed to fix.
+
+**When it applies:** every spec with an "Unwanted behaviours" section; especially interface
+implementations whose members are optional no-ops.

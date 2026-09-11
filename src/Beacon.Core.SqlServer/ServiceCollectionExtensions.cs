@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Beacon.Core.Data;
@@ -21,7 +23,10 @@ public static class ServiceCollectionExtensions
         builder.Services.AddDbContextFactory<SqlServerBeaconContext>((sp, options) =>
             options.UseSqlServer(connectionString,
                     b => b.MigrationsHistoryTable("__EFMigrationsHistory", schema))
-                .AddInterceptors(sp.GetRequiredService<ContentRetentionInterceptor>()));
+                .AddInterceptors(sp.GetRequiredService<ContentRetentionInterceptor>())
+                .UseBeaconSchema(schema)
+                .ReplaceService<IMigrationsSqlGenerator, SchemaAwareMigrationsSqlGenerator>()
+                .ReplaceService<IModelCacheKeyFactory, BeaconSchemaModelCacheKeyFactory>());
 
         // Register the base context factory using the SQL Server implementation
         builder.Services.AddSingleton<IDbContextFactory<BeaconContext>>(sp =>
