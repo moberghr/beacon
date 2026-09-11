@@ -206,6 +206,33 @@ public class QueryGuardrailServiceTests
         sql.Should().NotContain("LIMIT");
     }
 
+    [Test]
+    public void ApplyRowLimit_SqlServerDistinct_PutsTopAfterDistinct()
+    {
+        var sql = _service.ApplyRowLimit("SELECT DISTINCT category FROM orders", 500, "MSSQL");
+
+        // T-SQL requires `SELECT DISTINCT TOP n`; `TOP n DISTINCT` is a syntax error.
+        sql.Should().Be("SELECT DISTINCT TOP 500 category FROM orders");
+    }
+
+    [Test]
+    public void ApplyRowLimit_PostgreSqlSubqueryLimit_StillCapsOuter()
+    {
+        var sql = _service.ApplyRowLimit("SELECT * FROM orders WHERE id IN (SELECT id FROM customers LIMIT 5)", 500, "PostgreSQL");
+
+        // A LIMIT in a subquery bounds an intermediate result, not what the caller receives.
+        sql.Should().EndWith(" LIMIT 500");
+    }
+
+    [Test]
+    public void ApplyRowLimit_PostgreSqlTrailingLineComment_AppendsOnNewLine()
+    {
+        var sql = _service.ApplyRowLimit("SELECT * FROM orders -- all rows", 500, "PostgreSQL");
+
+        // Appending on the same line would put the clause inside the comment.
+        sql.Should().Be("SELECT * FROM orders -- all rows\nLIMIT 500");
+    }
+
     [TestCase("email", true)]
     [TestCase("user_password", true)]
     [TestCase("credit_card", true)]

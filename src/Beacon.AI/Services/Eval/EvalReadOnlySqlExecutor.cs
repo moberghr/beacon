@@ -5,7 +5,6 @@ using Beacon.Core.Data.Entities;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Providers;
 using Beacon.Core.Services.Providers;
-using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
 
 namespace Beacon.AI.Services.Eval;
@@ -13,17 +12,16 @@ namespace Beacon.AI.Services.Eval;
 /// <summary>
 /// The eval harness' <see cref="IAskSqlExecutor"/>: executes SQL strictly read-only through the Core
 /// <see cref="IDataSourceProviderFactory"/> (moved verbatim from <c>McpEvalService.ExecuteReadOnlyAsync</c>).
-/// Read-only is enforced HERE and never inherited — the regex guardrail runs first, then the AST validator
-/// (fail-closed on parse failure), then the row limit, and only then does the provider execute (§1.5).
-/// <c>ReadOnly</c> is forced true regardless of the per-project flag so the harness can never mutate a
-/// live data source. Returns raw <c>Rows</c> so the caller can fingerprint the result set (R10);
-/// <see cref="DryRunAsync"/> returns null because the harness does not dry-run.
+/// Read-only is enforced HERE and never inherited — the shared <see cref="ISqlExecutionGate"/> runs the regex
+/// guardrail, the AST validator (fail-closed on parse failure) and the row-limit rewrite, and only then does
+/// the provider execute (§1.5). <c>EnforceReadOnly</c> is forced true regardless of the per-project flag so
+/// the harness can never mutate a live data source. Returns raw <c>Rows</c> so the caller can fingerprint
+/// the result set (R10); <see cref="DryRunAsync"/> returns null because the harness does not dry-run.
 /// </summary>
 internal sealed class EvalReadOnlySqlExecutor(
     IDbContextFactory<BeaconContext> contextFactory,
     IDataSourceProviderFactory providerFactory,
-    IQueryGuardrailService guardrailService,
-    SqlReadOnlyAstValidator readOnlyAstValidator,
+    ISqlExecutionGate gate,
     McpSettingsData settings) : IAskSqlExecutor
 {
     // Per-statement execution ceiling, matching the MCP query executor.
@@ -55,27 +53,19 @@ internal sealed class EvalReadOnlySqlExecutor(
         var dataSource = await GetDataSourceAsync(dataSourceId, ct);
         var dialect = dataSource.DatabaseEngineType?.ToString();
 
-        // ReadOnly is forced true regardless of the per-project EnforceReadOnly flag — the eval harness
-        // must never mutate a live data source.
-        var guardrail = guardrailService.ValidateQuery(sql, new QueryGuardrailOptions
+        // EnforceReadOnly is forced true regardless of the per-project flag — the eval harness must never
+        // mutate a live data source. The row cap comes from the same gate evaluation.
+        var report = gate.Evaluate(SqlGateRequest.FromSettings(sql, dialect, settings) with
         {
-            ReadOnly = true,
-            DetectPii = settings.EnablePiiDetection,
-            CustomPiiPatterns = settings.CustomPiiPatterns.Count > 0 ? settings.CustomPiiPatterns : null
+            EnforceReadOnly = true,
+            MaxRows = settings.MaxRowLimit
         });
 
-        if (!guardrail.IsValid)
+        if (report.Blocked)
         {
-            return new ProviderQueryResult { Success = false, ErrorMessage = guardrail.Error };
+            return new ProviderQueryResult { Success = false, ErrorMessage = report.BlockReason };
         }
 
-        var astError = readOnlyAstValidator.Validate(sql, dialect);
-        if (astError != null)
-        {
-            return new ProviderQueryResult { Success = false, ErrorMessage = astError };
-        }
-
-        var limitedSql = guardrailService.ApplyRowLimit(sql, settings.MaxRowLimit, dataSource.DatabaseEngineType?.ToString());
         var provider = providerFactory.GetProvider(dataSource.DataSourceType);
 
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -83,7 +73,7 @@ internal sealed class EvalReadOnlySqlExecutor(
 
         // §1.5 backstop — the read-only execution path (database-level READ ONLY transaction on PostgreSQL;
         // other engines forward to normal execution and rely on the parser gates above).
-        return await provider.ExecuteReadOnlyQueryAsync(dataSource, limitedSql, new Dictionary<string, object?>(), timeoutCts.Token);
+        return await provider.ExecuteReadOnlyQueryAsync(dataSource, report.FinalSql, new Dictionary<string, object?>(), timeoutCts.Token);
     }
 
     // The pipeline seam addresses a data source by id; the provider needs the entity. Loaded once and

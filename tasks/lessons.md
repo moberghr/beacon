@@ -257,3 +257,33 @@
 **Rule:** On an implementer failure notification, first `git status` + build the touched project to assess the partial state, then respawn ONCE with the same bundle plus an explicit done/remaining list; only escalate to inline-MAX if the second dispatch also fails. Default to Sonnet for implementers in this repo — the batch bundles are specific enough that Opus buys little.
 
 **When it applies:** every mtk subagent-path run.
+
+## SqlParserCS 0.6.5 never calls `Visitor.PreVisitQuery` — verify a visitor hook fires before building on it (2026-09-09)
+
+**What happened:** `SqlSchemaValidator` registered CTE names in a `PreVisitQuery` override that had never executed since it shipped: the SqlParserCS `Visitor` base invokes `PreVisitStatement`, `PreVisitTableFactor` and `PreVisitExpression`, but not `PreVisitQuery`. CTE names were therefore never opaque, and the new projection-alias collection placed on the same hook was dead too. The gap surfaced only when the gate refactor's tests asserted `TablesUsed` and found the CTE name in the list.
+
+**Rule:** Before relying on an AST-visitor override, prove the hook fires with a three-line trace visitor against the exact package version (`ParseSql(...).Visit(new TraceVisitor())`). Query-level scope (CTE names, projection aliases) is registered by an explicit pre-pass (`RegisterScopes`) and by the hooks that do fire (`PreVisitTableFactor` for derived tables, `PreVisitExpression` for `Subquery`/`InSubquery`/`Exists`). The same trace showed the visitor also does **not** descend into `TableFactor.Derived.SubQuery` — a derived table's inner tables and columns were invisible to the schema validator until `derived.SubQuery.Visit(this)` was added — while it does descend into top-level `WITH` bodies and `IN`/`EXISTS` subqueries.
+
+**Why it matters:** A dead override compiles, reads as correct, and silently degrades a security-adjacent validator to a weaker mode. Reflection over properties (which the spec did) does not catch which callbacks a base class actually dispatches.
+
+**When it applies:** Any override of a SqlParserCS `Visitor` member, and any AST library upgrade — re-run the trace.
+
+## Host load kills subagents: probe `uptime` before dispatching, and run dotnet in the background under load (2026-09-09)
+
+**What happened:** Two consecutive implementer subagents on one batch were killed by the harness stall watchdog ("no progress for 600s"). The batch was not at fault: the Mac's load average was ~100 (a runaway system process), so a 20-second `dotnet build` took 5-15 minutes and the agent produced no output while it waited. The mtk killed-mid-batch recovery attributes kills to the tier or the batch and has no branch for an overloaded host, so the RESUME respawn died the same way. Orphaned MSBuild worker nodes from the dead agents then slowed every later build.
+
+**Rule:** Before dispatching implementer subagents (or any long `dotnet` command), check `uptime` load against core count. Under heavy load: run builds/tests as background Bash with a long timeout, pass `--disable-build-servers`, and after any killed dispatch kill orphaned `MSBuild.dll` nodes (parent PID 1) plus the stale `VBCSCompiler`. After a second kill on one batch, switch to inline-MAX rather than respawning.
+
+**Why it matters:** ~45 minutes and two Opus dispatches were spent on a batch that was 80% done after the first kill.
+
+**When it applies:** Any mtk implement run using subagents; any session where a build that took 20 s at baseline takes minutes.
+
+## Moving logic from an injectable interface to a static helper breaks tests that stubbed the interface (2026-09-09)
+
+**What happened:** The row-limit rewrite moved from `IQueryGuardrailService.ApplyRowLimit` (stubbed to identity in several fixtures) into the static `SqlRowLimitRewriter` called by the gate. A provider mock that matched the failing SQL by exact string stopped matching once the real cap was appended, and the eval test failed with an unrelated-looking assertion.
+
+**Rule:** When a behaviour leaves an injectable seam, grep the test project for `Setup(x => x.<OldMember>` and for exact-string argument matches on downstream mocks; convert them to prefix/predicate matches or inject the new helper. Record the change as a helper-only edit in the spec's SC.
+
+**Why it matters:** The failure surfaces far from the cause and looks like a behaviour regression.
+
+**When it applies:** Any refactor that replaces an interface member with a pure/static implementation.

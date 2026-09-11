@@ -9,7 +9,6 @@ using Beacon.AI.Services.Knowledge;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Services;
-using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
 using Beacon.MCP.Services;
 
@@ -18,9 +17,7 @@ namespace Beacon.MCP.Tools;
 [McpServerToolType]
 internal sealed class DryRunTool(
     IDbContextFactory<BeaconContext> contextFactory,
-    IQueryGuardrailService guardrailService,
-    SqlReadOnlyAstValidator readOnlyAstValidator,
-    SqlSchemaValidator schemaValidator,
+    ISqlExecutionGate gate,
     IKnowledgeGraphService knowledgeGraph,
     IQueryExecutionService queryExecutionService,
     IMcpSettingsProvider settingsProvider,
@@ -32,8 +29,12 @@ internal sealed class DryRunTool(
     // The dry-run preview applies the same default row budget the query tool uses, capped by settings.
     private const int DefaultMaxRows = 100;
 
+    private const string ReadOnlyGate = "read_only";
+    private const string SchemaGate = "schema";
+    private const string ProviderGate = "provider_dry_run";
+
     [McpServerTool(Name = "dry_run", Title = "Validate SQL Without Executing", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
-    [Description("Validate a SQL query through all of Beacon's safety gates — read-only guardrail, AST validation, schema column check, and a provider dry-run (EXPLAIN) — without executing it. Returns the exact SQL that would run (with the row limit applied) and any issues found. If the data source has no extracted schema metadata yet, the schema gate reports an advisory issue and the verdict is invalid (the column check could not be performed); the provider dry-run still runs. Engines without a provider dry-run strategy (e.g. SQLite) report that gate as skipped with an advisory issue, so a query that could not be validated is never reported as valid. Use before query.")]
+    [Description("Validate a SQL query through all of Beacon's safety gates — the read-only gate (regex guardrail + AST validation), schema column check, and a provider dry-run (EXPLAIN) — without executing it. Returns the exact SQL that would run (with the row limit applied) and any issues found. If the data source has no extracted schema metadata yet, the schema gate reports an advisory issue and the verdict is invalid (the column check could not be performed); the provider dry-run still runs. Engines without a provider dry-run strategy (e.g. SQLite) report that gate as skipped with an advisory issue, so a query that could not be validated is never reported as valid. Use before query.")]
     public async Task<CallToolResult> ExecuteAsync(
         [Description("Name of the data source to validate against (preferred)")]
         string? datasource_name = null,
@@ -61,7 +62,9 @@ internal sealed class DryRunTool(
             return await FailAsync(signal, sw, null, datasource_id, sql, "Missing required parameter: sql", cancellationToken);
         }
 
-        signal.SetGeneratedSql(sql, SqlParsingHelper.ExtractTableNamesFromSql(sql));
+        // The data source (and therefore the dialect) is not resolved yet, so the early-exit failures below
+        // carry the SQL without tables; the gate's AST-resolved tables are recorded once it has run.
+        signal.SetGeneratedSql(sql);
 
         var resolveError = ToolHelper.ResolveProjectId(projectContext, project_id, out var projectId);
         if (resolveError != null)
@@ -111,51 +114,43 @@ internal sealed class DryRunTool(
 
             var dialect = dataSource.DatabaseEngineType?.ToString();
             var settings = await settingsProvider.GetSettingsAsync(cancellationToken);
-            var issues = new List<(string Gate, string Error)>();
+            var catalog = await knowledgeGraph.GetSchemaCatalogAsync(datasource_id.Value, cancellationToken);
+            var maxRows = Math.Min(DefaultMaxRows, settings.MaxRowLimit);
 
-            // Gate 1: regex guardrail (read-only backstop + PII detection report)
-            var validation = guardrailService.ValidateQuery(sql, new QueryGuardrailOptions
+            // Gates 1-3 (read-only, schema, row limit) run through the one shared gate (§1.5). The schema
+            // verdict is advisory here — every issue is collected so the caller sees all of them at once.
+            var report = gate.Evaluate(SqlGateRequest.FromSettings(sql, dialect, settings) with
             {
-                ReadOnly = settings.EnforceReadOnly,
-                DetectPii = settings.EnablePiiDetection,
-                CustomPiiPatterns = settings.CustomPiiPatterns.Count > 0 ? settings.CustomPiiPatterns : null
+                Catalog = catalog,
+                MaxRows = maxRows
             });
-            if (!validation.IsValid)
+            signal.SetGeneratedSql(sql, report.TablesUsed.ToList());
+
+            var issues = new List<GateIssue>();
+
+            var readOnly = report.Verdicts.ReadOnly;
+            var readOnlyGateRan = readOnly.Status != SqlGateStatus.Skipped;
+            if (readOnly.Status == SqlGateStatus.Fail)
             {
-                issues.Add(("guardrail", validation.Error ?? "Query validation failed"));
+                issues.Add(new GateIssue(ReadOnlyGate, readOnly.Code ?? SqlGateCodes.Guardrail, readOnly.Message ?? "Query validation failed"));
             }
 
-            var piiColumns = validation.PiiColumns ?? [];
+            var piiColumns = report.PiiColumns;
 
-            // Gate 2: AST read-only defense-in-depth on top of the regex guardrail (§1.5) — gated on
-            // the same setting the query tool uses.
-            var astGateRan = settings.EnforceReadOnly;
-            if (astGateRan)
-            {
-                var astError = readOnlyAstValidator.Validate(sql, dialect);
-                if (astError != null)
-                {
-                    issues.Add(("ast", astError));
-                }
-            }
-
-            // Gate 3: schema-catalog column check — catches hallucinated columns without a DB round-trip.
             // An EMPTY catalog means the check cannot run at all — surface that as an advisory issue
             // (making the verdict invalid: the caller asked for a validation that could not be
             // performed) instead of rendering a vacuous "✓ schema".
-            var catalog = await knowledgeGraph.GetSchemaCatalogAsync(datasource_id.Value, cancellationToken);
-            var schemaCheckSkipped = catalog.Count == 0;
+            var schema = report.Verdicts.Schema;
+            var schemaCheckSkipped = schema.Code == SqlGateCodes.EmptyCatalog;
+            var schemaNotEvaluated = schema.Code == SqlGateCodes.NotEvaluated;
             if (schemaCheckSkipped)
             {
-                issues.Add(("schema", "No schema metadata available for this data source yet — column check was skipped. Run metadata extraction, or verify column names manually."));
+                issues.Add(new GateIssue(SchemaGate, SqlGateCodes.EmptyCatalog,
+                    "No schema metadata available for this data source yet — column check was skipped. Run metadata extraction, or verify column names manually."));
             }
-            else
+            else if (schema.Status == SqlGateStatus.Fail)
             {
-                var schemaCheck = schemaValidator.Validate(sql, catalog, dialect);
-                if (!schemaCheck.IsValid)
-                {
-                    issues.Add(("schema", schemaCheck.Error ?? "Schema validation failed"));
-                }
+                issues.Add(new GateIssue(SchemaGate, SqlGateCodes.Schema, schema.Message ?? "Schema validation failed"));
             }
 
             // Gate 4: provider dry-run (EXPLAIN / sp_describe_first_result_set) — ONLY when every
@@ -173,24 +168,23 @@ internal sealed class DryRunTool(
                 if (providerOutcome.Skipped)
                 {
                     providerGateSkipped = true;
-                    issues.Add(("provider_dry_run",
+                    issues.Add(new GateIssue(ProviderGate, "skipped",
                         providerOutcome.Error ?? "Provider dry-run is not supported for this engine — validation was skipped. Verify the query manually."));
                 }
                 else if (providerOutcome.Error != null)
                 {
-                    issues.Add(("provider_dry_run", providerOutcome.Error));
+                    issues.Add(new GateIssue(ProviderGate, "provider", providerOutcome.Error));
                 }
             }
 
             var valid = issues.Count == 0;
-            var maxRows = Math.Min(DefaultMaxRows, settings.MaxRowLimit);
-            var executableSql = valid ? guardrailService.ApplyRowLimit(sql, maxRows, dialect) : null;
+            var executableSql = valid ? report.FinalSql : null;
 
-            var text = BuildMarkdown(valid, issues, astGateRan, providerGateRan, providerGateSkipped, executableSql, piiColumns);
+            var text = BuildMarkdown(valid, issues, readOnlyGateRan, schemaNotEvaluated, providerGateRan, providerGateSkipped, executableSql, piiColumns);
             var structured = BuildStructuredContent(valid, issues, executableSql, piiColumns);
 
             // Signal fields mirror the ask flow's failure taxonomy: schema-gate issues → schema
-            // validation failure, provider gate → dry-run failure, guardrail/AST → execution
+            // validation failure, provider gate → dry-run failure, read-only gate → execution
             // validation failure. IsSuccessful is the verdict itself.
             RecordGateFailuresOnSignal(signal, issues, providerGateSkipped);
             sw.Stop();
@@ -236,8 +230,9 @@ internal sealed class DryRunTool(
 
     private static string BuildMarkdown(
         bool valid,
-        IReadOnlyList<(string Gate, string Error)> issues,
-        bool astGateRan,
+        IReadOnlyList<GateIssue> issues,
+        bool readOnlyGateRan,
+        bool schemaNotEvaluated,
         bool providerGateRan,
         bool providerGateSkipped,
         string? executableSql,
@@ -247,11 +242,12 @@ internal sealed class DryRunTool(
             ? "# Dry Run\n\n**VALID** — all safety gates passed. The query was NOT executed.\n\n"
             : $"# Dry Run\n\n**INVALID** — {issues.Count} issue(s) found. The query was NOT executed.\n\n";
 
-        text += GateLine("guardrail", issues);
-        text += astGateRan
-            ? GateLine("ast", issues)
-            : "- – ast — skipped (read-only enforcement disabled)\n";
-        text += GateLine("schema", issues);
+        text += readOnlyGateRan
+            ? GateLine(ReadOnlyGate, issues)
+            : $"- – {ReadOnlyGate} — skipped (read-only enforcement disabled)\n";
+        text += schemaNotEvaluated
+            ? $"- – {SchemaGate} — not evaluated (read-only gate failed)\n"
+            : GateLine(SchemaGate, issues);
         text += ProviderGateLine(providerGateRan, providerGateSkipped, issues);
 
         if (executableSql != null)
@@ -267,74 +263,83 @@ internal sealed class DryRunTool(
         return text;
     }
 
-    private static string ProviderGateLine(bool ran, bool skipped, IReadOnlyList<(string Gate, string Error)> issues)
+    private static string ProviderGateLine(bool ran, bool skipped, IReadOnlyList<GateIssue> issues)
     {
         if (skipped)
         {
-            return "- – provider_dry_run — not supported for this engine (skipped)\n";
+            return $"- – {ProviderGate} — not supported for this engine (skipped)\n";
         }
 
         return ran
-            ? GateLine("provider_dry_run", issues)
-            : "- – provider_dry_run — skipped (fix the issues above first)\n";
+            ? GateLine(ProviderGate, issues)
+            : $"- – {ProviderGate} — skipped (fix the issues above first)\n";
     }
 
-    private static string GateLine(string gate, IReadOnlyList<(string Gate, string Error)> issues)
+    private static string GateLine(string gate, IReadOnlyList<GateIssue> issues)
     {
-        var error = issues
+        var issue = issues
             .Where(x => x.Gate == gate)
-            .Select(x => x.Error)
             .FirstOrDefault();
 
-        return error == null ? $"- ✓ {gate}\n" : $"- ✗ {gate} — {error}\n";
+        if (issue == null)
+        {
+            return $"- ✓ {gate}\n";
+        }
+
+        // The read-only gate names the layer that rejected the SQL (guardrail / ast / empty) so a caller
+        // can tell a regex backstop hit from an AST rejection.
+        return gate == ReadOnlyGate
+            ? $"- ✗ {gate} [{issue.Code}] — {issue.Error}\n"
+            : $"- ✗ {gate} — {issue.Error}\n";
     }
 
     // Maps the collected gate issues onto McpQuerySignal's failure taxonomy: the schema gate maps to
-    // SchemaValidationFailed, the provider dry-run to DryRunFailed, and the parser gates
-    // (guardrail/AST) to ExecutionFailed — the same fields the ask flow populates, so dry_run rows
-    // aggregate alongside ask rows in the learning loop. A SKIPPED provider gate is NOT a dry-run
-    // failure: the query was never presented to the provider, so the dry-run failure fields stay
-    // unset (the advisory issue still makes the verdict invalid; recording it as DryRunFailed would
-    // poison the learning loop with a failure that never happened).
+    // SchemaValidationFailed, the provider dry-run to DryRunFailed, and the read-only gate to
+    // ExecutionFailed — the same fields the ask flow populates, so dry_run rows aggregate alongside ask
+    // rows in the learning loop. A SKIPPED provider gate is NOT a dry-run failure: the query was never
+    // presented to the provider, so the dry-run failure fields stay unset (the advisory issue still
+    // makes the verdict invalid; recording it as DryRunFailed would poison the learning loop with a
+    // failure that never happened).
     private static void RecordGateFailuresOnSignal(
-        McpSignalBuilder signal, IReadOnlyList<(string Gate, string Error)> issues, bool providerGateSkipped)
+        McpSignalBuilder signal, IReadOnlyList<GateIssue> issues, bool providerGateSkipped)
     {
-        foreach (var (gate, error) in issues)
+        foreach (var issue in issues)
         {
-            switch (gate)
+            switch (issue.Gate)
             {
-                case "schema":
-                    signal.SetSchemaValidationFailed(error);
+                case SchemaGate:
+                    signal.SetSchemaValidationFailed(issue.Error);
                     break;
-                case "provider_dry_run":
+                case ProviderGate:
                     if (!providerGateSkipped)
                     {
-                        signal.SetDryRunFailed(error);
+                        signal.SetDryRunFailed(issue.Error);
                     }
 
                     break;
                 default:
-                    signal.SetExecutionFailed(error);
+                    signal.SetExecutionFailed(issue.Error);
                     break;
             }
         }
     }
 
     // Machine-readable companion to the markdown verdict:
-    // { valid, issues: [{gate, error}], executable_sql: string|null, pii_columns: [string] }.
+    // { valid, issues: [{gate, code, error}], executable_sql: string|null, pii_columns: [string] }.
     private static JsonNode BuildStructuredContent(
         bool valid,
-        IReadOnlyList<(string Gate, string Error)> issues,
+        IReadOnlyList<GateIssue> issues,
         string? executableSql,
         IReadOnlyList<string> piiColumns)
     {
         var issuesNode = new JsonArray();
-        foreach (var (gate, error) in issues)
+        foreach (var issue in issues)
         {
             issuesNode.Add(new JsonObject
             {
-                ["gate"] = gate,
-                ["error"] = error
+                ["gate"] = issue.Gate,
+                ["code"] = issue.Code,
+                ["error"] = issue.Error
             });
         }
 
@@ -346,4 +351,6 @@ internal sealed class DryRunTool(
             ["pii_columns"] = new JsonArray(piiColumns.Select(x => (JsonNode?)JsonValue.Create(x)).ToArray())
         };
     }
+
+    private sealed record GateIssue(string Gate, string Code, string Error);
 }

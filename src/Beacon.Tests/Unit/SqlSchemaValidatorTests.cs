@@ -28,6 +28,7 @@ public class SqlSchemaValidatorTests
 
         result.IsValid.Should().BeTrue();
         result.Error.Should().BeNull();
+        result.Checked.Should().BeTrue();
     }
 
     [Test]
@@ -81,9 +82,45 @@ public class SqlSchemaValidatorTests
     }
 
     [Test]
-    public void Validate_EmptyCatalog_IsValid()
+    public void Validate_EmptyCatalog_IsNotChecked()
     {
         var result = _validator.Validate("SELECT whatever FROM anything", new Dictionary<string, HashSet<string>>(), "PostgreSQL");
+
+        // An unknown schema cannot contradict the SQL, but the caller must be able to tell that the
+        // verdict is "not checked" rather than "verified against the catalog".
+        result.IsValid.Should().BeTrue();
+        result.Checked.Should().BeFalse();
+    }
+
+    [Test]
+    public void Validate_TablesUsed_ResolvesAliasesAndExcludesCtes()
+    {
+        var sql = "WITH r AS (SELECT * FROM public.orders o) SELECT c.name FROM r JOIN customers c ON c.id = r.customer_id";
+
+        var result = _validator.Validate(sql, Catalog(), "PostgreSQL");
+
+        result.IsValid.Should().BeTrue();
+        result.TablesUsed.Should().Equal("public.orders", "customers");
+    }
+
+    [Test]
+    public void Validate_ProjectionAliasInOrderBy_IsValid()
+    {
+        // `grand` exists on no table — it is a projection alias, so it must not be validated against
+        // the catalog.
+        var sql = "SELECT SUM(total) AS grand FROM orders GROUP BY customer_id ORDER BY grand";
+
+        var result = _validator.Validate(sql, Catalog(), "PostgreSQL");
+
+        result.IsValid.Should().BeTrue();
+        result.Error.Should().BeNull();
+    }
+
+    [Test]
+    public void Validate_AzureSynapseDialect_Parses()
+    {
+        // AzureSynapse is T-SQL: TOP must parse, not fall through to GenericDialect and fail.
+        var result = _validator.Validate("SELECT TOP 5 id FROM orders", Catalog(), "AzureSynapse");
 
         result.IsValid.Should().BeTrue();
     }
@@ -117,5 +154,48 @@ public class SqlSchemaValidatorTests
 
         result.IsValid.Should().BeFalse();
         result.ColumnsUsed.Should().Contain("bogus");
+    }
+
+    [Test]
+    public void Validate_CteDeclaredButNotReferenced_BareColumnsStillChecked()
+    {
+        // A declared-but-unused CTE must not switch the bare-column check off for the real table. The CTE body
+        // reads the same table so the single-real-table rule for bare columns still applies.
+        var result = _validator.Validate("WITH r AS (SELECT id FROM orders) SELECT bogus FROM orders", Catalog(), "PostgreSQL");
+
+        result.IsValid.Should().BeFalse();
+        result.Error.Should().Contain("bogus");
+    }
+
+    [Test]
+    public void Validate_CteWithAliasedColumn_NoFalsePositive()
+    {
+        // `x` exists only inside the CTE projection; validating it against `orders` would be a false positive.
+        var result = _validator.Validate("WITH r AS (SELECT id AS x FROM orders) SELECT x FROM r", Catalog(), "PostgreSQL");
+
+        result.IsValid.Should().BeTrue();
+        result.TablesUsed.Should().Equal("orders");
+    }
+
+    [Test]
+    public void Validate_CteInsideInSubquery_ExcludedFromTablesUsed()
+    {
+        var sql = "SELECT id FROM orders WHERE customer_id IN (WITH c AS (SELECT id FROM customers) SELECT id FROM c)";
+
+        var result = _validator.Validate(sql, Catalog(), "PostgreSQL");
+
+        result.TablesUsed.Should().Equal("orders", "customers");
+        result.TablesUsed.Should().NotContain("c");
+    }
+
+    [Test]
+    public void Validate_DerivedTableWithOwnCte_ExcludedFromTablesUsed()
+    {
+        var sql = "SELECT d.id FROM (WITH c AS (SELECT id FROM customers) SELECT id FROM c) d";
+
+        var result = _validator.Validate(sql, Catalog(), "PostgreSQL");
+
+        result.TablesUsed.Should().Equal("customers");
+        result.IsValid.Should().BeTrue();
     }
 }

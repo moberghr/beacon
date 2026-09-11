@@ -187,9 +187,7 @@ public class McpPlaygroundServiceTests
 
         services.AddScoped(x => new DryRunTool(
             factory.Object,
-            guardrail.Object,
-            new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),
-            new SqlSchemaValidator(),
+            TestSqlGate.Create(guardrail.Object),
             _knowledgeGraph.Object,
             _queryExecution.Object,
             settingsProvider.Object,
