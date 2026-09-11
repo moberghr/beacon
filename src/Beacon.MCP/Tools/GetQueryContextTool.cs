@@ -134,14 +134,14 @@ internal sealed class GetQueryContextTool(
 
             sw.Stop();
             await auditService.LogToolCallAsync(null, projectContext.UserId, "get_query_context",
-                question, dataSourceId, projectId, (int)sw.ElapsedMilliseconds, null, null, cancellationToken);
+                question, dataSourceId, projectId, (int)sw.ElapsedMilliseconds, null, null, ct: cancellationToken);
             return ToolHelper.Success(text, structured);
         }
         catch (Exception ex)
         {
             sw.Stop();
             await auditService.LogToolCallAsync(null, projectContext.UserId, "get_query_context",
-                question, dataSourceId, projectId, (int)sw.ElapsedMilliseconds, null, ex.Message, CancellationToken.None);
+                question, dataSourceId, projectId, (int)sw.ElapsedMilliseconds, null, ex.Message, ct: CancellationToken.None);
             // §1.11 — ex.Message can quote user input; type only here, full detail is in the audit log.
             logger.LogError("MCP tool {Tool} failed with {ExceptionType} (detail in MCP audit log)", "get_query_context", ex.GetType().Name);
             return ToolHelper.Error(ToolHelper.CallerSafeMessage(ex, "get_query_context"));
@@ -161,7 +161,7 @@ internal sealed class GetQueryContextTool(
     {
         sw.Stop();
         await auditService.LogToolCallAsync(null, projectContext.UserId, "get_query_context",
-            question, dataSourceId, projectId, (int)sw.ElapsedMilliseconds, null, error, cancellationToken);
+            question, dataSourceId, projectId, (int)sw.ElapsedMilliseconds, null, error, ct: cancellationToken);
         return ToolHelper.Error(error);
     }
 

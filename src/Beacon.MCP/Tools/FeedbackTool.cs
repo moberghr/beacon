@@ -21,12 +21,12 @@ internal sealed class FeedbackTool(
     ILogger<FeedbackTool> logger)
 {
     [McpServerTool(Name = "feedback", Title = "Record Answer Feedback", ReadOnly = false, Idempotent = true, Destructive = false, OpenWorld = false)]
-    [Description("Record whether a previous `ask` answer was correct. Pass the signal_id from that ask response. A 'correct' verdict is saved as a verified example that improves future answers.")]
+    [Description("Record whether a previous `ask` answer was correct. Pass the signal_id from that ask response. A 'correct' verdict is saved as a verified example that improves future answers. Only include a note when the user explicitly asked to record one.")]
     public async Task<CallToolResult> ExecuteAsync(
         [Description("The signal_id from the ask response you are rating")] int signal_id,
         [Description("'correct' or 'incorrect'")] string verdict,
         [Description("Optional: the corrected SQL, if you fixed it")] string? corrected_sql = null,
-        [Description("Optional: a short note")] string? note = null,
+        [Description("Optional: a short note — only when the user explicitly requested it; never a summary of the conversation.")] string? note = null,
         CancellationToken cancellationToken = default)
     {
         var sw = Stopwatch.StartNew();
@@ -49,7 +49,7 @@ internal sealed class FeedbackTool(
             sw.Stop();
             var validationError = "verdict must be 'correct' or 'incorrect'.";
             await auditService.LogToolCallAsync(null, projectContext.UserId, "feedback",
-                auditParameters, null, projectId, (int)sw.ElapsedMilliseconds, null, validationError, cancellationToken);
+                auditParameters, null, projectId, (int)sw.ElapsedMilliseconds, null, validationError, ct: cancellationToken);
             return ToolHelper.Error(validationError);
         }
 
@@ -58,7 +58,7 @@ internal sealed class FeedbackTool(
             await mediator.Send(new RecordQueryFeedbackCommand(signal_id, parsedVerdict, corrected_sql, note), cancellationToken);
             sw.Stop();
             await auditService.LogToolCallAsync(null, projectContext.UserId, "feedback",
-                auditParameters, null, projectId, (int)sw.ElapsedMilliseconds, null, null, cancellationToken);
+                auditParameters, null, projectId, (int)sw.ElapsedMilliseconds, null, null, ct: cancellationToken);
             return ToolHelper.Success($"Feedback recorded for signal {signal_id}.");
         }
         catch (InvalidOperationException ex)
@@ -68,7 +68,7 @@ internal sealed class FeedbackTool(
             // handler's "signal not found" text (safe), passed to the audit error slot only.
             logger.LogWarning("Feedback recording failed for signal {SignalId}", signal_id);
             await auditService.LogToolCallAsync(null, projectContext.UserId, "feedback",
-                auditParameters, null, projectId, (int)sw.ElapsedMilliseconds, null, ex.Message, CancellationToken.None);
+                auditParameters, null, projectId, (int)sw.ElapsedMilliseconds, null, ex.Message, ct: CancellationToken.None);
             return ToolHelper.Error(ex.Message);
         }
     }

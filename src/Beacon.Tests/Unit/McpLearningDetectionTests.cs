@@ -53,7 +53,7 @@ public class McpLearningDetectionTests
         var extraction = new McpLearningAggregationService.ExtractionStats();
 
         await service.DetectSchemaCorrectionsAsync(
-            context, ProjectId, DataSourceId, signals, extraction, CancellationToken.None);
+            context, ProjectId, DataSourceId, signals, extraction, retainContent: true, CancellationToken.None);
 
         // (a) Exactly one candidate was created, and it is NeedsEvidence — NEVER AutoApproved on confidence.
         captured.Should().ContainSingle();
@@ -137,6 +137,131 @@ public class McpLearningDetectionTests
             "project 1 (learning on) is still mined — proves the run happened");
         captured.Should().NotContain(x => x.TableName == "invoices" || x.ColumnName == "amount_x",
             "project 2 has learning switched off via its effective settings");
+    }
+
+    [Test]
+    public async Task AggregateLearnedPatternsAsync_ProjectWithRetainQueryContentFalse_SkipsContentBearingDetectorsAndTheLessonExtractor()
+    {
+        // SC5: a project whose effective RetainQueryContent is false must still mine SchemaCorrection
+        // (via the deterministic template) and JoinPattern (structural: table pair + count) but must
+        // skip CommonQuery and DocumentationGap ENTIRELY, and must never invoke the LLM lesson extractor
+        // (its FailureCluster/lesson are free text — § Registry classification).
+        const int LockedProjectId = 3;
+
+        var extractor = new Mock<ILessonExtractor>();
+        extractor.SetupGet(x => x.IsAvailable).Returns(true);
+        extractor
+            .Setup(x => x.ExtractAsync(It.IsAny<FailureCluster>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ExtractedLesson(
+                McpPatternType.SchemaCorrection,
+                "LLM-authored free-text lesson that must never be persisted under the lock",
+                "an LLM-authored example question",
+                "SELECT 1 -- LLM-authored example sql",
+                "symptom", "root cause", "rule", null, null));
+
+        var signals = new List<McpQuerySignal>
+        {
+            // Schema corrections: 3-signal cluster on public.orders (also, incidentally, a 3-signal
+            // same-table cluster that WOULD satisfy CommonQuery's threshold too, proving the skip is a
+            // real gate and not just an absence of eligible data).
+            CorrectionSignalFor(LockedProjectId, "public.orders", "created_at", "created_on"),
+            CorrectionSignalFor(LockedProjectId, "public.orders", "created_at", "created_on"),
+            CorrectionSignalFor(LockedProjectId, "public.orders", "created_at", "created_on"),
+
+            // Join pattern: 2-signal cluster joining public.orders + public.customers.
+            JoinSignal(LockedProjectId),
+            JoinSignal(LockedProjectId),
+
+            // Documentation gap: 5-signal cluster on public.gaps with a 40% error rate.
+            GapSignal(LockedProjectId, isSuccessful: false),
+            GapSignal(LockedProjectId, isSuccessful: false),
+            GapSignal(LockedProjectId, isSuccessful: true),
+            GapSignal(LockedProjectId, isSuccessful: true),
+            GapSignal(LockedProjectId, isSuccessful: true)
+        };
+
+        var captured = new List<McpLearnedPattern>();
+        var service = BuildAggregationService(
+            signals,
+            captured,
+            perProject: new Dictionary<int, McpSettingsData>
+            {
+                [LockedProjectId] = new McpSettingsData
+                {
+                    EnableLearning = true,
+                    RetainQueryContent = false,
+                    LearningSignalRetentionDays = 90,
+                    EnableReplayVerification = false
+                }
+            },
+            lessonExtractor: extractor.Object);
+
+        await service.AggregateLearnedPatternsAsync(CancellationToken.None);
+
+        // SchemaCorrection landed with the deterministic REGEX template — never the extractor's free text.
+        var schemaCorrection = captured.Should().ContainSingle(x => x.PatternType == McpPatternType.SchemaCorrection).Subject;
+        schemaCorrection.PatternContent.Should().Be(
+            "NEVER use 'created_at' on public.orders — correct column is 'created_on'");
+        extractor.Verify(
+            x => x.ExtractAsync(It.IsAny<FailureCluster>(), It.IsAny<CancellationToken>()), Times.Never);
+
+        // CommonQuery and DocumentationGap are skipped entirely under the lock.
+        captured.Should().NotContain(x => x.PatternType == McpPatternType.CommonQuery);
+        captured.Should().NotContain(x => x.PatternType == McpPatternType.DocumentationGap);
+
+        // JoinPattern still lands (structural), but with no free-text examples.
+        var joinPattern = captured.Should().ContainSingle(x => x.PatternType == McpPatternType.JoinPattern).Subject;
+        joinPattern.ExampleQuestion.Should().BeNull();
+        joinPattern.ExampleSql.Should().BeNull();
+    }
+
+    [Test]
+    public async Task Unlocked_StillMinesEveryDetector_AndKeepsJoinExamples()
+    {
+        // Review F4 (test lane): the locked test proves the detectors are SKIPPED, but nothing proved they still
+        // RUN when the lock is off. A regression that skipped them unconditionally — the catastrophic direction,
+        // since it silently stops all learning — would have passed the whole suite.
+        const int UnlockedProjectId = 5;
+        var signals = new List<McpQuerySignal>
+        {
+            CorrectionSignalFor(UnlockedProjectId, "public.orders", "created_at", "created_on"),
+            CorrectionSignalFor(UnlockedProjectId, "public.orders", "created_at", "created_on"),
+            CorrectionSignalFor(UnlockedProjectId, "public.orders", "created_at", "created_on"),
+            JoinSignal(UnlockedProjectId),
+            JoinSignal(UnlockedProjectId),
+            GapSignal(UnlockedProjectId, isSuccessful: false),
+            GapSignal(UnlockedProjectId, isSuccessful: false),
+            GapSignal(UnlockedProjectId, isSuccessful: true),
+            GapSignal(UnlockedProjectId, isSuccessful: true),
+            GapSignal(UnlockedProjectId, isSuccessful: true)
+        };
+
+        var captured = new List<McpLearnedPattern>();
+        var service = BuildAggregationService(
+            signals,
+            captured,
+            perProject: new Dictionary<int, McpSettingsData>
+            {
+                [UnlockedProjectId] = new McpSettingsData
+                {
+                    EnableLearning = true,
+                    RetainQueryContent = true,
+                    LearningSignalRetentionDays = 90,
+                    EnableReplayVerification = false
+                }
+            });
+
+        await service.AggregateLearnedPatternsAsync(CancellationToken.None);
+
+        captured.Should().Contain(x => x.PatternType == McpPatternType.SchemaCorrection);
+        captured.Should().Contain(x => x.PatternType == McpPatternType.CommonQuery,
+            "the CommonQuery detector must still run when the content lock is off");
+        captured.Should().Contain(x => x.PatternType == McpPatternType.DocumentationGap,
+            "the DocumentationGap detector must still run when the content lock is off");
+
+        var joinPattern = captured.Should().ContainSingle(x => x.PatternType == McpPatternType.JoinPattern).Subject;
+        joinPattern.ExampleQuestion.Should().NotBeNull("examples are retained when the lock is off");
+        joinPattern.ExampleSql.Should().NotBeNull();
     }
 
     [Test]
@@ -234,6 +359,33 @@ public class McpLearningDetectionTests
         };
     }
 
+    private static McpQuerySignal JoinSignal(int projectId)
+    {
+        return new McpQuerySignal
+        {
+            Tool = "ask",
+            Question = "orders with their customer",
+            ProjectId = projectId,
+            DataSourceId = DataSourceId,
+            GeneratedSql = "SELECT o.id FROM public.orders o JOIN public.customers c ON c.id = o.customer_id",
+            TablesUsed = "[\"public.orders\", \"public.customers\"]",
+            IsSuccessful = true
+        };
+    }
+
+    private static McpQuerySignal GapSignal(int projectId, bool isSuccessful)
+    {
+        return new McpQuerySignal
+        {
+            Tool = "ask",
+            Question = "gap table question",
+            ProjectId = projectId,
+            DataSourceId = DataSourceId,
+            TablesUsed = "[\"public.gaps\"]",
+            IsSuccessful = isSuccessful
+        };
+    }
+
     // A dry_run signal shaped EXACTLY like a mineable correction cluster member — if the taxonomy
     // filter ever leaks it into the detectors, a public.tickets/status_x pattern appears.
     private static McpQuerySignal DryRunCorrectionSignal()
@@ -258,7 +410,8 @@ public class McpLearningDetectionTests
     private static McpLearningAggregationService BuildAggregationService(
         List<McpQuerySignal> signals,
         List<McpLearnedPattern> captured,
-        IReadOnlyDictionary<int, McpSettingsData>? perProject = null)
+        IReadOnlyDictionary<int, McpSettingsData>? perProject = null,
+        ILessonExtractor? lessonExtractor = null)
     {
         var patternSet = BuildDbSet(Array.Empty<McpLearnedPattern>());
         patternSet
@@ -295,7 +448,7 @@ public class McpLearningDetectionTests
             factory.Object,
             settingsProvider.Object,
             NullLogger<McpLearningAggregationService>.Instance,
-            lessonExtractor: null,
+            lessonExtractor: lessonExtractor,
             replayVerifier: null);
     }
 

@@ -13,8 +13,10 @@ using Beacon.Core.Authentication.Providers;
 using Beacon.Core.Authorization;
 using Beacon.Core.Authorization.Providers;
 using Beacon.Core.Data;
+using Beacon.Core.Data.Interceptors;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Embed;
+using Beacon.Core.Services.Retention;
 using Beacon.Core.Services.Shared;
 using Beacon.Core.Services.Validation;
 using Microsoft.Extensions.Options;
@@ -151,6 +153,11 @@ public static class ServiceConfiguration
 
         // MCP settings provider (cached reads for MCP tool configuration)
         services.TryAddTransient<IMcpSettingsProvider, McpSettingsProvider>();
+
+        // Content-retention policy (the lock) plus the EF belt that enforces it on every Mcp* write.
+        // The interceptor holds no state; it resolves the settings provider lazily per SaveChanges.
+        services.TryAddTransient<IContentRetentionPolicy, ContentRetentionPolicy>();
+        services.TryAddSingleton<ContentRetentionInterceptor>();
 
         // API key service (always registered — used for stateless API authentication)
         services.TryAddTransient<Services.Security.IApiKeyService, Services.Security.ApiKeyService>();

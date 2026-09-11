@@ -337,3 +337,53 @@
 **Why it matters:** The discriminator IS the feature; a double that ignores it turns the whole suite into a compile check for that feature.
 
 **When it applies:** Any fixture helper introduced to absorb an interface widening; any `It.IsAny<int>()` on a newly added id parameter.
+
+## A belt-and-braces design needs one test that composes both layers on the same entity (2026-09-11)
+
+**What happened:** The content lock was enforced twice: at each write site (the brace) and by an EF `SaveChangesInterceptor` over a deny-list (the belt). The audit brace rewrites `McpAuditLog.Parameters` into a structural JSON shape instead of nulling it; the belt classified that column as Content and nulled it on the same save. The declared external contract therefore never reached the database. Both layers' own tests were green: the integration test used a capturing context whose `SaveChangesAsync` is a no-op, so the belt never ran, and the interceptor test asserted `Parameters == null` — pinning the bug as if it were the requirement. The tell was a public helper, `IsStructuralAuditParameters`, with zero production callers.
+
+**Rule:** When two layers enforce the same rule over the same field, at least one test must exercise them **together on one entity**, and any layer that *transforms* rather than *clears* a value must publish a predicate the other layer consults (`McpRetentionRule.AlreadyRedacted`). Before accepting such a design, grep every helper the spec promises will be used: a helper with no production caller means the interaction was described but never wired.
+
+**Why it matters:** Layer-local tests can both pass while the composition is wrong, and the failure is invisible until someone reads the database.
+
+**When it applies:** Any brace+belt / validator+interceptor / middleware+handler pair; any spec sentence of the form "X leaves alone what Y already wrote".
+
+## Gate the value, then pass the gated value — not the request (2026-09-11)
+
+**What happened:** `RecordQueryFeedbackHandler` correctly nulled `signal.FeedbackNote` when a project forbids explicit feedback content, then two lines later sent `PromoteSignalToGoldenCommand(request.SignalId, request.Note)` — the raw, ungated request value — which the promotion copies into `McpEvalCase.Notes`. No race was needed: `RetainQueryContent=true` + `AllowExplicitFeedbackContent=false` is a documented configuration, and the interceptor belt could not catch it because the belt only fires when the content lock itself is on. The test that should have caught it asserted only `Verify(..., Times.Once)` on the promotion, never inspecting the command's payload.
+
+**Rule:** After applying a policy gate to a field, every downstream copy of that field must read the **gated variable**, never the original request. When reviewing, grep the request object's field name after the gate line — any later use is a bypass. A `Verify(Times.Once)` on a command without an `It.Is<T>(...)` payload predicate proves the call happened, not that it carried the right data.
+
+**Why it matters:** A privacy control that is enforced on the primary row and skipped on a derived copy is not enforced.
+
+**When it applies:** Any handler that gates content and then dispatches a command/event carrying the same content; any redaction, masking, consent or retention rule with more than one persistence path.
+
+## PostgreSQL reports a hit statement timeout as a cancellation (2026-09-11)
+
+**What happened:** The error classifier mapped free-text provider errors onto a fixed vocabulary and checked `cancelled` before `timeout`. PostgreSQL's canonical statement-timeout message is `canceling statement due to statement timeout`, so every timeout was recorded as a user abort. A real user cancel is `canceling statement due to user request`. Found only when a test enumerated the whole vocabulary rather than the two classes already exercised.
+
+**Rule:** In a keyword classifier over provider messages, order the table by specificity and pin the ambiguous messages with tests, because real messages routinely match several buckets. For PostgreSQL specifically: check `timeout` before `cancel`. When a class vocabulary is a declared contract, test every class plus the fallback, not the two that happen to appear elsewhere.
+
+**Why it matters:** Under a content lock the class replaces the message, so a misclassification is the only thing the operator ever sees — and Wave 1.3 makes statement timeouts a first-class feature.
+
+**When it applies:** Any error-classification table; any place a free-text diagnostic is reduced to an enum for retention or metrics.
+
+## Adding an optional parameter before a trailing CancellationToken is never a one-file change (2026-09-11)
+
+**What happened:** `LogToolCallAsync` gained an optional `tables` parameter before `CancellationToken ct = default`. Every existing caller passed the token positionally, so five MCP tool files had to switch to a named `ct:` argument. The spec's change manifest listed one file; the batch touched six.
+
+**Rule:** When planning a signature change that inserts a parameter ahead of a trailing optional one, inventory the call sites first (`grep -rn "MethodName("`) and put them in the manifest. The compiler catches this one loudly, so it is scope drift rather than a silent bug — but an unplanned six-file batch is what the manifest exists to prevent.
+
+**Why it matters:** Drift found at the batch checkpoint costs a sidecar amendment; drift found by a reviewer costs an iteration.
+
+**When it applies:** Any C# signature change in a codebase that passes `CancellationToken` positionally.
+
+## A subagent's verify step must not be a single multi-minute command (2026-09-11)
+
+**What happened:** An implementer batch was killed six times. The runtime retried it five times on its own, each attempt dying at the 180-second no-progress watchdog. Host load was fine (0.3 per core). The batch's implementation was complete and compiling on disk the whole time: the stalls happened in its VERIFY step, a `dotnet test` filter spanning eleven fixtures that emits nothing for minutes. The orchestrator only sees the result after all six attempts have burned, so the skill's "a second kill halts the loop" rule never gets a chance to fire.
+
+**Rule:** Give a dispatched implementer a verify step that produces output regularly — split a wide test filter into per-fixture runs, or have it run the suite in the background and poll. Watchdogs measure output, not progress. When a batch does come back killed, inventory first (`git status`, build): the partial work is often complete, and finishing the verify inline is far cheaper than a respawn.
+
+**Why it matters:** Six wasted dispatches and roughly an hour, for a batch that was already done.
+
+**When it applies:** Any mtk implement run on the subagent or dynamic-workflow path whose batch verification is one long command.

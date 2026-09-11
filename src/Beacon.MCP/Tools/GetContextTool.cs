@@ -47,7 +47,7 @@ internal sealed class GetContextTool(
             {
                 sw.Stop();
                 await auditService.LogToolCallAsync(null, projectContext.UserId, "get_context",
-                    project_id?.ToString(), null, projectId, (int)sw.ElapsedMilliseconds, null, $"Project {projectId} not found.", cancellationToken);
+                    project_id?.ToString(), null, projectId, (int)sw.ElapsedMilliseconds, null, $"Project {projectId} not found.", ct: cancellationToken);
                 return ToolHelper.Error($"Project {projectId} not found.");
             }
 
@@ -91,14 +91,14 @@ internal sealed class GetContextTool(
 
             sw.Stop();
             await auditService.LogToolCallAsync(null, projectContext.UserId, "get_context",
-                project_id?.ToString(), null, projectId, (int)sw.ElapsedMilliseconds, null, null, cancellationToken);
+                project_id?.ToString(), null, projectId, (int)sw.ElapsedMilliseconds, null, null, ct: cancellationToken);
             return ToolHelper.Success(text);
         }
         catch (Exception ex)
         {
             sw.Stop();
             await auditService.LogToolCallAsync(null, projectContext.UserId, "get_context",
-                project_id?.ToString(), null, projectId == 0 ? null : projectId, (int)sw.ElapsedMilliseconds, null, ex.Message, CancellationToken.None);
+                project_id?.ToString(), null, projectId == 0 ? null : projectId, (int)sw.ElapsedMilliseconds, null, ex.Message, ct: CancellationToken.None);
             // §1.11 — ex.Message can quote user input; type only here, full detail is in the audit log.
             logger.LogError("MCP tool {Tool} failed with {ExceptionType} (detail in MCP audit log)", "get_context", ex.GetType().Name);
             return ToolHelper.Error(ToolHelper.CallerSafeMessage(ex, "get_context"));

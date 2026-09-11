@@ -86,6 +86,7 @@ public class McpLearningVerdictWeightingTests
         await McpLearningAggregationService.DetectJoinPatternsAsync(
             context, ProjectId, DataSourceId,
             [JoinSignal(McpUserVerdict.Incorrect), JoinSignal(McpUserVerdict.Incorrect)],
+            retainContent: true,
             CancellationToken.None);
 
         captured.Should().BeEmpty("join signals a human marked wrong must not be mined into a join pattern");

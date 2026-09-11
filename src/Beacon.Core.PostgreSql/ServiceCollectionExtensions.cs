@@ -3,6 +3,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using Beacon.Core.Data;
+using Beacon.Core.Data.Interceptors;
 using Beacon.Core.PostgreSql.Data;
 
 namespace Beacon.Core.PostgreSql;
@@ -29,9 +30,10 @@ public static class ServiceCollectionExtensions
         // model has no Pgvector.Vector property (the vector(384) column is DB-managed only), and
         // enabling it cleanly requires restructuring how the data source is built. B5's PG vector
         // query can instead cast with a ::vector string literal and the <=> operator.
-        builder.Services.AddDbContextFactory<PostgreSqlBeaconContext>(options =>
+        builder.Services.AddDbContextFactory<PostgreSqlBeaconContext>((sp, options) =>
             options.UseNpgsql(dataSource)
-                   .UseSnakeCaseNamingConvention());
+                   .UseSnakeCaseNamingConvention()
+                   .AddInterceptors(sp.GetRequiredService<ContentRetentionInterceptor>()));
 
         // Register the base context factory using the PostgreSQL implementation
         builder.Services.AddSingleton<IDbContextFactory<BeaconContext>>(sp =>

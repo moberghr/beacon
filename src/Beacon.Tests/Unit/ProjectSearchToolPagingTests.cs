@@ -8,6 +8,7 @@ using Beacon.AI.Services.Knowledge;
 using Beacon.Core.Data;
 using Beacon.MCP.Services;
 using Beacon.MCP.Tools;
+using Beacon.Tests.Common;
 
 namespace Beacon.Tests.Unit;
 
@@ -164,6 +165,7 @@ public class ProjectSearchToolPagingTests
         // the audit path runs without a database (§4.7).
         var auditService = new McpAuditService(
             new Mock<IDbContextFactory<BeaconContext>>().Object,
+            SettingsProviderMock.Create().Object,
             NullLogger<McpAuditService>.Instance);
 
         return new ProjectSearchTool(

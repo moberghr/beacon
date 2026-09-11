@@ -183,7 +183,7 @@ public class McpPlaygroundServiceTests
         services.AddScoped<McpProjectContext>();
         services.AddScoped<IProjectContext>(x => x.GetRequiredService<McpProjectContext>());
         services.AddSingleton(Mock.Of<IHttpContextAccessor>());
-        services.AddScoped(x => new McpAuditService(factory.Object, NullLogger<McpAuditService>.Instance));
+        services.AddScoped(x => new McpAuditService(factory.Object, SettingsProviderMock.Create().Object, NullLogger<McpAuditService>.Instance));
 
         services.AddScoped(x => new DryRunTool(
             factory.Object,
