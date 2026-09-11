@@ -672,6 +672,38 @@ builder.Services.AddBeaconServices(builder.Configuration, options =>
 
 Teams and Jira notifications work out of the box — configure them per recipient in the UI. See the [Notifications Guide](/features/notifications/).
 
+## MCP Deployment Locks (Optional)
+
+Most MCP behaviour is configured at runtime on the **MCP Settings** page, per project. A deployment that must guarantee a setting regardless of what an administrator clicks pins it here instead:
+
+```json
+{
+  "Beacon": {
+    "Mcp": {
+      "ForceReadOnly": true,
+      "ForceNoContentRetention": false,
+      "Ceilings": {
+        "MaxRowLimit": 1000,
+        "StatementTimeoutSeconds": 60,
+        "MaxResultBytes": 1048576,
+        "MaxExplainCost": 500.0,
+        "MaxConcurrentQueriesPerKey": 8
+      }
+    }
+  }
+}
+```
+
+| Key | Effect |
+|---|---|
+| `ForceReadOnly` | Pins read-only enforcement on. Attempts to disable it are refused with HTTP 409. |
+| `ForceNoContentRetention` | Pins the content lock on for every project — questions, SQL, and free-text errors are never persisted. See [Content retention](/features/mcp-server/#content-retention). |
+| `Ceilings.*` | Clamp a numeric setting **downward only**. A ceiling can lower what an administrator configured; it can never raise it. |
+
+The whole section is optional — omit it and nothing is locked or clamped. Every ceiling you do specify must be greater than zero, and the host fails to start otherwise, so a typo surfaces at boot rather than silently disabling a limit.
+
+Settings resolve as **lock → project override → global value → built-in default**, with ceilings applied last. Locked fields are hidden in the UI and named in a banner; clamped fields are flagged.
+
 ## Schema Configuration
 
 The default schema is `beacon`. Override it for multi-tenancy or environment separation:

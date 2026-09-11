@@ -368,6 +368,7 @@ public class ReadOnlyExecutionRoutingTests
         // audit rows themselves are asserted in DryRunToolTests / GetQueryContextToolTests.
         var auditService = new McpAuditService(
             new Mock<IDbContextFactory<BeaconContext>>().Object,
+            SettingsProviderMock.Create().Object,
             NullLogger<McpAuditService>.Instance);
         var signalService = new McpSignalService(
             new Mock<IDbContextFactory<BeaconContext>>().Object,

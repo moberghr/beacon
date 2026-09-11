@@ -49,6 +49,7 @@ It ships in two forms: a **self-hostable application** (clone and run) and **NuG
 | **AI-grade SQL accuracy** | Natural-language questions become SQL grounded in an **M-Schema context with real sample values**, curated **join paths**, your **business glossary**, and **human-verified query examples** — then validated by a **multi-dialect AST parser** and self-corrected through a **dry-run repair loop**. Not a naive prompt-to-SQL pipe. |
 | **A self-improving MCP server** | Every SQL-carrying MCP call records a usage signal — intent, generated SQL, routing, outcome, timing. A **learning loop** mines those into lessons, and a candidate is only promoted if **replaying your golden test cases** proves it makes generation measurably better. |
 | **Security as a default, not an add-on** | AES-256-GCM–encrypted connection strings, SHA256-hashed scoped API keys shown exactly once, read-only enforcement at the connector level, PII detection and masking, login rate limiting, antiforgery, OIDC/SSO, and JWT for MCP clients. |
+| **Governable per project** | Row limits, execution limits, read-only enforcement, and **content retention** are set per project or pinned deployment-wide. Lock a project to structure-only and Beacon keeps the audit trail — tool, tables, counts, timings, error class — while persisting no question, SQL, or error text. |
 | **Cross-database queries** | Chain query steps across engines and join the results in in-memory SQLite (`@@result1`, `@@result2`) — no data warehouse required. |
 | **Embeddable** | `AddBeaconServices()` drops the whole platform — UI, API, MCP server, scheduler — into your existing ASP.NET Core host. Your app, your auth, your domain. |
 | **Runtime-swappable LLM** | OpenAI, Anthropic Claude, Azure OpenAI, or AWS Bedrock — hot-swappable from admin settings without a restart, behind a concurrency-limited request queue with usage tracking. |
@@ -156,7 +157,11 @@ Row limits + PII masking ── configurable caps; emails, SSNs, tokens, credit
         │                    cards masked (`a***z`), custom patterns supported
         ▼
 Audit + usage signal ──── every invocation audited (user, timing, parameters);
-                           SQL-carrying calls also feed the learning loop
+        │                  SQL-carrying calls also feed the learning loop
+        ▼
+Content retention ─────── per project, lockable deployment-wide: keep the structure
+                           (tool, tables, counts, timings, error CLASS) and persist
+                           no question, SQL, or error text at all
 ```
 
 Authentication is never anonymous: cookie session, **scoped API key**, or **JWT bearer** (OIDC). Remote clients that connect by URL — claude.ai, ChatGPT, VS Code — get RFC 9728 protected-resource metadata and an MCP server card from anonymous `/.well-known/*` discovery endpoints, plus a `WWW-Authenticate` challenge that points at them.

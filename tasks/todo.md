@@ -1,3 +1,37 @@
+# Retention lock (Wave 1.1, R1 + R12) — `feature/retention-lock`
+
+Spec `docs/specs/2026-09-09-retention-lock.md` · Plan `docs/plans/2026-09-09-retention-lock.md` · Workflow `wf-20260909T174830Z-3dec33` · Rigor MAX · Baseline 877/5/882 · Waves `W0: B1 · W1: B2 B3`
+
+## B1 — Core policy, redactor, registry, interceptor, DI (W0)
+- [x] `IContentRetentionPolicy` + `ContentRetentionDecision.From(settings)`; `ContentRetentionPolicy`
+- [x] `McpContentRedactor` (ErrorClassOf, RedactSignal, StructuralAuditParameters, RedactEvalResult)
+- [x] `McpRetentionDenyList` — every `Mcp*` string property classified once
+- [x] `ContentRetentionInterceptor` (lazy provider, fail-closed, ids-only Warning) + DI in Core and both provider extensions
+- [x] Tests: `ContentRetentionPolicyTests` (SC4), `McpRetentionDenyListTests` (SC2 + negative), `ContentRetentionInterceptorTests` (SC3)
+- [x] Checkpoint: build + the three fixtures
+
+## B2 — Write-path braces (W1)
+- [x] `McpSignalService` redacts before Add
+- [x] `McpAuditService` + `IMcpSettingsProvider`, structural Parameters / error class, optional `tables`; `ProjectQueryTool` + `DryRunTool` pass tables
+- [x] `FeedbackTool` descriptions (tool + `note`)
+- [x] `RecordQueryFeedbackHandler` + policy: R12 gating, promotion blocked under lock
+- [x] 9 fixtures: `new McpAuditService(` gains `SettingsProviderMock.Create().Object`
+- [x] Tests: `RetentionLockIntegrationTests` (SC1), `RecordQueryFeedbackHandlerTests` (SC7)
+- [x] Checkpoint: build + touched fixtures
+
+## B3 — Learning + eval under lock (W1)
+- [x] Aggregation: skip CommonQuery/DocGap, JoinPattern without examples, SchemaCorrection without the LLM extractor under lock
+- [x] Eval: `JudgeAllowed(settings)` ×3, `RedactEvalResult` before Add
+- [x] Tests: `McpLearningDetectionTests` (SC5), `McpEvalServiceJudgeGateTests` (SC6)
+- [x] Checkpoint: build + fixtures; full suite vs 877/5/882 (SC10); SC8 (11 sites) + SC9 greps
+
+## Review & close
+- [x] Phase 3.5 drift + coverage re-grep (11 write sites) + collateral guard + seal
+- [x] Phase 4: compliance → test + architecture + silent-failure (no dotnet in lanes)
+- [x] Phase 5 fixes · Phase 6 format · Phase 7 lessons · Phase 7.5 archive (`mcp-settings`)
+
+---
+
 # Todo — Per-project MCP settings, locks, ceilings (2026-09-09)
 
 **Scope:** new-feature · security_impact: requires-audit-trail · **Rigor: MAX** (score ≈ 22 — 5 batches, ~35 non-mechanical files → +12, 6 external contracts → +4 cap, +1 internal-tooling, security +3)

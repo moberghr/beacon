@@ -286,7 +286,7 @@ public class ProjectAskToolRepairFlowTests
             settingsProvider.Object,
             serviceProvider.Object,
             new McpProjectContext { UserId = 1, AllowedProjectIds = [ProjectId] },
-            new McpAuditService(factory.Object, NullLogger<McpAuditService>.Instance),
+            new McpAuditService(factory.Object, SettingsProviderMock.Create().Object, NullLogger<McpAuditService>.Instance),
             new McpSignalService(factory.Object, settingsProvider.Object, NullLogger<McpSignalService>.Instance),
             Mock.Of<IAskSqlPipeline>(),
             _executor.Object,

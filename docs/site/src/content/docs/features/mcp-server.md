@@ -293,9 +293,11 @@ Record whether a previous `ask` answer was correct. A `correct` verdict is saved
 | `signal_id` | integer | **Yes** | The `signal_id` from the `ask` response you are rating |
 | `verdict` | string | **Yes** | `correct` or `incorrect` |
 | `corrected_sql` | string | No | The corrected SQL, if you fixed it |
-| `note` | string | No | A short note |
+| `note` | string | No | A short note — **only when the user explicitly asked to record one**, never a summary of the conversation |
 
 Every `ask` response that ran a data query ends with a `_signal_id: N_` marker — pass that value back here. Conceptual answers from the knowledge base don't record a query signal and carry no marker.
+
+The verdict is always recorded. Whether `corrected_sql` and `note` are *stored* depends on the project's **Allow explicit feedback content** setting — see [Content retention](#content-retention) below. When that setting is off, the verdict still lands and the rest is dropped.
 
 ## Safety & Guardrails
 
@@ -309,8 +311,43 @@ The MCP server enforces several safety measures:
 | **Query timeout** | Queries are cancelled after 30 seconds | Always on |
 | **Audit logging** | Every tool call is recorded by `McpAuditService` with user, timing, and parameters | Always on |
 | **Usage signals** | `ask`, `query`, and `dry_run` calls are recorded by `McpSignalService` to feed the learning loop | Always on |
+| **Content retention** | Whether questions, SQL, and error text are persisted at all — per project, lockable deployment-wide | Retained |
 
 `McpAuditService` fires on every tool invocation, including the failure path — it is never short-circuited. `McpSignalService` records the three SQL-carrying tools (`ask`, `query`, `dry_run`); the catalog tools (`get_context`, `search`, `get_documentation`, `get_query_context`) are audit-only by design.
+
+## Content retention
+
+By default Beacon stores what an agent asked and what SQL ran — that is what makes the learning loop and the audit trail useful. For a project handling regulated or sensitive data you can turn that off without losing the audit trail itself.
+
+Switch **Retain query content** off for a project and Beacon keeps the **structure** of every interaction and stops persisting its **content**:
+
+| Kept | Dropped |
+|---|---|
+| Tool, project, data source, user, caller | The natural-language question |
+| Tables and columns referenced | Generated, corrected, and user-supplied SQL |
+| Row counts, timings, success flags, verdicts | Routing rationale and feedback notes |
+| An **error class** (see below) | Free-text database error messages |
+| The audit row itself — always | The audit row's raw parameters |
+
+An audit row is still written for **every** tool call, success or failure. The lock changes what the row contains, never whether it exists.
+
+**Error classes.** Instead of the provider's message, Beacon stores one of nine values: `schema`, `syntax`, `permission`, `timeout`, `not_found`, `validation`, `execution`, `cancelled`, `unknown`. You keep the ability to chart failure modes without keeping text that may quote customer data.
+
+**Audit parameters** become a structural summary — which tool ran, how many bytes of input it received, and which tables it touched:
+
+```json
+{ "tool": "query", "params": [{ "name": "input", "bytes": 412 }], "tables": ["orders", "customers"] }
+```
+
+**What else changes under the lock**
+
+- The `feedback` tool records the verdict but not the corrected SQL or note, and a `correct` verdict no longer auto-promotes a golden example — promoting one copies the question.
+- Pattern mining keeps schema corrections and join patterns (structure) and skips common-query and documentation-gap mining (content). Join patterns are stored without example questions or SQL, and the LLM lesson extractor is not called, because its prompt would carry the question and SQL.
+- The optional eval judge is forced off, and eval results are stored without generated SQL or judge commentary.
+
+**Enforcement.** Every write path applies the rule, and an EF Core `SaveChangesInterceptor` backs them up: content is stripped on the way to the database even if a future code path forgets, and it fails closed — if the settings can't be read, the row is treated as locked. All of this is logged with identifiers only.
+
+Retention is **not retro-active**: rows written before you turned the lock on keep their content until they age out of the retention window. A row that is *updated* after the lock is on is cleaned up by the interceptor.
 
 ## SQL Accuracy Stack
 
@@ -344,7 +381,11 @@ Review the queue on the **MCP Learning** page (`/mcp-learning`), where pending p
 
 ## Configuration
 
-Administrators can customize the MCP server behavior at **MCP Settings** in the React UI (`/mcp-settings`), organised into four tabs:
+Administrators can customize the MCP server behavior at **MCP Settings** in the React UI (`/mcp-settings`).
+
+**Global defaults or per project.** A scope selector at the top of the page switches between the global defaults and any single project. In project scope each field gets an **Override** checkbox: leave it unchecked and the project inherits the global value (shown greyed out); check it and the project keeps its own. Prompts and tool descriptions stay global by design — `tools/list` is answered before any project is known.
+
+The tabs:
 
 **Pre-prompt**
 - **Ask tool system prompt** — the LLM prompt used for SQL generation in the `ask` tool
@@ -357,7 +398,36 @@ Administrators can customize the MCP server behavior at **MCP Settings** in the 
 - **Max row limit** — the ceiling on rows returned (default: 1000)
 - **Read-only enforcement** — toggle the SELECT-only restriction
 - **PII detection** — enable/disable, plus custom PII regex patterns
+- **Execution** — statement timeout (default 30s), max result size (default 256 KB), max EXPLAIN cost (blank = no limit), max concurrent queries per API key (default 4), and the two retention switches: **Retain query content** and **Allow the feedback tool to store question and SQL text**
 - **Learning** — master switch, auto-approve threshold, injection budget, and signal retention window
+
+### Deployment locks and ceilings
+
+Some deployments need a setting to be non-negotiable no matter what an administrator clicks. The `Beacon:Mcp` configuration section pins values at the host level:
+
+```json
+{
+  "Beacon": {
+    "Mcp": {
+      "ForceReadOnly": true,
+      "ForceNoContentRetention": true,
+      "Ceilings": {
+        "MaxRowLimit": 1000,
+        "StatementTimeoutSeconds": 60,
+        "MaxResultBytes": 1048576,
+        "MaxConcurrentQueriesPerKey": 8
+      }
+    }
+  }
+}
+```
+
+- A **lock** (`ForceReadOnly`, `ForceNoContentRetention`) pins the effective value. The UI hides locked fields and names them in a banner; an API call that tries to set one gets **HTTP 409** with the RFC 7807 type `/errors/setting-locked`.
+- A **ceiling** clamps a numeric value downward only — it can lower what an administrator configured, never raise it. Clamped fields are flagged in the UI.
+- Settings resolve as **lock → project override → global value → built-in default**, then ceilings are applied.
+- Saving the global page never bakes a locked or clamped value into the stored row, so lifting a lock or raising a ceiling restores what was configured underneath.
+
+The per-project settings have their own endpoints: `GET` / `PUT /beacon/api/mcp/projects/{projectId}/settings` (admin only). The `GET` returns the project's overrides, the resolved effective values, and the names of any locked or clamped fields.
 
 **Context preview**
 - Render the grounding context for a project exactly as the tools would assemble it — useful for spotting missing documentation before an agent hits it.

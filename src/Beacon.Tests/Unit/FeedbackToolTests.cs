@@ -125,7 +125,7 @@ public class FeedbackToolTests
         factory.Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(() => new CapturingAuditContext(logs));
 
-        var auditService = new McpAuditService(factory.Object, NullLogger<McpAuditService>.Instance);
+        var auditService = new McpAuditService(factory.Object, SettingsProviderMock.Create().Object, NullLogger<McpAuditService>.Instance);
 
         var projectContext = new Mock<IProjectContext>();
         projectContext.SetupGet(x => x.UserId).Returns(1);

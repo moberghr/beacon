@@ -178,7 +178,7 @@ public class ProjectQueryToolSchemaGateTests
         var guardrail = new QueryGuardrailService();
 
         // Audit rows are asserted elsewhere (DryRunToolTests); a bare factory mock keeps §1.7 paths runnable.
-        var auditService = new McpAuditService(new Mock<IDbContextFactory<BeaconContext>>().Object, NullLogger<McpAuditService>.Instance);
+        var auditService = new McpAuditService(new Mock<IDbContextFactory<BeaconContext>>().Object, SettingsProviderMock.Create().Object, NullLogger<McpAuditService>.Instance);
         var signalService = new McpSignalService(factory.Object, settingsProvider.Object, NullLogger<McpSignalService>.Instance);
 
         return new ProjectQueryTool(
