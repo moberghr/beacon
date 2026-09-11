@@ -287,3 +287,166 @@
 **Why it matters:** The failure surfaces far from the cause and looks like a behaviour regression.
 
 **When it applies:** Any refactor that replaces an interface member with a pure/static implementation.
+
+## A read endpoint that returns RESOLVED values must not feed a write endpoint that persists every field (2026-09-09)
+
+**What happened:** `GetSettingsAsync` started returning lock/ceiling-resolved MCP settings so consumers see the effective value. The same call backs the admin GET, the React page seeds its form from it and re-sends every field on save, and the update handler wrote them straight to the entity. One unrelated global save would have replaced a stored `MaxRowLimit=9000` with the ceiling `1000` (and pinned a locked value) permanently — lifting the ceiling later would restore nothing. Thirty-six unit tests and the plan-gap review missed it; the whole-diff compliance review caught it because the hazard lives across the read path, the UI round-trip and the write path.
+
+**Rule:** When a read model is derived (defaults, locks, ceilings, computed fields), either (a) return the raw stored row plus the derivation metadata to the editor, or (b) make the writer treat "derived value echoed back unchanged" as not-an-edit (Beacon: `UpdateMcpSettingsHandler.KeepStoredWhenClamped`, and locked fields keep the stored value). Add a test that stores a value above the ceiling, echoes the ceiling back, and asserts the stored value survived.
+
+**Why it matters:** Silent, irreversible loss of admin configuration with no error and a green test suite.
+
+**When it applies:** Any settings/profile/config screen whose GET applies policy (feature flags, tenant limits, RBAC-filtered fields) and whose PUT is a full-row replace.
+
+## Inventory fixture breakage from constructor call sites, not from mock call sites (2026-09-09)
+
+**What happened:** The spec listed every test fixture to migrate by grepping `new Mock<IMcpSettingsProvider>()`. `QueryExecutionService` gained an `IProjectContext` constructor parameter in the same batch; its one fixture did not build a settings mock and was missed. One compile error, found only at the batch checkpoint.
+
+**Rule:** When a batch changes a constructor signature, the fixture inventory is `grep -rn "new <TypeName>(" src/Beacon.Tests` — one grep per changed constructor — in addition to any grep over mocked dependencies.
+
+**Why it matters:** The manifest and the "fixtures to touch" list are sealed at approval; a fixture missing from them is a scope-guard event at implementation time.
+
+**When it applies:** Any change that adds/removes/reorders a DI constructor parameter on a class instantiated directly in tests.
+
+## A success-criterion observable must not ride on another test's failure message (2026-09-09)
+
+**What happened:** SC7 ("both new handlers are exposed via HTTP") was to be verified by reading the missing-handler list in `OpenApiContractTests`' inherited failure message. On this host the inherited failure is a 404 fetching `/openapi/v1.json` from the harness, so the list is never produced and the criterion had no evidence channel. It was backed statically (grep of the endpoint map) instead.
+
+**Rule:** Give every SC an evidence channel that works when the suite is green AND when it is red for unrelated reasons: a dedicated test, a deterministic grep/script, or a build artifact. Never "the failure message of test X will list…".
+
+**Why it matters:** An SC with no observable is a criterion nobody can verify; the sidecar looked complete while one criterion was unverifiable by design.
+
+**When it applies:** Writing `success_criteria[].verification` / `observable` in a spec sidecar.
+
+## mtk `format-on-edit` runs Prettier defaults on TS/TSX when the repo has no Prettier config — declare the style first (2026-09-09)
+
+**What happened:** The mtk PostToolUse/Stop hook `format-on-edit.sh` runs `npx --no-install prettier --write` on every `.ts/.tsx` written through Write/Edit. This repo has no `.prettierrc` and uses single quotes and `x =>` arrows, so two files came back in Prettier defaults (double quotes, `(x) =>`, width 80). Files edited via python/Bash were untouched, which made the churn look random; two subsequent exact-string edits failed on anchors that no longer existed. The collateral-guard does not flag quote-style rewrites (they are not whitespace-only).
+
+**Rule:** Before the first TS/TSX edit in a repo without a Prettier config, either add the repo's style as a `.prettierrc` (single change, declared in the manifest) or set `MTK_FORMAT_ON_EDIT=0` for the session. If a file was already reformatted, normalize with an explicit invocation (`npx prettier --single-quote --arrow-parens avoid --print-width 100 --write`) and disclose the reflow of pre-existing blocks in the behavioral diff. Toolkit follow-up: the hook should skip Prettier when no config is found up-tree.
+
+**Why it matters:** Style churn on hundreds of lines hides the real diff from reviewers and breaks anchor-based edits.
+
+**When it applies:** Any mtk session that writes `.ts/.tsx/.js` files in a repo without a Prettier/Biome config.
+
+## A shared test double must vary on the dimension the feature adds, or it hides the feature's own regressions (2026-09-09)
+
+**What happened:** `SettingsProviderMock` was introduced so 21 fixtures kept compiling when consumers moved from `GetSettingsAsync()` to `GetEffectiveSettingsAsync(projectId)`. It delegated the effective call to the global stub and discarded `projectId`. Every fixture stayed green — and would have stayed green if a consumer resolved project 0 or the wrong project, silently downgrading a project's stricter PII / row-limit / read-only settings to the global ones. Two review lanes found it independently; the spec's "helpers only" rule had encouraged exactly this shape.
+
+**Rule:** When a change adds a discriminator (project id, tenant, user, dialect) to a call, the test double for that call must be able to return a DIFFERENT value per discriminator (`SettingsProviderMock.Create(projectSettings: {[id] = …})`), and at least one consumer test per switched call site must (a) supply a differing value for the real id and assert the consumer's behaviour follows it, and (b) `Verify` the exact id reached the double and no other id did. "Compiles and stays green" is not the bar for a fixture migration.
+
+**Why it matters:** The discriminator IS the feature; a double that ignores it turns the whole suite into a compile check for that feature.
+
+**When it applies:** Any fixture helper introduced to absorb an interface widening; any `It.IsAny<int>()` on a newly added id parameter.
+
+## A belt-and-braces design needs one test that composes both layers on the same entity (2026-09-11)
+
+**What happened:** The content lock was enforced twice: at each write site (the brace) and by an EF `SaveChangesInterceptor` over a deny-list (the belt). The audit brace rewrites `McpAuditLog.Parameters` into a structural JSON shape instead of nulling it; the belt classified that column as Content and nulled it on the same save. The declared external contract therefore never reached the database. Both layers' own tests were green: the integration test used a capturing context whose `SaveChangesAsync` is a no-op, so the belt never ran, and the interceptor test asserted `Parameters == null` — pinning the bug as if it were the requirement. The tell was a public helper, `IsStructuralAuditParameters`, with zero production callers.
+
+**Rule:** When two layers enforce the same rule over the same field, at least one test must exercise them **together on one entity**, and any layer that *transforms* rather than *clears* a value must publish a predicate the other layer consults (`McpRetentionRule.AlreadyRedacted`). Before accepting such a design, grep every helper the spec promises will be used: a helper with no production caller means the interaction was described but never wired.
+
+**Why it matters:** Layer-local tests can both pass while the composition is wrong, and the failure is invisible until someone reads the database.
+
+**When it applies:** Any brace+belt / validator+interceptor / middleware+handler pair; any spec sentence of the form "X leaves alone what Y already wrote".
+
+## Gate the value, then pass the gated value — not the request (2026-09-11)
+
+**What happened:** `RecordQueryFeedbackHandler` correctly nulled `signal.FeedbackNote` when a project forbids explicit feedback content, then two lines later sent `PromoteSignalToGoldenCommand(request.SignalId, request.Note)` — the raw, ungated request value — which the promotion copies into `McpEvalCase.Notes`. No race was needed: `RetainQueryContent=true` + `AllowExplicitFeedbackContent=false` is a documented configuration, and the interceptor belt could not catch it because the belt only fires when the content lock itself is on. The test that should have caught it asserted only `Verify(..., Times.Once)` on the promotion, never inspecting the command's payload.
+
+**Rule:** After applying a policy gate to a field, every downstream copy of that field must read the **gated variable**, never the original request. When reviewing, grep the request object's field name after the gate line — any later use is a bypass. A `Verify(Times.Once)` on a command without an `It.Is<T>(...)` payload predicate proves the call happened, not that it carried the right data.
+
+**Why it matters:** A privacy control that is enforced on the primary row and skipped on a derived copy is not enforced.
+
+**When it applies:** Any handler that gates content and then dispatches a command/event carrying the same content; any redaction, masking, consent or retention rule with more than one persistence path.
+
+## PostgreSQL reports a hit statement timeout as a cancellation (2026-09-11)
+
+**What happened:** The error classifier mapped free-text provider errors onto a fixed vocabulary and checked `cancelled` before `timeout`. PostgreSQL's canonical statement-timeout message is `canceling statement due to statement timeout`, so every timeout was recorded as a user abort. A real user cancel is `canceling statement due to user request`. Found only when a test enumerated the whole vocabulary rather than the two classes already exercised.
+
+**Rule:** In a keyword classifier over provider messages, order the table by specificity and pin the ambiguous messages with tests, because real messages routinely match several buckets. For PostgreSQL specifically: check `timeout` before `cancel`. When a class vocabulary is a declared contract, test every class plus the fallback, not the two that happen to appear elsewhere.
+
+**Why it matters:** Under a content lock the class replaces the message, so a misclassification is the only thing the operator ever sees — and Wave 1.3 makes statement timeouts a first-class feature.
+
+**When it applies:** Any error-classification table; any place a free-text diagnostic is reduced to an enum for retention or metrics.
+
+## Adding an optional parameter before a trailing CancellationToken is never a one-file change (2026-09-11)
+
+**What happened:** `LogToolCallAsync` gained an optional `tables` parameter before `CancellationToken ct = default`. Every existing caller passed the token positionally, so five MCP tool files had to switch to a named `ct:` argument. The spec's change manifest listed one file; the batch touched six.
+
+**Rule:** When planning a signature change that inserts a parameter ahead of a trailing optional one, inventory the call sites first (`grep -rn "MethodName("`) and put them in the manifest. The compiler catches this one loudly, so it is scope drift rather than a silent bug — but an unplanned six-file batch is what the manifest exists to prevent.
+
+**Why it matters:** Drift found at the batch checkpoint costs a sidecar amendment; drift found by a reviewer costs an iteration.
+
+**When it applies:** Any C# signature change in a codebase that passes `CancellationToken` positionally.
+
+## A subagent's verify step must not be a single multi-minute command (2026-09-11)
+
+**What happened:** An implementer batch was killed six times. The runtime retried it five times on its own, each attempt dying at the 180-second no-progress watchdog. Host load was fine (0.3 per core). The batch's implementation was complete and compiling on disk the whole time: the stalls happened in its VERIFY step, a `dotnet test` filter spanning eleven fixtures that emits nothing for minutes. The orchestrator only sees the result after all six attempts have burned, so the skill's "a second kill halts the loop" rule never gets a chance to fire.
+
+**Rule:** Give a dispatched implementer a verify step that produces output regularly — split a wide test filter into per-fixture runs, or have it run the suite in the background and poll. Watchdogs measure output, not progress. When a batch does come back killed, inventory first (`git status`, build): the partial work is often complete, and finishing the verify inline is far cheaper than a respawn.
+
+**Why it matters:** Six wasted dispatches and roughly an hour, for a batch that was already done.
+
+**When it applies:** Any mtk implement run on the subagent or dynamic-workflow path whose batch verification is one long command.
+
+## `EnsureSchemaOperation` hides its schema in `Name`, not `Schema` (2026-09-11)
+
+**What happened:** `SchemaAwareMigrationsSqlGenerator` retargeted `Schema` / `PrincipalSchema` /
+`NewSchema` across ~23 `MigrationOperation` types and was reviewed clean by three lanes. It still
+missed `EnsureSchemaOperation`, whose schema name lives in a property called **`Name`** — and that
+operation is the *first statement of the first migration* (`20260420103830_Initial.cs:14`,
+`migrationBuilder.EnsureSchema(name: "beacon")`). A fresh SQL Server deploy configured for
+`tenant_a` created an empty `beacon` schema next to correctly-placed tables. No error, no log.
+
+**Rule:** When rewriting EF migration operations, enumerate the schema-bearing types **by
+reflection over the pinned assemblies** — do not enumerate them by reading the switch or by
+memory. Property names are not uniform: most carry `Schema`, `EnsureSchemaOperation` and
+`DropSchemaOperation` carry `Name`, and `AlterTableOperation.OldTable` /
+`AlterColumnOperation.OldColumn` carry nested snapshots a top-level type switch never sees. Pair
+the switch with a `default:` branch that reflection-checks for an unhandled schema-bearing type
+and throws, so the next EF release cannot repeat the omission silently.
+
+**Why it matters:** this is the exact silent-split failure the feature existed to eliminate, and it
+survived a compliance, architecture and test review. Only an adversarial silent-failure pass that
+*built and ran* the generator caught it.
+
+**When it applies:** any `IMigrationsSqlGenerator` / `MigrationOperation` rewriting work.
+
+## Check what Core actually references before justifying duplication by layering (2026-09-11)
+
+**What happened:** The schema spec's "elegance check" rejected a shared helper on the grounds that
+"Beacon.Core must not reference either provider package" (§2.4), estimating the duplicated body at
+~25 lines. Two review lanes independently found the real figure was ~130 lines per provider, and
+that `Beacon.Core.csproj` **already** references `Microsoft.EntityFrameworkCore.Relational` (where
+every `MigrationOperation` type lives) *and* `Microsoft.EntityFrameworkCore.SqlServer`. The
+duplication was never forced. After extraction the two generators went 176/180 → 42/46 lines.
+
+**Rule:** Before citing §2.4 to justify duplicating logic across the provider projects, grep the
+target project's `.csproj` for what it already references, and measure the duplicated block. §2.4
+forbids a *ProjectReference* between siblings — it does not forbid Core hosting logic that only
+touches packages Core already has.
+
+**Why it matters:** two copies of a 23-case type switch drift. They already had: the missing
+`DropSequenceOperation` case existed in neither copy, and `EnsureSchemaOperation` had to be fixed
+in one place only because the extraction happened first.
+
+**When it applies:** any dual-provider work in `Beacon.Core.{PostgreSql,SqlServer}`.
+
+## A spec requirement with no test can ship as a no-op (2026-09-11)
+
+**What happened:** The schema spec carried an EARS bullet — "If the history table and the
+model-derived tables would resolve to different schemas, then the system shall fail at
+configuration time rather than at first migration." The implementation shipped
+`BeaconSchemaOptionsExtension.Validate(IDbContextOptions)` as an **empty method body**. Build
+green, 949 tests green, and the compliance/architecture/test lanes all passed over it, because
+nothing in the test manifest pinned that requirement.
+
+**Rule:** Every EARS bullet under "Unwanted behaviours" needs a named entry in the spec's test
+manifest before the spec leaves the drafting phase. An interface method that a framework calls for
+you (`Validate`, `ApplyServices`, `OnConfiguring`) is the easiest place for a requirement to
+evaporate — an empty override is indistinguishable from a satisfied one at build time.
+
+**Why it matters:** the unimplemented requirement was precisely the guard against reintroducing the
+bug the whole feature existed to fix.
+
+**When it applies:** every spec with an "Unwanted behaviours" section; especially interface
+implementations whose members are optional no-ops.

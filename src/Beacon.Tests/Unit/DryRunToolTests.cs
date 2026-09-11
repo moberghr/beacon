@@ -115,6 +115,25 @@ public class DryRunToolTests
         _signals[0].DryRunFailed.Should().BeFalse();
     }
 
+
+    [Test]
+    public async Task ProjectMaxRowLimitOverride_CapsTheExecutableSql_BelowTheGlobalLimit()
+    {
+        // NF-1: dry_run resolves settings for the AUTHORIZED project, not the global row. Global allows 1000
+        // rows, project 42 is capped at 10 — the SQL that "would execute" carries the project cap.
+        var settingsProvider = SettingsProviderMock.Create(
+            new McpSettingsData { MaxRowLimit = 1000 },
+            projectSettings: new Dictionary<int, McpSettingsData> { [ProjectId] = new McpSettingsData { MaxRowLimit = 10 } });
+
+        var result = await CreateTool(settingsProvider).ExecuteAsync(
+            datasource_id: DataSourceId, sql: ValidSql, cancellationToken: CancellationToken.None);
+
+        (result.IsError ?? false).Should().BeFalse();
+        result.StructuredContent!.Value.GetProperty("executable_sql").GetString().Should().Be($"{ValidSql} LIMIT 10",
+            "the project's MaxRowLimit override caps the dry-run SQL below the global 1000 (and the 100 default)");
+        settingsProvider.Verify(x => x.GetEffectiveSettingsAsync(ProjectId, It.IsAny<CancellationToken>()), Times.AtLeastOnce);
+        settingsProvider.Verify(x => x.GetEffectiveSettingsAsync(It.Is<int>(id => id != ProjectId), It.IsAny<CancellationToken>()), Times.Never);
+    }
     [Test]
     public async Task Insert_ReportsReadOnlyIssue_SkipsSchemaAndProviderDryRun()
     {
@@ -379,7 +398,7 @@ public class DryRunToolTests
             .Returns(new QueryValidationResult(isValid, error, isValid, piiColumns));
     }
 
-    private DryRunTool CreateTool()
+    private DryRunTool CreateTool(Mock<IMcpSettingsProvider>? settingsProvider = null)
     {
         // One factory serves both the tool (data-source resolution) and the audit service; each
         // CreateDbContextAsync call gets a fresh context over the same captured audit-log list
@@ -388,13 +407,11 @@ public class DryRunToolTests
         factory.Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(() => new DryRunTestContext(_auditLogs, _signals));
 
-        var settingsProvider = new Mock<IMcpSettingsProvider>();
-        settingsProvider.Setup(x => x.GetSettingsAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new McpSettingsData());
+        settingsProvider ??= SettingsProviderMock.Create();
 
         var projectContext = new McpProjectContext { UserId = 1, AllowedProjectIds = [ProjectId] };
 
-        var auditService = new McpAuditService(factory.Object, NullLogger<McpAuditService>.Instance);
+        var auditService = new McpAuditService(factory.Object, SettingsProviderMock.Create().Object, NullLogger<McpAuditService>.Instance);
         var signalService = new McpSignalService(factory.Object, settingsProvider.Object, NullLogger<McpSignalService>.Instance);
 
         return new DryRunTool(

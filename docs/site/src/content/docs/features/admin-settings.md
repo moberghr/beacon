@@ -216,7 +216,11 @@ Settings are cached in memory for 1 hour to minimize database queries. The cache
 
 ## MCP Settings
 
-MCP server behavior has its own admin page at `/mcp-settings`, organised into four tabs — **Pre-prompt** (SQL-generation system prompt, global instruction), **Tool descriptions** (overrides applied to the live `tools/list` response), **Guardrails** (max row limit, read-only enforcement, PII detection with custom patterns, and the learning knobs), and **Context preview** (see the grounding context for a project exactly as the tools assemble it).
+MCP server behavior has its own admin page at `/mcp-settings`, organised into four tabs — **Pre-prompt** (SQL-generation system prompt, global instruction), **Tool descriptions** (overrides applied to the live `tools/list` response), **Guardrails** (max row limit, read-only enforcement, PII detection with custom patterns, the execution limits, the content-retention switches, and the learning knobs), and **Context preview** (see the grounding context for a project exactly as the tools assemble it).
+
+A scope selector switches between the global defaults and a single project. Per project, each guardrail can either inherit the global value or carry its own override. Prompts and tool descriptions stay global — `tools/list` is answered before a project is known.
+
+A deployment can also pin settings the UI cannot change, through the `Beacon:Mcp` configuration section: `ForceReadOnly` and `ForceNoContentRetention` lock a value outright (locked fields are hidden and a write returns HTTP 409), and `Ceilings` clamp numeric settings downward. See [Deployment locks and ceilings](/features/mcp-server/#deployment-locks-and-ceilings).
 
 See the [MCP Server Guide](/features/mcp-server/#configuration) for details. Additional retrieval, exemplar, and eval settings that aren't on this page are settable through `PUT /beacon/api/mcp/settings` — see the [Knowledge Base guide](/features/knowledge-base/#settings-reference). Like LLM settings, MCP settings apply immediately — no restart required.
 

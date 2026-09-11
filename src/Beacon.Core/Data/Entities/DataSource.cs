@@ -32,5 +32,17 @@ public class DataSource : ArchivableBaseEntity
     public string? MetadataExcludeSchemas { get; set; }
     public string? MetadataIncludeSchemas { get; set; }
 
+    /// <summary>
+    /// Admin assertion that the connection's login holds no write permission (Wave 1.2 verifies it at readiness
+    /// and the deployment lock requires it for every data source in scope).
+    /// </summary>
+    public bool IsReadOnly { get; set; }
+
+    /// <summary>
+    /// Append <c>ApplicationIntent=ReadOnly</c> for availability-group listeners (routes to a secondary; a no-op
+    /// elsewhere — never a write blocker). Consumed from Wave 1.2.
+    /// </summary>
+    public bool UseReadOnlyIntent { get; set; }
+
     public List<QueryStep> QuerySteps { get; set; } = new();
 }

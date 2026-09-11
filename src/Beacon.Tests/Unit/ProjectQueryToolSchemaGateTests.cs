@@ -127,6 +127,32 @@ public class ProjectQueryToolSchemaGateTests
         _signals[0].TablesUsed.Should().NotContain("recent", "a CTE name is not a table");
     }
 
+    [Test]
+    public async Task ProjectMaxRowLimitOverride_CapsTheQuery_BelowTheRequestedAndGlobalLimits()
+    {
+        // T-F002 / SF-F001: the tool resolves settings for the AUTHORIZED project, not the global row. Global
+        // allows 1000 rows, project 42 is capped at 10, the caller asks for 25 — the project cap wins.
+        WithCatalog(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
+        var settingsProvider = SettingsProviderMock.Create(
+            new McpSettingsData { MaxRowLimit = 1000 },
+            projectSettings: new Dictionary<int, McpSettingsData> { [ProjectId] = new McpSettingsData { MaxRowLimit = 10 } });
+
+        var result = await CreateTool(settingsProvider).ExecuteAsync(
+            datasource_id: DataSourceId, sql: "SELECT id FROM orders", max_rows: 25, cancellationToken: CancellationToken.None);
+
+        (result.IsError ?? false).Should().BeFalse();
+        _provider.Verify(
+            x => x.ExecuteReadOnlyQueryAsync(
+                It.IsAny<DataSource>(),
+                "SELECT id FROM orders LIMIT 10",
+                It.IsAny<Dictionary<string, object?>>(),
+                It.IsAny<CancellationToken>()),
+            Times.Once,
+            "the project's MaxRowLimit override caps the query below both the requested 25 and the global 1000");
+        settingsProvider.Verify(x => x.GetEffectiveSettingsAsync(ProjectId, It.IsAny<CancellationToken>()), Times.AtLeastOnce);
+        settingsProvider.Verify(x => x.GetEffectiveSettingsAsync(It.Is<int>(id => id != ProjectId), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
     private void WithCatalog(Dictionary<string, HashSet<string>> catalog)
     {
         _knowledgeGraph
@@ -134,7 +160,7 @@ public class ProjectQueryToolSchemaGateTests
             .ReturnsAsync(catalog);
     }
 
-    private ProjectQueryTool CreateTool()
+    private ProjectQueryTool CreateTool(Mock<IMcpSettingsProvider>? settingsProvider = null)
     {
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory
@@ -146,16 +172,13 @@ public class ProjectQueryToolSchemaGateTests
             .Setup(x => x.GetProvider(It.IsAny<DataSourceType>()))
             .Returns(_provider.Object);
 
-        var settingsProvider = new Mock<IMcpSettingsProvider>();
-        settingsProvider
-            .Setup(x => x.GetSettingsAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new McpSettingsData());
+        settingsProvider ??= SettingsProviderMock.Create();
 
         var projectContext = new McpProjectContext { UserId = 1, AllowedProjectIds = [ProjectId] };
         var guardrail = new QueryGuardrailService();
 
         // Audit rows are asserted elsewhere (DryRunToolTests); a bare factory mock keeps §1.7 paths runnable.
-        var auditService = new McpAuditService(new Mock<IDbContextFactory<BeaconContext>>().Object, NullLogger<McpAuditService>.Instance);
+        var auditService = new McpAuditService(new Mock<IDbContextFactory<BeaconContext>>().Object, SettingsProviderMock.Create().Object, NullLogger<McpAuditService>.Instance);
         var signalService = new McpSignalService(factory.Object, settingsProvider.Object, NullLogger<McpSignalService>.Instance);
 
         return new ProjectQueryTool(

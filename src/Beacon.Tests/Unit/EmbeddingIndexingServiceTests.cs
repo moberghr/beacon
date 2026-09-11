@@ -327,7 +327,7 @@ public class EmbeddingIndexingServiceTests
         var service = new EmbeddingIndexingService(
             factory.Object,
             new UnavailableEmbeddingService(),
-            Mock.Of<IMcpSettingsProvider>(),
+            SettingsProviderMock.Create().Object,
             new FakeVectorColumnWriter(),
             NullLogger<EmbeddingIndexingService>.Instance);
 
@@ -407,7 +407,7 @@ public class EmbeddingIndexingServiceTests
             .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(context);
 
-        var settings = new Mock<IMcpSettingsProvider>();
+        var settings = SettingsProviderMock.Create();
         settings
             .Setup(x => x.GetSettingsAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(new McpSettingsData());

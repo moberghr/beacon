@@ -1571,6 +1571,9 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<bool>("IsReadOnly")
+                        .HasColumnType("bit");
+
                     b.Property<string>("MetadataExcludeSchemas")
                         .HasColumnType("nvarchar(max)");
 
@@ -1592,6 +1595,9 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
+
+                    b.Property<bool>("UseReadOnlyIntent")
+                        .HasColumnType("bit");
 
                     b.HasKey("Id");
 
@@ -2154,6 +2160,132 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.ToTable("McpLearnedPatterns", "beacon");
                 });
 
+            modelBuilder.Entity("Beacon.Core.Data.Entities.McpProjectSettings", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<bool?>("AllowExplicitFeedbackContent")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("CustomPiiPatterns")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<int?>("DocChunkOverlapSentences")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("DocChunkTopK")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("DocChunkWindowSentences")
+                        .HasColumnType("int");
+
+                    b.Property<bool?>("EnableContextualRetrieval")
+                        .HasColumnType("bit");
+
+                    b.Property<bool?>("EnableEvalJudge")
+                        .HasColumnType("bit");
+
+                    b.Property<bool?>("EnableGoldenExemplars")
+                        .HasColumnType("bit");
+
+                    b.Property<bool?>("EnableLearning")
+                        .HasColumnType("bit");
+
+                    b.Property<bool?>("EnablePiiDetection")
+                        .HasColumnType("bit");
+
+                    b.Property<bool?>("EnableReplayVerification")
+                        .HasColumnType("bit");
+
+                    b.Property<bool?>("EnableSampleValueCollection")
+                        .HasColumnType("bit");
+
+                    b.Property<bool?>("EnableSelfConsistency")
+                        .HasColumnType("bit");
+
+                    b.Property<bool?>("EnableSemanticLint")
+                        .HasColumnType("bit");
+
+                    b.Property<bool?>("EnableSemanticRetrieval")
+                        .HasColumnType("bit");
+
+                    b.Property<bool?>("EnableValueGrounding")
+                        .HasColumnType("bit");
+
+                    b.Property<bool?>("EnforceReadOnly")
+                        .HasColumnType("bit");
+
+                    b.Property<int?>("ExemplarTopK")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("GlossaryTopK")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("GoldenExemplarBudgetChars")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("GoldenExemplarTopK")
+                        .HasColumnType("int");
+
+                    b.Property<double?>("LearningAutoApproveThreshold")
+                        .HasColumnType("float");
+
+                    b.Property<int?>("LearningInjectionBudgetChars")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("LearningReplayMinFlips")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("LearningSignalRetentionDays")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("MaxConcurrentQueriesPerKey")
+                        .HasColumnType("int");
+
+                    b.Property<decimal?>("MaxExplainCost")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int?>("MaxResultBytes")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("MaxRowLimit")
+                        .HasColumnType("int");
+
+                    b.Property<int>("ProjectId")
+                        .HasColumnType("int");
+
+                    b.Property<bool?>("RetainQueryContent")
+                        .HasColumnType("bit");
+
+                    b.Property<int?>("SelfConsistencyCandidateCount")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("SelfConsistencyMinTables")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("StatementTimeoutSeconds")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("ValueGroundingMaxProbes")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProjectId")
+                        .IsUnique();
+
+                    b.ToTable("McpProjectSettings", "beacon");
+                });
+
             modelBuilder.Entity("Beacon.Core.Data.Entities.McpQuerySignal", b =>
                 {
                     b.Property<int>("Id")
@@ -2161,6 +2293,10 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                         .HasColumnType("int");
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("CallerHash")
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
 
                     b.Property<string>("ColumnsUsed")
                         .HasColumnType("nvarchar(max)");
@@ -2320,6 +2456,11 @@ namespace Beacon.Core.SqlServer.Data.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<bool>("AllowExplicitFeedbackContent")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(true);
+
                     b.Property<string>("AskDescription")
                         .HasMaxLength(1000)
                         .HasColumnType("nvarchar(1000)");
@@ -2432,12 +2573,31 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Property<int>("LearningSignalRetentionDays")
                         .HasColumnType("int");
 
+                    b.Property<int>("MaxConcurrentQueriesPerKey")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(4);
+
+                    b.Property<decimal?>("MaxExplainCost")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int>("MaxResultBytes")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(262144);
+
                     b.Property<int>("MaxRowLimit")
                         .HasColumnType("int");
 
                     b.Property<string>("QueryDescription")
                         .HasMaxLength(1000)
                         .HasColumnType("nvarchar(1000)");
+
+                    b.Property<bool>("RetainQueryContent")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(true);
 
                     b.Property<string>("SearchDescription")
                         .HasMaxLength(1000)
@@ -2448,6 +2608,11 @@ namespace Beacon.Core.SqlServer.Data.Migrations
 
                     b.Property<int>("SelfConsistencyMinTables")
                         .HasColumnType("int");
+
+                    b.Property<int>("StatementTimeoutSeconds")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(30);
 
                     b.Property<int>("ValueGroundingMaxProbes")
                         .HasColumnType("int");
@@ -4052,6 +4217,17 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Navigation("Session");
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Beacon.Core.Data.Entities.McpProjectSettings", b =>
+                {
+                    b.HasOne("Beacon.Core.Data.Entities.Projects.Project", "Project")
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Project");
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.McpSession", b =>

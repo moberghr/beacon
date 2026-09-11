@@ -11,7 +11,8 @@ internal sealed class QueryExecutionService(
     IDbContextFactory<BeaconContext> contextFactory,
     IDataSourceProviderFactory providerFactory,
     IQueryGuardrailService guardrailService,
-    IMcpSettingsProvider settingsProvider) : IQueryExecutionService
+    IMcpSettingsProvider settingsProvider,
+    IProjectContext projectContext) : IQueryExecutionService
 {
     public async Task<QueryExecutionResult> ExecuteAsync(int dataSourceId, string sql, int maxRows, CancellationToken ct)
     {
@@ -35,7 +36,9 @@ internal sealed class QueryExecutionService(
             // Mask PII column values before returning to the MCP client (§1.6/§1.11). Read-only was
             // already enforced upstream, so here we only need PII detection. Mirrors SemanticSearchService.
             var rows = result.Rows;
-            var settings = await settingsProvider.GetSettingsAsync(ct);
+            // The tool resolved the project before delegating here (ToolHelper.ResolveProjectId sets ActiveProjectId);
+            // 0 falls back to the global effective settings.
+            var settings = await settingsProvider.GetEffectiveSettingsAsync(projectContext.ActiveProjectId ?? 0, ct);
             if (settings.EnablePiiDetection)
             {
                 var piiColumns = guardrailService.ValidateQuery(sql, new QueryGuardrailOptions

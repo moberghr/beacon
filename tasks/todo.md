@@ -1,123 +1,50 @@
-# Todo — Shared SQL execution gate (2026-09-08)
+# Configurable default schema (both EF providers) — `feature/retention-lock`
 
-**Scope:** internal-refactoring · security_impact: requires-audit-trail · **Rigor: MAX** (score 16 — 4 batches, 20 non-mechanical files → +7, 6 external contracts → +4 (cap), security +3; hard floor HIGH via batches ≥ 3 and security)
-Spec: `docs/specs/2026-09-08-sql-execution-gate.md`
-Plan: `docs/plans/2026-09-08-sql-execution-gate.md`
-Parent: `docs/plans/2026-09-08-warehouse-engine.md` Wave 0.1
-Branch: `feature/sql-execution-gate` (off `origin/main` @ 60d686f)
+Spec `docs/specs/2026-09-11-configurable-default-schema.md` · Plan `docs/plans/2026-09-11-configurable-default-schema.md` · Workflow `wf-20260911T114117Z-329a21`
 
-## B1 — Core primitives (W0)
-- [x] `SqlDialects.Resolve` shared resolver (+ azuresynapse) in `SqlReadOnlyAstValidator.cs`
-- [x] `SqlReadOnlyAstValidator`: whitespace-only SQL rejected; test flipped
-- [x] `SqlSchemaValidator`: `TablesUsed`, `Checked`, projection-alias awareness; tests SC5 / SC9 / Checked
-- [x] `SqlRowLimitRewriter` (AST-decided, text-applied) + `SqlRowLimitRewriterTests` (SC3, 11 cases)
-- [x] `QueryGuardrailService.ApplyRowLimit` delegates; 3 regression tests added; 8 existing unchanged
-- [x] Checkpoint: build + 4 fixtures green (97/97)
+Source: external audit of shipped `Moberg.Beacon` 4.1.0 (decompiled IL). Direction chosen by the engineer: **full symmetry** — PostgreSQL adopts `HasDefaultSchema` rather than keeping its `SearchPath`-only mechanism.
 
-## B2 — Gate (W1)
-- [x] `ISqlExecutionGate` + records; `SqlExecutionGate` composition per verdict table
-- [x] DI: `TryAddTransient<ISqlExecutionGate, SqlExecutionGate>` in Core
-- [x] `Tests/Common/TestSqlGate.cs`
-- [x] `SqlExecutionGateTests` (SC2 six adversarial cases, SC5, Skipped codes, BlockOnSchemaFailure, EnforceReadOnly=false semantics)
-- [ ] Checkpoint: build + fixture green
+## B1 — Core: options extension + schema resolution
+- [x] `BeaconSchemaOptionsExtension` + `ExtensionInfo` (service-provider hash includes schema)
+- [x] `DbContextOptionsBuilder.UseBeaconSchema(string)`
+- [x] `BeaconSchema.Resolve(DbContext)` — replaces reflection
+- [x] `BeaconSchema.CreateSchemaStatement(provider, schema)` — validates identifier, dialect-specific idempotent DDL
+- [x] `BeaconContext.OnModelCreating` resolves options → ctor arg → `"beacon"`, keeps `IsNullOrEmpty` guard
+- [x] Tests: `UseBeaconSchema_RoundTripsThroughOptions`, `CreateSchemaStatement_*` (3)
+- [x] Checkpoint: build + targeted unit tests
 
-## B3 — AI callers (W2)
-- [x] `AskSqlPipeline` ctor + all validation via gate; AST tables at execution repair
-- [x] `EvalReadOnlySqlExecutor` via gate (EnforceReadOnly forced, MaxRows = MaxRowLimit)
-- [x] `McpEvalService` ctor swap
-- [x] Five fixtures: helpers only (SC8)
-- [x] Checkpoint: build + 5 fixtures green + `git diff --stat` confined to helpers
+## B2 — SQL Server: generator, cache key, wiring
+- [x] `SchemaAwareMigrationsSqlGenerator : SqlServerMigrationsSqlGenerator` (Schema / PrincipalSchema / NewSchema + nested `CreateTableOperation` ops)
+- [x] `SchemaModelCacheKeyFactory : IModelCacheKeyFactory`
+- [x] `SqlServerBeaconContext` — drop the `= "beacon"` ctor default
+- [x] `UseSqlServer` — `UseBeaconSchema` + both `ReplaceService` calls
+- [x] Tests: `SqlServerGenerator_RetargetsCreateTableSchema`, `..._RetargetsForeignKeyPrincipalSchema`, `ModelCacheKeyFactory_DiffersBySchema`, `..._EqualForSameSchema`
+- [x] Checkpoint: build + SQL Server tests + `git status` over `Beacon.Core.SqlServer/Data/Migrations` empty (SC2)
 
-## B4 — MCP callers (W2)
-- [x] `ProjectQueryTool`: gate with catalog, blocking schema, AST tables, FinalSql
-- [x] `DryRunTool`: gates 1-3 via gate; `read_only` verdict + code; schema skipped codes
-- [x] `CrossSourceQueryService`: gate for source / repair / join; `MaxRowLimit`
-- [x] `SqlParsingHelper.ExtractTableNamesFromSql` removed
-- [x] Tests: `DryRunToolTests` (g), `McpPlaygroundServiceTests`, `ReadOnlyExecutionRoutingTests` ctors; new `ProjectQueryToolSchemaGateTests` (SC4)
-- [x] Checkpoint: build + 4 fixtures green; SC1 + SC6 greps clean
+## B3 — PostgreSQL: generator, cache key, wiring (symmetry)
+- [x] `SchemaAwareMigrationsSqlGenerator : NpgsqlMigrationsSqlGenerator` (`null` is the common case here)
+- [x] `SchemaModelCacheKeyFactory` (PG namespace; not shared — §2.4)
+- [x] `UsePostgreSql` — `UseBeaconSchema` + both `ReplaceService` + history-table schema; **retain `SearchPath`** (R3)
+- [x] Tests: `PostgreSqlContext_WithConfiguredSchema_QualifiesTables_Translates`, `..._WithEmptySchema_EmitsUnqualified_Translates`, `PostgreSqlGenerator_RetargetsNullSchema`
+- [x] Checkpoint: build + PG tests + `git status` over `Beacon.Core.PostgreSql/Data/Migrations` empty (SC2)
 
-## Final
-- [x] Full `dotnet test` vs Phase 2.9 baseline (811/5/816) (SC7: 5 inherited env-red harness tests)
-- [x] Behavioural diff written (sidecar implement.behavioral_diff)
-- [x] Spec-drift check clean
+## B4 — `UseBeacon` hardening
+- [x] Schema via `BeaconSchema.Resolve`, not `GetProperty(...)`
+- [x] Idempotent `CREATE SCHEMA` via `BeaconSchema.CreateSchemaStatement`; keep `ExecuteSqlRaw` + `EF1002` pragma (2026-06-11 lesson)
+- [x] Delete the dead `GetSchemaFromContext`
+- [x] Checkpoint: build + **full** `dotnet test`; `grep -c 'GetProperty(' src/Beacon.Core/ServiceConfiguration.cs` → 0 (SC6)
 
 ## Post-implementation review
-- [x] Stage 1 `compliance-reviewer` against sealed spec (NEEDS_CHANGES → fixed)
-- [x] Stage 2 `test-reviewer`, `architecture-reviewer`, `silent-failure-hunter` (MAX) — 1 iteration
-- [x] Adversarial pass on gate + rewriter (lesson 2026-07-03) — OFFSET-without-FETCH and derived-subquery gaps fixed
-- [x] Audit + signal on every early exit (§1.7/§9.5); no SQL in logs (§1.11) — confirmed by compliance lane
-- [x] Update parent plan Wave 0.1 status
+- [x] Phase 3.5 spec-drift check against the JSON sidecar
+- [x] Stage 1 — `compliance-reviewer` against the sealed spec
+- [x] Stage 2 — reviewer set per rigor level
+- [x] Confirm zero migration files modified across both providers (SC2)
+- [x] Confirm no pre-existing-failure delta vs the Phase 2.9 baseline (SC7)
 
----
-
-# Todo — MCP `ask` SQL correctness (2026-09-04)
-
-**Scope:** new-feature · security_impact: new-query-surface · **Rigor: MAX** (score 38 — 8 batches, 53 files, 8 external contracts, security +3)
-Spec: `docs/specs/2026-09-04-ask-sql-correctness.md`
-Plan: `docs/plans/2026-09-04-ask-sql-correctness.md`
-Branch: `feature/verified-semantic-grounding`
-
-## Batch 1 — Shared AskSqlPipeline + eval parity
-- [x] Orchestrator pre-step: `git mv` SqlSchemaValidator MCP → Core/Services/Validation, namespace + public
-- [x] `IAskSqlExecutor` + `AskExecutionResult`; `IAskSqlPipeline` + options/outcome/repair-step records
-- [x] `AskSqlPipeline`: move generate→validate→repair→execute core verbatim; outcome fields replace signal calls
-- [x] MCP `AskSqlExecutor` adapter; DI moves (validator → Core, pipeline → AI, executor → MCP)
-- [x] `ProjectAskTool` thin wrapper maps outcome → signal in the original order; text byte-identical
-- [x] `EvalReadOnlySqlExecutor`; `McpEvalService` runs the pipeline; failure tag from final SQL tables
-- [x] Tests re-targeted (repair flow, voting, schema validator, eval judge gate, replay verifier) + `AskSqlPipelineTests` (parity, no MCP reference)
-- [x] Checkpoint: build + filtered tests
-
-## Batch 2 — Date anchor, dialect rule, token cap
-- [x] `TimeProvider?` optional ctor param, `TODAY (UTC)` line in generation + repair messages
-- [x] Dialect rule in default system prompt; `MaxTokens` 2048 ×3
-- [x] `SqlGenerationPromptTests`
-- [x] Checkpoint
-
-## Batch 3 — Assumptions / clarification block
-- [x] `SqlGenerationResult` + `Assumptions`, `ClarificationHint` (defaulted)
-- [x] Leading-comment parser on generation and repair; prompt rule replaces "ONLY the SQL"
-- [x] Pipeline outcome + `### Assumptions` / clarification rendering
-- [x] Tests (parser cases, rendering)
-- [x] Checkpoint
-
-## Batch 4 — Settings + SampleValuesComplete + dual migration
-- [x] 4 settings on entity/data/provider/handler with defaults true/12/true/2
-- [x] `ColumnMetadata.SampleValuesComplete`, DTO default, metadata service 3 sites
-- [x] PG migration scaffolded, `defaultValue` edited to code defaults; SqlServer hand-written (+Designer, snapshot)
-- [x] `AskCorrectnessSettingsTests`
-- [x] Checkpoint
-
-## Batch 5 — Complete value domains
-- [x] Sampler: candidate rule, per-engine DISTINCT probe via `SqlIdentifierGuard`, ≤12 → complete, PII screen, fail-soft
-- [x] Extract `PiiValueScreen` (public, Core/Services/Security); sampler delegates
-- [x] `SchemaColumn.SampleValuesComplete` through every projection; formatter `Values (all N)`
-- [x] Prompt rule for complete values
-- [x] Tests (sampler per engine, thresholds, formatter)
-- [x] Checkpoint
-
-## Batch 6 — Ask-time value grounding
-- [x] `IValueGroundingService` / `ValueGroundingService` (extract, rank, sanitise, AST-gated capped probes, render)
-- [x] Injected in both `GetSmartContextForAskAsync` paths before golden block; fail-closed; setting-gated; Api skipped
-- [x] Prompt rule; DI registration; 5 test ctors fixed
-- [x] `ValueGroundingServiceTests`
-- [x] Checkpoint
-
-## Batch 7 — Semantic linter + lint repair
-- [x] `SqlSemanticLinter` (3 rules), `SchemaLintContext`, `SqlLintFinding`; Core DI
-- [x] `SmartSchemaContext.PrimaryKeyCatalog`; fast path `JoinPaths`
-- [x] Pipeline lint hook: ≤1 repair, accept only if valid and strictly fewer findings; `### Semantic warnings`
-- [x] `SqlSemanticLinterTests` + pipeline lint tests
-- [x] Checkpoint
-
-## Batch 8 — Self-consistency gating, concurrency, tie-break
-- [x] Single candidate first; gate on `SelfConsistencyMinTables`; N-1 extra candidates
-- [x] `GenerateCandidatesAsync` concurrent via `Task.WhenAll`
-- [x] `SelectMajority` tie-break by lint count
-- [x] `SelfConsistencyVotingTests` extended
-- [x] Checkpoint
-
-## Post-implementation
-- [x] Full `dotnet build --property WarningLevel=0` + `dotnet test` (baseline: 504/509, 5 inherited API-harness failures)
-- [x] Phase 3.5 spec-drift check vs sidecar
-- [x] Phase 4 Stage 1 compliance-reviewer; Stage 2 test-reviewer + architecture-reviewer + silent-failure-hunter
-- [x] Phase 5 fix findings (≤3 iterations); Phase 6 simplify; Phase 7 lessons
+## Follow-ups raised by the same audit (NOT in this run)
+- [ ] README quick-start symbols (`AddBeacon` → `AddBeaconServices`, `UseSqlServer` chaining, `UseBeaconUI` → `MapBeaconUi`) — both provider READMEs
+- [ ] `AddBeaconApiServices()` should register the `BeaconApi` policy
+- [ ] Semantico 3.7.0.1 → 4.1.0 upgrade path (SQL script + `[Obsolete]` shim + changelog for `IBeaconScheduler`/`IJobService` breaks)
+- [ ] `Beacon:EncryptionKey` error message should name `Semantico:EncryptionKey`
+- [ ] SPA sub-path hosting (configurable `<base href>`)
+- [ ] Host should read `Beacon:Schema` instead of hardcoding `"semantico"`

@@ -49,7 +49,7 @@ internal sealed class ProjectGetDocumentationTool(
                 sw.Stop();
                 var validationError = "response_format must be 'concise' or 'detailed'.";
                 await auditService.LogToolCallAsync(null, projectContext.UserId, "get_documentation",
-                    datasource_name ?? table_name, null, null, (int)sw.ElapsedMilliseconds, null, validationError, cancellationToken);
+                    datasource_name ?? table_name, null, null, (int)sw.ElapsedMilliseconds, null, validationError, ct: cancellationToken);
                 return ToolHelper.Error(validationError);
             }
         }
@@ -68,7 +68,7 @@ internal sealed class ProjectGetDocumentationTool(
                 var docResult = await GetProjectDocumentationAsync(projectId, concise, cancellationToken);
                 sw.Stop();
                 await auditService.LogToolCallAsync(null, projectContext.UserId, "get_documentation",
-                    null, null, projectId, (int)sw.ElapsedMilliseconds, null, null, cancellationToken);
+                    null, null, projectId, (int)sw.ElapsedMilliseconds, null, null, ct: cancellationToken);
                 return ToolHelper.Success(docResult);
             }
 
@@ -110,14 +110,14 @@ internal sealed class ProjectGetDocumentationTool(
 
             sw.Stop();
             await auditService.LogToolCallAsync(null, projectContext.UserId, "get_documentation",
-                datasource_name ?? table_name, dsId, projectId, (int)sw.ElapsedMilliseconds, null, null, cancellationToken);
+                datasource_name ?? table_name, dsId, projectId, (int)sw.ElapsedMilliseconds, null, null, ct: cancellationToken);
             return ToolHelper.Success(result);
         }
         catch (Exception ex)
         {
             sw.Stop();
             await auditService.LogToolCallAsync(null, projectContext.UserId, "get_documentation",
-                datasource_name ?? table_name, null, projectId == 0 ? null : projectId, (int)sw.ElapsedMilliseconds, null, ex.Message, CancellationToken.None);
+                datasource_name ?? table_name, null, projectId == 0 ? null : projectId, (int)sw.ElapsedMilliseconds, null, ex.Message, ct: CancellationToken.None);
             // §1.11 — ex.Message can quote user input; type only here, full detail is in the audit log.
             logger.LogError("MCP tool {Tool} failed with {ExceptionType} (detail in MCP audit log)", "get_documentation", ex.GetType().Name);
             return ToolHelper.Error(ToolHelper.CallerSafeMessage(ex, "get_documentation"));

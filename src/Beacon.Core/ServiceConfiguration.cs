@@ -13,8 +13,10 @@ using Beacon.Core.Authentication.Providers;
 using Beacon.Core.Authorization;
 using Beacon.Core.Authorization.Providers;
 using Beacon.Core.Data;
+using Beacon.Core.Data.Interceptors;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Embed;
+using Beacon.Core.Services.Retention;
 using Beacon.Core.Services.Shared;
 using Beacon.Core.Services.Validation;
 using Microsoft.Extensions.Options;
@@ -152,6 +154,11 @@ public static class ServiceConfiguration
         // MCP settings provider (cached reads for MCP tool configuration)
         services.TryAddTransient<IMcpSettingsProvider, McpSettingsProvider>();
 
+        // Content-retention policy (the lock) plus the EF belt that enforces it on every Mcp* write.
+        // The interceptor holds no state; it resolves the settings provider lazily per SaveChanges.
+        services.TryAddTransient<IContentRetentionPolicy, ContentRetentionPolicy>();
+        services.TryAddSingleton<ContentRetentionInterceptor>();
+
         // API key service (always registered — used for stateless API authentication)
         services.TryAddTransient<Services.Security.IApiKeyService, Services.Security.ApiKeyService>();
 
@@ -205,6 +212,13 @@ public static class ServiceConfiguration
         // Embed token service (HS256 mint/validate for embeddable Beacon integrations)
         services.Configure<EmbedTokenOptions>(configuration.GetSection("Beacon:EmbedToken"));
         services.AddSingleton<IValidateOptions<EmbedTokenOptions>, EmbedTokenOptionsValidator>();
+
+        // Deployment-level MCP locks and ceilings (Beacon:Mcp). An absent section = no locks, no ceilings.
+        // ValidateOnStart so a non-positive ceiling fails the host at boot, not on the first query.
+        services.AddOptions<Configuration.McpDeploymentOptions>()
+            .Bind(configuration.GetSection(Configuration.McpDeploymentOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<Configuration.McpDeploymentOptions>, Configuration.McpDeploymentOptionsValidator>();
         services.TryAddSingleton<TimeProvider>(TimeProvider.System);
         services.TryAddSingleton<IEmbedTokenService, EmbedTokenService>();
 
@@ -217,21 +231,18 @@ public static class ServiceConfiguration
         var contextFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<BeaconContext>>();
         using var context = contextFactory.CreateDbContext();
 
-        // Get the schema name from the context
-        var schema = GetSchemaFromContext(context);
+        // Get the schema name from the context, validated up front so a malformed identifier
+        // is rejected before any DDL is issued — including Migrate() below, not just the
+        // createSchema:true path.
+        var schema = BeaconSchema.ValidateIdentifier(BeaconSchema.Resolve(context) ?? "beacon");
 
         // Ensure the schema exists before running migrations.
-        // Schema names cannot be parameterized in DDL — validate the identifier instead (it comes
-        // from internal context configuration, never user input).
+        // Schema names cannot be parameterized in DDL — the identifier was already validated above.
         if (createSchema)
         {
-            if (!System.Text.RegularExpressions.Regex.IsMatch(schema, "^[A-Za-z_][A-Za-z0-9_]*$"))
-            {
-                throw new InvalidOperationException($"Invalid schema name '{schema}'.");
-            }
-
-#pragma warning disable EF1002 // identifier validated above; DDL cannot take parameters
-            context.Database.ExecuteSqlRaw($"CREATE SCHEMA {schema};");
+#pragma warning disable EF1002 // identifier validated by ValidateIdentifier above; DDL cannot take parameters
+            context.Database.ExecuteSqlRaw(
+                BeaconSchema.CreateSchemaStatement(context.Database.ProviderName, schema));
 #pragma warning restore EF1002
         }
 
@@ -241,13 +252,5 @@ public static class ServiceConfiguration
         // resolve IAppSettingsService on demand. Hydrating at startup would
         // either require an async entrypoint or block-on-async, both of which
         // we avoid.
-    }
-
-    private static string GetSchemaFromContext(BeaconContext context)
-    {
-        // Access the protected DefaultSchema property through reflection
-        var defaultSchemaProperty = typeof(BeaconContext).GetProperty("DefaultSchema",
-            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-        return defaultSchemaProperty?.GetValue(context) as string ?? "beacon";
     }
 }

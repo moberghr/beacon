@@ -255,7 +255,7 @@ public class PatternDecayAndSelectionTests
             .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(context);
 
-        var settings = new Mock<IMcpSettingsProvider>();
+        var settings = SettingsProviderMock.Create();
         settings
             .Setup(x => x.GetSettingsAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(new McpSettingsData
@@ -291,7 +291,7 @@ public class PatternDecayAndSelectionTests
             .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(boundContext);
 
-        var settings = new Mock<IMcpSettingsProvider>();
+        var settings = SettingsProviderMock.Create();
         settings
             .Setup(x => x.GetSettingsAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(new McpSettingsData());

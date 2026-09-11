@@ -12,6 +12,7 @@ using Beacon.Core.Models;
 using Beacon.Core.Models.Providers;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Providers;
+using Beacon.Core.Services.Retention;
 using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
 
@@ -47,7 +48,7 @@ internal sealed class McpEvalService(
 
     public async Task<int> StartRunAsync(int? projectId, int? userId, CancellationToken ct)
     {
-        var settings = await settingsProvider.GetSettingsAsync(ct);
+        var settings = await settingsProvider.GetEffectiveSettingsAsync(projectId ?? 0, ct);
 
         await using var context = await contextFactory.CreateDbContextAsync(ct);
 
@@ -56,7 +57,7 @@ internal sealed class McpEvalService(
             ProjectId = projectId,
             TriggeredByUserId = userId,
             Status = "Running",
-            JudgeEnabled = settings.EnableEvalJudge
+            JudgeEnabled = JudgeAllowed(settings)
         };
 
         context.McpEvalRuns.Add(run);
@@ -67,8 +68,6 @@ internal sealed class McpEvalService(
 
     public async Task RunAsync(int runId, CancellationToken ct)
     {
-        var settings = await settingsProvider.GetSettingsAsync(ct);
-
         await using var context = await contextFactory.CreateDbContextAsync(ct);
 
         var run = await context.McpEvalRuns
@@ -76,7 +75,9 @@ internal sealed class McpEvalService(
             .FirstOrDefaultAsync(ct)
             ?? throw new InvalidOperationException($"Eval run {runId} not found.");
 
-        run.JudgeEnabled = settings.EnableEvalJudge;
+        var settings = await settingsProvider.GetEffectiveSettingsAsync(run.ProjectId ?? 0, ct);
+
+        run.JudgeEnabled = JudgeAllowed(settings);
 
         try
         {
@@ -125,6 +126,11 @@ internal sealed class McpEvalService(
                 else if (result.FailureTag == McpEvalFailureTag.HarnessError)
                 {
                     errored++;
+                }
+
+                if (!settings.RetainQueryContent)
+                {
+                    McpContentRedactor.RedactEvalResult(result);
                 }
 
                 context.McpEvalResults.Add(result);
@@ -197,7 +203,7 @@ internal sealed class McpEvalService(
             // OPTIONAL judge (§Optional): only for cosmetic-only diffs where both executed but the
             // fingerprints differ, and ONLY when explicitly enabled. When disabled the provider is
             // NEVER touched (no result data leaves the process — §1.11 / SC7).
-            if (settings.EnableEvalJudge && !outcome.Passed && outcome.GoldExec.Success && outcome.GeneratedExec.Success)
+            if (JudgeAllowed(settings) && !outcome.Passed && outcome.GoldExec.Success && outcome.GeneratedExec.Success)
             {
                 judgeUsed = true;
                 judgeVerdict = await RunJudgeAsync(evalCase.Question, outcome.GoldExec, outcome.GeneratedExec, settings, ct);
@@ -240,7 +246,7 @@ internal sealed class McpEvalService(
         string? extraContext,
         CancellationToken ct)
     {
-        var settings = await settingsProvider.GetSettingsAsync(ct);
+        var settings = await settingsProvider.GetEffectiveSettingsAsync(projectId, ct);
 
         await using var context = await contextFactory.CreateDbContextAsync(ct);
         var dataSource = await context.DataSources
@@ -491,4 +497,9 @@ internal sealed class McpEvalService(
         IReadOnlyList<string> RelevantTables,
         ProviderQueryResult GoldExec,
         ProviderQueryResult GeneratedExec);
+
+    // The judge renders result-set rows into a prompt (§1.6/§1.11) — under the content lock it must never run
+    // regardless of EnableEvalJudge, so every JudgeEnabled/gate read goes through this single check.
+    private static bool JudgeAllowed(McpSettingsData settings) =>
+        settings.EnableEvalJudge && ContentRetentionDecision.From(settings).RetainQueryContent;
 }

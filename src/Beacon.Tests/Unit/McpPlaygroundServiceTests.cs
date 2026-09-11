@@ -161,7 +161,7 @@ public class McpPlaygroundServiceTests
             .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(() => new PlaygroundTestContext());
 
-        var settingsProvider = new Mock<IMcpSettingsProvider>();
+        var settingsProvider = SettingsProviderMock.Create();
         settingsProvider
             .Setup(x => x.GetSettingsAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(new McpSettingsData());
@@ -183,7 +183,7 @@ public class McpPlaygroundServiceTests
         services.AddScoped<McpProjectContext>();
         services.AddScoped<IProjectContext>(x => x.GetRequiredService<McpProjectContext>());
         services.AddSingleton(Mock.Of<IHttpContextAccessor>());
-        services.AddScoped(x => new McpAuditService(factory.Object, NullLogger<McpAuditService>.Instance));
+        services.AddScoped(x => new McpAuditService(factory.Object, SettingsProviderMock.Create().Object, NullLogger<McpAuditService>.Instance));
 
         services.AddScoped(x => new DryRunTool(
             factory.Object,

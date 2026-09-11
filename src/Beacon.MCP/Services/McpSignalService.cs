@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Services;
+using Beacon.Core.Services.Retention;
 
 namespace Beacon.MCP.Services;
 
@@ -18,8 +19,13 @@ internal sealed class McpSignalService(
     {
         try
         {
-            var settings = await settingsProvider.GetSettingsAsync(ct);
+            var settings = await settingsProvider.GetEffectiveSettingsAsync(signal.ProjectId ?? 0, ct);
             if (!settings.EnableLearning) return null;
+
+            if (!ContentRetentionDecision.From(settings).RetainQueryContent)
+            {
+                McpContentRedactor.RedactSignal(signal);
+            }
 
             await using var context = await contextFactory.CreateDbContextAsync(ct);
             context.McpQuerySignals.Add(signal);

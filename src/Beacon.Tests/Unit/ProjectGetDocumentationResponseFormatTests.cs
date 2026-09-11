@@ -9,6 +9,7 @@ using Beacon.AI.Services.Knowledge;
 using Beacon.Core.Data;
 using Beacon.MCP.Services;
 using Beacon.MCP.Tools;
+using Beacon.Tests.Common;
 
 namespace Beacon.Tests.Unit;
 
@@ -35,7 +36,7 @@ public class ProjectGetDocumentationResponseFormatTests
         // Validation runs before project resolution or any documentation service call — null
         // services prove it. The rejection itself is audited (§1.7).
         var auditFactory = new Mock<IDbContextFactory<BeaconContext>>();
-        var auditService = new McpAuditService(auditFactory.Object, NullLogger<McpAuditService>.Instance);
+        var auditService = new McpAuditService(auditFactory.Object, SettingsProviderMock.Create().Object, NullLogger<McpAuditService>.Instance);
         var projectContext = new McpProjectContext { UserId = 1, ApiKeyId = 9, AllowedProjectIds = [ProjectId] };
 
         var tool = new ProjectGetDocumentationTool(
@@ -182,6 +183,7 @@ public class ProjectGetDocumentationResponseFormatTests
         // the audit path runs without a database (§4.7).
         var auditService = new McpAuditService(
             new Mock<IDbContextFactory<BeaconContext>>().Object,
+            SettingsProviderMock.Create().Object,
             NullLogger<McpAuditService>.Instance);
 
         var tool = new ProjectGetDocumentationTool(

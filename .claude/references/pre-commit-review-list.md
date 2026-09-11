@@ -21,3 +21,11 @@
 9. **Tests added for new public methods / handlers.** Non-trivial LINQ → translation test in `QueryTranslationTests.cs`. Pure logic → NUnit unit test. React UI → Vitest + RTL. NEVER `UseInMemoryDatabase`.
 
 10. **Build + format clean.** `dotnet build --property WarningLevel=0` passes, `dotnet format --verify-no-changes` passes, no new warnings introduced.
+
+11. **A derived READ must not feed a full-row WRITE.** If a GET applies policy (locks, ceilings, defaults, RBAC-filtered fields) and the matching PUT replaces every field, the writer must either receive the raw stored values + derivation metadata or treat "derived value echoed back unchanged" as not-an-edit (`UpdateMcpSettingsHandler.KeepStoredWhenClamped`, `McpLockPolicy.KeepStored`). One unrelated save otherwise bakes the policy value into the row. Flag any settings/config handler pair where the GET calls a `*Effective*`/resolved accessor.
+
+12. **A shared test double must vary on a newly added discriminator.** When a call gains a project/tenant/user/dialect parameter, `It.IsAny<int>()` on that parameter in a shared mock helper hides a wrong-id regression across every fixture. The helper must accept a per-id map (`SettingsProviderMock.Create(projectSettings:)`) and at least one consumer test per switched call site must assert a differing value follows the id and `Verify` that no other id was requested.
+
+13. **Two layers enforcing one rule need a test that composes them.** Brace + belt, validator + interceptor, middleware + handler: each layer's own test can pass while the composition is wrong. If one layer *transforms* a value rather than clearing it, the other must consult a shared predicate (`McpRetentionRule.AlreadyRedacted`). A helper the spec promises will be used, with zero production callers, means the interaction was described but never wired — grep for callers before believing it.
+
+14. **After gating a field, pass the gated variable — never the original request.** Grep the request object's field name after the gate line; any later use is a bypass (a golden-case promotion re-read `request.Note` after the handler had nulled `signal.FeedbackNote`). A `Verify(..., Times.Once)` without an `It.Is<T>(...)` payload predicate proves a call happened, not that it carried the right data.

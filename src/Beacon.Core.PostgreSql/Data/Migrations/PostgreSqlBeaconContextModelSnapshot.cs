@@ -2010,6 +2010,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("text")
                         .HasColumnName("encrypted_connection_data");
 
+                    b.Property<bool>("IsReadOnly")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_read_only");
+
                     b.Property<string>("MetadataExcludeSchemas")
                         .HasColumnType("text")
                         .HasColumnName("metadata_exclude_schemas");
@@ -2038,6 +2042,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .IsRequired()
                         .HasColumnType("text")
                         .HasColumnName("name");
+
+                    b.Property<bool>("UseReadOnlyIntent")
+                        .HasColumnType("boolean")
+                        .HasColumnName("use_read_only_intent");
 
                     b.HasKey("Id")
                         .HasName("pk_data_sources");
@@ -2750,6 +2758,171 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.ToTable("mcp_learned_patterns", (string)null);
                 });
 
+            modelBuilder.Entity("Beacon.Core.Data.Entities.McpProjectSettings", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<bool?>("AllowExplicitFeedbackContent")
+                        .HasColumnType("boolean")
+                        .HasColumnName("allow_explicit_feedback_content");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_time");
+
+                    b.Property<string>("CustomPiiPatterns")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)")
+                        .HasColumnName("custom_pii_patterns");
+
+                    b.Property<int?>("DocChunkOverlapSentences")
+                        .HasColumnType("integer")
+                        .HasColumnName("doc_chunk_overlap_sentences");
+
+                    b.Property<int?>("DocChunkTopK")
+                        .HasColumnType("integer")
+                        .HasColumnName("doc_chunk_top_k");
+
+                    b.Property<int?>("DocChunkWindowSentences")
+                        .HasColumnType("integer")
+                        .HasColumnName("doc_chunk_window_sentences");
+
+                    b.Property<bool?>("EnableContextualRetrieval")
+                        .HasColumnType("boolean")
+                        .HasColumnName("enable_contextual_retrieval");
+
+                    b.Property<bool?>("EnableEvalJudge")
+                        .HasColumnType("boolean")
+                        .HasColumnName("enable_eval_judge");
+
+                    b.Property<bool?>("EnableGoldenExemplars")
+                        .HasColumnType("boolean")
+                        .HasColumnName("enable_golden_exemplars");
+
+                    b.Property<bool?>("EnableLearning")
+                        .HasColumnType("boolean")
+                        .HasColumnName("enable_learning");
+
+                    b.Property<bool?>("EnablePiiDetection")
+                        .HasColumnType("boolean")
+                        .HasColumnName("enable_pii_detection");
+
+                    b.Property<bool?>("EnableReplayVerification")
+                        .HasColumnType("boolean")
+                        .HasColumnName("enable_replay_verification");
+
+                    b.Property<bool?>("EnableSampleValueCollection")
+                        .HasColumnType("boolean")
+                        .HasColumnName("enable_sample_value_collection");
+
+                    b.Property<bool?>("EnableSelfConsistency")
+                        .HasColumnType("boolean")
+                        .HasColumnName("enable_self_consistency");
+
+                    b.Property<bool?>("EnableSemanticLint")
+                        .HasColumnType("boolean")
+                        .HasColumnName("enable_semantic_lint");
+
+                    b.Property<bool?>("EnableSemanticRetrieval")
+                        .HasColumnType("boolean")
+                        .HasColumnName("enable_semantic_retrieval");
+
+                    b.Property<bool?>("EnableValueGrounding")
+                        .HasColumnType("boolean")
+                        .HasColumnName("enable_value_grounding");
+
+                    b.Property<bool?>("EnforceReadOnly")
+                        .HasColumnType("boolean")
+                        .HasColumnName("enforce_read_only");
+
+                    b.Property<int?>("ExemplarTopK")
+                        .HasColumnType("integer")
+                        .HasColumnName("exemplar_top_k");
+
+                    b.Property<int?>("GlossaryTopK")
+                        .HasColumnType("integer")
+                        .HasColumnName("glossary_top_k");
+
+                    b.Property<int?>("GoldenExemplarBudgetChars")
+                        .HasColumnType("integer")
+                        .HasColumnName("golden_exemplar_budget_chars");
+
+                    b.Property<int?>("GoldenExemplarTopK")
+                        .HasColumnType("integer")
+                        .HasColumnName("golden_exemplar_top_k");
+
+                    b.Property<double?>("LearningAutoApproveThreshold")
+                        .HasColumnType("double precision")
+                        .HasColumnName("learning_auto_approve_threshold");
+
+                    b.Property<int?>("LearningInjectionBudgetChars")
+                        .HasColumnType("integer")
+                        .HasColumnName("learning_injection_budget_chars");
+
+                    b.Property<int?>("LearningReplayMinFlips")
+                        .HasColumnType("integer")
+                        .HasColumnName("learning_replay_min_flips");
+
+                    b.Property<int?>("LearningSignalRetentionDays")
+                        .HasColumnType("integer")
+                        .HasColumnName("learning_signal_retention_days");
+
+                    b.Property<int?>("MaxConcurrentQueriesPerKey")
+                        .HasColumnType("integer")
+                        .HasColumnName("max_concurrent_queries_per_key");
+
+                    b.Property<decimal?>("MaxExplainCost")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("max_explain_cost");
+
+                    b.Property<int?>("MaxResultBytes")
+                        .HasColumnType("integer")
+                        .HasColumnName("max_result_bytes");
+
+                    b.Property<int?>("MaxRowLimit")
+                        .HasColumnType("integer")
+                        .HasColumnName("max_row_limit");
+
+                    b.Property<int>("ProjectId")
+                        .HasColumnType("integer")
+                        .HasColumnName("project_id");
+
+                    b.Property<bool?>("RetainQueryContent")
+                        .HasColumnType("boolean")
+                        .HasColumnName("retain_query_content");
+
+                    b.Property<int?>("SelfConsistencyCandidateCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("self_consistency_candidate_count");
+
+                    b.Property<int?>("SelfConsistencyMinTables")
+                        .HasColumnType("integer")
+                        .HasColumnName("self_consistency_min_tables");
+
+                    b.Property<int?>("StatementTimeoutSeconds")
+                        .HasColumnType("integer")
+                        .HasColumnName("statement_timeout_seconds");
+
+                    b.Property<int?>("ValueGroundingMaxProbes")
+                        .HasColumnType("integer")
+                        .HasColumnName("value_grounding_max_probes");
+
+                    b.HasKey("Id")
+                        .HasName("pk_mcp_project_settings");
+
+                    b.HasIndex("ProjectId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_mcp_project_settings_project_id");
+
+                    b.ToTable("mcp_project_settings", (string)null);
+                });
+
             modelBuilder.Entity("Beacon.Core.Data.Entities.McpQuerySignal", b =>
                 {
                     b.Property<int>("Id")
@@ -2758,6 +2931,11 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnName("id");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("CallerHash")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("caller_hash");
 
                     b.Property<string>("ColumnsUsed")
                         .HasColumnType("text")
@@ -2964,6 +3142,12 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<bool>("AllowExplicitFeedbackContent")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("allow_explicit_feedback_content");
+
                     b.Property<string>("AskDescription")
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)")
@@ -3106,6 +3290,23 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("learning_signal_retention_days");
 
+                    b.Property<int>("MaxConcurrentQueriesPerKey")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(4)
+                        .HasColumnName("max_concurrent_queries_per_key");
+
+                    b.Property<decimal?>("MaxExplainCost")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("max_explain_cost");
+
+                    b.Property<int>("MaxResultBytes")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(262144)
+                        .HasColumnName("max_result_bytes");
+
                     b.Property<int>("MaxRowLimit")
                         .HasColumnType("integer")
                         .HasColumnName("max_row_limit");
@@ -3114,6 +3315,12 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)")
                         .HasColumnName("query_description");
+
+                    b.Property<bool>("RetainQueryContent")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("retain_query_content");
 
                     b.Property<string>("SearchDescription")
                         .HasMaxLength(1000)
@@ -3127,6 +3334,12 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.Property<int>("SelfConsistencyMinTables")
                         .HasColumnType("integer")
                         .HasColumnName("self_consistency_min_tables");
+
+                    b.Property<int>("StatementTimeoutSeconds")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(30)
+                        .HasColumnName("statement_timeout_seconds");
 
                     b.Property<int>("ValueGroundingMaxProbes")
                         .HasColumnType("integer")
@@ -5113,6 +5326,18 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.Navigation("Session");
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Beacon.Core.Data.Entities.McpProjectSettings", b =>
+                {
+                    b.HasOne("Beacon.Core.Data.Entities.Projects.Project", "Project")
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_mcp_project_settings_projects_project_id");
+
+                    b.Navigation("Project");
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.McpSession", b =>

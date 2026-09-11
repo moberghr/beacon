@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Data.Entities.Metadata;
 using Beacon.Core.Services;
+using Beacon.Core.Services.Retention;
 
 namespace Beacon.AI.Services.Learning;
 
@@ -23,8 +24,8 @@ internal sealed class McpLearningAggregationService(
         {
             await using var context = await contextFactory.CreateDbContextAsync(ct);
             projectIds = await context.McpQuerySignals
-                .Where(s => s.ProjectId != null)
-                .Select(s => s.ProjectId!.Value)
+                .Where(x => x.ProjectId != null)
+                .Select(x => x.ProjectId!.Value)
                 .Distinct()
                 .ToListAsync(ct);
         }
@@ -38,8 +39,16 @@ internal sealed class McpLearningAggregationService(
         {
             try
             {
+                // Per-project effective settings (retention window, replay gate, thresholds); a project that has
+                // learning switched off is skipped while the global switch stays the outer gate.
+                var projectSettings = await settingsProvider.GetEffectiveSettingsAsync(projectId, ct);
+                if (!projectSettings.EnableLearning)
+                {
+                    continue;
+                }
+
                 await using var projectContext = await contextFactory.CreateDbContextAsync(ct);
-                await AggregateForProjectAsync(projectContext, projectId, settings, extraction, ct);
+                await AggregateForProjectAsync(projectContext, projectId, projectSettings, extraction, ct);
             }
             catch (OperationCanceledException)
             {
@@ -66,6 +75,7 @@ internal sealed class McpLearningAggregationService(
     private async Task AggregateForProjectAsync(
         BeaconContext context, int projectId, McpSettingsData settings, ExtractionStats extraction, CancellationToken ct)
     {
+        var retainContent = ContentRetentionDecision.From(settings).RetainQueryContent;
         var cutoff = DateTime.UtcNow.AddDays(-settings.LearningSignalRetentionDays);
 
         // Mine ONLY the taxonomy the detectors expect: ask (NL question → generated SQL) and query
@@ -91,16 +101,23 @@ internal sealed class McpLearningAggregationService(
             var dataSourceId = dsGroup.Key;
 
             // 1. Schema Corrections: validation failed + retry succeeded
-            await DetectSchemaCorrectionsAsync(context, projectId, dataSourceId, dsGroup.ToList(), extraction, ct);
+            await DetectSchemaCorrectionsAsync(context, projectId, dataSourceId, dsGroup.ToList(), extraction, retainContent, ct);
 
-            // 2. Common Queries: cluster successful queries
-            await DetectCommonQueriesAsync(context, projectId, dataSourceId, dsGroup.ToList(), ct);
+            // 2. Common Queries: cluster successful queries. Skipped under the content lock — its
+            // exemplar carries the free-text Question and GeneratedSql/CorrectedSql (§ Registry).
+            if (retainContent)
+            {
+                await DetectCommonQueriesAsync(context, projectId, dataSourceId, dsGroup.ToList(), ct);
+            }
 
             // 3. Join Patterns: multi-table successful queries
-            await DetectJoinPatternsAsync(context, projectId, dataSourceId, dsGroup.ToList(), ct);
+            await DetectJoinPatternsAsync(context, projectId, dataSourceId, dsGroup.ToList(), retainContent, ct);
 
-            // 4. Documentation Gaps: high error rate tables
-            await DetectDocumentationGapsAsync(context, projectId, dataSourceId, dsGroup.ToList(), ct);
+            // 4. Documentation Gaps: high error rate tables. Skipped under the content lock (§ Registry).
+            if (retainContent)
+            {
+                await DetectDocumentationGapsAsync(context, projectId, dataSourceId, dsGroup.ToList(), ct);
+            }
         }
 
         // Temporal decay (§ Architecture ⑧): mark schema-corrections stale when their referenced column no
@@ -241,7 +258,7 @@ internal sealed class McpLearningAggregationService(
     // optional lessonExtractor. The clustering and every other detector stay untouched.
     internal async Task DetectSchemaCorrectionsAsync(
         BeaconContext context, int projectId, int dataSourceId,
-        List<McpQuerySignal> signals, ExtractionStats extraction, CancellationToken ct)
+        List<McpQuerySignal> signals, ExtractionStats extraction, bool retainContent, CancellationToken ct)
     {
         // Capture corrections from both schema validation failures AND execution column errors
         var corrections = signals
@@ -324,7 +341,11 @@ internal sealed class McpLearningAggregationService(
 
             // LLM-PRIMARY: extract a structured lesson from the representative failure. On a non-null
             // lesson use the LLM's content/example/type; on null (or no extractor) fall back below.
-            if (lessonExtractor is { IsAvailable: true })
+            // Under the content lock the extractor is never invoked — its FailureCluster carries
+            // Question/GeneratedSql/CorrectedSql/error text and its returned lesson is free text
+            // (§ Registry classification: PatternContent is Structural under the lock ONLY as the
+            // deterministic template built from schema/table/column names).
+            if (retainContent && lessonExtractor is { IsAvailable: true })
             {
                 var representative = first.Signal;
                 var cluster = new FailureCluster(
@@ -415,7 +436,7 @@ internal sealed class McpLearningAggregationService(
 
     internal static async Task DetectJoinPatternsAsync(
         BeaconContext context, int projectId, int dataSourceId,
-        List<McpQuerySignal> signals, CancellationToken ct)
+        List<McpQuerySignal> signals, bool retainContent, CancellationToken ct)
     {
         var multiTable = signals
             .Where(s => s.IsSuccessful && !string.IsNullOrEmpty(s.TablesUsed))
@@ -450,8 +471,13 @@ internal sealed class McpLearningAggregationService(
             var content = $"Tables {pair} are frequently joined together ({group.Count()} queries)";
             var confidence = Math.Min(1.0, 0.5 + (group.Count() * 0.1) + (humanVerified ? 0.2 : 0.0));
 
+            // ExampleQuestion/ExampleSql are Content (§ Registry) — under the lock the pattern still
+            // records that these tables are joined, but never carries the free-text question or SQL.
+            var exampleQuestion = retainContent ? representative.Question : null;
+            var exampleSql = retainContent ? representative.GeneratedSql : null;
+
             await UpsertPatternAsync(context, projectId, dataSourceId, schema, table, null,
-                McpPatternType.JoinPattern, content, representative.Question, representative.GeneratedSql,
+                McpPatternType.JoinPattern, content, exampleQuestion, exampleSql,
                 group.Count(), confidence, ct);
         }
     }
@@ -650,16 +676,37 @@ internal sealed class McpLearningAggregationService(
             var settings = await settingsProvider.GetSettingsAsync(ct);
             if (!settings.EnableLearning) return;
 
+            await using var context = await contextFactory.CreateDbContextAsync(ct);
+
+            // Retention is a per-project setting: delete each project's signals with that project's effective
+            // window; signals with no project use the global window. An explicit retentionDays argument wins.
+            var projectIds = await context.McpQuerySignals
+                .Where(x => x.ProjectId != null)
+                .Select(x => x.ProjectId!.Value)
+                .Distinct()
+                .ToListAsync(ct);
+
+            var deleted = 0;
+            foreach (var projectId in projectIds)
+            {
+                var projectSettings = await settingsProvider.GetEffectiveSettingsAsync(projectId, ct);
+                var projectDays = retentionDays > 0 ? retentionDays : projectSettings.LearningSignalRetentionDays;
+                var projectCutoff = DateTime.UtcNow.AddDays(-projectDays);
+                deleted += await context.McpQuerySignals
+                    .Where(x => x.ProjectId == projectId)
+                    .Where(x => x.CreatedTime < projectCutoff)
+                    .ExecuteDeleteAsync(ct);
+            }
+
             var days = retentionDays > 0 ? retentionDays : settings.LearningSignalRetentionDays;
             var cutoff = DateTime.UtcNow.AddDays(-days);
-
-            await using var context = await contextFactory.CreateDbContextAsync(ct);
-            var deleted = await context.McpQuerySignals
-                .Where(s => s.CreatedTime < cutoff)
+            deleted += await context.McpQuerySignals
+                .Where(x => x.ProjectId == null)
+                .Where(x => x.CreatedTime < cutoff)
                 .ExecuteDeleteAsync(ct);
 
             if (deleted > 0)
-                logger.LogInformation("Cleaned up {Count} old MCP query signals (retention: {Days} days)", deleted, days);
+                logger.LogInformation("Cleaned up {Count} old MCP query signals (global retention: {Days} days; per-project windows applied)", deleted, days);
         }
         catch (Exception ex)
         {

@@ -79,6 +79,31 @@ public class McpEvalServiceJudgeGateTests
     }
 
     [Test]
+    public async Task RunAsync_RetainQueryContentFalse_DisablesJudgeAndRedactsPersistedResult_EvenWhenJudgeEnabledIsTrue()
+    {
+        // SC6: RetainQueryContent==false is a lock — it overrides EnableEvalJudge (JudgeAllowed) so the
+        // judge NEVER renders result rows into a prompt (§1.6/§1.11), and the persisted result is
+        // redacted (GeneratedSql/JudgeVerdict null) via McpContentRedactor.RedactEvalResult.
+        var llm = new Mock<ILlmProvider>();
+        llm.Setup(x => x.CompleteAsync(It.IsAny<LlmRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new LlmResponse { Content = "EQUIVALENT" });
+
+        var captured = new List<McpEvalResult>();
+        var (service, run, _) = BuildService(
+            llm, judgeEnabled: true, capturedResults: captured, retainQueryContent: false);
+
+        await service.RunAsync(RunId, CancellationToken.None);
+
+        llm.Verify(x => x.CompleteAsync(It.IsAny<LlmRequest>(), It.IsAny<CancellationToken>()), Times.Never);
+
+        run.JudgeEnabled.Should().BeFalse("RetainQueryContent=false locks the judge off regardless of EnableEvalJudge");
+
+        captured.Should().ContainSingle();
+        captured[0].GeneratedSql.Should().BeNull();
+        captured[0].JudgeVerdict.Should().BeNull();
+    }
+
+    [Test]
     public async Task RunAsync_MutatingGoldSql_IsNeverExecutedAgainstTheDataSource()
     {
         // A golden case whose GoldSql is a mutating statement (e.g. a bad promotion) MUST be blocked by the
@@ -152,7 +177,8 @@ public class McpEvalServiceJudgeGateTests
 
     private static (McpEvalService Service, McpEvalRun Run, Mock<IDataSourceProvider> Provider) BuildService(
         Mock<ILlmProvider> llm, bool judgeEnabled, List<McpEvalResult> capturedResults, string goldSql = "SELECT 1 AS n",
-        Mock<ISqlGenerationService>? sqlGenOverride = null, (string Sql, string Error)? failingExecution = null)
+        Mock<ISqlGenerationService>? sqlGenOverride = null, (string Sql, string Error)? failingExecution = null,
+        bool retainQueryContent = true)
     {
         var run = new McpEvalRun { Id = RunId, ProjectId = 1, Status = "Running" };
         var evalCase = new McpEvalCase
@@ -252,14 +278,15 @@ public class McpEvalServiceJudgeGateTests
             .Setup(x => x.IsPiiColumn(It.IsAny<string>(), It.IsAny<IReadOnlyList<string>?>()))
             .Returns(false);
 
-        var settings = new Mock<IMcpSettingsProvider>();
+        var settings = SettingsProviderMock.Create();
         settings
             .Setup(x => x.GetSettingsAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(new McpSettingsData
             {
                 EnableEvalJudge = judgeEnabled,
                 EnablePiiDetection = false,
-                MaxRowLimit = 1000
+                MaxRowLimit = 1000,
+                RetainQueryContent = retainQueryContent
             });
 
         var pipeline = new AskSqlPipeline(

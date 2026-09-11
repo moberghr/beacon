@@ -113,7 +113,7 @@ internal sealed class DryRunTool(
             }
 
             var dialect = dataSource.DatabaseEngineType?.ToString();
-            var settings = await settingsProvider.GetSettingsAsync(cancellationToken);
+            var settings = await settingsProvider.GetEffectiveSettingsAsync(projectId, cancellationToken);
             var catalog = await knowledgeGraph.GetSchemaCatalogAsync(datasource_id.Value, cancellationToken);
             var maxRows = Math.Min(DefaultMaxRows, settings.MaxRowLimit);
 
@@ -190,7 +190,8 @@ internal sealed class DryRunTool(
             sw.Stop();
             signal.SetResult(null, (int)sw.ElapsedMilliseconds, valid);
             await auditService.LogToolCallAsync(null, projectContext.UserId, "dry_run",
-                sql, datasource_id, projectId, (int)sw.ElapsedMilliseconds, null, null, cancellationToken);
+                sql, datasource_id, projectId, (int)sw.ElapsedMilliseconds, null, null,
+                tables: report.TablesUsed.ToList(), ct: cancellationToken);
             await signalService.RecordSignalAsync(signal.Build(), cancellationToken);
             return ToolHelper.Success(text, structured);
         }
@@ -200,7 +201,7 @@ internal sealed class DryRunTool(
             signal.SetExecutionFailed(ex.Message);
             signal.SetResult(null, (int)sw.ElapsedMilliseconds, false);
             await auditService.LogToolCallAsync(null, projectContext.UserId, "dry_run",
-                sql, datasource_id, projectId, (int)sw.ElapsedMilliseconds, null, ex.Message, CancellationToken.None);
+                sql, datasource_id, projectId, (int)sw.ElapsedMilliseconds, null, ex.Message, ct: CancellationToken.None);
             await signalService.RecordSignalAsync(signal.Build(), CancellationToken.None);
             // §1.11 — ex.Message can quote the user's SQL; type only here, full detail is in the audit log.
             logger.LogError("MCP tool {Tool} failed with {ExceptionType} (detail in MCP audit log)", "dry_run", ex.GetType().Name);
@@ -223,7 +224,7 @@ internal sealed class DryRunTool(
         signal.SetExecutionFailed(error);
         signal.SetResult(null, (int)sw.ElapsedMilliseconds, false);
         await auditService.LogToolCallAsync(null, projectContext.UserId, "dry_run",
-            sql, dataSourceId, projectId, (int)sw.ElapsedMilliseconds, null, error, cancellationToken);
+            sql, dataSourceId, projectId, (int)sw.ElapsedMilliseconds, null, error, ct: cancellationToken);
         await signalService.RecordSignalAsync(signal.Build(), cancellationToken);
         return ToolHelper.Error(error);
     }

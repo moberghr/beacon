@@ -233,7 +233,7 @@ public class GetQueryContextToolTests
 
         var projectContext = new McpProjectContext { UserId = 1, AllowedProjectIds = [ProjectId] };
 
-        var auditService = new McpAuditService(factory.Object, NullLogger<McpAuditService>.Instance);
+        var auditService = new McpAuditService(factory.Object, SettingsProviderMock.Create().Object, NullLogger<McpAuditService>.Instance);
 
         return new GetQueryContextTool(
             _knowledgeGraph.Object,

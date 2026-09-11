@@ -1,11 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useForm, type FieldErrors } from 'react-hook-form';
 import { useQuery } from '@tanstack/react-query';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
+import { Lock, ShieldAlert } from 'lucide-react';
 import {
   PageHeader,
+  Banner,
   Button,
   Card,
   Field,
@@ -19,8 +21,11 @@ import { unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
 import { useProjectsQuery } from '@/routes/projects/queries';
 import {
+  useMcpProjectSettings,
   useMcpSettings,
+  useUpdateMcpProjectSettings,
   useUpdateMcpSettings,
+  type McpProjectSettingsData,
   type McpSettingsData,
 } from './queries';
 
@@ -40,15 +45,27 @@ const SCHEMA = z.object({
   learningAutoApproveThreshold: z.number().min(0).max(1),
   learningInjectionBudgetChars: z.number().int().min(0),
   learningSignalRetentionDays: z.number().int().min(0),
+  retainQueryContent: z.boolean(),
+  statementTimeoutSeconds: z.number().int().min(1),
+  maxResultBytes: z.number().int().min(1),
+  // Blank = no EXPLAIN cost limit (null on the wire); otherwise a non-negative number.
+  maxExplainCostText: z
+    .string()
+    .refine(s => s.trim() === '' || (Number.isFinite(Number(s)) && Number(s) >= 0), {
+      message: 'Leave blank for no limit, or enter a number ≥ 0.',
+    }),
+  maxConcurrentQueriesPerKey: z.number().int().min(1),
+  allowExplicitFeedbackContent: z.boolean(),
 });
 
 type FormValues = z.infer<typeof SCHEMA>;
 type TabKey = 'prompt' | 'tools' | 'guardrails' | 'context';
+type Scope = 'global' | number;
 
 // Which tab each form field lives on — used to surface the tab containing the
 // first validation error on a failed submit (errors on a hidden tab would
 // otherwise make Save look silently dead).
-const FIELD_TAB: Record<keyof FormValues, TabKey> = {
+export const FIELD_TAB: Record<keyof FormValues, TabKey> = {
   askSystemPrompt: 'prompt',
   globalInstruction: 'prompt',
   getContextDescription: 'tools',
@@ -64,6 +81,12 @@ const FIELD_TAB: Record<keyof FormValues, TabKey> = {
   learningAutoApproveThreshold: 'guardrails',
   learningInjectionBudgetChars: 'guardrails',
   learningSignalRetentionDays: 'guardrails',
+  retainQueryContent: 'guardrails',
+  statementTimeoutSeconds: 'guardrails',
+  maxResultBytes: 'guardrails',
+  maxExplainCostText: 'guardrails',
+  maxConcurrentQueriesPerKey: 'guardrails',
+  allowExplicitFeedbackContent: 'guardrails',
 };
 
 export default function McpSettingsPage() {
@@ -72,16 +95,61 @@ export default function McpSettingsPage() {
   if (isAdmin === undefined) {
     return (
       <div className="flex flex-col gap-5 p-7">
-        <PageHeader variant="signal" emphasis="MCP settings" sub={<span className="text-text-muted">Loading…</span>} />
+        <PageHeader
+          variant="signal"
+          emphasis="MCP settings"
+          sub={<span className="text-text-muted">Loading…</span>}
+        />
       </div>
     );
   }
   if (isAdmin === false) return null;
 
-  return <McpSettingsForm />;
+  return <McpSettingsShell />;
 }
 
-function McpSettingsForm() {
+/**
+ * Owns the scope selector. "Global defaults" edits the single global row; a project
+ * edits that project's overrides (null = inherit). The selector rides in each form's
+ * header so it stays reachable while a scope is loading or failed to load.
+ */
+function McpSettingsShell() {
+  const projectsQuery = useProjectsQuery();
+  const [scope, setScope] = useState<Scope>('global');
+  const projects = projectsQuery.data?.entries ?? [];
+
+  const scopeSelector = (
+    <Select
+      aria-label="Settings scope"
+      className="w-auto min-w-[14rem]"
+      value={scope === 'global' ? 'global' : String(scope)}
+      onChange={e => setScope(e.target.value === 'global' ? 'global' : Number(e.target.value))}
+    >
+      <option value="global">Global defaults</option>
+      {projects.map(p => (
+        <option key={p.id} value={p.id}>
+          Project: {p.name}
+        </option>
+      ))}
+    </Select>
+  );
+
+  if (scope === 'global') {
+    return <McpSettingsForm scopeSelector={scopeSelector} />;
+  }
+
+  const projectName = projects.find(p => p.id === scope)?.name ?? `#${scope}`;
+  return (
+    <ProjectSettingsForm
+      key={scope}
+      projectId={scope}
+      projectName={projectName}
+      scopeSelector={scopeSelector}
+    />
+  );
+}
+
+function McpSettingsForm({ scopeSelector }: { scopeSelector: ReactNode }) {
   const { data, isLoading, isError } = useMcpSettings();
   const updateMutation = useUpdateMcpSettings();
   const [tab, setTab] = useState<TabKey>('prompt');
@@ -123,6 +191,13 @@ function McpSettingsForm() {
       learningAutoApproveThreshold: values.learningAutoApproveThreshold,
       learningInjectionBudgetChars: values.learningInjectionBudgetChars,
       learningSignalRetentionDays: values.learningSignalRetentionDays,
+      retainQueryContent: values.retainQueryContent,
+      statementTimeoutSeconds: values.statementTimeoutSeconds,
+      maxResultBytes: values.maxResultBytes,
+      maxExplainCost:
+        values.maxExplainCostText.trim() === '' ? null : Number(values.maxExplainCostText),
+      maxConcurrentQueriesPerKey: values.maxConcurrentQueriesPerKey,
+      allowExplicitFeedbackContent: values.allowExplicitFeedbackContent,
     };
     updateMutation.mutate(payload, {
       onSuccess: () => toast.success('MCP settings saved.'),
@@ -140,7 +215,12 @@ function McpSettingsForm() {
   if (isLoading) {
     return (
       <div className="flex flex-col gap-5 p-7">
-        <PageHeader variant="signal" emphasis="MCP settings" sub={<span className="text-text-muted">Loading…</span>} />
+        <PageHeader
+          variant="signal"
+          emphasis="MCP settings"
+          sub={<span className="text-text-muted">Loading…</span>}
+          actions={scopeSelector}
+        />
       </div>
     );
   }
@@ -148,7 +228,12 @@ function McpSettingsForm() {
   if (isError) {
     return (
       <div className="flex flex-col gap-5 p-7">
-        <PageHeader variant="signal" emphasis="MCP settings" sub="Failed to load settings." />
+        <PageHeader
+          variant="signal"
+          emphasis="MCP settings"
+          sub="Failed to load settings."
+          actions={scopeSelector}
+        />
       </div>
     );
   }
@@ -161,15 +246,14 @@ function McpSettingsForm() {
           eyebrow="MCP"
           prefix="Configuring"
           emphasis="MCP settings"
-          sub="Configure the Model Context Protocol server behavior, tool descriptions, and guardrails."
+          sub="Global defaults for the Model Context Protocol server: behavior, tool descriptions, and guardrails. Pick a project to override guardrails per project."
           actions={
-            <Button
-              variant="primary"
-              type="submit"
-              disabled={updateMutation.isPending}
-            >
-              {updateMutation.isPending ? 'Saving…' : 'Save settings'}
-            </Button>
+            <div className="flex items-center gap-2">
+              {scopeSelector}
+              <Button variant="primary" type="submit" disabled={updateMutation.isPending}>
+                {updateMutation.isPending ? 'Saving…' : 'Save settings'}
+              </Button>
+            </div>
           }
         />
 
@@ -225,7 +309,11 @@ function McpSettingsForm() {
             <div className="flex flex-col gap-3">
               <Field
                 label="Max row limit"
-                hint={errors.maxRowLimit?.message ? <span className="text-crit">{errors.maxRowLimit.message}</span> : undefined}
+                hint={
+                  errors.maxRowLimit?.message ? (
+                    <span className="text-crit">{errors.maxRowLimit.message}</span>
+                  ) : undefined
+                }
               >
                 <Input
                   type="number"
@@ -252,6 +340,86 @@ function McpSettingsForm() {
               </Field>
 
               <hr className="my-2 border-0 border-t border-border" />
+              <h3 className="m-0 text-sm font-semibold text-text">Execution</h3>
+              <p className="m-0 text-text-muted text-xs">
+                Deployment-level locks and ceilings (<span className="mono">Beacon:Mcp</span>) win
+                over these values; a save that contradicts a lock is refused.
+              </p>
+              <label className="flex gap-2 items-center text-sm">
+                <input type="checkbox" {...form.register('retainQueryContent')} />
+                Retain question and SQL text in signals and audit
+              </label>
+              <Field
+                label="Statement timeout (s)"
+                hint={
+                  errors.statementTimeoutSeconds?.message ? (
+                    <span className="text-crit">{errors.statementTimeoutSeconds.message}</span>
+                  ) : undefined
+                }
+              >
+                <Input
+                  type="number"
+                  min={1}
+                  aria-invalid={!!errors.statementTimeoutSeconds}
+                  {...form.register('statementTimeoutSeconds', {
+                    valueAsNumber: true,
+                  })}
+                />
+              </Field>
+              <Field
+                label="Max result size (bytes)"
+                hint={
+                  errors.maxResultBytes?.message ? (
+                    <span className="text-crit">{errors.maxResultBytes.message}</span>
+                  ) : undefined
+                }
+              >
+                <Input
+                  type="number"
+                  min={1}
+                  aria-invalid={!!errors.maxResultBytes}
+                  {...form.register('maxResultBytes', { valueAsNumber: true })}
+                />
+              </Field>
+              <Field
+                label="Max EXPLAIN cost (blank = no limit)"
+                hint={
+                  errors.maxExplainCostText?.message ? (
+                    <span className="text-crit">{errors.maxExplainCostText.message}</span>
+                  ) : undefined
+                }
+              >
+                <Input
+                  type="number"
+                  min={0}
+                  step="any"
+                  aria-invalid={!!errors.maxExplainCostText}
+                  {...form.register('maxExplainCostText')}
+                />
+              </Field>
+              <Field
+                label="Max concurrent queries per API key"
+                hint={
+                  errors.maxConcurrentQueriesPerKey?.message ? (
+                    <span className="text-crit">{errors.maxConcurrentQueriesPerKey.message}</span>
+                  ) : undefined
+                }
+              >
+                <Input
+                  type="number"
+                  min={1}
+                  aria-invalid={!!errors.maxConcurrentQueriesPerKey}
+                  {...form.register('maxConcurrentQueriesPerKey', {
+                    valueAsNumber: true,
+                  })}
+                />
+              </Field>
+              <label className="flex gap-2 items-center text-sm">
+                <input type="checkbox" {...form.register('allowExplicitFeedbackContent')} />
+                Allow the feedback tool to store question and SQL text
+              </label>
+
+              <hr className="my-2 border-0 border-t border-border" />
               <h3 className="m-0 text-sm font-semibold text-text">Learning</h3>
               <label className="flex gap-2 items-center text-sm">
                 <input type="checkbox" {...form.register('enableLearning')} />
@@ -259,7 +427,11 @@ function McpSettingsForm() {
               </label>
               <Field
                 label="Auto-approve threshold (0–1)"
-                hint={errors.learningAutoApproveThreshold?.message ? <span className="text-crit">{errors.learningAutoApproveThreshold.message}</span> : undefined}
+                hint={
+                  errors.learningAutoApproveThreshold?.message ? (
+                    <span className="text-crit">{errors.learningAutoApproveThreshold.message}</span>
+                  ) : undefined
+                }
               >
                 <Input
                   type="number"
@@ -267,29 +439,43 @@ function McpSettingsForm() {
                   min={0}
                   max={1}
                   aria-invalid={!!errors.learningAutoApproveThreshold}
-                  {...form.register('learningAutoApproveThreshold', { valueAsNumber: true })}
+                  {...form.register('learningAutoApproveThreshold', {
+                    valueAsNumber: true,
+                  })}
                 />
               </Field>
               <Field
                 label="Injection budget (chars)"
-                hint={errors.learningInjectionBudgetChars?.message ? <span className="text-crit">{errors.learningInjectionBudgetChars.message}</span> : undefined}
+                hint={
+                  errors.learningInjectionBudgetChars?.message ? (
+                    <span className="text-crit">{errors.learningInjectionBudgetChars.message}</span>
+                  ) : undefined
+                }
               >
                 <Input
                   type="number"
                   min={0}
                   aria-invalid={!!errors.learningInjectionBudgetChars}
-                  {...form.register('learningInjectionBudgetChars', { valueAsNumber: true })}
+                  {...form.register('learningInjectionBudgetChars', {
+                    valueAsNumber: true,
+                  })}
                 />
               </Field>
               <Field
                 label="Signal retention (days)"
-                hint={errors.learningSignalRetentionDays?.message ? <span className="text-crit">{errors.learningSignalRetentionDays.message}</span> : undefined}
+                hint={
+                  errors.learningSignalRetentionDays?.message ? (
+                    <span className="text-crit">{errors.learningSignalRetentionDays.message}</span>
+                  ) : undefined
+                }
               >
                 <Input
                   type="number"
                   min={0}
                   aria-invalid={!!errors.learningSignalRetentionDays}
-                  {...form.register('learningSignalRetentionDays', { valueAsNumber: true })}
+                  {...form.register('learningSignalRetentionDays', {
+                    valueAsNumber: true,
+                  })}
                 />
               </Field>
             </div>
@@ -302,6 +488,407 @@ function McpSettingsForm() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Per-project overrides
+// ---------------------------------------------------------------------------
+
+type OverrideKey = keyof McpProjectSettingsData & keyof McpSettingsData;
+
+interface OverrideFieldDef {
+  key: OverrideKey;
+  label: string;
+  kind: 'bool' | 'int' | 'float' | 'lines';
+  min?: number;
+  max?: number;
+  step?: number | 'any';
+}
+
+interface OverrideSection {
+  title: string;
+  fields: OverrideFieldDef[];
+}
+
+// The per-project surface is the Guardrails tab of the global form. Prompts and tool
+// descriptions are global by design (spec mcp-project-settings, "Non-goals").
+export const OVERRIDE_SECTIONS: OverrideSection[] = [
+  {
+    title: 'Guardrails',
+    fields: [
+      {
+        key: 'maxRowLimit',
+        label: 'Max row limit',
+        kind: 'int',
+        min: 1,
+        max: 100000,
+      },
+      {
+        key: 'enforceReadOnly',
+        label: 'Enforce read-only queries',
+        kind: 'bool',
+      },
+      {
+        key: 'enablePiiDetection',
+        label: 'Enable PII detection',
+        kind: 'bool',
+      },
+      {
+        key: 'customPiiPatterns',
+        label: 'Custom PII patterns (one per line)',
+        kind: 'lines',
+      },
+      {
+        key: 'enableSampleValueCollection',
+        label: 'Collect sample values',
+        kind: 'bool',
+      },
+    ],
+  },
+  {
+    title: 'Execution',
+    fields: [
+      {
+        key: 'retainQueryContent',
+        label: 'Retain question and SQL text in signals and audit',
+        kind: 'bool',
+      },
+      {
+        key: 'statementTimeoutSeconds',
+        label: 'Statement timeout (s)',
+        kind: 'int',
+        min: 1,
+      },
+      {
+        key: 'maxResultBytes',
+        label: 'Max result size (bytes)',
+        kind: 'int',
+        min: 1,
+      },
+      {
+        key: 'maxExplainCost',
+        label: 'Max EXPLAIN cost',
+        kind: 'float',
+        min: 0,
+        step: 'any',
+      },
+      {
+        key: 'maxConcurrentQueriesPerKey',
+        label: 'Max concurrent queries per API key',
+        kind: 'int',
+        min: 1,
+      },
+      {
+        key: 'allowExplicitFeedbackContent',
+        label: 'Allow the feedback tool to store question and SQL text',
+        kind: 'bool',
+      },
+    ],
+  },
+  {
+    title: 'Learning',
+    fields: [
+      { key: 'enableLearning', label: 'Enable learning', kind: 'bool' },
+      {
+        key: 'learningAutoApproveThreshold',
+        label: 'Auto-approve threshold (0–1)',
+        kind: 'float',
+        min: 0,
+        max: 1,
+        step: 0.05,
+      },
+      {
+        key: 'learningInjectionBudgetChars',
+        label: 'Injection budget (chars)',
+        kind: 'int',
+        min: 0,
+      },
+      {
+        key: 'learningSignalRetentionDays',
+        label: 'Signal retention (days)',
+        kind: 'int',
+        min: 0,
+      },
+    ],
+  },
+];
+
+interface ProjectSettingsFormProps {
+  projectId: number;
+  projectName: string;
+  scopeSelector: ReactNode;
+}
+
+function ProjectSettingsForm({ projectId, projectName, scopeSelector }: ProjectSettingsFormProps) {
+  const { data, isLoading, isError } = useMcpProjectSettings(projectId);
+  const updateMutation = useUpdateMcpProjectSettings();
+  // Draft of the override row. Fields the UI does not edit ride along untouched so a
+  // save never clears an override it cannot show.
+  const [draft, setDraft] = useState<McpProjectSettingsData | undefined>(undefined);
+
+  useEffect(() => {
+    if (data) setDraft({ ...data.overrides });
+  }, [data]);
+
+  const header = (sub: ReactNode, actions?: ReactNode) => (
+    <PageHeader
+      variant="signal"
+      eyebrow="MCP"
+      prefix="Overriding for"
+      emphasis={projectName}
+      sub={sub}
+      actions={
+        <div className="flex items-center gap-2">
+          {scopeSelector}
+          {actions}
+        </div>
+      }
+    />
+  );
+
+  if (isLoading || (data && !draft)) {
+    return (
+      <div className="flex flex-col gap-5 p-7">
+        {header(<span className="text-text-muted">Loading…</span>)}
+      </div>
+    );
+  }
+
+  if (isError || !data || !draft) {
+    return (
+      <div className="flex flex-col gap-5 p-7">{header('Failed to load project settings.')}</div>
+    );
+  }
+
+  // The server reports lock/clamp names in PascalCase (C# property names); the wire DTO is camelCase.
+  const locked = new Set(data.lockedFields.map(lowerFirst));
+  const clamped = new Set(data.clampedFields.map(lowerFirst));
+
+  function isOverridden(key: OverrideKey): boolean {
+    const v = draft?.[key];
+    return v !== null && v !== undefined;
+  }
+
+  function setOverride(key: OverrideKey, value: McpProjectSettingsData[OverrideKey]) {
+    setDraft(prev => ({ ...(prev ?? {}), [key]: value }));
+  }
+
+  function toggleOverride(field: OverrideFieldDef, on: boolean) {
+    // Turning an override on seeds it with the effective value so the row shows what
+    // the project will keep getting until the admin changes it. A null effective value
+    // (e.g. no EXPLAIN cost limit) would read as "inherit" again, so seed a kind-appropriate
+    // placeholder the admin then edits.
+    const effective = data!.effective[field.key] as McpProjectSettingsData[OverrideKey];
+    setOverride(field.key, on ? (effective ?? seedFor(field)) : null);
+  }
+
+  function onSave() {
+    for (const section of OVERRIDE_SECTIONS) {
+      for (const f of section.fields) {
+        if (locked.has(f.key) || !isOverridden(f.key)) continue;
+        const v = draft![f.key];
+        if (f.kind === 'int' || f.kind === 'float') {
+          const n = v as number;
+          const badInt = f.kind === 'int' && !Number.isInteger(n);
+          if (
+            !Number.isFinite(n) ||
+            badInt ||
+            (f.min !== undefined && n < f.min) ||
+            (f.max !== undefined && n > f.max)
+          ) {
+            toast.error(
+              `${f.label}: enter a valid value${f.min !== undefined ? ` ≥ ${f.min}` : ''}${f.max !== undefined ? ` ≤ ${f.max}` : ''}, or turn the override off.`,
+            );
+            return;
+          }
+        }
+      }
+    }
+    // A locked field can never carry an override; drop any stale one before sending.
+    const payload: McpProjectSettingsData = { ...draft };
+    for (const name of locked) {
+      delete (payload as Record<string, unknown>)[name];
+    }
+    updateMutation.mutate(
+      { projectId, data: payload },
+      {
+        onSuccess: () => toast.success(`Project overrides saved for ${projectName}.`),
+      },
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-5 p-7">
+      {header(
+        'Checked fields override the global value for this project; unchecked fields inherit it (shown greyed).',
+        <Button
+          variant="primary"
+          type="button"
+          onClick={onSave}
+          disabled={updateMutation.isPending}
+        >
+          {updateMutation.isPending ? 'Saving…' : 'Save overrides'}
+        </Button>,
+      )}
+
+      {data.lockedFields.length > 0 && (
+        <Banner
+          tone="warn"
+          icon={<Lock />}
+          title="Locked by deployment configuration"
+          sub={`${data.lockedFields.join(', ')} ${data.lockedFields.length === 1 ? 'is' : 'are'} pinned by Beacon:Mcp and cannot be changed here or globally.`}
+        />
+      )}
+      {data.clampedFields.length > 0 && (
+        <Banner
+          tone="info"
+          icon={<ShieldAlert />}
+          title="Clamped to deployment ceiling"
+          sub={`${data.clampedFields.join(', ')}: the effective value is capped by Beacon:Mcp:Ceilings even if a higher value is saved.`}
+        />
+      )}
+
+      <Card className="p-4">
+        <div className="flex flex-col gap-3">
+          {OVERRIDE_SECTIONS.map(section => {
+            const visible = section.fields.filter(f => !locked.has(f.key));
+            if (visible.length === 0) return null;
+            return (
+              <div key={section.title} className="flex flex-col gap-3">
+                <h3 className="m-0 text-sm font-semibold text-text">{section.title}</h3>
+                {visible.map(f => (
+                  <OverrideRow
+                    key={f.key}
+                    field={f}
+                    overridden={isOverridden(f.key)}
+                    value={isOverridden(f.key) ? draft[f.key] : data.effective[f.key]}
+                    clamped={clamped.has(f.key)}
+                    onToggle={on => toggleOverride(f, on)}
+                    onChange={v => setOverride(f.key, v)}
+                  />
+                ))}
+                <hr className="my-2 border-0 border-t border-border" />
+              </div>
+            );
+          })}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+interface OverrideRowProps {
+  field: OverrideFieldDef;
+  overridden: boolean;
+  value: unknown;
+  clamped: boolean;
+  onToggle: (on: boolean) => void;
+  onChange: (value: McpProjectSettingsData[OverrideKey]) => void;
+}
+
+function OverrideRow({ field, overridden, value, clamped, onToggle, onChange }: OverrideRowProps) {
+  const toggle = (
+    <input
+      type="checkbox"
+      aria-label={`Override ${field.label}`}
+      checked={overridden}
+      onChange={e => onToggle(e.target.checked)}
+    />
+  );
+  const inherit = !overridden ? (
+    <span className="text-text-subtle">inherited from global</span>
+  ) : undefined;
+  const clampHint = clamped ? (
+    <span className="text-info">clamped by deployment ceiling</span>
+  ) : undefined;
+  const hint =
+    inherit || clampHint ? (
+      <>
+        {inherit}
+        {inherit && clampHint ? ' · ' : ''}
+        {clampHint}
+      </>
+    ) : undefined;
+
+  if (field.kind === 'bool') {
+    return (
+      <div className="flex gap-3 items-center text-sm">
+        {toggle}
+        <label className="flex gap-2 items-center">
+          <input
+            type="checkbox"
+            disabled={!overridden}
+            checked={Boolean(value)}
+            onChange={e => onChange(e.target.checked)}
+          />
+          {field.label}
+        </label>
+        {hint && <span className="text-xs">{hint}</span>}
+      </div>
+    );
+  }
+
+  if (field.kind === 'lines') {
+    const lines = Array.isArray(value) ? (value as string[]).join('\n') : '';
+    return (
+      <div className="flex gap-3 items-start">
+        <span className="pt-1">{toggle}</span>
+        <Field label={field.label} hint={hint} className="flex-1">
+          <Textarea
+            rows={4}
+            aria-label={field.label}
+            disabled={!overridden}
+            value={lines}
+            onChange={e =>
+              onChange(
+                e.target.value
+                  .split('\n')
+                  .map(s => s.trim())
+                  .filter(Boolean),
+              )
+            }
+          />
+        </Field>
+      </div>
+    );
+  }
+
+  const numeric = typeof value === 'number' && Number.isFinite(value) ? value : '';
+  return (
+    <div className="flex gap-3 items-start">
+      <span className="pt-1">{toggle}</span>
+      <Field label={field.label} hint={hint} className="flex-1">
+        <Input
+          type="number"
+          aria-label={field.label}
+          disabled={!overridden}
+          min={field.min}
+          max={field.max}
+          step={field.step}
+          value={numeric}
+          onChange={e => onChange(e.target.value === '' ? Number.NaN : Number(e.target.value))}
+        />
+      </Field>
+    </div>
+  );
+}
+
+function seedFor(field: OverrideFieldDef): McpProjectSettingsData[OverrideKey] {
+  switch (field.kind) {
+    case 'bool':
+      return false;
+    case 'lines':
+      return [];
+    default:
+      // Blank on purpose: OverrideRow renders NaN as an empty input and onSave refuses it with a
+      // per-field toast, so the admin must type a value rather than persist the minimum (for Max
+      // EXPLAIN cost that would be the harshest possible cap).
+      return Number.NaN;
+  }
+}
+
+function lowerFirst(name: string): string {
+  return name.length === 0 ? name : name[0].toLowerCase() + name.slice(1);
+}
+
 function ProjectContextPreview() {
   const projectsQuery = useProjectsQuery();
   const [selectedProjectId, setSelectedProjectId] = useState<number | undefined>(undefined);
@@ -309,7 +896,9 @@ function ProjectContextPreview() {
   const contextQuery = useQuery({
     queryKey: ['project-mcp-context', selectedProjectId],
     queryFn: async () =>
-      unwrap<{ context: string }>(await beaconApi().getProjectMcpContext(selectedProjectId as number)),
+      unwrap<{ context: string }>(
+        await beaconApi().getProjectMcpContext(selectedProjectId as number),
+      ),
     enabled: selectedProjectId !== undefined,
   });
 
@@ -318,7 +907,8 @@ function ProjectContextPreview() {
   return (
     <div className="flex flex-col gap-3">
       <p className="text-text-muted text-sm">
-        Preview the knowledge-graph context that Beacon injects into MCP tool calls for a selected project.
+        Preview the knowledge-graph context that Beacon injects into MCP tool calls for a selected
+        project.
       </p>
       <Field label="Project">
         <Select
@@ -327,23 +917,31 @@ function ProjectContextPreview() {
         >
           <option value="">— Select project —</option>
           {projects.map(p => (
-            <option key={p.id} value={p.id}>{p.name}</option>
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
           ))}
         </Select>
       </Field>
 
       {contextQuery.isLoading && <div className="text-text-muted">Loading context…</div>}
       {contextQuery.isError && (
-        <div className="text-xs text-crit">Failed to load context: {contextQuery.error instanceof Error ? contextQuery.error.message : 'unknown error'}</div>
+        <div className="text-xs text-crit">
+          Failed to load context:{' '}
+          {contextQuery.error instanceof Error ? contextQuery.error.message : 'unknown error'}
+        </div>
       )}
       {contextQuery.data && (
         <pre className="mono bg-surface-2 border border-border rounded-md p-4 text-xs leading-relaxed overflow-x-auto max-h-[500px] whitespace-pre-wrap break-words m-0">
           {contextQuery.data.context || '(empty context)'}
         </pre>
       )}
-      {!contextQuery.isLoading && !contextQuery.isError && !contextQuery.data && selectedProjectId && (
-        <div className="text-text-muted">No context available for this project.</div>
-      )}
+      {!contextQuery.isLoading &&
+        !contextQuery.isError &&
+        !contextQuery.data &&
+        selectedProjectId && (
+          <div className="text-text-muted">No context available for this project.</div>
+        )}
     </div>
   );
 }
@@ -384,5 +982,14 @@ function settingsToForm(data: McpSettingsData | undefined): FormValues {
     learningAutoApproveThreshold: data?.learningAutoApproveThreshold ?? 0.85,
     learningInjectionBudgetChars: data?.learningInjectionBudgetChars ?? 4000,
     learningSignalRetentionDays: data?.learningSignalRetentionDays ?? 90,
+    retainQueryContent: data?.retainQueryContent ?? true,
+    statementTimeoutSeconds: data?.statementTimeoutSeconds ?? 30,
+    maxResultBytes: data?.maxResultBytes ?? 262144,
+    maxExplainCostText:
+      data?.maxExplainCost === null || data?.maxExplainCost === undefined
+        ? ''
+        : String(data.maxExplainCost),
+    maxConcurrentQueriesPerKey: data?.maxConcurrentQueriesPerKey ?? 4,
+    allowExplicitFeedbackContent: data?.allowExplicitFeedbackContent ?? true,
   };
 }

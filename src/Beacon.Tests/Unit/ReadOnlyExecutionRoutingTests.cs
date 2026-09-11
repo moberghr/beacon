@@ -356,7 +356,7 @@ public class ReadOnlyExecutionRoutingTests
             .Setup(x => x.ApplyRowLimit(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<string?>()))
             .Returns<string, int, string?>((sql, maxRows, _) => $"{sql} LIMIT {maxRows}");
 
-        var settingsProvider = new Mock<IMcpSettingsProvider>();
+        var settingsProvider = SettingsProviderMock.Create();
         settingsProvider
             .Setup(x => x.GetSettingsAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(new McpSettingsData());
@@ -368,6 +368,7 @@ public class ReadOnlyExecutionRoutingTests
         // audit rows themselves are asserted in DryRunToolTests / GetQueryContextToolTests.
         var auditService = new McpAuditService(
             new Mock<IDbContextFactory<BeaconContext>>().Object,
+            SettingsProviderMock.Create().Object,
             NullLogger<McpAuditService>.Instance);
         var signalService = new McpSignalService(
             new Mock<IDbContextFactory<BeaconContext>>().Object,

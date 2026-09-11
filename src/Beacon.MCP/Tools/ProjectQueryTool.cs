@@ -77,7 +77,7 @@ internal sealed class ProjectQueryTool(
         if (projectError != null)
             return await FailAsync(signal, sw, projectId, datasource_id, sql ?? api_query, projectError, cancellationToken);
 
-        var settings = await settingsProvider.GetSettingsAsync(cancellationToken);
+        var settings = await settingsProvider.GetEffectiveSettingsAsync(projectId, cancellationToken);
         var maxRows = Math.Min(max_rows ?? 100, settings.MaxRowLimit);
 
         try
@@ -90,6 +90,9 @@ internal sealed class ProjectQueryTool(
             string queryText;
             // PII columns detected on the SQL path (null for API sources); used to mask result values below.
             List<string>? piiColumns = null;
+            // Hoisted so the audit calls after the if/else (provider failure, success) can also pass the
+            // AST-resolved tables; stays null for API sources, which have no gate report.
+            SqlGateReport? report = null;
 
             if (isApi)
             {
@@ -108,7 +111,7 @@ internal sealed class ProjectQueryTool(
                 // hallucinated column is refused before it reaches the warehouse) → row limit. Tables come
                 // from the AST walk (aliases resolved, CTEs excluded), not from a regex over the text.
                 var catalog = await knowledgeGraph.GetSchemaCatalogAsync(datasource_id.Value, cancellationToken);
-                var report = gate.Evaluate(SqlGateRequest.FromSettings(sql, dataSource.DatabaseEngineType?.ToString(), settings) with
+                report = gate.Evaluate(SqlGateRequest.FromSettings(sql, dataSource.DatabaseEngineType?.ToString(), settings) with
                 {
                     Catalog = catalog,
                     BlockOnSchemaFailure = true,
@@ -123,7 +126,8 @@ internal sealed class ProjectQueryTool(
                     signal.SetExecutionFailed(blockReason);
                     signal.SetResult(null, (int)sw.ElapsedMilliseconds, false);
                     await auditService.LogToolCallAsync(null, projectContext.UserId, "query",
-                        sql, datasource_id, projectId, (int)sw.ElapsedMilliseconds, null, blockReason, cancellationToken);
+                        sql, datasource_id, projectId, (int)sw.ElapsedMilliseconds, null, blockReason,
+                        tables: report.TablesUsed.ToList(), ct: cancellationToken);
                     await signalService.RecordSignalAsync(signal.Build(), cancellationToken);
                     return ToolHelper.Error($"Query validation failed: {blockReason}");
                 }
@@ -149,7 +153,8 @@ internal sealed class ProjectQueryTool(
                 signal.SetExecutionFailed(result.ErrorMessage ?? "Unknown error");
                 signal.SetResult(null, (int)sw.ElapsedMilliseconds, false);
                 await auditService.LogToolCallAsync(null, projectContext.UserId, "query",
-                    sql ?? api_query, datasource_id, projectId, (int)sw.ElapsedMilliseconds, null, result.ErrorMessage, cancellationToken);
+                    sql ?? api_query, datasource_id, projectId, (int)sw.ElapsedMilliseconds, null, result.ErrorMessage,
+                    tables: report?.TablesUsed.ToList(), ct: cancellationToken);
                 await signalService.RecordSignalAsync(signal.Build(), cancellationToken);
                 return ToolHelper.Error($"Query execution failed: {result.ErrorMessage}");
             }
@@ -174,7 +179,8 @@ internal sealed class ProjectQueryTool(
             sw.Stop();
             signal.SetResult(result.Rows?.Count, (int)sw.ElapsedMilliseconds, true);
             await auditService.LogToolCallAsync(null, projectContext.UserId, "query",
-                sql ?? api_query, datasource_id, projectId, (int)sw.ElapsedMilliseconds, result.Rows?.Count, null, cancellationToken);
+                sql ?? api_query, datasource_id, projectId, (int)sw.ElapsedMilliseconds, result.Rows?.Count, null,
+                tables: report?.TablesUsed.ToList(), ct: cancellationToken);
             await signalService.RecordSignalAsync(signal.Build(), cancellationToken);
             return ToolHelper.Success(text, structured);
         }
@@ -184,7 +190,7 @@ internal sealed class ProjectQueryTool(
             signal.SetExecutionFailed(ex.Message);
             signal.SetResult(null, (int)sw.ElapsedMilliseconds, false);
             await auditService.LogToolCallAsync(null, projectContext.UserId, "query",
-                sql ?? api_query, datasource_id, projectId == 0 ? null : projectId, (int)sw.ElapsedMilliseconds, null, ex.Message, CancellationToken.None);
+                sql ?? api_query, datasource_id, projectId == 0 ? null : projectId, (int)sw.ElapsedMilliseconds, null, ex.Message, ct: CancellationToken.None);
             await signalService.RecordSignalAsync(signal.Build(), CancellationToken.None);
             // §1.11 — ex.Message can quote the user's SQL; type only here, full detail is in the audit log.
             logger.LogError("MCP tool {Tool} failed with {ExceptionType} (detail in MCP audit log)", "query", ex.GetType().Name);
@@ -208,7 +214,7 @@ internal sealed class ProjectQueryTool(
         signal.SetExecutionFailed(error);
         signal.SetResult(null, (int)sw.ElapsedMilliseconds, false);
         await auditService.LogToolCallAsync(null, projectContext.UserId, "query",
-            queryText, dataSourceId, projectId, (int)sw.ElapsedMilliseconds, null, error, cancellationToken);
+            queryText, dataSourceId, projectId, (int)sw.ElapsedMilliseconds, null, error, ct: cancellationToken);
         await signalService.RecordSignalAsync(signal.Build(), cancellationToken);
         return ToolHelper.Error(error);
     }
