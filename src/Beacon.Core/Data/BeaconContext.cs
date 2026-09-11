@@ -162,9 +162,11 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        if (!string.IsNullOrEmpty(DefaultSchema))
+        var resolvedSchema = BeaconSchema.Resolve(this) ?? DefaultSchema;
+
+        if (!string.IsNullOrEmpty(resolvedSchema))
         {
-            modelBuilder.HasDefaultSchema(DefaultSchema);
+            modelBuilder.HasDefaultSchema(resolvedSchema);
         }
 
         SetSoftDeleteQueryFilter(modelBuilder);

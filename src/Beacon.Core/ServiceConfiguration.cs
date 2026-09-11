@@ -231,21 +231,18 @@ public static class ServiceConfiguration
         var contextFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<BeaconContext>>();
         using var context = contextFactory.CreateDbContext();
 
-        // Get the schema name from the context
-        var schema = GetSchemaFromContext(context);
+        // Get the schema name from the context, validated up front so a malformed identifier
+        // is rejected before any DDL is issued — including Migrate() below, not just the
+        // createSchema:true path.
+        var schema = BeaconSchema.ValidateIdentifier(BeaconSchema.Resolve(context) ?? "beacon");
 
         // Ensure the schema exists before running migrations.
-        // Schema names cannot be parameterized in DDL — validate the identifier instead (it comes
-        // from internal context configuration, never user input).
+        // Schema names cannot be parameterized in DDL — the identifier was already validated above.
         if (createSchema)
         {
-            if (!System.Text.RegularExpressions.Regex.IsMatch(schema, "^[A-Za-z_][A-Za-z0-9_]*$"))
-            {
-                throw new InvalidOperationException($"Invalid schema name '{schema}'.");
-            }
-
-#pragma warning disable EF1002 // identifier validated above; DDL cannot take parameters
-            context.Database.ExecuteSqlRaw($"CREATE SCHEMA {schema};");
+#pragma warning disable EF1002 // identifier validated by ValidateIdentifier above; DDL cannot take parameters
+            context.Database.ExecuteSqlRaw(
+                BeaconSchema.CreateSchemaStatement(context.Database.ProviderName, schema));
 #pragma warning restore EF1002
         }
 
@@ -255,13 +252,5 @@ public static class ServiceConfiguration
         // resolve IAppSettingsService on demand. Hydrating at startup would
         // either require an async entrypoint or block-on-async, both of which
         // we avoid.
-    }
-
-    private static string GetSchemaFromContext(BeaconContext context)
-    {
-        // Access the protected DefaultSchema property through reflection
-        var defaultSchemaProperty = typeof(BeaconContext).GetProperty("DefaultSchema",
-            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-        return defaultSchemaProperty?.GetValue(context) as string ?? "beacon";
     }
 }
