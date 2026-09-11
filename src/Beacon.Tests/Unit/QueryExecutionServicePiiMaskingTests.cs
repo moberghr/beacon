@@ -66,7 +66,31 @@ public class QueryExecutionServicePiiMaskingTests
             .ToList();
     }
 
-    private static QueryExecutionService BuildService(bool piiDetectionOn)
+    [Test]
+    public async Task ExecuteAsync_ResolvesPiiDetectionForTheActiveProject_NotTheGlobalRow()
+    {
+        // T-F001 / SF-F001: the PII switch is per project now. Global says OFF, project 7 says ON, the request
+        // runs under project 7 — masking must follow the project, and the provider must be asked for 7 only.
+        Mock<IMcpSettingsProvider>? settingsProvider = null;
+        var service = BuildService(
+            piiDetectionOn: false,
+            activeProjectId: 7,
+            perProject: new Dictionary<int, McpSettingsData> { [7] = new McpSettingsData { EnablePiiDetection = true } },
+            captureProvider: x => settingsProvider = x);
+
+        var result = await service.ExecuteAsync(1, "SELECT email, name FROM users", 100, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.FormattedResult.Should().NotContain(RawEmail, "project 7 has PII detection on even though the global row has it off");
+        settingsProvider!.Verify(x => x.GetEffectiveSettingsAsync(7, It.IsAny<CancellationToken>()), Times.AtLeastOnce);
+        settingsProvider.Verify(x => x.GetEffectiveSettingsAsync(It.Is<int>(id => id != 7), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    private static QueryExecutionService BuildService(
+        bool piiDetectionOn,
+        int activeProjectId = 1,
+        IReadOnlyDictionary<int, McpSettingsData>? perProject = null,
+        Action<Mock<IMcpSettingsProvider>>? captureProvider = null)
     {
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory
@@ -96,16 +120,17 @@ public class QueryExecutionServicePiiMaskingTests
             .Setup(x => x.GetProvider(It.IsAny<DataSourceType>()))
             .Returns(provider.Object);
 
-        var settingsProvider = new Mock<IMcpSettingsProvider>();
-        settingsProvider
-            .Setup(x => x.GetSettingsAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new McpSettingsData { EnablePiiDetection = piiDetectionOn });
+        var settingsProvider = SettingsProviderMock.Create(
+            new McpSettingsData { EnablePiiDetection = piiDetectionOn },
+            projectSettings: perProject);
+        captureProvider?.Invoke(settingsProvider);
 
         return new QueryExecutionService(
             factory.Object,
             providerFactory.Object,
             new QueryGuardrailService(),
-            settingsProvider.Object);
+            settingsProvider.Object,
+            new McpProjectContext { UserId = 1, ActiveProjectId = activeProjectId, AllowedProjectIds = [activeProjectId] });
     }
 
     private sealed class SeededDataSourceContext : BeaconContext

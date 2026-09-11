@@ -47,7 +47,7 @@ internal sealed class McpEvalService(
 
     public async Task<int> StartRunAsync(int? projectId, int? userId, CancellationToken ct)
     {
-        var settings = await settingsProvider.GetSettingsAsync(ct);
+        var settings = await settingsProvider.GetEffectiveSettingsAsync(projectId ?? 0, ct);
 
         await using var context = await contextFactory.CreateDbContextAsync(ct);
 
@@ -67,14 +67,14 @@ internal sealed class McpEvalService(
 
     public async Task RunAsync(int runId, CancellationToken ct)
     {
-        var settings = await settingsProvider.GetSettingsAsync(ct);
-
         await using var context = await contextFactory.CreateDbContextAsync(ct);
 
         var run = await context.McpEvalRuns
             .Where(x => x.Id == runId)
             .FirstOrDefaultAsync(ct)
             ?? throw new InvalidOperationException($"Eval run {runId} not found.");
+
+        var settings = await settingsProvider.GetEffectiveSettingsAsync(run.ProjectId ?? 0, ct);
 
         run.JudgeEnabled = settings.EnableEvalJudge;
 
@@ -240,7 +240,7 @@ internal sealed class McpEvalService(
         string? extraContext,
         CancellationToken ct)
     {
-        var settings = await settingsProvider.GetSettingsAsync(ct);
+        var settings = await settingsProvider.GetEffectiveSettingsAsync(projectId, ct);
 
         await using var context = await contextFactory.CreateDbContextAsync(ct);
         var dataSource = await context.DataSources

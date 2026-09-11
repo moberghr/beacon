@@ -2804,6 +2804,88 @@ export class BeaconApiClient {
         return Promise.resolve<void>(null as any);
     }
 
+    // ---- Hand-added (Wave 0.2, spec mcp-project-settings). `npm run codegen` could not run on the
+    // authoring host; regenerate from /openapi/v1.json and these two operations are re-emitted. ----
+
+    /**
+     * @return OK
+     */
+    getMcpProjectSettings(projectId: number): Promise<GetMcpProjectSettingsResult> {
+        let url_ = this.baseUrl + "/beacon/api/mcp/projects/{projectId}/settings";
+        if (projectId === undefined || projectId === null)
+            throw new globalThis.Error("The parameter 'projectId' must be defined.");
+        url_ = url_.replace("{projectId}", encodeURIComponent("" + projectId));
+        url_ = url_.replace(/[?&]$/, "");
+
+        let options_: RequestInit = {
+            method: "GET",
+            headers: {
+                "Accept": "application/json"
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processGetMcpProjectSettings(_response);
+        });
+    }
+
+    protected processGetMcpProjectSettings(response: Response): Promise<GetMcpProjectSettingsResult> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 200) {
+            return response.text().then((_responseText) => {
+            let result200: any = null;
+            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as GetMcpProjectSettingsResult;
+            return result200;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<GetMcpProjectSettingsResult>(null as any);
+    }
+
+    /**
+     * @return No Content
+     */
+    updateMcpProjectSettings(projectId: number, body: UpdateMcpProjectSettingsBody): Promise<void> {
+        let url_ = this.baseUrl + "/beacon/api/mcp/projects/{projectId}/settings";
+        if (projectId === undefined || projectId === null)
+            throw new globalThis.Error("The parameter 'projectId' must be defined.");
+        url_ = url_.replace("{projectId}", encodeURIComponent("" + projectId));
+        url_ = url_.replace(/[?&]$/, "");
+
+        const content_ = JSON.stringify(body);
+
+        let options_: RequestInit = {
+            body: content_,
+            method: "PUT",
+            headers: {
+                "Content-Type": "application/json",
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processUpdateMcpProjectSettings(_response);
+        });
+    }
+
+    protected processUpdateMcpProjectSettings(response: Response): Promise<void> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 204) {
+            return response.text().then((_responseText) => {
+            return;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<void>(null as any);
+    }
+
     /**
      * @param projectId (optional) 
      * @param dataSourceId (optional) 
@@ -7453,6 +7535,63 @@ export interface McpSettingsData {
     learningAutoApproveThreshold?: number;
     learningInjectionBudgetChars?: number;
     learningSignalRetentionDays?: number;
+    retainQueryContent?: boolean;
+    statementTimeoutSeconds?: number;
+    maxResultBytes?: number;
+    maxExplainCost?: number | null;
+    maxConcurrentQueriesPerKey?: number;
+    allowExplicitFeedbackContent?: boolean;
+
+    [key: string]: any;
+}
+
+// ---- Hand-added (Wave 0.2, spec mcp-project-settings). `npm run codegen` could not run on the
+// authoring host; regenerate from /openapi/v1.json and this block is replaced by the generator. ----
+export interface McpProjectSettingsData {
+    maxRowLimit?: number | null;
+    enforceReadOnly?: boolean | null;
+    enablePiiDetection?: boolean | null;
+    customPiiPatterns?: string[] | null;
+    enableSampleValueCollection?: boolean | null;
+    enableLearning?: boolean | null;
+    learningAutoApproveThreshold?: number | null;
+    learningInjectionBudgetChars?: number | null;
+    learningSignalRetentionDays?: number | null;
+    enableSelfConsistency?: boolean | null;
+    selfConsistencyCandidateCount?: number | null;
+    enableEvalJudge?: boolean | null;
+    enableSemanticRetrieval?: boolean | null;
+    exemplarTopK?: number | null;
+    enableReplayVerification?: boolean | null;
+    learningReplayMinFlips?: number | null;
+    enableContextualRetrieval?: boolean | null;
+    docChunkWindowSentences?: number | null;
+    docChunkOverlapSentences?: number | null;
+    glossaryTopK?: number | null;
+    docChunkTopK?: number | null;
+    enableGoldenExemplars?: boolean | null;
+    goldenExemplarTopK?: number | null;
+    goldenExemplarBudgetChars?: number | null;
+    enableValueGrounding?: boolean | null;
+    valueGroundingMaxProbes?: number | null;
+    enableSemanticLint?: boolean | null;
+    selfConsistencyMinTables?: number | null;
+    retainQueryContent?: boolean | null;
+    statementTimeoutSeconds?: number | null;
+    maxResultBytes?: number | null;
+    maxExplainCost?: number | null;
+    maxConcurrentQueriesPerKey?: number | null;
+    allowExplicitFeedbackContent?: boolean | null;
+
+    [key: string]: any;
+}
+
+export interface GetMcpProjectSettingsResult {
+    projectId: number;
+    overrides: McpProjectSettingsData;
+    effective: McpSettingsData;
+    lockedFields: string[];
+    clampedFields: string[];
 
     [key: string]: any;
 }
@@ -8539,6 +8678,13 @@ export interface UpdateDocumentationSectionRequest {
 
 export interface UpdateMcpSettingsBody {
     data: McpSettingsData;
+
+    [key: string]: any;
+}
+
+// Hand-added (Wave 0.2, spec mcp-project-settings) — see McpProjectSettingsData.
+export interface UpdateMcpProjectSettingsBody {
+    data: McpProjectSettingsData;
 
     [key: string]: any;
 }

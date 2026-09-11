@@ -1,3 +1,55 @@
+# Todo — Per-project MCP settings, locks, ceilings (2026-09-09)
+
+**Scope:** new-feature · security_impact: requires-audit-trail · **Rigor: MAX** (score ≈ 22 — 5 batches, ~35 non-mechanical files → +12, 6 external contracts → +4 cap, +1 internal-tooling, security +3)
+Spec: `docs/specs/2026-09-09-mcp-project-settings.md`
+Plan: `docs/plans/2026-09-09-mcp-project-settings.md`
+Parent: `docs/plans/2026-09-08-warehouse-engine.md` Wave 0.2
+Branch: `feature/mcp-project-settings` (stacked on `feature/sql-execution-gate` @ 3f20291)
+
+## B1 — Data model + dual migration (W0)
+- [x] `McpProjectSettings` entity + DbSet + fluent config; `McpSettings` +6; `DataSource` +2; `McpQuerySignal.CallerHash`
+- [x] `McpSettingsData` +6; `McpProjectSettingsData` (nullable)
+- [x] PG migration scaffolded; SQL Server migration + Designer + snapshot hand-written; parity checked
+- [x] `McpProjectSettingsTranslationTests` (SC6)
+- [x] Checkpoint: build + translation test
+
+## B2 — Options, provider, global handler (W1)
+- [x] `McpDeploymentOptions` + validator + `ValidateOnStart`
+- [x] `McpSettingsProvider`: Resolve (lock > project > global > default, clamp), change-token cache, 3 new interface members
+- [x] `SettingLockedException`; `UpdateMcpSettingsHandler` +6 fields + lock check
+- [x] `SettingsProviderMock` helper; `McpEffectiveSettingsTests` (SC1–SC3)
+- [x] Checkpoint: build + fixture
+
+## B3 — Project handlers, endpoints, 409 (W2)
+- [x] `GetMcpProjectSettingsHandler`, `UpdateMcpProjectSettingsHandler`
+- [x] `McpEndpoints` GET/PUT `/mcp/projects/{projectId}/settings`
+- [x] `ApiExceptionMiddleware` 409 arm before `BeaconException`
+- [x] `McpProjectSettingsHandlerTests` (SC4, SC5); `ApiExceptionMappingTests` (SC4)
+- [x] Checkpoint: build + fixtures; OpenApiContractTests lists no new missing handler (SC7)
+
+## B4 — Consumers (W3)
+- [x] Tools: `ProjectQueryTool`, `DryRunTool`, `ProjectAskTool` → effective
+- [x] Services: `QueryExecutionService` (+IProjectContext), `McpSignalService`, KG ×4, aggregation loop + cleanup, eval
+- [x] Ten fixtures → `SettingsProviderMock` (helpers only)
+- [x] Checkpoint: build + full suite vs 829/5/834; SC8 grep
+
+## B5 — UI (W3)
+- [x] `beacon-api.ts` hand-added operations; `queries.ts` hooks
+- [x] `McpSettingsPage` scope selector / override / locked / six fields
+- [x] `McpSettingsPage.test.tsx`
+- [x] Checkpoint: `npm run build` + `npm run test -- --run`
+
+## Final
+- [x] Full `dotnet test` vs baseline; web tests; SC8/SC9
+- [x] Behavioural diff; spec-drift check clean
+
+## Post-implementation review
+- [ ] Stage 1 `compliance-reviewer`; Stage 2 `test-reviewer`, `architecture-reviewer`, `silent-failure-hunter` (MAX)
+- [ ] PG vs SQL Server migration parity; locks-last; cache invalidation; 409 arm order
+- [ ] Update parent plan Wave 0.2 status
+
+---
+
 # Todo — Shared SQL execution gate (2026-09-08)
 
 **Scope:** internal-refactoring · security_impact: requires-audit-trail · **Rigor: MAX** (score 16 — 4 batches, 20 non-mechanical files → +7, 6 external contracts → +4 (cap), security +3; hard floor HIGH via batches ≥ 3 and security)

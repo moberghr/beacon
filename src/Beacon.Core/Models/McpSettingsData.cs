@@ -50,4 +50,21 @@ public class McpSettingsData
     public int ValueGroundingMaxProbes { get; set; } = 12;
     public bool EnableSemanticLint { get; set; } = true;
     public int SelfConsistencyMinTables { get; set; } = 2;
+
+    // Warehouse-engine settings (Wave 0.2 — stored and resolved here, enforced from Wave 1: R1, R3, R12)
+    public bool RetainQueryContent { get; set; } = true;
+    public int StatementTimeoutSeconds { get; set; } = 30;
+    public int MaxResultBytes { get; set; } = 262144;
+    public decimal? MaxExplainCost { get; set; }
+    public int MaxConcurrentQueriesPerKey { get; set; } = 4;
+    public bool AllowExplicitFeedbackContent { get; set; } = true;
+
+    /// <summary>Shallow copy with an independent pattern list — the effective-settings resolver mutates the copy, never the cached row.</summary>
+    internal McpSettingsData Clone()
+    {
+        var copy = (McpSettingsData)MemberwiseClone();
+        copy.CustomPiiPatterns = [.. CustomPiiPatterns];
+
+        return copy;
+    }
 }

@@ -26,6 +26,19 @@ internal static class McpEndpoints
         .WithName("UpdateMcpSettings")
         .RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
 
+        // Per-project overrides (spec mcp-project-settings). GET mirrors the global GET (authenticated), PUT is admin.
+        mcp.MapGet("/projects/{projectId:int}/settings", (int projectId, IMediator m, CancellationToken ct) =>
+                m.Send(new GetMcpProjectSettingsQuery(projectId), ct))
+            .WithName("GetMcpProjectSettings");
+
+        mcp.MapPut("/projects/{projectId:int}/settings", async (int projectId, UpdateMcpProjectSettingsBody body, IMediator m, CancellationToken ct) =>
+        {
+            await m.Send(new UpdateMcpProjectSettingsCommand(projectId, body.Data), ct);
+            return TypedResults.NoContent();
+        })
+        .WithName("UpdateMcpProjectSettings")
+        .RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
+
         mcp.MapGet("/learned-patterns", (
                 [FromQuery] int? projectId,
                 [FromQuery] int? dataSourceId,
@@ -113,4 +126,5 @@ internal static class McpEndpoints
 }
 
 internal sealed record UpdateMcpSettingsBody(McpSettingsData Data);
+internal sealed record UpdateMcpProjectSettingsBody(McpProjectSettingsData Data);
 internal sealed record UpdatePatternStatusBody(McpPatternStatus NewStatus);

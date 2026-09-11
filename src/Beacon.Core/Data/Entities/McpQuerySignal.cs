@@ -40,4 +40,10 @@ public class McpQuerySignal : BaseEntity
     public McpUserVerdict UserVerdict { get; set; } = McpUserVerdict.Unset;
     public string? UserCorrectedSql { get; set; }
     public string? FeedbackNote { get; set; }
+
+    /// <summary>
+    /// Salted hash of the calling principal (delegated <c>oid</c> or API key id) — attribution without identity.
+    /// Populated from Wave 2.1; stored now so the schema changes once per wave.
+    /// </summary>
+    public string? CallerHash { get; set; }
 }

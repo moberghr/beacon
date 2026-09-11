@@ -64,7 +64,7 @@ internal sealed class ProjectAskTool(
                     "AI features not configured. Add LLM configuration to use the 'ask' tool.", CancellationToken.None);
             }
 
-            var settings = await settingsProvider.GetSettingsAsync(cancellationToken);
+            var settings = await settingsProvider.GetEffectiveSettingsAsync(projectId, cancellationToken);
 
             // Classify intent — data query vs knowledge question
             var intent = await intentClassifier.ClassifyAsync(llmProvider, question, cancellationToken);

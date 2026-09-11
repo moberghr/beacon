@@ -113,7 +113,7 @@ internal sealed class DryRunTool(
             }
 
             var dialect = dataSource.DatabaseEngineType?.ToString();
-            var settings = await settingsProvider.GetSettingsAsync(cancellationToken);
+            var settings = await settingsProvider.GetEffectiveSettingsAsync(projectId, cancellationToken);
             var catalog = await knowledgeGraph.GetSchemaCatalogAsync(datasource_id.Value, cancellationToken);
             var maxRows = Math.Min(DefaultMaxRows, settings.MaxRowLimit);
 

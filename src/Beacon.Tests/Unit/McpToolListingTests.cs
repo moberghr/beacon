@@ -8,6 +8,8 @@ using Beacon.Core.Models;
 using Beacon.Core.Services;
 using Beacon.MCP.Services;
 
+using Beacon.Tests.Common;
+
 namespace Beacon.Tests.Unit;
 
 /// <summary>
@@ -167,7 +169,7 @@ public class McpToolListingTests
     [Test]
     public async Task ListToolsFilter_SettingsProviderThrows_ServesCompiledDescriptionsUnmodified()
     {
-        var settingsProvider = new Mock<IMcpSettingsProvider>();
+        var settingsProvider = SettingsProviderMock.Create();
         settingsProvider.Setup(x => x.GetSettingsAsync(It.IsAny<CancellationToken>()))
             .ThrowsAsync(new InvalidOperationException("settings read failed"));
         var services = new ServiceCollection()
@@ -193,7 +195,7 @@ public class McpToolListingTests
     [Test]
     public async Task ListToolsFilter_ProviderReturnsOverride_RewritesListedDescription()
     {
-        var settingsProvider = new Mock<IMcpSettingsProvider>();
+        var settingsProvider = SettingsProviderMock.Create();
         settingsProvider.Setup(x => x.GetSettingsAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(new McpSettingsData { GetContextDescription = "Admin override for get_context." });
         var services = new ServiceCollection()
@@ -209,7 +211,7 @@ public class McpToolListingTests
     [Test]
     public async Task ListToolsFilter_OperationCanceled_Propagates()
     {
-        var settingsProvider = new Mock<IMcpSettingsProvider>();
+        var settingsProvider = SettingsProviderMock.Create();
         settingsProvider.Setup(x => x.GetSettingsAsync(It.IsAny<CancellationToken>()))
             .ThrowsAsync(new OperationCanceledException());
         var services = new ServiceCollection()

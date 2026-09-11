@@ -75,24 +75,49 @@ export class ApiError extends Error {
  */
 export function describeError(err: unknown, fallback: string): string {
   if (err instanceof ApiError) {
-    // The API emits RFC 7807 application/problem+json; surface the human-readable
-    // `detail`/`title` rather than dumping the raw JSON body into the toast.
-    if (err.body) {
-      try {
-        const problem = JSON.parse(err.body) as { detail?: string; title?: string };
-        const message = problem.detail || problem.title;
-        if (message) {
-          return message;
-        }
-      } catch {
-        // Body was not JSON — fall through to the raw body.
-      }
-      return err.body;
-    }
-    return `${fallback} (${err.status})`;
+    return problemMessage(err.body) ?? `${fallback} (${err.status})`;
+  }
+  if (isGeneratedApiException(err)) {
+    // The NSwag client throws its own ApiException with the fixed message
+    // "An unexpected server error occurred." and the raw body in `response`.
+    // Without this branch every generated-client 4xx (e.g. 409 setting-locked)
+    // would toast that fixed message instead of the server's reason.
+    return problemMessage(err.response) ?? `${fallback} (${err.status})`;
   }
   if (err instanceof Error) {
     return err.message;
   }
   return fallback;
+}
+
+/**
+ * The API emits RFC 7807 application/problem+json; surface the human-readable
+ * `detail`/`title` rather than dumping the raw JSON body into the toast. A non-JSON
+ * body is returned as-is; an empty body yields `undefined` so the caller can fall back.
+ */
+function problemMessage(body: string | undefined | null): string | undefined {
+  if (!body) {
+    return undefined;
+  }
+  try {
+    const problem = JSON.parse(body) as { detail?: string; title?: string };
+    const message = problem.detail || problem.title;
+    if (message) {
+      return message;
+    }
+  } catch {
+    // Body was not JSON — fall through to the raw body.
+  }
+  return body;
+}
+
+// Duck-typed on purpose: `ApiException` lives in the generated client and this module
+// must not import from it (the generated file imports nothing from here either).
+function isGeneratedApiException(err: unknown): err is { status: number; response: string } {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    (err as { isApiException?: unknown }).isApiException === true &&
+    typeof (err as { response?: unknown }).response === 'string'
+  );
 }

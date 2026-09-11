@@ -9,6 +9,8 @@ using Beacon.Core.Models;
 using Beacon.Core.Services;
 using Beacon.MCP.Services;
 
+using Beacon.Tests.Common;
+
 namespace Beacon.Tests.Unit;
 
 /// <summary>
@@ -31,7 +33,7 @@ public class SignalIdSurfacingTests
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory.Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>())).ReturnsAsync(context);
 
-        var settings = new Mock<IMcpSettingsProvider>();
+        var settings = SettingsProviderMock.Create();
         settings.Setup(x => x.GetSettingsAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(new McpSettingsData { EnableLearning = true });
 
@@ -52,7 +54,7 @@ public class SignalIdSurfacingTests
         // A strict factory proves the DB is never touched when learning is off (the method early-returns).
         var factory = new Mock<IDbContextFactory<BeaconContext>>(MockBehavior.Strict);
 
-        var settings = new Mock<IMcpSettingsProvider>();
+        var settings = SettingsProviderMock.Create();
         settings.Setup(x => x.GetSettingsAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(new McpSettingsData { EnableLearning = false });
 

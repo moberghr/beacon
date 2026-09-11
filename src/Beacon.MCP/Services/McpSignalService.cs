@@ -18,7 +18,7 @@ internal sealed class McpSignalService(
     {
         try
         {
-            var settings = await settingsProvider.GetSettingsAsync(ct);
+            var settings = await settingsProvider.GetEffectiveSettingsAsync(signal.ProjectId ?? 0, ct);
             if (!settings.EnableLearning) return null;
 
             await using var context = await contextFactory.CreateDbContextAsync(ct);

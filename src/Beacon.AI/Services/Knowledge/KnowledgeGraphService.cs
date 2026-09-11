@@ -928,7 +928,7 @@ internal sealed class KnowledgeGraphService(
 
         try
         {
-            var settings = await settingsProvider.GetSettingsAsync(ct);
+            var settings = await settingsProvider.GetEffectiveSettingsAsync(projectId, ct);
             if (!settings.EnableSemanticRetrieval)
             {
                 return keywordRanked;
@@ -1220,7 +1220,7 @@ internal sealed class KnowledgeGraphService(
         var catalog = BuildSchemaCatalog(allTables.Select(x => (x.SchemaName, x.TableName, x.Columns.Select(y => y.ColumnName))));
         var primaryKeyCatalog = BuildPrimaryKeyCatalog(allTables.Select(t => (t.SchemaName, t.TableName, (IEnumerable<SchemaColumn>)t.Columns)));
         var dialect = dataSource.DatabaseEngineType?.ToString();
-        var mcpSettings = await settingsProvider.GetSettingsAsync(ct);
+        var mcpSettings = await settingsProvider.GetEffectiveSettingsAsync(projectId, ct);
 
         // Small schema fast path: send everything
         if (allTables.Count <= 40 && totalColumns <= 300)
@@ -1400,7 +1400,7 @@ internal sealed class KnowledgeGraphService(
             return [];
         }
 
-        var settings = await settingsProvider.GetSettingsAsync(ct);
+        var settings = await settingsProvider.GetEffectiveSettingsAsync(projectId, ct);
         if (!settings.EnableSemanticRetrieval)
         {
             return [];
@@ -1894,7 +1894,7 @@ internal sealed class KnowledgeGraphService(
                 })
             .ToListAsync(ct);
 
-        var settings = await settingsProvider.GetSettingsAsync(ct);
+        var settings = await settingsProvider.GetEffectiveSettingsAsync(projectId, ct);
 
         // DAIL-SQL semantic selection (§ Architecture ⑧): choose the top-k nearest lessons of ANY type by
         // masked-question embedding similarity instead of blanket-injecting the whole bank. Lessons that have

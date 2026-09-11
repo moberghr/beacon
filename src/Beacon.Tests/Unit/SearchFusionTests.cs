@@ -219,7 +219,7 @@ public class SearchFusionTests
 
     private static KnowledgeGraphService BuildService(IBeaconEmbeddingService embedder, bool enableSemanticRetrieval = true)
     {
-        var settings = new Mock<IMcpSettingsProvider>();
+        var settings = SettingsProviderMock.Create();
         settings
             .Setup(x => x.GetSettingsAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(new McpSettingsData { EnableSemanticRetrieval = enableSemanticRetrieval });

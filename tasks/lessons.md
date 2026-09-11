@@ -287,3 +287,53 @@
 **Why it matters:** The failure surfaces far from the cause and looks like a behaviour regression.
 
 **When it applies:** Any refactor that replaces an interface member with a pure/static implementation.
+
+## A read endpoint that returns RESOLVED values must not feed a write endpoint that persists every field (2026-09-09)
+
+**What happened:** `GetSettingsAsync` started returning lock/ceiling-resolved MCP settings so consumers see the effective value. The same call backs the admin GET, the React page seeds its form from it and re-sends every field on save, and the update handler wrote them straight to the entity. One unrelated global save would have replaced a stored `MaxRowLimit=9000` with the ceiling `1000` (and pinned a locked value) permanently — lifting the ceiling later would restore nothing. Thirty-six unit tests and the plan-gap review missed it; the whole-diff compliance review caught it because the hazard lives across the read path, the UI round-trip and the write path.
+
+**Rule:** When a read model is derived (defaults, locks, ceilings, computed fields), either (a) return the raw stored row plus the derivation metadata to the editor, or (b) make the writer treat "derived value echoed back unchanged" as not-an-edit (Beacon: `UpdateMcpSettingsHandler.KeepStoredWhenClamped`, and locked fields keep the stored value). Add a test that stores a value above the ceiling, echoes the ceiling back, and asserts the stored value survived.
+
+**Why it matters:** Silent, irreversible loss of admin configuration with no error and a green test suite.
+
+**When it applies:** Any settings/profile/config screen whose GET applies policy (feature flags, tenant limits, RBAC-filtered fields) and whose PUT is a full-row replace.
+
+## Inventory fixture breakage from constructor call sites, not from mock call sites (2026-09-09)
+
+**What happened:** The spec listed every test fixture to migrate by grepping `new Mock<IMcpSettingsProvider>()`. `QueryExecutionService` gained an `IProjectContext` constructor parameter in the same batch; its one fixture did not build a settings mock and was missed. One compile error, found only at the batch checkpoint.
+
+**Rule:** When a batch changes a constructor signature, the fixture inventory is `grep -rn "new <TypeName>(" src/Beacon.Tests` — one grep per changed constructor — in addition to any grep over mocked dependencies.
+
+**Why it matters:** The manifest and the "fixtures to touch" list are sealed at approval; a fixture missing from them is a scope-guard event at implementation time.
+
+**When it applies:** Any change that adds/removes/reorders a DI constructor parameter on a class instantiated directly in tests.
+
+## A success-criterion observable must not ride on another test's failure message (2026-09-09)
+
+**What happened:** SC7 ("both new handlers are exposed via HTTP") was to be verified by reading the missing-handler list in `OpenApiContractTests`' inherited failure message. On this host the inherited failure is a 404 fetching `/openapi/v1.json` from the harness, so the list is never produced and the criterion had no evidence channel. It was backed statically (grep of the endpoint map) instead.
+
+**Rule:** Give every SC an evidence channel that works when the suite is green AND when it is red for unrelated reasons: a dedicated test, a deterministic grep/script, or a build artifact. Never "the failure message of test X will list…".
+
+**Why it matters:** An SC with no observable is a criterion nobody can verify; the sidecar looked complete while one criterion was unverifiable by design.
+
+**When it applies:** Writing `success_criteria[].verification` / `observable` in a spec sidecar.
+
+## mtk `format-on-edit` runs Prettier defaults on TS/TSX when the repo has no Prettier config — declare the style first (2026-09-09)
+
+**What happened:** The mtk PostToolUse/Stop hook `format-on-edit.sh` runs `npx --no-install prettier --write` on every `.ts/.tsx` written through Write/Edit. This repo has no `.prettierrc` and uses single quotes and `x =>` arrows, so two files came back in Prettier defaults (double quotes, `(x) =>`, width 80). Files edited via python/Bash were untouched, which made the churn look random; two subsequent exact-string edits failed on anchors that no longer existed. The collateral-guard does not flag quote-style rewrites (they are not whitespace-only).
+
+**Rule:** Before the first TS/TSX edit in a repo without a Prettier config, either add the repo's style as a `.prettierrc` (single change, declared in the manifest) or set `MTK_FORMAT_ON_EDIT=0` for the session. If a file was already reformatted, normalize with an explicit invocation (`npx prettier --single-quote --arrow-parens avoid --print-width 100 --write`) and disclose the reflow of pre-existing blocks in the behavioral diff. Toolkit follow-up: the hook should skip Prettier when no config is found up-tree.
+
+**Why it matters:** Style churn on hundreds of lines hides the real diff from reviewers and breaks anchor-based edits.
+
+**When it applies:** Any mtk session that writes `.ts/.tsx/.js` files in a repo without a Prettier/Biome config.
+
+## A shared test double must vary on the dimension the feature adds, or it hides the feature's own regressions (2026-09-09)
+
+**What happened:** `SettingsProviderMock` was introduced so 21 fixtures kept compiling when consumers moved from `GetSettingsAsync()` to `GetEffectiveSettingsAsync(projectId)`. It delegated the effective call to the global stub and discarded `projectId`. Every fixture stayed green — and would have stayed green if a consumer resolved project 0 or the wrong project, silently downgrading a project's stricter PII / row-limit / read-only settings to the global ones. Two review lanes found it independently; the spec's "helpers only" rule had encouraged exactly this shape.
+
+**Rule:** When a change adds a discriminator (project id, tenant, user, dialect) to a call, the test double for that call must be able to return a DIFFERENT value per discriminator (`SettingsProviderMock.Create(projectSettings: {[id] = …})`), and at least one consumer test per switched call site must (a) supply a differing value for the real id and assert the consumer's behaviour follows it, and (b) `Verify` the exact id reached the double and no other id did. "Compiles and stays green" is not the bar for a fixture migration.
+
+**Why it matters:** The discriminator IS the feature; a double that ignores it turns the whole suite into a compile check for that feature.
+
+**When it applies:** Any fixture helper introduced to absorb an interface widening; any `It.IsAny<int>()` on a newly added id parameter.

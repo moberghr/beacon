@@ -43,6 +43,64 @@ export interface McpSettingsData {
   learningAutoApproveThreshold: number;
   learningInjectionBudgetChars: number;
   learningSignalRetentionDays: number;
+  retainQueryContent: boolean;
+  statementTimeoutSeconds: number;
+  maxResultBytes: number;
+  maxExplainCost: number | null;
+  maxConcurrentQueriesPerKey: number;
+  allowExplicitFeedbackContent: boolean;
+}
+
+/**
+ * Per-project overrides. Every member is nullable: `null` (or absent) means "inherit
+ * the global value". Mirrors the server DTO field-for-field so a save can round-trip
+ * overrides the settings page does not edit without clearing them.
+ */
+export interface McpProjectSettingsData {
+  maxRowLimit?: number | null;
+  enforceReadOnly?: boolean | null;
+  enablePiiDetection?: boolean | null;
+  customPiiPatterns?: string[] | null;
+  enableSampleValueCollection?: boolean | null;
+  enableLearning?: boolean | null;
+  learningAutoApproveThreshold?: number | null;
+  learningInjectionBudgetChars?: number | null;
+  learningSignalRetentionDays?: number | null;
+  enableSelfConsistency?: boolean | null;
+  selfConsistencyCandidateCount?: number | null;
+  enableEvalJudge?: boolean | null;
+  enableSemanticRetrieval?: boolean | null;
+  exemplarTopK?: number | null;
+  enableReplayVerification?: boolean | null;
+  learningReplayMinFlips?: number | null;
+  enableContextualRetrieval?: boolean | null;
+  docChunkWindowSentences?: number | null;
+  docChunkOverlapSentences?: number | null;
+  glossaryTopK?: number | null;
+  docChunkTopK?: number | null;
+  enableGoldenExemplars?: boolean | null;
+  goldenExemplarTopK?: number | null;
+  goldenExemplarBudgetChars?: number | null;
+  enableValueGrounding?: boolean | null;
+  valueGroundingMaxProbes?: number | null;
+  enableSemanticLint?: boolean | null;
+  selfConsistencyMinTables?: number | null;
+  retainQueryContent?: boolean | null;
+  statementTimeoutSeconds?: number | null;
+  maxResultBytes?: number | null;
+  maxExplainCost?: number | null;
+  maxConcurrentQueriesPerKey?: number | null;
+  allowExplicitFeedbackContent?: boolean | null;
+}
+
+export interface GetMcpProjectSettingsResult {
+  projectId: number;
+  overrides: McpProjectSettingsData;
+  effective: McpSettingsData;
+  /** Field names (PascalCase, as the server reports them) pinned by a `Beacon:Mcp` deployment lock. */
+  lockedFields: string[];
+  /** Field names whose effective value was clamped down to a `Beacon:Mcp:Ceilings` value. */
+  clampedFields: string[];
 }
 
 export interface LearnedPatternEntry {
@@ -116,6 +174,8 @@ export interface DocumentationPatchesResult {
 }
 
 export const MCP_SETTINGS_KEY = ['mcp', 'settings'] as const;
+export const mcpProjectSettingsKey = (projectId: number) =>
+  ['mcp', 'project-settings', projectId] as const;
 export const MCP_TOOLS_KEY = ['mcp', 'tools'] as const;
 export const MCP_LEARNING_STATS_KEY = ['mcp', 'learning-stats'] as const;
 export const MCP_PATTERNS_KEY = ['mcp', 'patterns'] as const;
@@ -136,6 +196,32 @@ export function useUpdateMcpSettings() {
       mutationFn: (data) => beaconApi().updateMcpSettings({ data } as never),
       invalidate: [MCP_SETTINGS_KEY],
       errorFallback: 'Update MCP settings failed',
+    }),
+  );
+}
+
+export function useMcpProjectSettings(projectId: number | undefined) {
+  return useQuery({
+    queryKey: mcpProjectSettingsKey(projectId ?? 0),
+    queryFn: async () =>
+      unwrap<GetMcpProjectSettingsResult>(
+        await beaconApi().getMcpProjectSettings(projectId as number),
+      ),
+    enabled: typeof projectId === 'number' && Number.isFinite(projectId),
+  });
+}
+
+export function useUpdateMcpProjectSettings() {
+  const qc = useQueryClient();
+  return useMutation(
+    createSimpleMutation<{ projectId: number; data: McpProjectSettingsData }, void>({
+      qc,
+      mutationFn: (vars) =>
+        beaconApi().updateMcpProjectSettings(vars.projectId, { data: vars.data } as never),
+      // The effective values on every scope can change with one project write; the
+      // global row itself does not, so only the project key is invalidated.
+      invalidate: (vars) => [mcpProjectSettingsKey(vars.projectId)],
+      errorFallback: 'Update project MCP settings failed',
     }),
   );
 }
