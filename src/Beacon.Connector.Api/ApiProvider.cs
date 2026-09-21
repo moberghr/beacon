@@ -5,6 +5,7 @@ using Beacon.Connector.Api.Models;
 using Beacon.Connector.Api.Services;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Helpers;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Providers;
 using Beacon.Core.Services;
@@ -71,7 +72,7 @@ public class ApiProvider(
             return new ConnectionTestResult
             {
                 Success = false,
-                ErrorMessage = ex.Message,
+                ErrorMessage = ConnectionFailureDescriber.Describe(ex),
                 TestDurationMs = stopwatch.Elapsed.TotalMilliseconds
             };
         }

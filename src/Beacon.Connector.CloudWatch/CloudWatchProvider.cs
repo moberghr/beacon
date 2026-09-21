@@ -7,6 +7,7 @@ using Amazon.Runtime;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Helpers;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Providers;
 using Beacon.Core.Models.Providers.CloudWatch;
@@ -63,7 +64,7 @@ public class CloudWatchProvider(
             return new ConnectionTestResult
             {
                 Success = false,
-                ErrorMessage = ex.Message,
+                ErrorMessage = ConnectionFailureDescriber.Describe(ex),
                 TestDurationMs = stopwatch.Elapsed.TotalMilliseconds
             };
         }

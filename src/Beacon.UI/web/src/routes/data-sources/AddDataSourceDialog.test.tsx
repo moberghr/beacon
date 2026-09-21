@@ -64,4 +64,58 @@ describe('AddDataSourceDialog (multi-engine)', () => {
       connectionString: 'Host=db;Database=app;Username=u;Password=p',
     });
   });
+
+  it('explains a 403 on test-connection instead of showing a bare status code', async () => {
+    mswServer.use(
+      http.post('*/beacon/api/data-sources/test-connection', () =>
+        new HttpResponse(null, { status: 403 }),
+      ),
+    );
+
+    renderWithProviders(<AddDataSourceDialog open onClose={vi.fn()} />);
+    await advanceToTestStep();
+
+    fireEvent.click(screen.getByRole('button', { name: /test connection/i }));
+
+    expect(await screen.findByText(/restricted to admin accounts/i)).toBeInTheDocument();
+    // The raw transport detail stays available even when the 403 carried no body.
+    expect(screen.getByText(/show details/i)).toBeInTheDocument();
+    expect(screen.getByText(/HTTP 403/)).toBeInTheDocument();
+    expect(screen.getByText(/empty response body/i)).toBeInTheDocument();
+  });
+
+  it('keeps the driver exception chain behind a details toggle', async () => {
+    mswServer.use(
+      http.post('*/beacon/api/data-sources/test-connection', () =>
+        HttpResponse.json({
+          success: false,
+          message:
+            'Connection failed: SqlException: A network-related error occurred. -> Win32Exception: No such host is known.',
+        }),
+      ),
+    );
+
+    renderWithProviders(<AddDataSourceDialog open onClose={vi.fn()} />);
+    await advanceToTestStep();
+
+    fireEvent.click(screen.getByRole('button', { name: /test connection/i }));
+
+    // Headline is the outermost frame only.
+    expect(
+      await screen.findByText('Connection failed: SqlException: A network-related error occurred.'),
+    ).toBeInTheDocument();
+    // The cause the operator actually needs is present, under "Show details".
+    expect(screen.getByText(/No such host is known/)).toBeInTheDocument();
+    expect(screen.getByText(/show details/i)).toBeInTheDocument();
+  });
 });
+
+async function advanceToTestStep() {
+  fireEvent.click(screen.getByTestId('stepper-next'));
+  fireEvent.input(screen.getByLabelText(/^Name/), { target: { value: 'test server' } });
+  fireEvent.input(screen.getByLabelText(/Connection string/i), {
+    target: { value: 'Server=db;Database=app;User Id=u;Password=p' },
+  });
+  fireEvent.click(screen.getByTestId('stepper-next'));
+  await screen.findByRole('button', { name: /test connection/i });
+}

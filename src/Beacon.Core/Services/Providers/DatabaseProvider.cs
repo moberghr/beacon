@@ -62,7 +62,7 @@ internal class DatabaseProvider(
             return new ConnectionTestResult
             {
                 Success = false,
-                ErrorMessage = ex.Message,
+                ErrorMessage = ConnectionFailureDescriber.Describe(ex),
                 TestDurationMs = stopwatch.Elapsed.TotalMilliseconds
             };
         }
