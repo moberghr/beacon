@@ -6,6 +6,7 @@ using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Helpers;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Providers;
 using Beacon.Core.Services;
@@ -57,7 +58,7 @@ public class DatabricksProvider(
             return new ConnectionTestResult
             {
                 Success = false,
-                ErrorMessage = ex.Message,
+                ErrorMessage = ConnectionFailureDescriber.Describe(ex),
                 TestDurationMs = stopwatch.Elapsed.TotalMilliseconds
             };
         }

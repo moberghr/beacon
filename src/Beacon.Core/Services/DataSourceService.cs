@@ -385,7 +385,7 @@ internal class DataSourceService(
             return new BaseResponse
             {
                 Success = false,
-                Message = $"Connection failed: {ex.Message}"
+                Message = $"Connection failed: {ConnectionFailureDescriber.Describe(ex)}"
             };
         }
     }
@@ -423,7 +423,7 @@ internal class DataSourceService(
             return new BaseResponse
             {
                 Success = false,
-                Message = $"Connection failed: {ex.Message}"
+                Message = $"Connection failed: {ConnectionFailureDescriber.Describe(ex)}"
             };
         }
     }

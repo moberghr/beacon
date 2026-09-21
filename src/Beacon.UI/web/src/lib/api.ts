@@ -121,3 +121,21 @@ function isGeneratedApiException(err: unknown): err is { status: number; respons
     typeof (err as { response?: unknown }).response === 'string'
   );
 }
+
+/**
+ * Extracts the transport-level failure of a request that never produced a
+ * result — the HTTP status plus whatever body the server sent. Returns
+ * `undefined` for anything that is not an HTTP failure (network drop, abort),
+ * so callers can distinguish "Beacon rejected the call" from "the call never
+ * left the browser". Covers both error shapes: the hand-written `ApiError`
+ * and the generated NSwag `ApiException`.
+ */
+export function httpErrorInfo(err: unknown): { status: number; body: string } | undefined {
+  if (err instanceof ApiError) {
+    return { status: err.status, body: err.body };
+  }
+  if (isGeneratedApiException(err)) {
+    return { status: err.status, body: err.response };
+  }
+  return undefined;
+}

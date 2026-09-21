@@ -4,7 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
 import { StepperDialog, type StepperDialogStep } from '@/components/ui/StepperDialog';
-import { describeError } from '@/lib/api';
+import { describeError, httpErrorInfo } from '@/lib/api';
 import {
   Button,
   Field as BField,
@@ -275,7 +275,7 @@ export function AddDataSourceDialog({ open, onClose }: AddDataSourceDialogProps)
     | { status: 'idle' }
     | { status: 'pending' }
     | { status: 'success'; message: string }
-    | { status: 'error'; message: string }
+    | { status: 'error'; message: string; detail?: string }
   >({ status: 'idle' });
 
   useEffect(() => {
@@ -374,10 +374,10 @@ export function AddDataSourceDialog({ open, onClose }: AddDataSourceDialogProps)
       if (result.success) {
         setTestState({ status: 'success', message: result.message ?? 'Connected.' });
       } else {
-        setTestState({ status: 'error', message: result.message ?? 'Connection failed.' });
+        setTestState({ status: 'error', ...splitFailureMessage(result.message) });
       }
     } catch (err) {
-      setTestState({ status: 'error', message: describeError(err, 'Request failed') });
+      setTestState({ status: 'error', ...describeTransportFailure(err) });
     }
   };
 
@@ -636,7 +636,19 @@ export function AddDataSourceDialog({ open, onClose }: AddDataSourceDialogProps)
               <div className="text-text-muted mt-2 text-sm">{testState.message}</div>
             )}
             {testState.status === 'error' && (
-              <div className="text-xs text-crit mt-2">{testState.message}</div>
+              <div className="mt-2">
+                <div className="text-xs text-crit whitespace-pre-wrap break-words">{testState.message}</div>
+                {testState.detail && (
+                  <details className="mt-1.5">
+                    <summary className="text-text-muted cursor-pointer text-xs">
+                      Show details
+                    </summary>
+                    <pre className="mono text-text-muted bg-surface mt-1.5 max-h-48 overflow-auto rounded p-2 text-xs whitespace-pre-wrap break-words">
+                      {testState.detail}
+                    </pre>
+                  </details>
+                )}
+              </div>
             )}
           </>
         );
@@ -701,4 +713,55 @@ function DsField({ label, name, required, type = 'text', placeholder, multiline,
       {err?.message && <span className="text-xs text-crit">{String(err.message)}</span>}
     </BField>
   );
+}
+
+/**
+ * Describes a test that never produced a verdict — the POST itself failed, so
+ * there is no server-side connection result to show. A bare "Request failed
+ * (403)" hides why, so the status is paired with the reason this endpoint
+ * rejects callers, and the raw response is always kept under "Show details"
+ * (an empty body is itself a clue about which layer rejected the call).
+ */
+function describeTransportFailure(err: unknown): { message: string; detail: string } {
+  const http = httpErrorInfo(err);
+  if (!http) {
+    return {
+      message: 'The test request never reached Beacon. Check that the server is running, then retry.',
+      detail: describeError(err, 'No further detail available.'),
+    };
+  }
+
+  const body = http.body.trim();
+  const detail = `HTTP ${http.status}\n${body === '' ? '(empty response body)' : body}`;
+
+  if (http.status === 401) {
+    return { message: 'Your session has expired (401). Sign in again, then retry the test.', detail };
+  }
+  if (http.status === 403) {
+    return {
+      message:
+        'Beacon refused the request (403) before it reached the database. Testing a connection dials an arbitrary host, so the endpoint is restricted to admin accounts. Check that your account has the Admin role.',
+      detail,
+    };
+  }
+
+  return { message: `Beacon returned ${http.status} instead of a test result.`, detail };
+}
+
+/**
+ * The server flattens the driver's exception chain into one string joined by
+ * " -> " (outermost first). The outermost frame is the headline; the rest is
+ * the actual cause ("No such host is known", "Login failed for user ...") and
+ * goes behind "Show details" so the panel stays readable.
+ */
+function splitFailureMessage(message: string | null): { message: string; detail?: string } {
+  const text = message?.trim();
+  if (!text) {
+    return { message: 'Connection failed. The server returned no reason.' };
+  }
+  const [headline, ...rest] = text.split(' -> ');
+  return {
+    message: headline,
+    detail: rest.length === 0 ? undefined : rest.join('\n'),
+  };
 }
