@@ -18,6 +18,46 @@ namespace Beacon.Tests.Unit;
 public class SchemaConfigurationTests
 {
     [Test]
+    public void GetSchema_FallsBackToDefaultWhenUnset()
+    {
+        var configuration = new ConfigurationBuilder().Build();
+
+        BeaconDatabaseConfiguration.GetSchema(configuration).Should().Be("beacon");
+    }
+
+    [Test]
+    public void GetSchema_ReadsConfiguredSchema()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Beacon:Schema"] = "tenant_a" })
+            .Build();
+
+        BeaconDatabaseConfiguration.GetSchema(configuration).Should().Be("tenant_a");
+    }
+
+    [Test]
+    public void GetSchema_RejectsMalformedIdentifier()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Beacon:Schema"] = "tenant a; --" })
+            .Build();
+
+        var act = () => BeaconDatabaseConfiguration.GetSchema(configuration);
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*not a valid schema identifier*");
+    }
+
+    [Test]
+    public void GetConnectionString_ThrowsWhenMissing()
+    {
+        var configuration = new ConfigurationBuilder().Build();
+
+        var act = () => BeaconDatabaseConfiguration.GetConnectionString(configuration);
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*BeaconContext*");
+    }
+
+    [Test]
     public void UseBeaconSchema_RoundTripsThroughOptions()
     {
         var builder = new DbContextOptionsBuilder();
