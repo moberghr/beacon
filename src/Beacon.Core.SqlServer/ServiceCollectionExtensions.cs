@@ -30,8 +30,10 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection UseSqlServer(
         this BeaconBuilder builder,
         string connectionString,
-        string schema = "beacon")
+        string schema = BeaconDatabaseConfiguration.DefaultSchema)
     {
+        BeaconDatabaseConfiguration.RequireSupportedSchema(schema);
+
         builder.Services.AddDbContextFactory<SqlServerBeaconContext>((sp, options) =>
             options.UseSqlServer(connectionString,
                     b => b.MigrationsHistoryTable("__EFMigrationsHistory", schema))
