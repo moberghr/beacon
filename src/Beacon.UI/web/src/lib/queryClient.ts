@@ -10,6 +10,9 @@ export const UNAUTHENTICATED_USER: CurrentUser = {
   email: null,
   isAuthenticated: false,
   roles: [],
+  // Not "realtime is off" — this is the logged-out placeholder after a 401, and the real value
+  // arrives with the next /auth/me. Left true so signing back in does not have to re-enable it.
+  realtimeEnabled: true,
 };
 
 /**

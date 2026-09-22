@@ -194,7 +194,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 // 1. Your job runner (see B5) — register it here, e.g. Moberg Warp's AddWarpWorker(...)
 
-// 2. Host identity + SignalR plumbing
+// 2. Host identity (claims transformation)
 builder.Services.AddBeaconHostInfrastructure<YourClaimsTransformation>();  // your IClaimsTransformation
 
 // 3. Core services, scheduler, connectors, metadata provider
@@ -222,7 +222,11 @@ builder.Services.AddBeaconServices(builder.Configuration, options =>
     .AddApiConnector()
     .UsePostgreSql(builder.Configuration.GetConnectionString("BeaconContext")!, "beacon");
 
-// 4. Authentication, AI, MCP, OpenAPI
+// 4. REST API + real-time. SignalR is wired for you — add nothing.
+//    Opt out with: AddBeaconApiServices(x => x.Realtime = false)
+builder.Services.AddBeaconApiServices();
+
+// 5. Authentication, AI, MCP, OpenAPI
 builder.Services.AddBeaconCookieAuthentication("/");          // login redirect target
 builder.Services.AddBeaconOidcAuthentication(builder.Configuration); // optional SSO
 builder.Services.AddBeaconAI(builder.Configuration);
@@ -231,7 +235,7 @@ builder.Services.AddOpenApi();
 
 var app = builder.Build();
 
-// 5. Middleware order is load-bearing
+// 6. Middleware order is load-bearing
 app.UseStaticFiles();
 app.UseMiddleware<ApiKeyAuthMiddleware>();
 app.UseAuthentication();
@@ -239,16 +243,57 @@ app.UseMiddleware<BeaconCookieAuthMiddleware>();
 app.UseAuthorization();
 app.UseAntiforgery();
 
-// 6. Endpoints
+// 7. Endpoints
 app.MapOpenApi();                 // /openapi/v1.json
-app.MapBeaconApi();               // /beacon/api/*
+app.MapBeaconApi();               // /beacon/api/* + the SignalR hub at /beacon/api/hub
 app.MapLoginEndpoints("/beacon", beaconConfiguration);
-app.MapHub<BeaconHub>("/beacon/api/hub").RequireAuthorization();
 app.MapMcp("/beacon/mcp").RequireAuthorization();
 app.MapBeaconUi();                // React SPA at root /
 
 app.Run();
 ```
+
+## Real-time (SignalR)
+
+:::tip[You do not need to add SignalR]
+SignalR ships inside the ASP.NET Core shared framework — it is **not** an extra NuGet package — and
+Beacon wires it for you. `AddBeaconApiServices()` registers SignalR and the push notifiers;
+`MapBeaconApi()` maps the hub at `/beacon/api/hub`. There is nothing to add.
+:::
+
+Events pushed to the hub: `JobStatusChanged`, `NotificationCreated`, `ApprovalUpdated` — each scoped
+to the individual user via `Clients.User(...)`.
+
+### Turning it off
+
+If your host has no use for real-time updates:
+
+```csharp
+builder.Services.AddBeaconApiServices(x => x.Realtime = false);
+```
+
+What changes:
+
+| | Realtime on (default) | Realtime off |
+|---|---|---|
+| SignalR services | registered | not registered |
+| `/beacon/api/hub` | mapped | not mapped |
+| `IApprovalNotifier` | `SignalRApprovalNotifier` | `RealtimeDisabledApprovalNotifier` (a deliberate no-op) |
+| React shell | connects to the hub | never attempts a connection |
+
+The shell reads `realtimeEnabled` from `/beacon/api/auth/me`, so it knows realtime is off rather than
+discovering it by failing — it will not poll a route that isn't there.
+
+### Configuring SignalR
+
+For a custom protocol or a backplane, reach the `ISignalRServerBuilder`:
+
+```csharp
+builder.Services.AddBeaconApiServices(x =>
+    x.ConfigureSignalR = signalr => signalr.AddStackExchangeRedis(redisConnectionString));
+```
+
+Calling `AddSignalR()` yourself as well is safe — registration is additive.
 
 :::caution[Middleware order matters]
 `ApiKeyAuthMiddleware` runs before `UseAuthentication`, and `BeaconCookieAuthMiddleware` runs after it. Reordering breaks API-key-only callers and the login redirect.

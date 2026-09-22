@@ -29,7 +29,8 @@ public static class AuthServiceExtensions
     {
         services.AddHttpContextAccessor();
 
-        // Register user context (always available)
+        // Register user context. AddBeaconApiServices registers the same pair independently, so
+        // cookie and non-cookie hosts both get it; keep them in sync if the implementation changes.
         services.TryAddScoped<IBeaconUserContext, HttpContextUserContext>();
 
         // Resolves the current principal's internal BeaconUser.Id for audit columns (§1.7 / §9.5).

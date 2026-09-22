@@ -19,7 +19,7 @@ using Beacon.Core.PostgreSql;
 using Beacon.MCP;
 using Beacon.UI;
 
-// Host identity + SignalR plumbing
+// Host identity (claims transformation)
 builder.Services.AddBeaconHostInfrastructure();
 
 // Core services, scheduler, connectors, metadata provider
@@ -56,15 +56,14 @@ app.UseAuthorization();
 app.UseAntiforgery();
 
 app.MapOpenApi();                 // /openapi/v1.json
-app.MapBeaconApi();               // /beacon/api/*
+app.MapBeaconApi();               // /beacon/api/* + the SignalR hub
 app.MapLoginEndpoints("/beacon", beaconConfiguration);
-app.MapHub<BeaconHub>("/beacon/api/hub").RequireAuthorization();
 app.MapMcp("/beacon/mcp").RequireAuthorization();
 app.MapBeaconUi();                // React SPA at root /
 ```
 
 :::note
-The React SPA is served at the **root URL `/`** by the `Beacon.UI` Razor Class Library (it builds from `src/Beacon.UI/web` into `src/Beacon.UI/wwwroot`). The REST API lives under `/beacon/api/*`, the MCP server at `/beacon/mcp`, the SignalR hub at `/beacon/api/hub`, and the OpenAPI document at `/openapi/v1.json`.
+The React SPA is served at the **root URL `/`** by the `Beacon.UI` Razor Class Library (it builds from `src/Beacon.UI/web` into `src/Beacon.UI/wwwroot`). The REST API lives under `/beacon/api/*`, the MCP server at `/beacon/mcp`, the SignalR hub at `/beacon/api/hub`, and the OpenAPI document at `/openapi/v1.json`. The hub is wired automatically by `AddBeaconApiServices()` / `MapBeaconApi()` — see [Real-time](/getting-started/installation/#real-time-signalr) for the opt-out.
 :::
 
 ## Base URL Configuration

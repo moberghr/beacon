@@ -13,6 +13,18 @@ namespace Beacon.Core.PostgreSql;
 public static class ServiceCollectionExtensions
 {
     /// <summary>
+    /// Configures PostgreSQL as the database provider for Beacon, reading the connection string from
+    /// <c>ConnectionStrings:BeaconContext</c> and the schema from <c>Beacon:Schema</c>
+    /// (defaults to <c>beacon</c>).
+    /// </summary>
+    public static IServiceCollection UsePostgreSql(this BeaconBuilder builder)
+    {
+        return builder.UsePostgreSql(
+            BeaconDatabaseConfiguration.GetConnectionString(builder.Configuration),
+            BeaconDatabaseConfiguration.GetSchema(builder.Configuration));
+    }
+
+    /// <summary>
     /// Configures PostgreSQL as the database provider for Beacon.
     /// This method is chainable after AddBeaconServices().
     /// </summary>

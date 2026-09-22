@@ -12,6 +12,18 @@ namespace Beacon.Core.SqlServer;
 public static class ServiceCollectionExtensions
 {
     /// <summary>
+    /// Configures SQL Server as the database provider for Beacon, reading the connection string from
+    /// <c>ConnectionStrings:BeaconContext</c> and the schema from <c>Beacon:Schema</c>
+    /// (defaults to <c>beacon</c>).
+    /// </summary>
+    public static IServiceCollection UseSqlServer(this BeaconBuilder builder)
+    {
+        return builder.UseSqlServer(
+            BeaconDatabaseConfiguration.GetConnectionString(builder.Configuration),
+            BeaconDatabaseConfiguration.GetSchema(builder.Configuration));
+    }
+
+    /// <summary>
     /// Configures SQL Server as the database provider for Beacon.
     /// This method is chainable after AddBeaconServices().
     /// </summary>

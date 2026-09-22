@@ -548,7 +548,7 @@ No retries prevent notification storms and duplicate alerts. Manual re-execution
 
 ### Real-Time Updates in the UI
 
-In addition to the delivery channels above, the React UI receives real-time updates over a SignalR hub at `/beacon/api/hub`. The `NotificationCreated` event (scoped to the current user) pushes new notifications to the UI as they occur, alongside `JobStatusChanged` and `ApprovalUpdated`.
+In addition to the delivery channels above, the React UI receives real-time updates over a SignalR hub at `/beacon/api/hub`. The `NotificationCreated` event (scoped to the current user) pushes new notifications to the UI as they occur, alongside `JobStatusChanged` and `ApprovalUpdated`. The hub is wired automatically — hosts that do not want real-time updates can disable it with `AddBeaconApiServices(x => x.Realtime = false)`, in which case the UI falls back to manual refresh. See [Real-time](/getting-started/installation/#real-time-signalr).
 
 ## Examples
 
