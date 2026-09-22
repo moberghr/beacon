@@ -166,7 +166,7 @@ This workflow also protects you when an AI Actor's changes touch queries governe
 
 ## Real-Time Updates (`ApprovalUpdated`)
 
-Approval decisions are pushed in real time over the SignalR hub at `/beacon/api/hub`. When a query change approval is approved or rejected, the server sends an `ApprovalUpdated` event:
+Approval decisions are pushed in real time over the SignalR hub at `/beacon/api/hub` (wired automatically; see [Real-time](/getting-started/installation/#real-time-signalr) to opt out). When a query change approval is approved or rejected, the server sends an `ApprovalUpdated` event:
 
 ```json
 { "approvalId": 42, "status": "approved" }

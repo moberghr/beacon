@@ -114,7 +114,7 @@ Open **http://localhost:5173**. On first run, Beacon applies its EF Core migrati
 | `/beacon/mcp` | MCP server (Streamable HTTP, auth required) |
 | `/.well-known/oauth-protected-resource` | RFC 9728 protected-resource metadata (anonymous) |
 | `/.well-known/mcp/server-card.json` | MCP server card — transport, auth, tool list (anonymous) |
-| `/beacon/api/hub` | SignalR hub (real-time events) |
+| `/beacon/api/hub` | SignalR hub (real-time events) — wired automatically, [opt out](#real-time-signalr) |
 | `/warp` | Background-job dashboard (admin-only) |
 
 📚 [Detailed quick-start guide →](https://moberghr.github.io/beacon/getting-started/quick-start/)
@@ -364,7 +364,10 @@ builder.Services.AddBeaconServices(builder.Configuration, options =>
 builder.Services.AddBeaconCookieAuthentication("/");
 // builder.Services.AddBeaconOidcAuthentication(builder.Configuration); // optional SSO
 
-// 3. AI + MCP + OpenAPI (optional layers)
+// 3. REST API + real-time. SignalR is wired for you — you add nothing.
+builder.Services.AddBeaconApiServices();
+
+// 4. AI + MCP + OpenAPI (optional layers)
 builder.Services.AddBeaconAI(builder.Configuration);
 builder.Services.AddBeaconMcp();
 builder.Services.AddOpenApi();
@@ -378,14 +381,40 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapOpenApi();                                    // /openapi/v1.json
-app.MapBeaconApi();                                  // /beacon/api/*
+app.MapBeaconApi();                                  // /beacon/api/* + the SignalR hub
 app.MapMcp("/beacon/mcp").RequireAuthorization();    // MCP server
 app.MapBeaconUi();                                   // React SPA at root /
 
 app.Run();
 ```
 
-> `src/Beacon.SampleProject/Program.cs` is the canonical, fully-wired reference (scheduler wiring, SignalR, OIDC, JWT-for-MCP, rate limiting, antiforgery, and the load-bearing middleware order). Start from it when embedding. Scheduling goes through the `IBeaconScheduler` abstraction — implement it with the job runner of your choice, e.g. [Moberg Warp](https://moberghr.github.io/warp/).
+> `src/Beacon.SampleProject/Program.cs` is the canonical, fully-wired reference (scheduler wiring, OIDC, JWT-for-MCP, rate limiting, antiforgery, and the load-bearing middleware order). Start from it when embedding. Scheduling goes through the `IBeaconScheduler` abstraction — implement it with the job runner of your choice, e.g. [Moberg Warp](https://moberghr.github.io/warp/).
+
+#### Real-time (SignalR)
+
+**You do not need to add SignalR.** It ships inside the ASP.NET Core shared framework, so it is not
+an extra package, and Beacon wires it for you:
+
+- `AddBeaconApiServices()` registers SignalR and the push notifiers.
+- `MapBeaconApi()` maps the hub at `/beacon/api/hub` (cookie-authenticated).
+
+Turn it off if your host has no use for real-time updates:
+
+```csharp
+builder.Services.AddBeaconApiServices(x => x.Realtime = false);
+```
+
+With realtime off, no SignalR services are registered, the hub route is not mapped, and approval
+notifications resolve to `RealtimeDisabledApprovalNotifier` — a deliberate no-op, not a failure.
+The React shell reads `realtimeEnabled` from `/beacon/api/auth/me` and simply never opens a
+connection, so nothing polls a route that isn't there.
+
+Need to configure SignalR (custom protocol, Redis backplane)?
+
+```csharp
+builder.Services.AddBeaconApiServices(x =>
+    x.ConfigureSignalR = signalr => signalr.AddStackExchangeRedis(redisConnectionString));
+```
 
 **Generate a secure encryption key:**
 ```bash

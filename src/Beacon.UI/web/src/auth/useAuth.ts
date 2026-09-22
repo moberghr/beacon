@@ -8,6 +8,8 @@ export interface CurrentUser {
   email: string | null;
   isAuthenticated: boolean;
   roles: string[];
+  /** Server-advertised: false when the host runs with `Realtime = false`. */
+  realtimeEnabled: boolean;
 }
 
 export function useAuth() {

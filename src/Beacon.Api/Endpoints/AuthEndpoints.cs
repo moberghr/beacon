@@ -32,11 +32,14 @@ internal static class AuthEndpoints
     private static SsoConfigResponse GetSsoConfig(IOptions<OidcAuthenticationOptions> oidcOptions)
         => new(oidcOptions.Value.Enabled);
 
-    private static CurrentUserResponse GetCurrentUser(IBeaconUserContext userContext, HttpContext httpContext)
+    internal static CurrentUserResponse GetCurrentUser(
+        IBeaconUserContext userContext,
+        HttpContext httpContext,
+        BeaconApiOptions? apiOptions)
     {
         if (!userContext.IsAuthenticated)
         {
-            return CurrentUserResponse.Anonymous;
+            return CurrentUserResponse.Anonymous(apiOptions?.Realtime ?? false);
         }
 
         var roles = httpContext.User
@@ -51,7 +54,8 @@ internal static class AuthEndpoints
             DisplayName: userContext.DisplayName,
             Email: userContext.Email,
             IsAuthenticated: true,
-            Roles: roles);
+            Roles: roles,
+            RealtimeEnabled: apiOptions?.Realtime ?? false);
     }
 
     private static async Task<CurrentPermissionsResponse> GetCurrentPermissions(
@@ -70,10 +74,16 @@ internal sealed record CurrentUserResponse(
     string? DisplayName,
     string? Email,
     bool IsAuthenticated,
-    IReadOnlyList<string> Roles)
+    IReadOnlyList<string> Roles,
+    bool RealtimeEnabled)
 {
-    public static CurrentUserResponse Anonymous { get; } =
-        new(null, null, null, null, false, Array.Empty<string>());
+    /// <summary>
+    /// The unauthenticated shape. Still carries <paramref name="realtimeEnabled"/> so the shell
+    /// knows whether to open a hub connection once the user signs in — a static singleton cannot,
+    /// because the value is host configuration rather than a constant.
+    /// </summary>
+    public static CurrentUserResponse Anonymous(bool realtimeEnabled) =>
+        new(null, null, null, null, false, Array.Empty<string>(), realtimeEnabled);
 }
 
 internal sealed record CurrentPermissionsResponse(bool CanRead, bool CanWrite);

@@ -1,3 +1,4 @@
+using Beacon.Api.Hubs;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -98,6 +99,21 @@ public static class BeaconApiEndpoints
         group.MapUserSettingsEndpoints();
         group.MapTasksEndpoints();
         group.MapUsersEndpoints();
+
+        // Mapped on `endpoints`, NOT on the group: the group carries the antiforgery filter,
+        // which would reject the hub's negotiate handshake. Route and policy are the contract
+        // the React shell and the published docs depend on — do not change them.
+        // No registered options means the host never called AddBeaconApiServices(). Published
+        // versions of this package documented MapBeaconApi() on its own, and such a host booted
+        // fine with no hub — so treat "no options" as "no realtime" rather than throwing or
+        // assuming realtime-on. Assuming on would call MapHub without AddSignalR and crash those
+        // hosts at startup on a package bump. /auth/me reports realtimeEnabled=false in the same
+        // case, so the server never advertises a hub it did not map.
+        var options = endpoints.ServiceProvider.GetService<BeaconApiOptions>();
+        if (options?.Realtime == true)
+        {
+            endpoints.MapHub<BeaconHub>("/beacon/api/hub").RequireAuthorization(AuthPolicyName);
+        }
 
         return endpoints;
     }

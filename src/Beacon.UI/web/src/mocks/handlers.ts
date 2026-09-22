@@ -89,6 +89,7 @@ const authHandlers = [
       email: 'mock.admin@example.test',
       isAuthenticated: true,
       roles: ['Admin'],
+      realtimeEnabled: true,
     })),
   http.get('/beacon/api/auth/sso', () => HttpResponse.json({ enabled: false })),
   http.post('/beacon/api/auth/logout', () => new HttpResponse(null, { status: 204 })),

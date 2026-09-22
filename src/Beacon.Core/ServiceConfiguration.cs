@@ -209,6 +209,15 @@ public static class ServiceConfiguration
             services.TryAddScoped<IBeaconAuthorizationProvider, Authorization.Providers.DatabaseAuthorizationProvider>();
         }
 
+        // AI-backed dependencies of handlers that Core scans in unconditionally. Registered only
+        // when AI is off: AddBeaconAI registers IMcpEvalService with TryAddTransient, so an
+        // unconditional TryAdd here would run first and permanently shadow the real implementation.
+        if (!configurationOptions.UseAI)
+        {
+            services.TryAddSingleton<ILlmConnectionTester, AiDisabledLlmConnectionTester>();
+            services.TryAddTransient<IMcpEvalService, AiDisabledMcpEvalService>();
+        }
+
         // Embed token service (HS256 mint/validate for embeddable Beacon integrations)
         services.Configure<EmbedTokenOptions>(configuration.GetSection("Beacon:EmbedToken"));
         services.AddSingleton<IValidateOptions<EmbedTokenOptions>, EmbedTokenOptionsValidator>();

@@ -384,3 +384,14 @@ src/Beacon.UI/web/vite.config.d.ts
 # Local-only working folders — kept on disk, never tracked
 internal/
 .specify/
+
+# Agent/assistant tooling scratch — generated per-session, never source.
+# Note: .claude/rules/, .claude/skills/ and .claude/references/ ARE tracked; only the
+# generated files below are ignored, so don't broaden this to a bare `.claude/`.
+.agents/
+.codex/
+.claude/analytics.json
+.claude/observability/
+.claude/repo-health-latest.md
+docs/site/.claude/
+src/Beacon.UI/web/.claude/

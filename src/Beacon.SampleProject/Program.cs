@@ -24,10 +24,8 @@ using Beacon.MCP;
 using Beacon.MCP.Discovery;
 using Beacon.Api;
 using Beacon.Api.Endpoints;
-using Beacon.Api.Hubs;
 using Beacon.Api.OpenApi;
 using Microsoft.AspNetCore.OpenApi;
-using Beacon.Api.SignalR;
 using Beacon.Api.Authentication;
 using Beacon.SampleProject.Authentication;
 using Beacon.SampleProject.Middleware;
@@ -73,8 +71,12 @@ builder.Services.AddHttpClient().ConfigureHttpClientDefaults(http =>
 // Warp's publisher/worker services can resolve it and so Warp can decorate
 // DbContextOptions<WarpDbContext> with its model customizer + row-lock interceptors. This keeps
 // Beacon's own abstract/factory-based BeaconContext untouched.
+// Warp only supports PostgreSQL today, so it takes its own connection string ("WarpContext")
+// and falls back to BeaconContext when the host runs Beacon on PostgreSQL too. When Beacon is
+// pointed at SQL Server, set ConnectionStrings:WarpContext to a PostgreSQL database.
 builder.Services.AddDbContext<WarpDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("BeaconContext"))
+    options.UseNpgsql(builder.Configuration.GetConnectionString("WarpContext")
+                      ?? builder.Configuration.GetConnectionString("BeaconContext"))
            .UseSnakeCaseNamingConvention());
 
 // Cap the worker count explicitly. Each scheduled-query job opens a BeaconContext plus a
@@ -132,7 +134,8 @@ builder.Services.AddBeaconServices(builder.Configuration, options =>
     .AddBigQueryConnector()
     .AddApiConnector()
     // Configure EF Core database provider for Beacon's own data store
-    .UsePostgreSql(builder.Configuration.GetConnectionString("BeaconContext")!, "semantico")
+    // Connection string and schema come from ConnectionStrings:BeaconContext and Beacon:Schema.
+    .UsePostgreSql()
     ;
 
 // Step 2: Cookie authentication (React shell at root)
@@ -208,8 +211,8 @@ builder.Services.AddRateLimiter(options =>
     });
 });
 
-builder.Services.AddSignalR();
-// (IUserIdProvider registered via AddBeaconHostInfrastructure above.)
+// SignalR + the IUserIdProvider are wired by AddBeaconApiServices() itself; the host adds nothing.
+// Turn realtime off with AddBeaconApiServices(x => x.Realtime = false).
 builder.Services.AddBeaconApiServices();
 
 var app = builder.Build();
@@ -321,9 +324,6 @@ if (beaconConfiguration.UserManagement.Enabled)
 {
     app.MapSetupEndpoints("/beacon");
 }
-
-// SignalR hub for the React shell. Auth required (cookie scheme).
-app.MapHub<BeaconHub>("/beacon/api/hub").RequireAuthorization(BeaconApiEndpoints.AuthPolicyName);
 
 // JobStatusChanged push to /beacon/api/hub is handled by JobStatusChangedBehavior, a Warp
 // pipeline behavior auto-registered by the Warp source generator — no manual filter wiring.

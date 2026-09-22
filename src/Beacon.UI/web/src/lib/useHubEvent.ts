@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { toast } from 'sonner';
+import { useAuth } from '@/auth/useAuth';
 import {
   connectBeaconHub,
   type BeaconHub,
@@ -139,18 +140,23 @@ export function useHubEvent<E extends keyof EventMap>(
 ) {
   const handlerRef = useRef(handler);
   handlerRef.current = handler;
+  const realtimeEnabled = useRealtimeEnabled();
 
   useEffect(
-    () =>
-      addSubscriber(hub => {
+    () => {
+      if (!realtimeEnabled) {
+        return;
+      }
+      return addSubscriber(hub => {
         const method = METHOD_BY_EVENT[event];
         // The hub methods all share the shape `(handler) => unsubscribe`.
         const subscribe = hub[method] as unknown as (
           h: (payload: EventMap[E]) => void,
         ) => () => void;
         return subscribe(payload => handlerRef.current(payload));
-      }),
-    [event],
+      });
+    },
+    [event, realtimeEnabled],
   );
 }
 
@@ -162,6 +168,25 @@ export function useHubEvent<E extends keyof EventMap>(
 export function useHubReconnected(handler: () => void) {
   const handlerRef = useRef(handler);
   handlerRef.current = handler;
+  const realtimeEnabled = useRealtimeEnabled();
 
-  useEffect(() => addSubscriber(hub => hub.onReconnected(() => handlerRef.current())), []);
+  useEffect(() => {
+    if (!realtimeEnabled) {
+      return;
+    }
+    return addSubscriber(hub => hub.onReconnected(() => handlerRef.current()));
+  }, [realtimeEnabled]);
+}
+
+/**
+ * Whether the host has realtime turned on, as advertised by `/beacon/api/auth/me`.
+ * Treated as enabled until the query resolves, so the common (enabled) case does not
+ * pay a round-trip of delay before subscribing. A host with realtime off never maps
+ * `/beacon/api/hub`, so connecting is pointless — and because no subscriber is ever
+ * registered, the `subscribers.size === 0` guard in `scheduleReconnect` keeps the
+ * retry timer from running at all.
+ */
+function useRealtimeEnabled(): boolean {
+  const { data } = useAuth();
+  return data?.realtimeEnabled !== false;
 }
