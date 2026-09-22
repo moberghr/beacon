@@ -8,7 +8,7 @@
 
 §5.2 **Abstract context, provider-specific subclasses.** `BeaconContext` is abstract. `PostgreSqlBeaconContext` and `SqlServerBeaconContext` are the concrete types. PostgreSQL also gets `UseSnakeCaseNamingConvention()`.
 
-§5.3 **Default schema:** `"beacon"`. Configurable via `Beacon:Schema`. All entities live in this schema.
+§5.3 **Schema is fixed at `"beacon"`.** NOT configurable — `Beacon:Schema` set to any other value is rejected at startup by `BeaconDatabaseConfiguration.RequireSupportedSchema`. Migration snapshots bake the schema in, so another value makes `Database.Migrate()` fail with `PendingModelChangesWarning` and no migration can fix it. All entities live in this schema.
 
 ## Configuration & entities
 

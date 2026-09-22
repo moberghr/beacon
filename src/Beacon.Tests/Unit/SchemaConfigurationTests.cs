@@ -26,13 +26,19 @@ public class SchemaConfigurationTests
     }
 
     [Test]
-    public void GetSchema_ReadsConfiguredSchema()
+    public void GetSchema_RejectsSchemaOtherThanBeacon()
     {
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?> { ["Beacon:Schema"] = "tenant_a" })
             .Build();
 
-        BeaconDatabaseConfiguration.GetSchema(configuration).Should().Be("tenant_a");
+        // Beacon's migration snapshot bakes the schema in, so any other value makes
+        // Database.Migrate() fail with PendingModelChangesWarning. Reject it at configuration
+        // time with guidance rather than letting EF surface it as an opaque boot error.
+        var act = () => BeaconDatabaseConfiguration.GetSchema(configuration);
+
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*only supports*beacon*tenant_a*");
     }
 
     [Test]
@@ -62,13 +68,13 @@ public class SchemaConfigurationTests
     {
         var builder = new DbContextOptionsBuilder();
 
-        builder.UseBeaconSchema("tenant_a");
+        builder.UseBeaconSchema("beacon");
         var options = builder.Options;
 
         var extension = options.FindExtension<BeaconSchemaOptionsExtension>();
 
         extension.Should().NotBeNull();
-        extension!.Schema.Should().Be("tenant_a");
+        extension!.Schema.Should().Be("beacon");
     }
 
     [Test]
@@ -110,7 +116,7 @@ public class SchemaConfigurationTests
     [Test]
     public void SqlServerGenerator_RetargetsCreateTableSchema()
     {
-        using var provider = BuildSqlServerProvider("tenant_a");
+        using var provider = BuildSqlServerProvider("beacon");
         using var context = provider.GetRequiredService<IDbContextFactory<BeaconContext>>().CreateDbContext();
         var generator = context.GetService<IMigrationsSqlGenerator>();
 
@@ -134,14 +140,13 @@ public class SchemaConfigurationTests
         var commands = generator.Generate([createTable]);
         var sql = string.Join(Environment.NewLine, commands.Select(x => x.CommandText));
 
-        sql.Should().Contain("[tenant_a].[widgets]");
-        sql.Should().NotContain("[beacon].[widgets]");
+        sql.Should().Contain("[beacon].[widgets]");
     }
 
     [Test]
     public void SqlServerGenerator_RetargetsForeignKeyPrincipalSchema()
     {
-        using var provider = BuildSqlServerProvider("tenant_a");
+        using var provider = BuildSqlServerProvider("beacon");
         using var context = provider.GetRequiredService<IDbContextFactory<BeaconContext>>().CreateDbContext();
         var generator = context.GetService<IMigrationsSqlGenerator>();
 
@@ -159,29 +164,15 @@ public class SchemaConfigurationTests
         var commands = generator.Generate([addForeignKey]);
         var sql = string.Join(Environment.NewLine, commands.Select(x => x.CommandText));
 
-        sql.Should().Contain("[tenant_a].[categories]");
-        sql.Should().NotContain("[beacon].[categories]");
+        sql.Should().Contain("[beacon].[categories]");
     }
 
-    [Test]
-    public void ModelCacheKeyFactory_DiffersBySchema()
-    {
-        using var providerA = BuildSqlServerProvider("tenant_a");
-        using var providerB = BuildSqlServerProvider("tenant_b");
-        using var contextA = providerA.GetRequiredService<IDbContextFactory<BeaconContext>>().CreateDbContext();
-        using var contextB = providerB.GetRequiredService<IDbContextFactory<BeaconContext>>().CreateDbContext();
-
-        var keyA = contextA.GetService<IModelCacheKeyFactory>().Create(contextA, designTime: false);
-        var keyB = contextB.GetService<IModelCacheKeyFactory>().Create(contextB, designTime: false);
-
-        keyA.Should().NotBe(keyB);
-    }
 
     [Test]
     public void ModelCacheKeyFactory_EqualForSameSchema()
     {
-        using var providerA = BuildSqlServerProvider("tenant_a");
-        using var providerB = BuildSqlServerProvider("tenant_a");
+        using var providerA = BuildSqlServerProvider("beacon");
+        using var providerB = BuildSqlServerProvider("beacon");
         using var contextA = providerA.GetRequiredService<IDbContextFactory<BeaconContext>>().CreateDbContext();
         using var contextB = providerB.GetRequiredService<IDbContextFactory<BeaconContext>>().CreateDbContext();
 
@@ -198,7 +189,7 @@ public class SchemaConfigurationTests
     [Test]
     public void PostgreSqlGenerator_RetargetsNullSchema()
     {
-        using var provider = BuildPostgreSqlProvider("tenant_a");
+        using var provider = BuildPostgreSqlProvider("beacon");
         using var context = provider.GetRequiredService<IDbContextFactory<BeaconContext>>().CreateDbContext();
         var generator = context.GetService<IMigrationsSqlGenerator>();
 
@@ -222,14 +213,13 @@ public class SchemaConfigurationTests
         var commands = generator.Generate([createTable]);
         var sql = string.Join(Environment.NewLine, commands.Select(x => x.CommandText));
 
-        sql.Should().Contain("tenant_a.widgets");
-        sql.Should().NotContain("beacon.widgets");
+        sql.Should().Contain("beacon.widgets");
     }
 
     [Test]
     public void PostgreSqlGenerator_RetargetsForeignKeyPrincipalSchema()
     {
-        using var provider = BuildPostgreSqlProvider("tenant_a");
+        using var provider = BuildPostgreSqlProvider("beacon");
         using var context = provider.GetRequiredService<IDbContextFactory<BeaconContext>>().CreateDbContext();
         var generator = context.GetService<IMigrationsSqlGenerator>();
 
@@ -247,14 +237,13 @@ public class SchemaConfigurationTests
         var commands = generator.Generate([addForeignKey]);
         var sql = string.Join(Environment.NewLine, commands.Select(x => x.CommandText));
 
-        sql.Should().Contain("tenant_a.categories");
-        sql.Should().NotContain("beacon.categories");
+        sql.Should().Contain("beacon.categories");
     }
 
     [Test]
     public void PostgreSqlGenerator_RetargetsBeaconLiteral()
     {
-        using var provider = BuildPostgreSqlProvider("tenant_a");
+        using var provider = BuildPostgreSqlProvider("beacon");
         using var context = provider.GetRequiredService<IDbContextFactory<BeaconContext>>().CreateDbContext();
         var generator = context.GetService<IMigrationsSqlGenerator>();
 
@@ -278,8 +267,7 @@ public class SchemaConfigurationTests
         var commands = generator.Generate([createTable]);
         var sql = string.Join(Environment.NewLine, commands.Select(x => x.CommandText));
 
-        sql.Should().Contain("tenant_a.widgets");
-        sql.Should().NotContain("beacon.widgets");
+        sql.Should().Contain("beacon.widgets");
     }
 
     // The existing SqlServerGenerator_RetargetsCreateTableSchema populates only Columns, and a
@@ -290,7 +278,7 @@ public class SchemaConfigurationTests
     [Test]
     public void SqlServerGenerator_RetargetsNestedForeignKeySchema()
     {
-        using var provider = BuildSqlServerProvider("tenant_a");
+        using var provider = BuildSqlServerProvider("beacon");
         using var context = provider.GetRequiredService<IDbContextFactory<BeaconContext>>().CreateDbContext();
         var generator = context.GetService<IMigrationsSqlGenerator>();
 
@@ -335,14 +323,13 @@ public class SchemaConfigurationTests
         var commands = generator.Generate([createTable]);
         var sql = string.Join(Environment.NewLine, commands.Select(x => x.CommandText));
 
-        sql.Should().Contain("REFERENCES [tenant_a].[categories]");
-        sql.Should().NotContain("REFERENCES [beacon].[categories]");
+        sql.Should().Contain("REFERENCES [beacon].[categories]");
     }
 
     [Test]
     public void SqlServerGenerator_RetargetsEnsureSchemaOperation()
     {
-        using var provider = BuildSqlServerProvider("tenant_a");
+        using var provider = BuildSqlServerProvider("beacon");
         using var context = provider.GetRequiredService<IDbContextFactory<BeaconContext>>().CreateDbContext();
         var generator = context.GetService<IMigrationsSqlGenerator>();
 
@@ -351,14 +338,13 @@ public class SchemaConfigurationTests
         var commands = generator.Generate([ensureSchema]);
         var sql = string.Join(Environment.NewLine, commands.Select(x => x.CommandText));
 
-        sql.Should().Contain("tenant_a");
-        sql.Should().NotContain("beacon");
+        sql.Should().Contain("beacon");
     }
 
     [Test]
     public void SqlServerGenerator_RetargetsRenameTableNewSchema()
     {
-        using var provider = BuildSqlServerProvider("tenant_a");
+        using var provider = BuildSqlServerProvider("beacon");
         using var context = provider.GetRequiredService<IDbContextFactory<BeaconContext>>().CreateDbContext();
         var generator = context.GetService<IMigrationsSqlGenerator>();
 
@@ -373,14 +359,13 @@ public class SchemaConfigurationTests
         var commands = generator.Generate([renameTable]);
         var sql = string.Join(Environment.NewLine, commands.Select(x => x.CommandText));
 
-        sql.Should().Contain("tenant_a");
-        sql.Should().NotContain("beacon");
+        sql.Should().Contain("beacon");
     }
 
     [Test]
     public void Generator_ThrowsOnUnexpectedSchemaLiteral()
     {
-        using var provider = BuildSqlServerProvider("tenant_a");
+        using var provider = BuildSqlServerProvider("beacon");
         using var context = provider.GetRequiredService<IDbContextFactory<BeaconContext>>().CreateDbContext();
         var generator = context.GetService<IMigrationsSqlGenerator>();
 
@@ -405,24 +390,8 @@ public class SchemaConfigurationTests
 
         var exception = act.Should().Throw<InvalidOperationException>().Which;
         exception.Message.Should().Contain("stale_literal");
-        exception.Message.Should().Contain("tenant_a");
+        exception.Message.Should().Contain("beacon");
         exception.Message.Should().Contain(nameof(CreateTableOperation));
-    }
-
-    // The existing ModelCacheKeyFactory_DiffersBySchema only compares the key tuple, in a setup
-    // where the collision it guards against structurally cannot occur (separate DI containers).
-    // This proves the MODELS themselves differ, not just the keys.
-    [Test]
-    public void ModelCacheKey_DifferentSchemasBuildDifferentModels()
-    {
-        using var providerA = BuildSqlServerProvider("tenant_a");
-        using var providerB = BuildSqlServerProvider("tenant_b");
-        using var contextA = providerA.GetRequiredService<IDbContextFactory<BeaconContext>>().CreateDbContext();
-        using var contextB = providerB.GetRequiredService<IDbContextFactory<BeaconContext>>().CreateDbContext();
-
-        contextA.Model.GetDefaultSchema().Should().Be("tenant_a");
-        contextB.Model.GetDefaultSchema().Should().Be("tenant_b");
-        contextA.Model.GetDefaultSchema().Should().NotBe(contextB.Model.GetDefaultSchema());
     }
 
     [Test]
@@ -432,16 +401,16 @@ public class SchemaConfigurationTests
 
         builder.UseSqlServer(
             "Server=localhost;Database=unused;Trusted_Connection=True;TrustServerCertificate=True",
-            x => x.MigrationsHistoryTable("__EFMigrationsHistory", "beacon"));
-        builder.UseBeaconSchema("tenant_a");
+            x => x.MigrationsHistoryTable("__EFMigrationsHistory", "somewhere_else"));
+        builder.UseBeaconSchema("beacon");
 
         var extension = builder.Options.FindExtension<BeaconSchemaOptionsExtension>();
 
         var act = () => extension!.Validate(builder.Options);
 
         var exception = act.Should().Throw<InvalidOperationException>().Which;
-        exception.Message.Should().Contain("tenant_a");
         exception.Message.Should().Contain("beacon");
+        exception.Message.Should().Contain("somewhere_else");
     }
 
     [Test]
@@ -450,7 +419,7 @@ public class SchemaConfigurationTests
         var builder = new DbContextOptionsBuilder();
 
         builder.UseSqlServer("Server=localhost;Database=unused;Trusted_Connection=True;TrustServerCertificate=True");
-        builder.UseBeaconSchema("tenant_a");
+        builder.UseBeaconSchema("beacon");
 
         var extension = builder.Options.FindExtension<BeaconSchemaOptionsExtension>();
 

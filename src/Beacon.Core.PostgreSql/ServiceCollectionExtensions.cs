@@ -31,8 +31,10 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection UsePostgreSql(
         this BeaconBuilder builder,
         string connectionString,
-        string schema = "beacon")
+        string schema = BeaconDatabaseConfiguration.DefaultSchema)
     {
+        BeaconDatabaseConfiguration.RequireSupportedSchema(schema);
+
         var dataSource = new NpgsqlDataSourceBuilder(connectionString)
         {
             ConnectionStringBuilder = { SearchPath = schema }
