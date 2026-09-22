@@ -705,27 +705,30 @@ Settings resolve as **lock → project override → global value → built-in de
 
 ## Schema Configuration
 
-The default schema is `beacon`. Override it for multi-tenancy or environment separation:
+Beacon runs in the **`beacon`** schema, and only that schema. There is nothing to configure:
 
 ```csharp
-var schema = builder.Configuration["Beacon:Schema"] ?? "beacon";
-
 builder.Services.AddBeaconServices(builder.Configuration, options =>
     {
         options.AddBeaconScheduler<BeaconScheduler>();
     })
-    .UsePostgreSql(
-        builder.Configuration.GetConnectionString("BeaconContext")!,
-        schema);
+    .UsePostgreSql();   // connection string from ConnectionStrings:BeaconContext
 ```
 
-```json
-{
-  "Beacon": {
-    "Schema": "production_beacon"
-  }
-}
+Setting `Beacon:Schema` to anything other than `beacon` is rejected at startup:
+
 ```
+Beacon only supports the 'beacon' schema, but 'tenant_a' was configured.
+Remove Beacon:Schema (or set it to 'beacon') and move any existing Beacon tables into 'beacon'.
+```
+
+:::note[Why it is fixed]
+Beacon ships EF Core migrations, and a migration snapshot bakes the schema in. On any other schema
+EF compares model against snapshot, raises `PendingModelChangesWarning`, and `UseBeacon()`'s
+`Database.Migrate()` throws before applying anything. Adding a migration cannot resolve it — the
+next snapshot bakes one schema too. Rejecting the setting up front turns an opaque EF boot failure
+into a message that says what to change.
+:::
 
 ## Metadata Loading (Large Databases)
 
