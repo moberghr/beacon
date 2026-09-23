@@ -1,12 +1,15 @@
-<Project Sdk="Microsoft.NET.Sdk.Razor">
+﻿<Project Sdk="Microsoft.NET.Sdk.Razor">
 
     <PropertyGroup>
         <TargetFramework>net10.0</TargetFramework>
         <Nullable>enable</Nullable>
         <ImplicitUsings>enable</ImplicitUsings>
 
-        <!-- RCL static web assets are exposed at /_content/Beacon.UI/* in consuming apps. -->
-        <StaticWebAssetBasePath>/</StaticWebAssetBasePath>
+        <!-- The SPA ships under /beacon, the prefix Beacon already reserves for /beacon/api and
+             /beacon/mcp. Hosting it at the site root instead made it unmountable in any app that
+             owns "/" itself: its client routes (/home, /queries, /users, ...) collided with the
+             host's own routes and the host always won. -->
+        <StaticWebAssetBasePath>/beacon</StaticWebAssetBasePath>
 
         <!-- NuGet packaging metadata. Consumers reference this package to get the React SPA + MapBeaconUi().
              PackageId comes from Directory.Build.props (Moberg.Beacon.UI) — do not set it here. -->

@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Warp.Core;
 using Warp.Worker;
 using Warp.Provider.PostgreSql;
@@ -139,7 +139,7 @@ builder.Services.AddBeaconServices(builder.Configuration, options =>
     ;
 
 // Step 2: Cookie authentication (React shell at root)
-builder.Services.AddBeaconCookieAuthentication("/");
+builder.Services.AddBeaconCookieAuthentication(BeaconUiEndpointRouteBuilderExtensions.BasePath);
 
 // Step 2b: OIDC authentication (SSO)
 builder.Services.AddBeaconOidcAuthentication(builder.Configuration);
@@ -292,13 +292,13 @@ app.UseAuthorization();
 var beaconConfiguration = app.Services.GetRequiredService<BeaconConfiguration>();
 if (beaconConfiguration.Authentication.EnableLoginForm)
 {
-    app.UseMiddleware<LoginFormAuthMiddleware>(beaconConfiguration, "/");
+    app.UseMiddleware<LoginFormAuthMiddleware>(beaconConfiguration, BeaconUiEndpointRouteBuilderExtensions.BasePath);
 }
 
 // First-run setup redirect middleware
 if (beaconConfiguration.UserManagement.Enabled)
 {
-    app.UseMiddleware<FirstRunSetupMiddleware>(beaconConfiguration, "/");
+    app.UseMiddleware<FirstRunSetupMiddleware>(beaconConfiguration, BeaconUiEndpointRouteBuilderExtensions.BasePath);
 }
 
 // Antiforgery middleware must run after auth so it can issue tokens for the current user.
@@ -346,9 +346,10 @@ app.UseWarpUI(warpUiOptions =>
     warpUiOptions.Authorization = new WarpDashboardAuthFilter();
 });
 
-// React SPA shell at root /. Beacon.UI ships the built React app as Razor Class
+// React SPA shell at /beacon. Beacon.UI ships the built React app as Razor Class
 // Library static web assets; MapBeaconUi() wires the SPA fallback so client-side
 // routes resolve to its index.html. Real asset requests fall through to UseStaticFiles.
+// The root path is left to the host app — see BeaconUiEndpointRouteBuilderExtensions.
 app.MapBeaconUi();
 
 // Warp startup: apply the warp-schema migrations, then register static recurring jobs. The
