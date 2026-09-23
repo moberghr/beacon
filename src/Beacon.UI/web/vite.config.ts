@@ -1,4 +1,4 @@
-import { defineConfig, type Plugin } from 'vite';
+﻿import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'node:path';
 import fs from 'node:fs';
@@ -40,7 +40,10 @@ function stripMockServiceWorker(): Plugin {
 }
 
 export default defineConfig({
-  base: '/',
+  // Emitted asset URLs are absolute under /beacon, matching StaticWebAssetBasePath in the csproj
+  // and BrowserRouter's basename. Absolute (not './') so a nested client route such as
+  // /beacon/queries/5 still resolves /beacon/assets/*, rather than /beacon/queries/assets/*.
+  base: '/beacon/',
   plugins: [react(), stripMockServiceWorker()],
   define: {
     'import.meta.env.BEACON_COMMIT_SHA': JSON.stringify(commitSha),
@@ -52,7 +55,7 @@ export default defineConfig({
     },
   },
   // Output lands in src/Beacon.UI/wwwroot — the Razor Class Library ships this as
-  // static web assets at the root path (see StaticWebAssetBasePath in the csproj).
+  // static web assets under /beacon (see StaticWebAssetBasePath in the csproj).
   // Consumers serve them via app.MapBeaconUi().
   build: {
     outDir: '../wwwroot',

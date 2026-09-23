@@ -1,4 +1,4 @@
-import { Suspense, type ComponentType } from 'react';
+﻿import { Suspense, type ComponentType } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { RequireAuth } from './auth/RequireAuth';
@@ -71,7 +71,7 @@ function lazyRoute(Element: ComponentType) {
 
 export default function App() {
   return (
-    <BrowserRouter basename="/">
+    <BrowserRouter basename="/beacon">
       <Routes>
         {/* Anonymous (auth landing) routes — must NOT be wrapped in RequireAuth */}
         <Route path="/login" element={lazyRoute(LoginPage)} />
