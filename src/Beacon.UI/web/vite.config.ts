@@ -54,11 +54,12 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
-  // Output lands in src/Beacon.UI/wwwroot — the Razor Class Library ships this as
-  // static web assets under /beacon (see StaticWebAssetBasePath in the csproj).
-  // Consumers serve them via app.MapBeaconUi().
+  // Output lands in src/Beacon.UI/wwwroot/beacon — the folder name IS the mount path. The
+  // bundle is packed as plain content and copied into the consuming app's wwwroot as-is, so
+  // nesting it here is what puts index.html and assets/ under /beacon for every consumer.
+  // Must stay in step with ReactBuildOutputDir in the csproj and `base` above.
   build: {
-    outDir: '../wwwroot',
+    outDir: '../wwwroot/beacon',
     emptyOutDir: true,
     // 'hidden' emits .map files for tooling but omits the sourceMappingURL
     // reference from the served JS, so maps aren't exposed to production users.
