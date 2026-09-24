@@ -331,7 +331,8 @@ if (beaconConfiguration.UserManagement.Enabled)
 // Beacon MCP Server - available at /beacon/mcp (Streamable HTTP, SDK transport).
 // §1.4 — the MCP tools ask/query execute SQL, so the route requires the same Execute scope
 // as the REST SQL endpoints; a Read-scoped API key must not reach SQL execution through MCP.
-// Cookie/OIDC callers are unaffected (the policy only constrains api_key identities).
+// Entra JWT callers are scope-gated too: IMcpCallerMapper (Beacon:Mcp:Callers) decides their scope and
+// projects. Cookie/OIDC sessions are unaffected (the policy only constrains API keys and mapped MCP JWT callers).
 app.MapMcp("/beacon/mcp").RequireAuthorization(BeaconApiEndpoints.ExecuteScopePolicyName);
 
 // MCP discovery documents (tier 3, anonymous by design): RFC 9728 protected-resource metadata at

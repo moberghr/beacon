@@ -124,7 +124,12 @@ public class JwtExternalApiAuthenticationProvider : IBeaconAuthenticationProvide
             }
 
             var user = BuildAuthenticatedUser(jwtToken);
-            return AuthenticationResult.Succeeded(user);
+            return new AuthenticationResult
+            {
+                Success = true,
+                User = user,
+                TokenPrincipal = new ClaimsPrincipal(new ClaimsIdentity(jwtToken.Claims, "Bearer"))
+            };
         }
         catch (SecurityTokenExpiredException)
         {

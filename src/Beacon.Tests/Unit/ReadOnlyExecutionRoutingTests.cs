@@ -3,6 +3,7 @@ using System.Data;
 using System.Data.Common;
 using System.Diagnostics.CodeAnalysis;
 using FluentAssertions;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -369,6 +370,7 @@ public class ReadOnlyExecutionRoutingTests
         var auditService = new McpAuditService(
             new Mock<IDbContextFactory<BeaconContext>>().Object,
             SettingsProviderMock.Create().Object,
+            new HttpContextAccessor(),
             NullLogger<McpAuditService>.Instance);
         var signalService = new McpSignalService(
             new Mock<IDbContextFactory<BeaconContext>>().Object,

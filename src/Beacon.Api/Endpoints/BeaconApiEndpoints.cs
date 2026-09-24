@@ -1,4 +1,5 @@
 using Beacon.Api.Hubs;
+using Beacon.Core.Mcp;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -11,10 +12,11 @@ public static class BeaconApiEndpoints
     public const string AdminPolicyName = "BeaconApiAdmin";
 
     /// <summary>
-    /// Requires the <c>Execute</c> (or <c>Admin</c>) scope for API-key callers (§1.4).
-    /// Interactive cookie/OIDC sessions carry no <c>scope</c> claim and are not scope-gated —
-    /// they are already a full authenticated session governed by role. Only the scoped
-    /// API-key identity minted by <c>ApiKeyAuthMiddleware</c> is constrained here.
+    /// Requires the <c>Execute</c> (or <c>Admin</c>) scope for scoped callers (§1.4): API keys minted by
+    /// <c>ApiKeyAuthMiddleware</c> and JWT callers on <c>/beacon/mcp</c> minted by <c>JwtBearerAuthMiddleware</c>
+    /// (<c>auth_method=mcp_caller</c>, scope decided by <see cref="IMcpCallerMapper"/>, never by the token).
+    /// Interactive cookie/OIDC sessions and JWT callers on other routes carry no such marker and are not
+    /// scope-gated — they are a full authenticated session governed by role.
     /// </summary>
     public const string ExecuteScopePolicyName = "BeaconApiExecute";
 
@@ -39,15 +41,16 @@ public static class BeaconApiEndpoints
                 .RequireRole("Admin")
                 .Build());
 
-            // §1.4 — API keys carry scopes; enforce the write scope on mutating endpoints.
-            // A non-API-key (cookie/OIDC) caller has no auth_method=api_key claim and is
-            // therefore allowed through; an API-key caller must present Execute or Admin.
+            // §1.4 — API keys and mapped MCP JWT callers carry scopes; enforce the write scope.
+            // A cookie/OIDC caller has neither auth_method marker and is allowed through; a scoped
+            // caller must present Execute or Admin. An unmapped MCP JWT caller has no scope → 403.
             options.AddPolicy(ExecuteScopePolicyName, new AuthorizationPolicyBuilder()
                 .RequireAuthenticatedUser()
                 .RequireAssertion(context =>
                 {
-                    var isApiKey = context.User.HasClaim("auth_method", ApiKeyAuthMethod);
-                    if (!isApiKey)
+                    var isScoped = context.User.HasClaim(McpCallerClaimTypes.AuthMethod, ApiKeyAuthMethod)
+                        || context.User.HasClaim(McpCallerClaimTypes.AuthMethod, McpCallerClaimTypes.McpCallerAuthMethod);
+                    if (!isScoped)
                     {
                         return true;
                     }

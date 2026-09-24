@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using ModelContextProtocol.Protocol;
@@ -36,7 +37,7 @@ public class ProjectGetDocumentationResponseFormatTests
         // Validation runs before project resolution or any documentation service call — null
         // services prove it. The rejection itself is audited (§1.7).
         var auditFactory = new Mock<IDbContextFactory<BeaconContext>>();
-        var auditService = new McpAuditService(auditFactory.Object, SettingsProviderMock.Create().Object, NullLogger<McpAuditService>.Instance);
+        var auditService = new McpAuditService(auditFactory.Object, SettingsProviderMock.Create().Object, new HttpContextAccessor(), NullLogger<McpAuditService>.Instance);
         var projectContext = new McpProjectContext { UserId = 1, ApiKeyId = 9, AllowedProjectIds = [ProjectId] };
 
         var tool = new ProjectGetDocumentationTool(
@@ -184,6 +185,7 @@ public class ProjectGetDocumentationResponseFormatTests
         var auditService = new McpAuditService(
             new Mock<IDbContextFactory<BeaconContext>>().Object,
             SettingsProviderMock.Create().Object,
+            new HttpContextAccessor(),
             NullLogger<McpAuditService>.Instance);
 
         var tool = new ProjectGetDocumentationTool(

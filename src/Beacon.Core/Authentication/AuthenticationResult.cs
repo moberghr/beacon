@@ -1,3 +1,5 @@
+using System.Security.Claims;
+
 namespace Beacon.Core.Authentication;
 
 /// <summary>
@@ -19,6 +21,12 @@ public class AuthenticationResult
     /// The authenticated user details when successful.
     /// </summary>
     public AuthenticatedUser? User { get; init; }
+
+    /// <summary>
+    /// The validated token's raw claims (unmapped names such as <c>oid</c>, multi-valued <c>groups</c>), set only by
+    /// bearer-token validation. <see cref="AuthenticatedUser.Claims"/> keeps just the first value per type.
+    /// </summary>
+    public ClaimsPrincipal? TokenPrincipal { get; init; }
 
     /// <summary>
     /// Creates a failed authentication result with an error message.
