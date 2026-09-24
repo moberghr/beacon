@@ -1,4 +1,4 @@
-name: Build the Beacon Release
+﻿name: Build the Beacon Release
 
 on:
   release:
@@ -97,10 +97,15 @@ jobs:
         # step globs this directory rather than reconstructing names.
         for PROJECT in $PACKABLE_PROJECTS; do
           echo "Packing: $PROJECT"
+          # No --no-build: the SDK gates ResolveProjectStaticWebAssets on NoBuild != true, so a
+          # no-build pack silently skips static web asset discovery. Beacon.UI's React bundle then
+          # shipped under content/ + contentFiles/ instead of staticwebassets/ — the
+          # packages.config-era layout, which SDK-style PackageReference consumers never copy, so
+          # the UI 404'd for every consumer while the sample project (ProjectReference) worked.
+          # The Build step above already ran; this re-run is incremental.
           dotnet pack "$PROJECT" \
             -p:PackageVersion="$VERSION" \
             --configuration Release \
-            --no-build \
             --output artifacts
         done
 

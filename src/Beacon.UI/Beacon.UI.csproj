@@ -55,6 +55,34 @@
         <Exec Command="npm run build" WorkingDirectory="$(ReactAppDir)" />
     </Target>
 
+    <!-- Register the bundle vite just produced as Content, so the Razor SDK turns it into static
+         web assets and packs it under staticwebassets/.
+
+         Without this the files are invisible to the SDK: it globs wwwroot/** at EVALUATION time,
+         and BuildReactApp does not write them until the build is already running. They were then
+         swept up only by the pack-time Content glob and shipped under content/ + contentFiles/ —
+         the packages.config-era layout, which an SDK-style PackageReference never copies. The
+         result was a package whose 498 bundle files no consumer could serve: the asset manifest
+         pointed at <consumer>/wwwroot/beacon/* and nothing ever wrote those files, so every
+         request 404'd while the sample project (a ProjectReference, resolved from disk) worked.
+
+         Runs after the bundle exists and before AssignTargetPaths consumes the item list. The
+         condition is on the output directory rather than ShouldBuildReact because the release
+         pipeline packs with NoBuild set: BuildReactApp is skipped there, so an AfterTargets hook
+         alone would never fire and pack would fall back to the broken content/ layout. -->
+    <Target Name="IncludeReactBuildOutput"
+            AfterTargets="BuildReactApp"
+            BeforeTargets="AssignTargetPaths;ResolveStaticWebAssetsConfiguration"
+            Condition="Exists('$(ReactBuildOutputDir)')">
+        <ItemGroup>
+            <!-- Drop the evaluation-time snapshot first: on an incremental rebuild it still names
+                 the previous bundle's content-hashed filenames, which vite has just deleted, and
+                 DefineStaticWebAssets fails with "No file exists for the asset". -->
+            <Content Remove="$(ReactBuildOutputDir)/**" />
+            <Content Include="$(ReactBuildOutputDir)/**" />
+        </ItemGroup>
+    </Target>
+
     <Target Name="CleanReactBuild" AfterTargets="Clean">
         <RemoveDir Directories="$(ReactBuildOutputDir)" Condition="Exists('$(ReactBuildOutputDir)')" />
     </Target>
