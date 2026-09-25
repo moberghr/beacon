@@ -56,6 +56,8 @@ public static class McpRetentionDenyList
         Rule<McpAuditLog>(nameof(McpAuditLog.Tool), RetentionKind.Structural),
         Rule<McpAuditLog>(nameof(McpAuditLog.Parameters), RetentionKind.Content, McpContentRedactor.IsStructuralAuditParameters),
         Rule<McpAuditLog>(nameof(McpAuditLog.ErrorMessage), RetentionKind.ErrorClass),
+        Rule<McpAuditLog>(nameof(McpAuditLog.CallerKind), RetentionKind.Structural),
+        Rule<McpAuditLog>(nameof(McpAuditLog.CallerHash), RetentionKind.Structural),
 
         // McpLearnedPattern — PatternContent is Structural WITH A GUARD: under the lock it is only ever the
         // deterministic schema/table/column template (the LLM lesson extractor is disabled). The examples are

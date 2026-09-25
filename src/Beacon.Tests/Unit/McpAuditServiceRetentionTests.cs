@@ -1,11 +1,14 @@
+using System.Security.Claims;
 using System.Text.Json;
 using FluentAssertions;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using NUnit.Framework;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
+using Beacon.Core.Mcp;
 using Beacon.Core.Models;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Retention;
@@ -67,7 +70,45 @@ public class McpAuditServiceRetentionTests
         logs[0].ErrorMessage.Should().Be("permission denied for table orders");
     }
 
-    private static async Task<List<McpAuditLog>> LogAsync(Mock<IMcpSettingsProvider> provider)
+    [Test]
+    public async Task MappedJwtCaller_RecordsCallerKindAndHash()
+    {
+        var hash = new string('a', 64);
+        var context = new DefaultHttpContext
+        {
+            User = new ClaimsPrincipal(new ClaimsIdentity(
+                [
+                    new Claim(McpCallerClaimTypes.CallerKind, "System"),
+                    new Claim(McpCallerClaimTypes.CallerHash, hash)
+                ],
+                "Bearer"))
+        };
+
+        var logs = await LogAsync(SettingsProviderMock.Create(), new HttpContextAccessor { HttpContext = context });
+
+        logs.Should().ContainSingle();
+        logs[0].CallerKind.Should().Be("System");
+        logs[0].CallerHash.Should().Be(hash);
+    }
+
+    [Test]
+    public async Task CallerWithoutMappedIdentity_LeavesCallerColumnsNull()
+    {
+        var context = new DefaultHttpContext
+        {
+            User = new ClaimsPrincipal(new ClaimsIdentity([new Claim("auth_method", "api_key")], "ApiKey"))
+        };
+
+        var logs = await LogAsync(SettingsProviderMock.Create(), new HttpContextAccessor { HttpContext = context });
+
+        logs.Should().ContainSingle();
+        logs[0].CallerKind.Should().BeNull();
+        logs[0].CallerHash.Should().BeNull();
+    }
+
+    private static async Task<List<McpAuditLog>> LogAsync(
+        Mock<IMcpSettingsProvider> provider,
+        IHttpContextAccessor? httpContextAccessor = null)
     {
         var logs = new List<McpAuditLog>();
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
@@ -75,7 +116,11 @@ public class McpAuditServiceRetentionTests
             .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(() => new AuditCapturingContext(logs));
 
-        var service = new McpAuditService(factory.Object, provider.Object, NullLogger<McpAuditService>.Instance);
+        var service = new McpAuditService(
+            factory.Object,
+            provider.Object,
+            httpContextAccessor ?? new HttpContextAccessor(),
+            NullLogger<McpAuditService>.Instance);
 
         await service.LogToolCallAsync(
             sessionId: null,

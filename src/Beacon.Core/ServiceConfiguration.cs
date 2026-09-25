@@ -100,6 +100,9 @@ public static class ServiceConfiguration
 
         services.AddSingleton<IEncryptionService>(new EncryptionService(encryptionKey));
 
+        // Keyed hash for MCP caller audit identities; derives its own purpose-bound key from the encryption key.
+        services.TryAddSingleton(new Mcp.McpCallerSubjectHasher(encryptionKey));
+
         services.AddSingleton<IAdapter, TeamsAdapter>();
         services.AddSingleton<IAdapter, SlackAdapter>();
         if (configurationOptions.EmailAdapter != null)
@@ -228,6 +231,14 @@ public static class ServiceConfiguration
             .Bind(configuration.GetSection(Configuration.McpDeploymentOptions.SectionName))
             .ValidateOnStart();
         services.AddSingleton<IValidateOptions<Configuration.McpDeploymentOptions>, Configuration.McpDeploymentOptionsValidator>();
+
+        // JWT callers on /beacon/mcp (Beacon:Mcp:Callers). ValidateOnStart so a system entry with both or neither of
+        // ClientId/ObjectId fails the host at boot. TryAdd so a host can supply its own IMcpCallerMapper.
+        services.AddOptions<Configuration.McpCallerOptions>()
+            .Bind(configuration.GetSection(Configuration.McpCallerOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<Configuration.McpCallerOptions>, Configuration.McpCallerOptionsValidator>();
+        services.TryAddScoped<Mcp.IMcpCallerMapper, Mcp.ConfiguredMcpCallerMapper>();
         services.TryAddSingleton<TimeProvider>(TimeProvider.System);
         services.TryAddSingleton<IEmbedTokenService, EmbedTokenService>();
 

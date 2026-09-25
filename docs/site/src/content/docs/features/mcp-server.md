@@ -113,6 +113,8 @@ https://your-beacon-host/beacon/mcp
 
 Authentication is a bearer token in the `Authorization` header — a Beacon API key with the `Execute` or `Admin` scope (`Read` keys cannot reach the SQL-executing tools). Paste the key wherever the client asks for a token/header; clients that probe the URL first will find the discovery documents below and learn the auth requirements automatically.
 
+Agent platforms can instead call with **Microsoft Entra ID tokens**, either on behalf of a user or as a system identity. Beacon configuration decides their projects and scope. See [Entra ID callers on MCP](/features/mcp-entra-callers/).
+
 ### Discovery endpoints
 
 Beacon publishes anonymous, read-only discovery metadata so remote clients can bootstrap a connection without documentation:
@@ -507,5 +509,6 @@ The server streams the JSON-RPC response back on the same connection.
 
 - [Knowledge Base & Grounding](/features/knowledge-base/) — what grounds generated SQL, and how to curate it
 - [API Keys](/features/api-keys/) — scopes, project restrictions, and rotation
+- [Entra ID callers on MCP](/features/mcp-entra-callers/) — user and system JWT callers, their projects, scope and audit
 - [Admin Settings](/features/admin-settings/) — LLM provider configuration
 - [AI Integration](/features/ai-integration/) — documentation generation that feeds the MCP catalog tools
