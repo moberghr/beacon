@@ -21,8 +21,14 @@ builder.Services.AddBeaconMcp()
         o.MaxResponseBytes = 1_048_576;                // default 1 MiB
         o.NamedToolLimit = 20;                         // above this: search_api + call_api
         o.RequestTimeout = TimeSpan.FromSeconds(30);   // default 30 s
+        // o.TrustedAuthenticationSchemes = ["..."];   // default none; see "Authentication schemes" below
     });
 ```
+
+`ProjectName` names the **host project**, the same one `ExposeDbContext` and `ExposeDocs` use. Beacon finds it by
+its host key (`Project.HostManagedKey = host:{name, lower-cased}`), never by its display name, so a project a Beacon
+user creates with the same name never gets the tools (see [Host documentation](/features/host-docs/#the-host-project)).
+The tools appear once the host has run `SyncBeaconHostAsync` and the project exists.
 
 Mark a controller action:
 
@@ -54,12 +60,33 @@ permission check implemented as a filter (like Netgiro's `[Permission]`) is not 
 neither `[Authorize]` on its controllers nor a fallback policy, so every exposed action carries `[Authorize]` next to
 `[BeaconTool]` and `[Permission]`, as above.
 
+### Authentication schemes
+
+Beacon authorizes the dispatched call against the host principal it built for the MCP caller; it never runs an
+authentication handler. A policy that names **authentication schemes** (`[Authorize(AuthenticationSchemes = "StepUp")]`,
+`new AuthorizationPolicyBuilder("PartnerApi")`, a default or fallback policy with schemes) would therefore be
+evaluated as if that scheme had authenticated the caller — a step-up or MFA scheme would be bypassed. So an exposed
+endpoint whose combined policy names any scheme **fails startup**, naming the endpoint and the schemes, unless the
+host lists each scheme in `TrustedAuthenticationSchemes`:
+
+```csharp
+.AddHostEndpointTools(o =>
+{
+    o.ProjectName = "Netgiro";
+    o.TrustedAuthenticationSchemes = ["Cookies"];      // only if the MCP caller is an acceptable stand-in for it
+});
+```
+
+List a scheme only when an authorized MCP caller really should count as authenticated by it. Never list a step-up,
+MFA or partner scheme.
+
 ## What gets exposed
 
 - Only endpoints carrying `[BeaconTool]` / `.WithBeaconTool(...)`. Everything else is invisible.
 - The name must match `^[a-z][a-z0-9_]{2,47}$` and be unique. `ReadOnly = true` is mandatory: a missing or `false`
   flag **fails startup** with a message naming the endpoint. So do bad or duplicate names, file-upload parameters,
-  `[AsParameters]`, and an endpoint with no authorization at all (see below).
+  `[AsParameters]`, an endpoint with no authorization at all, and an endpoint whose policy names an authentication
+  scheme that is not in `TrustedAuthenticationSchemes` (see above).
 - Endpoints are discovered when the host's pipeline is built (they do not exist at DI time), from the
   `EndpointDataSource`. Parameters come from **ApiExplorer** when it describes the endpoint (`[ApiController]`
   controllers, or `AddEndpointsApiExplorer()` for minimal APIs), otherwise from the action's parameters and binding
@@ -106,7 +133,11 @@ outside the project neither see nor can call them (fail closed); neither can any
 - `null` → the call is refused.
 
 A host whose permissions live in its own user store registers its own factory. Netgiro maps the Entra user to its
-admin user and `AdminPermission` set:
+admin user and `AdminPermission` set. Netgiro's permission claim is `NetgiroClaimTypes.Permission`
+(`http://schemas.netgiro.is/identity/claims/permission`) and its value is the permission's **integer** value
+(`AdminPermission.ViewLoans.ToValueString()` → `"1007"`), which is what `Identity.HasPermission` compares against.
+The admin lookup below is a **placeholder** — use whatever service Web.Admin already has for loading an active admin
+and their permissions:
 
 ```csharp
 builder.Services.AddSingleton<IMcpHostPrincipalFactory, NetgiroMcpHostPrincipalFactory>();
@@ -123,15 +154,16 @@ internal sealed class NetgiroMcpHostPrincipalFactory(IServiceScopeFactory scopes
 
         var email = mcpPrincipal.FindFirst(ClaimTypes.Email)?.Value;
         await using var scope = scopes.CreateAsyncScope();
-        var admins = scope.ServiceProvider.GetRequiredService<AdminUserService>();
-        var admin = email == null ? null : await admins.FindActiveByEmailAsync(email, ct);
+        // PLACEHOLDER: your own lookup of an active admin user and their AdminPermission set.
+        var admins = scope.ServiceProvider.GetRequiredService<IYourAdminLookup>();
+        var admin = email == null ? null : await admins.FindActiveAdminByEmailAsync(email, ct);
         if (admin == null)
         {
             return null;                               // not an admin: refused
         }
 
-        var claims = admin.Permissions
-            .Select(x => new Claim(AdminClaimTypes.Permission, x.ToString()))
+        var claims = admin.Permissions                 // IEnumerable<AdminPermission>
+            .Select(x => new Claim(NetgiroClaimTypes.Permission, x.ToValueString()))
             .Append(new Claim(ClaimTypes.Name, admin.UserName));
 
         return new ClaimsPrincipal(new ClaimsIdentity(claims, "BeaconMcpUser"));
@@ -139,14 +171,15 @@ internal sealed class NetgiroMcpHostPrincipalFactory(IServiceScopeFactory scopes
 }
 ```
 
-System identity host claims, in configuration:
+System identity host claims, in configuration (the value is the integer `AdminPermission` value; `1007` is
+`ViewLoans`):
 
 ```json
 "Beacon": { "Mcp": { "Callers": { "Systems": [ {
   "Name": "kvika-routines",
-  "AppId": "…",
+  "ClientId": "<kvika-routines-app-client-id>",
   "ProjectIds": [ 3 ],
-  "HostClaims": [ { "Type": "permission", "Value": "ViewLoans" } ]
+  "HostClaims": [ { "Type": "http://schemas.netgiro.is/identity/claims/permission", "Value": "1007" } ]
 } ] } } }
 ```
 
@@ -160,7 +193,9 @@ System identity host claims, in configuration:
 3. The endpoint and route values are set as routing would set them.
 4. **Authorization** runs before the endpoint, exactly as the authorization middleware would, against the host
    principal: the endpoint's `[Authorize]` / policy / requirement metadata combined through the host's
-   `IAuthorizationPolicyProvider`, evaluated with `IPolicyEvaluator`. `[AllowAnonymous]` is honoured. An endpoint
+   `IAuthorizationPolicyProvider`, evaluated with `IPolicyEvaluator`. `[AllowAnonymous]` is honoured. No
+   authentication handler runs, which is why a policy naming an untrusted scheme is refused at startup (see
+   [Authentication schemes](#authentication-schemes)). An endpoint
    without authorization metadata falls back to the host's `FallbackPolicy`; with no fallback policy either it is
    refused at startup (and at dispatch). A denial is the tool error `Forbidden.` with no detail. An endpoint marked
    `[AllowAnonymous]` is exposable and runs without an authorization check: the host itself declared it public, so
@@ -193,7 +228,7 @@ never changed.
 
 Netgiro's `[Permission(AdminPermission.X)]` is an `IAsyncAuthorizationFilter` that checks
 `Identity.Current.HasPermission(...)`, and `Identity.Current` reads `Thread.CurrentPrincipal`, which Web.Admin's
-middleware sets with `Identity.Set(principal)`. Without a dispatch middleware every tool call would be denied. The
+middleware sets with `Identity.Set(identity)` — it takes a `ClaimsIdentity`, not a principal. Without a dispatch middleware every tool call would be denied. The
 factory above maps the Entra user to admin permissions; the middleware makes that principal ambient:
 
 ```csharp
@@ -203,7 +238,8 @@ internal sealed class NetgiroIdentityMiddleware : IHostEndpointDispatchMiddlewar
 {
     public async Task InvokeAsync(HttpContext ctx, McpCaller caller, Func<Task> next, CancellationToken cancellationToken)
     {
-        Identity.Set(ctx.User);                        // the principal IMcpHostPrincipalFactory built
+        // Identity.Set takes a ClaimsIdentity: the identity of the principal IMcpHostPrincipalFactory built.
+        Identity.Set((ClaimsIdentity)ctx.User.Identity!);
         await next();
     }
 }
@@ -249,6 +285,8 @@ never written to logs.
   `IHostEndpointDispatchMiddleware`.
   A global MVC `AuthorizeFilter` whose policy names authentication schemes re-authenticates by scheme, finds no
   cookie and denies; express such rules as endpoint metadata (`[Authorize]` / policy attributes) instead.
+- Endpoint metadata that names an authentication scheme fails startup unless the scheme is in
+  `TrustedAuthenticationSchemes`.
 - File uploads and downloads are not supported; collections of objects in form models are not flattened.
 - The request host is `localhost` and there is no remote IP address; do not rely on either for authorization.
 - Parameter names from custom binders are not known, so their fields are free-form.

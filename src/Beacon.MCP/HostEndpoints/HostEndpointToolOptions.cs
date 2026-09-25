@@ -21,6 +21,16 @@ public sealed class HostEndpointToolOptions
     /// <summary>How long one dispatched request may run. Default 30 seconds.</summary>
     public TimeSpan RequestTimeout { get; set; } = TimeSpan.FromSeconds(30);
 
+    /// <summary>
+    /// Authentication schemes an exposed endpoint's authorization policy may name. Beacon dispatches in-process as the
+    /// principal <c>IMcpHostPrincipalFactory</c> builds for the MCP caller and never runs the named scheme's handler,
+    /// so a policy that demands a specific scheme (a step-up or MFA scheme, a partner API scheme) would be satisfied
+    /// without that scheme ever authenticating. An exposed endpoint whose combined policy names any scheme not listed
+    /// here fails startup. List a scheme only when the MCP caller's principal is an acceptable stand-in for it.
+    /// Default empty (matching is case-sensitive, as ASP.NET Core scheme names are).
+    /// </summary>
+    public List<string> TrustedAuthenticationSchemes { get; set; } = [];
+
     internal void Validate()
     {
         if (string.IsNullOrWhiteSpace(ProjectName))

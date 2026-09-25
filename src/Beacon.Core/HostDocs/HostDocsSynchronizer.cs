@@ -2,6 +2,7 @@ using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.HostData;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Shared;
 using Microsoft.EntityFrameworkCore;
@@ -24,10 +25,14 @@ internal sealed record HostDocsSyncOutcome(
 /// (ProjectId, SourceKey, Path). An unchanged file (same content hash) is left alone; a file that disappeared is
 /// archived; a new or changed file is re-chunked into <see cref="McpDocChunk"/> so the keyword arm of <c>search</c>
 /// finds it with no embedder. When embeddings are available the project's doc-chunk re-index then embeds the new
-/// chunks. Called by the host at startup through <c>SyncBeaconHostAsync</c> — deliberately not a hosted service (§2.15).
+/// chunks. The project comes from <see cref="IHostProjectResolver"/> (by <c>Project.HostManagedKey</c>, never by name).
+/// (SourceKey, Path) is matched case-insensitively, as SQL Server's unique index compares it: a file renamed only by
+/// case updates its row, and two files whose paths differ only by case keep the first and skip the other with a
+/// warning. Called by the host at startup through <c>SyncBeaconHostAsync</c> — deliberately not a hosted service (§2.15).
 /// </summary>
 internal sealed class HostDocsSynchronizer(
     IDbContextFactory<BeaconContext> contextFactory,
+    IHostProjectResolver projectResolver,
     IEnumerable<HostDocsRegistration> registrations,
     IMcpSettingsProvider settingsProvider,
     IDocChunkIndexingService? docChunkIndexingService,
@@ -55,6 +60,7 @@ internal sealed class HostDocsSynchronizer(
         CancellationToken cancellationToken)
     {
         var desired = new List<(DiscoveredHostDocument Source, ParsedHostDocument Parsed)>();
+        var desiredKeys = new HashSet<(string SourceKey, string Path)>(DocumentKeyComparer.Instance);
         var skipped = 0;
         foreach (var registration in projectRegistrations)
         {
@@ -66,10 +72,21 @@ internal sealed class HostDocsSynchronizer(
             }
 
             skipped += discovery.Skipped.Count;
-            desired.AddRange(discovery.Documents.Select(x => (x, HostDocumentParser.Parse(x.Path, x.RawContent))));
+            foreach (var document in discovery.Documents)
+            {
+                if (!desiredKeys.Add((document.SourceKey, document.Path)))
+                {
+                    // Path only (§1.11). The unique index is case-insensitive on SQL Server, so both cannot be stored.
+                    logger.LogWarning("ExposeDocs skipped {Path} from {SourceKey}: another file differs from it only by letter case.", document.Path, document.SourceKey);
+                    skipped++;
+                    continue;
+                }
+
+                desired.Add((document, HostDocumentParser.Parse(document.Path, document.RawContent)));
+            }
         }
 
-        var projectId = await EnsureProjectAsync(projectName, cancellationToken);
+        var projectId = await projectResolver.EnsureAsync(projectName, null, cancellationToken);
         var settings = await settingsProvider.GetEffectiveSettingsAsync(projectId, cancellationToken);
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
@@ -81,10 +98,15 @@ internal sealed class HostDocsSynchronizer(
             .Where(x => x.ProjectId == projectId)
             .ToListAsync(cancellationToken);
 
-        var existingByKey = existing.ToDictionary(x => (x.SourceKey, x.Path));
-        var desiredKeys = desired
-            .Select(x => (x.Source.SourceKey, x.Source.Path))
-            .ToHashSet();
+        // Case-insensitive, like the unique index on SQL Server. Rows that already collide that way (possible on
+        // PostgreSQL, whose index is case-sensitive) keep the first match; the others are archived below.
+        var existingByKey = new Dictionary<(string SourceKey, string Path), ProjectImportedDocument>(DocumentKeyComparer.Instance);
+        foreach (var row in existing.OrderBy(x => x.ArchivedTime == null ? 0 : 1).ThenBy(x => x.Id))
+        {
+            existingByKey.TryAdd((row.SourceKey, row.Path), row);
+        }
+
+        var matchedIds = new HashSet<int>();
 
         var now = DateTime.UtcNow;
         var added = new List<ProjectImportedDocument>();
@@ -112,13 +134,17 @@ internal sealed class HostDocsSynchronizer(
                 continue;
             }
 
-            if (document.ArchivedTime == null && document.ContentHash == source.ContentHash)
+            matchedIds.Add(document.Id);
+            var renamed = document.SourceKey != source.SourceKey || document.Path != source.Path;
+            if (document.ArchivedTime == null && document.ContentHash == source.ContentHash && !renamed)
             {
                 unchanged++;
                 continue;
             }
 
             document.Unarchive();
+            document.SourceKey = source.SourceKey;
+            document.Path = source.Path;
             document.Title = parsed.Title;
             document.ContentHash = source.ContentHash;
             document.Content = parsed.Body;
@@ -130,7 +156,7 @@ internal sealed class HostDocsSynchronizer(
 
         var archived = existing
             .Where(x => x.ArchivedTime == null)
-            .Where(x => !desiredKeys.Contains((x.SourceKey, x.Path)))
+            .Where(x => !matchedIds.Contains(x.Id))
             .ToList();
 
         foreach (var document in archived)
@@ -189,30 +215,6 @@ internal sealed class HostDocsSynchronizer(
         return new HostDocsSyncOutcome(projectId, added.Count, rechunk.Count - added.Count, archived.Count, unchanged, skipped, chunks.Count);
     }
 
-    // Own unit of work: the imported documents and their chunks carry ProjectId as a plain column (no navigation on
-    // the chunk), so a project created by this sync must have its id before the document upsert is built.
-    private async Task<int> EnsureProjectAsync(string projectName, CancellationToken cancellationToken)
-    {
-        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-
-        var projectId = await context.Projects
-            .Where(x => x.Name == projectName)
-            .Select(x => (int?)x.Id)
-            .FirstOrDefaultAsync(cancellationToken);
-
-        if (projectId != null)
-        {
-            return projectId.Value;
-        }
-
-        var project = new Project { Name = projectName };
-        context.Projects.Add(project);
-
-        await context.SaveChangesAsync(cancellationToken);
-
-        return project.Id;
-    }
-
     private static async Task RemoveChunksAsync(BeaconContext context, int projectId, List<int> documentIds, CancellationToken cancellationToken)
     {
         if (documentIds.Count == 0)
@@ -267,4 +269,19 @@ internal sealed class HostDocsSynchronizer(
             logger.LogWarning(ex, "Doc-chunk embedding re-index failed for project {ProjectId}; imported documents stay keyword-searchable.", projectId);
         }
     }
+}
+
+/// <summary>(SourceKey, Path) compared ignoring case — the comparison SQL Server's unique index applies.</summary>
+internal sealed class DocumentKeyComparer : IEqualityComparer<(string SourceKey, string Path)>
+{
+    public static readonly DocumentKeyComparer Instance = new();
+
+    public bool Equals((string SourceKey, string Path) x, (string SourceKey, string Path) y) =>
+        StringComparer.OrdinalIgnoreCase.Equals(x.SourceKey, y.SourceKey)
+        && StringComparer.OrdinalIgnoreCase.Equals(x.Path, y.Path);
+
+    public int GetHashCode((string SourceKey, string Path) obj) =>
+        HashCode.Combine(
+            StringComparer.OrdinalIgnoreCase.GetHashCode(obj.SourceKey),
+            StringComparer.OrdinalIgnoreCase.GetHashCode(obj.Path));
 }

@@ -50,15 +50,18 @@ public static class HostDocsBeaconExtensions
     /// Syncs everything the host declares: first every <c>ExposeDbContext</c> data source (as
     /// <see cref="HostDbContextBeaconExtensions.SyncBeaconHostDataSourcesAsync"/> does), then every <c>ExposeDocs</c>
     /// document set. Idempotent; unchanged data sources and documents are left alone. Call once at startup, after
-    /// migrations.
+    /// migrations. Safe to run from several replicas at once: the whole sync holds one lock in Beacon's database
+    /// (<see cref="IHostSyncLock"/>).
     /// </summary>
-    public static async Task SyncBeaconHostAsync(this IServiceProvider services, CancellationToken cancellationToken = default)
+    public static Task SyncBeaconHostAsync(this IServiceProvider services, CancellationToken cancellationToken = default)
     {
-        await services.SyncBeaconHostDataSourcesAsync(cancellationToken);
-
-        using var scope = services.CreateScope();
-        var synchronizer = scope.ServiceProvider.GetRequiredService<HostDocsSynchronizer>();
-
-        await synchronizer.SyncAllAsync(cancellationToken);
+        return HostSyncRunner.RunLockedAsync(
+            services,
+            async (x, ct) =>
+            {
+                await x.GetRequiredService<HostDataSourceSynchronizer>().SyncAllAsync(ct);
+                await x.GetRequiredService<HostDocsSynchronizer>().SyncAllAsync(ct);
+            },
+            cancellationToken);
     }
 }

@@ -197,12 +197,15 @@ public static class ServiceConfiguration
         services.TryAddTransient<HostData.IHostDataSourceGuard, HostData.HostDataSourceGuard>();
         services.TryAddTransient<HostData.IDataSourceConnectionResolver>(x =>
             new HostData.DataSourceConnectionResolver(x.GetRequiredService<IEncryptionService>(), configuration));
+        services.TryAddTransient<HostData.IHostProjectResolver, HostData.HostProjectResolver>();
+        services.TryAddTransient<HostData.IHostSyncLock, HostData.DatabaseHostSyncLock>();
         services.TryAddTransient(x => ActivatorUtilities.CreateInstance<HostData.HostDataSourceSynchronizer>(x, configuration));
 
         // Host documentation import (ExposeDocs). Paths resolve against the host content root; the doc-chunk
         // indexer is optional (registered by AddBeaconAI) and only adds embeddings on top of keyword search.
         services.TryAddTransient(x => new HostDocs.HostDocsSynchronizer(
             x.GetRequiredService<IDbContextFactory<BeaconContext>>(),
+            x.GetRequiredService<HostData.IHostProjectResolver>(),
             x.GetServices<HostDocs.HostDocsRegistration>(),
             x.GetRequiredService<IMcpSettingsProvider>(),
             x.GetService<IDocChunkIndexingService>(),

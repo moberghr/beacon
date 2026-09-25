@@ -1241,6 +1241,11 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
                 .OnDelete(DeleteBehavior.Cascade);
 
             entity.HasIndex(e => e.Name);
+
+            // The project a host's ExposeDbContext / ExposeDocs / endpoint tools attach to is found by this key, never
+            // by its (non-unique, user-editable) name. Ordinary projects leave it null.
+            entity.Property(e => e.HostManagedKey).HasMaxLength(200);
+            entity.HasIndex(e => e.HostManagedKey).IsUnique();
         });
 
         modelBuilder.Entity<DataSource>(entity =>

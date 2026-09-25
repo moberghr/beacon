@@ -19,6 +19,33 @@ public static class SavedQueryRunnableVersion
     public const string NoRunnableVersionIssue =
         "It has no approved active version. Submit the query for approval and approve it first; drafts, pending and unreviewed versions never run as tools.";
 
+    public const string NotVisibleInAnyProjectIssue =
+        "It is not visible in any project: no single project contains all of its data sources, so no MCP caller can see it. Add the missing data sources to one project.";
+
+    /// <summary>
+    /// Why the runnable version cannot be a tool anyone sees, or null when it can: its shape
+    /// (<see cref="SavedQueryToolRules.Inspect"/>), then its visibility (some project must hold all its data sources).
+    /// </summary>
+    public static async Task<string?> InspectIssueAsync(BeaconContext context, RunnableVersionInfo? runnable, CancellationToken cancellationToken)
+    {
+        if (runnable == null)
+        {
+            return NoRunnableVersionIssue;
+        }
+
+        var shape = SavedQueryToolRules.Inspect(runnable.StepsJson);
+        if (shape.Issue != null)
+        {
+            return shape.Issue;
+        }
+
+        var dataSourceIds = shape.Steps.Select(x => x.DataSourceId);
+
+        return await SavedQueryToolSource.IsVisibleInAnyProjectAsync(context, dataSourceIds, cancellationToken)
+            ? null
+            : NotVisibleInAnyProjectIssue;
+    }
+
     public static IQueryable<Query> WhereHasRunnableVersion(this IQueryable<Query> queries, BeaconContext context)
     {
         return queries

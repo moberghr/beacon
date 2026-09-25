@@ -147,6 +147,37 @@ internal sealed class SavedQueryToolSource(IDbContextFactory<BeaconContext> cont
                     x.ActiveVersion.FinalQuery));
     }
 
+    /// <summary>
+    /// True when at least one project contains every one of <paramref name="dataSourceIds"/> — the precondition for a
+    /// tool to be visible to anyone (<see cref="GetToolsAsync"/>).
+    /// </summary>
+    internal static async Task<bool> IsVisibleInAnyProjectAsync(BeaconContext context, IEnumerable<int> dataSourceIds, CancellationToken cancellationToken)
+    {
+        var ids = dataSourceIds
+            .Distinct()
+            .ToList();
+        if (ids.Count == 0)
+        {
+            return false;
+        }
+
+        var memberships = await BuildAnyProjectMembershipQuery(context, ids)
+            .ToListAsync(cancellationToken);
+
+        return memberships
+            .GroupBy(x => x.ProjectId)
+            .Any(x => x.Select(y => y.DataSourceId).Distinct().Count() == ids.Count);
+    }
+
+    internal static IQueryable<ProjectDataSourceMembership> BuildAnyProjectMembershipQuery(BeaconContext context, List<int> dataSourceIds)
+    {
+        return context.ProjectDataSources
+            .Where(x => dataSourceIds.Contains(x.DataSourceId))
+            .Where(x => x.DataSource.ArchivedTime == null)
+            .Select(x =>
+                new ProjectDataSourceMembership(x.ProjectId, x.DataSourceId));
+    }
+
     internal static IQueryable<ProjectDataSourceMembership> BuildMembershipQuery(BeaconContext context, List<int> projectIds, List<int> dataSourceIds)
     {
         return context.ProjectDataSources

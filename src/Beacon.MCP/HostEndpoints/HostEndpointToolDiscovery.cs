@@ -62,11 +62,19 @@ internal sealed partial class HostEndpointToolDiscovery(
     [GeneratedRegex("^[a-z][a-z0-9_]{2,47}$")]
     private static partial Regex NamePattern();
 
+    /// <param name="authenticationSchemes">
+    /// The authentication schemes the endpoint's combined authorization policy names (empty for an anonymous endpoint).
+    /// Null when the host has no authorization services; every endpoint then reads as naming none.
+    /// </param>
+    /// <param name="trustedAuthenticationSchemes"><see cref="HostEndpointToolOptions.TrustedAuthenticationSchemes"/>.</param>
     public IReadOnlyList<HostEndpointToolDescriptor> Discover(
         IEnumerable<Endpoint> endpoints,
         IReadOnlyList<ApiDescription> apiDescriptions,
-        bool hasFallbackPolicy)
+        bool hasFallbackPolicy,
+        Func<Endpoint, IReadOnlyCollection<string>>? authenticationSchemes = null,
+        IReadOnlyCollection<string>? trustedAuthenticationSchemes = null)
     {
+        var trusted = new HashSet<string>(trustedAuthenticationSchemes ?? [], StringComparer.Ordinal);
         var failures = new List<string>();
         var tools = new List<HostEndpointToolDescriptor>();
         var owners = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -103,6 +111,16 @@ internal sealed partial class HostEndpointToolDiscovery(
             if (!HasAuthorizationDecision(endpoint) && !hasFallbackPolicy)
             {
                 endpointFailures.Add("the endpoint declares no authorization ([Authorize], a policy, or [AllowAnonymous]) and the host has no fallback authorization policy; Beacon refuses to expose it");
+            }
+
+            var untrustedSchemes = (authenticationSchemes?.Invoke(endpoint) ?? [])
+                .Where(x => !trusted.Contains(x))
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+            if (untrustedSchemes.Count > 0)
+            {
+                endpointFailures.Add(
+                    $"its authorization policy requires authentication scheme(s) {string.Join(", ", untrustedSchemes.Select(x => $"'{x}'"))}, which Beacon's in-process dispatch cannot satisfy (it authorizes the MCP caller's principal and never runs that scheme); list the scheme in HostEndpointToolOptions.TrustedAuthenticationSchemes only if the MCP caller is an acceptable stand-in for it");
             }
 
             if (endpoint is not RouteEndpoint routeEndpoint)

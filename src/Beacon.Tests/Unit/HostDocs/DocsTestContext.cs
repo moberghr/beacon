@@ -18,6 +18,9 @@ internal sealed class DocsStore
 
     public int SaveCount { get; set; }
 
+    /// <summary>When set, the next SaveChanges throws this (e.g. a unique violation from a lost race) and clears it.</summary>
+    public Exception? FailNextSave { get; set; }
+
     public List<Project> Projects => ListFor<Project>();
 
     public List<ProjectImportedDocument> Documents => ListFor<ProjectImportedDocument>();
@@ -71,6 +74,13 @@ internal sealed class DocsTestContext(DocsStore store) : BeaconContext(Options, 
     public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         store.SaveCount++;
+
+        if (store.FailNextSave != null)
+        {
+            var failure = store.FailNextSave;
+            store.FailNextSave = null;
+            throw failure;
+        }
 
         foreach (var project in store.Projects.Where(x => x.Id == 0))
         {

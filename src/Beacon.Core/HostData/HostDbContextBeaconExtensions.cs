@@ -41,13 +41,14 @@ public static class HostDbContextBeaconExtensions
     /// <summary>
     /// Creates or refreshes every data source declared with <c>ExposeDbContext</c> (project, data source, project
     /// link, metadata, FK relationships). Idempotent; a data source whose exposed model hash is unchanged is left
-    /// alone. Validates that each read-only connection string is configured and throws if one is missing.
+    /// alone. Validates that each read-only connection string is configured and throws if one is missing. Safe to run
+    /// from several replicas at once: the sync holds a lock in Beacon's database (<see cref="IHostSyncLock"/>).
     /// </summary>
-    public static async Task SyncBeaconHostDataSourcesAsync(this IServiceProvider services, CancellationToken cancellationToken = default)
+    public static Task SyncBeaconHostDataSourcesAsync(this IServiceProvider services, CancellationToken cancellationToken = default)
     {
-        using var scope = services.CreateScope();
-        var synchronizer = scope.ServiceProvider.GetRequiredService<HostDataSourceSynchronizer>();
-
-        await synchronizer.SyncAllAsync(cancellationToken);
+        return HostSyncRunner.RunLockedAsync(
+            services,
+            (x, ct) => x.GetRequiredService<HostDataSourceSynchronizer>().SyncAllAsync(ct),
+            cancellationToken);
     }
 }

@@ -63,9 +63,21 @@ public class JwtValidationOptions
     public string? ValidIssuer { get; set; }
 
     /// <summary>
+    /// Additional accepted issuers, combined with <see cref="ValidIssuer"/> (e.g. the Entra v1 and v2 issuers of one
+    /// tenant).
+    /// </summary>
+    public List<string> ValidIssuers { get; set; } = [];
+
+    /// <summary>
     /// Expected audience (aud) claim value.
     /// </summary>
     public string? ValidAudience { get; set; }
+
+    /// <summary>
+    /// Additional accepted audiences, combined with <see cref="ValidAudience"/> (e.g. both <c>api://{client-id}</c>
+    /// and the bare client id).
+    /// </summary>
+    public List<string> ValidAudiences { get; set; } = [];
 
     /// <summary>
     /// HMAC secret key for symmetric signing (HS256, HS384, HS512).
@@ -102,6 +114,22 @@ public class JwtValidationOptions
     /// Default: true when ValidAudience is set.
     /// </summary>
     public bool ValidateAudience { get; set; } = true;
+
+    /// <summary><see cref="ValidIssuer"/> plus <see cref="ValidIssuers"/>, blanks and duplicates removed.</summary>
+    public IReadOnlyList<string> EffectiveIssuers() => Combine(ValidIssuer, ValidIssuers);
+
+    /// <summary><see cref="ValidAudience"/> plus <see cref="ValidAudiences"/>, blanks and duplicates removed.</summary>
+    public IReadOnlyList<string> EffectiveAudiences() => Combine(ValidAudience, ValidAudiences);
+
+    private static List<string> Combine(string? single, IEnumerable<string>? many)
+    {
+        return new[] { single }
+            .Concat(many ?? [])
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => x!.Trim())
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+    }
 }
 
 /// <summary>

@@ -138,6 +138,37 @@ public class SavedQueryToolServiceTests
     }
 
     [Test]
+    public async Task InvalidArguments_AreAuditedUnderTheResolvedProjectsRetention_NotTheGlobalOne()
+    {
+        // Global retention keeps content; project 2 does not. The call names project 2, so its setting must win even
+        // though the arguments fail validation.
+        _tools.Add(LoanBook([1, 2]));
+        var service = Service([1, 2], projectSettings: new Dictionary<int, McpSettingsData> { [2] = new() { RetainQueryContent = false } });
+
+        await service.CallAsync("q_loan_book", Json("""{ "from": "secret-date-value", "project_id": 2 }"""), CancellationToken.None);
+
+        var audit = Audits.Should().ContainSingle().Subject;
+        audit.ProjectId.Should().Be(2);
+        audit.Parameters.Should().NotContain("secret-date-value");
+        Beacon.Core.Services.Retention.McpContentRedactor.IsStructuralAuditParameters(audit.Parameters).Should().BeTrue();
+    }
+
+    [Test]
+    public async Task WhenTheProjectCannotBeEstablished_TheAuditIsStructural_EvenWithGlobalRetentionOn()
+    {
+        _tools.Add(LoanBook([1, 2]));
+        var service = Service([1, 2]);
+
+        await service.CallAsync("q_loan_book", Json("""{ "from": "secret-date-value", "to": "2026-02-01" }"""), CancellationToken.None);
+        await service.CallAsync("q_loan_book", Json("""{ "from": "secret-date-value", "project_id": "two" }"""), CancellationToken.None);
+
+        Audits.Should().HaveCount(2);
+        Audits.Should().OnlyContain(x => x.ProjectId == null);
+        Audits.Should().OnlyContain(x => !x.Parameters!.Contains("secret-date-value"));
+        Audits.Should().OnlyContain(x => Beacon.Core.Services.Retention.McpContentRedactor.IsStructuralAuditParameters(x.Parameters));
+    }
+
+    [Test]
     public async Task AToolOutsideTheCallersProjects_IsUnknown_AndAudited()
     {
         _tools.Add(LoanBook([2]));
@@ -241,12 +272,12 @@ public class SavedQueryToolServiceTests
     private static SavedQueryToolDefinition LoanBook(IReadOnlyList<int> projects) =>
         Tool("loan_book", [Step(1, 10, "SELECT * FROM loans WHERE issued >= {from} AND issued < {to}", Parameter("from", ParameterType.DateTime), Parameter("to", ParameterType.DateTime))], projects);
 
-    private SavedQueryToolService Service(List<int> allowedProjects, int namedToolLimit = 25)
+    private SavedQueryToolService Service(List<int> allowedProjects, int namedToolLimit = 25, IReadOnlyDictionary<int, McpSettingsData>? projectSettings = null)
     {
         var projectContext = new McpProjectContext { AllowedProjectIds = allowedProjects, UserId = 11 };
         var audit = new McpAuditService(
             _auditStore.Factory().Object,
-            SettingsProviderMock.Create(new McpSettingsData { RetainQueryContent = true }).Object,
+            SettingsProviderMock.Create(new McpSettingsData { RetainQueryContent = true }, projectSettings: projectSettings).Object,
             new HttpContextAccessor(),
             NullLogger<McpAuditService>.Instance);
         var configuration = new BeaconConfiguration { SavedQueryTools = new SavedQueryToolOptions { NamedToolLimit = namedToolLimit } };

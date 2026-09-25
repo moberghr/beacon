@@ -219,6 +219,16 @@ public sealed class NoAuthorizationController : ControllerBase
     public IActionResult Get() => Ok();
 }
 
+public sealed class StepUpSchemeController : ControllerBase
+{
+    public const string Scheme = "StepUp";
+
+    [HttpGet("bad/step-up")]
+    [Authorize(AuthenticationSchemes = Scheme, Policy = HostEndpointTestHost.ViewThingPolicy)]
+    [BeaconTool("step_up", ReadOnly = true)]
+    public IActionResult Get() => Ok();
+}
+
 internal static class HostEndpointTestClaims
 {
     public static Claim Permission(string value) => new(HostEndpointTestHost.PermissionClaim, value);

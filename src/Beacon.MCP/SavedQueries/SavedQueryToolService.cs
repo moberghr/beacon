@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Protocol;
 using Beacon.Core;
 using Beacon.Core.SavedQueries;
+using Beacon.Core.Services.Retention;
 using Beacon.MCP.Services;
 using Beacon.MCP.Tools;
 
@@ -131,20 +132,24 @@ internal sealed class SavedQueryToolService(
         Stopwatch sw,
         CancellationToken cancellationToken)
     {
-        var argumentError = SavedQueryToolSchema.ConvertArguments(tool, arguments, out var values, out var requestedProjectId);
-        if (argumentError != null)
-        {
-            await AuditAsync(tool.ToolName, arguments, SingleProject(tool), null, sw, null, argumentError, null);
-
-            return ToolHelper.Error(argumentError);
-        }
-
-        var projectError = ResolveProject(tool, requestedProjectId, out var projectId);
+        // The project first: the audit row honours that project's retention settings, so argument content must not be
+        // audited before the project is established (an unestablished project audits structurally — see AuditAsync).
+        var projectId = 0;
+        var projectError = SavedQueryToolSchema.ReadProjectArgument(arguments, out var requestedProjectId);
+        projectError ??= ResolveProject(tool, requestedProjectId, out projectId);
         if (projectError != null)
         {
-            await AuditAsync(tool.ToolName, arguments, SingleProject(tool), null, sw, null, projectError, null);
+            await AuditAsync(tool.ToolName, arguments, null, null, sw, null, projectError, null);
 
             return ToolHelper.Error(projectError);
+        }
+
+        var argumentError = SavedQueryToolSchema.ConvertArguments(tool, arguments, out var values, out _);
+        if (argumentError != null)
+        {
+            await AuditAsync(tool.ToolName, arguments, projectId, null, sw, null, argumentError, null);
+
+            return ToolHelper.Error(argumentError);
         }
 
         projectContext.ActiveProjectId = projectId;
@@ -283,9 +288,6 @@ internal sealed class SavedQueryToolService(
         return $"{tool.ToolName} is available in several of your projects ({string.Join(", ", tool.ProjectIds)}). Pass {SavedQueryToolRules.ProjectArgumentName} to pick one.";
     }
 
-    private static int? SingleProject(SavedQueryToolDefinition tool) =>
-        tool.ProjectIds.Count == 1 ? tool.ProjectIds[0] : null;
-
     private int? SingleAllowedProject()
     {
         var allowed = projectContext.AllowedProjectIds;
@@ -323,8 +325,14 @@ internal sealed class SavedQueryToolService(
         sw.Stop();
 
         // Arguments are content: McpAuditService keeps them only when the project's retention settings allow it, and
-        // never logs them (§1.11).
+        // never logs them (§1.11). Without an established project there is no retention setting to honour, so the row
+        // is structural (tool, input size, error class) rather than falling back to the global setting.
         var parameters = arguments == null || arguments.Count == 0 ? null : JsonSerializer.Serialize(arguments);
+        if (projectId == null)
+        {
+            parameters = McpContentRedactor.StructuralAuditParameters(toolName, parameters, tables);
+            error = McpContentRedactor.ErrorClassOf(error);
+        }
 
         return auditService.LogToolCallAsync(
             null,

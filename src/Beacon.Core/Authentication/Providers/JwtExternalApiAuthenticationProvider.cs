@@ -17,16 +17,27 @@ public class JwtExternalApiAuthenticationProvider : IBeaconAuthenticationProvide
     private readonly HttpClient _httpClient;
     private readonly JwtAuthenticationOptions _options;
     private readonly ILogger<JwtExternalApiAuthenticationProvider> _logger;
+    private readonly JwksSigningKeyCache _keyCache;
     private readonly JwtSecurityTokenHandler _tokenHandler = new();
 
     public JwtExternalApiAuthenticationProvider(
         HttpClient httpClient,
         JwtAuthenticationOptions options,
         ILogger<JwtExternalApiAuthenticationProvider> logger)
+        : this(httpClient, options, logger, JwksSigningKeyCache.Shared)
+    {
+    }
+
+    internal JwtExternalApiAuthenticationProvider(
+        HttpClient httpClient,
+        JwtAuthenticationOptions options,
+        ILogger<JwtExternalApiAuthenticationProvider> logger,
+        JwksSigningKeyCache keyCache)
     {
         _httpClient = httpClient;
         _options = options;
         _logger = logger;
+        _keyCache = keyCache;
     }
 
     public async Task<AuthenticationResult> AuthenticateAsync(
@@ -114,9 +125,7 @@ public class JwtExternalApiAuthenticationProvider : IBeaconAuthenticationProvide
     {
         try
         {
-            var validationParameters = await BuildValidationParametersAsync(cancellationToken);
-
-            _tokenHandler.ValidateToken(token, validationParameters, out var validatedToken);
+            var validatedToken = await ValidateWithKeyRotationAsync(token, cancellationToken);
 
             if (validatedToken is not JwtSecurityToken jwtToken)
             {
@@ -158,15 +167,43 @@ public class JwtExternalApiAuthenticationProvider : IBeaconAuthenticationProvide
         }
     }
 
+    // A token signed with a key the cached JWKS does not hold may follow a key rotation: refresh once (rate-limited by
+    // the cache) and retry before rejecting it.
+    private async Task<SecurityToken> ValidateWithKeyRotationAsync(string token, CancellationToken cancellationToken)
+    {
+        var validationParameters = await BuildValidationParametersAsync(forceKeyRefresh: false, cancellationToken);
+        try
+        {
+            _tokenHandler.ValidateToken(token, validationParameters, out var validatedToken);
+
+            return validatedToken;
+        }
+        catch (SecurityTokenSignatureKeyNotFoundException) when (UsesJwks)
+        {
+            var refreshed = await BuildValidationParametersAsync(forceKeyRefresh: true, cancellationToken);
+            _tokenHandler.ValidateToken(token, refreshed, out var validatedToken);
+
+            return validatedToken;
+        }
+    }
+
+    private bool UsesJwks =>
+        string.IsNullOrEmpty(_options.Validation.SigningKey) && !string.IsNullOrEmpty(_options.Validation.JwksEndpoint);
+
     private async Task<TokenValidationParameters> BuildValidationParametersAsync(
+        bool forceKeyRefresh,
         CancellationToken cancellationToken)
     {
+        // Issuer/audience checks are on only when a value is configured. Hosts that accept JWT callers on /beacon/mcp
+        // are required to configure both (McpCallerOptionsValidator), and the MCP caller mapper re-checks aud and tid.
+        var issuers = _options.Validation.EffectiveIssuers();
+        var audiences = _options.Validation.EffectiveAudiences();
         var parameters = new TokenValidationParameters
         {
-            ValidateIssuer = _options.Validation.ValidateIssuer && !string.IsNullOrEmpty(_options.Validation.ValidIssuer),
-            ValidIssuer = _options.Validation.ValidIssuer,
-            ValidateAudience = _options.Validation.ValidateAudience && !string.IsNullOrEmpty(_options.Validation.ValidAudience),
-            ValidAudience = _options.Validation.ValidAudience,
+            ValidateIssuer = _options.Validation.ValidateIssuer && issuers.Count > 0,
+            ValidIssuers = issuers,
+            ValidateAudience = _options.Validation.ValidateAudience && audiences.Count > 0,
+            ValidAudiences = audiences,
             ValidateLifetime = _options.Validation.ValidateLifetime,
             ClockSkew = _options.Validation.ClockSkew
         };
@@ -180,8 +217,8 @@ public class JwtExternalApiAuthenticationProvider : IBeaconAuthenticationProvide
         }
         else if (!string.IsNullOrEmpty(_options.Validation.JwksEndpoint))
         {
-            // Fetch keys from JWKS endpoint
-            var keys = await FetchJwksAsync(_options.Validation.JwksEndpoint, cancellationToken);
+            // Keys from the JWKS endpoint, cached (JwksSigningKeyCache) rather than fetched per request.
+            var keys = await FetchJwksAsync(_options.Validation.JwksEndpoint, forceKeyRefresh, cancellationToken);
             parameters.IssuerSigningKeys = keys;
             parameters.ValidateIssuerSigningKey = true;
         }
@@ -198,13 +235,16 @@ public class JwtExternalApiAuthenticationProvider : IBeaconAuthenticationProvide
 
     private async Task<IEnumerable<SecurityKey>> FetchJwksAsync(
         string jwksEndpoint,
+        bool forceRefresh,
         CancellationToken cancellationToken)
     {
         try
         {
-            var response = await _httpClient.GetStringAsync(jwksEndpoint, cancellationToken);
-            var jwks = new JsonWebKeySet(response);
-            return jwks.GetSigningKeys();
+            return await _keyCache.GetKeysAsync(
+                jwksEndpoint,
+                x => _httpClient.GetStringAsync(jwksEndpoint, x),
+                forceRefresh,
+                cancellationToken);
         }
         catch (Exception ex)
         {

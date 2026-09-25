@@ -45,7 +45,8 @@ public class JwtBearerMcpCallerMiddlewareTests
 
     private static readonly McpCallerOptions Callers = new()
     {
-        Users = new McpUserCallerOptions { Enabled = true, ProjectIds = [3], Scope = McpCallerScope.Execute },
+        AllowedTenants = [TenantId],
+        Users = new McpUserCallerOptions { Enabled = true, AllowAnyTenantUser = true, ProjectIds = [3], Scope = McpCallerScope.Execute },
         Systems =
         [
             new McpSystemCallerOptions { Name = "aiproxy", ClientId = AiProxyClientId, ProjectIds = [7], Scope = McpCallerScope.Read }
@@ -105,7 +106,8 @@ public class JwtBearerMcpCallerMiddlewareTests
             .ReturnsAsync(new BeaconUserData { Id = 17, ExternalId = UserOid, UserName = "ana" });
         var options = new McpCallerOptions
         {
-            Users = new McpUserCallerOptions { Enabled = true, ProjectIds = [3], AutoProvision = true }
+            AllowedTenants = [TenantId],
+            Users = new McpUserCallerOptions { Enabled = true, AllowAnyTenantUser = true, ProjectIds = [3], AutoProvision = true }
         };
 
         var (context, user) = await RunAsync("/beacon/mcp", MintToken(DelegatedClaims()), options, userService.Object);
@@ -178,7 +180,8 @@ public class JwtBearerMcpCallerMiddlewareTests
             new MemoryCache(new MemoryCacheOptions()),
             Hasher,
             NullLogger<ConfiguredMcpCallerMapper>.Instance,
-            userService);
+            userService,
+            jwtOptions);
 
         ClaimsPrincipal? seen = null;
         var middleware = new JwtBearerAuthMiddleware(

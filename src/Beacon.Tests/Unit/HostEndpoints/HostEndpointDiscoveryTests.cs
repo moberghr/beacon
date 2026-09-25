@@ -151,6 +151,7 @@ public class HostEndpointDiscoveryTests
     [TestCase(typeof(BadNameController), "must match ^[a-z][a-z0-9_]{2,47}$")]
     [TestCase(typeof(DuplicateNameController), "tool name 'same_name' is already used by")]
     [TestCase(typeof(NoAuthorizationController), "declares no authorization")]
+    [TestCase(typeof(StepUpSchemeController), "requires authentication scheme(s) 'StepUp'")]
     public async Task Startup_FailsForMisconfiguredMarkers(Type controller, string expected)
     {
         var start = () => HostEndpointTestHost.StartAsync([controller], mapDefaultMinimalApis: false);
@@ -165,6 +166,32 @@ public class HostEndpointDiscoveryTests
         await using var host = await HostEndpointTestHost.StartAsync([typeof(NoAuthorizationController)], mapDefaultMinimalApis: false, fallbackPolicy: true);
 
         host.Registry.Tools.Select(x => x.Name).Should().Equal("no_auth");
+    }
+
+    [Test]
+    public async Task Startup_AcceptsASchemeBoundEndpoint_OnlyWhenTheHostTrustsTheScheme()
+    {
+        await using var host = await HostEndpointTestHost.StartAsync(
+            [typeof(StepUpSchemeController)],
+            mapDefaultMinimalApis: false,
+            configure: x => x.TrustedAuthenticationSchemes = [StepUpSchemeController.Scheme]);
+
+        host.Registry.Tools.Select(x => x.Name).Should().Equal("step_up");
+    }
+
+    [Test]
+    public async Task Startup_FailsForAMinimalApiWhosePolicyNamesAScheme()
+    {
+        var policy = new Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder("Partner")
+            .RequireAuthenticatedUser()
+            .Build();
+        var start = () => HostEndpointTestHost.StartAsync(
+            [],
+            mapDefaultMinimalApis: false,
+            map: x => x.MapGet("/minimal/partner", () => Results.Ok()).RequireAuthorization(policy).WithBeaconTool("minimal_partner", null, readOnly: true));
+
+        (await start.Should().ThrowAsync<InvalidOperationException>())
+            .Which.Message.Should().Contain("minimal_partner").And.Contain("'Partner'");
     }
 
     [Test]

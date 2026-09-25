@@ -1,8 +1,11 @@
 using System.Security.Claims;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using Beacon.Core.Authentication;
 using Beacon.Core.Configuration;
+using Beacon.Core.Data;
 using Beacon.Core.Models;
 using Beacon.Core.Services;
 
@@ -10,7 +13,10 @@ namespace Beacon.Core.Mcp;
 
 /// <summary>
 /// Default <see cref="IMcpCallerMapper"/>, driven by <c>Beacon:Mcp:Callers</c> (<see cref="McpCallerOptions"/>).
-/// Expects raw Entra claim names. Resolution order:
+/// Expects raw Entra claim names. Before any matching, the token must come from one of
+/// <see cref="McpCallerOptions.AllowedTenants"/> (<c>tid</c>), carry one of the bearer audiences Beacon validates
+/// (<c>aud</c>, re-checked here as defense in depth), and classify as a delegated or an app-only access token (see
+/// <see cref="ClassifyToken"/>) — ID tokens and unclassifiable tokens are rejected. Resolution order:
 /// <list type="number">
 /// <item>A configured system whose <c>ObjectId</c> equals <c>oid</c> (service user or service principal, any token type).</item>
 /// <item>A configured system whose <c>ClientId</c> equals <c>azp</c>/<c>appid</c>, for app-only tokens only. A delegated
@@ -24,7 +30,8 @@ public sealed class ConfiguredMcpCallerMapper(
     IMemoryCache cache,
     McpCallerSubjectHasher subjectHasher,
     ILogger<ConfiguredMcpCallerMapper> logger,
-    IUserManagementService? userManagementService = null) : IMcpCallerMapper
+    IUserManagementService? userManagementService = null,
+    JwtAuthenticationOptions? jwtOptions = null) : IMcpCallerMapper
 {
     // Short on purpose: a Beacon user disabled by an admin loses MCP access within this window.
     private static readonly TimeSpan ProvisionedUserCacheDuration = TimeSpan.FromMinutes(1);
@@ -32,7 +39,19 @@ public sealed class ConfiguredMcpCallerMapper(
     public async Task<McpCaller?> MapAsync(ClaimsPrincipal jwtPrincipal, CancellationToken cancellationToken)
     {
         var settings = options.Value;
-        var tenantId = GetClaim(jwtPrincipal, "tid") ?? GetClaim(jwtPrincipal, "iss") ?? string.Empty;
+        var tenantId = GetClaim(jwtPrincipal, "tid");
+        if (tenantId == null || !settings.AllowedTenants.Contains(tenantId, StringComparer.OrdinalIgnoreCase))
+        {
+            logger.LogInformation("MCP caller rejected: token tenant is missing or not in Beacon:Mcp:Callers:AllowedTenants.");
+            return null;
+        }
+
+        if (!HasAllowedAudience(jwtPrincipal))
+        {
+            logger.LogInformation("MCP caller rejected: token audience is not one of Beacon's configured bearer audiences.");
+            return null;
+        }
+
         var objectId = GetClaim(jwtPrincipal, "oid");
         var clientId = GetClaim(jwtPrincipal, "azp") ?? GetClaim(jwtPrincipal, "appid");
         var subject = objectId ?? clientId ?? GetClaim(jwtPrincipal, "sub");
@@ -43,7 +62,14 @@ public sealed class ConfiguredMcpCallerMapper(
         }
 
         var subjectHash = subjectHasher.Hash(tenantId, subject);
-        var isAppOnly = IsAppOnlyToken(jwtPrincipal);
+        var tokenKind = ClassifyToken(jwtPrincipal);
+        if (tokenKind == McpTokenKind.Unrecognized)
+        {
+            logger.LogInformation("MCP caller {CallerHash} rejected: not a delegated or app-only access token (ID token or unclassifiable).", subjectHash);
+            return null;
+        }
+
+        var isAppOnly = tokenKind == McpTokenKind.AppOnly;
 
         var system = FindSystem(settings.Systems, objectId, clientId, isAppOnly);
         if (system != null)
@@ -99,17 +125,59 @@ public sealed class ConfiguredMcpCallerMapper(
     }
 
     /// <summary>
-    /// Entra app-only (client credentials) tokens carry <c>idtyp=app</c> when that optional claim is on, and never
-    /// carry <c>scp</c>; delegated tokens always carry <c>scp</c>.
+    /// Classifies an Entra token. App-only needs a positive signal — "no <c>scp</c>" alone is not one, since ID tokens
+    /// and other scp-less tokens carry the requesting app's <c>azp</c> too:
+    /// <list type="bullet">
+    /// <item><c>nonce</c> present → ID token, rejected.</item>
+    /// <item><c>idtyp=app</c> (the recommended optional claim) → app-only; with <c>scp</c> as well it is contradictory and rejected.</item>
+    /// <item><c>scp</c> present → delegated.</item>
+    /// <item>No <c>scp</c>, <c>roles</c> present and <c>oid == sub</c> (a service principal's own token) → app-only.</item>
+    /// <item>Anything else (e.g. neither <c>scp</c> nor <c>roles</c>) → unrecognized, rejected.</item>
+    /// </list>
     /// </summary>
-    internal static bool IsAppOnlyToken(ClaimsPrincipal principal)
+    internal static McpTokenKind ClassifyToken(ClaimsPrincipal principal)
     {
-        if (string.Equals(GetClaim(principal, "idtyp"), "app", StringComparison.OrdinalIgnoreCase))
+        if (principal.HasClaim(x => x.Type == "nonce"))
         {
-            return true;
+            return McpTokenKind.Unrecognized;
         }
 
-        return !principal.HasClaim(x => x.Type == "scp");
+        var hasScope = principal.HasClaim(x => x.Type == "scp");
+        var idType = GetClaim(principal, "idtyp");
+        if (string.Equals(idType, "app", StringComparison.OrdinalIgnoreCase))
+        {
+            return hasScope ? McpTokenKind.Unrecognized : McpTokenKind.AppOnly;
+        }
+
+        if (hasScope)
+        {
+            return McpTokenKind.Delegated;
+        }
+
+        var objectId = GetClaim(principal, "oid");
+        var isServicePrincipalSubject = idType == null
+            && objectId != null
+            && string.Equals(objectId, GetClaim(principal, "sub"), StringComparison.OrdinalIgnoreCase);
+
+        return isServicePrincipalSubject && principal.HasClaim(x => x.Type == "roles")
+            ? McpTokenKind.AppOnly
+            : McpTokenKind.Unrecognized;
+    }
+
+    // Defense in depth: the bearer middleware already validated aud, but a mapper that is handed a principal from a
+    // looser validation path (a host override, a misconfiguration) must still refuse tokens minted for another
+    // resource. No configured audience → nothing is accepted.
+    private bool HasAllowedAudience(ClaimsPrincipal principal)
+    {
+        var audiences = jwtOptions?.Validation.EffectiveAudiences() ?? [];
+        if (audiences.Count == 0)
+        {
+            return false;
+        }
+
+        return principal
+            .FindAll("aud")
+            .Any(x => audiences.Contains(x.Value, StringComparer.Ordinal));
     }
 
     private static McpSystemCallerOptions? FindSystem(
@@ -147,7 +215,8 @@ public sealed class ConfiguredMcpCallerMapper(
     {
         if (users.RequiredRoles.Count == 0 && users.RequiredGroups.Count == 0)
         {
-            return true;
+            // Startup validation already refuses this without the opt-in; re-checked so the mapper fails closed alone.
+            return users.AllowAnyTenantUser;
         }
 
         return users.RequiredRoles.Any(x => roles.Contains(x))
@@ -189,32 +258,55 @@ public sealed class ConfiguredMcpCallerMapper(
             return (true, cachedUserId);
         }
 
-        var email = GetClaim(principal, "email") ?? GetClaim(principal, "upn");
-        var displayName = GetClaim(principal, "name");
-        var userName = GetClaim(principal, "preferred_username") ?? email ?? displayName ?? objectId;
-
         try
         {
-            // Keyed on the Entra oid (stable across apps, unlike the pairwise sub) within the tenant. The provider
-            // string is tenant-based rather than the issuer so v1 and v2 tokens resolve to the same user.
-            var user = await userManagementService.GetOrCreateExternalUserAsync(
-                objectId,
-                $"entra:{tenantId}",
-                userName,
-                email,
-                displayName,
-                users.DefaultRoleName,
-                cancellationToken);
+            int userId;
+            try
+            {
+                userId = await GetOrCreateUserIdAsync(userManagementService, principal, tenantId, objectId, users, cancellationToken);
+            }
+            catch (DbUpdateException ex) when (DbUniqueViolation.IsUniqueViolation(ex))
+            {
+                // A concurrent first request for the same oid inserted the user between our read and our insert:
+                // the second attempt reads the row that request created.
+                userId = await GetOrCreateUserIdAsync(userManagementService, principal, tenantId, objectId, users, cancellationToken);
+            }
 
-            cache.Set(cacheKey, user.Id, ProvisionedUserCacheDuration);
+            cache.Set(cacheKey, userId, ProvisionedUserCacheDuration);
 
-            return (true, user.Id);
+            return (true, userId);
         }
         catch (BeaconException ex)
         {
             logger.LogWarning("MCP caller {CallerHash} rejected by user provisioning: {Reason}", subjectHash, ex.Message);
             return (false, null);
         }
+    }
+
+    private static async Task<int> GetOrCreateUserIdAsync(
+        IUserManagementService userService,
+        ClaimsPrincipal principal,
+        string tenantId,
+        string objectId,
+        McpUserCallerOptions users,
+        CancellationToken cancellationToken)
+    {
+        var email = GetClaim(principal, "email") ?? GetClaim(principal, "upn");
+        var displayName = GetClaim(principal, "name");
+        var userName = GetClaim(principal, "preferred_username") ?? email ?? displayName ?? objectId;
+
+        // Keyed on the Entra oid (stable across apps, unlike the pairwise sub) within the tenant. The provider string is
+        // tenant-based rather than the issuer so v1 and v2 tokens resolve to the same user.
+        var user = await userService.GetOrCreateExternalUserAsync(
+            objectId,
+            $"entra:{tenantId}",
+            userName,
+            email,
+            displayName,
+            users.DefaultRoleName,
+            cancellationToken);
+
+        return user.Id;
     }
 
     private static string? GetClaim(ClaimsPrincipal principal, string type)
@@ -231,4 +323,12 @@ public sealed class ConfiguredMcpCallerMapper(
             .Select(x => x.Value)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
     }
+}
+
+/// <summary>How <see cref="ConfiguredMcpCallerMapper.ClassifyToken"/> reads an Entra token.</summary>
+internal enum McpTokenKind
+{
+    Unrecognized,
+    Delegated,
+    AppOnly
 }
