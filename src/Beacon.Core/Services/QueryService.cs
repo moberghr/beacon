@@ -419,9 +419,7 @@ internal partial class QueryService(IDbContextFactory<BeaconContext> contextFact
         var runnableVersion = await SavedQueryRunnableVersion.ForQuery(context, queryId)
             .FirstOrDefaultAsync(cancellationToken);
         result.McpToolRunnableVersionNumber = runnableVersion?.VersionNumber;
-        result.McpToolIssue = runnableVersion == null
-            ? SavedQueryRunnableVersion.NoRunnableVersionIssue
-            : SavedQueryToolRules.Inspect(runnableVersion.StepsJson).Issue;
+        result.McpToolIssue = await SavedQueryRunnableVersion.InspectIssueAsync(context, runnableVersion, cancellationToken);
 
         // Get execution time statistics for this query (all subscriptions, only successful executions)
         var executionTimeStats = await context.QueryExecutionHistory

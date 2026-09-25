@@ -2,6 +2,7 @@ using Beacon.Core;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.HostData;
 using Beacon.Core.HostDocs;
 using Beacon.Core.Models;
 using Beacon.Core.Services;
@@ -33,7 +34,7 @@ public class HostDocsSynchronizerTests
         Write("50-data/contexts.md", "# Contexts\n\nThe NetgiroContext holds loans. Claims live elsewhere.");
 
         _store = new DocsStore();
-        _store.Projects.Add(new Project { Id = 7, Name = ProjectName });
+        _store.Projects.Add(new Project { Id = 7, Name = ProjectName, HostManagedKey = HostProjectResolver.KeyFor(ProjectName) });
         _indexer = new Mock<IDocChunkIndexingService>();
     }
 
@@ -145,6 +146,43 @@ public class HostDocsSynchronizerTests
     }
 
     [Test]
+    public async Task UserProjectWithTheSameName_NeverReceivesTheHostDocuments()
+    {
+        _store.Projects.Clear();
+        _store.Projects.Add(new Project { Id = 3, Name = ProjectName });
+
+        var outcome = await SyncAsync();
+
+        outcome.ProjectId.Should().NotBe(3);
+        _store.Projects.Single(x => x.Id == outcome.ProjectId).HostManagedKey.Should().Be("host:netgiro");
+        _store.Documents.Should().NotContain(x => x.ProjectId == 3);
+    }
+
+    [Test]
+    public async Task CaseOnlyRename_UpdatesTheExistingRow_InsteadOfInsertingADuplicate()
+    {
+        await SyncAsync();
+        var readme = _store.Documents.Single(x => x.Path == "README.md");
+        readme.Path = "readme.md";
+
+        var outcome = await SyncAsync();
+
+        outcome.Should().BeEquivalentTo(new { Added = 0, Updated = 1, Archived = 0, Unchanged = 1 });
+        _store.Documents.Should().HaveCount(2, "SQL Server's unique index is case-insensitive, so an insert would fail startup");
+        readme.Path.Should().Be("README.md", "the row takes the file's current casing");
+        readme.ArchivedTime.Should().BeNull();
+    }
+
+    [Test]
+    public void DocumentKeyComparer_IgnoresCase_LikeTheSqlServerIndex()
+    {
+        var keys = new HashSet<(string SourceKey, string Path)>(DocumentKeyComparer.Instance) { ("docs:dir:docs/wiki", "Guide.md") };
+
+        keys.Add(("docs:dir:docs/WIKI", "guide.md")).Should().BeFalse();
+        keys.Add(("docs:dir:docs/wiki", "guide2.md")).Should().BeTrue();
+    }
+
+    [Test]
     public async Task OtherProjectsDocuments_AreNeverTouched()
     {
         var foreign = new ProjectImportedDocument
@@ -243,8 +281,11 @@ public class HostDocsSynchronizerTests
             .Setup(x => x.GetEffectiveSettingsAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new McpSettingsData { DocChunkWindowSentences = 5, DocChunkOverlapSentences = 1 });
 
+        var factory = _store.Factory().Object;
+
         return new HostDocsSynchronizer(
-            _store.Factory().Object,
+            factory,
+            new HostProjectResolver(factory, NullLogger<HostProjectResolver>.Instance),
             [new HostDocsRegistration(options)],
             settings.Object,
             indexer,

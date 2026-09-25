@@ -137,6 +137,47 @@ public class SetQueryMcpToolHandlerTests
     }
 
     [Test]
+    public async Task Disabling_WithANameAnotherQueryUses_Succeeds_AndKeepsTheStoredName()
+    {
+        var data = Seed();
+        var query = data.Query(1, "loan_book_v1", [Step(1, 10, "SELECT 1")]);
+        data.Query(2, "loan_book", [Step(1, 10, "SELECT 2")]);
+
+        var result = await Handler(data).Handle(new SetQueryMcpToolCommand(1, false, "loan_book", null, null), CancellationToken.None);
+
+        query.McpToolEnabled.Should().BeFalse();
+        query.McpToolName.Should().Be("loan_book_v1", "a disable never takes over another query's name");
+        result.Enabled.Should().BeFalse();
+    }
+
+    [Test]
+    public async Task ALostRaceOnTheUniqueName_IsTheSameBusinessError_NotA500()
+    {
+        var data = Seed();
+        data.Query(1, null, [Step(1, 10, "SELECT {n}", Parameter("n", ParameterType.Number))], enabled: false);
+        data.Store.FailNextSave = new Microsoft.EntityFrameworkCore.DbUpdateException(
+            "insert",
+            new Npgsql.PostgresException("duplicate key", "ERROR", "ERROR", "23505"));
+
+        var act = () => Handler(data).Handle(new SetQueryMcpToolCommand(1, true, "loan_book", null, null), CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("The tool name 'loan_book' is already used by another query.");
+    }
+
+    [Test]
+    public async Task AQueryNoSingleProjectCanSee_IsReportedAsNotVisible()
+    {
+        var data = Seed();
+        data.Project(2, "B", data.DataSource(20, "ledger"));
+        data.Query(1, null, [Step(1, 10, "SELECT 1"), Step(2, 20, "SELECT 2")], enabled: false);
+
+        var result = await Handler(data).Handle(new SetQueryMcpToolCommand(1, true, "loan_book", null, null), CancellationToken.None);
+
+        result.Enabled.Should().BeTrue("visibility can change when a data source is added, so it is reported, not blocking");
+        result.Issue.Should().Be(SavedQueryRunnableVersion.NotVisibleInAnyProjectIssue, "project A has only source 10 and project B only source 20");
+    }
+
+    [Test]
     public async Task AnUnknownQuery_IsRejected()
     {
         var data = Seed();

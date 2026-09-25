@@ -4,11 +4,9 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.ApiExplorer;
 using Microsoft.AspNetCore.Routing;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
-using Beacon.Core.Data;
 using Beacon.Core.HostData;
 using Beacon.Core.HostEndpoints;
 
@@ -27,7 +25,7 @@ internal sealed class HostEndpointToolRegistry
     public HostEndpointToolRegistry(IServiceProvider services, HostEndpointToolOptions options)
     {
         _options = options;
-        _tools = new Lazy<IReadOnlyList<HostEndpointToolDescriptor>>(() => Discover(services), LazyThreadSafetyMode.ExecutionAndPublication);
+        _tools = new Lazy<IReadOnlyList<HostEndpointToolDescriptor>>(() => Discover(services, options), LazyThreadSafetyMode.ExecutionAndPublication);
     }
 
     public IReadOnlyList<HostEndpointToolDescriptor> Tools => _tools.Value;
@@ -49,7 +47,7 @@ internal sealed class HostEndpointToolRegistry
             .FirstOrDefault();
     }
 
-    private static IReadOnlyList<HostEndpointToolDescriptor> Discover(IServiceProvider services)
+    private static IReadOnlyList<HostEndpointToolDescriptor> Discover(IServiceProvider services, HostEndpointToolOptions options)
     {
         var endpoints = services.GetService<EndpointDataSource>()?.Endpoints ?? [];
         var apiDescriptions = services.GetService<IApiDescriptionGroupCollectionProvider>()?
@@ -57,12 +55,40 @@ internal sealed class HostEndpointToolRegistry
             .SelectMany(x => x.Items)
             .ToList() ?? [];
         var hasFallbackPolicy = services.GetService<IOptions<AuthorizationOptions>>()?.Value.FallbackPolicy != null;
+        var policyProvider = services.GetService<IAuthorizationPolicyProvider>();
 
         var discovery = new HostEndpointToolDiscovery(
             services.GetService<IXmlDocumentationProvider>() ?? NoXmlDocumentation.Instance,
             services.GetService<IServiceProviderIsService>());
 
-        return discovery.Discover(endpoints, apiDescriptions, hasFallbackPolicy);
+        return discovery.Discover(
+            endpoints,
+            apiDescriptions,
+            hasFallbackPolicy,
+            policyProvider == null ? null : x => AuthenticationSchemesOf(x, policyProvider),
+            options.TrustedAuthenticationSchemes);
+    }
+
+    // The same combined policy HostEndpointDispatcher.AuthorizeAsync evaluates (minus requirement-only metadata, which
+    // cannot name a scheme), resolved once at startup — hence the blocking wait on the policy provider.
+    private static IReadOnlyCollection<string> AuthenticationSchemesOf(Endpoint endpoint, IAuthorizationPolicyProvider policyProvider)
+    {
+        if (endpoint.Metadata.GetMetadata<IAllowAnonymous>() != null)
+        {
+            return [];
+        }
+
+        var policy = AuthorizationPolicy.CombineAsync(
+                policyProvider,
+                endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>(),
+                endpoint.Metadata.GetOrderedMetadata<AuthorizationPolicy>())
+            .GetAwaiter()
+            .GetResult();
+        policy ??= policyProvider.GetFallbackPolicyAsync()
+            .GetAwaiter()
+            .GetResult();
+
+        return policy?.AuthenticationSchemes ?? [];
     }
 
     private sealed class NoXmlDocumentation : IXmlDocumentationProvider
@@ -86,7 +112,11 @@ internal sealed class HostEndpointToolsStartupFilter : IStartupFilter
         };
 }
 
-/// <summary>Resolves <see cref="HostEndpointToolOptions.ProjectName"/> to a project id.</summary>
+/// <summary>
+/// Resolves <see cref="HostEndpointToolOptions.ProjectName"/> to the host project's id through Core's shared
+/// <see cref="IHostProjectResolver"/> (by host key, never by name), so the tools attach to the same project as the
+/// host's data source and documents.
+/// </summary>
 internal interface IHostEndpointProjectResolver
 {
     /// <summary>The project id, or null when no such project exists (the tools are then unavailable).</summary>
@@ -94,7 +124,7 @@ internal interface IHostEndpointProjectResolver
 }
 
 internal sealed class HostEndpointProjectResolver(
-    IDbContextFactory<BeaconContext> contextFactory,
+    IHostProjectResolver hostProjects,
     IMemoryCache cache,
     HostEndpointToolOptions options) : IHostEndpointProjectResolver
 {
@@ -109,20 +139,12 @@ internal sealed class HostEndpointProjectResolver(
             return cached;
         }
 
-        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-        var projectId = await BuildQuery(context, options.ProjectName)
-            .FirstOrDefaultAsync(cancellationToken);
+        var projectId = await hostProjects.FindAsync(options.ProjectName, cancellationToken);
 
         cache.Set(key, projectId, projectId.HasValue ? FoundLifetime : MissingLifetime);
 
         return projectId;
     }
-
-    internal static IQueryable<int?> BuildQuery(BeaconContext context, string projectName) =>
-        context.Projects
-            .Where(x => x.Name == projectName)
-            .OrderBy(x => x.Id)
-            .Select(x => (int?)x.Id);
 }
 
 internal sealed class HostEndpointToolCatalog(

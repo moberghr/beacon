@@ -17,11 +17,14 @@ internal sealed record HostSyncOutcome(int DataSourceId, bool Created, bool Meta
 
 /// <summary>
 /// Upserts the project, data source, project link and metadata for every <c>ExposeDbContext</c> registration,
-/// keyed by <c>DataSource.HostManagedKey</c>. Called by the host at startup through
+/// keyed by <c>DataSource.HostManagedKey</c>. The project comes from <see cref="IHostProjectResolver"/> (by
+/// <c>Project.HostManagedKey</c>, never by name), and the data source is linked to that project only — a link to any
+/// other project (a renamed <c>ProjectName</c>, a hand-made link) is removed. Called by the host at startup through
 /// <c>SyncBeaconHostDataSourcesAsync</c> — deliberately not a hosted service (§2.15).
 /// </summary>
 internal sealed class HostDataSourceSynchronizer(
     IDbContextFactory<BeaconContext> contextFactory,
+    IHostProjectResolver projectResolver,
     IHostDataSourceRegistry registry,
     IEncryptionService encryptionService,
     IConfiguration configuration,
@@ -46,6 +49,8 @@ internal sealed class HostDataSourceSynchronizer(
         var snapshot = registry.GetSnapshot(registration.Key)
             ?? throw new InvalidOperationException($"Host data source '{registration.Name}' is not registered.");
 
+        var projectId = await projectResolver.EnsureAsync(registration.ProjectName, registration.Options.Description, cancellationToken);
+
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         var dataSource = await context.DataSources
@@ -64,21 +69,16 @@ internal sealed class HostDataSourceSynchronizer(
 
         ApplyDataSourceFields(dataSource, registration, snapshot);
 
-        var project = await context.Projects
-            .Where(x => x.Name == registration.ProjectName)
-            .FirstOrDefaultAsync(cancellationToken);
+        var links = created
+            ? []
+            : await context.ProjectDataSources
+                .Where(x => x.DataSourceId == dataSource.Id)
+                .ToListAsync(cancellationToken);
 
-        var createProject = project == null;
-        project ??= new Project
-        {
-            Name = registration.ProjectName,
-            Description = registration.Options.Description
-        };
-
-        var linked = !created && !createProject && await context.ProjectDataSources
-            .Where(x => x.ProjectId == project.Id)
-            .Where(x => x.DataSourceId == dataSource.Id)
-            .AnyAsync(cancellationToken);
+        var linked = links.Any(x => x.ProjectId == projectId);
+        var staleLinks = links
+            .Where(x => x.ProjectId != projectId)
+            .ToList();
 
         var rewriteMetadata = created || dataSource.HostModelHash != snapshot.ModelHash;
         HostMetadataMergeResult? merge = null;
@@ -102,14 +102,19 @@ internal sealed class HostDataSourceSynchronizer(
             context.DataSources.Add(dataSource);
         }
 
-        if (createProject)
+        if (staleLinks.Count > 0)
         {
-            context.Projects.Add(project);
+            // Only the declared host project may reach the host database (e.g. after ProjectName changed).
+            context.ProjectDataSources.RemoveRange(staleLinks);
+            logger.LogWarning(
+                "Host data source {DataSourceName} was linked to {StaleLinkCount} other project(s); those links were removed.",
+                registration.Name,
+                staleLinks.Count);
         }
 
         if (!linked)
         {
-            context.ProjectDataSources.Add(new ProjectDataSource { Project = project, DataSource = dataSource });
+            context.ProjectDataSources.Add(new ProjectDataSource { ProjectId = projectId, DataSource = dataSource });
         }
 
         if (merge != null)

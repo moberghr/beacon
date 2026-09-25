@@ -48,7 +48,8 @@ public class HostDataSourceSynchronizerTests
             .Should()
             .BeEquivalentTo("Customer", "Loan");
         store.Tables.Should().OnlyContain(x => x.DataSourceId == dataSource.Id);
-        store.SaveCount.Should().Be(1);
+        store.Projects[0].HostManagedKey.Should().Be("host:netgiro admin");
+        store.SaveCount.Should().Be(2, "the host project is ensured in its own unit of work, then the data source");
         relationships.Verify(x => x.SyncAsync(dataSource.Id, It.IsAny<CancellationToken>()), Times.Once);
     }
 
@@ -84,6 +85,55 @@ public class HostDataSourceSynchronizerTests
         store.ProjectDataSources.Should().ContainSingle();
         store.Tables.Select(x => x.Id).Should().Equal(tableIds);
         relationships.Verify(x => x.SyncAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Test]
+    public async Task SyncAsync_UserProjectWithTheSameName_IsNeverLinkedToTheHostDatabase()
+    {
+        var store = new HostSyncStore();
+        var userProject = new Beacon.Core.Data.Entities.Projects.Project { Id = 1, Name = "Netgiro Admin" };
+        store.Projects.Add(userProject);
+        var (synchronizer, registration) = Build(store, x => x.AllowTables("Customer"));
+
+        await synchronizer.SyncAsync(registration, CancellationToken.None);
+
+        var hostProject = store.Projects.Single(x => x.HostManagedKey != null);
+        hostProject.Id.Should().NotBe(userProject.Id);
+        hostProject.Name.Should().Be("Netgiro Admin (host)", "the user's project keeps its name and the host project is disambiguated");
+        store.ProjectDataSources.Should().ContainSingle()
+            .Which.ProjectId.Should().Be(hostProject.Id);
+        userProject.HostManagedKey.Should().BeNull();
+    }
+
+    [Test]
+    public async Task SyncAsync_HostProjectRenamedByAUser_IsStillFoundByItsKey()
+    {
+        var store = new HostSyncStore();
+        var (synchronizer, registration) = Build(store, x => x.AllowTables("Customer"));
+        await synchronizer.SyncAsync(registration, CancellationToken.None);
+        store.Projects.Single().Name = "Renamed in the UI";
+
+        await synchronizer.SyncAsync(registration, CancellationToken.None);
+
+        store.Projects.Should().ContainSingle();
+        store.ProjectDataSources.Should().ContainSingle();
+    }
+
+    [Test]
+    public async Task SyncAsync_ProjectNameChanged_RemovesTheOldProjectsLink()
+    {
+        var store = new HostSyncStore();
+        var (first, firstRegistration) = Build(store, x => x.AllowTables("Customer"));
+        await first.SyncAsync(firstRegistration, CancellationToken.None);
+        var oldProjectId = store.Projects.Single().Id;
+
+        var (second, secondRegistration) = Build(store, x => x.AllowTables("Customer"), projectName: "Netgiro Ops");
+        await second.SyncAsync(secondRegistration, CancellationToken.None);
+
+        var newProject = store.Projects.Single(x => x.HostManagedKey == "host:netgiro ops");
+        store.ProjectDataSources.Should().ContainSingle("the old project must lose access to the host database")
+            .Which.ProjectId.Should().Be(newProject.Id);
+        store.ProjectDataSources.Should().NotContain(x => x.ProjectId == oldProjectId);
     }
 
     [Test]
@@ -321,9 +371,10 @@ public class HostDataSourceSynchronizerTests
         HostSyncStore store,
         Action<HostDbContextOptions> configure,
         Mock<ISchemaRelationshipSyncService>? relationships = null,
-        string? connectionString = ReadOnlyConnectionString)
+        string? connectionString = ReadOnlyConnectionString,
+        string projectName = "Netgiro Admin")
     {
-        var registry = BuildRegistry(configure);
+        var registry = BuildRegistry(configure, projectName);
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory
             .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
@@ -331,6 +382,7 @@ public class HostDataSourceSynchronizerTests
 
         var synchronizer = new HostDataSourceSynchronizer(
             factory.Object,
+            new HostProjectResolver(factory.Object, NullLogger<HostProjectResolver>.Instance),
             registry,
             FakeEncryption.Instance,
             Configuration(connectionString),
@@ -342,7 +394,7 @@ public class HostDataSourceSynchronizerTests
         return (synchronizer, registry.Registrations.Single());
     }
 
-    private static HostDataSourceRegistry BuildRegistry(Action<HostDbContextOptions> configure)
+    private static HostDataSourceRegistry BuildRegistry(Action<HostDbContextOptions> configure, string projectName = "Netgiro Admin")
     {
         var services = new ServiceCollection();
         services.AddDbContext<HostTestContext>(x => x.UseSqlServer("Server=unused;Database=unused"));
@@ -351,7 +403,7 @@ public class HostDataSourceSynchronizerTests
         var options = new HostDbContextOptions
         {
             Name = "Netgiro",
-            ProjectName = "Netgiro Admin",
+            ProjectName = projectName,
             ReadOnlyConnectionStringName = "BeaconReadOnly"
         };
         configure(options);

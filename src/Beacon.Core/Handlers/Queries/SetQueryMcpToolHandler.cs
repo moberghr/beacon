@@ -49,9 +49,16 @@ internal sealed class SetQueryMcpToolHandler(
             var takenBy = await BuildNameTakenQuery(context, name, request.QueryId)
                 .FirstOrDefaultAsync(cancellationToken);
 
-            if (takenBy != null)
+            if (takenBy != null && request.Enabled)
             {
                 throw new InvalidOperationException($"The tool name '{name}' is already used by query #{takenBy}.");
+            }
+
+            if (takenBy != null)
+            {
+                // Disabling must always work: keep the name this query already has instead of taking a clashing one.
+                logger.LogInformation("Query {QueryId} MCP tool disabled; requested name is used by query {OtherQueryId}, kept the stored name.", query.Id, takenBy);
+                name = query.McpToolName;
             }
         }
 
@@ -66,11 +73,22 @@ internal sealed class SetQueryMcpToolHandler(
             throw new InvalidOperationException($"The query cannot be exposed as an MCP tool: {issue}");
         }
 
+        // Reported, not blocking: the data sources may be added to a project later, and the tool shows up then.
+        issue ??= await SavedQueryRunnableVersion.InspectIssueAsync(context, runnable, cancellationToken);
+
         query.McpToolEnabled = request.Enabled;
         query.McpToolName = name;
         query.McpToolDescription = description;
 
-        await context.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await context.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex) when (DbUniqueViolation.IsUniqueViolation(ex))
+        {
+            // A concurrent save took the name between the check above and this write (the index is the arbiter).
+            throw new InvalidOperationException($"The tool name '{name}' is already used by another query.", ex);
+        }
 
         logger.LogInformation(
             "Query {QueryId} MCP tool {Enabled} as {ToolName} by user {UserId}",

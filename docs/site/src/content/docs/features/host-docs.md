@@ -35,6 +35,29 @@ await app.Services.SyncBeaconHostAsync();      // syncs ExposeDbContext data sou
 `ExposeDbContext` sync first (exactly what `SyncBeaconHostDataSourcesAsync` does — that call still works on its
 own) and then imports the documents. It is a plain startup call, not a hosted service.
 
+Both calls are **safe to run from several replicas at once**: the whole sync holds one lock in Beacon's own database
+(PostgreSQL `pg_try_advisory_lock` on a fixed key, SQL Server `sp_getapplock` with a session owner), so replicas
+starting together run it one after another instead of racing each other's inserts. A replica waits up to 5 minutes
+for the lock. A unique-key race that still happens (a row created outside the lock) re-runs the idempotent sync once
+instead of failing startup. Other providers run the sync unlocked and log a warning. A host that coordinates startup
+another way can register its own `IHostSyncLock`.
+
+### The host project
+
+`ExposeDbContext`, `ExposeDocs` and `AddHostEndpointTools` all resolve their `ProjectName` through one shared
+resolver, so they always land on the same project. The host project is identified by a **host key**
+(`Project.HostManagedKey = host:{ProjectName, trimmed and lower-cased}`), never by its display name, which is neither
+unique nor protected:
+
+- On first sync the host project is created with the key. If a project that is **not** host-managed already uses the
+  name (for example one a Beacon user created by hand), it is left untouched and the host project is created as
+  `"{ProjectName} (host)"` (then `"(host 2)"`, …), with a warning in the log. A user project with the same name never
+  receives the host database, documents or endpoint tools.
+- Renaming the host project in the UI is fine: it is still found by its key.
+- An archived host project is restored, because the host still declares it.
+- Changing `ProjectName` creates (or claims) the project for the new name, and the host data source is **unlinked
+  from every other project**, including the project of the old name, so it loses access to the host database.
+
 ## Shipping the documents
 
 The docs are not part of the build output by default, so the host has to ship them. Either copy them next to the
@@ -74,7 +97,7 @@ The part of the resource name after the prefix is the document path (backslashes
 
 | Option | Meaning |
 |---|---|
-| `ProjectName` | **Required.** Project the documents attach to, matched by name; created when missing. |
+| `ProjectName` | **Required.** The host project the documents attach to, found by its host key (see [The host project](#the-host-project)); created when missing. |
 | `FromDirectory(path, params globs)` | Files under `path` (relative to the content root, or absolute) matching the globs. Default glob `**/*.md`. |
 | `FromEmbeddedResources(assembly, prefix)` | Manifest resources whose name starts with `prefix`. |
 | `Exclude(params globs)` | Skips documents whose relative path matches (applies to every source of this call). |
@@ -97,6 +120,10 @@ Each document is stored as a `ProjectImportedDocument`, keyed by project, source
 - **Idempotent** — a document whose content hash is unchanged is left alone; nothing is written when nothing
   changed. A changed document is updated in place, a removed file is archived, and a file that comes back is
   un-archived.
+- **Case-insensitive paths** — source and path are matched ignoring letter case, as SQL Server's unique index
+  compares them. Renaming `Guide.md` to `guide.md` updates the existing row (it takes the new casing). Two files
+  whose paths differ only by case (possible on a case-sensitive file system or in embedded resources) cannot both be
+  stored: the first is imported and the other is skipped with a warning that names its path.
 - **Chunked for search** — new and changed documents are split into sentence-window chunks (the same chunker and
   `DocChunkWindowSentences` / `DocChunkOverlapSentences` settings as generated documentation). Keyword search
   works on them immediately. When the local embedder and semantic retrieval are enabled, the sync then embeds the
@@ -119,7 +146,10 @@ The documents belong to one project and are only ever visible to callers authori
   masked). Built from the catalog only — no LLM call — and audited like every tool call.
 
 The REST API exposes the same documents to the UI: `GET /beacon/api/projects/{id}/imported-documents` (listing)
-and `GET /beacon/api/projects/{id}/imported-documents/{documentId}` (one document with its content).
+and `GET /beacon/api/projects/{id}/imported-documents/{documentId}` (one document with its content). A
+project-restricted caller (an API key or MCP JWT caller with `allowed_projects`) gets `403` for a project outside its
+list; a scoped caller without the restriction claim, or with a malformed one, is denied too. Cookie and SSO sessions
+are not project-restricted.
 
 ## Netgiro example
 

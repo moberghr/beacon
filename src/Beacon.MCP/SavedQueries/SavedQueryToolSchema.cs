@@ -73,6 +73,31 @@ internal static class SavedQueryToolSchema
         $"{tool.Description}\n\nSaved Beacon query (approved version {tool.VersionNumber}); runs read-only with the arguments bound as database parameters. Results are row-capped and PII-masked per the project's MCP settings.";
 
     /// <summary>
+    /// Reads only the optional <c>project_id</c> argument, so the project can be resolved (and its retention settings
+    /// applied to the audit row) before the other arguments are validated. Returns an error message, or null with
+    /// <paramref name="projectId"/> set when a project was passed.
+    /// </summary>
+    public static string? ReadProjectArgument(IDictionary<string, JsonElement>? arguments, out int? projectId)
+    {
+        projectId = null;
+        if (arguments == null
+            || !arguments.TryGetValue(SavedQueryToolRules.ProjectArgumentName, out var element)
+            || element.ValueKind == JsonValueKind.Null)
+        {
+            return null;
+        }
+
+        if (!TryGetInteger(element, out var requested) || requested is < int.MinValue or > int.MaxValue)
+        {
+            return $"Argument '{SavedQueryToolRules.ProjectArgumentName}' must be an integer project id.";
+        }
+
+        projectId = (int)requested;
+
+        return null;
+    }
+
+    /// <summary>
     /// Validates and converts <paramref name="arguments"/> against the tool's parameters. Returns an error message, or
     /// null with <paramref name="values"/> keyed by parameter name and <paramref name="projectId"/> set when the
     /// caller passed <c>project_id</c>.

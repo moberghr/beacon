@@ -30,12 +30,16 @@ Rules the endpoint enforces:
 
 | Field | Rule |
 | --- | --- |
-| `name` | `^[a-z][a-z0-9_]{2,40}$`; the MCP tool is `q_<name>`. Unique across live (non-archived) queries — so it is unique in every project and always names one query. Required to enable. |
+| `name` | `^[a-z][a-z0-9_]{2,40}$`; the MCP tool is `q_<name>`. Unique across live (non-archived) queries — so it is unique in every project and always names one query. Required to enable. Two concurrent saves of the same name get the same "already used" error (`400`), never a `500`. |
 | `description` | Optional, at most 1000 characters. Falls back to the approved version's description, then its name. |
-| `enabled: true` | Requires a runnable approved version whose parameters make a valid tool (see below). Disabling is always allowed; the name stays reserved while it is set. |
+| `enabled: true` | Requires a runnable approved version whose parameters make a valid tool (see below). Disabling is always allowed; the name stays reserved while it is set. Disabling with a name another query already uses succeeds and keeps the query's stored name. |
 
 The query detail DTO (`GET /beacon/api/queries/{id}`) carries `mcpToolEnabled`, `mcpToolName`,
-`mcpToolDescription`, `mcpToolRunnableVersionNumber` and `mcpToolIssue`.
+`mcpToolDescription`, `mcpToolRunnableVersionNumber` and `mcpToolIssue`. `mcpToolIssue` explains why the query is not
+a tool anyone can call: no approved active version, a parameter shape that cannot be a tool, or **not visible in any
+project** — no single project contains all of the data sources its steps read, so no caller can ever see it. The
+last one does not block enabling (a data source may be added to a project later); it is reported so the tool does
+not silently stay invisible.
 
 ## Which version runs
 
@@ -156,7 +160,10 @@ When the approved SQL changes, the routine picks up the new version on its next 
 - **Audit.** Every call — success or failure, including unknown tools and invalid arguments — is written to the MCP
   audit log as `q_<name>` (a search as `search_saved_queries`), with project, data source, row count and error.
   Arguments are kept only when the project's retention settings allow content, and are never written to the
-  application log.
+  application log. The project is resolved **before** the arguments are validated, so an invalid-argument row
+  follows that project's retention setting. When no project can be established (an ambiguous or foreign
+  `project_id`, an unknown tool, a search across several projects) the row is structural only — tool, input size and
+  error class, never argument content — rather than falling back to the global setting.
 - **No learning signals.** Saved queries are pre-approved SQL, not the caller's SQL, so they are **audit-only**:
   `McpSignalService` does not record them and they never feed pattern mining or golden examples.
 

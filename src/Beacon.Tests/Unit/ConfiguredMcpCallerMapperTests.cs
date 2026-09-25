@@ -7,10 +7,14 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Microsoft.EntityFrameworkCore;
 using Moq;
+using Npgsql;
 using NUnit.Framework;
 using Beacon.Core;
+using Beacon.Core.Authentication;
 using Beacon.Core.Configuration;
+using Beacon.Core.Data;
 using Beacon.Core.Mcp;
 using Beacon.Core.Models;
 using Beacon.Core.Models.UserManagement;
@@ -33,6 +37,9 @@ public class ConfiguredMcpCallerMapperTests
     private const string AiProxyClientId = "44444444-4444-4444-4444-444444444444";
     private const string AiProxyServicePrincipalOid = "55555555-5555-5555-5555-555555555555";
     private const string AnalystsGroup = "66666666-6666-6666-6666-666666666666";
+    private const string OtherTenantId = "99999999-9999-9999-9999-999999999999";
+    private const string Audience = "api://beacon";
+    private const string Issuer = "https://login.microsoftonline.com/" + TenantId + "/v2.0";
 
     // Generated per run: a test-only key, never a real secret (§1.2).
     private static readonly string EncryptionKey = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
@@ -382,12 +389,15 @@ public class ConfiguredMcpCallerMapperTests
     [Test]
     public void Startup_BindsCallersSection_AndRejectsAnInvalidSystem()
     {
-        using var provider = BuildBeaconProvider(new Dictionary<string, string?>
-        {
-            ["Beacon:Mcp:Callers:Systems:0:Name"] = "aiproxy",
-            ["Beacon:Mcp:Callers:Systems:0:ClientId"] = AiProxyClientId,
-            ["Beacon:Mcp:Callers:Systems:0:ObjectId"] = ServiceUserOid
-        });
+        using var provider = BuildBeaconProvider(
+            new Dictionary<string, string?>
+            {
+                ["Beacon:Mcp:Callers:AllowedTenants:0"] = TenantId,
+                ["Beacon:Mcp:Callers:Systems:0:Name"] = "aiproxy",
+                ["Beacon:Mcp:Callers:Systems:0:ClientId"] = AiProxyClientId,
+                ["Beacon:Mcp:Callers:Systems:0:ObjectId"] = ServiceUserOid
+            },
+            BearerOptions());
 
         var act = () => provider.GetRequiredService<IOptions<McpCallerOptions>>().Value;
 
@@ -398,14 +408,18 @@ public class ConfiguredMcpCallerMapperTests
     [Test]
     public void Startup_RegistersTheConfiguredMapper_WithBoundOptions()
     {
-        using var provider = BuildBeaconProvider(new Dictionary<string, string?>
-        {
-            ["Beacon:Mcp:Callers:Users:Enabled"] = "true",
-            ["Beacon:Mcp:Callers:Users:Scope"] = "Read",
-            ["Beacon:Mcp:Callers:Users:GroupProjects:" + AnalystsGroup + ":0"] = "4",
-            ["Beacon:Mcp:Callers:Systems:0:Name"] = "aiproxy",
-            ["Beacon:Mcp:Callers:Systems:0:ClientId"] = AiProxyClientId
-        });
+        using var provider = BuildBeaconProvider(
+            new Dictionary<string, string?>
+            {
+                ["Beacon:Mcp:Callers:AllowedTenants:0"] = TenantId,
+                ["Beacon:Mcp:Callers:Users:Enabled"] = "true",
+                ["Beacon:Mcp:Callers:Users:RequiredGroups:0"] = AnalystsGroup,
+                ["Beacon:Mcp:Callers:Users:Scope"] = "Read",
+                ["Beacon:Mcp:Callers:Users:GroupProjects:" + AnalystsGroup + ":0"] = "4",
+                ["Beacon:Mcp:Callers:Systems:0:Name"] = "aiproxy",
+                ["Beacon:Mcp:Callers:Systems:0:ClientId"] = AiProxyClientId
+            },
+            BearerOptions());
         using var scope = provider.CreateScope();
 
         var mapper = scope.ServiceProvider.GetRequiredService<IMcpCallerMapper>();
@@ -419,19 +433,232 @@ public class ConfiguredMcpCallerMapperTests
         options.Systems.Should().ContainSingle(x => x.Name == "aiproxy" && x.ClientId == AiProxyClientId);
     }
 
-    private static ConfiguredMcpCallerMapper CreateMapper(McpCallerOptions options, IUserManagementService? userService = null)
+    [Test]
+    public async Task Tenant_NotAllowed_OrMissing_IsRejected()
     {
+        var mapper = CreateMapper(AiProxySystem());
+
+        var otherTenant = await mapper.MapAsync(AppToken(AiProxyClientId, AiProxyServicePrincipalOid, tenantId: OtherTenantId), CancellationToken.None);
+        var noTenant = await mapper.MapAsync(AppToken(AiProxyClientId, AiProxyServicePrincipalOid, tenantId: null), CancellationToken.None);
+        var allowed = await mapper.MapAsync(AppToken(AiProxyClientId, AiProxyServicePrincipalOid), CancellationToken.None);
+
+        otherTenant.Should().BeNull("Entra's JWKS signs tokens for every tenant; only AllowedTenants may call");
+        noTenant.Should().BeNull("a token without tid cannot be tied to an allowed tenant");
+        allowed!.Name.Should().Be("aiproxy");
+    }
+
+    [Test]
+    public async Task Audience_NotConfigured_IsRejected_EvenWhenTheBearerLayerLetItThrough()
+    {
+        var mapper = CreateMapper(AiProxySystem());
+        var mapperWithoutBearerOptions = CreateMapper(AiProxySystem(), withJwtOptions: false);
+
+        var foreignAudience = await mapper.MapAsync(AppToken(AiProxyClientId, AiProxyServicePrincipalOid, audience: "https://graph.microsoft.com"), CancellationToken.None);
+        var noAudiencesKnown = await mapperWithoutBearerOptions.MapAsync(AppToken(AiProxyClientId, AiProxyServicePrincipalOid), CancellationToken.None);
+
+        foreignAudience.Should().BeNull("a token minted for another resource must never map to a caller");
+        noAudiencesKnown.Should().BeNull("with no configured audience nothing is accepted (fail closed)");
+    }
+
+    [Test]
+    public async Task IdToken_WithTheSystemsAzp_IsNotTheSystem()
+    {
+        var mapper = CreateMapper(AiProxySystem());
+        var idToken = new ClaimsPrincipal(new ClaimsIdentity(
+            [
+                new Claim("tid", TenantId),
+                new Claim("aud", Audience),
+                new Claim("oid", UserOid),
+                new Claim("sub", "pairwise-subject"),
+                new Claim("azp", AiProxyClientId),
+                new Claim("nonce", "abc"),
+                new Claim("roles", "Mcp.System")
+            ],
+            "Bearer"));
+
+        var caller = await mapper.MapAsync(idToken, CancellationToken.None);
+
+        caller.Should().BeNull("an ID token is not an access token, whatever its azp");
+    }
+
+    [Test]
+    public async Task ScpLessToken_WithoutAPositiveAppOnlySignal_IsRejected()
+    {
+        var mapper = CreateMapper(AiProxySystem());
+
+        var neitherScpNorRoles = await mapper.MapAsync(AppToken(AiProxyClientId, AiProxyServicePrincipalOid, withIdType: false, withRoles: false), CancellationToken.None);
+        var rolesButUserSubject = await mapper.MapAsync(
+            new ClaimsPrincipal(new ClaimsIdentity(
+                [
+                    new Claim("tid", TenantId),
+                    new Claim("aud", Audience),
+                    new Claim("oid", UserOid),
+                    new Claim("sub", "pairwise-subject"),
+                    new Claim("azp", AiProxyClientId),
+                    new Claim("roles", "Mcp.System")
+                ],
+                "Bearer")),
+            CancellationToken.None);
+
+        neitherScpNorRoles.Should().BeNull("\"no scp\" alone is not an app-only signal");
+        rolesButUserSubject.Should().BeNull("oid != sub is a user's token, not a service principal's");
+    }
+
+    [Test]
+    public async Task AppOnlyToken_WithoutIdtyp_IsRecognisedByRolesAndOidEqualsSub()
+    {
+        var mapper = CreateMapper(AiProxySystem());
+
+        var caller = await mapper.MapAsync(AppToken(AiProxyClientId, AiProxyServicePrincipalOid, withIdType: false), CancellationToken.None);
+
+        caller!.Name.Should().Be("aiproxy");
+    }
+
+    [Test]
+    public void ClassifyToken_IdtypAppWithScp_IsContradictory()
+    {
+        var principal = new ClaimsPrincipal(new ClaimsIdentity([new Claim("idtyp", "app"), new Claim("scp", "x")], "Bearer"));
+
+        ConfiguredMcpCallerMapper.ClassifyToken(principal).Should().Be(McpTokenKind.Unrecognized);
+    }
+
+    [Test]
+    public async Task UserMode_NoRequirements_WithoutTheExplicitOptIn_RejectsUsers()
+    {
+        var mapper = CreateMapper(UsersEnabled(x =>
+        {
+            x.ProjectIds = [1];
+            x.AllowAnyTenantUser = false;
+        }));
+
+        var caller = await mapper.MapAsync(UserToken(), CancellationToken.None);
+
+        caller.Should().BeNull("an empty role/group requirement admits nobody unless AllowAnyTenantUser is set");
+    }
+
+    [Test]
+    public async Task UserMode_ConcurrentFirstProvisioning_UniqueViolation_RereadsTheUser()
+    {
+        var userService = new Mock<IUserManagementService>();
+        userService
+            .SetupSequence(x => x.GetOrCreateExternalUserAsync(
+                UserOid,
+                $"entra:{TenantId}",
+                It.IsAny<string>(),
+                It.IsAny<string?>(),
+                It.IsAny<string?>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new DbUpdateException("insert failed", new PostgresException("duplicate key", "ERROR", "ERROR", "23505")))
+            .ReturnsAsync(new BeaconUserData { Id = 21, ExternalId = UserOid, UserName = "ana" });
+        var mapper = CreateMapper(UsersEnabled(x => x.AutoProvision = true), userService.Object);
+
+        var caller = await mapper.MapAsync(UserToken(), CancellationToken.None);
+
+        caller!.BeaconUserId.Should().Be(21, "the losing request re-reads the user the winning request created");
+    }
+
+    [Test]
+    public void UniqueViolation_RecognisesPostgresAndIgnoresOtherErrors()
+    {
+        DbUniqueViolation.IsUniqueViolation(new DbUpdateException("x", new PostgresException("dup", "ERROR", "ERROR", "23505"))).Should().BeTrue();
+        DbUniqueViolation.IsUniqueViolation(new DbUpdateException("x", new PostgresException("fk", "ERROR", "ERROR", "23503"))).Should().BeFalse();
+        DbUniqueViolation.IsUniqueViolation(new InvalidOperationException("x")).Should().BeFalse();
+    }
+
+    [Test]
+    public void Validator_ActiveCallers_RequireTenantsIssuerAndAudience()
+    {
+        var options = new McpCallerOptions { Systems = [new McpSystemCallerOptions { Name = "a", ClientId = "c1" }] };
+
+        var noBearer = new McpCallerOptionsValidator().Validate(null, options);
+        var noIssuer = new McpCallerOptionsValidator(BearerOptions(issuer: null)).Validate(null, options);
+        var issuerOff = new McpCallerOptionsValidator(BearerOptions(validateIssuer: false)).Validate(null, options);
+        var noAudience = new McpCallerOptionsValidator(BearerOptions(audience: null)).Validate(null, options);
+
+        noBearer.FailureMessage.Should().Contain("AllowedTenants").And.Contain("bearer JWT authentication is not enabled");
+        noIssuer.FailureMessage.Should().Contain("issuer validation");
+        issuerOff.FailureMessage.Should().Contain("issuer validation");
+        noAudience.FailureMessage.Should().Contain("audience validation");
+    }
+
+    [Test]
+    public void Validator_InactiveCallers_NeedNoBearerSettings()
+    {
+        var result = new McpCallerOptionsValidator().Validate(null, new McpCallerOptions());
+
+        result.Succeeded.Should().BeTrue("an absent callers section accepts nobody and needs nothing");
+    }
+
+    [Test]
+    public void Validator_UsersWithoutRequirements_NeedTheExplicitOptIn()
+    {
+        var withoutOptIn = new McpCallerOptions { AllowedTenants = [TenantId], Users = new McpUserCallerOptions { Enabled = true } };
+        var withOptIn = new McpCallerOptions { AllowedTenants = [TenantId], Users = new McpUserCallerOptions { Enabled = true, AllowAnyTenantUser = true } };
+
+        var failed = new McpCallerOptionsValidator(BearerOptions()).Validate(null, withoutOptIn);
+        var succeeded = new McpCallerOptionsValidator(BearerOptions()).Validate(null, withOptIn);
+
+        failed.FailureMessage.Should().Contain("AllowAnyTenantUser");
+        succeeded.Succeeded.Should().BeTrue();
+    }
+
+    [Test]
+    public void Startup_ActiveCallersWithoutIssuerValidation_FailsTheHost()
+    {
+        using var provider = BuildBeaconProvider(
+            new Dictionary<string, string?>
+            {
+                ["Beacon:Mcp:Callers:AllowedTenants:0"] = TenantId,
+                ["Beacon:Mcp:Callers:Systems:0:Name"] = "aiproxy",
+                ["Beacon:Mcp:Callers:Systems:0:ClientId"] = AiProxyClientId
+            },
+            BearerOptions(issuer: null));
+
+        var act = () => provider.GetRequiredService<IOptions<McpCallerOptions>>().Value;
+
+        act.Should().Throw<OptionsValidationException>().WithMessage("*issuer validation*");
+    }
+
+    private static ConfiguredMcpCallerMapper CreateMapper(
+        McpCallerOptions options,
+        IUserManagementService? userService = null,
+        JwtAuthenticationOptions? jwtOptions = null,
+        bool withJwtOptions = true)
+    {
+        if (options.AllowedTenants.Count == 0)
+        {
+            options.AllowedTenants.Add(TenantId);
+        }
+
         return new ConfiguredMcpCallerMapper(
             Options.Create(options),
             new MemoryCache(new MemoryCacheOptions()),
             Hasher,
             NullLogger<ConfiguredMcpCallerMapper>.Instance,
-            userService);
+            userService,
+            withJwtOptions ? jwtOptions ?? BearerOptions() : null);
+    }
+
+    private static JwtAuthenticationOptions BearerOptions(string? issuer = Issuer, string? audience = Audience, bool validateIssuer = true, bool validateAudience = true)
+    {
+        return new JwtAuthenticationOptions
+        {
+            EnableBearerAuthentication = true,
+            Validation = new JwtValidationOptions
+            {
+                JwksEndpoint = "https://login.microsoftonline.com/common/discovery/v2.0/keys",
+                ValidIssuer = issuer,
+                ValidAudience = audience,
+                ValidateIssuer = validateIssuer,
+                ValidateAudience = validateAudience
+            }
+        };
     }
 
     private static McpCallerOptions UsersEnabled(Action<McpUserCallerOptions> configure)
     {
-        var users = new McpUserCallerOptions { Enabled = true, AutoProvision = false };
+        var users = new McpUserCallerOptions { Enabled = true, AutoProvision = false, AllowAnyTenantUser = true };
         configure(users);
 
         return new McpCallerOptions { Users = users };
@@ -447,6 +674,7 @@ public class ConfiguredMcpCallerMapperTests
         var claims = new List<Claim>
         {
             new("tid", TenantId),
+            new("aud", Audience),
             new("oid", oid),
             new("sub", "pairwise-subject"),
             new("azp", azp),
@@ -462,27 +690,45 @@ public class ConfiguredMcpCallerMapperTests
         return new ClaimsPrincipal(new ClaimsIdentity(claims, "Bearer"));
     }
 
-    private static ClaimsPrincipal AppToken(string appId, string servicePrincipalOid)
+    private static ClaimsPrincipal AppToken(string appId, string servicePrincipalOid, bool withIdType = true, bool withRoles = true, string? tenantId = TenantId, string audience = Audience)
     {
         var claims = new List<Claim>
         {
-            new("tid", TenantId),
+            new("aud", audience),
             new("oid", servicePrincipalOid),
             new("sub", servicePrincipalOid),
-            new("azp", appId),
-            new("idtyp", "app"),
-            new("roles", "Mcp.System")
+            new("azp", appId)
         };
+        if (tenantId != null)
+        {
+            claims.Add(new Claim("tid", tenantId));
+        }
+
+        if (withIdType)
+        {
+            claims.Add(new Claim("idtyp", "app"));
+        }
+
+        if (withRoles)
+        {
+            claims.Add(new Claim("roles", "Mcp.System"));
+        }
 
         return new ClaimsPrincipal(new ClaimsIdentity(claims, "Bearer"));
     }
 
+    private static McpCallerOptions AiProxySystem() =>
+        new()
+        {
+            Systems = [new McpSystemCallerOptions { Name = "aiproxy", ClientId = AiProxyClientId, ProjectIds = [7] }]
+        };
+
     private static ValidateOptionsResult Validate(params McpSystemCallerOptions[] systems)
     {
-        return new McpCallerOptionsValidator().Validate(null, new McpCallerOptions { Systems = [.. systems] });
+        return new McpCallerOptionsValidator(BearerOptions()).Validate(null, new McpCallerOptions { AllowedTenants = [TenantId], Systems = [.. systems] });
     }
 
-    private static ServiceProvider BuildBeaconProvider(Dictionary<string, string?> settings)
+    private static ServiceProvider BuildBeaconProvider(Dictionary<string, string?> settings, JwtAuthenticationOptions? jwtOptions = null)
     {
         // A throwaway key: AddBeaconServices refuses to start without one (§1.1). Never a real secret (§1.2).
         settings["Beacon:EncryptionKey"] = Convert.ToBase64String(new byte[32]);
@@ -491,6 +737,11 @@ public class ConfiguredMcpCallerMapperTests
             .Build();
         var services = new ServiceCollection();
         services.AddLogging();
+        if (jwtOptions != null)
+        {
+            services.AddSingleton(jwtOptions);
+        }
+
         services
             .AddBeaconServices(configuration, x => x.AddBeaconScheduler<NoOpScheduler>())
             .UsePostgreSql("Host=localhost;Database=unused;Username=unused;Password=unused");

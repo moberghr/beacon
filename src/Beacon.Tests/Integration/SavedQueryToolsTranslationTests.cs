@@ -33,6 +33,16 @@ public class SavedQueryToolsTranslationTests : QueryTranslationTestBase
     }
 
     [Test]
+    public void SavedQueryAnyProjectMembership_Translates()
+    {
+        var sql = SavedQueryToolSource.BuildAnyProjectMembershipQuery(Context, [10, 11]).ToQueryString();
+
+        sql.Should().Contain("project_data_sources");
+        sql.Should().Contain("data_source_id");
+        sql.Should().Contain("archived_time IS NULL");
+    }
+
+    [Test]
     public void SavedQueryRunnableVersion_Translates()
     {
         var sql = SavedQueryRunnableVersion.ForQuery(Context, 5).ToQueryString();

@@ -111,7 +111,20 @@ internal sealed class HostSyncTestContext(HostSyncStore store) : BeaconContext(O
         set.Setup(x => x.AddRange(It.IsAny<IEnumerable<T>>()))
             .Callback<IEnumerable<T>>(data.AddRange);
         set.Setup(x => x.RemoveRange(It.IsAny<IEnumerable<T>>()))
-            .Callback<IEnumerable<T>>(x => (removed ?? []).AddRange(x));
+            .Callback<IEnumerable<T>>(x =>
+            {
+                // A set without a "removed" list is a stored table: removing deletes the rows.
+                if (removed != null)
+                {
+                    removed.AddRange(x);
+                    return;
+                }
+
+                foreach (var item in x.ToList())
+                {
+                    data.Remove(item);
+                }
+            });
 
         return set.Object;
     }
