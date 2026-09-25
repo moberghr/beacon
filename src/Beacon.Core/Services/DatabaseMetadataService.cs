@@ -60,6 +60,14 @@ public class DatabaseMetadataService(
             if (!dataSource.DatabaseEngineType.HasValue)
                 throw new BeaconException($"Data source {dataSourceId} is not a database type");
 
+            // Host-managed sources describe only the allow-listed slice of the host's EF model. A live catalog scan
+            // (and value sampling) would expose every table the login can see, so it is never run for them.
+            if (dataSource.HostManagedKey != null)
+            {
+                throw new InvalidOperationException(
+                    "Metadata for a host data source comes from the host's EF model and is refreshed when the host starts (SyncBeaconHostDataSourcesAsync).");
+            }
+
             // Extract metadata based on database type using registered extractors
             var connectionString = encryptionService.Decrypt(dataSource.EncryptedConnectionData);
             var extractor = metadataExtractors.FirstOrDefault(e => e.SupportedEngineType == dataSource.DatabaseEngineType.Value)
@@ -212,6 +220,12 @@ public class DatabaseMetadataService(
             cache.Set(GetCacheKey(dataSourceId), snapshot, CacheExpiration);
 
             return snapshot;
+        }
+
+        // A host data source that exposes nothing yet has nothing to scan — never fall through to a live refresh.
+        if (dataSource.HostManagedKey != null)
+        {
+            return new DatabaseMetadataSnapshot(dataSourceId, dataSource.DatabaseEngineType.Value, new List<TableMetadataDto>(), DateTime.UtcNow);
         }
 
         // If no data in database, refresh from source
@@ -432,5 +446,5 @@ public class DatabaseMetadataService(
         }
     }
 
-    private static string GetCacheKey(int dataSourceId) => $"{CacheKeyPrefix}{dataSourceId}";
+    internal static string GetCacheKey(int dataSourceId) => $"{CacheKeyPrefix}{dataSourceId}";
 }

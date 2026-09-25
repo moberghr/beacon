@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Helpers;
+using Beacon.Core.HostData;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Providers;
 using Beacon.Core.Services.Validation;
@@ -12,8 +13,9 @@ using Beacon.Core.Services.Validation;
 namespace Beacon.Core.Services.Providers;
 
 internal class DatabaseProvider(
-    IEncryptionService encryptionService,
+    IDataSourceConnectionResolver connectionResolver,
     SqlReadOnlyAstValidator readOnlyValidator,
+    IHostDataSourceGuard hostGuard,
     ILogger<DatabaseProvider> logger) : IDataSourceProvider
 {
     public DataSourceType SupportedType => DataSourceType.Database;
@@ -31,7 +33,7 @@ internal class DatabaseProvider(
             if (!dataSource.DatabaseEngineType.HasValue)
                 throw new BeaconException("DatabaseEngineType is required for Database data sources");
 
-            var connectionString = encryptionService.Decrypt(dataSource.EncryptedConnectionData);
+            var connectionString = connectionResolver.GetConnectionString(dataSource);
             await using var connection = DbConnectionFactory.CreateConnection(
                 dataSource.DatabaseEngineType.Value,
                 connectionString);
@@ -133,6 +135,17 @@ internal class DatabaseProvider(
                 };
             }
 
+            // Host-managed sources (ExposeDbContext): allow-listed tables and exposed columns only.
+            var hostCheck = hostGuard.Check(dataSource, query);
+            if (!hostCheck.Allowed)
+            {
+                return new QueryValidationResult
+                {
+                    IsValid = false,
+                    Errors = new List<string> { hostCheck.Error! }
+                };
+            }
+
             // Engines without a dry-run strategy must NOT fall through as valid — nothing would have
             // been checked. Return an explicit skipped result the caller can distinguish (and must not
             // repair against). Checked BEFORE opening a connection: there is nothing to connect for.
@@ -150,7 +163,7 @@ internal class DatabaseProvider(
             }
 
             // Basic validation: try to prepare the query without executing
-            var connectionString = encryptionService.Decrypt(dataSource.EncryptedConnectionData);
+            var connectionString = connectionResolver.GetConnectionString(dataSource);
             await using var connection = DbConnectionFactory.CreateConnection(
                 dataSource.DatabaseEngineType.Value,
                 connectionString);
@@ -212,7 +225,24 @@ internal class DatabaseProvider(
                 throw new BeaconException("DatabaseEngineType is required for Database data sources");
             }
 
-            var connectionString = encryptionService.Decrypt(dataSource.EncryptedConnectionData);
+            // Host-managed sources (ExposeDbContext): the policy is enforced HERE as well as in the execution
+            // gate, so every caller of the provider — MCP, ad-hoc queries, documentation/value sampling — is covered.
+            var hostCheck = hostGuard.Check(dataSource, query);
+            if (!hostCheck.Allowed)
+            {
+                stopwatch.Stop();
+
+                return new ProviderQueryResult
+                {
+                    Rows = new List<Dictionary<string, object?>>(),
+                    TotalRows = 0,
+                    ExecutionTimeMs = stopwatch.Elapsed.TotalMilliseconds,
+                    Success = false,
+                    ErrorMessage = hostCheck.Error
+                };
+            }
+
+            var connectionString = connectionResolver.GetConnectionString(dataSource);
             await using var connection = DbConnectionFactory.CreateConnection(
                 dataSource.DatabaseEngineType.Value,
                 connectionString);
@@ -261,7 +291,7 @@ internal class DatabaseProvider(
                 commandTimeout: 120);
 
             var result = await connection.QueryAsync(commandDefinition);
-            var rows = ConvertDapperResultsToRows(result.AsList());
+            var rows = hostGuard.Mask(ConvertDapperResultsToRows(result.AsList()), hostCheck.MaskedOutputColumns);
 
             if (transaction != null)
             {

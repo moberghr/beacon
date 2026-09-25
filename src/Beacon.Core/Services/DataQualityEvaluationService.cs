@@ -7,6 +7,7 @@ using Beacon.Core.Data;
 using Beacon.Core.Data.Entities.DataQuality;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Helpers;
+using Beacon.Core.HostData;
 using Beacon.Core.Models.DataQuality;
 
 namespace Beacon.Core.Services;
@@ -21,7 +22,8 @@ public interface IDataQualityEvaluationService
 internal class DataQualityEvaluationService(
     IDbContextFactory<BeaconContext> contextFactory,
     IDataQualitySqlGenerator sqlGenerator,
-    IEncryptionService encryptionService,
+    IDataSourceConnectionResolver connectionResolver,
+    IHostDataSourceGuard hostGuard,
     ILogger<DataQualityEvaluationService> logger) : IDataQualityEvaluationService
 {
     public async Task<DataQualityEvaluationData> EvaluateContractAsync(int dataContractId, CancellationToken cancellationToken = default)
@@ -38,7 +40,7 @@ internal class DataQualityEvaluationService(
         if (contract.DataSource.DatabaseEngineType == null)
             throw new Models.BeaconException("Data contract's data source must be a database type");
 
-        var connectionString = encryptionService.Decrypt(contract.DataSource.EncryptedConnectionData);
+        var connectionString = connectionResolver.GetConnectionString(contract.DataSource);
         var engineType = contract.DataSource.DatabaseEngineType.Value;
         var enabledRules = contract.Rules.Where(r => r.IsEnabled).ToList();
 
@@ -165,6 +167,13 @@ internal class DataQualityEvaluationService(
             };
 
             var sql = sqlGenerator.GenerateSql(enrichedRule, engineType);
+
+            // Host-managed sources: rule SQL obeys the same allow-list / exclusion policy as any other query.
+            var hostCheck = hostGuard.Check(contract.DataSource, sql);
+            if (!hostCheck.Allowed)
+            {
+                throw new InvalidOperationException(hostCheck.Error);
+            }
 
             using var connection = DbConnectionFactory.CreateConnection(engineType, connectionString);
             await connection.OpenAsync(cancellationToken);

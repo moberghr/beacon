@@ -115,7 +115,8 @@ internal sealed class ProjectQueryTool(
                 {
                     Catalog = catalog,
                     BlockOnSchemaFailure = true,
-                    MaxRows = maxRows
+                    MaxRows = maxRows,
+                    HostManagedKey = dataSource.HostManagedKey
                 });
                 signal.SetGeneratedSql(sql, report.TablesUsed.ToList());
 

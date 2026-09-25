@@ -21,6 +21,10 @@ internal partial class MigrationService
             if (!dataSource.DatabaseEngineType.HasValue)
                 throw new BeaconException($"Data source {dataSource.Id} is not a database type");
 
+            // Host-managed sources are read-only, policy-gated views of the host database; bulk copy bypasses that.
+            if (dataSource.HostManagedKey != null)
+                throw new InvalidOperationException($"Host data source '{dataSource.Name}' cannot be used by migration jobs.");
+
             var connectionString = encryptionService.Decrypt(dataSource.EncryptedConnectionData);
             return DbConnectionFactory.CreateConnection(dataSource.DatabaseEngineType.Value, connectionString);
         }

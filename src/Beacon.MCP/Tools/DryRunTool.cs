@@ -122,7 +122,8 @@ internal sealed class DryRunTool(
             var report = gate.Evaluate(SqlGateRequest.FromSettings(sql, dialect, settings) with
             {
                 Catalog = catalog,
-                MaxRows = maxRows
+                MaxRows = maxRows,
+                HostManagedKey = dataSource.HostManagedKey
             });
             signal.SetGeneratedSql(sql, report.TablesUsed.ToList());
 
