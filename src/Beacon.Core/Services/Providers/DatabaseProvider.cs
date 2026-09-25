@@ -18,6 +18,9 @@ internal class DatabaseProvider(
     IHostDataSourceGuard hostGuard,
     ILogger<DatabaseProvider> logger) : IDataSourceProvider
 {
+    /// <summary>What a caller sees when a query against a host data source fails on the server.</summary>
+    public const string HostQueryFailedMessage = "Query failed on the host database.";
+
     public DataSourceType SupportedType => DataSourceType.Database;
 
     public string GetQueryLanguageName() => "SQL";
@@ -199,12 +202,10 @@ internal class DatabaseProvider(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Query validation failed for database data source {DataSourceId}", dataSource.Id);
-
             return new QueryValidationResult
             {
                 IsValid = false,
-                Errors = new List<string> { ex.Message }
+                Errors = new List<string> { DescribeFailure(dataSource, ex, "Query validation failed", LogLevel.Warning) }
             };
         }
     }
@@ -227,8 +228,11 @@ internal class DatabaseProvider(
 
             // Host-managed sources (ExposeDbContext): the policy is enforced HERE as well as in the execution
             // gate, so every caller of the provider — MCP, ad-hoc queries, documentation/value sampling — is covered.
+            // A bind parameter the statement uses but the caller did not supply would reach the server as
+            // literal text (on PostgreSQL "@p0" is then abs() of a column p0), so it is refused here too.
             var hostCheck = hostGuard.Check(dataSource, query);
-            if (!hostCheck.Allowed)
+            var hostError = hostCheck.Allowed ? hostCheck.FindUnboundParameter(parameters) : hostCheck.Error;
+            if (hostError != null)
             {
                 stopwatch.Stop();
 
@@ -238,7 +242,7 @@ internal class DatabaseProvider(
                     TotalRows = 0,
                     ExecutionTimeMs = stopwatch.Elapsed.TotalMilliseconds,
                     Success = false,
-                    ErrorMessage = hostCheck.Error
+                    ErrorMessage = hostError
                 };
             }
 
@@ -315,8 +319,6 @@ internal class DatabaseProvider(
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Query execution failed for database data source {DataSourceId}", dataSource.Id);
-
             stopwatch.Stop();
 
             return new ProviderQueryResult
@@ -325,9 +327,26 @@ internal class DatabaseProvider(
                 TotalRows = 0,
                 ExecutionTimeMs = stopwatch.Elapsed.TotalMilliseconds,
                 Success = false,
-                ErrorMessage = ex.Message
+                ErrorMessage = DescribeFailure(dataSource, ex, "Query execution failed", LogLevel.Error)
             };
         }
+    }
+
+    // A host data source is reached by agents that may be prompt-injected: a server error message can quote the
+    // values of masked or unexposed columns (conversion errors, constraint text), so neither the caller nor the log
+    // ever sees it — only the exception type is logged (§1.11). Ordinary sources keep the full message.
+    private string DescribeFailure(DataSource dataSource, Exception ex, string what, LogLevel level)
+    {
+        if (dataSource.HostManagedKey == null)
+        {
+            logger.Log(level, ex, "{What} for database data source {DataSourceId}", what, dataSource.Id);
+
+            return ex.Message;
+        }
+
+        logger.Log(level, "{What} for host data source {DataSourceId} with {ExceptionType}", what, dataSource.Id, ex.GetType().Name);
+
+        return HostQueryFailedMessage;
     }
 
     // PostgreSQL supports the session-level default_transaction_read_only backstop plus

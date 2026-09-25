@@ -1355,6 +1355,7 @@ internal sealed class KnowledgeGraphService(
                 UsedSmartRetrieval = false,
                 TotalTableCount = allTables.Count,
                 DatabaseDialect = dialect,
+                HostManagedKey = dataSource.HostManagedKey,
                 SchemaCatalog = catalog,
                 PrimaryKeyCatalog = primaryKeyCatalog,
                 JoinPaths = allPaths
@@ -1442,6 +1443,7 @@ internal sealed class KnowledgeGraphService(
             RelevantTables = [.. detailedTables],
             TotalTableCount = allTables.Count,
             DatabaseDialect = dialect,
+            HostManagedKey = dataSource.HostManagedKey,
             SchemaCatalog = catalog,
             PrimaryKeyCatalog = primaryKeyCatalog,
             Capped = expansion.Capped,

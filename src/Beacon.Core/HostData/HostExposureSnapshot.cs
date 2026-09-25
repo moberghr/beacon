@@ -18,19 +18,30 @@ internal sealed record HostExposureSnapshot(
 /// </summary>
 internal sealed class HostExposurePolicy
 {
-    public HostExposurePolicy(DatabaseEngineType engine, string defaultSchema, IReadOnlyList<HostExposedTable> tables)
+    public HostExposurePolicy(
+        DatabaseEngineType engine,
+        string defaultSchema,
+        IReadOnlyList<HostExposedTable> tables,
+        IReadOnlySet<string>? allowedFunctions = null)
     {
         Engine = engine;
         DefaultSchema = defaultSchema;
         Tables = tables;
+        AllowedFunctions = allowedFunctions ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
     }
 
     public DatabaseEngineType Engine { get; }
 
-    /// <summary>Schema an unqualified table name resolves to (dbo / public, or the model default).</summary>
+    /// <summary>
+    /// The model's default schema (dbo / public, or the model default). Informational only: SQL against a host data
+    /// source must schema-qualify every table, because the connection's real default schema / search_path may differ.
+    /// </summary>
     public string DefaultSchema { get; }
 
     public IReadOnlyList<HostExposedTable> Tables { get; }
+
+    /// <summary>Host-approved functions allowed on top of the built-in allow-list (<see cref="HostSqlFunctions"/>).</summary>
+    public IReadOnlySet<string> AllowedFunctions { get; }
 
     /// <summary>A policy that exposes nothing — used when a host data source has no live registration.</summary>
     public static HostExposurePolicy DenyAll(DatabaseEngineType engine)

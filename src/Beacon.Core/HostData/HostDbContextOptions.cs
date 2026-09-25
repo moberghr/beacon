@@ -14,6 +14,7 @@ public sealed class HostDbContextOptions
     private readonly List<Func<HostColumn, bool>> _excludePredicates = [];
     private readonly List<Func<HostColumn, bool>> _maskPredicates = [];
     private readonly HashSet<string> _secretLikeOverrides = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _allowedFunctions = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Data-source name shown in Beacon. Defaults to the context type name.</summary>
     public string? Name { get; set; }
@@ -47,6 +48,8 @@ public sealed class HostDbContextOptions
     internal IReadOnlyList<Func<HostColumn, bool>> MaskPredicates => _maskPredicates;
 
     internal IReadOnlySet<string> SecretLikeOverrides => _secretLikeOverrides;
+
+    internal IReadOnlySet<string> AllowedFunctions => _allowedFunctions;
 
     /// <summary>Sets <see cref="ReadOnlyConnectionStringName"/>.</summary>
     public HostDbContextOptions ReadOnlyConnection(string connectionStringName)
@@ -102,6 +105,34 @@ public sealed class HostDbContextOptions
     public HostDbContextOptions MaskColumns(Func<HostColumn, bool> predicate)
     {
         _maskPredicates.Add(predicate);
+        return this;
+    }
+
+    /// <summary>
+    /// Allows extra functions (by unqualified name, case-insensitive) in SQL against this data source, on top of the
+    /// built-in allow-list of analytics functions. Only name functions that read nothing but their arguments — a
+    /// function that queries tables itself bypasses the table allow-list. Catalog, settings, file and remote-server
+    /// functions (<c>pg_*</c>, <c>xp_*</c>, <c>sp_*</c>, <c>fn_*</c>, <c>OPENROWSET</c>, <c>query_to_xml</c>,
+    /// <c>row_to_json</c> …) can never be allowed.
+    /// </summary>
+    public HostDbContextOptions AllowFunctions(params string[] functionNames)
+    {
+        foreach (var functionName in functionNames)
+        {
+            var name = functionName?.Trim() ?? "";
+            if (name.Length == 0 || !name.All(x => char.IsAsciiLetterOrDigit(x) || x == '_') || char.IsAsciiDigit(name[0]))
+            {
+                throw new ArgumentException($"'{functionName}' is not a plain function name.", nameof(functionNames));
+            }
+
+            if (HostSqlFunctions.IsHardDenied(name))
+            {
+                throw new ArgumentException($"Function '{name}' can read outside the exposed tables and cannot be allowed.", nameof(functionNames));
+            }
+
+            _allowedFunctions.Add(name);
+        }
+
         return this;
     }
 

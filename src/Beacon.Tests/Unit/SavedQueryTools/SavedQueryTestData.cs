@@ -37,14 +37,14 @@ internal sealed class SavedQueryTestData
         return project;
     }
 
-    public DataSource DataSource(int id, string name, string? hostManagedKey = null)
+    public DataSource DataSource(int id, string name, string? hostManagedKey = null, DatabaseEngineType engine = DatabaseEngineType.PostgreSQL)
     {
         var dataSource = new DataSource
         {
             Id = id,
             Name = name,
             DataSourceType = DataSourceType.Database,
-            DatabaseEngineType = DatabaseEngineType.PostgreSQL,
+            DatabaseEngineType = engine,
             EncryptedConnectionData = "encrypted",
             HostManagedKey = hostManagedKey
         };

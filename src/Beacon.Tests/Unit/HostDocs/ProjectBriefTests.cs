@@ -80,6 +80,8 @@ public class ProjectBriefTests
             | --- | --- | --- | --- |
             | NetgiroContext | MSSQL | 2 | host-managed, read-only (an allow-listed slice of the host application's model) |
 
+            SQL against a host-managed source must schema-qualify every table exactly as listed (for example `dbo.Loans`), name every column (no `*`) and call only standard built-in functions.
+
             ## Key tables
 
             The 2 best-described of 40 tables; use `search` for the rest.
@@ -91,7 +93,7 @@ public class ProjectBriefTests
 
             ## Masked columns
 
-            Values of these columns are masked in every query result:
+            Values of these columns are masked in every query result. They may only be selected directly, counted with `COUNT(column)` or tested with `IS NULL` / `IS NOT NULL` — any other use (filters, joins, grouping, ordering, functions) is rejected:
 
             - `dbo.Customers.Email`
 

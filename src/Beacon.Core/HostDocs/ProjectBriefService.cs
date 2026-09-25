@@ -355,6 +355,38 @@ internal sealed class ProjectBriefService(
         }
 
         sb.Append('\n');
+
+        if (data.DataSources.Any(x => x.IsHostManaged))
+        {
+            sb.Append("SQL against a host-managed source must schema-qualify every table exactly as listed (for example `")
+                .Append(HostQualifiedExample(data))
+                .Append("`), name every column (no `*`) and call only standard built-in functions.\n\n");
+        }
+    }
+
+    private static string HostQualifiedExample(ProjectBriefData data)
+    {
+        var hostSource = data.DataSources
+            .Where(x => x.IsHostManaged)
+            .First();
+        var table = data.Tables
+            .Where(x => x.DataSourceName == hostSource.Name)
+            .FirstOrDefault();
+
+        if (table == null)
+        {
+            return hostSource.Engine == DatabaseEngineType.PostgreSQL ? "public.\"Customer\"" : "dbo.Customer";
+        }
+
+        // PostgreSQL folds unquoted names to lower case, so a mixed-case EF name must be quoted.
+        return hostSource.Engine == DatabaseEngineType.PostgreSQL
+            ? $"{QuotePostgres(table.SchemaName)}.{QuotePostgres(table.TableName)}"
+            : $"{table.SchemaName}.{table.TableName}";
+    }
+
+    private static string QuotePostgres(string name)
+    {
+        return name.All(x => char.IsAsciiLetterLower(x) || char.IsAsciiDigit(x) || x == '_') ? name : $"\"{name}\"";
     }
 
     private static void AppendTables(StringBuilder sb, ProjectBriefData data)
@@ -393,7 +425,7 @@ internal sealed class ProjectBriefService(
         }
 
         sb.Append("## Masked columns\n\n");
-        sb.Append("Values of these columns are masked in every query result:\n\n");
+        sb.Append("Values of these columns are masked in every query result. They may only be selected directly, counted with `COUNT(column)` or tested with `IS NULL` / `IS NOT NULL` — any other use (filters, joins, grouping, ordering, functions) is rejected:\n\n");
         foreach (var column in data.MaskedColumns)
         {
             sb.Append("- `").Append(column.SchemaName).Append('.').Append(column.TableName).Append('.').Append(column.ColumnName).Append("`\n");
