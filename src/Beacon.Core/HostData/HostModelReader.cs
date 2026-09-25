@@ -112,7 +112,7 @@ internal static class HostModelReader
                     .ToHashSet(StringComparer.OrdinalIgnoreCase)));
         }
 
-        var policy = new HostExposurePolicy(engine, defaultSchema, policyTables);
+        var policy = new HostExposurePolicy(engine, defaultSchema, policyTables, options.AllowedFunctions);
 
         return new HostExposureSnapshot(engine, tables, policy, ComputeHash(registration, engine, tables, policyTables));
     }

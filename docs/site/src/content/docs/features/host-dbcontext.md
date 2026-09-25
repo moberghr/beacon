@@ -50,6 +50,7 @@ startup entrypoint. `SyncBeaconHostDataSourcesAsync` keeps working on its own.
 | `ExcludeColumns(Func<HostColumn, bool>)` | Invisible in metadata **and** rejected at execution. |
 | `MaskColumns(Func<HostColumn, bool>)` | Visible in metadata (flagged `[PII: values are masked in query results]`); values masked in every result. Exclusion wins. |
 | `IncludeSecretLikeColumn("Table.Column")` | Lifts the secret-like hard-exclude for one column. Logged as a warning at every sync. |
+| `AllowFunctions("fn", …)` | Allows extra functions (unqualified name, case-insensitive) on top of the built-in allow-list. Only name functions that read nothing but their arguments. Catalog / settings / file / remote functions (`pg_*`, `xp_*`, `sp_*`, `fn_*`, `OPENROWSET`, `query_to_xml`, `row_to_json` …) are refused at startup. |
 
 `HostColumn` gives `Schema`, `Table`, `Name` (column), `ClrType`, `EntityType` and `PropertyName`.
 
@@ -85,33 +86,52 @@ UI is refused; restart the host (or call the sync again) instead.
   exposed slice, in the execution gate (MCP `query`, `dry_run`, cross-source, eval — a violation blocks regardless
   of `BlockOnSchemaFailure`) **and** again in the database provider (every path: `ask`, ad-hoc UI queries, value
   grounding, documentation sampling), in saved-query steps and in data-quality rules. The check parses the SQL in
-  the data source's own dialect and walks the whole AST:
-  - only `SELECT`; every table must be allow-listed (schema-qualified names must match; unqualified names resolve
-    to the default schema; three-part / linked-server names, table-valued functions, `OPENROWSET`, `SELECT INTO`,
-    `FOR JSON/XML`, schema-qualified function calls and query-running functions such as `query_to_xml` or `pg_*`
-    are rejected);
-  - CTE names are scoped exactly (a CTE never hides a real table of the same name outside its scope);
-  - every column reference must be an exposed column of a table the query reads, or a name the query itself
-    defines; excluded columns are rejected anywhere (projection, predicate, ordering, subquery), and whole-row
-    references (`row_to_json(t)`) are rejected;
+  the data source's own dialect and resolves every name the way the database does:
+  - only a single `SELECT`; every table must be allow-listed **and schema-qualified** (`dbo.Customer`,
+    `public."Customer"`) — an unqualified name is rejected with `Qualify the table: dbo.Customer`, because the
+    connection's real default schema / `search_path` may differ from the model's. Three-part / linked-server names,
+    table-valued functions, `OPENROWSET` / `OPENJSON`, `SELECT INTO`, `FOR JSON/XML`, locking clauses, `NATURAL`
+    joins and temporal `FOR SYSTEM_TIME` are rejected;
+  - identifiers compare as the engine compares them (PostgreSQL: unquoted names fold to lower case, quoted names are
+    exact; SQL Server: case-insensitive) — for tables, CTE names, aliases and columns alike, so a CTE never hides a
+    real table (`WITH "AuditLog" AS (…) SELECT … FROM auditlog` is rejected);
+  - names resolve with per-`SELECT` scopes: an unqualified column must be an exposed column of a relation in that
+    `SELECT`'s own `FROM`; a correlated (outer) reference must be qualified with the outer alias; output aliases are
+    visible only to the same `SELECT`'s `ORDER BY` (and PostgreSQL's `GROUP BY`) and to outer queries through a
+    derived table's / CTE's columns. A bare relation name is never a column, so whole-row references
+    (`SELECT c FROM … c`, `row_to_json(c)`, `(c).col`) are rejected; unknown and excluded columns are rejected
+    anywhere; a table alias may be used only once per query;
   - `SELECT *` / `t.*` is rejected with a list of the exposed columns to use instead;
-  - masked columns may be projected directly (optionally aliased, through CTEs, subqueries and `UNION`) or used in
-    predicates and `COUNT`; inside any other expression they are rejected, so every masked value leaves the query
-    under a known key and is masked with the same masking the PII guardrail uses.
+  - functions must be on a per-dialect **allow-list** of built-in string, date/time, math, conditional, conversion,
+    aggregate, window and (on column values) JSON functions, plus any `AllowFunctions` entries; everything else —
+    user-defined functions included — is rejected. Bind parameters are `@p0`, `@p1` … on both engines (the bare
+    PostgreSQL `@` operator is rejected; use `abs()`), and a statement never runs with a parameter unbound;
+  - a masked column may appear **only** as a direct projection (optionally aliased — through CTEs, derived tables
+    and `UNION ALL` the mask follows the value to its output key), inside `COUNT(col)`, or in `col IS NULL` /
+    `col IS NOT NULL`. Any other use — `WHERE`, `JOIN … ON`/`USING`, `GROUP BY`, `ORDER BY` (by name, alias or
+    ordinal), `DISTINCT`, `UNION`/`INTERSECT`/`EXCEPT`, window specifications, `COUNT(DISTINCT …)`, any other function,
+    `CASE`, casts, or a subquery used as a value — is rejected, so masked values cannot be probed.
+  Host-masked values are masked **fully** in every result (`***`; `NULL` stays `NULL`).
+- **Errors stay generic.** When a statement fails on the host database the caller gets
+  `Query failed on the host database.` and the log records only the exception type — server messages can quote
+  column values.
 - **Read-only login.** SQL Server has no read-only transaction mode, so `SupportsDatabaseReadOnlyEnforcement`
   stays `false`; the parser gates plus the dedicated read-only login are the guarantee. On PostgreSQL the
   `READ ONLY` transaction backstop applies as usual.
 
 ### Known limits
 
-- Masking protects returned values, not predicates: `WHERE SSN LIKE '01%'` is allowed and can be used as an
-  oracle. Use `ExcludeColumns` for anything that must be unreachable.
-- Columns that exist in the database but not in the EF model are unknown to Beacon. Direct references are
+- Columns that exist in the database but not in the EF model are unknown to Beacon. Every reference to them is
   rejected, but grant the read-only login `SELECT` only on the allow-listed tables (and `DENY` secret columns) as a
   second layer.
-- Unqualified function calls are allowed apart from a deny-list; do not grant the read-only login `EXECUTE` on
-  user functions. PostgreSQL `search_path` entries other than the default schema are not modelled.
-- On case-sensitive SQL Server collations, identifiers are still compared case-insensitively.
+- A function added with `AllowFunctions` runs with the read-only login's rights; the policy cannot see what it
+  reads. Do not grant the login `EXECUTE` on anything else.
+- Masked columns still reveal whether a value is `NULL` (`IS NULL`, `COUNT(col)`); exclude a column when even that
+  must stay hidden.
+- On case-sensitive SQL Server collations, identifiers are still compared case-insensitively (a mismatch fails on
+  the server rather than widening access).
+- Some valid SQL is refused on purpose: unqualified correlated references, the same alias in an inner and an outer
+  query, `NATURAL` joins, `DISTINCT`/set operations over masked columns.
 
 ## Netgiro-style example
 

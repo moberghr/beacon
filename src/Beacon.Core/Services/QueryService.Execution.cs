@@ -291,6 +291,16 @@ internal partial class QueryService
         return false;
     }
 
+    // Replaces newline, carriage return and tab characters with a space — the exact text ExecuteQueryAsync runs. A
+    // "--" comment then swallows the rest of the statement, so policy checks must judge this form, not the original.
+    private static string FlattenSql(string sql)
+    {
+        return sql.Replace("\n", " ")
+            .Replace("\r", " ")
+            .Replace("\t", " ")
+            .Trim();
+    }
+
     private async Task<(List<IDictionary<string, object?>> Results, double ExecutionTimeMs, bool TimedOut)> ExecuteQueryAsync(
         DatabaseEngineType dbEngineType,
         string connectionString,
@@ -301,11 +311,7 @@ internal partial class QueryService
         await using var connection = DbConnectionFactory.CreateConnection(dbEngineType, connectionString);
         await connection.OpenAsync();
 
-        // Replace newline, carriage return, and tab characters with a space
-        var cleanedSql = sqlQuery.Replace("\n", " ")
-            .Replace("\r", " ")
-            .Replace("\t", " ")
-            .Trim();
+        var cleanedSql = FlattenSql(sqlQuery);
 
         var stopwatch = new System.Diagnostics.Stopwatch();
         stopwatch.Start();

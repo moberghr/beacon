@@ -8,6 +8,7 @@ using Beacon.Core.Services.Providers;
 using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
 using Beacon.Tests.Common;
+using Beacon.Tests.Unit.HostData;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
@@ -109,6 +110,39 @@ public class SavedQueryToolExecutorTests
         _executed.Should().BeEmpty();
     }
 
+    // The REAL host policy (not a mocked guard) must accept the bound SQL a parameterised saved query produces, on
+    // both engines — on PostgreSQL "@p0" otherwise parses as abs() of a column p0.
+    [TestCase(false, "SELECT c.Name FROM dbo.Customer c WHERE c.Id = {id} AND c.Name <> {name}")]
+    [TestCase(true, "SELECT c.\"Name\" FROM public.\"Customer\" c WHERE c.\"Id\" = {id} AND c.\"Name\" <> {name}")]
+    public async Task AHostManagedSource_WithParameters_PassesTheRealHostPolicy(bool npgsql, string sql)
+    {
+        _data.DataSource(20, "netgiro-host", hostManagedKey: HostKey, engine: HostTestModelFactory.EngineOf(npgsql));
+        _results.Enqueue([Row(("Name", "Anna"))]);
+        var tool = Tool("customer_by_id", [Step(1, 20, sql, Parameter("id", ParameterType.Number), Parameter("name", ParameterType.String))], [ProjectId]);
+
+        var result = await Executor(hostGuard: RealHostGuard(npgsql)).ExecuteAsync(tool, ProjectId, Args(("id", 5L), ("name", "Bo")), CancellationToken.None);
+
+        result.Success.Should().BeTrue(result.Error);
+        result.Rows.Should().ContainSingle().Which["Name"].Should().Be("Anna");
+        _executed.Should().ContainSingle();
+        _executed[0].Sql.Should().Contain("@p0").And.Contain("@p1").And.NotContain("{id}");
+        _executed[0].Parameters.Should().BeEquivalentTo(new Dictionary<string, object?> { ["p0"] = 5L, ["p1"] = "Bo" });
+    }
+
+    [TestCase(false, "SELECT c.Name FROM dbo.Customer c WHERE c.SSN = {ssn}")]
+    [TestCase(true, "SELECT c.\"Name\" FROM public.\"Customer\" c WHERE c.\"SSN\" = {ssn}")]
+    public async Task AHostManagedSource_MaskedColumnPredicate_IsRejectedByTheRealHostPolicy(bool npgsql, string sql)
+    {
+        _data.DataSource(20, "netgiro-host", hostManagedKey: HostKey, engine: HostTestModelFactory.EngineOf(npgsql));
+        var tool = Tool("customer_by_ssn", [Step(1, 20, sql, Parameter("ssn", ParameterType.String))], [ProjectId]);
+
+        var result = await Executor(hostGuard: RealHostGuard(npgsql)).ExecuteAsync(tool, ProjectId, Args(("ssn", "0101302989")), CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        result.Error.Should().Contain("Masked column");
+        _executed.Should().BeEmpty();
+    }
+
     [Test]
     public async Task PiiColumns_AreMaskedWhenTheProjectDetectsPii()
     {
@@ -172,6 +206,22 @@ public class SavedQueryToolExecutorTests
         result.Success.Should().BeFalse();
         result.Error.Should().Contain("Step 1 failed").And.Contain("does not exist");
         result.DataSourceId.Should().Be(10);
+    }
+
+    private const string HostKey = "efcore:Netgiro";
+
+    private static HostDataSourceGuard RealHostGuard(bool npgsql)
+    {
+        var snapshot = HostTestModelFactory.Read(x => x.AllowTables("Customer").MaskColumns(y => y.Name == "SSN"), npgsql);
+
+        return new HostDataSourceGuard(new SingleHostRegistry(snapshot));
+    }
+
+    private sealed class SingleHostRegistry(HostExposureSnapshot snapshot) : IHostDataSourceRegistry
+    {
+        public IReadOnlyList<HostDataSourceRegistration> Registrations => [];
+
+        public HostExposureSnapshot? GetSnapshot(string hostManagedKey) => hostManagedKey == HostKey ? snapshot : null;
     }
 
     private SavedQueryToolExecutor Executor(McpSettingsData? settings = null, IHostDataSourceGuard? hostGuard = null)

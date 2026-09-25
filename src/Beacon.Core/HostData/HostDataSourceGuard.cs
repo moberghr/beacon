@@ -1,5 +1,4 @@
 using Beacon.Core.Data.Entities;
-using Beacon.Core.Services.Security;
 
 namespace Beacon.Core.HostData;
 
@@ -16,14 +15,19 @@ public interface IHostDataSourceGuard
     /// <summary>Checks <paramref name="sql"/> against the policy registered under <paramref name="hostManagedKey"/>.</summary>
     HostPolicyResult Check(string hostManagedKey, string sql);
 
-    /// <summary>Masks the values of <paramref name="maskedColumns"/> with the same masking the PII guardrail applies.</summary>
+    /// <summary>
+    /// FULLY masks the values of <paramref name="maskedColumns"/> (matched by result key, case-insensitively): every
+    /// non-null value becomes <see cref="HostDataSourceGuard.MaskedValue"/>, null stays null. Unlike the PII
+    /// guardrail's partial masking, no character of a host-masked value is ever returned.
+    /// </summary>
     List<Dictionary<string, object?>> Mask(List<Dictionary<string, object?>> rows, IReadOnlyList<string> maskedColumns);
 }
 
-internal sealed class HostDataSourceGuard(
-    IHostDataSourceRegistry registry,
-    IQueryGuardrailService guardrailService) : IHostDataSourceGuard
+internal sealed class HostDataSourceGuard(IHostDataSourceRegistry registry) : IHostDataSourceGuard
 {
+    /// <summary>What a host-masked value is replaced with.</summary>
+    public const string MaskedValue = "***";
+
     private static readonly HostPolicyResult NotHostManaged = new(true, null, []);
 
     public HostPolicyResult Check(DataSource dataSource, string sql)
@@ -59,8 +63,10 @@ internal sealed class HostDataSourceGuard(
             return rows;
         }
 
+        var masked = new HashSet<string>(maskedColumns, StringComparer.OrdinalIgnoreCase);
+
         return rows
-            .Select(x => guardrailService.MaskPiiValues(x, maskedColumns))
+            .Select(x => x.ToDictionary(y => y.Key, y => y.Value != null && masked.Contains(y.Key) ? MaskedValue : y.Value))
             .ToList();
     }
 }

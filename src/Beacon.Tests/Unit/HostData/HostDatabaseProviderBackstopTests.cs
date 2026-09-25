@@ -2,7 +2,6 @@ using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.HostData;
 using Beacon.Core.Services.Providers;
-using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -37,7 +36,7 @@ public class HostDatabaseProviderBackstopTests
         var resolver = new Mock<IDataSourceConnectionResolver>(MockBehavior.Strict);
         var provider = CreateProvider(resolver);
 
-        var result = await provider.ExecuteQueryAsync(HostDataSource(), "SELECT PasswordHash FROM Customer", [], CancellationToken.None);
+        var result = await provider.ExecuteQueryAsync(HostDataSource(), "SELECT PasswordHash FROM dbo.Customer", [], CancellationToken.None);
 
         result.Success.Should().BeFalse();
         resolver.Verify(x => x.GetConnectionString(It.IsAny<DataSource>()), Times.Never);
@@ -56,6 +55,53 @@ public class HostDatabaseProviderBackstopTests
         result.Errors.Should().ContainSingle(x => x.Contains("not exposed"));
     }
 
+    [TestCase(false, "SELECT Name FROM dbo.Customer WHERE Id = @p0")]
+    [TestCase(true, "SELECT \"Name\" FROM public.\"Customer\" WHERE \"Id\" = @p0")]
+    public async Task ExecuteReadOnlyQueryAsync_UnboundParameter_IsRefusedBeforeConnecting(bool npgsql, string sql)
+    {
+        var resolver = new Mock<IDataSourceConnectionResolver>(MockBehavior.Strict);
+        var provider = CreateProvider(resolver, npgsql);
+
+        var result = await provider.ExecuteReadOnlyQueryAsync(HostDataSource(npgsql), sql, [], CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("'@p0' has no bound value");
+        resolver.Verify(x => x.GetConnectionString(It.IsAny<DataSource>()), Times.Never);
+    }
+
+    [TestCase(false, "SELECT Name FROM dbo.Customer WHERE Id = @p0")]
+    [TestCase(true, "SELECT \"Name\" FROM public.\"Customer\" WHERE \"Id\" = @p0")]
+    public async Task ExecuteReadOnlyQueryAsync_BoundParameter_PassesThePolicy_AndServerErrorsStayGeneric(bool npgsql, string sql)
+    {
+        var resolver = new Mock<IDataSourceConnectionResolver>();
+        resolver
+            .Setup(x => x.GetConnectionString(It.IsAny<DataSource>()))
+            .Throws(new InvalidOperationException("conversion failed for value '0101302989'"));
+        var provider = CreateProvider(resolver, npgsql);
+
+        var result = await provider.ExecuteReadOnlyQueryAsync(HostDataSource(npgsql), sql, new Dictionary<string, object?> { ["p0"] = 5 }, CancellationToken.None);
+
+        resolver.Verify(x => x.GetConnectionString(It.IsAny<DataSource>()), Times.Once, "the policy accepted the parameterised SQL and execution was attempted");
+        result.Success.Should().BeFalse();
+        result.ErrorMessage.Should().Be(DatabaseProvider.HostQueryFailedMessage, "a server message can quote column values");
+    }
+
+    [Test]
+    public async Task ExecuteQueryAsync_OrdinarySource_KeepsTheServerMessage()
+    {
+        var resolver = new Mock<IDataSourceConnectionResolver>();
+        resolver
+            .Setup(x => x.GetConnectionString(It.IsAny<DataSource>()))
+            .Throws(new InvalidOperationException("relation \"loans\" does not exist"));
+        var provider = CreateProvider(resolver);
+        var dataSource = HostDataSource(npgsql: true);
+        dataSource.HostManagedKey = null;
+
+        var result = await provider.ExecuteQueryAsync(dataSource, "SELECT 1", [], CancellationToken.None);
+
+        result.ErrorMessage.Should().Contain("does not exist");
+    }
+
     [Test]
     public void SupportsDatabaseReadOnlyEnforcement_StaysHonestForSqlServer()
     {
@@ -64,14 +110,14 @@ public class HostDatabaseProviderBackstopTests
         provider.SupportsDatabaseReadOnlyEnforcement(DatabaseEngineType.MSSQL).Should().BeFalse();
     }
 
-    private static DatabaseProvider CreateProvider(Mock<IDataSourceConnectionResolver> resolver)
+    private static DatabaseProvider CreateProvider(Mock<IDataSourceConnectionResolver> resolver, bool npgsql = false)
     {
-        var registry = new SingleSnapshotRegistry(HostTestModelFactory.Read(x => x.AllowTables("Customer")));
+        var registry = new SingleSnapshotRegistry(HostTestModelFactory.Read(x => x.AllowTables("Customer"), npgsql));
 
         return new DatabaseProvider(
             resolver.Object,
             new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),
-            new HostDataSourceGuard(registry, new QueryGuardrailService()),
+            new HostDataSourceGuard(registry),
             NullLogger<DatabaseProvider>.Instance);
     }
 
@@ -82,14 +128,14 @@ public class HostDatabaseProviderBackstopTests
         public HostExposureSnapshot? GetSnapshot(string hostManagedKey) => hostManagedKey == "efcore:Netgiro" ? snapshot : null;
     }
 
-    private static DataSource HostDataSource()
+    private static DataSource HostDataSource(bool npgsql = false)
     {
         return new DataSource
         {
             Id = 7,
             Name = "Netgiro",
             DataSourceType = DataSourceType.Database,
-            DatabaseEngineType = DatabaseEngineType.MSSQL,
+            DatabaseEngineType = HostTestModelFactory.EngineOf(npgsql),
             HostManagedKey = "efcore:Netgiro",
             EncryptedConnectionData = "reference"
         };

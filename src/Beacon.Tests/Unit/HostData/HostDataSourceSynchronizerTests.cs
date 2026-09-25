@@ -239,7 +239,7 @@ public class HostDataSourceSynchronizerTests
     [Test]
     public void Guard_UnregisteredHostKey_RejectsEverything()
     {
-        var guard = new HostDataSourceGuard(BuildRegistry(x => x.AllowTables("Customer")), Mock.Of<IQueryGuardrailService>());
+        var guard = new HostDataSourceGuard(BuildRegistry(x => x.AllowTables("Customer")));
 
         var result = guard.Check("efcore:SomebodyElse", "SELECT Name FROM Customer");
 
@@ -250,22 +250,27 @@ public class HostDataSourceSynchronizerTests
     [Test]
     public void Guard_OrdinaryDataSource_IsNotChecked()
     {
-        var guard = new HostDataSourceGuard(BuildRegistry(x => { }), Mock.Of<IQueryGuardrailService>());
+        var guard = new HostDataSourceGuard(BuildRegistry(x => { }));
         var dataSource = new DataSource { Name = "wh", DataSourceType = DataSourceType.Database, EncryptedConnectionData = "x" };
 
         guard.Check(dataSource, "SELECT * FROM anything").Allowed.Should().BeTrue();
     }
 
     [Test]
-    public void Guard_Mask_UsesThePiiGuardrailMasking()
+    public void Guard_Mask_MasksTheWholeValue_AndKeepsNulls()
     {
-        var guard = new HostDataSourceGuard(BuildRegistry(x => { }), new QueryGuardrailService());
-        var rows = new List<Dictionary<string, object?>> { new() { ["SSN"] = "0101302989", ["Name"] = "Anna" } };
+        var guard = new HostDataSourceGuard(BuildRegistry(x => { }));
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["SSN"] = "0101302989", ["Name"] = "Anna" },
+            new() { ["SSN"] = null, ["Name"] = "Bo" }
+        };
 
         var masked = guard.Mask(rows, ["ssn"]);
 
-        masked[0]["SSN"].Should().Be("0***9");
+        masked[0]["SSN"].Should().Be(HostDataSourceGuard.MaskedValue, "no character of a host-masked value leaves the query");
         masked[0]["Name"].Should().Be("Anna");
+        masked[1]["SSN"].Should().BeNull("null carries no value to hide");
     }
 
     [Test]
@@ -282,7 +287,7 @@ public class HostDataSourceSynchronizerTests
     [Test]
     public void Gate_HostPolicyViolation_BlocksEvenWhenSchemaIsAdvisory()
     {
-        var guard = new HostDataSourceGuard(BuildRegistry(x => x.AllowTables("Customer")), new QueryGuardrailService());
+        var guard = new HostDataSourceGuard(BuildRegistry(x => x.AllowTables("Customer")));
         var gate = TestSqlGate.Create(hostGuard: guard);
 
         var report = gate.Evaluate(SqlGateRequest.FromSettings("SELECT Payload FROM AuditLog", "MSSQL", TestSqlGate.DefaultSettings()) with
@@ -299,18 +304,16 @@ public class HostDataSourceSynchronizerTests
     [Test]
     public void Gate_HostMaskedColumns_AreReportedAsPii()
     {
-        var guard = new HostDataSourceGuard(
-            BuildRegistry(x => x.AllowTables("Customer").MaskColumns(y => y.Name == "Name")),
-            new QueryGuardrailService());
+        var guard = new HostDataSourceGuard(BuildRegistry(x => x.AllowTables("Customer").MaskColumns(y => y.Name == "Name")));
         var gate = TestSqlGate.Create(hostGuard: guard);
 
-        var report = gate.Evaluate(SqlGateRequest.FromSettings("SELECT Name AS n FROM Customer", "MSSQL", TestSqlGate.DefaultSettings()) with
+        var report = gate.Evaluate(SqlGateRequest.FromSettings("SELECT Name AS n FROM dbo.Customer", "MSSQL", TestSqlGate.DefaultSettings()) with
         {
             HostManagedKey = "efcore:Netgiro"
         });
 
-        report.Blocked.Should().BeFalse();
-        report.PiiColumns.Should().Contain(["Name", "n"]);
+        report.Blocked.Should().BeFalse(report.BlockReason);
+        report.PiiColumns.Should().Contain("n", "the masked column leaves the query under its alias");
     }
 
     [Test]
