@@ -37,6 +37,17 @@ internal static class ProjectsEndpoints
                 m.Send(new GetProjectDocumentationQuery(id), ct))
             .WithName("GetProjectDocumentation");
 
+        projects.MapGet("/{id:int}/imported-documents", (int id, IMediator m, CancellationToken ct) =>
+                m.Send(new GetImportedDocumentsQuery(id), ct))
+            .WithName("GetImportedDocuments");
+
+        projects.MapGet("/{id:int}/imported-documents/{documentId:int}", async Task<Results<Ok<GetImportedDocumentResult>, NotFound>> (
+            int id, int documentId, IMediator m, CancellationToken ct) =>
+        {
+            var result = await m.Send(new GetImportedDocumentQuery(id, documentId), ct);
+            return result.Document is null ? TypedResults.NotFound() : TypedResults.Ok(result);
+        }).WithName("GetImportedDocument");
+
         projects.MapPut("/documentation-sections/{id:int}", async (
             int id, UpdateDocumentationSectionRequest body, IMediator m, CancellationToken ct) =>
         {

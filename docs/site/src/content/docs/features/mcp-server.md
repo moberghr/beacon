@@ -148,6 +148,7 @@ Get an overview of the project: data sources, schemas, tables, quality scores, a
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_id` | integer | No | Specify project if your API key has access to multiple projects |
+| `format` | string | No | `overview` (default) or `agents_md` — a deterministic project brief for an agent workspace's `AGENTS.md` (see [Host Docs](/features/host-docs/#on-the-mcp-surface)) |
 
 **Example response** (markdown):
 ```
@@ -265,13 +266,16 @@ Retrieve AI-generated documentation at three levels of detail.
 | `datasource_name` | string | No | Get docs for a specific data source |
 | `table_name` | string | No | Get detailed docs for a specific table or API endpoint |
 | `schema_name` | string | No | Schema name or API tag (optional qualifier for table_name) |
-| `response_format` | string | No | `concise` (summary sections) or `detailed` (everything). Project level defaults to `concise`; data-source and table level default to `detailed` |
+| `response_format` | string | No | `concise` (summary sections) or `detailed` (everything). Project level defaults to `concise`; data-source, table and document level default to `detailed` |
+| `document` | string | No | Path (or exact title) of a [host-imported document](/features/host-docs/); returns it in full |
 
 **Three levels:**
 
 1. **Project level** (no parameters) — Full generated project documentation. Defaults to `concise`: the export is cut at ~8,000 characters on a line boundary with an explicit truncation note; pass `response_format: "detailed"` for the full document
 2. **Data source level** (`datasource_name` only) — Tables, schemas, code references, quality scores. Defaults to `detailed`; `concise` omits the LLM schema context section
 3. **Table level** (`table_name`) — Columns with types, relationships, quality rules; `detailed` (the default) adds code references and lineage, `concise` omits them
+
+When the host ships documents with [`ExposeDocs`](/features/host-docs/), the project-level response ends with an *Imported documents* listing (title + path) and `document: "<path>"` returns one of them.
 
 ### `search`
 
@@ -284,7 +288,7 @@ Search tables, columns, and documentation across all data sources in the project
 | `max_results` | integer | No | `20` | Maximum results to return (max: 50) |
 | `offset` | integer | No | `0` | Result offset for paging — use with `max_results` to page through large result sets |
 
-Each result line includes the item type (`[TABLE]`, `[COLUMN]`, `[DOC]`), the data source and schema-qualified table (plus the column name for column hits), and the description, ordered by relevance. When more matches exist beyond the current page, the response ends with an explicit note giving the `offset` to request next.
+Each result line includes the item type (`[TABLE]`, `[COLUMN]`, `[DOC]`, or `[IMPORTED_DOC]` with the document path for [host-imported documents](/features/host-docs/)), the data source and schema-qualified table (plus the column name for column hits), and the description, ordered by relevance. When more matches exist beyond the current page, the response ends with an explicit note giving the `offset` to request next.
 
 ### `feedback`
 

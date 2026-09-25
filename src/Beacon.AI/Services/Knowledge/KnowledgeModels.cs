@@ -59,7 +59,7 @@ public record SchemaOverview(string SchemaName, int TableCount, double? AvgQuali
 
 public record SearchResult
 {
-    public required string Type { get; init; } // "table", "column", "documentation"
+    public required string Type { get; init; } // "table", "column", "documentation", "imported_doc"
     public int DataSourceId { get; init; }
     public required string DataSourceName { get; init; }
     public required string SchemaName { get; init; }
@@ -77,6 +77,12 @@ public record SearchResult
     /// one result. Null for table/column results.
     /// </summary>
     public string? DocIdentity { get; init; }
+
+    /// <summary>Relative path of a host-imported document ("imported_doc" results only).</summary>
+    public string? DocumentPath { get; init; }
+
+    /// <summary>Title of a host-imported document ("imported_doc" results only).</summary>
+    public string? DocumentTitle { get; init; }
 }
 
 public record LineageInfo
