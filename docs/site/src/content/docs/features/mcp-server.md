@@ -137,7 +137,7 @@ A registry manifest for the official [MCP registry](https://registry.modelcontex
 
 ## Tools
 
-The MCP server exposes **8 tools** that AI clients can call. A host application can add its own read-only endpoints as further tools — see [Host Endpoint Tools](/features/host-endpoint-tools/).
+The MCP server exposes **8 tools** that AI clients can call. A host application can add its own read-only endpoints as further tools — see [Host Endpoint Tools](/features/host-endpoint-tools/). Approved saved queries an admin exposes appear as `q_<name>` tools — see [Saved Query Tools](/features/saved-query-tools/).
 
 ![MCP Playground](/img/screenshots/mcp-playground-dark.png)
 

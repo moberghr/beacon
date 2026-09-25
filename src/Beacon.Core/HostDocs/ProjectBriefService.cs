@@ -3,6 +3,7 @@ using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.HostData;
 using Beacon.Core.HostEndpoints;
+using Beacon.Core.SavedQueries;
 using Microsoft.EntityFrameworkCore;
 
 namespace Beacon.Core.HostDocs;
@@ -37,11 +38,18 @@ internal sealed record ProjectBriefData(
     int TotalGlossaryTermCount,
     IReadOnlyList<ImportedDocumentSummary> Documents,
     int TotalDocumentCount,
-    HostEndpointToolListing? EndpointTools = null);
+    HostEndpointToolListing? EndpointTools = null,
+    SavedQueryToolListing? SavedQueryTools = null);
+
+/// <summary>The saved-query tools of one project, as the brief lists them.</summary>
+/// <param name="CatalogMode">True when the project has more tools than the named-tool limit, so they are reached through <c>search_saved_queries</c> / <c>run_saved_query</c>.</param>
+internal sealed record SavedQueryToolListing(IReadOnlyList<SavedQueryToolDefinition> Tools, bool CatalogMode);
 
 internal sealed class ProjectBriefService(
     IDbContextFactory<BeaconContext> contextFactory,
-    IEnumerable<IHostEndpointToolCatalog>? endpointToolCatalogs = null) : IProjectBriefService
+    IEnumerable<IHostEndpointToolCatalog>? endpointToolCatalogs = null,
+    ISavedQueryToolSource? savedQueryToolSource = null,
+    BeaconConfiguration? configuration = null) : IProjectBriefService
 {
     public const int MaxTables = 30;
     public const int MaxGlossaryTerms = 30;
@@ -112,7 +120,8 @@ internal sealed class ProjectBriefService(
             totalGlossary,
             documents,
             totalDocuments,
-            await GetEndpointToolsAsync(projectId, cancellationToken));
+            await GetEndpointToolsAsync(projectId, cancellationToken),
+            await GetSavedQueryToolsAsync(projectId, cancellationToken));
 
         return Render(data);
     }
@@ -178,6 +187,25 @@ internal sealed class ProjectBriefService(
         return null;
     }
 
+    private async Task<SavedQueryToolListing?> GetSavedQueryToolsAsync(int projectId, CancellationToken cancellationToken)
+    {
+        if (savedQueryToolSource == null)
+        {
+            return null;
+        }
+
+        // Only this project's tools: the source hard-filters on the project passed in (§1.12).
+        var tools = await savedQueryToolSource.GetToolsAsync([projectId], cancellationToken);
+        if (tools.Count == 0)
+        {
+            return null;
+        }
+
+        var limit = configuration?.SavedQueryTools.NamedToolLimit ?? new SavedQueryToolOptions().NamedToolLimit;
+
+        return new SavedQueryToolListing(tools, tools.Count > limit);
+    }
+
     internal static IQueryable<BriefGlossaryTerm> BuildGlossaryQuery(BeaconContext context, int projectId, int take)
     {
         return context.McpGlossaryTerms
@@ -202,6 +230,7 @@ internal sealed class ProjectBriefService(
         }
 
         AppendTools(sb, data);
+        AppendSavedQueryTools(sb, data);
         AppendEndpointTools(sb, data);
         AppendDataSources(sb, data);
         AppendTables(sb, data);
@@ -229,6 +258,48 @@ internal sealed class ProjectBriefService(
         sb.Append("- Excluded tables and columns are not visible to Beacon; if something is missing, it is out of scope, not hidden.\n");
         sb.Append("- Pass `project_id` on every call when your credentials reach more than one project.\n\n");
     }
+
+    private static void AppendSavedQueryTools(StringBuilder sb, ProjectBriefData data)
+    {
+        if (data.SavedQueryTools is not { Tools.Count: > 0 } listing)
+        {
+            return;
+        }
+
+        sb.Append("## Saved query tools\n\n");
+        sb.Append("Reviewed, approved queries of this project. Each runs its approved version read-only, with your arguments bound as database parameters; prefer one over hand-written SQL when it answers the question. ");
+        sb.Append(listing.CatalogMode
+            ? "Find one with `search_saved_queries` (it returns the input schema) and run it with `run_saved_query`.\n\n"
+            : "Call them by name.\n\n");
+
+        foreach (var tool in listing.Tools)
+        {
+            sb.Append("- `").Append(listing.CatalogMode ? tool.McpToolName : tool.ToolName).Append('(');
+            sb.Append(string.Join(", ", tool.Parameters.Select(x => $"{x.Name}: {ParameterTypeName(x.Type)}")));
+            sb.Append(")`");
+            if (!string.IsNullOrWhiteSpace(tool.Description))
+            {
+                sb.Append(" — ").Append(OneLine(Truncate(tool.Description, 300)));
+            }
+
+            sb.Append('\n');
+
+            foreach (var parameter in tool.Parameters.Where(x => !string.IsNullOrWhiteSpace(x.Description)))
+            {
+                sb.Append("  - `").Append(parameter.Name).Append("` — ").Append(OneLine(Truncate(parameter.Description, 200))).Append('\n');
+            }
+        }
+
+        sb.Append('\n');
+    }
+
+    private static string ParameterTypeName(ParameterType type) =>
+        type switch
+        {
+            ParameterType.Number => "number",
+            ParameterType.DateTime => "date-time",
+            _ => "string"
+        };
 
     private static void AppendEndpointTools(StringBuilder sb, ProjectBriefData data)
     {

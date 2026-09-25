@@ -155,6 +155,14 @@ export interface QueryDetail {
   aiActorId: number | null;
   aiActorName: string | null;
   isLocked: boolean;
+  /** Exposed as the MCP tool `q_<mcpToolName>`. */
+  mcpToolEnabled: boolean;
+  mcpToolName: string | null;
+  mcpToolDescription: string | null;
+  /** The approved active version an MCP tool call runs; null when there is none. */
+  mcpToolRunnableVersionNumber: number | null;
+  /** Why the query cannot be an MCP tool right now; null when it can. */
+  mcpToolIssue: string | null;
   subscriptions: QuerySubscriptionListItem[];
   notificationHistory: NotificationStatisticsEntry[];
   avgExecutionTimeMs: number;
@@ -198,6 +206,46 @@ export function useToggleQueryLock(id: number | undefined) {
       invalidate: [['query', id], ['queries']],
       successMsg: (_vars, result) => (result.isLocked ? 'Query locked' : 'Query unlocked'),
       errorFallback: 'Lock toggle failed',
+    }),
+  );
+}
+
+// ---------- MCP tool ----------
+
+export interface SetQueryMcpToolVars {
+  enabled: boolean;
+  name: string | null;
+  description: string | null;
+}
+
+export interface SetQueryMcpToolResult {
+  queryId: number;
+  enabled: boolean;
+  name: string | null;
+  description: string | null;
+  toolName: string | null;
+  runnableVersionNumber: number | null;
+  issue: string | null;
+}
+
+/** Same rule as the server (`SavedQueryToolRules.IsValidName`). */
+export const MCP_TOOL_NAME_PATTERN = /^[a-z][a-z0-9_]{2,40}$/;
+
+export function useSetQueryMcpTool(id: number | undefined) {
+  const qc = useQueryClient();
+  return useMutation(
+    createSimpleMutation<SetQueryMcpToolVars, SetQueryMcpToolResult>({
+      qc,
+      mutationFn: async (vars) =>
+        unwrap<SetQueryMcpToolResult>(await beaconApi().setQueryMcpTool(id as number, {
+          enabled: vars.enabled,
+          name: vars.name,
+          description: vars.description,
+        })),
+      invalidate: [['query', id]],
+      successMsg: (_vars, result) =>
+        result.enabled ? `Exposed as MCP tool ${result.toolName}` : 'MCP tool disabled',
+      errorFallback: 'Saving the MCP tool failed',
     }),
   );
 }

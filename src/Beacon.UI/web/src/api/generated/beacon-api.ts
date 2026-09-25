@@ -1362,6 +1362,49 @@ export class BeaconApiClient {
     /**
      * @return OK
      */
+    setQueryMcpTool(id: number, body: SetQueryMcpToolRequest): Promise<SetQueryMcpToolResult> {
+        let url_ = this.baseUrl + "/beacon/api/queries/{id}/mcp-tool";
+        if (id === undefined || id === null)
+            throw new Error("The parameter 'id' must be defined.");
+        url_ = url_.replace("{id}", encodeURIComponent("" + id));
+        url_ = url_.replace(/[?&]$/, "");
+
+        const content_ = JSON.stringify(body);
+
+        let options_: RequestInit = {
+            body: content_,
+            method: "PUT",
+            headers: {
+                "Content-Type": "application/json",
+                "Accept": "application/json"
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processSetQueryMcpTool(_response);
+        });
+    }
+
+    protected processSetQueryMcpTool(response: Response): Promise<SetQueryMcpToolResult> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 200) {
+            return response.text().then((_responseText) => {
+            let result200: any = null;
+            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as SetQueryMcpToolResult;
+            return result200;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<SetQueryMcpToolResult>(null as any);
+    }
+
+    /**
+     * @return OK
+     */
     toggleQueryLock(id: number, body: ToggleQueryLockRequest): Promise<ToggleQueryLockResult> {
         let url_ = this.baseUrl + "/beacon/api/queries/{id}/lock";
         if (id === undefined || id === null)
@@ -7958,6 +8001,11 @@ export interface QueryDetailsData {
     aiActorId?: number | null;
     aiActorName?: string | null;
     isLocked?: boolean;
+    mcpToolEnabled?: boolean;
+    mcpToolName?: string | null;
+    mcpToolDescription?: string | null;
+    mcpToolRunnableVersionNumber?: number | null;
+    mcpToolIssue?: string | null;
     subscriptions?: SubscriptionListData[];
     notificationHistory?: NotificationStatisticsEntry[];
     avgExecutionTimeMs?: number;
@@ -8311,6 +8359,26 @@ export interface RunMigrationJobResult {
 export interface ScanAllRepositoriesResult {
     scannedCount: number;
     errors: string[];
+
+    [key: string]: any;
+}
+
+export interface SetQueryMcpToolRequest {
+    enabled: boolean;
+    name: string | null;
+    description: string | null;
+
+    [key: string]: any;
+}
+
+export interface SetQueryMcpToolResult {
+    queryId: number;
+    enabled: boolean;
+    name: string | null;
+    description: string | null;
+    toolName: string | null;
+    runnableVersionNumber: number | null;
+    issue: string | null;
 
     [key: string]: any;
 }
