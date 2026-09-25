@@ -115,6 +115,7 @@ export default defineConfig({
             { label: 'Host DbContext', link: '/features/host-dbcontext/' },
             { label: 'Host Docs', link: '/features/host-docs/' },
             { label: 'Host Endpoint Tools', link: '/features/host-endpoint-tools/' },
+            { label: 'Saved Query Tools', link: '/features/saved-query-tools/' },
             { label: 'Knowledge Base & Grounding', link: '/features/knowledge-base/' },
             { label: 'AI Integration', link: '/features/ai-integration/' },
             { label: 'AI Actors', link: '/features/ai-actors/' },

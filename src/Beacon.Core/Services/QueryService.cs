@@ -17,6 +17,7 @@ using Beacon.Core.Models.Recipients;
 using Beacon.Core.Models.Subscriptions;
 using Beacon.Core.Services.Validation;
 using Beacon.Core.Validators;
+using Beacon.Core.SavedQueries;
 
 namespace Beacon.Core.Services;
 
@@ -92,6 +93,19 @@ public class QueryDetailsData
     /// Whether this query is locked from AI modifications
     /// </summary>
     public bool IsLocked { get; set; }
+
+    /// <summary>Whether the query is exposed as the MCP tool <see cref="McpToolName"/> (<c>q_&lt;name&gt;</c>).</summary>
+    public bool McpToolEnabled { get; set; }
+
+    public string? McpToolName { get; set; }
+
+    public string? McpToolDescription { get; set; }
+
+    /// <summary>The approved active version an MCP tool call runs, or null when there is none.</summary>
+    public int? McpToolRunnableVersionNumber { get; set; }
+
+    /// <summary>Why the query cannot be an MCP tool right now, or null when it can.</summary>
+    public string? McpToolIssue { get; set; }
 
     public List<SubscriptionListData> Subscriptions { get; set; } = new();
 
@@ -351,6 +365,9 @@ internal partial class QueryService(IDbContextFactory<BeaconContext> contextFact
                     AiActorId = x.AiActorId,
                     AiActorName = x.AiActor != null ? x.AiActor.Name : null,
                     IsLocked = x.IsLocked,
+                    McpToolEnabled = x.McpToolEnabled,
+                    McpToolName = x.McpToolName,
+                    McpToolDescription = x.McpToolDescription,
                     TotalExecutions = x.Subscriptions.Sum(y => y.QueryExecutionHistory.Count),
                     SentNotifications = x.Subscriptions.Sum(y => y.QueryExecutionHistory.Count(z => z.NotificationStatus == NotificationStatus.NotificationSent)),
                     Steps = x.Steps.OrderBy(s => s.StepOrder).Select(s => new QueryStepData
@@ -398,6 +415,13 @@ internal partial class QueryService(IDbContextFactory<BeaconContext> contextFact
             .ToListAsync(cancellationToken);
 
         result.NotificationHistory = notificationHistory;
+
+        var runnableVersion = await SavedQueryRunnableVersion.ForQuery(context, queryId)
+            .FirstOrDefaultAsync(cancellationToken);
+        result.McpToolRunnableVersionNumber = runnableVersion?.VersionNumber;
+        result.McpToolIssue = runnableVersion == null
+            ? SavedQueryRunnableVersion.NoRunnableVersionIssue
+            : SavedQueryToolRules.Inspect(runnableVersion.StepsJson).Issue;
 
         // Get execution time statistics for this query (all subscriptions, only successful executions)
         var executionTimeStats = await context.QueryExecutionHistory

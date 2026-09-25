@@ -23,6 +23,7 @@ using Microsoft.Extensions.Options;
 using Beacon.Core.Worker;
 using Beacon.Core.Worker.Repositories;
 using Beacon.Core.Worker.Services;
+using Beacon.Core.SavedQueries;
 
 namespace Beacon.Core;
 
@@ -150,6 +151,10 @@ public static class ServiceConfiguration
         services.TryAddTransient<IManualQueryExecutionLogger, ManualQueryExecutionLogger>();
         services.TryAddTransient<IAppSettingsService, AppSettingsService>();
         services.TryAddTransient<IQueryVersionService, QueryVersionService>();
+
+        // Saved queries exposed as MCP tools: callable-tool lookup (project-scoped) and the read-only executor.
+        services.TryAddTransient<ISavedQueryToolSource, SavedQueryToolSource>();
+        services.TryAddTransient<ISavedQueryToolExecutor, SavedQueryToolExecutor>();
         services.TryAddTransient<IQueryApprovalService, QueryApprovalService>();
 
         services.TryAddTransient(typeof(IBeaconScheduler), configurationOptions.BeaconScheduler!);

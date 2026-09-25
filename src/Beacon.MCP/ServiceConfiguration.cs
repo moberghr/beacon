@@ -1,9 +1,14 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using ModelContextProtocol;
 using ModelContextProtocol.AspNetCore;
+using ModelContextProtocol.Protocol;
+using ModelContextProtocol.Server;
 using Beacon.AI.Services.Mcp;
 using Beacon.Core.Services;
+using Beacon.Core.SavedQueries;
 using Beacon.MCP.Discovery;
+using Beacon.MCP.SavedQueries;
 using Beacon.MCP.Services;
 using Beacon.MCP.Tools;
 
@@ -49,6 +54,11 @@ public static class ServiceConfiguration
         services.TryAddTransient<McpAuditService>();
         services.TryAddTransient<McpSignalService>();
 
+        // Approved saved queries as q_<name> tools (or search_saved_queries / run_saved_query past the limit), served
+        // through the SDK's list/call handlers next to the attribute tools; AddHostEndpointTools chains after these.
+        services.TryAddTransient<SavedQueryToolService>();
+        services.Configure<McpServerOptions>(InstallSavedQueryToolHandlers);
+
         // MCP Server via official SDK
         services
             .AddMcpServer(options =>
@@ -66,6 +76,7 @@ public static class ServiceConfiguration
                     "Close the loop: feedback — after you verify an ask answer, report verdict 'correct' or 'incorrect' with that signal_id; correct answers become verified examples that improve future generation.\n" +
                     "get_documentation gives deeper schema/lineage detail for a data source, table, or API endpoint, and lists/reads the documents the host application ships (document=<path>).\n" +
                     "get_context with format='agents_md' returns a deterministic project brief for an agent workspace's AGENTS.md.\n" +
+                    "Approved saved queries appear as q_<name> tools (or, for many, search_saved_queries to find one and run_saved_query to run it): reviewed, versioned, parameterized read-only SQL — prefer one over hand-written SQL when it answers the question.\n" +
                     "When the host application exposes some of its read-only endpoints, they appear as api_<name> tools (or, for many endpoints, search_api to find one and call_api to run it); they run with your host permissions.\n" +
                     "Auth: API keys need the Execute or Admin scope for this endpoint. Keys can be project-restricted — pass project_id on every call when your key has access to more than one project.\n" +
                     "SQL dialect follows the target data source's engine (PostgreSQL, SQL Server, MySQL, BigQuery, Snowflake, Databricks). Write statements are rejected at multiple layers; don't attempt them.";
@@ -88,4 +99,60 @@ public static class ServiceConfiguration
 
         return services;
     }
+
+    /// <summary>
+    /// Adds the saved-query tools through the SDK's list/call handlers, chaining any handler already installed. The
+    /// tools need Core's <see cref="ISavedQueryToolSource"/>; a host without it simply gets none.
+    /// </summary>
+    private static void InstallSavedQueryToolHandlers(McpServerOptions options)
+    {
+        var previousList = options.Handlers.ListToolsHandler;
+        var previousCall = options.Handlers.CallToolHandler;
+
+        options.Handlers.ListToolsHandler = async (request, cancellationToken) =>
+        {
+            var result = previousList != null
+                ? await previousList(request, cancellationToken)
+                : new ListToolsResult();
+
+            var service = ResolveSavedQueryToolService(request.Services);
+            if (service == null)
+            {
+                return result;
+            }
+
+            var tools = await service.ListToolsAsync(cancellationToken);
+            if (tools.Count > 0)
+            {
+                result.Tools = [.. result.Tools ?? [], .. tools];
+            }
+
+            return result;
+        };
+
+        options.Handlers.CallToolHandler = async (request, cancellationToken) =>
+        {
+            var name = request.Params?.Name;
+            if (SavedQueryToolService.Handles(name))
+            {
+                var service = ResolveSavedQueryToolService(request.Services);
+                if (service != null)
+                {
+                    return await service.CallAsync(name!, request.Params?.Arguments, cancellationToken);
+                }
+            }
+
+            if (previousCall != null)
+            {
+                return await previousCall(request, cancellationToken);
+            }
+
+            throw new McpProtocolException($"Unknown tool: '{name}'", McpErrorCode.InvalidParams);
+        };
+    }
+
+    private static SavedQueryToolService? ResolveSavedQueryToolService(IServiceProvider? services) =>
+        services?.GetService<ISavedQueryToolSource>() == null
+            ? null
+            : services.GetService<SavedQueryToolService>();
 }

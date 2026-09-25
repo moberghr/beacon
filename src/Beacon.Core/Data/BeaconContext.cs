@@ -187,6 +187,7 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
         ConfigureAppSettingEntities(modelBuilder);
         ConfigureQueryVersionEntities(modelBuilder);
         ConfigureApprovalEntities(modelBuilder);
+        ConfigureQueryMcpToolEntities(modelBuilder);
         ConfigureDashboardEntities(modelBuilder);
         ConfigureDataQualityEntities(modelBuilder);
         ConfigureProjectEntities(modelBuilder);
@@ -924,6 +925,25 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
                 .WithMany()
                 .HasForeignKey(e => e.QueryVersionId)
                 .OnDelete(DeleteBehavior.NoAction);
+        });
+    }
+
+    protected void ConfigureQueryMcpToolEntities(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<Query>(entity =>
+        {
+            entity.Property(e => e.McpToolName).HasMaxLength(64);
+            entity.Property(e => e.McpToolDescription).HasMaxLength(1000);
+
+            // A tool name means one query for every caller, whichever of their projects they reach it through:
+            // unique across live queries. Filter column names differ per provider (SQL Server keeps PascalCase,
+            // PostgreSQL uses snake_case via the naming convention).
+            var mcpToolNameFilter = Database.IsSqlServer()
+                ? "[McpToolName] IS NOT NULL AND [ArchivedTime] IS NULL"
+                : "mcp_tool_name IS NOT NULL AND archived_time IS NULL";
+            entity.HasIndex(e => e.McpToolName)
+                .IsUnique()
+                .HasFilter(mcpToolNameFilter);
         });
     }
 
