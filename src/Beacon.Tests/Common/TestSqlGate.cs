@@ -11,14 +11,15 @@ namespace Beacon.Tests.Common;
 /// </summary>
 internal static class TestSqlGate
 {
-    public static SqlExecutionGate Create(IQueryGuardrailService? guardrail = null)
+    public static SqlExecutionGate Create(IQueryGuardrailService? guardrail = null, Beacon.Core.HostData.IHostDataSourceGuard? hostGuard = null)
     {
         return new SqlExecutionGate(
             guardrail ?? new QueryGuardrailService(),
             new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),
             new SqlSchemaValidator(),
             new SqlSemanticLinter(),
-            NullLogger<SqlExecutionGate>.Instance);
+            NullLogger<SqlExecutionGate>.Instance,
+            hostGuard);
     }
 
     public static McpSettingsData DefaultSettings()

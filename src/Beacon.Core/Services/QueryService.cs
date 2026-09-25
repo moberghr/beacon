@@ -178,7 +178,7 @@ public class GetQueriesRequest : SortedListRequest
     public string? SearchTerm { get; set; }
 }
 
-internal partial class QueryService(IDbContextFactory<BeaconContext> contextFactory, IEncryptionService encryptionService, IManualQueryExecutionLogger queryExecutionLogger, ILogger<QueryService> logger, ILoggerFactory loggerFactory, IQueryVersionService queryVersionService, BeaconConfiguration beaconConfiguration, IBeaconUserContext userContext, SqlReadOnlyAstValidator readOnlyAstValidator) : IQueryService
+internal partial class QueryService(IDbContextFactory<BeaconContext> contextFactory, HostData.IDataSourceConnectionResolver connectionResolver, IManualQueryExecutionLogger queryExecutionLogger, ILogger<QueryService> logger, ILoggerFactory loggerFactory, IQueryVersionService queryVersionService, BeaconConfiguration beaconConfiguration, IBeaconUserContext userContext, SqlReadOnlyAstValidator readOnlyAstValidator, HostData.IHostDataSourceGuard hostGuard) : IQueryService
 {
     public async Task<BaseResponse> CreateQuery(QueryData queryData, CancellationToken cancellationToken)
     {

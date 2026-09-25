@@ -1221,6 +1221,14 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             entity.HasIndex(e => e.Name);
         });
 
+        modelBuilder.Entity<DataSource>(entity =>
+        {
+            // Host-managed data sources (ExposeDbContext) are keyed by a stable host key; ordinary ones leave it null.
+            entity.Property(e => e.HostManagedKey).HasMaxLength(200);
+            entity.Property(e => e.HostModelHash).HasMaxLength(64);
+            entity.HasIndex(e => e.HostManagedKey).IsUnique();
+        });
+
         modelBuilder.Entity<ProjectDataSource>(entity =>
         {
             entity.HasKey(e => e.Id);

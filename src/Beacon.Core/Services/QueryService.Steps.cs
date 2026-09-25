@@ -9,6 +9,7 @@ using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Helpers;
 using Beacon.Core.Helpers.File;
+using Beacon.Core.HostData;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Queries;
 using Beacon.Core.Models.QueryExecutionHistory;
@@ -242,17 +243,37 @@ internal partial class QueryService
             throw new InvalidOperationException(rejection);
         }
 
+        // Host-managed sources (ExposeDbContext): allow-listed tables and exposed columns only.
+        var hostCheck = hostGuard.Check(step.DataSource, step.SqlValue);
+        if (!hostCheck.Allowed)
+        {
+            throw new InvalidOperationException(hostCheck.Error);
+        }
+
         var stepParameters = ExtractStepParameters(step, parameters);
         var (parameterizedSql, sqlParameters) = QueryHelper.PrepareParameterizedQuery(step.SqlValue, stepParameters);
 
         // Each step executes against its own data source/database
         var (results, executionTimeMs, timedOut) = await ExecuteQueryAsync(
             step.DataSource.DatabaseEngineType.Value,   // Each step can be different engine type!
-            encryptionService.Decrypt(step.DataSource.EncryptedConnectionData),     // Each step connects to different database
+            connectionResolver.GetConnectionString(step.DataSource),     // Each step connects to different database
             parameterizedSql,
             sqlParameters,
             null // Use default timeout
         );
+
+        if (hostCheck.MaskedOutputColumns.Count > 0)
+        {
+            var masked = hostGuard.Mask(
+                results
+                    .Select(x => new Dictionary<string, object?>(x))
+                    .ToList(),
+                hostCheck.MaskedOutputColumns);
+
+            results = masked
+                .Select(x => (IDictionary<string, object?>)x)
+                .ToList();
+        }
 
         var stepResult = new QueryStepResult
         {

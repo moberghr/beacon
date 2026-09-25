@@ -44,5 +44,16 @@ public class DataSource : ArchivableBaseEntity
     /// </summary>
     public bool UseReadOnlyIntent { get; set; }
 
+    /// <summary>
+    /// Set for data sources the host application declares with <c>ExposeDbContext&lt;TContext&gt;</c>. Such a source
+    /// is owned by the host: its connection data is only an encrypted reference to a host connection-string name,
+    /// its metadata comes from the host's EF model, and it cannot be edited or deleted through the UI/REST API.
+    /// Null for every ordinary data source.
+    /// </summary>
+    public string? HostManagedKey { get; set; }
+
+    /// <summary>Hash of the exposed host model slice at the last sync; an unchanged hash skips the metadata rewrite.</summary>
+    public string? HostModelHash { get; set; }
+
     public List<QueryStep> QuerySteps { get; set; } = new();
 }

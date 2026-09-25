@@ -319,9 +319,23 @@ public class ReadOnlyExecutionRoutingTests
             .Setup(x => x.Decrypt("encrypted"))
             .Returns("Host=unused;Database=unused");
 
+        var resolver = new Mock<Beacon.Core.HostData.IDataSourceConnectionResolver>();
+        resolver
+            .Setup(x => x.GetConnectionString(It.IsAny<DataSource>()))
+            .Returns<DataSource>(x => encryption.Object.Decrypt(x.EncryptedConnectionData));
+
+        var hostGuard = new Mock<Beacon.Core.HostData.IHostDataSourceGuard>();
+        hostGuard
+            .Setup(x => x.Check(It.IsAny<DataSource>(), It.IsAny<string>()))
+            .Returns(new Beacon.Core.HostData.HostPolicyResult(true, null, []));
+        hostGuard
+            .Setup(x => x.Mask(It.IsAny<List<Dictionary<string, object?>>>(), It.IsAny<IReadOnlyList<string>>()))
+            .Returns<List<Dictionary<string, object?>>, IReadOnlyList<string>>((x, _) => x);
+
         return new DatabaseProvider(
-            encryption.Object,
+            resolver.Object,
             new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),
+            hostGuard.Object,
             NullLogger<DatabaseProvider>.Instance);
     }
 

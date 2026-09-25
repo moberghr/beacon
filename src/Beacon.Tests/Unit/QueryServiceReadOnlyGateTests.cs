@@ -40,14 +40,15 @@ public class QueryServiceReadOnlyGateTests
 
         return new QueryService(
             factory.Object,
-            Mock.Of<IEncryptionService>(),
+            Mock.Of<Beacon.Core.HostData.IDataSourceConnectionResolver>(),
             Mock.Of<IManualQueryExecutionLogger>(),
             NullLogger<QueryService>.Instance,
             NullLoggerFactory.Instance,
             Mock.Of<IQueryVersionService>(),
             null!,
             Mock.Of<IBeaconUserContext>(),
-            validator);
+            validator,
+            Mock.Of<Beacon.Core.HostData.IHostDataSourceGuard>());
     }
 
     [Test]

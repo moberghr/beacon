@@ -150,6 +150,8 @@ internal class DataSourceService(
             return;
         }
 
+        EnsureNotHostManaged(dataSource);
+
         // Check for non-archived queries using this data source
         var unarchivedQueries = dataSource.QuerySteps
             .Where(qs => qs.Query.ArchivedTime == null)
@@ -240,6 +242,8 @@ internal class DataSourceService(
         var dataSource = await context.DataSources
             .Where(x => x.Id == dataSourceData.DataSourceId)
             .SingleAsync(cancellationToken);
+
+        EnsureNotHostManaged(dataSource);
 
         dataSource.Name = dataSourceData.Name;
         dataSource.EncryptedConnectionData = encryptionService.Encrypt(dataSourceData.ConnectionString);
@@ -452,5 +456,16 @@ internal class DataSourceService(
             ?? throw new BeaconException($"Data source with ID {dataSourceId} not found");
 
         return encryptionService.Decrypt(dataSource.EncryptedConnectionData);
+    }
+
+    // Host-managed data sources belong to the host application (ExposeDbContext): their connection, engine and
+    // lifetime are declared in code and re-applied at every startup, so the UI/REST surface must not change them.
+    private static void EnsureNotHostManaged(DataSource dataSource)
+    {
+        if (dataSource.HostManagedKey != null)
+        {
+            throw new InvalidOperationException(
+                $"Data source '{dataSource.Name}' is managed by the host application (ExposeDbContext) and cannot be edited or deleted here.");
+        }
     }
 }

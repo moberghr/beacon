@@ -184,6 +184,16 @@ public static class ServiceConfiguration
         // Transient because IQueryGuardrailService is transient; the gate itself is stateless.
         services.TryAddTransient<ISqlExecutionGate, SqlExecutionGate>();
 
+        // Host DbContext exposure (ExposeDbContext). Always registered: with no registrations the registry is empty
+        // and every host-managed row is refused. The connection resolver is the single point where stored
+        // connection data becomes a live string; host references resolve against the host configuration.
+        services.TryAddSingleton<HostData.IXmlDocumentationProvider, HostData.AssemblyXmlDocumentationProvider>();
+        services.TryAddSingleton<HostData.IHostDataSourceRegistry, HostData.HostDataSourceRegistry>();
+        services.TryAddTransient<HostData.IHostDataSourceGuard, HostData.HostDataSourceGuard>();
+        services.TryAddTransient<HostData.IDataSourceConnectionResolver>(x =>
+            new HostData.DataSourceConnectionResolver(x.GetRequiredService<IEncryptionService>(), configuration));
+        services.TryAddTransient(x => ActivatorUtilities.CreateInstance<HostData.HostDataSourceSynchronizer>(x, configuration));
+
         // Rate limiter (singleton so the in-memory sliding windows are shared across requests)
         services.TryAddSingleton<Services.Security.RateLimiter>();
 
