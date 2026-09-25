@@ -137,7 +137,7 @@ A registry manifest for the official [MCP registry](https://registry.modelcontex
 
 ## Tools
 
-The MCP server exposes **8 tools** that AI clients can call.
+The MCP server exposes **8 tools** that AI clients can call. A host application can add its own read-only endpoints as further tools — see [Host Endpoint Tools](/features/host-endpoint-tools/).
 
 ![MCP Playground](/img/screenshots/mcp-playground-dark.png)
 

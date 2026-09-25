@@ -2,6 +2,7 @@ using System.Text;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.HostData;
+using Beacon.Core.HostEndpoints;
 using Microsoft.EntityFrameworkCore;
 
 namespace Beacon.Core.HostDocs;
@@ -35,9 +36,12 @@ internal sealed record ProjectBriefData(
     IReadOnlyList<BriefGlossaryTerm> GlossaryTerms,
     int TotalGlossaryTermCount,
     IReadOnlyList<ImportedDocumentSummary> Documents,
-    int TotalDocumentCount);
+    int TotalDocumentCount,
+    HostEndpointToolListing? EndpointTools = null);
 
-internal sealed class ProjectBriefService(IDbContextFactory<BeaconContext> contextFactory) : IProjectBriefService
+internal sealed class ProjectBriefService(
+    IDbContextFactory<BeaconContext> contextFactory,
+    IEnumerable<IHostEndpointToolCatalog>? endpointToolCatalogs = null) : IProjectBriefService
 {
     public const int MaxTables = 30;
     public const int MaxGlossaryTerms = 30;
@@ -107,7 +111,8 @@ internal sealed class ProjectBriefService(IDbContextFactory<BeaconContext> conte
             glossary,
             totalGlossary,
             documents,
-            totalDocuments);
+            totalDocuments,
+            await GetEndpointToolsAsync(projectId, cancellationToken));
 
         return Render(data);
     }
@@ -159,6 +164,20 @@ internal sealed class ProjectBriefService(IDbContextFactory<BeaconContext> conte
             .Take(take);
     }
 
+    private async Task<HostEndpointToolListing?> GetEndpointToolsAsync(int projectId, CancellationToken cancellationToken)
+    {
+        foreach (var catalog in endpointToolCatalogs ?? [])
+        {
+            var listing = await catalog.GetForProjectAsync(projectId, cancellationToken);
+            if (listing is { Tools.Count: > 0 })
+            {
+                return listing;
+            }
+        }
+
+        return null;
+    }
+
     internal static IQueryable<BriefGlossaryTerm> BuildGlossaryQuery(BeaconContext context, int projectId, int take)
     {
         return context.McpGlossaryTerms
@@ -183,6 +202,7 @@ internal sealed class ProjectBriefService(IDbContextFactory<BeaconContext> conte
         }
 
         AppendTools(sb, data);
+        AppendEndpointTools(sb, data);
         AppendDataSources(sb, data);
         AppendTables(sb, data);
         AppendMaskedColumns(sb, data);
@@ -208,6 +228,34 @@ internal sealed class ProjectBriefService(IDbContextFactory<BeaconContext> conte
         sb.Append("- Masked columns stay masked: never try to unmask, reconstruct or infer their values.\n");
         sb.Append("- Excluded tables and columns are not visible to Beacon; if something is missing, it is out of scope, not hidden.\n");
         sb.Append("- Pass `project_id` on every call when your credentials reach more than one project.\n\n");
+    }
+
+    private static void AppendEndpointTools(StringBuilder sb, ProjectBriefData data)
+    {
+        if (data.EndpointTools is not { Tools.Count: > 0 } listing)
+        {
+            return;
+        }
+
+        sb.Append("## Host application tools\n\n");
+        sb.Append("Read-only endpoints of the host application, run as your host identity: the host's own permissions decide what you may see. ");
+        sb.Append(listing.CatalogMode
+            ? "Find one with `search_api` (it returns the input schema) and run it with `call_api`.\n\n"
+            : "Call them by name.\n\n");
+
+        foreach (var tool in listing.Tools)
+        {
+            var name = listing.CatalogMode ? tool.Name : tool.ToolName;
+            sb.Append("- `").Append(name).Append('`');
+            if (!string.IsNullOrWhiteSpace(tool.Description))
+            {
+                sb.Append(" — ").Append(tool.Description.Trim());
+            }
+
+            sb.Append('\n');
+        }
+
+        sb.Append('\n');
     }
 
     private static void AppendDataSources(StringBuilder sb, ProjectBriefData data)
