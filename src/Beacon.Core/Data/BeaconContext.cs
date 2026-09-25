@@ -137,6 +137,8 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
 
     public DbSet<ProjectDocumentationSection> ProjectDocumentationSections => Set<ProjectDocumentationSection>();
 
+    public DbSet<ProjectImportedDocument> ProjectImportedDocuments => Set<ProjectImportedDocument>();
+
     // API Keys & MCP
     public DbSet<ApiKeyCredential> ApiKeyCredentials => Set<ApiKeyCredential>();
 
@@ -1292,6 +1294,26 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
+        modelBuilder.Entity<ProjectImportedDocument>(entity =>
+        {
+            // Host-shipped documents (ExposeDocs). Identity is (ProjectId, SourceKey, Path); the unique index covers
+            // archived rows too, so the sync loads them with IgnoreQueryFilters and un-archives instead of inserting.
+            entity.HasKey(e => e.Id);
+            // Key columns sized so the unique index stays under SQL Server's 1700-byte nonclustered key limit.
+            entity.Property(e => e.SourceKey).HasMaxLength(ProjectImportedDocument.MaxSourceKeyLength).IsRequired();
+            entity.Property(e => e.Path).HasMaxLength(ProjectImportedDocument.MaxPathLength).IsRequired();
+            entity.Property(e => e.Title).HasMaxLength(500).IsRequired();
+            entity.Property(e => e.ContentHash).HasMaxLength(64).IsRequired();
+            entity.Property(e => e.Content).IsRequired();
+
+            entity.HasIndex(e => new { e.ProjectId, e.SourceKey, e.Path }).IsUnique();
+
+            entity.HasOne(e => e.Project)
+                .WithMany()
+                .HasForeignKey(e => e.ProjectId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
     }
 
     protected static void ConfigureApiKeyEntities(ModelBuilder modelBuilder)
@@ -1474,6 +1496,12 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
 
             entity.HasIndex(e => e.ProjectId);
             entity.HasIndex(e => new { e.ProjectId, e.SourceSectionId });
+
+            // Chunks of an imported document go with it; the sync deletes them explicitly on change/archive.
+            entity.HasOne(e => e.ImportedDocument)
+                .WithMany()
+                .HasForeignKey(e => e.ImportedDocumentId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
     }
 

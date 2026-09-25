@@ -836,14 +836,14 @@ internal sealed class KnowledgeGraphService(
             .Select(pds => pds.DataSourceId)
             .ToListAsync(ct);
 
-        if (dsIds.Count == 0) return [];
-
         var results = new List<SearchResult>();
         var queryLower = query.ToLower();
 
-        // Search tables
-        var matchingTables = await BuildMatchingTablesQuery(context, dsIds, queryLower, maxResults)
-            .ToListAsync(ct);
+        // Search tables (a project with only imported documents has no data sources — skip the catalog queries)
+        var matchingTables = dsIds.Count == 0
+            ? []
+            : await BuildMatchingTablesQuery(context, dsIds, queryLower, maxResults)
+                .ToListAsync(ct);
 
         foreach (var table in matchingTables)
         {
@@ -860,8 +860,10 @@ internal sealed class KnowledgeGraphService(
         }
 
         // Search columns
-        var matchingColumns = await BuildMatchingColumnsQuery(context, dsIds, queryLower, maxResults)
-            .ToListAsync(ct);
+        var matchingColumns = dsIds.Count == 0
+            ? []
+            : await BuildMatchingColumnsQuery(context, dsIds, queryLower, maxResults)
+                .ToListAsync(ct);
 
         foreach (var col in matchingColumns)
         {
@@ -893,6 +895,26 @@ internal sealed class KnowledgeGraphService(
                 Description = TruncateContent(doc.Content, 200),
                 Relevance = 0.5,
                 DocIdentity = $"docsection:{doc.Id}"
+            });
+        }
+
+        // Search host-imported documents (ExposeDocs) — title/path, or any of their chunks. Works with no embedder.
+        var importedDocs = await BuildImportedDocsQuery(context, projectId, queryLower, maxResults / 2)
+            .ToListAsync(ct);
+
+        foreach (var doc in importedDocs)
+        {
+            results.Add(new SearchResult
+            {
+                Type = "imported_doc",
+                DataSourceName = doc.ProjectName,
+                SchemaName = string.Empty,
+                TableName = string.Empty,
+                Description = doc.MatchingChunk != null ? TruncateContent(doc.MatchingChunk, 200) : null,
+                Relevance = doc.Title.ToLower().Contains(queryLower) ? 0.55 : 0.5,
+                DocIdentity = $"importeddoc:{doc.Id}",
+                DocumentPath = doc.Path,
+                DocumentTitle = doc.Title
             });
         }
 
@@ -1040,7 +1062,10 @@ internal sealed class KnowledgeGraphService(
                 {
                     x.Id,
                     x.SourceSectionId,
-                    x.ChunkText
+                    x.ChunkText,
+                    x.ImportedDocumentId,
+                    ImportedPath = x.ImportedDocument != null ? x.ImportedDocument.Path : null,
+                    ImportedTitle = x.ImportedDocument != null ? x.ImportedDocument.Title : null
                 })
             .ToListAsync(ct);
 
@@ -1049,19 +1074,43 @@ internal sealed class KnowledgeGraphService(
         var results = new List<SearchResult>();
         foreach (var hit in hits)
         {
-            if (chunksById.TryGetValue(hit.OwnerId, out var chunk))
+            if (!chunksById.TryGetValue(hit.OwnerId, out var chunk))
             {
-                results.Add(new SearchResult
-                {
-                    Type = "documentation",
-                    DataSourceName = projectName,
-                    SchemaName = string.Empty,
-                    TableName = string.Empty,
-                    Description = TruncateContent(chunk.ChunkText, 200),
-                    Relevance = 0,
-                    DocIdentity = $"docsection:{chunk.SourceSectionId}"
-                });
+                continue;
             }
+
+            // A host-imported document chunk: identity is the document, so both arms fuse per document.
+            if (chunk.ImportedDocumentId != null)
+            {
+                if (chunk.ImportedPath != null)
+                {
+                    results.Add(new SearchResult
+                    {
+                        Type = "imported_doc",
+                        DataSourceName = projectName,
+                        SchemaName = string.Empty,
+                        TableName = string.Empty,
+                        Description = TruncateContent(chunk.ChunkText, 200),
+                        Relevance = 0,
+                        DocIdentity = $"importeddoc:{chunk.ImportedDocumentId}",
+                        DocumentPath = chunk.ImportedPath,
+                        DocumentTitle = chunk.ImportedTitle
+                    });
+                }
+
+                continue;
+            }
+
+            results.Add(new SearchResult
+            {
+                Type = "documentation",
+                DataSourceName = projectName,
+                SchemaName = string.Empty,
+                TableName = string.Empty,
+                Description = TruncateContent(chunk.ChunkText, 200),
+                Relevance = 0,
+                DocIdentity = $"docsection:{chunk.SourceSectionId}"
+            });
         }
 
         return results;
@@ -1121,6 +1170,35 @@ internal sealed class KnowledgeGraphService(
             .Take(maxResults);
     }
 
+    // Host-imported documents whose title or path matches, or that have a chunk containing the keyword. The first
+    // matching chunk (in document order) is the result's snippet. Project-scoped (§1.12); archived documents are
+    // excluded by the soft-delete filter.
+    internal static IQueryable<ImportedDocSearchRow> BuildImportedDocsQuery(BeaconContext context, int projectId, string queryLower, int maxResults)
+    {
+        return context.ProjectImportedDocuments
+            .Where(x => x.ProjectId == projectId)
+            .Where(x => x.Title.ToLower().Contains(queryLower) ||
+                        x.Path.ToLower().Contains(queryLower) ||
+                        context.McpDocChunks
+                            .Where(y => y.ImportedDocumentId == x.Id)
+                            .Any(y => y.ChunkText.ToLower().Contains(queryLower)))
+            .OrderBy(x => x.Path)
+            .ThenBy(x => x.Id)
+            .Select(x =>
+                new ImportedDocSearchRow(
+                    x.Id,
+                    x.Project.Name,
+                    x.Path,
+                    x.Title,
+                    context.McpDocChunks
+                        .Where(y => y.ImportedDocumentId == x.Id)
+                        .Where(y => y.ChunkText.ToLower().Contains(queryLower))
+                        .OrderBy(y => y.SortOrder)
+                        .Select(y => y.ChunkText)
+                        .FirstOrDefault()))
+            .Take(maxResults);
+    }
+
     // Deterministic paging: ties inside a coarse relevance band must not reshuffle between calls.
     // DataSourceId disambiguates two data sources sharing a display name, so the chain is unique for
     // table/column results. SearchResult carries no per-row id for documentation results (DataSourceId
@@ -1135,6 +1213,7 @@ internal sealed class KnowledgeGraphService(
             .ThenBy(x => x.SchemaName)
             .ThenBy(x => x.TableName)
             .ThenBy(x => x.ColumnName)
+            .ThenBy(x => x.DocumentPath)
             .ThenBy(x => x.Description)
             .Take(maxResults)
             .ToList();
@@ -2354,3 +2433,5 @@ internal sealed record TableSearchRow(int DataSourceId, string DataSourceName, s
 internal sealed record ColumnSearchRow(int DataSourceId, string DataSourceName, string SchemaName, string TableName, string ColumnName, string? Description);
 
 internal sealed record DocSectionSearchRow(int Id, string ProjectName, string Title, string Content);
+
+internal sealed record ImportedDocSearchRow(int Id, string ProjectName, string Path, string Title, string? MatchingChunk);

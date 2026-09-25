@@ -194,6 +194,17 @@ public static class ServiceConfiguration
             new HostData.DataSourceConnectionResolver(x.GetRequiredService<IEncryptionService>(), configuration));
         services.TryAddTransient(x => ActivatorUtilities.CreateInstance<HostData.HostDataSourceSynchronizer>(x, configuration));
 
+        // Host documentation import (ExposeDocs). Paths resolve against the host content root; the doc-chunk
+        // indexer is optional (registered by AddBeaconAI) and only adds embeddings on top of keyword search.
+        services.TryAddTransient(x => new HostDocs.HostDocsSynchronizer(
+            x.GetRequiredService<IDbContextFactory<BeaconContext>>(),
+            x.GetServices<HostDocs.HostDocsRegistration>(),
+            x.GetRequiredService<IMcpSettingsProvider>(),
+            x.GetService<IDocChunkIndexingService>(),
+            x.GetService<Microsoft.Extensions.Hosting.IHostEnvironment>()?.ContentRootPath ?? AppContext.BaseDirectory,
+            x.GetRequiredService<Microsoft.Extensions.Logging.ILogger<HostDocs.HostDocsSynchronizer>>()));
+        services.TryAddTransient<HostDocs.IProjectBriefService, HostDocs.ProjectBriefService>();
+
         // Rate limiter (singleton so the in-memory sliding windows are shared across requests)
         services.TryAddSingleton<Services.Security.RateLimiter>();
 

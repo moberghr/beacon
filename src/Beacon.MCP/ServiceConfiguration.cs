@@ -64,7 +64,8 @@ public static class ServiceConfiguration
                     "5. query — run the validated read-only SQL (SELECT/WITH only); results are row-capped and PII-masked (when PII detection is enabled).\n" +
                     "Or let Beacon do it: ask — natural-language question; Beacon routes to the right source(s), generates schema-grounded SQL, executes, and appends a _signal_id: N_ marker.\n" +
                     "Close the loop: feedback — after you verify an ask answer, report verdict 'correct' or 'incorrect' with that signal_id; correct answers become verified examples that improve future generation.\n" +
-                    "get_documentation gives deeper schema/lineage detail for a data source, table, or API endpoint.\n" +
+                    "get_documentation gives deeper schema/lineage detail for a data source, table, or API endpoint, and lists/reads the documents the host application ships (document=<path>).\n" +
+                    "get_context with format='agents_md' returns a deterministic project brief for an agent workspace's AGENTS.md.\n" +
                     "Auth: API keys need the Execute or Admin scope for this endpoint. Keys can be project-restricted — pass project_id on every call when your key has access to more than one project.\n" +
                     "SQL dialect follows the target data source's engine (PostgreSQL, SQL Server, MySQL, BigQuery, Snowflake, Databricks). Write statements are rejected at multiple layers; don't attempt them.";
             })

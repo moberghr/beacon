@@ -31,6 +31,10 @@ await app.Services.SyncBeaconHostDataSourcesAsync();  // creates / refreshes the
 project (`ProjectName`, default = the data-source name), the data source and the project link on first run, and
 on later runs rewrites metadata only when the hash of the exposed model slice changed.
 
+When the host also ships documentation with [`ExposeDocs`](/features/host-docs/), call
+`SyncBeaconHostAsync()` instead: it runs this data-source sync and then imports the documents, as the single
+startup entrypoint. `SyncBeaconHostDataSourcesAsync` keeps working on its own.
+
 ## Options
 
 | Option | Meaning |

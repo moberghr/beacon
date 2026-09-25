@@ -14,6 +14,7 @@ using Beacon.Core.Data.Enums;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Ai;
 using Beacon.Core.Services;
+using Beacon.Core.Services.Shared;
 using Beacon.Tests.Common;
 
 namespace Beacon.Tests.Unit;

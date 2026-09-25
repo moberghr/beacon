@@ -188,10 +188,11 @@ public class ProjectGetDocumentationResponseFormatTests
             new HttpContextAccessor(),
             NullLogger<McpAuditService>.Instance);
 
+        // The project-level response also lists imported documents; an empty list-backed store has none.
         var tool = new ProjectGetDocumentationTool(
             new Mock<IKnowledgeGraphService>().Object,
             documentationService.Object,
-            new Mock<IDbContextFactory<BeaconContext>>().Object,
+            new HostDocs.DocsStore().Factory().Object,
             projectContext,
             auditService,
             NullLogger<ProjectGetDocumentationTool>.Instance);
