@@ -137,6 +137,8 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
 
     public DbSet<ProjectDocumentationSection> ProjectDocumentationSections => Set<ProjectDocumentationSection>();
 
+    public DbSet<ProjectImportedDocument> ProjectImportedDocuments => Set<ProjectImportedDocument>();
+
     // API Keys & MCP
     public DbSet<ApiKeyCredential> ApiKeyCredentials => Set<ApiKeyCredential>();
 
@@ -185,6 +187,7 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
         ConfigureAppSettingEntities(modelBuilder);
         ConfigureQueryVersionEntities(modelBuilder);
         ConfigureApprovalEntities(modelBuilder);
+        ConfigureQueryMcpToolEntities(modelBuilder);
         ConfigureDashboardEntities(modelBuilder);
         ConfigureDataQualityEntities(modelBuilder);
         ConfigureProjectEntities(modelBuilder);
@@ -925,6 +928,25 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
         });
     }
 
+    protected void ConfigureQueryMcpToolEntities(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<Query>(entity =>
+        {
+            entity.Property(e => e.McpToolName).HasMaxLength(64);
+            entity.Property(e => e.McpToolDescription).HasMaxLength(1000);
+
+            // A tool name means one query for every caller, whichever of their projects they reach it through:
+            // unique across live queries. Filter column names differ per provider (SQL Server keeps PascalCase,
+            // PostgreSQL uses snake_case via the naming convention).
+            var mcpToolNameFilter = Database.IsSqlServer()
+                ? "[McpToolName] IS NOT NULL AND [ArchivedTime] IS NULL"
+                : "mcp_tool_name IS NOT NULL AND archived_time IS NULL";
+            entity.HasIndex(e => e.McpToolName)
+                .IsUnique()
+                .HasFilter(mcpToolNameFilter);
+        });
+    }
+
     protected static void ConfigureQueryVersionEntities(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<QueryVersion>(entity =>
@@ -1219,6 +1241,19 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
                 .OnDelete(DeleteBehavior.Cascade);
 
             entity.HasIndex(e => e.Name);
+
+            // The project a host's ExposeDbContext / ExposeDocs / endpoint tools attach to is found by this key, never
+            // by its (non-unique, user-editable) name. Ordinary projects leave it null.
+            entity.Property(e => e.HostManagedKey).HasMaxLength(200);
+            entity.HasIndex(e => e.HostManagedKey).IsUnique();
+        });
+
+        modelBuilder.Entity<DataSource>(entity =>
+        {
+            // Host-managed data sources (ExposeDbContext) are keyed by a stable host key; ordinary ones leave it null.
+            entity.Property(e => e.HostManagedKey).HasMaxLength(200);
+            entity.Property(e => e.HostModelHash).HasMaxLength(64);
+            entity.HasIndex(e => e.HostManagedKey).IsUnique();
         });
 
         modelBuilder.Entity<ProjectDataSource>(entity =>
@@ -1284,6 +1319,26 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
+        modelBuilder.Entity<ProjectImportedDocument>(entity =>
+        {
+            // Host-shipped documents (ExposeDocs). Identity is (ProjectId, SourceKey, Path); the unique index covers
+            // archived rows too, so the sync loads them with IgnoreQueryFilters and un-archives instead of inserting.
+            entity.HasKey(e => e.Id);
+            // Key columns sized so the unique index stays under SQL Server's 1700-byte nonclustered key limit.
+            entity.Property(e => e.SourceKey).HasMaxLength(ProjectImportedDocument.MaxSourceKeyLength).IsRequired();
+            entity.Property(e => e.Path).HasMaxLength(ProjectImportedDocument.MaxPathLength).IsRequired();
+            entity.Property(e => e.Title).HasMaxLength(500).IsRequired();
+            entity.Property(e => e.ContentHash).HasMaxLength(64).IsRequired();
+            entity.Property(e => e.Content).IsRequired();
+
+            entity.HasIndex(e => new { e.ProjectId, e.SourceKey, e.Path }).IsUnique();
+
+            entity.HasOne(e => e.Project)
+                .WithMany()
+                .HasForeignKey(e => e.ProjectId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
     }
 
     protected static void ConfigureApiKeyEntities(ModelBuilder modelBuilder)
@@ -1336,6 +1391,8 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             entity.Property(e => e.Tool).HasMaxLength(200).IsRequired();
             entity.Property(e => e.Parameters).HasMaxLength(4000);
             entity.Property(e => e.ErrorMessage).HasMaxLength(4000);
+            entity.Property(e => e.CallerKind).HasMaxLength(16);
+            entity.Property(e => e.CallerHash).HasMaxLength(64);
 
             entity.HasOne(e => e.Session)
                 .WithMany()
@@ -1464,6 +1521,12 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
 
             entity.HasIndex(e => e.ProjectId);
             entity.HasIndex(e => new { e.ProjectId, e.SourceSectionId });
+
+            // Chunks of an imported document go with it; the sync deletes them explicitly on change/archive.
+            entity.HasOne(e => e.ImportedDocument)
+                .WithMany()
+                .HasForeignKey(e => e.ImportedDocumentId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
     }
 

@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Beacon.Core.HostData;
 using Beacon.Core.Services.Security;
 
 namespace Beacon.Core.Services.Validation;
@@ -14,7 +15,8 @@ public sealed class SqlExecutionGate(
     SqlReadOnlyAstValidator readOnlyAstValidator,
     SqlSchemaValidator schemaValidator,
     SqlSemanticLinter semanticLinter,
-    ILogger<SqlExecutionGate> logger) : ISqlExecutionGate
+    ILogger<SqlExecutionGate> logger,
+    IHostDataSourceGuard? hostGuard = null) : ISqlExecutionGate
 {
     private const string NotRequested = SqlGateCodes.NotRequested;
     private const string NotEvaluated = SqlGateCodes.NotEvaluated;
@@ -51,6 +53,34 @@ public sealed class SqlExecutionGate(
         // The schema walk always runs so TablesUsed / ColumnsUsed are available even when no catalog check
         // was requested; the verdict alone reflects whether a catalog was supplied.
         var schemaResult = schemaValidator.Validate(request.Sql, ToCatalog(request.Catalog), request.Dialect);
+
+        // Host-exposed DbContext: the allow-list is authorization, not advice — a violation always blocks.
+        var hostCheck = EvaluateHostPolicy(request);
+        if (hostCheck is { Allowed: false })
+        {
+            return new SqlGateReport(
+                true,
+                hostCheck.Error,
+                request.Sql,
+                schemaResult.TablesUsed,
+                schemaResult.ColumnsUsed,
+                piiColumns,
+                [],
+                new SqlGateVerdicts(
+                    readOnly,
+                    SqlGateVerdict.Fail(SqlGateCodes.HostPolicy, hostCheck.Error ?? "Host data source policy violation."),
+                    SqlGateVerdict.Skipped(NotEvaluated),
+                    SqlGateVerdict.Skipped(NotEvaluated)));
+        }
+
+        if (hostCheck is { MaskedOutputColumns.Count: > 0 })
+        {
+            piiColumns = piiColumns
+                .Concat(hostCheck.MaskedOutputColumns)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
         var schema = EvaluateSchema(request, schemaResult);
 
         var blocked = request.BlockOnSchemaFailure && schema.Status == SqlGateStatus.Fail;
@@ -68,6 +98,18 @@ public sealed class SqlExecutionGate(
             piiColumns,
             lintFindings,
             new SqlGateVerdicts(readOnly, schema, lint, rowLimit));
+    }
+
+    private HostPolicyResult? EvaluateHostPolicy(SqlGateRequest request)
+    {
+        if (request.HostManagedKey == null)
+        {
+            return null;
+        }
+
+        // Fail closed: a host-managed target without the guard wired cannot be checked, so it cannot run.
+        return hostGuard?.Check(request.HostManagedKey, request.Sql)
+            ?? HostPolicyResult.Reject("Host data source policy is unavailable; the query was not run.");
     }
 
     private SqlGateVerdict EvaluateReadOnly(SqlGateRequest request, QueryValidationResult validation)

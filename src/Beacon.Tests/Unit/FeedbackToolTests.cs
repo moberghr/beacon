@@ -1,5 +1,6 @@
 using FluentAssertions;
 using MediatR;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using ModelContextProtocol.Protocol;
@@ -125,7 +126,7 @@ public class FeedbackToolTests
         factory.Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(() => new CapturingAuditContext(logs));
 
-        var auditService = new McpAuditService(factory.Object, SettingsProviderMock.Create().Object, NullLogger<McpAuditService>.Instance);
+        var auditService = new McpAuditService(factory.Object, SettingsProviderMock.Create().Object, new HttpContextAccessor(), NullLogger<McpAuditService>.Instance);
 
         var projectContext = new Mock<IProjectContext>();
         projectContext.SetupGet(x => x.UserId).Returns(1);

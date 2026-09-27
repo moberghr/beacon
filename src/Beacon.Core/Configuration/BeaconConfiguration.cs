@@ -47,6 +47,11 @@ public class BeaconConfiguration
     /// </summary>
     public ApprovalWorkflowOptions ApprovalWorkflow { get; set; } = new();
 
+    /// <summary>
+    /// Saved queries exposed as MCP tools
+    /// </summary>
+    public SavedQueryToolOptions SavedQueryTools { get; set; } = new();
+
     public void AddBeaconScheduler<T>() where T : class, IBeaconScheduler
     {
         BeaconScheduler = typeof(T);
@@ -97,6 +102,11 @@ public class BeaconConfiguration
         if (BeaconScheduler == null)
         {
             throw new BeaconException($"Implementation of IBeaconScheduler is required.");
+        }
+
+        if (SavedQueryTools.NamedToolLimit < 0)
+        {
+            throw new BeaconException("SavedQueryTools.NamedToolLimit must not be negative.");
         }
     }
 }

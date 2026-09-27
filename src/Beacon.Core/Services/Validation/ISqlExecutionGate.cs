@@ -34,6 +34,12 @@ public sealed record SqlGateRequest(
     int? MaxRows)
 {
     /// <summary>
+    /// <c>DataSource.HostManagedKey</c> of the target when it is a host-exposed DbContext. When set, the host
+    /// allow-list/exclusion policy runs and a violation BLOCKS regardless of <see cref="BlockOnSchemaFailure"/>.
+    /// </summary>
+    public string? HostManagedKey { get; init; }
+
+    /// <summary>
     /// Read-only / PII / lint flags copied from the effective MCP settings; catalog, lint context and row limit
     /// left unset so a caller adds only the stages it needs via a <c>with</c> expression.
     /// </summary>
@@ -86,6 +92,9 @@ public static class SqlGateCodes
 
     /// <summary>Schema: the catalog check failed.</summary>
     public const string Schema = "schema";
+
+    /// <summary>Schema: the SQL reads a table or column the host data source does not expose.</summary>
+    public const string HostPolicy = "host_policy";
 
     /// <summary>Schema: no catalog rows exist for the data source, so nothing could be checked.</summary>
     public const string EmptyCatalog = "empty_catalog";

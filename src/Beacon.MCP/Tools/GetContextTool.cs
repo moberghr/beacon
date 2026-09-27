@@ -7,6 +7,7 @@ using ModelContextProtocol.Server;
 using Beacon.AI.Services.Knowledge;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.HostDocs;
 using Beacon.MCP.Services;
 
 namespace Beacon.MCP.Tools;
@@ -15,20 +16,41 @@ namespace Beacon.MCP.Tools;
 internal sealed class GetContextTool(
     IKnowledgeGraphService knowledgeGraph,
     IDbContextFactory<BeaconContext> contextFactory,
+    IProjectBriefService projectBriefService,
     IProjectContext projectContext,
     McpAuditService auditService,
     ILogger<GetContextTool> logger)
 {
+    internal const string OverviewFormat = "overview";
+    internal const string AgentsMdFormat = "agents_md";
+
     [McpServerTool(Name = "get_context", Title = "Project Overview", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
-    [Description("Get an overview of the project: its data sources, schemas, tables, quality scores, and documentation status. This is the starting point for understanding what data is available.")]
+    [Description("Get an overview of the project: its data sources, schemas, tables, quality scores, and documentation status. This is the starting point for understanding what data is available. format='agents_md' returns a project brief in markdown for an agent workspace's AGENTS.md instead.")]
     public async Task<CallToolResult> ExecuteAsync(
         [Description("Optional. If your API key has access to multiple projects, specify which one.")]
         int? project_id = null,
+        [Description("Optional. 'overview' (default) or 'agents_md' — a deterministic project brief (data sources, key tables, glossary, documents, tool guidance) to drop into AGENTS.md.")]
+        string? format = null,
         CancellationToken cancellationToken = default)
     {
         var sw = Stopwatch.StartNew();
         var resolveError = ToolHelper.ResolveProjectId(projectContext, project_id, out var projectId);
         if (resolveError != null) return ToolHelper.Error(resolveError);
+
+        var normalizedFormat = string.IsNullOrWhiteSpace(format) ? OverviewFormat : format.Trim().ToLowerInvariant();
+        if (normalizedFormat != OverviewFormat && normalizedFormat != AgentsMdFormat)
+        {
+            sw.Stop();
+            var formatError = $"format must be '{OverviewFormat}' or '{AgentsMdFormat}'.";
+            await auditService.LogToolCallAsync(null, projectContext.UserId, "get_context",
+                format, null, projectId, (int)sw.ElapsedMilliseconds, null, formatError, ct: cancellationToken);
+            return ToolHelper.Error(formatError);
+        }
+
+        if (normalizedFormat == AgentsMdFormat)
+        {
+            return await GetProjectBriefAsync(projectId, cancellationToken, sw);
+        }
 
         // No McpSignalService call here: McpQuerySignal models the SQL query-learning loop
         // (generated SQL, intent, routing, validation/execution outcomes). This read-only project
@@ -99,6 +121,31 @@ internal sealed class GetContextTool(
             sw.Stop();
             await auditService.LogToolCallAsync(null, projectContext.UserId, "get_context",
                 project_id?.ToString(), null, projectId == 0 ? null : projectId, (int)sw.ElapsedMilliseconds, null, ex.Message, ct: CancellationToken.None);
+            // §1.11 — ex.Message can quote user input; type only here, full detail is in the audit log.
+            logger.LogError("MCP tool {Tool} failed with {ExceptionType} (detail in MCP audit log)", "get_context", ex.GetType().Name);
+            return ToolHelper.Error(ToolHelper.CallerSafeMessage(ex, "get_context"));
+        }
+    }
+
+    // The brief is built from stored metadata only (no LLM) and audited like the overview, failure path included.
+    private async Task<CallToolResult> GetProjectBriefAsync(int projectId, CancellationToken cancellationToken, Stopwatch sw)
+    {
+        try
+        {
+            var brief = await projectBriefService.BuildAgentsMdAsync(projectId, cancellationToken);
+            sw.Stop();
+
+            var error = brief == null ? $"Project {projectId} not found." : null;
+            await auditService.LogToolCallAsync(null, projectContext.UserId, "get_context",
+                AgentsMdFormat, null, projectId, (int)sw.ElapsedMilliseconds, null, error, ct: cancellationToken);
+
+            return brief == null ? ToolHelper.Error(error!) : ToolHelper.Success(brief);
+        }
+        catch (Exception ex)
+        {
+            sw.Stop();
+            await auditService.LogToolCallAsync(null, projectContext.UserId, "get_context",
+                AgentsMdFormat, null, projectId, (int)sw.ElapsedMilliseconds, null, ex.Message, ct: CancellationToken.None);
             // §1.11 — ex.Message can quote user input; type only here, full detail is in the audit log.
             logger.LogError("MCP tool {Tool} failed with {ExceptionType} (detail in MCP audit log)", "get_context", ex.GetType().Name);
             return ToolHelper.Error(ToolHelper.CallerSafeMessage(ex, "get_context"));

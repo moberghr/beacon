@@ -43,6 +43,7 @@
 		<PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
 		<PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" />
 		<PackageReference Include="Microsoft.Extensions.Caching.Memory" />
+		<PackageReference Include="Microsoft.Extensions.FileSystemGlobbing" />
 		<PackageReference Include="Microsoft.Extensions.Http" />
 		<!-- Pomelo 9.0.0 is the newest release and targets EF Core 9; no EF Core 10 build exists yet.
 		     Pinned explicitly (was a transitive dep of EFCore.BulkExtensions 9.x before the net10/EF10

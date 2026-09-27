@@ -9,6 +9,7 @@ using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Helpers;
 using Beacon.Core.Helpers.File;
+using Beacon.Core.HostData;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Queries;
 using Beacon.Core.Models.QueryExecutionHistory;
@@ -234,25 +235,51 @@ internal partial class QueryService
         if (!step.DataSource.DatabaseEngineType.HasValue)
             throw new BeaconException($"Data source {step.DataSourceId} is not a database type");
 
+        var stepParameters = ExtractStepParameters(step, parameters);
+        var (parameterizedSql, sqlParameters) = QueryHelper.PrepareParameterizedQuery(step.SqlValue, stepParameters);
+
+        // Both gates judge the text that actually runs: bound ({placeholders} are not SQL — values travel as
+        // parameters, never in the text) and flattened the way ExecuteQueryAsync flattens it.
+        var executedSql = FlattenSql(parameterizedSql);
+
         // Defense-in-depth: reject non-read-only SQL even for steps persisted before the
         // AddQueryStep/UpdateQueryStep gate shipped (§1.5). Runs before any DB round-trip.
-        var rejection = readOnlyAstValidator.Validate(step.SqlValue, step.DataSource.DatabaseEngineType?.ToString());
+        var rejection = readOnlyAstValidator.Validate(executedSql, step.DataSource.DatabaseEngineType?.ToString());
         if (rejection != null)
         {
             throw new InvalidOperationException(rejection);
         }
 
-        var stepParameters = ExtractStepParameters(step, parameters);
-        var (parameterizedSql, sqlParameters) = QueryHelper.PrepareParameterizedQuery(step.SqlValue, stepParameters);
+        // Host-managed sources (ExposeDbContext): allow-listed tables and exposed columns only, with every parameter
+        // the statement uses supplied.
+        var hostCheck = hostGuard.Check(step.DataSource, executedSql);
+        var hostError = hostCheck.Allowed ? hostCheck.FindUnboundParameter(sqlParameters) : hostCheck.Error;
+        if (hostError != null)
+        {
+            throw new InvalidOperationException(hostError);
+        }
 
         // Each step executes against its own data source/database
         var (results, executionTimeMs, timedOut) = await ExecuteQueryAsync(
             step.DataSource.DatabaseEngineType.Value,   // Each step can be different engine type!
-            encryptionService.Decrypt(step.DataSource.EncryptedConnectionData),     // Each step connects to different database
+            connectionResolver.GetConnectionString(step.DataSource),     // Each step connects to different database
             parameterizedSql,
             sqlParameters,
             null // Use default timeout
         );
+
+        if (hostCheck.MaskedOutputColumns.Count > 0)
+        {
+            var masked = hostGuard.Mask(
+                results
+                    .Select(x => new Dictionary<string, object?>(x))
+                    .ToList(),
+                hostCheck.MaskedOutputColumns);
+
+            results = masked
+                .Select(x => (IDictionary<string, object?>)x)
+                .ToList();
+        }
 
         var stepResult = new QueryStepResult
         {

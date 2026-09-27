@@ -10,6 +10,7 @@ import { QueryPerfRow } from './parts/QueryPerfRow';
 import { QueryInfoCard } from './parts/QueryInfoCard';
 import { QueryStepsCard } from './parts/QueryStepsCard';
 import { FinalQueryCard } from './parts/FinalQueryCard';
+import { McpToolCard } from './parts/McpToolCard';
 import { QueryTabsCard, type QueryTabKey } from './parts/QueryTabsCard';
 import { RightRail } from './parts/RightRail';
 import { QuerySaveBar } from './parts/QuerySaveBar';
@@ -187,6 +188,7 @@ export default function QueryDetailPage() {
           <QueryInfoCard query={query} />
           <QueryStepsCard query={query} editHref={editHref} />
           <FinalQueryCard query={query} />
+          <McpToolCard query={query} />
           <QueryTabsCard query={query} tab={tab} onTabChange={setTab} />
         </div>
         <RightRail query={query} editHref={editHref} />

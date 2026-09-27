@@ -52,7 +52,9 @@ internal sealed class McpPlaygroundService(IServiceProvider serviceProvider) : I
             var result = toolName switch
             {
                 "get_context" => await sp.GetRequiredService<GetContextTool>().ExecuteAsync(
-                    project_id: projectId, cancellationToken: ct),
+                    project_id: projectId,
+                    format: GetString(arguments, "format"),
+                    cancellationToken: ct),
 
                 "ask" => await sp.GetRequiredService<ProjectAskTool>().ExecuteAsync(
                     question: GetString(arguments, "question") ?? "",
@@ -75,6 +77,7 @@ internal sealed class McpPlaygroundService(IServiceProvider serviceProvider) : I
                     table_name: GetString(arguments, "table_name"),
                     schema_name: GetString(arguments, "schema_name"),
                     response_format: GetString(arguments, "response_format"),
+                    document: GetString(arguments, "document"),
                     cancellationToken: ct),
 
                 "search" => await sp.GetRequiredService<ProjectSearchTool>().ExecuteAsync(

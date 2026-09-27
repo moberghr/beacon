@@ -8,6 +8,7 @@ using Beacon.AI.Services.Documentation;
 using Beacon.AI.Services.Knowledge;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.HostDocs;
 using Beacon.MCP.Services;
 
 namespace Beacon.MCP.Tools;
@@ -22,9 +23,10 @@ internal sealed class ProjectGetDocumentationTool(
     ILogger<ProjectGetDocumentationTool> logger)
 {
     internal const int ConciseCharBudget = 8000;
+    internal const int MaxListedImportedDocuments = 500;
 
     [McpServerTool(Name = "get_documentation", Title = "Get Documentation", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
-    [Description("Get AI-generated documentation for the project, a specific data source, or a specific table/endpoint. Includes schema details, relationships, code references, quality scores, and lineage.")]
+    [Description("Get documentation for the project, a specific data source, a specific table/endpoint, or a host-imported document. Includes schema details, relationships, code references, quality scores, and lineage. The project-level response also lists the documents the host application ships (title + path); pass document=<path> to read one.")]
     public async Task<CallToolResult> ExecuteAsync(
         [Description("Optional. Specify project if your API key has access to multiple projects.")]
         int? project_id = null,
@@ -34,8 +36,10 @@ internal sealed class ProjectGetDocumentationTool(
         string? table_name = null,
         [Description("Optional. Schema name or API tag to narrow scope.")]
         string? schema_name = null,
-        [Description("'concise' (summary sections) or 'detailed' (everything). Project-level export defaults to concise; table-level defaults to detailed.")]
+        [Description("'concise' (summary sections) or 'detailed' (everything). Project-level export defaults to concise; table-level and document-level default to detailed.")]
         string? response_format = null,
+        [Description("Optional. Path (or exact title) of a host-imported document, as listed by the project-level response or returned by search. Returns that document in full.")]
+        string? document = null,
         CancellationToken cancellationToken = default)
     {
         var sw = Stopwatch.StartNew();
@@ -60,6 +64,24 @@ internal sealed class ProjectGetDocumentationTool(
         // No McpSignalService call here (audit-only) — see GetContextTool for the full rationale.
         try
         {
+            if (!string.IsNullOrWhiteSpace(document))
+            {
+                if (!string.IsNullOrEmpty(datasource_name) || !string.IsNullOrEmpty(table_name))
+                {
+                    const string conflict = "Pass either document or datasource_name/table_name, not both.";
+                    sw.Stop();
+                    await auditService.LogToolCallAsync(null, projectContext.UserId, "get_documentation",
+                        document, null, projectId, (int)sw.ElapsedMilliseconds, null, conflict, ct: cancellationToken);
+                    return ToolHelper.Error(conflict);
+                }
+
+                var (documentText, documentError) = await GetImportedDocumentAsync(projectId, document, (format ?? "detailed") == "concise", cancellationToken);
+                sw.Stop();
+                await auditService.LogToolCallAsync(null, projectContext.UserId, "get_documentation",
+                    document, null, projectId, (int)sw.ElapsedMilliseconds, null, documentError, ct: cancellationToken);
+                return documentError != null ? ToolHelper.Error(documentError) : ToolHelper.Success(documentText!);
+            }
+
             // If no data source specified, return full project documentation
             if (string.IsNullOrEmpty(datasource_name) && string.IsNullOrEmpty(table_name))
             {
@@ -163,12 +185,85 @@ internal sealed class ProjectGetDocumentationTool(
     private async Task<string> GetProjectDocumentationAsync(int projectId, bool concise, CancellationToken ct)
     {
         var markdown = await documentationService.ExportLatestToMarkdownAsync(projectId, ct);
+
+        await using var context = await contextFactory.CreateDbContextAsync(ct);
+        var imported = await ImportedDocumentQueries.ListForProject(context, projectId)
+            .Take(MaxListedImportedDocuments + 1)
+            .ToListAsync(ct);
+
         if (markdown == null)
         {
-            return "No documentation has been generated for this project yet. Use the Beacon UI to generate project documentation.";
+            return imported.Count == 0
+                ? "No documentation has been generated for this project yet. Use the Beacon UI to generate project documentation."
+                : "No AI-generated documentation exists for this project yet.\n\n" + FormatImportedDocumentListing(imported);
         }
 
-        return concise ? TruncateForConcise(markdown) : markdown;
+        var export = concise ? TruncateForConcise(markdown) : markdown;
+
+        return imported.Count == 0 ? export : export.TrimEnd('\n') + "\n\n" + FormatImportedDocumentListing(imported);
+    }
+
+    /// <summary>
+    /// The "Imported documents" block appended to the project-level response: one line per document (title + path),
+    /// capped at <see cref="MaxListedImportedDocuments"/>. Internal for unit tests.
+    /// </summary>
+    internal static string FormatImportedDocumentListing(IReadOnlyList<ImportedDocumentSummary> documents)
+    {
+        var shown = documents
+            .Take(MaxListedImportedDocuments)
+            .ToList();
+
+        var text = "## Imported documents\n\n";
+        text += "Documents shipped by the host application. Read one with get_documentation and `document: \"<path>\"`.\n\n";
+        foreach (var item in shown)
+        {
+            text += $"- {item.Title} — `{item.Path}`\n";
+        }
+
+        if (documents.Count > shown.Count)
+        {
+            text += $"\n_More than {MaxListedImportedDocuments} documents — use search to find the rest._\n";
+        }
+
+        return text;
+    }
+
+    // Resolves by exact path first, then by exact title; several documents sharing a title is an error naming
+    // their paths so the caller can disambiguate. Project-scoped: another project's documents never match.
+    private async Task<(string? Text, string? Error)> GetImportedDocumentAsync(int projectId, string pathOrTitle, bool concise, CancellationToken ct)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(ct);
+        var matches = await ImportedDocumentQueries.ByPathOrTitle(context, projectId, pathOrTitle)
+            .Take(10)
+            .ToListAsync(ct);
+
+        var lower = pathOrTitle.Trim().ToLowerInvariant();
+        var match = matches
+            .Where(x => x.Path.ToLowerInvariant() == lower)
+            .FirstOrDefault();
+
+        if (match == null && matches.Count > 1)
+        {
+            var paths = string.Join(", ", matches.Select(x => $"`{x.Path}`"));
+            return (null, $"Several imported documents are titled '{pathOrTitle}': {paths}. Pass the path instead.");
+        }
+
+        match ??= matches.FirstOrDefault();
+        if (match == null)
+        {
+            return (null, $"No imported document with path or title '{pathOrTitle}' in this project. Call get_documentation without arguments to list them.");
+        }
+
+        return (FormatImportedDocument(match, concise), null);
+    }
+
+    internal static string FormatImportedDocument(ImportedDocumentContent document, bool concise)
+    {
+        var text = $"# {document.Title}\n\n";
+        text += $"**Imported document:** `{document.Path}` (source: {document.SourceKey}, imported {document.ImportedTime:yyyy-MM-dd HH:mm} UTC)\n\n";
+        text += document.Content.TrimEnd('\n') + "\n";
+
+        return concise ? TruncateForConcise(text) : text;
     }
 
     /// <summary>

@@ -59,7 +59,7 @@ public record SchemaOverview(string SchemaName, int TableCount, double? AvgQuali
 
 public record SearchResult
 {
-    public required string Type { get; init; } // "table", "column", "documentation"
+    public required string Type { get; init; } // "table", "column", "documentation", "imported_doc"
     public int DataSourceId { get; init; }
     public required string DataSourceName { get; init; }
     public required string SchemaName { get; init; }
@@ -77,6 +77,12 @@ public record SearchResult
     /// one result. Null for table/column results.
     /// </summary>
     public string? DocIdentity { get; init; }
+
+    /// <summary>Relative path of a host-imported document ("imported_doc" results only).</summary>
+    public string? DocumentPath { get; init; }
+
+    /// <summary>Title of a host-imported document ("imported_doc" results only).</summary>
+    public string? DocumentTitle { get; init; }
 }
 
 public record LineageInfo
@@ -100,6 +106,13 @@ public record SmartSchemaContext
     /// Database engine dialect string (e.g. "PostgreSQL", "SqlServer") for SQL parsing.
     /// </summary>
     public string? DatabaseDialect { get; init; }
+
+    /// <summary>
+    /// <c>DataSource.HostManagedKey</c> when the source is a host-exposed DbContext, so every gate evaluation of the
+    /// generated SQL (repairs included) applies the host policy and its masked columns.
+    /// </summary>
+    public string? HostManagedKey { get; init; }
+
     /// <summary>
     /// Schema catalog for pre-execution validation.
     /// Keys: lowercase table name AND lowercase "schema.table". Values: lowercase column names.

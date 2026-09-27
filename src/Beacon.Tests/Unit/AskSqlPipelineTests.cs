@@ -342,12 +342,41 @@ public class AskSqlPipelineTests
         outcome.Text.Should().Contain("GROUP_BY_MISMATCH");
     }
 
-    private AskSqlPipeline CreatePipeline()
+    [Test]
+    public async Task RunAsync_HostManagedSource_EveryGateEvaluationAppliesTheHostPolicy()
+    {
+        _knowledgeGraph
+            .Setup(x => x.GetSmartContextForAskAsync(DataSourceId, ProjectId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SmartSchemaContext
+            {
+                FullContext = "schema-context",
+                DatabaseDialect = "PostgreSQL",
+                TotalTableCount = 1,
+                HostManagedKey = "efcore:Netgiro"
+            });
+        _sqlGeneration
+            .Setup(x => x.GenerateAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(), _settings, It.IsAny<CancellationToken>(), It.IsAny<decimal?>()))
+            .ReturnsAsync(new SqlGenerationResult(GeneratedSql, ["sales"]));
+        var hostGuard = new Mock<Beacon.Core.HostData.IHostDataSourceGuard>();
+        hostGuard
+            .Setup(x => x.Check("efcore:Netgiro", It.IsAny<string>()))
+            .Returns(Beacon.Core.HostData.HostPolicyResult.Reject("Table 'public.sales' is not exposed by this host data source."));
+
+        var outcome = await CreatePipeline(hostGuard.Object).RunAsync(
+            _llmProvider.Object, DataSourceId, ProjectId, Question, _settings, _executor.Object, new AskSqlPipelineOptions(), CancellationToken.None);
+
+        outcome.Succeeded.Should().BeFalse();
+        hostGuard.Verify(x => x.Check("efcore:Netgiro", GeneratedSql), Times.AtLeastOnce());
+        _executor.Verify(x => x.ExecuteAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never,
+            "SQL the host policy rejects never runs");
+    }
+
+    private AskSqlPipeline CreatePipeline(Beacon.Core.HostData.IHostDataSourceGuard? hostGuard = null)
     {
         return new AskSqlPipeline(
             _knowledgeGraph.Object,
             _sqlGeneration.Object,
-            TestSqlGate.Create(_guardrail.Object),
+            TestSqlGate.Create(_guardrail.Object, hostGuard),
             NullLogger<AskSqlPipeline>.Instance);
     }
 }

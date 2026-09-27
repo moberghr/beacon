@@ -1,5 +1,6 @@
 using System.Text.Json;
 using FluentAssertions;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using ModelContextProtocol.Protocol;
@@ -411,7 +412,7 @@ public class DryRunToolTests
 
         var projectContext = new McpProjectContext { UserId = 1, AllowedProjectIds = [ProjectId] };
 
-        var auditService = new McpAuditService(factory.Object, SettingsProviderMock.Create().Object, NullLogger<McpAuditService>.Instance);
+        var auditService = new McpAuditService(factory.Object, SettingsProviderMock.Create().Object, new HttpContextAccessor(), NullLogger<McpAuditService>.Instance);
         var signalService = new McpSignalService(factory.Object, settingsProvider.Object, NullLogger<McpSignalService>.Instance);
 
         return new DryRunTool(

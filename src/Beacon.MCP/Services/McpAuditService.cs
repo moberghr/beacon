@@ -1,7 +1,9 @@
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
+using Beacon.Core.Mcp;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Retention;
 
@@ -10,6 +12,7 @@ namespace Beacon.MCP.Services;
 internal sealed class McpAuditService(
     IDbContextFactory<BeaconContext> contextFactory,
     IMcpSettingsProvider settingsProvider,
+    IHttpContextAccessor httpContextAccessor,
     ILogger<McpAuditService> logger)
 {
     public async Task LogToolCallAsync(int? sessionId, int? userId, string tool, string? parameters,
@@ -35,6 +38,11 @@ internal sealed class McpAuditService(
                 loggedErrorMessage = errorMessage?.Length > 4000 ? errorMessage[..4000] : errorMessage;
             }
 
+            // Minted by JwtBearerAuthMiddleware from IMcpCallerMapper; token-supplied values are stripped there.
+            var caller = httpContextAccessor.HttpContext?.User;
+            var callerKind = caller?.FindFirst(McpCallerClaimTypes.CallerKind)?.Value;
+            var callerHash = caller?.FindFirst(McpCallerClaimTypes.CallerHash)?.Value;
+
             await using var context = await contextFactory.CreateDbContextAsync(ct);
             context.McpAuditLogs.Add(new McpAuditLog
             {
@@ -46,7 +54,9 @@ internal sealed class McpAuditService(
                 ProjectId = projectId,
                 ExecutionTimeMs = executionTimeMs,
                 ResultRowCount = resultRowCount,
-                ErrorMessage = loggedErrorMessage
+                ErrorMessage = loggedErrorMessage,
+                CallerKind = callerKind,
+                CallerHash = callerHash
             });
             await context.SaveChangesAsync(ct);
         }

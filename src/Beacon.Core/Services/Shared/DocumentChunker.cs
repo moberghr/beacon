@@ -1,6 +1,6 @@
 using System.Text.RegularExpressions;
 
-namespace Beacon.AI.Services.Knowledge;
+namespace Beacon.Core.Services.Shared;
 
 /// <summary>
 /// Pure, deterministic sentence-window chunker for project documentation (Tier-3 ⑨). Splits content
@@ -9,7 +9,7 @@ namespace Beacon.AI.Services.Knowledge;
 /// overlap. No I/O, no randomness — the same input always yields the same chunks so indexing is
 /// idempotent and unit-testable in isolation.
 /// </summary>
-internal static class DocumentChunker
+public static class DocumentChunker
 {
     // Split at whitespace that follows a sentence terminator, keeping the terminator on the left
     // sentence via a look-behind. A single newline after a terminator (wrapped paragraph) also splits.

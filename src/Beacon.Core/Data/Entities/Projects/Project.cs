@@ -7,6 +7,12 @@ public class Project : ArchivableBaseEntity
     public required string Name { get; set; }
     public string? Description { get; set; }
 
+    /// <summary>
+    /// Set on the project a host declares (<c>ExposeDbContext</c>, <c>ExposeDocs</c>, <c>AddHostEndpointTools</c>):
+    /// <c>host:{project name, lower-cased}</c>. Unique; null for projects created in Beacon.
+    /// </summary>
+    public string? HostManagedKey { get; set; }
+
     public List<ProjectDataSource> DataSources { get; set; } = new();
     public List<GitHubRepository> Repositories { get; set; } = new();
     public List<ProjectDocumentation> Documentations { get; set; } = new();

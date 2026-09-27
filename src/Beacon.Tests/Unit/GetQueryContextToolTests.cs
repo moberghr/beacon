@@ -1,5 +1,6 @@
 using System.Text.Json;
 using FluentAssertions;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using ModelContextProtocol.Protocol;
@@ -233,7 +234,7 @@ public class GetQueryContextToolTests
 
         var projectContext = new McpProjectContext { UserId = 1, AllowedProjectIds = [ProjectId] };
 
-        var auditService = new McpAuditService(factory.Object, SettingsProviderMock.Create().Object, NullLogger<McpAuditService>.Instance);
+        var auditService = new McpAuditService(factory.Object, SettingsProviderMock.Create().Object, new HttpContextAccessor(), NullLogger<McpAuditService>.Instance);
 
         return new GetQueryContextTool(
             _knowledgeGraph.Object,

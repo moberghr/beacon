@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Helpers;
+using Beacon.Core.HostData;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Providers;
 using Beacon.Core.Services.Validation;
@@ -12,10 +13,14 @@ using Beacon.Core.Services.Validation;
 namespace Beacon.Core.Services.Providers;
 
 internal class DatabaseProvider(
-    IEncryptionService encryptionService,
+    IDataSourceConnectionResolver connectionResolver,
     SqlReadOnlyAstValidator readOnlyValidator,
+    IHostDataSourceGuard hostGuard,
     ILogger<DatabaseProvider> logger) : IDataSourceProvider
 {
+    /// <summary>What a caller sees when a query against a host data source fails on the server.</summary>
+    public const string HostQueryFailedMessage = "Query failed on the host database.";
+
     public DataSourceType SupportedType => DataSourceType.Database;
 
     public string GetQueryLanguageName() => "SQL";
@@ -31,7 +36,7 @@ internal class DatabaseProvider(
             if (!dataSource.DatabaseEngineType.HasValue)
                 throw new BeaconException("DatabaseEngineType is required for Database data sources");
 
-            var connectionString = encryptionService.Decrypt(dataSource.EncryptedConnectionData);
+            var connectionString = connectionResolver.GetConnectionString(dataSource);
             await using var connection = DbConnectionFactory.CreateConnection(
                 dataSource.DatabaseEngineType.Value,
                 connectionString);
@@ -133,6 +138,17 @@ internal class DatabaseProvider(
                 };
             }
 
+            // Host-managed sources (ExposeDbContext): allow-listed tables and exposed columns only.
+            var hostCheck = hostGuard.Check(dataSource, query);
+            if (!hostCheck.Allowed)
+            {
+                return new QueryValidationResult
+                {
+                    IsValid = false,
+                    Errors = new List<string> { hostCheck.Error! }
+                };
+            }
+
             // Engines without a dry-run strategy must NOT fall through as valid — nothing would have
             // been checked. Return an explicit skipped result the caller can distinguish (and must not
             // repair against). Checked BEFORE opening a connection: there is nothing to connect for.
@@ -150,7 +166,7 @@ internal class DatabaseProvider(
             }
 
             // Basic validation: try to prepare the query without executing
-            var connectionString = encryptionService.Decrypt(dataSource.EncryptedConnectionData);
+            var connectionString = connectionResolver.GetConnectionString(dataSource);
             await using var connection = DbConnectionFactory.CreateConnection(
                 dataSource.DatabaseEngineType.Value,
                 connectionString);
@@ -186,12 +202,10 @@ internal class DatabaseProvider(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Query validation failed for database data source {DataSourceId}", dataSource.Id);
-
             return new QueryValidationResult
             {
                 IsValid = false,
-                Errors = new List<string> { ex.Message }
+                Errors = new List<string> { DescribeFailure(dataSource, ex, "Query validation failed", LogLevel.Warning) }
             };
         }
     }
@@ -212,7 +226,27 @@ internal class DatabaseProvider(
                 throw new BeaconException("DatabaseEngineType is required for Database data sources");
             }
 
-            var connectionString = encryptionService.Decrypt(dataSource.EncryptedConnectionData);
+            // Host-managed sources (ExposeDbContext): the policy is enforced HERE as well as in the execution
+            // gate, so every caller of the provider — MCP, ad-hoc queries, documentation/value sampling — is covered.
+            // A bind parameter the statement uses but the caller did not supply would reach the server as
+            // literal text (on PostgreSQL "@p0" is then abs() of a column p0), so it is refused here too.
+            var hostCheck = hostGuard.Check(dataSource, query);
+            var hostError = hostCheck.Allowed ? hostCheck.FindUnboundParameter(parameters) : hostCheck.Error;
+            if (hostError != null)
+            {
+                stopwatch.Stop();
+
+                return new ProviderQueryResult
+                {
+                    Rows = new List<Dictionary<string, object?>>(),
+                    TotalRows = 0,
+                    ExecutionTimeMs = stopwatch.Elapsed.TotalMilliseconds,
+                    Success = false,
+                    ErrorMessage = hostError
+                };
+            }
+
+            var connectionString = connectionResolver.GetConnectionString(dataSource);
             await using var connection = DbConnectionFactory.CreateConnection(
                 dataSource.DatabaseEngineType.Value,
                 connectionString);
@@ -261,7 +295,7 @@ internal class DatabaseProvider(
                 commandTimeout: 120);
 
             var result = await connection.QueryAsync(commandDefinition);
-            var rows = ConvertDapperResultsToRows(result.AsList());
+            var rows = hostGuard.Mask(ConvertDapperResultsToRows(result.AsList()), hostCheck.MaskedOutputColumns);
 
             if (transaction != null)
             {
@@ -285,8 +319,6 @@ internal class DatabaseProvider(
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Query execution failed for database data source {DataSourceId}", dataSource.Id);
-
             stopwatch.Stop();
 
             return new ProviderQueryResult
@@ -295,9 +327,26 @@ internal class DatabaseProvider(
                 TotalRows = 0,
                 ExecutionTimeMs = stopwatch.Elapsed.TotalMilliseconds,
                 Success = false,
-                ErrorMessage = ex.Message
+                ErrorMessage = DescribeFailure(dataSource, ex, "Query execution failed", LogLevel.Error)
             };
         }
+    }
+
+    // A host data source is reached by agents that may be prompt-injected: a server error message can quote the
+    // values of masked or unexposed columns (conversion errors, constraint text), so neither the caller nor the log
+    // ever sees it — only the exception type is logged (§1.11). Ordinary sources keep the full message.
+    private string DescribeFailure(DataSource dataSource, Exception ex, string what, LogLevel level)
+    {
+        if (dataSource.HostManagedKey == null)
+        {
+            logger.Log(level, ex, "{What} for database data source {DataSourceId}", what, dataSource.Id);
+
+            return ex.Message;
+        }
+
+        logger.Log(level, "{What} for host data source {DataSourceId} with {ExceptionType}", what, dataSource.Id, ex.GetType().Name);
+
+        return HostQueryFailedMessage;
     }
 
     // PostgreSQL supports the session-level default_transaction_read_only backstop plus

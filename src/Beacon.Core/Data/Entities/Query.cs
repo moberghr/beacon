@@ -48,6 +48,21 @@ public class Query : ArchivableBaseEntity, IMultiStepWorkflow
     /// </summary>
     public int? ActiveVersionId { get; set; }
 
+    /// <summary>
+    /// Name of the MCP tool this query is exposed as (the tool is <c>q_&lt;name&gt;</c>). Lowercase snake case,
+    /// unique across live queries. Null when the query has never been exposed.
+    /// </summary>
+    public string? McpToolName { get; set; }
+
+    /// <summary>What the MCP tool does, as the agent reads it. Falls back to <see cref="Description"/> when null.</summary>
+    public string? McpToolDescription { get; set; }
+
+    /// <summary>
+    /// Whether the query is exposed as an MCP tool. It is callable only while its active version is an approved
+    /// one (see <c>SavedQueryRunnableVersion</c>).
+    /// </summary>
+    public bool McpToolEnabled { get; set; }
+
     public List<Subscription> Subscriptions { get; set; } = new();
 
     public List<QueryStep> Steps { get; set; } = new();

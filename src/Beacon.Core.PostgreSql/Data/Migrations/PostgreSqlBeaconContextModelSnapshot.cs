@@ -2011,6 +2011,16 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("text")
                         .HasColumnName("encrypted_connection_data");
 
+                    b.Property<string>("HostManagedKey")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("host_managed_key");
+
+                    b.Property<string>("HostModelHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("host_model_hash");
+
                     b.Property<bool>("IsReadOnly")
                         .HasColumnType("boolean")
                         .HasColumnName("is_read_only");
@@ -2050,6 +2060,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
                     b.HasKey("Id")
                         .HasName("pk_data_sources");
+
+                    b.HasIndex("HostManagedKey")
+                        .IsUnique()
+                        .HasDatabaseName("ix_data_sources_host_managed_key");
 
                     b.ToTable("data_sources", "beacon");
                 });
@@ -2136,6 +2150,16 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<string>("CallerHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("caller_hash");
+
+                    b.Property<string>("CallerKind")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("caller_kind");
+
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_time");
@@ -2220,6 +2244,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_time");
 
+                    b.Property<int?>("ImportedDocumentId")
+                        .HasColumnType("integer")
+                        .HasColumnName("imported_document_id");
+
                     b.Property<int>("ProjectId")
                         .HasColumnType("integer")
                         .HasColumnName("project_id");
@@ -2234,6 +2262,9 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
                     b.HasKey("Id")
                         .HasName("pk_mcp_doc_chunks");
+
+                    b.HasIndex("ImportedDocumentId")
+                        .HasDatabaseName("ix_mcp_doc_chunks_imported_document_id");
 
                     b.HasIndex("ProjectId")
                         .HasDatabaseName("ix_mcp_doc_chunks_project_id");
@@ -3881,6 +3912,11 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("character varying(2000)")
                         .HasColumnName("description");
 
+                    b.Property<string>("HostManagedKey")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("host_managed_key");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -3889,6 +3925,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
                     b.HasKey("Id")
                         .HasName("pk_projects");
+
+                    b.HasIndex("HostManagedKey")
+                        .IsUnique()
+                        .HasDatabaseName("ix_projects_host_managed_key");
 
                     b.HasIndex("Name")
                         .HasDatabaseName("ix_projects_name");
@@ -4047,6 +4087,74 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.ToTable("project_documentation_sections", "beacon");
                 });
 
+            modelBuilder.Entity("Beacon.Core.Data.Entities.Projects.ProjectImportedDocument", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime?>("ArchivedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("archived_time");
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("content");
+
+                    b.Property<string>("ContentHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("content_hash");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_time");
+
+                    b.Property<string>("FrontmatterJson")
+                        .HasColumnType("text")
+                        .HasColumnName("frontmatter_json");
+
+                    b.Property<DateTime>("ImportedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("imported_time");
+
+                    b.Property<string>("Path")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)")
+                        .HasColumnName("path");
+
+                    b.Property<int>("ProjectId")
+                        .HasColumnType("integer")
+                        .HasColumnName("project_id");
+
+                    b.Property<string>("SourceKey")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("source_key");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("title");
+
+                    b.HasKey("Id")
+                        .HasName("pk_project_imported_documents");
+
+                    b.HasIndex("ProjectId", "SourceKey", "Path")
+                        .IsUnique()
+                        .HasDatabaseName("ix_project_imported_documents_project_id_source_key_path");
+
+                    b.ToTable("project_imported_documents", "beacon");
+                });
+
             modelBuilder.Entity("Beacon.Core.Data.Entities.Query", b =>
                 {
                     b.Property<int>("Id")
@@ -4097,6 +4205,20 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("character varying(100)")
                         .HasColumnName("locked_by_user_id");
 
+                    b.Property<string>("McpToolDescription")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("mcp_tool_description");
+
+                    b.Property<bool>("McpToolEnabled")
+                        .HasColumnType("boolean")
+                        .HasColumnName("mcp_tool_enabled");
+
+                    b.Property<string>("McpToolName")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("mcp_tool_name");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("text")
@@ -4116,6 +4238,11 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
                     b.HasIndex("IsLocked")
                         .HasDatabaseName("ix_queries_is_locked");
+
+                    b.HasIndex("McpToolName")
+                        .IsUnique()
+                        .HasDatabaseName("ix_queries_mcp_tool_name")
+                        .HasFilter("mcp_tool_name IS NOT NULL AND archived_time IS NULL");
 
                     b.ToTable("queries", "beacon");
                 });
@@ -5329,6 +5456,17 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("Beacon.Core.Data.Entities.McpDocChunk", b =>
+                {
+                    b.HasOne("Beacon.Core.Data.Entities.Projects.ProjectImportedDocument", "ImportedDocument")
+                        .WithMany()
+                        .HasForeignKey("ImportedDocumentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .HasConstraintName("fk_mcp_doc_chunks_project_imported_documents_imported_document");
+
+                    b.Navigation("ImportedDocument");
+                });
+
             modelBuilder.Entity("Beacon.Core.Data.Entities.McpProjectSettings", b =>
                 {
                     b.HasOne("Beacon.Core.Data.Entities.Projects.Project", "Project")
@@ -5504,6 +5642,18 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasConstraintName("fk_project_documentation_sections_project_documentations_proje");
 
                     b.Navigation("Documentation");
+                });
+
+            modelBuilder.Entity("Beacon.Core.Data.Entities.Projects.ProjectImportedDocument", b =>
+                {
+                    b.HasOne("Beacon.Core.Data.Entities.Projects.Project", "Project")
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_project_imported_documents_projects_project_id");
+
+                    b.Navigation("Project");
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.Query", b =>

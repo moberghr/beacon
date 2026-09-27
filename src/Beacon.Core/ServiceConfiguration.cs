@@ -23,6 +23,7 @@ using Microsoft.Extensions.Options;
 using Beacon.Core.Worker;
 using Beacon.Core.Worker.Repositories;
 using Beacon.Core.Worker.Services;
+using Beacon.Core.SavedQueries;
 
 namespace Beacon.Core;
 
@@ -100,6 +101,9 @@ public static class ServiceConfiguration
 
         services.AddSingleton<IEncryptionService>(new EncryptionService(encryptionKey));
 
+        // Keyed hash for MCP caller audit identities; derives its own purpose-bound key from the encryption key.
+        services.TryAddSingleton(new Mcp.McpCallerSubjectHasher(encryptionKey));
+
         services.AddSingleton<IAdapter, TeamsAdapter>();
         services.AddSingleton<IAdapter, SlackAdapter>();
         if (configurationOptions.EmailAdapter != null)
@@ -147,6 +151,10 @@ public static class ServiceConfiguration
         services.TryAddTransient<IManualQueryExecutionLogger, ManualQueryExecutionLogger>();
         services.TryAddTransient<IAppSettingsService, AppSettingsService>();
         services.TryAddTransient<IQueryVersionService, QueryVersionService>();
+
+        // Saved queries exposed as MCP tools: callable-tool lookup (project-scoped) and the read-only executor.
+        services.TryAddTransient<ISavedQueryToolSource, SavedQueryToolSource>();
+        services.TryAddTransient<ISavedQueryToolExecutor, SavedQueryToolExecutor>();
         services.TryAddTransient<IQueryApprovalService, QueryApprovalService>();
 
         services.TryAddTransient(typeof(IBeaconScheduler), configurationOptions.BeaconScheduler!);
@@ -180,6 +188,30 @@ public static class ServiceConfiguration
         // The one pre-execution gate every MCP SQL path runs (guardrail → AST → schema → lint → row limit).
         // Transient because IQueryGuardrailService is transient; the gate itself is stateless.
         services.TryAddTransient<ISqlExecutionGate, SqlExecutionGate>();
+
+        // Host DbContext exposure (ExposeDbContext). Always registered: with no registrations the registry is empty
+        // and every host-managed row is refused. The connection resolver is the single point where stored
+        // connection data becomes a live string; host references resolve against the host configuration.
+        services.TryAddSingleton<HostData.IXmlDocumentationProvider, HostData.AssemblyXmlDocumentationProvider>();
+        services.TryAddSingleton<HostData.IHostDataSourceRegistry, HostData.HostDataSourceRegistry>();
+        services.TryAddTransient<HostData.IHostDataSourceGuard, HostData.HostDataSourceGuard>();
+        services.TryAddTransient<HostData.IDataSourceConnectionResolver>(x =>
+            new HostData.DataSourceConnectionResolver(x.GetRequiredService<IEncryptionService>(), configuration));
+        services.TryAddTransient<HostData.IHostProjectResolver, HostData.HostProjectResolver>();
+        services.TryAddTransient<HostData.IHostSyncLock, HostData.DatabaseHostSyncLock>();
+        services.TryAddTransient(x => ActivatorUtilities.CreateInstance<HostData.HostDataSourceSynchronizer>(x, configuration));
+
+        // Host documentation import (ExposeDocs). Paths resolve against the host content root; the doc-chunk
+        // indexer is optional (registered by AddBeaconAI) and only adds embeddings on top of keyword search.
+        services.TryAddTransient(x => new HostDocs.HostDocsSynchronizer(
+            x.GetRequiredService<IDbContextFactory<BeaconContext>>(),
+            x.GetRequiredService<HostData.IHostProjectResolver>(),
+            x.GetServices<HostDocs.HostDocsRegistration>(),
+            x.GetRequiredService<IMcpSettingsProvider>(),
+            x.GetService<IDocChunkIndexingService>(),
+            x.GetService<Microsoft.Extensions.Hosting.IHostEnvironment>()?.ContentRootPath ?? AppContext.BaseDirectory,
+            x.GetRequiredService<Microsoft.Extensions.Logging.ILogger<HostDocs.HostDocsSynchronizer>>()));
+        services.TryAddTransient<HostDocs.IProjectBriefService, HostDocs.ProjectBriefService>();
 
         // Rate limiter (singleton so the in-memory sliding windows are shared across requests)
         services.TryAddSingleton<Services.Security.RateLimiter>();
@@ -228,6 +260,14 @@ public static class ServiceConfiguration
             .Bind(configuration.GetSection(Configuration.McpDeploymentOptions.SectionName))
             .ValidateOnStart();
         services.AddSingleton<IValidateOptions<Configuration.McpDeploymentOptions>, Configuration.McpDeploymentOptionsValidator>();
+
+        // JWT callers on /beacon/mcp (Beacon:Mcp:Callers). ValidateOnStart so a system entry with both or neither of
+        // ClientId/ObjectId fails the host at boot. TryAdd so a host can supply its own IMcpCallerMapper.
+        services.AddOptions<Configuration.McpCallerOptions>()
+            .Bind(configuration.GetSection(Configuration.McpCallerOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<Configuration.McpCallerOptions>, Configuration.McpCallerOptionsValidator>();
+        services.TryAddScoped<Mcp.IMcpCallerMapper, Mcp.ConfiguredMcpCallerMapper>();
         services.TryAddSingleton<TimeProvider>(TimeProvider.System);
         services.TryAddSingleton<IEmbedTokenService, EmbedTokenService>();
 

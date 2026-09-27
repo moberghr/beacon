@@ -59,7 +59,7 @@ internal sealed class AskSqlPipeline(
         // schema / lint repairs, whose adoption depends on the schema verdict.
         SqlGateReport EvaluateFull(string sql)
         {
-            return gate.Evaluate(SqlGateRequest.FromSettings(sql, smartContext.DatabaseDialect, settings) with
+            return gate.Evaluate(GateRequest(sql, smartContext, settings) with
             {
                 Catalog = smartContext.SchemaCatalog,
                 LintContext = lintContext
@@ -300,7 +300,7 @@ internal sealed class AskSqlPipeline(
             var dryRunRepairOk = false;
             if (dryRunRetry != null)
             {
-                if (ValidateGeneratedSql(dryRunRetry, settings, smartContext.DatabaseDialect) == null)
+                if (ValidateGeneratedSql(dryRunRetry, settings, smartContext) == null)
                 {
                     var retryDryRunError = await TryDryRunAsync(executor, dataSourceId, dryRunRetry, ct);
                     dryRunRepairSql = dryRunRetry;
@@ -322,7 +322,7 @@ internal sealed class AskSqlPipeline(
             repairAttempts++;
             logger.LogInformation("SQL error detected, retrying. Error: {Error}", execResult.ErrorMessage);
             // AST-resolved tables (aliases resolved, CTEs excluded) — generatedSql already cleared the gate.
-            var tableNames = gate.Evaluate(SqlGateRequest.FromSettings(generatedSql, smartContext.DatabaseDialect, settings)).TablesUsed.ToList();
+            var tableNames = gate.Evaluate(GateRequest(generatedSql, smartContext, settings)).TablesUsed.ToList();
             var tablesContext = tableNames.Count > 0
                 ? await knowledgeGraph.GetTablesContextAsync(dataSourceId, tableNames, ct)
                 : null;
@@ -333,7 +333,7 @@ internal sealed class AskSqlPipeline(
 
             if (retriedSql != null)
             {
-                if (ValidateGeneratedSql(retriedSql, settings, smartContext.DatabaseDialect) == null)
+                if (ValidateGeneratedSql(retriedSql, settings, smartContext) == null)
                 {
                     var retryExec = await executor.ExecuteAsync(dataSourceId, retriedSql, 100, ct);
                     repairs.Add(new AskRepairStep("execution", execResult.ErrorMessage, retriedSql, retryExec.IsSuccess));
@@ -366,7 +366,7 @@ internal sealed class AskSqlPipeline(
 
             if (emptyRetry != null && !SqlEquals(emptyRetry, generatedSql))
             {
-                if (ValidateGeneratedSql(emptyRetry, settings, smartContext.DatabaseDialect) == null)
+                if (ValidateGeneratedSql(emptyRetry, settings, smartContext) == null)
                 {
                     var retryExec = await executor.ExecuteAsync(dataSourceId, emptyRetry, 100, ct);
                     if (retryExec.IsSuccess && retryExec.RowCount > 0)
@@ -439,7 +439,7 @@ internal sealed class AskSqlPipeline(
             // SECURITY (§1.5, lesson 2026-07-03): EVERY candidate — including the single low-temperature
             // one — must clear the same guardrail + AST read-only gate the single-candidate path uses
             // BEFORE it can reach ExecuteAsync. A candidate that fails validation is dropped and never executed.
-            if (ValidateGeneratedSql(candidate.Sql, settings, smartContext.DatabaseDialect) != null)
+            if (ValidateGeneratedSql(candidate.Sql, settings, smartContext) != null)
             {
                 continue;
             }
@@ -501,7 +501,7 @@ internal sealed class AskSqlPipeline(
             smartContext.PrimaryKeyCatalog,
             smartContext.SchemaCatalog);
 
-        return gate.Evaluate(SqlGateRequest.FromSettings(sql, smartContext.DatabaseDialect, settings) with
+        return gate.Evaluate(GateRequest(sql, smartContext, settings) with
         {
             LintContext = lintContext
         }).LintFindings.Count;
@@ -596,11 +596,21 @@ internal sealed class AskSqlPipeline(
     // Read-only gate only (regex guardrail + AST validator, §1.5) — the check every candidate and every
     // dry-run / execution-error / empty-result repair must clear before it may execute. Returns the block
     // reason, or null when the SQL may proceed.
-    private string? ValidateGeneratedSql(string sql, McpSettingsData settings, string? dialect)
+    private string? ValidateGeneratedSql(string sql, McpSettingsData settings, SmartSchemaContext smartContext)
     {
-        var report = gate.Evaluate(SqlGateRequest.FromSettings(sql, dialect, settings));
+        var report = gate.Evaluate(GateRequest(sql, smartContext, settings));
 
         return report.Blocked ? report.BlockReason : null;
+    }
+
+    // Every gate evaluation targets the ask's data source: for a host-exposed DbContext that includes its host policy
+    // (allow-list, exclusions, masked columns) on the candidate AND on every repair.
+    private static SqlGateRequest GateRequest(string sql, SmartSchemaContext smartContext, McpSettingsData settings)
+    {
+        return SqlGateRequest.FromSettings(sql, smartContext.DatabaseDialect, settings) with
+        {
+            HostManagedKey = smartContext.HostManagedKey
+        };
     }
 
     private static bool SqlEquals(string left, string right)

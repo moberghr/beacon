@@ -72,8 +72,16 @@ internal sealed class DocChunkIndexingService(
                 .Distinct()
                 .ToListAsync(ct);
 
+            // Host-imported documents (ExposeDocs) are chunked by the host docs sync; this job only embeds them.
+            var importedProjectIds = await context.McpDocChunks
+                .Where(x => x.ImportedDocumentId != null)
+                .Select(x => x.ProjectId)
+                .Distinct()
+                .ToListAsync(ct);
+
             projectIds = docProjectIds
                 .Union(glossaryProjectIds)
+                .Union(importedProjectIds)
                 .ToList();
         }
 
@@ -132,6 +140,10 @@ internal sealed class DocChunkIndexingService(
         // documentation to chunk, so it runs first — before the doc-chunk early-return paths below.
         await IndexGlossaryTermsAsync(projectId, ct);
 
+        // Imported-document chunks are owned by the host docs sync (it writes and prunes them); this pass only
+        // embeds the ones without a current vector. Own unit of work, independent of generated documentation.
+        await IndexImportedDocChunksAsync(projectId, ct);
+
         await using var context = await contextFactory.CreateDbContextAsync(ct);
 
         // Chunk the LATEST documentation only — that is what the knowledge-answer fallback exports
@@ -168,8 +180,10 @@ internal sealed class DocChunkIndexingService(
             }
         }
 
+        // Section chunks only — imported-document chunks (ImportedDocumentId set) must never be pruned here.
         var existingChunks = await context.McpDocChunks
             .Where(x => x.ProjectId == projectId)
+            .Where(x => x.ImportedDocumentId == null)
             .ToListAsync(ct);
 
         var existingEmbeddings = await context.McpEmbeddings
@@ -467,6 +481,107 @@ internal sealed class DocChunkIndexingService(
             projectId, terms.Count, newEmbeddings.Count, staleEmbeddings.Count);
     }
 
+    // Imported-document pass: embed "{title}\n\n{chunk}" for every imported chunk of the project whose vector is
+    // missing or was produced by another model/version. The host docs sync deletes a changed document's chunks and
+    // their vectors and writes fresh chunk rows, so "missing" is exactly the changed documents. No contextual blurb:
+    // the document title already situates the chunk. One SaveChanges; the chunk ids already exist.
+    private async Task IndexImportedDocChunksAsync(int projectId, CancellationToken ct)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(ct);
+
+        var chunks = await BuildImportedChunksQuery(context, projectId)
+            .ToListAsync(ct);
+
+        if (chunks.Count == 0)
+        {
+            return;
+        }
+
+        var chunkIds = chunks
+            .Select(x => x.Id)
+            .ToList();
+
+        var embeddings = await context.McpEmbeddings
+            .Where(x => x.ProjectId == projectId)
+            .Where(x => x.OwnerType == McpEmbeddingOwnerType.DocChunk)
+            .Where(x => chunkIds.Contains(x.OwnerId))
+            .ToListAsync(ct);
+
+        var embeddingByOwnerId = embeddings.ToDictionary(x => x.OwnerId);
+        var pending = chunks
+            .Where(x => !embeddingByOwnerId.TryGetValue(x.Id, out var row) || row.Model != EmbeddingModelName || row.EmbeddingVersion != CurrentEmbeddingVersion)
+            .ToList();
+
+        if (pending.Count == 0)
+        {
+            return;
+        }
+
+        var texts = pending
+            .Select(x => BuildEmbeddingText(x.Title, x.ChunkText))
+            .ToList();
+
+        var vectors = await embeddingService.EmbedBatchAsync(texts, ct);
+        var dimensions = embeddingService.Dimensions;
+
+        var newEmbeddings = new List<McpEmbedding>();
+        var vectorWrites = new List<(McpEmbedding Row, float[] Vector)>();
+        for (var i = 0; i < pending.Count; i++)
+        {
+            var bytes = EmbeddingCodec.ToBytes(vectors[i]);
+            if (embeddingByOwnerId.TryGetValue(pending[i].Id, out var row))
+            {
+                row.EmbeddingBytes = bytes;
+                row.Model = EmbeddingModelName;
+                row.Dimensions = dimensions;
+                row.EmbeddingVersion = CurrentEmbeddingVersion;
+                vectorWrites.Add((row, vectors[i]));
+                continue;
+            }
+
+            var newRow = new McpEmbedding
+            {
+                DataSourceId = null,
+                ProjectId = projectId,
+                OwnerType = McpEmbeddingOwnerType.DocChunk,
+                OwnerId = pending[i].Id,
+                EmbeddingBytes = bytes,
+                Model = EmbeddingModelName,
+                Dimensions = dimensions,
+                EmbeddingVersion = CurrentEmbeddingVersion
+            };
+            newEmbeddings.Add(newRow);
+            vectorWrites.Add((newRow, vectors[i]));
+        }
+
+        if (newEmbeddings.Count > 0)
+        {
+            await context.McpEmbeddings.AddRangeAsync(newEmbeddings, ct);
+        }
+
+        await context.SaveChangesAsync(ct);
+
+        await vectorWriter.WriteAsync(
+            context,
+            vectorWrites.Select(x => (x.Row.Id, x.Vector)).ToList(),
+            ct);
+
+        logger.LogInformation(
+            "Imported-document chunk embedding for project {ProjectId}: {Embedded} of {Total} chunk(s) embedded ({New} new).",
+            projectId, pending.Count, chunks.Count, newEmbeddings.Count);
+    }
+
+    // Internal for translation tests (InternalsVisibleTo Beacon.Tests).
+    internal static IQueryable<ImportedChunkSource> BuildImportedChunksQuery(BeaconContext context, int projectId)
+    {
+        return context.McpDocChunks
+            .Where(x => x.ProjectId == projectId)
+            .Where(x => x.ImportedDocumentId != null)
+            .OrderBy(x => x.Id)
+            .Select(x =>
+                new ImportedChunkSource(x.Id, x.ImportedDocument!.Title, x.ChunkText));
+    }
+
     private async Task<BlurbResult> GenerateBlurbAsync(int sectionId, string sectionText, string chunkText, CancellationToken ct)
     {
         try
@@ -529,6 +644,8 @@ internal sealed class DocChunkIndexingService(
         public string Term { get; init; } = null!;
         public string? Synonyms { get; init; }
     }
+
+    internal sealed record ImportedChunkSource(int Id, string Title, string ChunkText);
 
     private readonly record struct DesiredChunk(int SourceSectionId, int Index, string Text);
 

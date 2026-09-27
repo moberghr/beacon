@@ -1,6 +1,7 @@
 using System.Text.Json;
 using FluentAssertions;
 using MediatR;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
@@ -143,7 +144,7 @@ public class RetentionLockIntegrationTests
         factory.Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>())).ReturnsAsync(context);
 
         var settingsProvider = SettingsProviderMock.Create(settings);
-        var service = new McpAuditService(factory.Object, settingsProvider.Object, NullLogger<McpAuditService>.Instance);
+        var service = new McpAuditService(factory.Object, settingsProvider.Object, new HttpContextAccessor(), NullLogger<McpAuditService>.Instance);
 
         await service.LogToolCallAsync(
             sessionId: null,

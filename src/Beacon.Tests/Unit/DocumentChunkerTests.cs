@@ -1,6 +1,6 @@
 using FluentAssertions;
 using NUnit.Framework;
-using Beacon.AI.Services.Knowledge;
+using Beacon.Core.Services.Shared;
 
 namespace Beacon.Tests.Unit;
 

@@ -16,7 +16,7 @@ internal sealed class ProjectSearchTool(
     ILogger<ProjectSearchTool> logger)
 {
     [McpServerTool(Name = "search", Title = "Search Catalog", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
-    [Description("Search tables, columns, and documentation across all data sources in the project by keyword and, when embeddings are enabled, semantic similarity. Returns matching items with descriptions, ordered by relevance. Page through large result sets with max_results and offset.")]
+    [Description("Search tables, columns, and documentation across all data sources in the project by keyword and, when embeddings are enabled, semantic similarity. Host-imported documents appear as IMPORTED_DOC with their path (fetch one with get_documentation document=<path>). Returns matching items with descriptions, ordered by relevance. Page through large result sets with max_results and offset.")]
     public async Task<CallToolResult> ExecuteAsync(
         [Description("Search keyword (e.g., 'customer', 'order_date', 'revenue')")]
         string query,
@@ -80,6 +80,19 @@ internal sealed class ProjectSearchTool(
 
             foreach (var r in window)
             {
+                if (r.Type == "imported_doc")
+                {
+                    // Host-imported document: identified by its path; fetch it with get_documentation(document: path).
+                    text += $"- **[IMPORTED_DOC]** `{r.DocumentPath}` ({r.DocumentTitle})";
+                    if (!string.IsNullOrEmpty(r.Description))
+                    {
+                        text += $" -- {r.Description}";
+                    }
+
+                    text += "\n";
+                    continue;
+                }
+
                 var icon = r.Type switch
                 {
                     "table" => "TABLE",

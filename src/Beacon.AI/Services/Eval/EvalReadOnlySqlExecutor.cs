@@ -58,7 +58,8 @@ internal sealed class EvalReadOnlySqlExecutor(
         var report = gate.Evaluate(SqlGateRequest.FromSettings(sql, dialect, settings) with
         {
             EnforceReadOnly = true,
-            MaxRows = settings.MaxRowLimit
+            MaxRows = settings.MaxRowLimit,
+            HostManagedKey = dataSource.HostManagedKey
         });
 
         if (report.Blocked)

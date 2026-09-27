@@ -129,7 +129,10 @@ internal sealed class CrossSourceQueryService(
 
             // Read-only gate (regex guardrail + AST, §1.5) BEFORE the provider dry-run — a write statement
             // must never reach EXPLAIN.
-            var readOnlyReport = gate.Evaluate(SqlGateRequest.FromSettings(sql, dialect, settings));
+            var readOnlyReport = gate.Evaluate(SqlGateRequest.FromSettings(sql, dialect, settings) with
+            {
+                HostManagedKey = dataSource.HostManagedKey
+            });
             if (readOnlyReport.Blocked)
             {
                 failedSources.Add((source.DataSourceName, readOnlyReport.BlockReason ?? "Validation failed"));
@@ -144,7 +147,8 @@ internal sealed class CrossSourceQueryService(
             // and honours the operator's MaxRowLimit instead of a hardcoded constant.
             var finalReport = gate.Evaluate(SqlGateRequest.FromSettings(sql, dialect, settings) with
             {
-                MaxRows = settings.MaxRowLimit
+                MaxRows = settings.MaxRowLimit,
+                HostManagedKey = dataSource.HostManagedKey
             });
             if (finalReport.Blocked)
             {

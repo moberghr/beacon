@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using ModelContextProtocol.Protocol;
@@ -166,6 +167,7 @@ public class ProjectSearchToolPagingTests
         var auditService = new McpAuditService(
             new Mock<IDbContextFactory<BeaconContext>>().Object,
             SettingsProviderMock.Create().Object,
+            new HttpContextAccessor(),
             NullLogger<McpAuditService>.Instance);
 
         return new ProjectSearchTool(

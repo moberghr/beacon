@@ -1571,6 +1571,14 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<string>("HostManagedKey")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("HostModelHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
                     b.Property<bool>("IsReadOnly")
                         .HasColumnType("bit");
 
@@ -1600,6 +1608,10 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                         .HasColumnType("bit");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("HostManagedKey")
+                        .IsUnique()
+                        .HasFilter("[HostManagedKey] IS NOT NULL");
 
                     b.ToTable("DataSources", "beacon");
                 });
@@ -1668,6 +1680,14 @@ namespace Beacon.Core.SqlServer.Data.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<string>("CallerHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("CallerKind")
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)");
+
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("datetime2");
 
@@ -1733,6 +1753,9 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("datetime2");
 
+                    b.Property<int?>("ImportedDocumentId")
+                        .HasColumnType("int");
+
                     b.Property<int>("ProjectId")
                         .HasColumnType("int");
 
@@ -1743,6 +1766,8 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                         .HasColumnType("int");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("ImportedDocumentId");
 
                     b.HasIndex("ProjectId");
 
@@ -3041,12 +3066,20 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                         .HasMaxLength(2000)
                         .HasColumnType("nvarchar(2000)");
 
+                    b.Property<string>("HostManagedKey")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("HostManagedKey")
+                        .IsUnique()
+                        .HasFilter("[HostManagedKey] IS NOT NULL");
 
                     b.HasIndex("Name");
 
@@ -3171,6 +3204,61 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.ToTable("ProjectDocumentationSections", "beacon");
                 });
 
+            modelBuilder.Entity("Beacon.Core.Data.Entities.Projects.ProjectImportedDocument", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime?>("ArchivedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("ContentHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("FrontmatterJson")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("ImportedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Path")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)");
+
+                    b.Property<int>("ProjectId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("SourceKey")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProjectId", "SourceKey", "Path")
+                        .IsUnique();
+
+                    b.ToTable("ProjectImportedDocuments", "beacon");
+                });
+
             modelBuilder.Entity("Beacon.Core.Data.Entities.Query", b =>
                 {
                     b.Property<int>("Id")
@@ -3210,6 +3298,17 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
 
+                    b.Property<string>("McpToolDescription")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<bool>("McpToolEnabled")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("McpToolName")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
@@ -3223,6 +3322,10 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.HasIndex("FolderId");
 
                     b.HasIndex("IsLocked");
+
+                    b.HasIndex("McpToolName")
+                        .IsUnique()
+                        .HasFilter("[McpToolName] IS NOT NULL AND [ArchivedTime] IS NULL");
 
                     b.ToTable("Queries", "beacon");
                 });
@@ -4219,6 +4322,16 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("Beacon.Core.Data.Entities.McpDocChunk", b =>
+                {
+                    b.HasOne("Beacon.Core.Data.Entities.Projects.ProjectImportedDocument", "ImportedDocument")
+                        .WithMany()
+                        .HasForeignKey("ImportedDocumentId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.Navigation("ImportedDocument");
+                });
+
             modelBuilder.Entity("Beacon.Core.Data.Entities.McpProjectSettings", b =>
                 {
                     b.HasOne("Beacon.Core.Data.Entities.Projects.Project", "Project")
@@ -4378,6 +4491,17 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("Documentation");
+                });
+
+            modelBuilder.Entity("Beacon.Core.Data.Entities.Projects.ProjectImportedDocument", b =>
+                {
+                    b.HasOne("Beacon.Core.Data.Entities.Projects.Project", "Project")
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Project");
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.Query", b =>

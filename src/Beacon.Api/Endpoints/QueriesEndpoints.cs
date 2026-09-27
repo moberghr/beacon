@@ -89,6 +89,23 @@ internal static class QueriesEndpoints
                 m.Send(new UpdateQueryCommand { QueryId = id, Query = body }, ct))
             .WithName("UpdateQuery");
 
+        // Exposes / withdraws the query as the MCP tool q_<name>. Admin-only: it publishes reviewed SQL to every
+        // MCP caller of the projects that contain the query's data sources.
+        queries.MapPut("/{id:int}/mcp-tool", (
+                int id,
+                SetQueryMcpToolRequest body,
+                IMediator m,
+                HttpContext http,
+                CancellationToken ct) =>
+                m.Send(new SetQueryMcpToolCommand(
+                    id,
+                    body.Enabled,
+                    body.Name,
+                    body.Description,
+                    http.User.FindFirst(ClaimTypes.NameIdentifier)?.Value), ct))
+            .WithName("SetQueryMcpTool")
+            .RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
+
         // SQL-executing endpoints: require the Execute (or Admin) scope for API-key callers (§1.4).
         // Interactive cookie/OIDC sessions carry no scope claim and pass through, governed by role.
         queries.MapPost("/{id:int}/preview", (int id, IMediator m, CancellationToken ct) =>
@@ -118,3 +135,4 @@ internal static class QueriesEndpoints
 internal sealed record ToggleQueryLockRequest(bool Lock);
 internal sealed record ExecuteStepPreviewRequest(List<ParameterValue>? Parameters);
 internal sealed record CreateQueryBody(string Name, string? Description);
+internal sealed record SetQueryMcpToolRequest(bool Enabled, string? Name, string? Description);
