@@ -105,7 +105,7 @@ export function AuthLayout({
 
         <div className="relative z-10 flex flex-1 flex-col gap-8">
           <div className="flex items-center gap-3">
-            <img src="/beacon-mark.svg" alt="" aria-hidden className="h-7 w-7" />
+            <img src={`${import.meta.env.BASE_URL}beacon-mark.svg`} alt="" aria-hidden className="h-7 w-7" />
             <span className="text-lg font-semibold tracking-tightish">Beacon</span>
             <span className="ml-1 rounded-full border border-border px-2 py-0.5 mono text-2xs text-text-subtle">
               v2.4
