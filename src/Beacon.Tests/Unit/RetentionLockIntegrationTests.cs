@@ -4,8 +4,10 @@ using MediatR;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Moq;
 using NUnit.Framework;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
@@ -144,7 +146,7 @@ public class RetentionLockIntegrationTests
         factory.Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>())).ReturnsAsync(context);
 
         var settingsProvider = SettingsProviderMock.Create(settings);
-        var service = new McpAuditService(factory.Object, settingsProvider.Object, new HttpContextAccessor(), NullLogger<McpAuditService>.Instance);
+        var service = new McpAuditService(factory.Object, settingsProvider.Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance);
 
         await service.LogToolCallAsync(
             sessionId: null,

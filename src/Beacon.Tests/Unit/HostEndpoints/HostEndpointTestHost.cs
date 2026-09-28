@@ -12,7 +12,9 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Moq;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Mcp;
@@ -111,6 +113,7 @@ internal sealed class HostEndpointTestHost : IAsyncDisposable
             builder.Services.AddScoped<McpProjectContext>();
             builder.Services.AddScoped<IProjectContext>(x => x.GetRequiredService<McpProjectContext>());
             builder.Services.AddTransient<McpAuditService>();
+            builder.Services.AddScoped<McpAuditOutcome>();
         }
 
         services?.Invoke(builder.Services);
@@ -216,7 +219,8 @@ internal sealed class HostEndpointTestHost : IAsyncDisposable
             App.Services.GetRequiredService<IDbContextFactory<BeaconContext>>(),
             App.Services.GetRequiredService<Beacon.Core.Services.IMcpSettingsProvider>(),
             accessor,
-            NullLogger<McpAuditService>.Instance);
+            Options.Create(new McpDeploymentOptions()),
+            NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance);
 
         return new HostEndpointToolService(
             Registry,

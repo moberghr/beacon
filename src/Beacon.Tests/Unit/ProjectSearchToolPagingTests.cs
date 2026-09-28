@@ -2,10 +2,12 @@ using FluentAssertions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using ModelContextProtocol.Protocol;
 using Moq;
 using NUnit.Framework;
 using Beacon.AI.Services.Knowledge;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.MCP.Services;
 using Beacon.MCP.Tools;
@@ -168,7 +170,8 @@ public class ProjectSearchToolPagingTests
             new Mock<IDbContextFactory<BeaconContext>>().Object,
             SettingsProviderMock.Create().Object,
             new HttpContextAccessor(),
-            NullLogger<McpAuditService>.Instance);
+            Options.Create(new McpDeploymentOptions()),
+            NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance);
 
         return new ProjectSearchTool(
             _knowledgeGraph.Object,

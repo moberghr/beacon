@@ -1,6 +1,7 @@
 using Beacon.Core.Authorization;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.Mcp.RunMcpTool;
+using Beacon.Core.Handlers.McpAudit;
 using Beacon.Core.Handlers.McpLearning;
 using Beacon.Core.Handlers.McpSettings;
 using Beacon.Core.Models;
@@ -120,6 +121,29 @@ internal static class McpEndpoints
         mcp.MapGet("/learning-stats", ([FromQuery] int? projectId, IMediator m, CancellationToken ct) =>
                 m.Send(new GetLearningStatsQuery { ProjectId = projectId }, ct))
             .WithName("GetLearningStats");
+
+        // Admin, paged audit export. Rows are returned exactly as stored (retention redaction already
+        // applied); reading the audit is itself audited (Beacon.Audit 9103, §9.5).
+        mcp.MapGet("/audit", async (
+                [FromQuery] DateTime from,
+                [FromQuery] DateTime to,
+                [FromQuery] int? projectId,
+                [FromQuery] string? tool,
+                [FromQuery] string? callerHash,
+                [FromQuery] int? userId,
+                IActorUserResolver actorResolver,
+                IMediator m,
+                CancellationToken ct,
+                [FromQuery] int page = 1,
+                [FromQuery] int pageSize = 100) =>
+            {
+                var actorId = await actorResolver.ResolveActorUserIdAsync(ct);
+
+                return await m.Send(
+                    new GetMcpAuditLogsQuery(from, to, projectId, tool, callerHash, userId, page, pageSize, actorId), ct);
+            })
+            .WithName("GetMcpAuditLogs")
+            .RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
 
         return group;
     }

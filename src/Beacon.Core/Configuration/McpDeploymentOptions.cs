@@ -19,6 +19,23 @@ public sealed class McpDeploymentOptions
     public bool ForceNoContentRetention { get; set; }
 
     public McpCeilingOptions Ceilings { get; set; } = new();
+
+    public McpAuditOptions Audit { get; set; } = new();
+}
+
+/// <summary>Audit guarantees bound from <c>Beacon:Mcp:Audit</c>. Defaults reproduce today's behaviour.</summary>
+public sealed class McpAuditOptions
+{
+    public const string DefaultRequestIdHeader = "X-Request-Id";
+
+    /// <summary>Fail closed: withhold a tool result whose audit row could not be written.</summary>
+    public bool Required { get; set; }
+
+    /// <summary>Days audit rows are kept. <c>null</c> = keep forever; must be greater than zero when set.</summary>
+    public int? RetentionDays { get; set; }
+
+    /// <summary>Upstream correlation header recorded as <c>UpstreamRequestId</c>. <c>null</c>/empty = read none.</summary>
+    public string? RequestIdHeader { get; set; } = DefaultRequestIdHeader;
 }
 
 /// <summary>Upper bounds project or global settings cannot exceed. <c>null</c> = no ceiling.</summary>
@@ -48,6 +65,18 @@ internal sealed class McpDeploymentOptionsValidator : IValidateOptions<McpDeploy
             failures.Add($"{McpDeploymentOptions.SectionName}:Ceilings:{nameof(McpCeilingOptions.MaxExplainCost)} must be greater than zero when set.");
         }
 
+        var audit = options.Audit ?? new McpAuditOptions();
+
+        if (audit.RetentionDays is <= 0)
+        {
+            failures.Add($"{McpDeploymentOptions.SectionName}:Audit:{nameof(McpAuditOptions.RetentionDays)} must be greater than zero when set.");
+        }
+
+        if (!string.IsNullOrEmpty(audit.RequestIdHeader) && !IsHeaderToken(audit.RequestIdHeader))
+        {
+            failures.Add($"{McpDeploymentOptions.SectionName}:Audit:{nameof(McpAuditOptions.RequestIdHeader)} must be a valid HTTP header name.");
+        }
+
         return failures.Count > 0
             ? ValidateOptionsResult.Fail(failures)
             : ValidateOptionsResult.Success;
@@ -59,5 +88,22 @@ internal sealed class McpDeploymentOptionsValidator : IValidateOptions<McpDeploy
         {
             failures.Add($"{McpDeploymentOptions.SectionName}:Ceilings:{field} must be greater than zero when set.");
         }
+    }
+
+    // RFC 7230 §3.2.6 token: one or more tchar.
+    private static bool IsHeaderToken(string value)
+    {
+        foreach (var x in value)
+        {
+            var isTchar = x is (>= 'a' and <= 'z') or (>= 'A' and <= 'Z') or (>= '0' and <= '9')
+                || "!#$%&'*+-.^_`|~".Contains(x);
+
+            if (!isTchar)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 }

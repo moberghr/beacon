@@ -15,6 +15,12 @@
         <PackageReference Include="Moberg.Warp.UI" />
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
         <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" />
+        <!-- Enabled only when OTEL_EXPORTER_OTLP_ENDPOINT is configured (Program.cs) — the sample host is the
+             one place in the solution that picks an exporter/backend; Beacon libraries never do (§2.4). -->
+        <PackageReference Include="OpenTelemetry.Extensions.Hosting" />
+        <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />
+        <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" />
+        <PackageReference Include="OpenTelemetry.Instrumentation.Http" />
         <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
           <PrivateAssets>all</PrivateAssets>
           <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>

@@ -25,6 +25,10 @@ using Beacon.MCP.Discovery;
 using Beacon.Api;
 using Beacon.Api.Endpoints;
 using Beacon.Api.OpenApi;
+using Beacon.Api.Telemetry;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 using Microsoft.AspNetCore.OpenApi;
 using Beacon.Api.Authentication;
 using Beacon.SampleProject.Authentication;
@@ -65,6 +69,28 @@ builder.Services.AddHttpClient().ConfigureHttpClientDefaults(http =>
         client.Timeout = TimeSpan.FromMinutes(5);
     });
 });
+
+// OpenTelemetry — opt-in, host-only (§2.4: Beacon libraries never choose an exporter or backend). With no
+// OTEL_EXPORTER_OTLP_ENDPOINT configured, nothing below runs and the host behaves exactly as it does today. The
+// rest of the standard OTEL_* env vars (OTEL_SERVICE_NAME, OTEL_TRACES_SAMPLER, OTEL_EXPORTER_OTLP_HEADERS, ...)
+// drive the SDK directly — no Beacon config for any of it (§0.2/§1.2: no endpoints or headers hardcoded here).
+// JSON console logs with trace/span ids for CloudWatch-style log correlation are config only (Logging:Console:
+// FormatterName=json, FormatterOptions:IncludeScopes=true) — see docs/site .../mcp-observability-and-audit.md.
+if (!string.IsNullOrWhiteSpace(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]))
+{
+    builder.Services.AddOpenTelemetry()
+        .ConfigureResource(x => x.AddService(serviceName: builder.Configuration["OTEL_SERVICE_NAME"] ?? "beacon"))
+        .WithTracing(x => x
+            .AddAspNetCoreInstrumentation(y => y.Filter = z => !z.Request.Path.StartsWithSegments("/beacon/api/health"))
+            .AddHttpClientInstrumentation()
+            .AddBeaconInstrumentation()
+            .AddOtlpExporter())
+        .WithMetrics(x => x
+            .AddAspNetCoreInstrumentation()
+            .AddHttpClientInstrumentation()
+            .AddBeaconInstrumentation()
+            .AddOtlpExporter());
+}
 
 // Configure Warp (background jobs, recurring jobs, dashboard — replaces Hangfire).
 // Warp's schema lives in a dedicated WarpDbContext (the "warp" schema), registered Scoped so
@@ -365,6 +391,10 @@ using (var warpStartupScope = app.Services.CreateScope())
     // MCP Learning: aggregate patterns every 6 hours, cleanup old signals daily
     await recurringJobPublisher.AddOrUpdateRecurringJob(new AggregateLearnedPatternsJob(), "mcp-learning-aggregate", "0 */6 * * *");
     await recurringJobPublisher.AddOrUpdateRecurringJob(new CleanupOldSignalsJob(), "mcp-learning-cleanup", "0 3 * * *");
+
+    // MCP Audit: purge rows older than Beacon:Mcp:Audit:RetentionDays daily (no-op when unset). Consumer
+    // hosts (e.g. Netgiro) schedule this themselves.
+    await recurringJobPublisher.AddOrUpdateRecurringJob(new PurgeExpiredMcpAuditLogsJob(), "mcp-audit-retention", "30 3 * * *");
 
     // MCP Embeddings: re-index metadata + exemplars for hybrid retrieval / semantic few-shot every 12 hours
     await recurringJobPublisher.AddOrUpdateRecurringJob(new ReindexEmbeddingsJob(), "mcp-embedding-reindex", "0 */12 * * *");

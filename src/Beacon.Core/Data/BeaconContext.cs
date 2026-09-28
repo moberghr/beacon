@@ -1393,6 +1393,10 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             entity.Property(e => e.ErrorMessage).HasMaxLength(4000);
             entity.Property(e => e.CallerKind).HasMaxLength(16);
             entity.Property(e => e.CallerHash).HasMaxLength(64);
+            entity.Property(e => e.TraceId).HasMaxLength(32);
+            entity.Property(e => e.SpanId).HasMaxLength(16);
+            entity.Property(e => e.McpSessionId).HasMaxLength(128);
+            entity.Property(e => e.UpstreamRequestId).HasMaxLength(128);
 
             entity.HasOne(e => e.Session)
                 .WithMany()

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Beacon.Core;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Models;
@@ -11,6 +12,7 @@ using Beacon.Tests.Unit.HostDocs;
 using FluentAssertions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using ModelContextProtocol.Protocol;
 using Moq;
 using NUnit.Framework;
@@ -279,7 +281,8 @@ public class SavedQueryToolServiceTests
             _auditStore.Factory().Object,
             SettingsProviderMock.Create(new McpSettingsData { RetainQueryContent = true }, projectSettings: projectSettings).Object,
             new HttpContextAccessor(),
-            NullLogger<McpAuditService>.Instance);
+            Options.Create(new McpDeploymentOptions()),
+            NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance);
         var configuration = new BeaconConfiguration { SavedQueryTools = new SavedQueryToolOptions { NamedToolLimit = namedToolLimit } };
 
         return new SavedQueryToolService(_source.Object, _executor.Object, projectContext, audit, NullLogger<SavedQueryToolService>.Instance, configuration);

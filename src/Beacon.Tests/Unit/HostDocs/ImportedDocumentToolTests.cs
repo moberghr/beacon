@@ -1,5 +1,6 @@
 using Beacon.AI.Services.Documentation;
 using Beacon.AI.Services.Knowledge;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities.Projects;
 using Beacon.MCP.Services;
@@ -9,6 +10,7 @@ using FluentAssertions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using ModelContextProtocol.Protocol;
 using Moq;
 using NUnit.Framework;
@@ -198,7 +200,7 @@ public class ImportedDocumentToolTests
     }
 
     private McpAuditService AuditService() =>
-        new(_auditFactory.Object, SettingsProviderMock.Create().Object, new HttpContextAccessor(), NullLogger<McpAuditService>.Instance);
+        new(_auditFactory.Object, SettingsProviderMock.Create().Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance);
 
     private static McpProjectContext ProjectContext() =>
         new() { UserId = 1, ApiKeyId = 9, AllowedProjectIds = [ProjectId] };

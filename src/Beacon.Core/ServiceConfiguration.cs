@@ -261,6 +261,14 @@ public static class ServiceConfiguration
             .ValidateOnStart();
         services.AddSingleton<IValidateOptions<Configuration.McpDeploymentOptions>, Configuration.McpDeploymentOptionsValidator>();
 
+        // MCP audit retention purge (Beacon:Mcp:Audit:RetentionDays); a null window is a no-op. Scheduled by
+        // the host as a Warp recurring job (Beacon.SampleProject/Warp/Jobs/McpMaintenanceJobs.cs).
+        services.TryAddTransient<IMcpAuditRetentionService, McpAuditRetentionService>();
+
+        // Telemetry (Beacon:Telemetry). An absent section = no content on spans.
+        services.AddOptions<Configuration.BeaconTelemetryOptions>()
+            .Bind(configuration.GetSection(Configuration.BeaconTelemetryOptions.SectionName));
+
         // JWT callers on /beacon/mcp (Beacon:Mcp:Callers). ValidateOnStart so a system entry with both or neither of
         // ClientId/ObjectId fails the host at boot. TryAdd so a host can supply its own IMcpCallerMapper.
         services.AddOptions<Configuration.McpCallerOptions>()
