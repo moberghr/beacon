@@ -3,10 +3,12 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Moq;
 using NUnit.Framework;
 using Beacon.AI.Services.Documentation;
 using Beacon.AI.Services.Knowledge;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Entities.Projects;
@@ -143,6 +145,55 @@ public class McpPlaygroundServiceTests
     }
 
     [Test]
+    public async Task AuditRequiredAndSaveFails_WithholdsTheResult_AfterTheToolRan()
+    {
+        var service = new McpPlaygroundService(BuildServiceProvider(auditRequired: true, auditSaveThrows: true));
+
+        var result = await service.ExecuteToolAsync(
+            "dry_run",
+            new Dictionary<string, object?> { ["datasource_id"] = DataSourceId, ["sql"] = ValidSql },
+            ProjectId,
+            CancellationToken.None);
+
+        result.IsError.Should().BeTrue();
+        result.Text.Should().Be(McpAuditCallToolFilter.WithheldMessage);
+        result.Text.Should().NotContain("VALID");
+        _queryExecution.Verify(
+            x => x.ValidateAsync(DataSourceId, ValidSql, It.IsAny<CancellationToken>()), Times.Once,
+            "the withhold replaces the result after execution; the tool and its audit still ran");
+    }
+
+    [Test]
+    public async Task AuditRequiredAndSaveSucceeds_ReturnsTheResult()
+    {
+        var service = new McpPlaygroundService(BuildServiceProvider(auditRequired: true));
+
+        var result = await service.ExecuteToolAsync(
+            "dry_run",
+            new Dictionary<string, object?> { ["datasource_id"] = DataSourceId, ["sql"] = ValidSql },
+            ProjectId,
+            CancellationToken.None);
+
+        result.IsError.Should().BeFalse(result.Text);
+        result.Text.Should().Contain("VALID");
+    }
+
+    [Test]
+    public async Task AuditNotRequiredAndSaveFails_ReturnsTheResult()
+    {
+        var service = new McpPlaygroundService(BuildServiceProvider(auditRequired: false, auditSaveThrows: true));
+
+        var result = await service.ExecuteToolAsync(
+            "dry_run",
+            new Dictionary<string, object?> { ["datasource_id"] = DataSourceId, ["sql"] = ValidSql },
+            ProjectId,
+            CancellationToken.None);
+
+        result.IsError.Should().BeFalse(result.Text);
+        result.Text.Should().Contain("VALID");
+    }
+
+    [Test]
     public async Task UnknownTool_ReturnsError()
     {
         var service = new McpPlaygroundService(BuildServiceProvider());
@@ -154,12 +205,19 @@ public class McpPlaygroundServiceTests
         result.Text.Should().Be("Unknown tool: definitely_not_a_tool");
     }
 
-    private IServiceProvider BuildServiceProvider()
+    private IServiceProvider BuildServiceProvider(bool auditRequired = false, bool auditSaveThrows = false)
     {
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory
             .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(() => new PlaygroundTestContext());
+
+        // The audit rows go through their own factory so a failing audit save leaves the tool's reads intact.
+        var auditFactory = new Mock<IDbContextFactory<BeaconContext>>();
+        auditFactory
+            .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => new PlaygroundTestContext(auditSaveThrows));
+        var deploymentOptions = Options.Create(new McpDeploymentOptions { Audit = new McpAuditOptions { Required = auditRequired } });
 
         var settingsProvider = SettingsProviderMock.Create();
         settingsProvider
@@ -183,7 +241,11 @@ public class McpPlaygroundServiceTests
         services.AddScoped<McpProjectContext>();
         services.AddScoped<IProjectContext>(x => x.GetRequiredService<McpProjectContext>());
         services.AddSingleton(Mock.Of<IHttpContextAccessor>());
-        services.AddScoped(x => new McpAuditService(factory.Object, SettingsProviderMock.Create().Object, new HttpContextAccessor(), NullLogger<McpAuditService>.Instance));
+        // Same shape as ServiceConfiguration: one scoped McpAuditOutcome per playground scope, shared by the audit
+        // service and the playground's withhold decision.
+        services.AddSingleton(deploymentOptions);
+        services.AddScoped<McpAuditOutcome>();
+        services.AddScoped(x => new McpAuditService(auditFactory.Object, SettingsProviderMock.Create().Object, new HttpContextAccessor(), deploymentOptions, NullLogger<McpAuditService>.Instance, x.GetRequiredService<McpAuditOutcome>(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance));
 
         services.AddScoped(x => new DryRunTool(
             factory.Object,
@@ -248,9 +310,11 @@ public class McpPlaygroundServiceTests
 
         private readonly Mock<DbSet<McpAuditLog>> _auditSet = new();
         private readonly Mock<DbSet<McpQuerySignal>> _signalSet = new();
+        private readonly bool _saveThrows;
 
-        public PlaygroundTestContext() : base(Options, "beacon")
+        public PlaygroundTestContext(bool saveThrows = false) : base(Options, "beacon")
         {
+            _saveThrows = saveThrows;
         }
 
         public override DbSet<TEntity> Set<TEntity>() where TEntity : class
@@ -294,7 +358,7 @@ public class McpPlaygroundServiceTests
         public override int SaveChanges() => 0;
 
         public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult(0);
+            _saveThrows ? throw new InvalidOperationException("audit sink unavailable") : Task.FromResult(0);
 
         private static DbSet<T> BuildSet<T>(List<T> data) where T : class
         {

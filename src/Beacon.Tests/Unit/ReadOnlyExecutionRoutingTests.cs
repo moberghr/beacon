@@ -8,12 +8,14 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Moq;
 using NUnit.Framework;
 using Beacon.AI.Services.Knowledge;
 using Beacon.Connector.PostgreSql;
 using Beacon.Connector.SqlServer;
 using Beacon.Core;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Entities.Projects;
@@ -385,7 +387,8 @@ public class ReadOnlyExecutionRoutingTests
             new Mock<IDbContextFactory<BeaconContext>>().Object,
             SettingsProviderMock.Create().Object,
             new HttpContextAccessor(),
-            NullLogger<McpAuditService>.Instance);
+            Options.Create(new McpDeploymentOptions()),
+            NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance);
         var signalService = new McpSignalService(
             new Mock<IDbContextFactory<BeaconContext>>().Object,
             settingsProvider.Object,

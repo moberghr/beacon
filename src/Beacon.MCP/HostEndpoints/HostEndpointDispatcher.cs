@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Security.Claims;
 using System.Text;
 using Microsoft.AspNetCore.Antiforgery;
@@ -63,6 +64,11 @@ internal sealed class HostEndpointDispatcher(
         McpCaller caller,
         CancellationToken cancellationToken)
     {
+        // Captured before SuppressFlow: Activity.Current is itself AsyncLocal-backed, so it reads back null from
+        // inside the suppressed-flow Task.Run below — the MCP SDK's tools/call activity has to be read here, on the
+        // still-flowing caller side, and carried in explicitly (§ trace continuity).
+        var traceId = Activity.Current?.Id;
+
         // A fresh execution context: IHttpContextAccessor is AsyncLocal-backed and clears the CURRENT holder when it
         // is reassigned, so pointing it at the synthetic request inside the MCP request's flow would wipe the MCP
         // request's HttpContext (and with it the caller the audit row records). Host code that reads the accessor
@@ -70,7 +76,7 @@ internal sealed class HostEndpointDispatcher(
         Task<HostEndpointDispatchResult> dispatch;
         using (ExecutionContext.SuppressFlow())
         {
-            dispatch = Task.Run(() => DispatchIsolatedAsync(tool, parts, principal, caller, cancellationToken), CancellationToken.None);
+            dispatch = Task.Run(() => DispatchIsolatedAsync(tool, parts, principal, caller, traceId, cancellationToken), CancellationToken.None);
         }
 
         return await dispatch;
@@ -81,6 +87,7 @@ internal sealed class HostEndpointDispatcher(
         HostEndpointRequestParts parts,
         ClaimsPrincipal principal,
         McpCaller caller,
+        string? traceId,
         CancellationToken cancellationToken)
     {
         var scope = scopeFactory.CreateAsyncScope();
@@ -92,7 +99,7 @@ internal sealed class HostEndpointDispatcher(
 
         try
         {
-            var httpContext = CreateHttpContext(tool, parts, principal, scope.ServiceProvider, responseBody, linked.Token);
+            var httpContext = CreateHttpContext(tool, parts, principal, scope.ServiceProvider, responseBody, traceId, linked.Token);
             if (accessor != null)
             {
                 accessor.HttpContext = httpContext;
@@ -203,13 +210,18 @@ internal sealed class HostEndpointDispatcher(
         ClaimsPrincipal principal,
         IServiceProvider services,
         Stream responseBody,
+        string? traceId,
         CancellationToken requestAborted)
     {
         var httpContext = new DefaultHttpContext
         {
             RequestServices = services,
             User = principal,
-            TraceIdentifier = "beacon-mcp-" + Guid.NewGuid().ToString("N"),
+            // Joins host-side logging to the MCP trace: traceId is the MCP SDK's tools/call activity id, captured by
+            // the caller BEFORE ExecutionContext.SuppressFlow (Activity.Current is itself AsyncLocal-backed, so it
+            // reads back null from inside the suppressed-flow dispatch task). Falls back to a synthetic id when no
+            // activity was current.
+            TraceIdentifier = traceId ?? "beacon-mcp-" + Guid.NewGuid().ToString("N"),
             RequestAborted = requestAborted
         };
 

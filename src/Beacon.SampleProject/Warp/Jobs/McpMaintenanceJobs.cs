@@ -1,3 +1,4 @@
+using Beacon.Core.Services.Retention;
 using Beacon.Core.Worker;
 using Warp.Core.Handlers;
 
@@ -39,4 +40,14 @@ public sealed class ReindexEmbeddingsJobHandler(IJobService jobService) : IJobHa
 {
     public Task HandleAsync(ReindexEmbeddingsJob message, CancellationToken cancellationToken)
         => jobService.ReindexEmbeddings(cancellationToken);
+}
+
+// Deployment-level audit retention purge (Beacon:Mcp:Audit:RetentionDays); a no-op when unset.
+public sealed class PurgeExpiredMcpAuditLogsJob : IJob;
+
+public sealed class PurgeExpiredMcpAuditLogsJobHandler(IMcpAuditRetentionService retentionService)
+    : IJobHandler<PurgeExpiredMcpAuditLogsJob>
+{
+    public Task HandleAsync(PurgeExpiredMcpAuditLogsJob message, CancellationToken cancellationToken)
+        => retentionService.PurgeExpiredAsync(cancellationToken);
 }

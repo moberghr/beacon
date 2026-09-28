@@ -52,6 +52,7 @@ public static class ServiceConfiguration
 
         // Audit & Learning
         services.TryAddTransient<McpAuditService>();
+        services.TryAddScoped<McpAuditOutcome>();
         services.TryAddTransient<McpSignalService>();
 
         // Approved saved queries as q_<name> tools (or search_saved_queries / run_saved_query past the limit), served
@@ -92,7 +93,9 @@ public static class ServiceConfiguration
                 options.IdleTimeout = TimeSpan.FromMinutes(30);
             })
             .WithToolsFromAssembly(typeof(ServiceConfiguration).Assembly)
-            .WithRequestFilters(x => x.AddListToolsFilter(McpToolDescriptionOverrides.CreateListToolsFilter()));
+            .WithRequestFilters(x => x
+                .AddListToolsFilter(McpToolDescriptionOverrides.CreateListToolsFilter())
+                .AddCallToolFilter(McpAuditCallToolFilter.Create()));
 
         // Playground (public facade for UI)
         services.TryAddTransient<IMcpPlaygroundService, McpPlaygroundService>();

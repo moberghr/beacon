@@ -7,6 +7,7 @@ using NUnit.Framework;
 using Beacon.AI.Services.Knowledge;
 using Beacon.AI.Services.LlmProviders;
 using Beacon.AI.Services.Mcp;
+using Beacon.Core.Configuration;
 using Beacon.Core.Models;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Security;
@@ -15,6 +16,7 @@ using Beacon.Tests.Common;
 using Beacon.MCP.Services;
 using Beacon.MCP.Tools;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Beacon.Core.Data;
 
 namespace Beacon.Tests.Unit;
@@ -287,7 +289,7 @@ public class ProjectAskToolRepairFlowTests
             settingsProvider.Object,
             serviceProvider.Object,
             new McpProjectContext { UserId = 1, AllowedProjectIds = [ProjectId] },
-            new McpAuditService(factory.Object, SettingsProviderMock.Create().Object, new HttpContextAccessor(), NullLogger<McpAuditService>.Instance),
+            new McpAuditService(factory.Object, SettingsProviderMock.Create().Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance),
             new McpSignalService(factory.Object, settingsProvider.Object, NullLogger<McpSignalService>.Instance),
             Mock.Of<IAskSqlPipeline>(),
             _executor.Object,

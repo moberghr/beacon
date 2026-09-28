@@ -1,4 +1,5 @@
 using Beacon.AI.Services.Knowledge;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Entities.Metadata;
@@ -13,6 +14,7 @@ using FluentAssertions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using ModelContextProtocol.Protocol;
 using Moq;
 using NUnit.Framework;
@@ -226,7 +228,7 @@ public class ProjectBriefTests
     private static (GetContextTool Tool, Mock<IProjectBriefService> Brief, Mock<IDbContextFactory<BeaconContext>> AuditFactory) BuildTool()
     {
         var auditFactory = new Mock<IDbContextFactory<BeaconContext>>();
-        var auditService = new McpAuditService(auditFactory.Object, SettingsProviderMock.Create().Object, new HttpContextAccessor(), NullLogger<McpAuditService>.Instance);
+        var auditService = new McpAuditService(auditFactory.Object, SettingsProviderMock.Create().Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance);
         var briefService = new Mock<IProjectBriefService>();
         var tool = new GetContextTool(
             new Mock<IKnowledgeGraphService>().Object,

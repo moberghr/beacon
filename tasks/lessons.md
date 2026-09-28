@@ -450,3 +450,57 @@ bug the whole feature existed to fix.
 
 **When it applies:** every spec with an "Unwanted behaviours" section; especially interface
 implementations whose members are optional no-ops.
+
+## The MCP SDK already emits OpenTelemetry — tag its span, don't open another (2026-09-28)
+
+**What happened:** Planning OTel for Beacon's MCP tools, the obvious design was "one Beacon span per
+tool call". Decompiling ModelContextProtocol.Core 2.2.0 showed the SDK already opens one
+(`ActivitySource "Experimental.ModelContextProtocol"`, tagged `gen_ai.tool.name`, `mcp.method.name`,
+`mcp.session.id`, `error.type`), extracts `traceparent` from JSON-RPC `_meta`, and records
+`mcp.server.operation.duration`.
+
+**Rule:** Before adding tracing around a framework call, check whether the framework emits its own
+activity (decompile or read its `Diagnostics` class). Enrich `Activity.Current` from the single choke
+point (`McpAuditService.LogToolCallAsync`) and register the SDK source in the host
+(`AddBeaconInstrumentation`) instead of creating a duplicate span.
+
+**Why it matters:** duplicate spans double every trace's depth and split attributes across two spans.
+
+**When it applies:** any telemetry work around MCP, ASP.NET Core, HttpClient, EF Core, Npgsql.
+
+## `ExecutionContext.SuppressFlow` also clears `Activity.Current` (2026-09-28)
+
+**What happened:** `HostEndpointDispatcher` runs host endpoints under `SuppressFlow` + `Task.Run`
+to isolate `IHttpContextAccessor`. Reading `Activity.Current` inside that task always returned null,
+so a naive `TraceIdentifier = Activity.Current?.Id` would silently never link to the trace. A leaf
+unit test calling the helper directly would have passed.
+
+**Rule:** capture any ambient value (`Activity.Current`, culture, user) *before* `SuppressFlow` and
+pass it as a parameter. Test through the real entry point that crosses the boundary.
+
+**When it applies:** any code in or around `HostEndpointDispatcher` or other `SuppressFlow` sites.
+
+## Verify the auth policy before accepting a "that path is admin-only" risk (2026-09-28)
+
+**What happened:** The spec accepted that the playground (`POST /beacon/api/mcp/tools/run`)
+bypassed the new fail-closed audit filter because "the REST surface is the admin UI". The
+architecture reviewer found the route is Execute-scope — any Execute API key could get unaudited
+results. Fixed by sharing `McpAuditCallToolFilter.ShouldWithhold` with `McpPlaygroundService`.
+
+**Rule:** a risk that rests on "only admins can reach X" must cite the route's
+`RequireAuthorization(...)` line. Every alternate entry point to a guarded operation (playground,
+REST tool runner, jobs) needs the same enforcement call, not a copy of it.
+
+**When it applies:** any new guard on MCP tool execution; any spec risk that names an access level.
+
+## Bounding a label's charset does not bound its cardinality (2026-09-28)
+
+**What happened:** To stop caller-chosen tool names (`q_<anything>`) reaching logs and metric tags,
+a charset/length whitelist was added. Review iteration 2 showed `q_1`, `q_2`, … are all well-formed,
+so each still opened a new metric series.
+
+**Rule:** metric tags derived from caller input must come from a closed set (known names + fixed
+buckets such as `q_*`, `api_*`, `<other>`). Charset bounding is for log fields; closed sets are for
+metric tags.
+
+**When it applies:** every new `Meter` instrument tag, especially tool names, routes, error texts.

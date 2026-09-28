@@ -32,6 +32,9 @@
     <ItemGroup>
         <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" />
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+        <!-- API-only: no exporter or SDK package here. Beacon libraries never choose a telemetry backend —
+             only a host does, by adding OpenTelemetry.Extensions.Hosting + an exporter itself. -->
+        <PackageReference Include="OpenTelemetry.Api" />
     </ItemGroup>
 
     <ItemGroup>

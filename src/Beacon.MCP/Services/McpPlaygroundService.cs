@@ -112,6 +112,13 @@ internal sealed class McpPlaygroundService(IServiceProvider serviceProvider) : I
                 _ => ToolHelper.Error($"Unknown tool: {toolName}")
             };
 
+            // Fail-closed audit (Beacon:Mcp:Audit:Required) — this path bypasses the SDK call-tool filter, so it
+            // applies the same decision against this scope's audit outcome, after the tool (and its audit) ran.
+            if (McpAuditCallToolFilter.ShouldWithhold(sp, result.IsError == true, toolName))
+            {
+                return new McpPlaygroundResult(McpAuditCallToolFilter.WithheldMessage, true);
+            }
+
             var text = string.Join("\n", result.Content.OfType<TextContentBlock>().Select(x => x.Text));
 
             return new McpPlaygroundResult(text, result.IsError == true);

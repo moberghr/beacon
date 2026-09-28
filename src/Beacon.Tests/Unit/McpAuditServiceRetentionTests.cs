@@ -4,8 +4,10 @@ using FluentAssertions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Moq;
 using NUnit.Framework;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Mcp;
@@ -120,7 +122,8 @@ public class McpAuditServiceRetentionTests
             factory.Object,
             provider.Object,
             httpContextAccessor ?? new HttpContextAccessor(),
-            NullLogger<McpAuditService>.Instance);
+            Options.Create(new McpDeploymentOptions()),
+            NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance);
 
         await service.LogToolCallAsync(
             sessionId: null,
