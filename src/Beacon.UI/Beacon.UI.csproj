@@ -47,10 +47,23 @@
         <Exec Command="npm ci" WorkingDirectory="$(ReactAppDir)" />
     </Target>
 
+    <!-- Incremental: skipped while the bundle is newer than every source file. The release
+         pipeline runs dotnet build and then dotnet pack, and pack re-enters this target in more
+         than one project instance. Vite's output is not reproducible (the mermaid chunks minify
+         differently run to run), so every rebuild renamed the content-hashed files and left the
+         static web asset / pack item lists pointing at deleted ones (NU5019, "No file exists for
+         the asset"). Up-to-date checking makes pack reuse the bundle the build step produced. -->
+    <ItemGroup>
+        <ReactSourceFiles Include="$(ReactAppDir)/**"
+                          Exclude="$(ReactAppDir)/node_modules/**;$(ReactAppDir)/.claude/**;$(ReactAppDir)/*.tsbuildinfo" />
+    </ItemGroup>
+
     <Target Name="BuildReactApp"
             BeforeTargets="AssignTargetPaths;ResolveStaticWebAssetsConfiguration"
             Condition="'$(ShouldBuildReact)' == 'true'"
-            DependsOnTargets="EnsureReactDependencies">
+            DependsOnTargets="EnsureReactDependencies"
+            Inputs="@(ReactSourceFiles)"
+            Outputs="$(ReactBuildOutputDir)/index.html">
         <Message Importance="high" Text="Beacon.UI: building React app (configuration $(Configuration))..." />
         <Exec Command="npm run build" WorkingDirectory="$(ReactAppDir)" />
     </Target>
@@ -77,9 +90,16 @@
         <ItemGroup>
             <!-- Drop the evaluation-time snapshot first: on an incremental rebuild it still names
                  the previous bundle's content-hashed filenames, which vite has just deleted, and
-                 DefineStaticWebAssets fails with "No file exists for the asset". -->
-            <Content Remove="$(ReactBuildOutputDir)/**" />
-            <Content Include="$(ReactBuildOutputDir)/**" />
+                 DefineStaticWebAssets fails with "No file exists for the asset". Match on the
+                 item's path, not a glob: a Remove glob expands against the files on disk now, so
+                 it can never match the deleted hashes it exists to drop. -->
+            <_StaleReactContent Include="@(Content)"
+                                Condition="$([System.String]::Copy('%(Content.FullPath)').StartsWith($([System.IO.Path]::GetFullPath('$(ReactBuildOutputDir)/'))))" />
+            <Content Remove="@(_StaleReactContent)" />
+            <!-- Project-relative, not $(ReactBuildOutputDir): DefineStaticWebAssets matches its
+                 wwwroot/** discovery pattern against the item spec and rejects absolute paths,
+                 which left a clean build with zero static web assets. -->
+            <Content Include="$([MSBuild]::MakeRelative('$(MSBuildProjectDirectory)/', '$(ReactBuildOutputDir)'))/**" />
         </ItemGroup>
     </Target>
 
