@@ -3,8 +3,9 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { StepperDialog, type StepperDialogStep } from '@/components/ui/StepperDialog';
-import { Field, Input, Select, Textarea } from '@/components/beacon';
-import { useDataSourcesQuery } from '@/routes/data-sources/queries';
+import { Field, Input, Textarea } from '@/components/beacon';
+import { DataSourcePicker } from '@/routes/data-sources/DataSourcePicker';
+import { useDataSourceQuery } from '@/routes/data-sources/queries';
 import { useCreateAiActor } from './queries';
 
 const SCHEMA = z.object({
@@ -34,7 +35,6 @@ interface CreateAiActorDialogProps {
 }
 
 export function CreateAiActorDialog({ open, onClose, initialDataSourceId }: CreateAiActorDialogProps) {
-  const dsQuery = useDataSourcesQuery();
   const createMutation = useCreateAiActor();
 
   const form = useForm<FormValues>({
@@ -42,7 +42,7 @@ export function CreateAiActorDialog({ open, onClose, initialDataSourceId }: Crea
     defaultValues: { ...DEFAULTS, dataSourceId: initialDataSourceId ?? 0 },
     mode: 'onTouched',
   });
-  const { register, reset, watch, formState: { errors } } = form;
+  const { register, reset, watch, setValue, formState: { errors } } = form;
 
   useEffect(() => {
     if (!open) return;
@@ -50,8 +50,7 @@ export function CreateAiActorDialog({ open, onClose, initialDataSourceId }: Crea
   }, [open, reset, initialDataSourceId]);
 
   const dataSourceId = watch('dataSourceId');
-
-  const dataSources = dsQuery.data?.entries ?? [];
+  const selectedDataSource = useDataSourceQuery(dataSourceId);
 
   const onFinish = async () => {
     const v = form.getValues();
@@ -93,20 +92,12 @@ export function CreateAiActorDialog({ open, onClose, initialDataSourceId }: Crea
             {errors.name && <span className="text-xs text-crit">{errors.name.message}</span>}
           </Field>
 
-          <Field
-            label={<>Data source <span className="text-crit">*</span></>}
-            hint={dsQuery.isLoading ? 'Loading data sources…' : undefined}
-          >
-            <Select
-              id="ca-ds"
-              aria-invalid={!!errors.dataSourceId}
-              {...register('dataSourceId', { valueAsNumber: true })}
-            >
-              <option value={0}>— Select data source —</option>
-              {dataSources.map(ds => (
-                <option key={ds.id} value={ds.id}>{ds.name}</option>
-              ))}
-            </Select>
+          <Field label={<>Data source <span className="text-crit">*</span></>}>
+            <DataSourcePicker
+              value={dataSourceId > 0 ? dataSourceId : null}
+              onSelect={x => setValue('dataSourceId', x?.id ?? 0, { shouldValidate: true, shouldDirty: true })}
+              hasError={!!errors.dataSourceId}
+            />
             {errors.dataSourceId && <span className="text-xs text-crit">{errors.dataSourceId.message}</span>}
           </Field>
         </div>
@@ -184,7 +175,7 @@ export function CreateAiActorDialog({ open, onClose, initialDataSourceId }: Crea
       description: 'Confirm and create.',
       render: () => {
         const v = form.getValues();
-        const dsName = dataSources.find(d => d.id === dataSourceId)?.name ?? '—';
+        const dsName = selectedDataSource.data?.name ?? '—';
         return (
           <dl className="grid grid-cols-[140px_1fr] gap-x-3 gap-y-2 text-sm m-0">
             <dt className="text-2xs font-semibold uppercase tracking-eyebrow text-text-muted self-center">Name</dt>

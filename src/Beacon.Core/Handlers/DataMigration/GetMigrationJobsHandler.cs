@@ -1,55 +1,71 @@
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Helpers;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 
 namespace Beacon.Core.Handlers.DataMigration;
 
 internal sealed class GetMigrationJobsHandler(IDbContextFactory<BeaconContext> contextFactory)
-    : IRequestHandler<GetMigrationJobsQuery, GetMigrationJobsResult>
+    : IRequestHandler<GetMigrationJobsQuery, PagedList<MigrationJobListItem>>
 {
-    public async Task<GetMigrationJobsResult> Handle(
+    public async Task<PagedList<MigrationJobListItem>> Handle(
         GetMigrationJobsQuery request,
         CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        var jobs = await context.MigrationJobs
-            .OrderByDescending(x => x.CreatedTime)
+        return await context.MigrationJobs
+            .WhereIf(!string.IsNullOrWhiteSpace(request.Search), x => x.Name.Contains(request.Search!))
             .Select(x =>
-                new MigrationJobListItem(
-                    x.Id,
-                    x.Name,
-                    x.Description,
-                    x.DataSourceId,
-                    x.DataSource.Name,
-                    x.DestinationDataSourceId,
-                    x.DestinationDataSource.Name,
-                    x.DestinationTable,
-                    x.Mode,
-                    x.IsEnabled,
-                    x.Schedule,
-                    x.CreatedTime))
-            .ToListAsync(cancellationToken);
-
-        return new GetMigrationJobsResult(jobs);
+                new MigrationJobListItem
+                {
+                    Id = x.Id,
+                    Name = x.Name,
+                    Description = x.Description,
+                    DataSourceId = x.DataSourceId,
+                    DataSourceName = x.DataSource.Name,
+                    DestinationDataSourceId = x.DestinationDataSourceId,
+                    DestinationDataSourceName = x.DestinationDataSource.Name,
+                    DestinationTable = x.DestinationTable,
+                    Mode = x.Mode,
+                    IsEnabled = x.IsEnabled,
+                    Schedule = x.Schedule,
+                    CreatedTime = x.CreatedTime,
+                })
+            .ToPagedListAsync(request, cancellationToken, defaultSort: "-createdTime");
     }
 }
 
-public record GetMigrationJobsQuery() : IRequest<GetMigrationJobsResult>;
+/// <summary>Newest first unless <c>sort</c> says otherwise; <c>search</c> matches the job name.</summary>
+public record GetMigrationJobsQuery : ListRequest, IRequest<PagedList<MigrationJobListItem>>
+{
+    public string? Search { get; init; }
+}
 
-public record GetMigrationJobsResult(IReadOnlyList<MigrationJobListItem> Jobs);
+public record MigrationJobListItem
+{
+    public int Id { get; init; }
 
-public record MigrationJobListItem(
-    int Id,
-    string Name,
-    string Description,
-    int DataSourceId,
-    string DataSourceName,
-    int DestinationDataSourceId,
-    string DestinationDataSourceName,
-    string DestinationTable,
-    MigrationMode Mode,
-    bool IsEnabled,
-    string? Schedule,
-    DateTime CreatedTime);
+    public string Name { get; init; } = string.Empty;
+
+    public string Description { get; init; } = string.Empty;
+
+    public int DataSourceId { get; init; }
+
+    public string DataSourceName { get; init; } = string.Empty;
+
+    public int DestinationDataSourceId { get; init; }
+
+    public string DestinationDataSourceName { get; init; } = string.Empty;
+
+    public string DestinationTable { get; init; } = string.Empty;
+
+    public MigrationMode Mode { get; init; }
+
+    public bool IsEnabled { get; init; }
+
+    public string? Schedule { get; init; }
+
+    public DateTime CreatedTime { get; init; }
+}

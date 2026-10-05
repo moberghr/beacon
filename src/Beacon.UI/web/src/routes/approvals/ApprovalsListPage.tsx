@@ -5,26 +5,28 @@ import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { Button, PageHeader } from '@/components/beacon';
 import { formatDateTime, formatNumber, formatRelativeTime } from '@/lib/format';
-import { usePendingApprovalsQuery, type ApprovalRequestSummary } from './queries';
+import { usePendingApprovalsList, type ApprovalRequestSummary } from './queries';
 import { ReviewApprovalDialog } from './ReviewApprovalDialog';
 
 const GRID_TEMPLATE = '0.6fr 1.4fr 1.2fr 1.2fr 2fr 0.8fr';
 
 export default function ApprovalsListPage() {
   const navigate = useNavigate();
-  const { data, isLoading, isError, error, refetch } = usePendingApprovalsQuery();
+  const list = usePendingApprovalsList();
+  const { data, isLoading, isError, error, refetch } = list;
   const [reviewing, setReviewing] = useState<number | null>(null);
 
   // Hub-driven invalidation lives in `useHubInvalidations` mounted in
   // AppShell — approvals refresh automatically when SignalR broadcasts
   // ApprovalUpdated.
 
-  const entries = data ?? [];
+  const entries = list.items;
 
   const columns = useMemo<Column<ApprovalRequestSummary>[]>(() => [
-    { key: 'id', header: 'Id', render: a => <span className="text-text-muted mono">#{a.id}</span> },
+    { key: 'id', header: 'Id', sortKey: 'id', render: a => <span className="text-text-muted mono">#{a.id}</span> },
     {
       key: 'query',
+      sortKey: 'queryName',
       header: 'Query',
       render: a => <span className="font-semibold text-text">{a.queryName ?? '—'}</span>,
     },
@@ -35,6 +37,7 @@ export default function ApprovalsListPage() {
     },
     {
       key: 'submittedAt',
+      sortKey: 'createdTime',
       header: 'Submitted at',
       render: a => a.createdTime
         ? <span title={formatDateTime(a.createdTime)}>{formatRelativeTime(a.createdTime)}</span>
@@ -72,7 +75,7 @@ export default function ApprovalsListPage() {
         sub={
           isLoading
             ? <span className="text-text-muted">Loading…</span>
-            : <span className="text-text-muted">{formatNumber(entries.length)} pending</span>
+            : <span className="text-text-muted">{formatNumber(data?.totalCount ?? 0)} pending</span>
         }
         actions={
           <Button icon={<RefreshCw />} onClick={() => refetch()} disabled={isLoading}>
@@ -93,6 +96,7 @@ export default function ApprovalsListPage() {
         <DataTable
           columns={columns}
           rows={entries}
+          {...list.tableProps}
           rowKey={a => a.id}
           gridTemplate={GRID_TEMPLATE}
           onRowClick={a => navigate(`/approvals/${a.id}`)}

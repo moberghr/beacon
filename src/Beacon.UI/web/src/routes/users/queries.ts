@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
+import { usePagedList } from '@/lib/usePagedList';
 import { createSimpleMutation } from '@/lib/mutations';
 
 export interface UserRoleEntry {
@@ -19,10 +20,6 @@ export interface UserEntry {
   isEnabled: boolean;
   lastLoginAt: string | null;
   roles: UserRoleEntry[];
-}
-
-interface GetUsersResult {
-  entries: UserEntry[];
 }
 
 export interface RoleEntry {
@@ -60,15 +57,16 @@ export interface UpdateUserPayload {
   isEnabled: boolean;
 }
 
-const USERS_KEY = (search: string) => ['users', search] as const;
 const USERS_ALL_KEY = ['users'] as const;
 const ROLES_KEY = ['users', 'roles'] as const;
 
-export function useUsersQuery(search: string) {
-  return useQuery({
-    queryKey: USERS_KEY(search),
-    queryFn: async () =>
-      unwrap<GetUsersResult>(await beaconApi().getUsers(search.trim() || undefined)),
+/** The users grid: server-paged, alphabetical by user name, search in the URL. */
+export function useUsersList() {
+  return usePagedList<UserEntry, { search: string }>({
+    queryKey: USERS_ALL_KEY,
+    path: '/beacon/api/users',
+    filters: { search: '' },
+    defaultSort: { column: 'userName', direction: 'asc' },
   });
 }
 

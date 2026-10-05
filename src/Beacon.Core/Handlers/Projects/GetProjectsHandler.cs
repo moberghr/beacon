@@ -2,57 +2,79 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Helpers;
 
 namespace Beacon.Core.Handlers.Projects;
 
 internal sealed class GetProjectsHandler(IDbContextFactory<BeaconContext> contextFactory)
-    : IRequestHandler<GetProjectsQuery, GetProjectsResult>
+    : IRequestHandler<GetProjectsQuery, PagedList<ProjectSummaryEntry>>
 {
-    public async Task<GetProjectsResult> Handle(
+    public async Task<PagedList<ProjectSummaryEntry>> Handle(
         GetProjectsQuery request,
         CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        var rows = await context.Projects
-            .OrderByDescending(p => p.CreatedTime)
-            .Select(p => new
-            {
-                p.Id,
-                p.Name,
-                p.Description,
-                DataSourceCount = p.DataSources.Count,
-                RepositoryCount = p.Repositories.Count,
-                LastScanAt = p.Repositories
-                    .Where(r => r.LastScanAt != null)
-                    .Max(r => (DateTime?)r.LastScanAt),
-                LastScanStatus = p.Repositories
-                    .Where(r => r.LastScanAt != null)
-                    .OrderByDescending(r => r.LastScanAt)
-                    .Select(r => (ScanStatus?)r.ScanStatus)
-                    .FirstOrDefault(),
-                p.CreatedTime
-            })
-            .ToListAsync(cancellationToken);
+        // ScanStatus renders as its name, so the page is mapped after it is read.
+        var page = await context.Projects
+            .WhereIf(!string.IsNullOrWhiteSpace(request.Search), x => x.Name.Contains(request.Search!))
+            .Select(x =>
+                new ProjectRow
+                {
+                    Id = x.Id,
+                    Name = x.Name,
+                    Description = x.Description,
+                    DataSourceCount = x.DataSources.Count,
+                    RepositoryCount = x.Repositories.Count,
+                    LastScanAt = x.Repositories
+                        .Where(y => y.LastScanAt != null)
+                        .Max(y => (DateTime?)y.LastScanAt),
+                    LastScanStatus = x.Repositories
+                        .Where(y => y.LastScanAt != null)
+                        .OrderByDescending(y => y.LastScanAt)
+                        .Select(y => (ScanStatus?)y.ScanStatus)
+                        .FirstOrDefault(),
+                    CreatedAt = x.CreatedTime
+                })
+            .ToPagedListAsync(request, cancellationToken, defaultSort: "-createdAt");
 
-        var entries = rows.Select(r => new ProjectSummaryEntry(
-            r.Id,
-            r.Name,
-            r.Description,
-            r.DataSourceCount,
-            r.RepositoryCount,
+        return page.Map(x => new ProjectSummaryEntry(
+            x.Id,
+            x.Name,
+            x.Description,
+            x.DataSourceCount,
+            x.RepositoryCount,
             null, // QualityScore - computed from DataQualityScores if needed later
-            r.LastScanStatus?.ToString(),
-            r.LastScanAt,
-            r.CreatedTime)).ToList();
+            x.LastScanStatus?.ToString(),
+            x.LastScanAt,
+            x.CreatedAt));
+    }
 
-        return new GetProjectsResult(entries);
+    private sealed class ProjectRow
+    {
+        public int Id { get; init; }
+
+        public string Name { get; init; } = string.Empty;
+
+        public string? Description { get; init; }
+
+        public int DataSourceCount { get; init; }
+
+        public int RepositoryCount { get; init; }
+
+        public DateTime? LastScanAt { get; init; }
+
+        public ScanStatus? LastScanStatus { get; init; }
+
+        public DateTime CreatedAt { get; init; }
     }
 }
 
-public record GetProjectsQuery : IRequest<GetProjectsResult>;
-
-public record GetProjectsResult(List<ProjectSummaryEntry> Entries);
+/// <summary>Newest first unless <c>sort</c> says otherwise; <c>search</c> matches the name — pickers send it as the user types.</summary>
+public record GetProjectsQuery : ListRequest, IRequest<PagedList<ProjectSummaryEntry>>
+{
+    public string? Search { get; init; }
+}
 
 public record ProjectSummaryEntry(
     int Id,

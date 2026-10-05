@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { PageHeader, Button, Card, Input, Select, Textarea } from '@/components/beacon';
-import { useProjectsQuery } from '../projects/queries';
+import { ProjectPicker } from '../projects/ProjectPicker';
+import { useSoleProject } from '../projects/queries';
 import { describeMcpError, useMcpTools, useRunMcpTool } from './queries';
 
 interface ChatMessage {
@@ -14,7 +15,7 @@ interface ChatMessage {
 }
 
 export default function McpPlaygroundPage() {
-  const projectsQ = useProjectsQuery();
+  const soleProject = useSoleProject().data ?? null;
   const toolsQ = useMcpTools();
   const runMutation = useRunMcpTool();
 
@@ -34,15 +35,14 @@ export default function McpPlaygroundPage() {
   const chatRef = useRef<HTMLDivElement>(null);
   const messageIdRef = useRef(0);
 
-  const projects = projectsQ.data?.entries ?? [];
   const toolNames = toolsQ.data?.toolNames ?? [];
 
   // Auto-select sole project.
   useEffect(() => {
-    if (projectId === null && projects.length === 1 && projects[0].id !== undefined) {
-      setProjectId(projects[0].id);
+    if (projectId === null && soleProject) {
+      setProjectId(soleProject.id);
     }
-  }, [projectId, projects]);
+  }, [projectId, soleProject]);
 
   // Auto-scroll on new message.
   useEffect(() => {
@@ -166,15 +166,12 @@ export default function McpPlaygroundPage() {
         sub="Test MCP tools interactively. Select a project and start asking questions."
         actions={
           <>
-            <Select
-              value={projectId ?? ''}
-              onChange={e => setProjectId(e.target.value ? Number(e.target.value) : null)}
-            >
-              <option value="">Select project…</option>
-              {projects.map(p => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </Select>
+            <ProjectPicker
+              value={projectId}
+              selectedLabel={soleProject?.id === projectId ? soleProject?.name : undefined}
+              onSelect={x => setProjectId(x?.id ?? null)}
+              className="min-w-[14rem]"
+            />
             <Select
               value={toolNames.length === 0 ? '' : tool}
               onChange={e => setTool(e.target.value)}

@@ -1,29 +1,19 @@
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Helpers;
 
 namespace Beacon.Core.Models.DataMigration;
 
-public record GetMigrationExecutionsRequest(
-    int? MigrationJobId = null,
-    MigrationStatus? Status = null,
-    DateTime? StartDate = null,
-    DateTime? EndDate = null,
-    int Skip = 0,
-    int Take = 100,
-    MigrationExecutionSortBy SortBy = MigrationExecutionSortBy.StartedAt,
-    bool SortDescending = true
-);
-
-public enum MigrationExecutionSortBy
+/// <summary>
+/// Newest first unless <c>sort</c> names <c>startedAt</c>, <c>completedAt</c>, <c>status</c> or
+/// <c>sourceRowsRead</c> (optionally <c>-</c> prefixed).
+/// </summary>
+public record GetMigrationExecutionsRequest : ListRequest
 {
-    StartedAt,
-    CompletedAt,
-    Status,
-    RowsProcessed,
-    Duration
-}
+    public int? MigrationJobId { get; init; }
 
-public record GetMigrationExecutionsResponse(
-    List<MigrationExecutionDto> Executions,
-    int TotalCount,
-    bool HasMore
-);
+    public MigrationStatus? Status { get; init; }
+
+    public DateTime? StartDate { get; init; }
+
+    public DateTime? EndDate { get; init; }
+}

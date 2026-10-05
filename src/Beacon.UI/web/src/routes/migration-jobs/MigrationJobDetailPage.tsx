@@ -1,25 +1,22 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { AlertTriangle, ArrowLeftRight, Layers, Play, RefreshCw, X } from 'lucide-react';
-import { beaconApi } from '@/api/client';
 import { PageHeader, Button, Card, CardBody, KPI, KPIGrid, Pill } from '@/components/beacon';
 import { Tabs, type TabDef } from '@/components/Tabs';
 import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { unwrap } from '@/lib/api';
 import { MigrationMode, MigrationStatus } from '@/lib/enums';
 import { formatDateTime, formatNumber, formatRelativeTime } from '@/lib/format';
 import {
-  useMigrationJobsQuery,
+  useMigrationJobQuery,
   useDeleteMigrationJob,
   useRunMigrationJob,
 } from './queries';
 import {
   MIGRATION_MODE_LABEL,
-  type GetMigrationExecutionsResult,
+  useMigrationExecutionsList,
   type MigrationExecutionEntry,
 } from '@/routes/migration-history/queries';
 
@@ -34,33 +31,19 @@ const EXECUTION_STATUS_LABEL: Record<MigrationStatus, string> = {
   [MigrationStatus.PartialSuccess]: 'Partial success',
 };
 
-function useJobExecutionsQuery(jobId: number | null) {
-  return useQuery({
-    queryKey: ['migration-executions', jobId] as const,
-    queryFn: async () =>
-      unwrap<GetMigrationExecutionsResult>(
-        await beaconApi().getMigrationExecutions(jobId!, undefined, undefined, undefined, 0, 50),
-      ),
-    enabled: jobId != null && Number.isFinite(jobId),
-  });
-}
-
 export default function MigrationJobDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const numericId = id ? Number.parseInt(id, 10) : Number.NaN;
 
-  const listQuery = useMigrationJobsQuery();
-  const executions = useJobExecutionsQuery(Number.isFinite(numericId) ? numericId : null);
+  const listQuery = useMigrationJobQuery(Number.isFinite(numericId) ? numericId : null);
+  const executions = useMigrationExecutionsList({ jobId: numericId, urlPrefix: 'runs' });
   const deleteMutation = useDeleteMigrationJob();
   const runMutation = useRunMigrationJob();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [tab, setTab] = useState<TabKey>('overview');
 
-  const job = useMemo(
-    () => listQuery.data?.jobs.find(j => j.id === numericId) ?? null,
-    [listQuery.data, numericId],
-  );
+  const job = listQuery.data ?? null;
 
   if (Number.isNaN(numericId)) {
     return (
@@ -131,14 +114,14 @@ export default function MigrationJobDetailPage() {
     }
   };
 
-  const execs = executions.data?.executions ?? [];
+  const execs = executions.items;
   const lastExec = execs[0];
   const successCount = execs.filter(e => e.status === MigrationStatus.Completed).length;
   const failedCount = execs.filter(e => e.status === MigrationStatus.Failed).length;
 
   const tabs: TabDef<TabKey>[] = [
     { key: 'overview', label: <><Layers className="size-3.5" /> Overview</> },
-    { key: 'executions', label: <><RefreshCw className="size-3.5" /> Executions</>, count: execs.length },
+    { key: 'executions', label: <><RefreshCw className="size-3.5" /> Executions</>, count: executions.data?.totalCount ?? 0 },
   ];
 
   return (
@@ -209,6 +192,7 @@ export default function MigrationJobDetailPage() {
         {tab === 'executions' && (
           <ExecutionsTab
             executions={execs}
+            tableProps={executions.tableProps}
             isLoading={executions.isLoading}
             isError={executions.isError}
             error={executions.error}
@@ -281,8 +265,9 @@ function OverviewTab({ job }: { job: OverviewJob }) {
 
 const EXEC_GRID = '0.6fr 1fr 0.8fr 1fr 1fr 0.7fr 0.8fr';
 
-function ExecutionsTab({ executions, isLoading, isError, error }: {
+function ExecutionsTab({ executions, tableProps, isLoading, isError, error }: {
   executions: MigrationExecutionEntry[];
+  tableProps: ReturnType<typeof useMigrationExecutionsList>['tableProps'];
   isLoading: boolean;
   isError: boolean;
   error: unknown;
@@ -292,6 +277,7 @@ function ExecutionsTab({ executions, isLoading, isError, error }: {
     {
       key: 'started',
       header: 'Started',
+      sortKey: 'startedAt',
       render: r => (
         <span title={formatDateTime(r.startedAt)}>
           {formatRelativeTime(r.startedAt)}
@@ -301,6 +287,7 @@ function ExecutionsTab({ executions, isLoading, isError, error }: {
     {
       key: 'status',
       header: 'Status',
+      sortKey: 'status',
       render: r => {
         const label = EXECUTION_STATUS_LABEL[r.status] ?? `status ${r.status}`;
         if (r.status === MigrationStatus.Completed) return <Pill tone="ok">{label}</Pill>;
@@ -362,6 +349,7 @@ function ExecutionsTab({ executions, isLoading, isError, error }: {
         columns={columns}
         rows={executions}
         rowKey={r => r.id}
+        {...tableProps}
         gridTemplate={EXEC_GRID}
         empty={
           <EmptyState

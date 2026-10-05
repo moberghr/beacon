@@ -38,7 +38,9 @@ describe('AddSubscriptionDialog (multi-step)', () => {
     mswServer.use(
       http.get('*/beacon/api/recipients', () =>
         HttpResponse.json({
-          entries: [
+          totalCount: 1,
+          pageCount: 1,
+          items: [
             {
               id: 7,
               name: 'Ops',
@@ -94,7 +96,7 @@ describe('AddSubscriptionDialog (multi-step)', () => {
     stubQueryEndpoints(5);
     mswServer.use(
       http.get('*/beacon/api/recipients', () =>
-        HttpResponse.json({ entries: [] }),
+        HttpResponse.json({ items: [], totalCount: 0, pageCount: 0 }),
       ),
     );
 
@@ -114,5 +116,52 @@ describe('AddSubscriptionDialog (multi-step)', () => {
     });
 
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('allows no recipients when Create tasks is enabled', async () => {
+    stubQueryEndpoints(5);
+    mswServer.use(
+      http.get('*/beacon/api/recipients', () =>
+        HttpResponse.json({ items: [], totalCount: 0, pageCount: 0 }),
+      ),
+    );
+
+    let captured: unknown = null;
+    mswServer.use(
+      http.post('*/beacon/api/subscriptions', async ({ request }) => {
+        captured = await request.json();
+        return HttpResponse.json({ success: true, message: null });
+      }),
+    );
+
+    const onClose = vi.fn();
+    renderWithProviders(
+      <AddSubscriptionDialog open onClose={onClose} initialQueryId={5} />,
+    );
+
+    fireEvent.click(screen.getByTestId('stepper-next'));
+    await screen.findByText(/No recipients yet/i);
+
+    // Blocked first, then ticking Create tasks lifts the requirement and clears the error.
+    fireEvent.click(screen.getByTestId('stepper-next'));
+    await screen.findByText(/Pick at least one recipient/i);
+    fireEvent.click(screen.getByRole('checkbox', { name: /create tasks/i }));
+    await waitFor(() => {
+      expect(screen.queryByText(/Pick at least one recipient/i)).toBeNull();
+    });
+
+    fireEvent.click(screen.getByTestId('stepper-next'));
+    await screen.findByRole('button', { name: /create subscription/i });
+    fireEvent.click(screen.getByRole('button', { name: /create subscription/i }));
+
+    await waitFor(() => {
+      expect(onClose).toHaveBeenCalled();
+    });
+
+    expect(captured).toMatchObject({
+      queryId: 5,
+      recipientIds: [],
+      createTasks: true,
+    });
   });
 });

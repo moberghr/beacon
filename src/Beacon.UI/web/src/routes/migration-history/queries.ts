@@ -1,8 +1,8 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { unwrap } from '@/lib/api';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { beaconApi } from '@/api/client';
 import { MigrationMode, type MigrationStatus } from '@/lib/enums';
 import { createSimpleMutation } from '@/lib/mutations';
+import { usePagedList } from '@/lib/usePagedList';
 
 // Local strict mirror of the generated `MigrationExecutionDto` — dates are
 // strings on the wire (see `unwrap` docs in @/lib/api).
@@ -24,21 +24,21 @@ export interface MigrationExecutionEntry {
   isRetry: boolean;
 }
 
-export interface GetMigrationExecutionsResult {
-  executions: MigrationExecutionEntry[];
-  totalCount: number;
-  hasMore: boolean;
-}
-
 const MIGRATION_EXECUTIONS_KEY = ['migration-executions'] as const;
 
-export function useMigrationExecutionsQuery() {
-  return useQuery({
-    queryKey: MIGRATION_EXECUTIONS_KEY,
-    queryFn: async () =>
-      unwrap<GetMigrationExecutionsResult>(
-        await beaconApi().getMigrationExecutions(undefined, undefined, undefined, undefined, 0, 100),
-      ),
+/**
+ * Migration executions, server-paged, newest first. Sortable by startedAt, completedAt, status and
+ * sourceRowsRead. Pass a job id to scope it to one job, and a URL prefix when it shares a page.
+ */
+export function useMigrationExecutionsList(options: { jobId?: number; urlPrefix?: string } = {}) {
+  return usePagedList<MigrationExecutionEntry, { status: string }>({
+    queryKey: [...MIGRATION_EXECUTIONS_KEY, options.jobId ?? 'all'],
+    path: '/beacon/api/migrations/executions',
+    filters: { status: '' },
+    fixedParams: { migrationJobId: options.jobId },
+    defaultSort: { column: 'startedAt', direction: 'desc' },
+    urlPrefix: options.urlPrefix,
+    enabled: options.jobId === undefined || Number.isFinite(options.jobId),
   });
 }
 

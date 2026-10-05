@@ -9,7 +9,7 @@ internal static class RecipientsEndpoints
     {
         var recipients = group.MapGroup("/recipients").WithTags("Recipients");
 
-        recipients.MapGet("/", (IMediator m, CancellationToken ct) => m.Send(new GetRecipientsQuery(), ct))
+        recipients.MapGet("/", ([AsParameters] GetRecipientsQuery query, IMediator m, CancellationToken ct) => m.Send(query, ct))
             .WithName("GetRecipients");
 
         recipients.MapPost("/", (CreateRecipientCommand cmd, IMediator m, CancellationToken ct) => m.Send(cmd, ct))

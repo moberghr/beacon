@@ -12,14 +12,7 @@ internal static class NotificationsEndpoints
     {
         var notifications = group.MapGroup("/notifications").WithTags("Notifications");
 
-        notifications.MapGet("/", (
-                [FromQuery] int? page,
-                [FromQuery] int? pageSize,
-                [FromQuery] NotificationStatus? status,
-                [FromQuery] int? subscriptionId,
-                IMediator m,
-                CancellationToken ct) =>
-                m.Send(new GetNotificationsQuery(page ?? 0, pageSize ?? 100, status, subscriptionId), ct))
+        notifications.MapGet("/", ([AsParameters] GetNotificationsQuery query, IMediator m, CancellationToken ct) => m.Send(query, ct))
             .WithName("GetNotifications");
 
         notifications.MapGet("/{id:int}", async Task<Results<Ok<GetNotificationDetailResult>, NotFound>> (int id, IMediator m, CancellationToken ct) =>

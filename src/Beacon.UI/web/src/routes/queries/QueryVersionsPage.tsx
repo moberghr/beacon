@@ -4,7 +4,7 @@ import { PageHeader } from '@/components/beacon';
 import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { formatDateTime, formatNumber } from '@/lib/format';
-import { useQueryVersionsQuery, type QueryVersionSummary } from './queries';
+import { useQueryVersionsList, type QueryVersionSummary } from './queries';
 
 const COLUMNS: Column<QueryVersionSummary>[] = [
   {
@@ -52,7 +52,8 @@ export default function QueryVersionsPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const queryId = id ? Number.parseInt(id, 10) : Number.NaN;
-  const { data, isLoading, isError, error } = useQueryVersionsQuery(queryId);
+  const list = useQueryVersionsList(queryId);
+  const { data, isLoading, isError, error } = list;
 
   if (Number.isNaN(queryId)) {
     return (
@@ -63,7 +64,7 @@ export default function QueryVersionsPage() {
     );
   }
 
-  const versions = data ?? [];
+  const versions = list.items;
 
   return (
     <div className="flex flex-col gap-5 p-7">
@@ -73,7 +74,7 @@ export default function QueryVersionsPage() {
         sub={
           isLoading
             ? <span className="text-text-muted">Loading…</span>
-            : <span className="text-text-muted">{formatNumber(versions.length)} versions</span>
+            : <span className="text-text-muted">{formatNumber(data?.totalCount ?? 0)} versions</span>
         }
       />
 
@@ -89,6 +90,7 @@ export default function QueryVersionsPage() {
         <DataTable
           columns={COLUMNS}
           rows={versions}
+          {...list.tableProps}
           rowKey={v => v.id}
           gridTemplate={GRID_TEMPLATE}
           onRowClick={v => navigate(`/queries/${queryId}/versions/${v.id}`)}

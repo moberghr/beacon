@@ -10,7 +10,9 @@ describe('CreateMigrationJobDialog (multi-step)', () => {
     mswServer.use(
       http.get('*/beacon/api/data-sources', () =>
         HttpResponse.json({
-          entries: [
+          totalCount: 2,
+          pageCount: 1,
+          items: [
             {
               id: 1,
               name: 'Warehouse',
@@ -57,18 +59,16 @@ describe('CreateMigrationJobDialog (multi-step)', () => {
     fireEvent.click(screen.getByTestId('stepper-next'));
 
     // Step 2 — Source: pick source DS, write SQL.
-    const srcSelect = await screen.findByLabelText(/Source data source/) as HTMLSelectElement;
-    // Wait for data-sources query to populate the option list.
-    await waitFor(() => expect(srcSelect.querySelectorAll('option').length).toBeGreaterThan(1));
-    fireEvent.change(srcSelect, { target: { value: '1' } });
+    fireEvent.click(await screen.findByRole('button', { name: 'Source data source' }));
+    fireEvent.click(await screen.findByRole('option', { name: /Warehouse/ }));
     fireEvent.input(screen.getByLabelText(/Source SQL/), {
       target: { value: 'SELECT id, email FROM users' },
     });
     fireEvent.click(screen.getByTestId('stepper-next'));
 
     // Step 3 — Destination.
-    await screen.findByLabelText(/Destination data source/);
-    fireEvent.change(screen.getByLabelText(/Destination data source/), { target: { value: '2' } });
+    fireEvent.click(await screen.findByRole('button', { name: 'Destination data source' }));
+    fireEvent.click(await screen.findByRole('option', { name: /Reporting/ }));
     fireEvent.input(screen.getByLabelText(/Destination table/), {
       target: { value: 'reporting.users' },
     });
@@ -104,7 +104,9 @@ describe('CreateMigrationJobDialog (multi-step)', () => {
     mswServer.use(
       http.get('*/beacon/api/data-sources', () =>
         HttpResponse.json({
-          entries: [
+          totalCount: 2,
+          pageCount: 1,
+          items: [
             {
               id: 1,
               name: 'Warehouse',
@@ -127,9 +129,8 @@ describe('CreateMigrationJobDialog (multi-step)', () => {
     fireEvent.click(screen.getByTestId('stepper-next'));
 
     // On Source step — pick source but leave SQL empty, try to advance.
-    const srcSelect = await screen.findByLabelText(/Source data source/) as HTMLSelectElement;
-    await waitFor(() => expect(srcSelect.querySelectorAll('option').length).toBeGreaterThan(1));
-    fireEvent.change(srcSelect, { target: { value: '1' } });
+    fireEvent.click(await screen.findByRole('button', { name: 'Source data source' }));
+    fireEvent.click(await screen.findByRole('option', { name: /Warehouse/ }));
     fireEvent.click(screen.getByTestId('stepper-next'));
 
     await waitFor(() => {

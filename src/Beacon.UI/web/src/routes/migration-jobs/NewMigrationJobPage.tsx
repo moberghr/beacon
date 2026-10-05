@@ -1,4 +1,3 @@
-import { useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -14,7 +13,8 @@ import {
   Select,
   Textarea,
 } from '@/components/beacon';
-import { useDataSourcesQuery, type DataSourceEntry } from '@/routes/data-sources/queries';
+import { DataSourcePicker } from '@/routes/data-sources/DataSourcePicker';
+import { useDataSourceCount } from '@/routes/data-sources/queries';
 import { useCreateMigrationJob } from '@/routes/migration-history/queries';
 import {
   MIGRATION_JOB_DEFAULTS,
@@ -28,17 +28,15 @@ const REQ = <span className="text-crit">*</span>;
 
 export default function NewMigrationJobPage() {
   const navigate = useNavigate();
-  const dataSourcesQuery = useDataSourcesQuery();
+  const dbSourceCount = useDataSourceCount({ databaseOnly: true });
+  const tooFewSources = dbSourceCount.data !== undefined && dbSourceCount.data < 2;
   const createMutation = useCreateMigrationJob();
-
-  const dbSources: DataSourceEntry[] = useMemo(
-    () => (dataSourcesQuery.data?.entries ?? []).filter(x => x.databaseEngineType !== null),
-    [dataSourcesQuery.data],
-  );
 
   const {
     register,
     handleSubmit,
+    setValue,
+    watch,
     formState: { errors, isSubmitting },
   } = useForm<MigrationJobFormValues>({
     resolver: zodResolver(MIGRATION_JOB_SCHEMA),
@@ -78,7 +76,7 @@ export default function NewMigrationJobPage() {
         }
       />
 
-      {!dataSourcesQuery.isLoading && dbSources.length < 2 && (
+      {tooFewSources && (
         <Card>
           <CardBody>
             <span className="text-text-muted">
@@ -111,15 +109,13 @@ export default function NewMigrationJobPage() {
 
         <Section icon={<Database className="size-3.5" />} title="Source">
           <BField label={<>Source data source {REQ}</>}>
-            <Select
-              aria-invalid={!!errors.dataSourceId}
-              {...register('dataSourceId', { setValueAs: v => v === '' || v == null ? 0 : Number(v) })}
-            >
-              <option value={0}>— Select source —</option>
-              {dbSources.map(ds => (
-                <option key={ds.id} value={ds.id}>{ds.name} ({ds.databaseEngineType})</option>
-              ))}
-            </Select>
+            <DataSourcePicker
+              databaseOnly
+              value={watch('dataSourceId') || null}
+              onSelect={x => setValue('dataSourceId', x?.id ?? 0, { shouldValidate: true, shouldDirty: true })}
+              hasError={!!errors.dataSourceId}
+              ariaLabel="Source data source"
+            />
             {errors.dataSourceId?.message && <span className="text-xs text-crit">{errors.dataSourceId.message}</span>}
           </BField>
           <BField label={<>Source SQL {REQ}</>} hint="Use :param placeholders for dynamic values.">
@@ -136,15 +132,13 @@ export default function NewMigrationJobPage() {
 
         <Section icon={<ArrowLeftRight className="size-3.5" />} title="Destination">
           <BField label={<>Destination data source {REQ}</>}>
-            <Select
-              aria-invalid={!!errors.destinationDataSourceId}
-              {...register('destinationDataSourceId', { setValueAs: v => v === '' || v == null ? 0 : Number(v) })}
-            >
-              <option value={0}>— Select destination —</option>
-              {dbSources.map(ds => (
-                <option key={ds.id} value={ds.id}>{ds.name} ({ds.databaseEngineType})</option>
-              ))}
-            </Select>
+            <DataSourcePicker
+              databaseOnly
+              value={watch('destinationDataSourceId') || null}
+              onSelect={x => setValue('destinationDataSourceId', x?.id ?? 0, { shouldValidate: true, shouldDirty: true })}
+              hasError={!!errors.destinationDataSourceId}
+              ariaLabel="Destination data source"
+            />
             {errors.destinationDataSourceId?.message && <span className="text-xs text-crit">{errors.destinationDataSourceId.message}</span>}
           </BField>
           <BField label={<>Destination table {REQ}</>}>
@@ -218,7 +212,7 @@ export default function NewMigrationJobPage() {
           <Button
             variant="primary"
             type="submit"
-            disabled={isSubmitting || createMutation.isPending || dbSources.length < 2}
+            disabled={isSubmitting || createMutation.isPending || tooFewSources}
           >
             {createMutation.isPending ? 'Creating…' : 'Create migration job'}
           </Button>

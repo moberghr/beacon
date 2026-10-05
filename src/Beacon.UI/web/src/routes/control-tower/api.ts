@@ -11,7 +11,7 @@
 
 import { beaconApi } from '@/api/client';
 import { unwrap } from '@/lib/api';
-import type { ControlTowerSortBy, HealthStatus, NotificationStatus } from '@/lib/enums';
+import type { HealthStatus, NotificationStatus } from '@/lib/enums';
 
 export interface AnomalySparklinePoint {
   date: string;
@@ -100,7 +100,6 @@ export interface ControlTowerFilters {
   healthStatus?: HealthStatus;
   hasUnresolvedTasks?: boolean;
   timeRangeDays: number;
-  sortBy: ControlTowerSortBy;
 }
 
 export async function fetchControlTowerStatistics(
@@ -115,28 +114,6 @@ export async function fetchControlTowerStatistics(
     filters.timeRangeDays,
   );
   return unwrap<ControlTowerStatistics>(result.statistics);
-}
-
-export async function fetchControlTowerHealth(
-  filters: ControlTowerFilters,
-  page = 0,
-  pageSize = 200,
-): Promise<{ entries: ControlTowerSubscriptionHealthData[]; totalCount: number }> {
-  const result = await beaconApi().getControlTowerHealth(
-    page,
-    pageSize,
-    undefined,
-    filters.folderId,
-    filters.healthStatus,
-    filters.hasUnresolvedTasks,
-    filters.searchKeyword,
-    filters.timeRangeDays,
-    filters.sortBy,
-  );
-  return {
-    entries: unwrap<ControlTowerSubscriptionHealthData[]>(result.entries),
-    totalCount: result.totalCount,
-  };
 }
 
 export async function fetchControlTowerSubscriptionDetail(

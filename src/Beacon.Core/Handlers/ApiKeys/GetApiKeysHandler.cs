@@ -2,6 +2,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Authorization;
 using Beacon.Core.Data;
+using Beacon.Core.Helpers;
 using Beacon.Core.Services;
 
 namespace Beacon.Core.Handlers.ApiKeys;
@@ -10,9 +11,9 @@ internal sealed class GetApiKeysHandler(
     IDbContextFactory<BeaconContext> contextFactory,
     IBeaconUserContext userContext,
     IUserManagementService userManagementService)
-    : IRequestHandler<GetApiKeysQuery, GetApiKeysResult>
+    : IRequestHandler<GetApiKeysQuery, PagedList<ApiKeyEntry>>
 {
-    public async Task<GetApiKeysResult> Handle(
+    public async Task<PagedList<ApiKeyEntry>> Handle(
         GetApiKeysQuery request,
         CancellationToken cancellationToken)
     {
@@ -26,39 +27,57 @@ internal sealed class GetApiKeysHandler(
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        var rows = await context.ApiKeyCredentials
+        // Scopes are stored comma-joined, so the page is split into arrays after it is read.
+        var page = await context.ApiKeyCredentials
             .Where(x => x.UserId == user.Id)
-            .OrderByDescending(k => k.CreatedTime)
-            .Select(k => new
-            {
-                k.Id,
-                k.Name,
-                k.KeyPrefix,
-                k.Scopes,
-                k.CreatedTime,
-                k.LastUsedAt,
-                k.ExpiresAt,
-                k.IsRevoked
-            })
-            .ToListAsync(cancellationToken);
+            .Select(x =>
+                new ApiKeyRow
+                {
+                    Id = x.Id,
+                    Name = x.Name,
+                    Prefix = x.KeyPrefix,
+                    Scopes = x.Scopes,
+                    CreatedAt = x.CreatedTime,
+                    LastUsedAt = x.LastUsedAt,
+                    ExpiresAt = x.ExpiresAt,
+                    IsRevoked = x.IsRevoked,
+                })
+            .ToPagedListAsync(request, cancellationToken, defaultSort: "-createdAt");
 
-        var entries = rows.Select(r => new ApiKeyEntry(
-            r.Id,
-            r.Name,
-            r.KeyPrefix,
-            (r.Scopes ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
-            r.CreatedTime,
-            r.LastUsedAt,
-            r.ExpiresAt,
-            !r.IsRevoked)).ToList();
+        return page.Map(x =>
+            new ApiKeyEntry(
+                x.Id,
+                x.Name,
+                x.Prefix,
+                (x.Scopes ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
+                x.CreatedAt,
+                x.LastUsedAt,
+                x.ExpiresAt,
+                !x.IsRevoked));
+    }
 
-        return new GetApiKeysResult(entries);
+    private sealed class ApiKeyRow
+    {
+        public int Id { get; init; }
+
+        public string Name { get; init; } = string.Empty;
+
+        public string Prefix { get; init; } = string.Empty;
+
+        public string? Scopes { get; init; }
+
+        public DateTime CreatedAt { get; init; }
+
+        public DateTime? LastUsedAt { get; init; }
+
+        public DateTime? ExpiresAt { get; init; }
+
+        public bool IsRevoked { get; init; }
     }
 }
 
-public record GetApiKeysQuery : IRequest<GetApiKeysResult>;
-
-public record GetApiKeysResult(List<ApiKeyEntry> Entries);
+/// <summary>The caller's own keys, newest first; sortable by name, prefix, createdAt, lastUsedAt, expiresAt.</summary>
+public record GetApiKeysQuery : ListRequest, IRequest<PagedList<ApiKeyEntry>>;
 
 public record ApiKeyEntry(
     int Id,

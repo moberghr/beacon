@@ -1,10 +1,10 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { toast } from 'sonner';
 import { StepperDialog, type StepperDialogStep } from '@/components/ui/StepperDialog';
 import { Field, Input, Select, Textarea } from '@/components/beacon';
-import { useDataSourcesQuery, type DataSourceEntry } from '@/routes/data-sources/queries';
+import { DataSourcePicker } from '@/routes/data-sources/DataSourcePicker';
 import { MigrationMode } from '@/lib/enums';
 import {
   MIGRATION_JOB_DEFAULTS,
@@ -33,7 +33,6 @@ interface CreateMigrationJobDialogProps {
 }
 
 export function CreateMigrationJobDialog({ open, onClose }: CreateMigrationJobDialogProps) {
-  const dataSourcesQuery = useDataSourcesQuery();
   const createMutation = useCreateMigrationJob();
 
   const form = useForm<FormValues>({
@@ -41,24 +40,24 @@ export function CreateMigrationJobDialog({ open, onClose }: CreateMigrationJobDi
     defaultValues: MIGRATION_JOB_DEFAULTS,
     mode: 'onTouched',
   });
-  const { register, watch, reset, formState: { errors }, getValues } = form;
+  const { register, watch, reset, setValue, formState: { errors }, getValues } = form;
+  // Names of the picked sources, for the review step (the picker only holds ids in the form).
+  const [names, setNames] = useState<Record<number, string>>({});
 
   useEffect(() => {
     if (!open) return;
     reset(MIGRATION_JOB_DEFAULTS);
   }, [open, reset]);
 
-  const dbSources: DataSourceEntry[] = useMemo(
-    () => (dataSourcesQuery.data?.entries ?? []).filter(x => x.databaseEngineType !== null),
-    [dataSourcesQuery.data],
-  );
-
   const sourceId = watch('dataSourceId');
   const destId = watch('destinationDataSourceId');
   const mode = watch('mode');
 
-  const sourceLabel = (id: number) =>
-    dbSources.find(x => x.id === id)?.name ?? '—';
+  const sourceLabel = (id: number) => names[id] ?? '—';
+  const pickSource = (field: 'dataSourceId' | 'destinationDataSourceId', picked: { id: number; name: string } | null) => {
+    if (picked) setNames(previous => ({ ...previous, [picked.id]: picked.name }));
+    setValue(field, picked?.id ?? 0, { shouldValidate: true, shouldDirty: true });
+  };
 
   const onFinish = async () => {
     try {
@@ -109,28 +108,15 @@ export function CreateMigrationJobDialog({ open, onClose }: CreateMigrationJobDi
       fields: ['dataSourceId', 'queryText'],
       render: () => (
         <div className="flex flex-col gap-3.5">
-          <Field
-            label={<>Source data source {REQ}</>}
-            hint={
-              dataSourcesQuery.isLoading
-                ? 'Loading data sources…'
-                : dbSources.length === 0
-                  ? 'No database data sources available — add one first under Data sources.'
-                  : undefined
-            }
-          >
-            <Select
-              aria-invalid={!!errors.dataSourceId}
-              disabled={dataSourcesQuery.isLoading}
-              {...register('dataSourceId', { setValueAs: v => v === '' || v == null ? 0 : Number(v) })}
-            >
-              <option value={0}>— Select source —</option>
-              {dbSources.map(ds => (
-                <option key={ds.id} value={ds.id}>
-                  {ds.name} ({ds.databaseEngineType})
-                </option>
-              ))}
-            </Select>
+          <Field label={<>Source data source {REQ}</>} hint="Database data sources only.">
+            <DataSourcePicker
+              databaseOnly
+              value={sourceId > 0 ? sourceId : null}
+              selectedLabel={names[sourceId]}
+              onSelect={x => pickSource('dataSourceId', x)}
+              hasError={!!errors.dataSourceId}
+              ariaLabel="Source data source"
+            />
             {errors.dataSourceId && <span className="text-xs text-crit">{errors.dataSourceId.message}</span>}
           </Field>
 
@@ -163,18 +149,14 @@ export function CreateMigrationJobDialog({ open, onClose }: CreateMigrationJobDi
       render: () => (
         <div className="flex flex-col gap-3.5">
           <Field label={<>Destination data source {REQ}</>}>
-            <Select
-              aria-invalid={!!errors.destinationDataSourceId}
-              disabled={dataSourcesQuery.isLoading}
-              {...register('destinationDataSourceId', { setValueAs: v => v === '' || v == null ? 0 : Number(v) })}
-            >
-              <option value={0}>— Select destination —</option>
-              {dbSources.map(ds => (
-                <option key={ds.id} value={ds.id}>
-                  {ds.name} ({ds.databaseEngineType})
-                </option>
-              ))}
-            </Select>
+            <DataSourcePicker
+              databaseOnly
+              value={destId > 0 ? destId : null}
+              selectedLabel={names[destId]}
+              onSelect={x => pickSource('destinationDataSourceId', x)}
+              hasError={!!errors.destinationDataSourceId}
+              ariaLabel="Destination data source"
+            />
             {errors.destinationDataSourceId && (
               <span className="text-xs text-crit">{errors.destinationDataSourceId.message}</span>
             )}

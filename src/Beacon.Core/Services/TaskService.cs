@@ -189,7 +189,7 @@ public class TaskService(IDbContextFactory<BeaconContext> contextFactory, ILogge
         await context.SaveChangesAsync(cancellationToken);
     }
 
-    public async Task<TaskListData> GetTasks(GetTasksRequest request, CancellationToken cancellationToken)
+    public async Task<PagedList<TaskData>> GetTasks(GetTasksRequest request, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
@@ -203,7 +203,7 @@ public class TaskService(IDbContextFactory<BeaconContext> contextFactory, ILogge
             query = query.Where(t => t.Resolved == request.Resolved.Value);
 
         // Project to DTO (EF Core automatically generates necessary JOINs)
-        var pagedTasks = await query
+        return await query
             .Select(t => new TaskData
             {
                 Id = t.Id,
@@ -236,13 +236,7 @@ public class TaskService(IDbContextFactory<BeaconContext> contextFactory, ILogge
                     .Distinct()
                     .Count()
             })
-            .ToPagedListAsync(request, cancellationToken);
-
-        return new TaskListData
-        {
-            Data = pagedTasks.Items,
-            TotalCount = pagedTasks.TotalCount
-        };
+            .ToPagedListAsync(request, cancellationToken, defaultSort: "-createdAt");
     }
 
     public async Task<TaskDetailsData?> GetTaskDetails(int taskId, string? currentUserId, CancellationToken cancellationToken)

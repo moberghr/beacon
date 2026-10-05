@@ -2,10 +2,10 @@ using Beacon.Core.Helpers;
 
 namespace Beacon.Core.Models.DataMigration;
 
-public class GetMigrationJobsRequest : SortedListRequest
+public record GetMigrationJobsRequest : ListRequest
 {
-    public int? DataSourceId { get; set; }
-    public bool? IsEnabled { get; set; }
-    public bool IncludeArchived { get; set; } = false;
-    public string? SearchTerm { get; set; }
+    public int? DataSourceId { get; init; }
+    public bool? IsEnabled { get; init; }
+    public bool IncludeArchived { get; init; } = false;
+    public string? SearchTerm { get; init; }
 }

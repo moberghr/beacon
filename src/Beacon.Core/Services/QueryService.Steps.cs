@@ -195,6 +195,11 @@ internal partial class QueryService
             StepResults = stepResults,
             FinalResult = finalResult,
             Success = allStepsSucceeded,
+            // Execution stops at the first failed step, so its message is the cause of the whole run.
+            ErrorMessage = stepResults
+                .Where(x => !x.Success)
+                .Select(x => x.ErrorMessage)
+                .FirstOrDefault(),
             TotalExecutionTimeMs = totalExecutionTime,
             IsMultiStep = query.IsMultiStep,
             IsCrossDataSource = query.IsCrossDataSource,

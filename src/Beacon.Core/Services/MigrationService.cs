@@ -23,7 +23,7 @@ public interface IMigrationService
     Task<ExecuteMigrationJobResponse> ExecuteMigrationJob(ExecuteMigrationJobRequest request, CancellationToken cancellationToken);
     Task<PagedList<MigrationJobDto>> GetMigrationJobs(GetMigrationJobsRequest request, CancellationToken cancellationToken);
     Task<MigrationJobDetailsDto?> GetMigrationJob(int id, CancellationToken cancellationToken);
-    Task<GetMigrationExecutionsResponse> GetMigrationExecutions(GetMigrationExecutionsRequest request, CancellationToken cancellationToken);
+    Task<PagedList<MigrationExecutionDto>> GetMigrationExecutions(GetMigrationExecutionsRequest request, CancellationToken cancellationToken);
     Task<BaseResponse> UpdateMigrationJob(int id, CreateMigrationJobRequest request, CancellationToken cancellationToken);
     Task<BaseResponse> DeleteMigrationJob(int id, CancellationToken cancellationToken, bool forceDelete = false);
 }
@@ -251,7 +251,7 @@ internal partial class MigrationService(
         return job;
     }
 
-    public async Task<GetMigrationExecutionsResponse> GetMigrationExecutions(GetMigrationExecutionsRequest request, CancellationToken cancellationToken)
+    public async Task<PagedList<MigrationExecutionDto>> GetMigrationExecutions(GetMigrationExecutionsRequest request, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
@@ -279,25 +279,19 @@ internal partial class MigrationService(
             query = query.Where(e => e.StartedAt <= request.EndDate.Value);
         }
 
-        // Apply sorting
-        query = request.SortBy switch
+        // MigrationExecutionDto is positional, so EF cannot order through it: sort the entity, then project.
+        var criterion = request.SortCriteria().FirstOrDefault();
+        var descending = criterion == null || criterion.SortDirection == SortDirection.Descending;
+        IOrderedQueryable<MigrationExecutionHistory> ordered = criterion?.SortColumn.ToLowerInvariant() switch
         {
-            MigrationExecutionSortBy.StartedAt => request.SortDescending ?
-                query.OrderByDescending(e => e.StartedAt) : query.OrderBy(e => e.StartedAt),
-            MigrationExecutionSortBy.CompletedAt => request.SortDescending ?
-                query.OrderByDescending(e => e.CompletedAt) : query.OrderBy(e => e.CompletedAt),
-            MigrationExecutionSortBy.Status => request.SortDescending ?
-                query.OrderByDescending(e => e.Status) : query.OrderBy(e => e.Status),
-            MigrationExecutionSortBy.RowsProcessed => request.SortDescending ?
-                query.OrderByDescending(e => e.SourceRowsRead) : query.OrderBy(e => e.SourceRowsRead),
-            _ => query.OrderByDescending(e => e.StartedAt)
+            "completedat" => descending ? query.OrderByDescending(e => e.CompletedAt) : query.OrderBy(e => e.CompletedAt),
+            "status" => descending ? query.OrderByDescending(e => e.Status) : query.OrderBy(e => e.Status),
+            "sourcerowsread" => descending ? query.OrderByDescending(e => e.SourceRowsRead) : query.OrderBy(e => e.SourceRowsRead),
+            _ => descending ? query.OrderByDescending(e => e.StartedAt) : query.OrderBy(e => e.StartedAt)
         };
 
-        var totalCount = await query.CountAsync(cancellationToken);
-
-        var executions = await query
-            .Skip(request.Skip)
-            .Take(request.Take)
+        return await ordered
+            .ThenBy(e => e.Id)
             .Select(e => new MigrationExecutionDto(
                 e.Id,
                 e.MigrationJobId,
@@ -315,9 +309,7 @@ internal partial class MigrationService(
                 e.RetryAttempt,
                 e.ParentExecutionId.HasValue
             ))
-            .ToListAsync(cancellationToken);
-
-        return new GetMigrationExecutionsResponse(executions, totalCount, totalCount > request.Skip + request.Take);
+            .ToPagedListPreservingOrderAsync(request, cancellationToken);
     }
 
     public async Task<BaseResponse> UpdateMigrationJob(int id, CreateMigrationJobRequest request, CancellationToken cancellationToken)

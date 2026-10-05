@@ -238,17 +238,20 @@ export function Sidebar() {
               <IconCog className="size-4 shrink-0 text-text-muted" />
               <span>Settings</span>
             </Link>
-            <button
-              type="button"
-              role="menuitem"
-              tabIndex={-1}
-              onClick={handleSignOut}
-              disabled={signingOut}
-              className="w-full flex items-center gap-2 px-2.5 py-1.5 text-sm text-text hover:bg-surface-2 disabled:opacity-60 text-left"
-            >
-              <IconLogOut className="size-4 shrink-0 text-text-muted" />
-              <span>{signingOut ? 'Signing out…' : 'Sign out'}</span>
-            </button>
+            {/* A host that owns sign-in also owns sign-out; Beacon's would only clear its own cookie. */}
+            {!user?.externalLogin && (
+              <button
+                type="button"
+                role="menuitem"
+                tabIndex={-1}
+                onClick={handleSignOut}
+                disabled={signingOut}
+                className="w-full flex items-center gap-2 px-2.5 py-1.5 text-sm text-text hover:bg-surface-2 disabled:opacity-60 text-left"
+              >
+                <IconLogOut className="size-4 shrink-0 text-text-muted" />
+                <span>{signingOut ? 'Signing out…' : 'Sign out'}</span>
+              </button>
+            )}
           </div>
         )}
         <button

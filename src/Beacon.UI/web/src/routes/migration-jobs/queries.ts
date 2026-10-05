@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { unwrap } from '@/lib/api';
+import { fetchJson, unwrap } from '@/lib/api';
+import { usePagedList } from '@/lib/usePagedList';
 import { beaconApi } from '@/api/client';
 import type { MigrationStatus } from '@/lib/enums';
 import { createSimpleMutation } from '@/lib/mutations';
@@ -19,17 +20,24 @@ export interface MigrationJobListItem {
   createdTime: string;
 }
 
-interface GetMigrationJobsResult {
-  jobs: MigrationJobListItem[];
-}
-
 const MIGRATION_JOBS_KEY = ['migration-jobs'] as const;
 
-export function useMigrationJobsQuery() {
-  return useQuery({
+/** The migration jobs grid: server-paged, newest first, name search in the URL. */
+export function useMigrationJobsList() {
+  return usePagedList<MigrationJobListItem, { search: string }>({
     queryKey: MIGRATION_JOBS_KEY,
-    queryFn: async () =>
-      unwrap<GetMigrationJobsResult>(await beaconApi().getMigrationJobs()),
+    path: '/beacon/api/migrations/jobs',
+    filters: { search: '' },
+    defaultSort: { column: 'createdTime', direction: 'desc' },
+  });
+}
+
+/** One migration job by id, for its detail page. */
+export function useMigrationJobQuery(id: number | null) {
+  return useQuery({
+    queryKey: [...MIGRATION_JOBS_KEY, 'by-id', id],
+    queryFn: () => fetchJson<MigrationJobListItem>(`/beacon/api/migrations/jobs/${id}`),
+    enabled: id != null && Number.isFinite(id),
   });
 }
 

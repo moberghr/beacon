@@ -75,11 +75,9 @@ async function renderPage() {
 }
 
 async function switchToProjectOne() {
-  // The scope selector lists projects from /beacon/api/projects (default handler: Acme = 1).
-  await screen.findByRole('option', { name: 'Project: Acme Analytics' });
-  fireEvent.change(screen.getByLabelText('Settings scope'), {
-    target: { value: '1' },
-  });
+  // The scope picker searches /beacon/api/projects (default handler: Acme = 1).
+  fireEvent.click(screen.getByRole('button', { name: 'Settings scope' }));
+  fireEvent.click(await screen.findByRole('option', { name: 'Acme Analytics' }));
   await screen.findByText('Save overrides');
 }
 

@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { describeError, unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
+import { usePagedList } from '@/lib/usePagedList';
 import { McpDocPatchStatus, McpPatternStatus, McpPatternType } from '@/lib/enums';
 import { createSimpleMutation } from '@/lib/mutations';
 
@@ -165,13 +166,6 @@ export interface RunMcpToolResult {
   isError: boolean;
 }
 
-export interface LearnedPatternsResult {
-  patterns: LearnedPatternEntry[];
-}
-
-export interface DocumentationPatchesResult {
-  patches: DocumentationPatchEntry[];
-}
 
 export const MCP_SETTINGS_KEY = ['mcp', 'settings'] as const;
 export const mcpProjectSettingsKey = (projectId: number) =>
@@ -251,29 +245,22 @@ export function useLearningStats() {
   });
 }
 
-export function useLearnedPatterns() {
-  return useQuery({
+/** Learned patterns: server-paged, most confident first; status and type filters in the URL (`patterns*`). */
+export function useLearnedPatternsList() {
+  return usePagedList<LearnedPatternEntry, { status: string; patternType: string }>({
     queryKey: MCP_PATTERNS_KEY,
-    queryFn: async () =>
-      unwrap<LearnedPatternsResult>(
-        await beaconApi().getLearnedPatterns(
-          undefined,
-          undefined,
-          undefined,
-          undefined,
-          undefined,
-        ),
-      ),
+    path: '/beacon/api/mcp/learned-patterns',
+    filters: { status: '', patternType: '' },
+    urlPrefix: 'patterns',
   });
 }
 
-export function useDocumentationPatches() {
-  return useQuery({
+/** Documentation patches: server-paged, best supported first (`patches*` in the URL). */
+export function useDocumentationPatchesList() {
+  return usePagedList<DocumentationPatchEntry>({
     queryKey: MCP_PATCHES_KEY,
-    queryFn: async () =>
-      unwrap<DocumentationPatchesResult>(
-        await beaconApi().getDocumentationPatches(undefined, undefined),
-      ),
+    path: '/beacon/api/mcp/documentation-patches',
+    urlPrefix: 'patches',
   });
 }
 

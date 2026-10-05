@@ -1,13 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Check, Plus, Users, X } from 'lucide-react';
 import { EmptyState } from '@/components/data/EmptyState';
 import { Dialog } from '@/components/ui/Dialog';
 import { Stepper } from '@/components/ui/Stepper';
-import { Button, Card, Input, Pill } from '@/components/beacon';
-import {
-  NOTIFICATION_TYPE_LABEL,
-  useRecipientsQuery,
-} from '@/routes/recipients/queries';
+import { Button, Card, Pill } from '@/components/beacon';
+import { SearchMultiSelect } from '@/components/data/SearchMultiSelect';
+import { NOTIFICATION_TYPE_LABEL, type RecipientEntry } from '@/routes/recipients/queries';
 import {
   useAddSubscriptionRecipients,
   useRemoveSubscriptionRecipient,
@@ -104,37 +102,10 @@ interface RecipientPickerProps {
 }
 
 function RecipientPicker({ existingIds, onClose, subscriptionId }: RecipientPickerProps) {
-  const recipientsQuery = useRecipientsQuery();
   const add = useAddSubscriptionRecipients(subscriptionId);
-  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [selectedRecipients, setSelectedRecipients] = useState<RecipientEntry[]>([]);
   const [step, setStep] = useState<0 | 1>(0);
-  const [search, setSearch] = useState('');
-
-  const entries = recipientsQuery.data?.entries ?? [];
-  const candidates = useMemo(
-    () => entries.filter(e => !existingIds.includes(e.id)),
-    [entries, existingIds]
-  );
-  const visible = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return candidates;
-    return candidates.filter(c =>
-      c.name.toLowerCase().includes(q) || c.destination.toLowerCase().includes(q)
-    );
-  }, [candidates, search]);
-  const selectedRecipients = useMemo(
-    () => candidates.filter(c => selected.has(c.id)),
-    [candidates, selected]
-  );
-
-  const toggle = (id: number) => {
-    setSelected(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
+  const selected = new Set(selectedRecipients.map(x => x.id));
 
   const onSubmit = () => {
     if (selected.size === 0) return;
@@ -185,48 +156,26 @@ function RecipientPicker({ existingIds, onClose, subscriptionId }: RecipientPick
 
       {step === 0 && (
         <div className="mt-3">
-          {recipientsQuery.isLoading ? (
-            <div className="text-text-muted">Loading recipients…</div>
-          ) : candidates.length === 0 ? (
-            <EmptyState
-              icon={<Users />}
-              title="No more recipients"
-              description="All existing recipients are already attached to this subscription."
-            />
-          ) : (
-            <>
-              <Input
-                type="search"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                placeholder="Search by name or destination…"
-                className="mb-2"
-              />
-              <ul className="list-none p-0 m-0 flex flex-col gap-2 max-h-80 overflow-y-auto">
-                {visible.map(r => (
-                  <li key={r.id}>
-                    <label className="flex items-center gap-2 px-2 py-1.5 border border-border rounded-sm cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={selected.has(r.id)}
-                        onChange={() => toggle(r.id)}
-                      />
-                      <span className="font-medium">{r.name}</span>
-                      <span className="text-text-muted mono text-xs">{r.destination}</span>
-                      <Pill className="ml-auto">
-                        {NOTIFICATION_TYPE_LABEL[r.notificationType] ?? r.notificationType}
-                      </Pill>
-                    </label>
-                  </li>
-                ))}
-                {visible.length === 0 && (
-                  <li className="text-text-muted p-3 text-center">
-                    No matches for "{search}".
-                  </li>
-                )}
-              </ul>
-            </>
-          )}
+          <SearchMultiSelect<RecipientEntry>
+            path="/beacon/api/recipients"
+            queryKey={['recipients']}
+            selected={selectedRecipients}
+            onChange={setSelectedRecipients}
+            lockedIds={existingIds}
+            getId={x => x.id}
+            getLabel={x => x.name}
+            noun="recipients"
+            emptyContent={
+              <EmptyState icon={<Users />} title="No recipients yet" description="Create one on the Recipients page first." />
+            }
+            renderItem={r => (
+              <span className="flex items-center gap-2">
+                <span className="font-medium">{r.name}</span>
+                <span className="text-text-muted mono text-xs truncate">{r.destination}</span>
+                <Pill className="ml-auto">{NOTIFICATION_TYPE_LABEL[r.notificationType] ?? r.notificationType}</Pill>
+              </span>
+            )}
+          />
         </div>
       )}
 

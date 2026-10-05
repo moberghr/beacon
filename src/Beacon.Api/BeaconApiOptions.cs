@@ -19,4 +19,9 @@ public sealed class BeaconApiOptions
     /// <see cref="Realtime"/> is enabled — the hook for protocol and backplane configuration.
     /// </summary>
     public Action<ISignalRServerBuilder>? ConfigureSignalR { get; set; }
+
+    /// <summary>
+    /// Set when the host owns sign-in; <c>null</c> (the default) keeps Beacon's own login page.
+    /// </summary>
+    public ExternalLoginOptions? ExternalLogin { get; set; }
 }

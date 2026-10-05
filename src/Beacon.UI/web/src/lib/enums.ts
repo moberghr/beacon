@@ -13,7 +13,6 @@ export {
   ApprovalStatus,
   BedrockAuthMode,
   ChangeSource,
-  ControlTowerSortBy,
   DataContractRuleType,
   DataContractSeverity,
   DatabaseEngineType,

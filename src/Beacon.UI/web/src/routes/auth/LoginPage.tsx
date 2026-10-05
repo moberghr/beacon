@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { useHref, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { useQuery } from '@tanstack/react-query';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { User, Lock, ShieldCheck } from 'lucide-react';
 import { ApiError, describeError, fetchJson } from '@/lib/api';
 import { useAuth } from '@/auth/useAuth';
+import { redirectToExternalLogin } from '@/auth/externalLogin';
 import {
   AuthLayout,
   AuthAlert,
@@ -50,6 +51,15 @@ export default function LoginPage() {
     (location.state as { returnTo?: string } | null)?.returnTo,
   );
   const auth = useAuth();
+  // A host that owns sign-in never shows this page: send the user to the host's login instead.
+  // useHref adds the router basename, since the host (not the router) redirects back afterwards.
+  const externalLogin = auth.data && !auth.data.isAuthenticated ? auth.data.externalLogin : null;
+  const externalReturnTo = useHref(returnTo ?? '/home');
+  useEffect(() => {
+    if (externalLogin) {
+      redirectToExternalLogin(externalLogin, externalReturnTo);
+    }
+  }, [externalLogin, externalReturnTo]);
   // SSO is only offered when the backend has OIDC configured. The flag is read pre-auth
   // (anonymous endpoint); the button stays hidden until it resolves true, so we never show a
   // link that would 404 against an SSO-disabled deployment.
@@ -115,6 +125,15 @@ export default function LoginPage() {
       }
     }
     return describeError(e, 'Login failed. Try again.');
+  }
+
+  // Nothing is rendered until /auth/me answers, so an external-login host never flashes this form.
+  if (auth.isLoading || externalLogin) {
+    return (
+      <div className="grid place-items-center h-full">
+        <span className="text-text-muted text-sm">{externalLogin ? 'Redirecting to sign in…' : 'Loading…'}</span>
+      </div>
+    );
   }
 
   return (

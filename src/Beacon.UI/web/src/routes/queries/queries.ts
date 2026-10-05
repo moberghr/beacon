@@ -1,6 +1,8 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { unwrap } from '@/lib/api';
+import { fetchJson, unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
+import { fetchPagedList, listQueryString } from '@/lib/paging';
+import { usePagedList } from '@/lib/usePagedList';
 import { ChangeSource, ParameterType } from '@/lib/enums';
 import { createSimpleMutation } from '@/lib/mutations';
 
@@ -42,11 +44,13 @@ export interface QueryVersionDetail {
   steps: QueryVersionStepSnapshot[];
 }
 
-export function useQueryVersionsQuery(queryId: number | undefined) {
-  return useQuery({
+/** A query's versions: server-paged, newest first. Pass a URL prefix when it shares a page (the tab). */
+export function useQueryVersionsList(queryId: number | undefined, urlPrefix?: string) {
+  return usePagedList<QueryVersionSummary>({
     queryKey: ['queries', queryId, 'versions'],
-    queryFn: async () =>
-      unwrap<QueryVersionSummary[]>(await beaconApi().getQueryVersions(queryId as number)),
+    path: `/beacon/api/queries/${queryId}/versions`,
+    defaultSort: { column: 'versionNumber', direction: 'desc' },
+    urlPrefix,
     enabled: typeof queryId === 'number' && Number.isFinite(queryId),
   });
 }
@@ -269,34 +273,13 @@ export interface QueryChangeHistoryEntry {
   changedAt: string;
 }
 
-export interface QueryChangeHistoryResult {
-  queryId: number;
-  changes: QueryChangeHistoryEntry[];
-}
-
-interface ChangeHistoryFilters {
-  stepId?: number;
-  changeSource?: number;
-  fromDate?: string;
-  toDate?: string;
-  maxResults?: number;
-}
-
-export function useQueryChangeHistoryQuery(
-  id: number | undefined,
-  filters: ChangeHistoryFilters = {},
-) {
-  return useQuery({
-    queryKey: ['query', id, 'change-history', filters],
-    queryFn: async () =>
-      unwrap<QueryChangeHistoryResult>(await beaconApi().getQueryChangeHistory(
-        id as number,
-        filters.stepId,
-        filters.changeSource,
-        filters.fromDate ? new Date(filters.fromDate) : undefined,
-        filters.toDate ? new Date(filters.toDate) : undefined,
-        filters.maxResults,
-      )),
+/** A query's SQL change history: server-paged, newest first (`changes*` keys in the URL). */
+export function useQueryChangeHistoryList(id: number | undefined) {
+  return usePagedList<QueryChangeHistoryEntry>({
+    queryKey: ['query', id, 'change-history'],
+    path: `/beacon/api/queries/${id}/change-history`,
+    defaultSort: { column: 'changedAt', direction: 'desc' },
+    urlPrefix: 'changes',
     enabled: typeof id === 'number' && Number.isFinite(id),
   });
 }
@@ -393,38 +376,49 @@ export function useUpdateQueryMutation() {
 
 export type PreviewRow = Record<string, unknown>;
 
-export interface QueryStepPreviewResult {
+/** One step of a preview: its outcome and, for intermediate steps, its first rows. */
+export interface QueryPreviewStep {
   stepOrder: number;
   stepName: string;
-  sqlQuery: string;
   dataSourceName: string;
   databaseEngine: string;
-  databaseEngineType: number;
-  previewResults: PreviewRow[];
-  allResults: PreviewRow[];
-  totalRows: number;
-  executionTimeMs: number;
   success: boolean;
   errorMessage: string | null;
+  executionTimeMs: number;
+  totalRows: number;
+  previewRows: PreviewRow[];
 }
 
-export interface QueryExecutionPreviewResult {
-  stepResults: QueryStepPreviewResult[];
-  finalResult: {
-    success: boolean;
-    error: string | null;
-    rowCount: number;
-    rows: PreviewRow[];
-    columns: string[];
-    executionTime: string;
-  } | null;
+/** One page of a raw query result, read from the database a page at a time. */
+export interface QueryResultPage {
+  rows: PreviewRow[];
+  totalCount: number;
+  pageCount: number;
+  /** Zero-based. */
+  page: number;
+  pageSize: number;
+  /** False when this query's SQL shape cannot be ordered by a result column. */
+  sortable: boolean;
+  /** The applied sort (`-column` syntax), or null for the query's own order. */
+  sort: string | null;
+}
+
+/** The wire shape of both preview endpoints: step summaries plus one page of the result. */
+export interface QueryPreviewResult {
   success: boolean;
   errorMessage: string | null;
   totalExecutionTimeMs: number;
-  isMultiStep: boolean;
-  isCrossDataSource: boolean;
-  isCrossDatabase: boolean;
   dataSourcesInvolved: string[];
+  steps: QueryPreviewStep[];
+  /** The paged result: the single step, or the final query of a multi-step query. */
+  result: QueryResultPage | null;
+}
+
+export interface PreviewPaging {
+  /** Zero-based. */
+  page?: number;
+  pageSize?: number;
+  sort?: string;
 }
 
 export interface ParameterValueInput {
@@ -435,24 +429,28 @@ export interface ParameterValueInput {
 export function usePreviewStepMutation(id: number | undefined) {
   const qc = useQueryClient();
   return useMutation(
-    createSimpleMutation<{ stepOrder: number; parameters?: ParameterValueInput[] }, QueryStepPreviewResult>({
+    createSimpleMutation<{ stepOrder: number; parameters?: ParameterValueInput[]; paging?: PreviewPaging }, QueryPreviewResult>({
       qc,
-      mutationFn: async (vars) =>
-        unwrap<QueryStepPreviewResult>(await beaconApi().executeStepPreview(id as number, vars.stepOrder, {
-          parameters: (vars.parameters ?? null) as never,
-        })),
+      mutationFn: vars =>
+        fetchJson<QueryPreviewResult>(
+          `/beacon/api/queries/${id}/steps/${vars.stepOrder}/preview${listQueryString({ ...vars.paging })}`,
+          { method: 'POST', body: JSON.stringify({ parameters: vars.parameters ?? null }) },
+        ),
       errorFallback: 'Step preview failed',
     }),
   );
 }
 
+/** Runs the saved query and returns one page of its result; call again with another page or sort. */
 export function usePreviewQueryMutation(id: number | undefined) {
   const qc = useQueryClient();
   return useMutation(
-    createSimpleMutation<void, QueryExecutionPreviewResult>({
+    createSimpleMutation<PreviewPaging | void, QueryPreviewResult>({
       qc,
-      mutationFn: async () =>
-        unwrap<QueryExecutionPreviewResult>(await beaconApi().executeQueryPreview(id as number)),
+      mutationFn: paging =>
+        fetchJson<QueryPreviewResult>(`/beacon/api/queries/${id}/preview${listQueryString({ ...(paging ?? {}) })}`, {
+          method: 'POST',
+        }),
       errorFallback: 'Query preview failed',
     }),
   );
@@ -473,34 +471,32 @@ export interface QueryListItem {
   steps: { stepId: number; stepOrder: number; name: string; dataSourceName: string }[];
 }
 
-// Backend wire shape — Beacon.Core.Helpers.PagedList<T>: { items, totalCount }.
-export interface PagedQueriesResponse {
-  items: QueryListItem[];
-  totalCount: number;
-}
-
 export interface QueriesListParams {
   searchTerm?: string;
   dataSourceId?: number;
   folderId?: number;
+  /** Zero-based. */
   page?: number;
   pageSize?: number;
+  sort?: string;
 }
 
+/** A single fetch of saved queries, e.g. the first 20 matches for a picker. Grids use `useQueriesList`. */
 export function useQueriesListQuery(params: QueriesListParams = {}) {
   return useQuery({
     queryKey: ['queries', 'list', params],
-    queryFn: async () =>
-      unwrap<PagedQueriesResponse>(await beaconApi().getQueries(
-        undefined,
-        params.dataSourceId,
-        undefined,
-        params.folderId,
-        params.searchTerm,
-        params.page ?? 1,
-        params.pageSize ?? 50,
-      )),
+    queryFn: () => fetchPagedList<QueryListItem>('/beacon/api/queries', { ...params }),
     placeholderData: keepPreviousData,
+  });
+}
+
+/** The saved-queries grid: server-paged, newest first, name search in the URL. */
+export function useQueriesList() {
+  return usePagedList<QueryListItem, { searchTerm: string }>({
+    queryKey: ['queries', 'list'],
+    path: '/beacon/api/queries',
+    filters: { searchTerm: '' },
+    defaultSort: { column: 'createdTime', direction: 'desc' },
   });
 }
 

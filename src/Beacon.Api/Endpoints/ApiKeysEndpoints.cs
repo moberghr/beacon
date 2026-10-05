@@ -9,7 +9,7 @@ internal static class ApiKeysEndpoints
     {
         var keys = group.MapGroup("/api-keys").WithTags("ApiKeys");
 
-        keys.MapGet("/", (IMediator m, CancellationToken ct) => m.Send(new GetApiKeysQuery(), ct))
+        keys.MapGet("/", ([AsParameters] GetApiKeysQuery query, IMediator m, CancellationToken ct) => m.Send(query, ct))
             .WithName("GetApiKeys");
 
         keys.MapPost("/", (CreateApiKeyCommand cmd, IMediator m, CancellationToken ct) => m.Send(cmd, ct))

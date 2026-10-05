@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { beaconApi } from '@/api/client';
 import { unwrap } from '@/lib/api';
+import { fetchPagedList } from '@/lib/paging';
+import { usePagedList } from '@/lib/usePagedList';
 import { createSimpleMutation } from '@/lib/mutations';
 
 // Local strict mirrors of the loose generated DTOs (see `unwrap` in
@@ -16,10 +18,6 @@ export interface ProjectSummaryEntry {
   lastScanStatus: string | null;
   lastScanAt: string | null;
   createdAt: string;
-}
-
-export interface GetProjectsResult {
-  entries: ProjectSummaryEntry[];
 }
 
 export interface ProjectDataSourceEntry {
@@ -93,10 +91,24 @@ export interface GetProjectDocumentationResult {
   history: ProjectDocumentationHistoryEntry[];
 }
 
-export function useProjectsQuery() {
-  return useQuery({
+/** The projects grid: server-paged, newest first, name search in the URL. */
+export function useProjectsList() {
+  return usePagedList<ProjectSummaryEntry, { search: string }>({
     queryKey: ['projects'],
-    queryFn: async () => unwrap<GetProjectsResult>(await beaconApi().getProjects()),
+    path: '/beacon/api/projects',
+    filters: { search: '' },
+    defaultSort: { column: 'createdAt', direction: 'desc' },
+  });
+}
+
+/** The only project, when exactly one exists (for pages that pre-select it); a two-row request. */
+export function useSoleProject() {
+  return useQuery({
+    queryKey: ['projects', 'sole'],
+    queryFn: async () => {
+      const page = await fetchPagedList<ProjectSummaryEntry>('/beacon/api/projects', { pageSize: 2 });
+      return page.totalCount === 1 ? page.items[0] : null;
+    },
   });
 }
 

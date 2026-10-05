@@ -1,15 +1,15 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import { AlertTriangle, ChevronLeft, ChevronRight, LayoutGrid, Plus, RefreshCw, X } from 'lucide-react';
+import { AlertTriangle, LayoutGrid, Plus, RefreshCw, X } from 'lucide-react';
 import { PageHeader, Button, Card, Input, Pill } from '@/components/beacon';
 import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { formatDateTime, formatNumber } from '@/lib/format';
+import { useSearchFilter } from '@/lib/usePagedList';
 import {
-  DASHBOARDS_PAGE_SIZE,
-  useDashboardsQuery,
+  useDashboardsList,
   useDeleteDashboard,
   useCreateDashboard,
   type DashboardListItem,
@@ -17,24 +17,10 @@ import {
 
 const GRID_TEMPLATE = '0.6fr 2fr 2.5fr 0.7fr 0.9fr 1.2fr 60px';
 
-/** Debounce a fast-changing value (search input) before it enters a query key. */
-function useDebouncedValue<T>(value: T, delayMs = 300): T {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const handle = window.setTimeout(() => setDebounced(value), delayMs);
-    return () => window.clearTimeout(handle);
-  }, [value, delayMs]);
-  return debounced;
-}
-
 export default function DashboardsListPage() {
-  const [search, setSearch] = useState('');
-  const [page, setPage] = useState(0);
-  const debouncedSearch = useDebouncedValue(search.trim());
-  const { data, isLoading, isError, error, refetch } = useDashboardsQuery(
-    debouncedSearch || undefined,
-    page,
-  );
+  const list = useDashboardsList();
+  const { items: rows, isLoading, isError, error, refetch } = list;
+  const [search, setSearch] = useSearchFilter(list.filters.searchKeyword, value => list.setFilter('searchKeyword', value));
   const deleteMutation = useDeleteDashboard();
   const createMutation = useCreateDashboard();
   const navigate = useNavigate();
@@ -42,15 +28,14 @@ export default function DashboardsListPage() {
   const [deleting, setDeleting] = useState<DashboardListItem | null>(null);
   const [creatingName, setCreatingName] = useState('');
 
-  const rows = data?.data ?? [];
-  const totalCount = data?.totalCount ?? 0;
-  const totalPages = Math.max(1, Math.ceil(totalCount / DASHBOARDS_PAGE_SIZE));
+  const totalCount = list.data?.totalCount ?? 0;
 
   const columns = useMemo<Column<DashboardListItem>[]>(() => [
-    { key: 'id', header: 'Id', render: r => <span className="mono text-text-muted">{r.id}</span> },
+    { key: 'id', header: 'Id', sortKey: 'id', render: r => <span className="mono text-text-muted">{r.id}</span> },
     {
       key: 'name',
       header: 'Name',
+      sortKey: 'name',
       render: r => <span className="font-semibold text-text">{r.name}</span>,
     },
     {
@@ -68,11 +53,14 @@ export default function DashboardsListPage() {
     {
       key: 'widgets',
       header: 'Widgets',
+      sortKey: 'widgetCount',
+      align: 'right' as const,
       render: r => formatNumber(r.widgetCount ?? 0),
     },
     {
       key: 'created',
       header: 'Created',
+      sortKey: 'createdTime',
       render: r => <span className="mono text-text-muted">{formatDateTime(r.createdTime)}</span>,
     },
     {
@@ -130,14 +118,14 @@ export default function DashboardsListPage() {
         sub={
           isLoading
             ? <span className="text-text-muted">Loading…</span>
-            : <span className="text-text-muted">{formatNumber(rows.length)} of {formatNumber(totalCount)}</span>
+            : <span className="text-text-muted">{formatNumber(totalCount)} dashboard{totalCount === 1 ? '' : 's'}</span>
         }
         actions={
           <div className="flex gap-2 items-center">
             <Input
               placeholder="Search…"
               value={search}
-              onChange={e => { setSearch(e.target.value); setPage(0); }}
+              onChange={e => setSearch(e.target.value)}
               className="w-[200px]"
             />
             <Button type="button" onClick={() => refetch()} disabled={isLoading} icon={<RefreshCw />}>
@@ -181,6 +169,7 @@ export default function DashboardsListPage() {
           columns={columns}
           rows={rows}
           rowKey={r => r.id}
+          {...list.tableProps}
           gridTemplate={GRID_TEMPLATE}
           onRowClick={r => navigate(`/dashboards/${r.id}`)}
           empty={
@@ -191,28 +180,6 @@ export default function DashboardsListPage() {
             />
           }
         />
-      )}
-
-      {!isError && totalPages > 1 && (
-        <div className="flex items-center justify-end gap-2 text-xs text-text-muted">
-          <Button
-            size="sm"
-            icon={<ChevronLeft />}
-            onClick={() => setPage(p => Math.max(0, p - 1))}
-            disabled={page <= 0}
-          >
-            Prev
-          </Button>
-          <span className="tabular-nums">Page {page + 1} of {totalPages}</span>
-          <Button
-            size="sm"
-            icon={<ChevronRight />}
-            onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
-            disabled={page >= totalPages - 1}
-          >
-            Next
-          </Button>
-        </div>
       )}
 
       <ConfirmDialog

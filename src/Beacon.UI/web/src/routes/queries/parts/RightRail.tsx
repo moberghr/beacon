@@ -25,9 +25,11 @@ import type { QueryDetail } from '../queries';
 interface RightRailProps {
   query: QueryDetail;
   editHref: string;
+  /** Execute query has been used on this page; previews never count as executions. */
+  previewed?: boolean;
 }
 
-export function RightRail({ query, editHref }: RightRailProps) {
+export function RightRail({ query, editHref, previewed = false }: RightRailProps) {
   const noSubscriptions = query.subscriptions.length === 0;
   const isAiManaged = query.aiActorId != null;
   const totalRecentFailures = query.notificationHistory.reduce(
@@ -47,12 +49,12 @@ export function RightRail({ query, editHref }: RightRailProps) {
           <CardSub>heuristic</CardSub>
         </CardHead>
         <CardBody className="flex flex-col gap-2">
-          {neverRun && (
+          {neverRun && !previewed && (
             <NextStep
               tone="info"
               icon={<Zap size={13} />}
-              title="Run for the first time"
-              sub="No executions on record. Run once to populate KPIs and timing samples."
+              title="Try it with Execute query"
+              sub="Previews the result here. KPIs and timing fill in once a subscription runs it."
             />
           )}
           {noSubscriptions && (

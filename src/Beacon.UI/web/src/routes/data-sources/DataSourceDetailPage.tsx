@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { AlertTriangle, Database, GitFork, Key, Layers, RefreshCw, X } from 'lucide-react';
@@ -18,7 +18,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { describeError } from '@/lib/api';
 import { formatNumber } from '@/lib/format';
 import {
-  useDataSourcesQuery,
+  useDataSourceQuery,
   useDataSourceMetadataQuery,
   useDeleteDataSource,
   useRefreshDataSourceMetadata,
@@ -33,17 +33,14 @@ export default function DataSourceDetailPage() {
   const numericId = id ? Number.parseInt(id, 10) : Number.NaN;
   const navigate = useNavigate();
 
-  const listQuery = useDataSourcesQuery();
+  const listQuery = useDataSourceQuery(Number.isFinite(numericId) ? numericId : null);
   const metadataQuery = useDataSourceMetadataQuery(Number.isFinite(numericId) ? numericId : null);
   const deleteMutation = useDeleteDataSource();
   const refreshMetadata = useRefreshDataSourceMetadata();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [tab, setTab] = useState<TabKey>('overview');
 
-  const entry = useMemo(
-    () => listQuery.data?.entries.find(x => x.id === numericId) ?? null,
-    [listQuery.data, numericId],
-  );
+  const entry = listQuery.data ?? null;
 
   if (Number.isNaN(numericId)) {
     return (

@@ -1,19 +1,19 @@
-using MediatR;
+using Beacon.Core.Helpers;
 using Beacon.Core.Models.Queries;
 using Beacon.Core.Services;
+using MediatR;
 
 namespace Beacon.Core.Handlers.Approvals;
 
 internal sealed class GetPendingApprovalsHandler(IQueryApprovalService approvalService)
-    : IRequestHandler<GetPendingApprovalsQuery, List<ApprovalRequestSummary>>
+    : IRequestHandler<GetPendingApprovalsQuery, PagedList<ApprovalRequestSummary>>
 {
-    public async Task<List<ApprovalRequestSummary>> Handle(GetPendingApprovalsQuery request, CancellationToken cancellationToken)
-    {
-        return await approvalService.GetPendingApprovalsAsync(request.QueryId, cancellationToken);
-    }
+    public Task<PagedList<ApprovalRequestSummary>> Handle(GetPendingApprovalsQuery request, CancellationToken cancellationToken) =>
+        approvalService.GetPendingApprovalsAsync(request, request.QueryId, cancellationToken);
 }
 
-public record GetPendingApprovalsQuery : IRequest<List<ApprovalRequestSummary>>
+/// <summary>Pending approval requests, newest first unless <c>sort</c> says otherwise.</summary>
+public record GetPendingApprovalsQuery : ListRequest, IRequest<PagedList<ApprovalRequestSummary>>
 {
     public int? QueryId { get; init; }
 }

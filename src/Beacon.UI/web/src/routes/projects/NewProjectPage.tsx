@@ -9,7 +9,8 @@ import { Database, Folder, GitBranch } from 'lucide-react';
 import { beaconApi } from '@/api/client';
 import { Button, Card, CardBody, Field, Input, PageHeader, Textarea } from '@/components/beacon';
 import { describeError, unwrap } from '@/lib/api';
-import { useDataSourcesQuery } from '@/routes/data-sources/queries';
+import { SearchMultiSelect } from '@/components/data/SearchMultiSelect';
+import type { DataSourceEntry } from '@/routes/data-sources/queries';
 
 // Local strict mirrors of the loose generated DTOs (see `unwrap` in '@/lib/api').
 interface CreateProjectPayload {
@@ -55,9 +56,8 @@ function useCreateProject() {
 
 export default function NewProjectPage() {
   const navigate = useNavigate();
-  const dataSources = useDataSourcesQuery();
   const createMutation = useCreateProject();
-  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [selectedSources, setSelectedSources] = useState<DataSourceEntry[]>([]);
 
   const {
     register,
@@ -69,15 +69,12 @@ export default function NewProjectPage() {
     mode: 'onTouched',
   });
 
-  const toggleSource = (id: number) =>
-    setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
-
   const onSubmit = handleSubmit(async v => {
     try {
       const result = await createMutation.mutateAsync({
         name: v.name.trim(),
         description: v.description.trim() || null,
-        dataSourceIds: selectedIds,
+        dataSourceIds: selectedSources.map(x => x.id),
         repositoryUrls: splitLines(v.repositoryUrls),
         accessToken: v.accessToken.trim() || null,
       });
@@ -87,8 +84,6 @@ export default function NewProjectPage() {
             toast.error(describeError(err, 'Create failed'));
     }
   });
-
-  const sources = dataSources.data?.entries ?? [];
 
   return (
     <div className="flex flex-col gap-5 p-7">
@@ -153,40 +148,27 @@ export default function NewProjectPage() {
               Pick the data sources this project should be scoped to. You can change this later.
             </div>
 
-            {dataSources.isLoading && <div className="text-text-muted">Loading data sources…</div>}
-
-            {!dataSources.isLoading && sources.length === 0 && (
-              <div className="text-text-muted text-sm">
-                No data sources configured yet. <Link to="/data-sources" className="text-brand-600">Add one</Link> first.
-              </div>
-            )}
-
-            {sources.length > 0 && (
-              <div className="grid gap-2">
-                {sources.map(ds => {
-                  const checked = selectedIds.includes(ds.id);
-                  return (
-                    <label
-                      key={ds.id}
-                      className={`border border-border rounded-md shadow-sm px-3 py-2.5 flex items-center gap-3 cursor-pointer ${checked ? 'bg-surface-2' : 'bg-surface'}`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => toggleSource(ds.id)}
-                      />
-                      <div className="flex-1">
-                        <div className="font-semibold">{ds.name}</div>
-                        <div className="text-text-muted mono text-xs">
-                          {ds.dataSourceType}
-                          {ds.databaseEngineType && ` · ${ds.databaseEngineType}`}
-                        </div>
-                      </div>
-                    </label>
-                  );
-                })}
-              </div>
-            )}
+            <SearchMultiSelect<DataSourceEntry>
+              path="/beacon/api/data-sources"
+              queryKey={['data-sources']}
+              selected={selectedSources}
+              onChange={setSelectedSources}
+              getId={x => x.id}
+              getLabel={x => x.name}
+              noun="data sources"
+              emptyContent={
+                <>No data sources configured yet. <Link to="/data-sources" className="text-brand-600">Add one</Link> first.</>
+              }
+              renderItem={ds => (
+                <>
+                  <div className="font-semibold">{ds.name}</div>
+                  <div className="text-text-muted mono text-xs">
+                    {ds.dataSourceType}
+                    {ds.databaseEngineType && ` · ${ds.databaseEngineType}`}
+                  </div>
+                </>
+              )}
+            />
           </CardBody>
         </Card>
 

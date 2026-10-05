@@ -3,11 +3,12 @@ import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import { AlertTriangle, Plus } from 'lucide-react';
 import { PageHeader, Button, Card, Pill } from '@/components/beacon';
+import { Pager } from '@/components/data/Pager';
 import { EmptyState } from '@/components/data/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import {
   scoreTone,
-  useDataContracts,
+  useDataContractsList,
   useDataQualityOverview,
   useDeleteContract,
   type DataContractData,
@@ -17,7 +18,7 @@ import { CreateDataContractDialog } from './CreateDataContractDialog';
 
 export default function DataQualityPage() {
   const overviewQ = useDataQualityOverview();
-  const contractsQ = useDataContracts();
+  const contractsQ = useDataContractsList();
   const deleteMutation = useDeleteContract();
 
   const [createOpen, setCreateOpen] = useState(false);
@@ -25,7 +26,7 @@ export default function DataQualityPage() {
   const [deleteTarget, setDeleteTarget] = useState<DataContractData | null>(null);
 
   const overviews = overviewQ.data ?? [];
-  const contracts = contractsQ.data ?? [];
+  const contracts = contractsQ.items;
 
   function handleConfirmDelete() {
     if (!deleteTarget) return;
@@ -145,6 +146,7 @@ export default function DataQualityPage() {
               ))}
             </tbody>
           </table>
+          <Pager {...contractsQ.tableProps.paging} className="border-t border-border" />
         </Card>
       )}
 

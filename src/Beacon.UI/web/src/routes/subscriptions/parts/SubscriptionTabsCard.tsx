@@ -1,10 +1,7 @@
 import { Activity, Clock, Users } from 'lucide-react';
 import { Card } from '@/components/beacon';
 import { Tabs, type TabDef } from '@/components/Tabs';
-import {
-  type SubscriptionDetail,
-  type SubscriptionExecutionEntry,
-} from '../queries';
+import { type SubscriptionDetail } from '../queries';
 import { RecipientsTab } from './RecipientsTab';
 import { AnomalyTab } from './AnomalyTab';
 import { ExecutionsTab } from './ExecutionsTab';
@@ -13,8 +10,8 @@ export type SubscriptionTabKey = 'recipients' | 'anomaly' | 'executions';
 
 interface SubscriptionTabsCardProps {
   subscription: SubscriptionDetail;
-  executions: SubscriptionExecutionEntry[] | undefined;
-  executionsLoading: boolean;
+  /** All executions on record, for the tab badge. */
+  totalExecutions: number;
   tab: SubscriptionTabKey;
   onTabChange: (k: SubscriptionTabKey) => void;
   canWrite: boolean;
@@ -23,8 +20,7 @@ interface SubscriptionTabsCardProps {
 
 export function SubscriptionTabsCard({
   subscription,
-  executions,
-  executionsLoading,
+  totalExecutions,
   tab,
   onTabChange,
   canWrite,
@@ -47,7 +43,7 @@ export function SubscriptionTabsCard({
     {
       key: 'executions',
       label: <span className="inline-flex items-center gap-1.5"><Clock className="size-3.5" /> Execution history</span>,
-      count: (executions ?? []).length,
+      count: totalExecutions,
     },
   ];
 
@@ -62,7 +58,7 @@ export function SubscriptionTabsCard({
         <AnomalyTab subscription={subscription} />
       )}
       {tab === 'executions' && (
-        <ExecutionsTab executions={executions} isLoading={executionsLoading} />
+        <ExecutionsTab subscriptionId={subscription.id} />
       )}
     </Card>
   );

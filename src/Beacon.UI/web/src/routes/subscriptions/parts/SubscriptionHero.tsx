@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { RefreshCw, Zap } from 'lucide-react';
+import { RefreshCw, RotateCcw, Zap } from 'lucide-react';
 import { Button, PageHeader, Pill } from '@/components/beacon';
 import { formatDateTime } from '@/lib/format';
 import { SubscriptionStatus, type SubscriptionDetail } from '../queries';
@@ -10,8 +10,10 @@ interface SubscriptionHeroProps {
   canArchive: boolean;
   isTesting: boolean;
   isArchiving: boolean;
+  isReactivating: boolean;
   onTest: () => void;
   onArchive: () => void;
+  onReactivate: () => void;
 }
 
 export function SubscriptionHero({
@@ -20,8 +22,10 @@ export function SubscriptionHero({
   canArchive,
   isTesting,
   isArchiving,
+  isReactivating,
   onTest,
   onArchive,
+  onReactivate,
 }: SubscriptionHeroProps) {
   const isActive = subscription.status === SubscriptionStatus.Active;
 
@@ -66,13 +70,23 @@ export function SubscriptionHero({
       }
       actions={
         <>
-          <Button
-            icon={<RefreshCw />}
-            onClick={onArchive}
-            disabled={!canArchive || !isActive || isArchiving}
-          >
-            Archive
-          </Button>
+          {isActive ? (
+            <Button
+              icon={<RefreshCw />}
+              onClick={onArchive}
+              disabled={!canArchive || isArchiving}
+            >
+              Archive
+            </Button>
+          ) : (
+            <Button
+              icon={<RotateCcw />}
+              onClick={onReactivate}
+              disabled={!canArchive || isReactivating}
+            >
+              {isReactivating ? 'Reactivating…' : 'Reactivate'}
+            </Button>
+          )}
           <Button
             variant="primary"
             icon={<Zap />}

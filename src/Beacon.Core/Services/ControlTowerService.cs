@@ -27,7 +27,7 @@ internal class ControlTowerService(
         NotificationStatus.NotificationSilenced
     };
 
-    public async Task<ControlTowerHealthListData> GetSubscriptionHealthOverview(
+    public async Task<PagedList<ControlTowerSubscriptionHealthData>> GetSubscriptionHealthOverview(
         GetControlTowerDataRequest request,
         CancellationToken cancellationToken)
     {
@@ -38,15 +38,14 @@ internal class ControlTowerService(
 
         var statsQuery = BuildSubscriptionStatsQuery(context, request, windowStart);
         statsQuery = ApplyFilters(statsQuery, request, stalledCutoff);
-        statsQuery = ApplySort(statsQuery, request.SortBy);
 
-        var paged = await statsQuery.ToPagedListAsync(request, cancellationToken);
-        var totalCount = paged.TotalCount ?? 0;
+        var paged = await ApplySort(statsQuery, request.SortCriteria())
+            .ToPagedListPreservingOrderAsync(request, cancellationToken);
         var pagedSubscriptions = paged.Items;
 
         if (pagedSubscriptions.Count == 0)
         {
-            return new ControlTowerHealthListData { Data = [], TotalCount = totalCount };
+            return PagedList<ControlTowerSubscriptionHealthData>.Create([], paged.TotalCount, request.PageSizeOrDefault);
         }
 
         var pageIds = pagedSubscriptions.Select(x => x.Id).ToList();
@@ -100,11 +99,7 @@ internal class ControlTowerService(
             })
             .ToList();
 
-        return new ControlTowerHealthListData
-        {
-            Data = healthData,
-            TotalCount = totalCount
-        };
+        return PagedList<ControlTowerSubscriptionHealthData>.Create(healthData, paged.TotalCount, request.PageSizeOrDefault);
     }
 
     public async Task<ControlTowerStatistics> GetControlTowerStatistics(
@@ -294,7 +289,7 @@ internal class ControlTowerService(
         };
     }
 
-    private static IQueryable<SubscriptionStatsRow> BuildSubscriptionStatsQuery(
+    internal static IQueryable<SubscriptionStatsRow> BuildSubscriptionStatsQuery(
         BeaconContext context,
         GetControlTowerDataRequest request,
         DateTime windowStart)
@@ -363,36 +358,38 @@ internal class ControlTowerService(
         };
     }
 
-    private static IQueryable<SubscriptionStatsRow> ApplySort(
+    // The grid's sortable columns are computed from the stats row (success rate is a ratio), so they are
+    // mapped here rather than resolved by property name. Anomalies and last execution are joined in after
+    // paging and cannot order the page. No usable column means worst first.
+    internal static IOrderedQueryable<SubscriptionStatsRow> ApplySort(
         IQueryable<SubscriptionStatsRow> source,
-        ControlTowerSortBy sortBy)
+        IReadOnlyList<SortCriterion> criteria)
     {
-        return sortBy switch
+        var criterion = criteria.FirstOrDefault();
+        var descending = criterion?.SortDirection == SortDirection.Descending;
+
+        var ordered = criterion?.SortColumn.ToLowerInvariant() switch
         {
-            ControlTowerSortBy.Name => source.OrderBy(x => x.QueryName),
-            ControlTowerSortBy.SuccessRate => source
-                .OrderBy(x => x.TotalExecutions == 0
-                    ? 100.0
-                    : (double)x.SuccessfulExecutions / x.TotalExecutions * 100)
-                .ThenBy(x => x.QueryName),
-            ControlTowerSortBy.Executions => source
-                .OrderByDescending(x => x.TotalExecutions)
-                .ThenBy(x => x.QueryName),
-            ControlTowerSortBy.OpenTasks => source
+            "queryname" => descending
+                ? source.OrderByDescending(x => x.QueryName)
+                : source.OrderBy(x => x.QueryName),
+            "successrate" => descending
+                ? source.OrderByDescending(x => x.TotalExecutions == 0 ? 100.0 : (double)x.SuccessfulExecutions / x.TotalExecutions * 100)
+                : source.OrderBy(x => x.TotalExecutions == 0 ? 100.0 : (double)x.SuccessfulExecutions / x.TotalExecutions * 100),
+            "totalexecutions" => descending
+                ? source.OrderByDescending(x => x.TotalExecutions)
+                : source.OrderBy(x => x.TotalExecutions),
+            "unresolvedtaskcount" => descending
+                ? source.OrderByDescending(x => x.UnresolvedTaskCount)
+                : source.OrderBy(x => x.UnresolvedTaskCount),
+            _ => source
                 .OrderByDescending(x => x.UnresolvedTaskCount)
-                .ThenBy(x => x.QueryName),
-            // Anomalies and LastExecution can't be sorted in the projection (joins live outside the row),
-            // so we sort by query name and let the API layer re-sort the page if needed.
-            ControlTowerSortBy.Anomalies => source.OrderBy(x => x.QueryName),
-            ControlTowerSortBy.LastExecution => source.OrderBy(x => x.QueryName),
-            ControlTowerSortBy.WorstFirst => source
-                .OrderByDescending(x => x.UnresolvedTaskCount)
-                .ThenBy(x => x.TotalExecutions == 0
-                    ? 100.0
-                    : (double)x.SuccessfulExecutions / x.TotalExecutions * 100)
-                .ThenBy(x => x.QueryName),
-            _ => source.OrderBy(x => x.QueryName)
+                .ThenBy(x => x.TotalExecutions == 0 ? 100.0 : (double)x.SuccessfulExecutions / x.TotalExecutions * 100)
         };
+
+        return ordered
+            .ThenBy(x => x.QueryName)
+            .ThenBy(x => x.Id);
     }
 
     private static async Task<Dictionary<int, (NotificationStatus NotificationStatus, DateTime CreatedTime, int ResultCount)>>
@@ -488,7 +485,7 @@ internal class ControlTowerService(
         };
     }
 
-    private sealed class SubscriptionStatsRow
+    internal sealed class SubscriptionStatsRow
     {
         public int Id { get; init; }
         public DateTime SubscriptionCreatedTime { get; init; }
@@ -507,7 +504,7 @@ internal class ControlTowerService(
 
 public interface IControlTowerService
 {
-    Task<ControlTowerHealthListData> GetSubscriptionHealthOverview(
+    Task<PagedList<ControlTowerSubscriptionHealthData>> GetSubscriptionHealthOverview(
         GetControlTowerDataRequest request,
         CancellationToken cancellationToken);
 

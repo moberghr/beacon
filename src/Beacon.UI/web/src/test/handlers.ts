@@ -8,7 +8,9 @@ export const handlers = [
   // Match any origin so we don't have to mirror jsdom's default (currently 'http://localhost:3000').
   http.get('*/beacon/api/projects', () =>
     HttpResponse.json({
-      entries: [
+      totalCount: 2,
+      pageCount: 1,
+      items: [
         {
           id: 1,
           name: 'Acme Analytics',

@@ -1,6 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
+import { fetchJson } from '@/lib/api';
+import { fetchPagedList } from '@/lib/paging';
+import { usePagedList } from '@/lib/usePagedList';
 import { DatabaseEngineType, type DataSourceType } from '@/lib/enums';
 import { createSimpleMutation } from '@/lib/mutations';
 
@@ -23,18 +26,72 @@ export interface DataSourceEntry {
   metadataLoadingEnabled: boolean;
 }
 
-interface GetDataSourcesResult {
-  entries: DataSourceEntry[];
-}
-
 const DATA_SOURCES_KEY = ['data-sources'] as const;
 
-export function useDataSourcesQuery() {
-  return useQuery({
+/** The data sources grid: server-paged, alphabetical, name search in the URL. */
+export function useDataSourcesList() {
+  return usePagedList<DataSourceEntry, { search: string }>({
     queryKey: DATA_SOURCES_KEY,
-    queryFn: async () =>
-      unwrap<GetDataSourcesResult>(await beaconApi().getDataSources()),
+    path: '/beacon/api/data-sources',
+    filters: { search: '' },
+    defaultSort: { column: 'name', direction: 'asc' },
   });
+}
+
+/** One data source by id — for detail pages and for labelling a picker's current value. */
+export function useDataSourceQuery(id: number | null | undefined) {
+  return useQuery({
+    queryKey: [...DATA_SOURCES_KEY, 'by-id', id],
+    queryFn: () => fetchJson<DataSourceEntry>(`/beacon/api/data-sources/${id}`),
+    enabled: typeof id === 'number' && id > 0,
+  });
+}
+
+/**
+ * The alphabetically first data source, for forms that pre-select one (new query, new step). A single
+ * row request, not a list.
+ */
+export function useDefaultDataSource(options: { databaseOnly?: boolean } = {}) {
+  return useQuery({
+    queryKey: [...DATA_SOURCES_KEY, 'default', options],
+    queryFn: async () =>
+      (await fetchPagedList<DataSourceEntry>('/beacon/api/data-sources', { ...options, pageSize: 1, sort: 'name' })).items[0] ?? null,
+  });
+}
+
+/** How many data sources exist (optionally database ones only) — a one-row request that reads totalCount. */
+export function useDataSourceCount(options: { databaseOnly?: boolean } = {}) {
+  return useQuery({
+    queryKey: [...DATA_SOURCES_KEY, 'count', options],
+    queryFn: async () =>
+      (await fetchPagedList<DataSourceEntry>('/beacon/api/data-sources', { ...options, pageSize: 1 })).totalCount,
+  });
+}
+
+/**
+ * Name and engine for a handful of data sources by id (the ones a query's steps use), fetched one by
+ * one and shared with the pickers' by-id cache — not the whole list.
+ */
+export function useDataSourceLookup(ids: number[]) {
+  const unique = [...new Set(ids.filter(x => x > 0))].sort((a, b) => a - b);
+  const results = useQueries({
+    queries: unique.map(id => ({
+      queryKey: [...DATA_SOURCES_KEY, 'by-id', id],
+      queryFn: () => fetchJson<DataSourceEntry>(`/beacon/api/data-sources/${id}`),
+      staleTime: 60_000,
+    })),
+  });
+  const map = new Map<number, { name: string; engine: string }>();
+  for (const result of results) {
+    if (result.data) {
+      map.set(result.data.id, { name: result.data.name, engine: dataSourceEngine(result.data) });
+    }
+  }
+  return map;
+}
+
+export function dataSourceEngine(entry: Pick<DataSourceEntry, 'databaseEngineType' | 'dataSourceType'>): string {
+  return entry.databaseEngineType ?? entry.dataSourceType;
 }
 
 export interface CreateDataSourcePayload {

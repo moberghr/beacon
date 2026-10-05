@@ -3,13 +3,14 @@ import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { AlertTriangle, Database, Plus, RefreshCw, X } from 'lucide-react';
 import { PageHeader } from '@/components/beacon';
-import { Button, Pill } from '@/components/beacon';
+import { Button, Input, Pill } from '@/components/beacon';
+import { useSearchFilter } from '@/lib/usePagedList';
 import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { formatNumber } from '@/lib/format';
 import {
-  useDataSourcesQuery,
+  useDataSourcesList,
   useDeleteDataSource,
   type DataSourceEntry,
 } from './queries';
@@ -19,18 +20,21 @@ const GRID_TEMPLATE = '0.6fr 1.6fr 1fr 1fr 0.7fr 0.7fr 100px 60px';
 
 export default function DataSourcesListPage() {
   const navigate = useNavigate();
-  const { data, isLoading, isError, error, refetch } = useDataSourcesQuery();
+  const list = useDataSourcesList();
+  const { data, isLoading, isError, error, refetch } = list;
+  const [search, setSearch] = useSearchFilter(list.filters.search, value => list.setFilter('search', value));
   const deleteMutation = useDeleteDataSource();
 
   const [deleting, setDeleting] = useState<DataSourceEntry | null>(null);
   const [addOpen, setAddOpen] = useState(false);
 
-  const entries = data?.entries ?? [];
+  const entries = list.items;
 
   const columns = useMemo<Column<DataSourceEntry>[]>(() => [
-    { key: 'id', header: 'Id', render: r => <span className="mono text-text-muted">{r.id}</span> },
+    { key: 'id', header: 'Id', sortKey: 'id', render: r => <span className="mono text-text-muted">{r.id}</span> },
     {
       key: 'name',
+      sortKey: 'name',
       header: 'Name',
       render: r => <span className="font-semibold text-text">{r.name}</span>,
     },
@@ -48,11 +52,13 @@ export default function DataSourcesListPage() {
     },
     {
       key: 'queries',
+      sortKey: 'queryCount',
       header: 'Queries',
       render: r => formatNumber(r.queryCount),
     },
     {
       key: 'migrations',
+      sortKey: 'migrationJobsCount',
       header: 'Migrations',
       render: r => formatNumber(r.migrationJobsCount),
     },
@@ -93,7 +99,7 @@ export default function DataSourcesListPage() {
         sub={
           isLoading
             ? <span className="text-text-muted">Loading…</span>
-            : <span className="text-text-muted">{formatNumber(entries.length)} configured</span>
+            : <span className="text-text-muted">{formatNumber(data?.totalCount ?? 0)} configured</span>
         }
         actions={
           <>
@@ -121,9 +127,20 @@ export default function DataSourcesListPage() {
       )}
 
       {!isError && (
+        <Input
+          type="search"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search data sources by name…"
+          className="max-w-[360px]"
+        />
+      )}
+
+      {!isError && (
         <DataTable
           columns={columns}
           rows={entries}
+          {...list.tableProps}
           rowKey={r => r.id}
           gridTemplate={GRID_TEMPLATE}
           onRowClick={r => navigate(`/data-sources/${r.id}`)}

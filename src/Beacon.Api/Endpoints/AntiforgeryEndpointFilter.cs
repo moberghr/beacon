@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Beacon.Api.Endpoints;
 
@@ -8,8 +9,18 @@ namespace Beacon.Api.Endpoints;
 /// Validates the antiforgery token for non-GET/HEAD/OPTIONS requests from
 /// authenticated users. Anonymous endpoints opt out via <c>.DisableAntiforgery()</c>.
 /// </summary>
-internal sealed class AntiforgeryEndpointFilter(IAntiforgery antiforgery, ILogger<AntiforgeryEndpointFilter> logger) : IEndpointFilter
+internal sealed class AntiforgeryEndpointFilter(
+    IAntiforgery antiforgery,
+    IOptions<AntiforgeryOptions> antiforgeryOptions,
+    ILogger<AntiforgeryEndpointFilter> logger) : IEndpointFilter
 {
+    /// <summary>
+    /// The header the React shell sends the token in (<c>web/src/lib/csrf.ts</c>). Antiforgery options are
+    /// host-global, so a host that keeps the default <c>RequestVerificationToken</c> (for its own MVC/AJAX)
+    /// would otherwise reject every SPA mutation.
+    /// </summary>
+    internal const string SpaHeaderName = "X-XSRF-TOKEN";
+
     public async ValueTask<object?> InvokeAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
     {
         var httpContext = context.HttpContext;
@@ -25,6 +36,8 @@ internal sealed class AntiforgeryEndpointFilter(IAntiforgery antiforgery, ILogge
             return await next(context);
         }
 
+        CopySpaHeaderToConfiguredHeader(httpContext.Request);
+
         try
         {
             await antiforgery.ValidateRequestAsync(httpContext);
@@ -39,5 +52,23 @@ internal sealed class AntiforgeryEndpointFilter(IAntiforgery antiforgery, ILogge
         }
 
         return await next(context);
+    }
+
+    // Only the header NAME is bridged; the token itself is still validated against the host's
+    // antiforgery cookie and the caller's identity, so this does not weaken the check.
+    private void CopySpaHeaderToConfiguredHeader(HttpRequest request)
+    {
+        var headerName = antiforgeryOptions.Value.HeaderName;
+        if (headerName == null || string.Equals(headerName, SpaHeaderName, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        if (request.Headers.ContainsKey(headerName) || !request.Headers.TryGetValue(SpaHeaderName, out var token))
+        {
+            return;
+        }
+
+        request.Headers[headerName] = token;
     }
 }

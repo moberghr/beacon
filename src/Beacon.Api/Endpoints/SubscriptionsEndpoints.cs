@@ -10,8 +10,7 @@ internal static class SubscriptionsEndpoints
     {
         var subs = group.MapGroup("/subscriptions").WithTags("Subscriptions");
 
-        subs.MapGet("/", ([FromQuery] string? search, IMediator m, CancellationToken ct) =>
-                m.Send(new GetSubscriptionsQuery(search), ct))
+        subs.MapGet("/", ([AsParameters] GetSubscriptionsQuery query, IMediator m, CancellationToken ct) => m.Send(query, ct))
             .WithName("GetSubscriptions");
 
         subs.MapPost("/", (CreateSubscriptionCommand cmd, IMediator m, CancellationToken ct) => m.Send(cmd, ct))
@@ -26,6 +25,12 @@ internal static class SubscriptionsEndpoints
             await m.Send(new DeleteSubscriptionCommand(id), ct);
             return TypedResults.NoContent();
         }).WithName("DeleteSubscription");
+
+        subs.MapPost("/{id:int}/reactivate", async (int id, IMediator m, CancellationToken ct) =>
+        {
+            await m.Send(new ReactivateSubscriptionCommand(id), ct);
+            return TypedResults.NoContent();
+        }).WithName("ReactivateSubscription");
 
         subs.MapPost("/{id:int}/sla", async (int id, [FromBody] SetSubscriptionSlaBody body, IMediator m, CancellationToken ct) =>
         {

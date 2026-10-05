@@ -2,14 +2,15 @@ import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { AlertTriangle, ArrowLeftRight, Plus, RefreshCw, X } from 'lucide-react';
-import { PageHeader, Button, Pill } from '@/components/beacon';
+import { PageHeader, Button, Input, Pill } from '@/components/beacon';
+import { useSearchFilter } from '@/lib/usePagedList';
 import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { MigrationMode } from '@/lib/enums';
 import { formatDateTime, formatNumber } from '@/lib/format';
 import {
-  useMigrationJobsQuery,
+  useMigrationJobsList,
   useDeleteMigrationJob,
   type MigrationJobListItem,
 } from './queries';
@@ -19,16 +20,19 @@ const GRID_TEMPLATE = '0.5fr 1.4fr 1.4fr 1fr 0.7fr 0.6fr 1.1fr 60px';
 
 export default function MigrationJobsListPage() {
   const navigate = useNavigate();
-  const { data, isLoading, isError, error, refetch } = useMigrationJobsQuery();
+  const list = useMigrationJobsList();
+  const { data, isLoading, isError, error, refetch } = list;
+  const [search, setSearch] = useSearchFilter(list.filters.search, value => list.setFilter('search', value));
   const deleteMutation = useDeleteMigrationJob();
   const [deleting, setDeleting] = useState<MigrationJobListItem | null>(null);
 
-  const jobs = data?.jobs ?? [];
+  const jobs = list.items;
 
   const columns = useMemo<Column<MigrationJobListItem>[]>(() => [
-    { key: 'id', header: 'Id', render: r => <span className="mono text-text-muted">{r.id}</span> },
+    { key: 'id', header: 'Id', sortKey: 'id', render: r => <span className="mono text-text-muted">{r.id}</span> },
     {
       key: 'name',
+      sortKey: 'name',
       header: 'Name',
       render: r => <span className="font-semibold text-text">{r.name}</span>,
     },
@@ -43,11 +47,13 @@ export default function MigrationJobsListPage() {
     },
     {
       key: 'mode',
+      sortKey: 'mode',
       header: 'Mode',
       render: r => <Pill>{MIGRATION_MODE_LABEL[r.mode as MigrationMode] ?? r.mode}</Pill>,
     },
     {
       key: 'enabled',
+      sortKey: 'isEnabled',
       header: 'Enabled',
       render: r => r.isEnabled
         ? <Pill tone="ok">On</Pill>
@@ -60,6 +66,7 @@ export default function MigrationJobsListPage() {
     },
     {
       key: 'created',
+      sortKey: 'createdTime',
       header: 'Created',
       render: r => <span className="mono text-text-muted">{formatDateTime(r.createdTime)}</span>,
     },
@@ -104,7 +111,7 @@ export default function MigrationJobsListPage() {
         sub={
           isLoading
             ? <span className="text-text-muted">Loading…</span>
-            : <span className="text-text-muted">{formatNumber(jobs.length)} job(s)</span>
+            : <span className="text-text-muted">{formatNumber(data?.totalCount ?? 0)} job(s)</span>
         }
         actions={
           <>
@@ -128,10 +135,21 @@ export default function MigrationJobsListPage() {
       )}
 
       {!isError && (
+        <Input
+          type="search"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search jobs by name…"
+          className="max-w-[360px]"
+        />
+      )}
+
+      {!isError && (
         <DataTable
           columns={columns}
           rows={jobs}
           rowKey={r => r.id}
+          {...list.tableProps}
           gridTemplate={GRID_TEMPLATE}
           onRowClick={r => navigate(`/migration-jobs/${r.id}`)}
           empty={

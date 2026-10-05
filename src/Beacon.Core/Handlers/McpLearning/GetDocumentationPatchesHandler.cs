@@ -2,13 +2,14 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Helpers;
 
 namespace Beacon.Core.Handlers.McpLearning;
 
 internal sealed class GetDocumentationPatchesHandler(IDbContextFactory<BeaconContext> contextFactory)
-    : IRequestHandler<GetDocumentationPatchesQuery, GetDocumentationPatchesResult>
+    : IRequestHandler<GetDocumentationPatchesQuery, PagedList<DocumentationPatchEntry>>
 {
-    public async Task<GetDocumentationPatchesResult> Handle(GetDocumentationPatchesQuery request, CancellationToken cancellationToken)
+    public async Task<PagedList<DocumentationPatchEntry>> Handle(GetDocumentationPatchesQuery request, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
@@ -20,8 +21,7 @@ internal sealed class GetDocumentationPatchesHandler(IDbContextFactory<BeaconCon
         if (request.Status.HasValue)
             query = query.Where(p => p.Status == request.Status.Value);
 
-        var items = await query
-            .OrderByDescending(p => p.SupportingSignalCount)
+        return await query
             .Select(p => new DocumentationPatchEntry
             {
                 Id = p.Id,
@@ -37,19 +37,16 @@ internal sealed class GetDocumentationPatchesHandler(IDbContextFactory<BeaconCon
                 CreatedTime = p.CreatedTime,
                 AppliedAt = p.AppliedAt
             })
-            .ToListAsync(cancellationToken);
-
-        return new GetDocumentationPatchesResult(items);
+            .ToPagedListAsync(request, cancellationToken, defaultSort: "-supportingSignalCount");
     }
 }
 
-public record GetDocumentationPatchesQuery : IRequest<GetDocumentationPatchesResult>
+/// <summary>Best-supported first unless <c>sort</c> says otherwise.</summary>
+public record GetDocumentationPatchesQuery : ListRequest, IRequest<PagedList<DocumentationPatchEntry>>
 {
     public int? ProjectId { get; init; }
     public McpDocPatchStatus? Status { get; init; }
 }
-
-public record GetDocumentationPatchesResult(List<DocumentationPatchEntry> Patches);
 
 public record DocumentationPatchEntry
 {

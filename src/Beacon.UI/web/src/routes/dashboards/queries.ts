@@ -1,5 +1,6 @@
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { beaconApi } from '@/api/client';
+import { usePagedList } from '@/lib/usePagedList';
 import { unwrap } from '@/lib/api';
 import { createSimpleMutation } from '@/lib/mutations';
 import { WidgetType } from '@/lib/enums';
@@ -19,10 +20,6 @@ export interface DashboardListItem {
   createdByUserName: string | null;
 }
 
-export interface DashboardsPageResult {
-  data: DashboardListItem[];
-  totalCount: number | null;
-}
 
 export interface DashboardWidget {
   id: number;
@@ -66,22 +63,12 @@ export interface CreateDashboardResult {
 const DASHBOARDS_KEY = ['dashboards'] as const;
 const dashboardKey = (id: number) => ['dashboard', id] as const;
 
-export const DASHBOARDS_PAGE_SIZE = 50;
-
-export function useDashboardsQuery(searchKeyword?: string, page = 0) {
-  return useQuery({
-    queryKey: [...DASHBOARDS_KEY, searchKeyword ?? '', page],
-    queryFn: async () =>
-      unwrap<DashboardsPageResult>(
-        await beaconApi().getDashboards(
-          undefined,
-          undefined,
-          searchKeyword || undefined,
-          page,
-          DASHBOARDS_PAGE_SIZE,
-        ),
-      ),
-    placeholderData: keepPreviousData,
+/** The dashboards grid: server-paged; default dashboard first, then sort order, then newest. */
+export function useDashboardsList() {
+  return usePagedList<DashboardListItem, { searchKeyword: string }>({
+    queryKey: DASHBOARDS_KEY,
+    path: '/beacon/api/dashboards',
+    filters: { searchKeyword: '' },
   });
 }
 

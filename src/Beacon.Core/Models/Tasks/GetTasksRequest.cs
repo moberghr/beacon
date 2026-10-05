@@ -2,8 +2,9 @@ using Beacon.Core.Helpers;
 
 namespace Beacon.Core.Models.Tasks;
 
-public class GetTasksRequest : SortedListRequest
+public record GetTasksRequest : ListRequest
 {
-    public int? SubscriptionId { get; set; }
-    public bool? Resolved { get; set; }
+    public int? SubscriptionId { get; init; }
+
+    public bool? Resolved { get; init; }
 }

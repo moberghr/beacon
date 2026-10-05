@@ -1,11 +1,11 @@
 import { useNavigate } from 'react-router-dom';
 import { AlertTriangle, Bell, RefreshCw } from 'lucide-react';
-import { Button, PageHeader, Pill, type PillProps } from '@/components/beacon';
+import { Button, Card, PageHeader, Pill, Select, type PillProps } from '@/components/beacon';
 import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { NotificationStatus } from '@/lib/enums';
 import { formatDateTime, formatNumber } from '@/lib/format';
-import { useNotificationsQuery, type NotificationEntry } from './queries';
+import { useNotificationsList, type NotificationEntry } from './queries';
 
 const STATUS_LABELS: Record<number, { label: string; tone: PillProps['tone'] }> = {
   [NotificationStatus.Created]: { label: 'Created', tone: 'neutral' },
@@ -21,11 +21,13 @@ const COLUMNS: Column<NotificationEntry>[] = [
   {
     key: 'when',
     header: 'When',
+    sortKey: 'createdTime',
     render: n => <span className="text-text-muted mono">{formatDateTime(n.createdTime)}</span>,
   },
   {
     key: 'query',
     header: 'Query',
+    sortKey: 'queryName',
     render: n => (
       <div>
         <div className="font-semibold text-text">{n.queryName ?? '—'}</div>
@@ -52,11 +54,14 @@ const COLUMNS: Column<NotificationEntry>[] = [
   {
     key: 'rows',
     header: 'Rows',
+    sortKey: 'resultCount',
+    align: 'right',
     render: n => formatNumber(n.resultCount),
   },
   {
     key: 'status',
     header: 'Status',
+    sortKey: 'notificationStatus',
     render: n => {
       const map = STATUS_LABELS[n.status] ?? { label: String(n.status), tone: 'neutral' as const };
       return <Pill tone={map.tone}>{map.label}</Pill>;
@@ -68,8 +73,8 @@ const GRID_TEMPLATE = '1.4fr 2.2fr 1.6fr 0.6fr 0.9fr';
 
 export default function NotificationsPage() {
   const navigate = useNavigate();
-  const { data, isLoading, isError, error, refetch } = useNotificationsQuery();
-  const entries = data?.entries ?? [];
+  const list = useNotificationsList();
+  const { data, items, isLoading, isError, error, refetch } = list;
 
   return (
     <div className="flex flex-col gap-5 p-7">
@@ -80,7 +85,7 @@ export default function NotificationsPage() {
         sub={
           isLoading
             ? <span className="text-text-muted">Loading…</span>
-            : <span className="text-text-muted">{formatNumber(entries.length)} of {formatNumber(data?.totalCount ?? 0)}</span>
+            : <span className="text-text-muted">{formatNumber(data?.totalCount ?? 0)} execution{data?.totalCount === 1 ? '' : 's'}</span>
         }
         actions={
           <Button onClick={() => refetch()} disabled={isLoading} icon={<RefreshCw />}>
@@ -88,6 +93,21 @@ export default function NotificationsPage() {
           </Button>
         }
       />
+
+      <Card className="p-3 flex gap-2 items-center">
+        <span className="text-text-muted text-xs mr-1">Status:</span>
+        <Select
+          aria-label="Filter by status"
+          value={list.filters.status}
+          onChange={e => list.setFilter('status', e.target.value)}
+          className="w-48"
+        >
+          <option value="">All statuses</option>
+          {Object.entries(STATUS_LABELS).map(([value, x]) => (
+            <option key={value} value={value}>{x.label}</option>
+          ))}
+        </Select>
+      </Card>
 
       {isError && (
         <EmptyState
@@ -100,8 +120,9 @@ export default function NotificationsPage() {
       {!isError && (
         <DataTable
           columns={COLUMNS}
-          rows={entries}
+          rows={items}
           rowKey={n => n.id}
+          {...list.tableProps}
           gridTemplate={GRID_TEMPLATE}
           onRowClick={n => navigate(`/notifications/${n.id}`)}
           empty={

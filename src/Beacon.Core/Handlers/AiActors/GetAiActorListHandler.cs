@@ -1,3 +1,4 @@
+using Beacon.Core.Helpers;
 using MediatR;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Models.Ai;
@@ -7,15 +8,12 @@ using Beacon.Core.Data.Entities;
 
 namespace Beacon.Core.Handlers.AiActors;
 
-public record GetAiActorListQuery : IRequest<GetAiActorListResult>
+/// <summary>Newest first unless <c>sort</c> says otherwise; optionally one data source, optionally archived too.</summary>
+public record GetAiActorListQuery : ListRequest, IRequest<PagedList<AiActorListItem>>
 {
     public int? DataSourceId { get; init; }
-    public bool? IncludeArchived { get; init; }
-}
 
-public record GetAiActorListResult
-{
-    public List<AiActorListItem> Actors { get; init; } = new();
+    public bool? IncludeArchived { get; init; }
 }
 
 public record AiActorListItem

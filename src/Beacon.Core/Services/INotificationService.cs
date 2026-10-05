@@ -12,7 +12,7 @@ public interface INotificationService
         int? lastExecutedQueryResultCount,
         CancellationToken cancellationToken = default);
 
-    Task<QueryExecutionHistoryListData> GetQueryExecutionHistory(GetQueryExecutionHistoryRequest request, CancellationToken cancellationToken);
+    Task<PagedList<QueryExecutionHistoryData>> GetQueryExecutionHistory(GetQueryExecutionHistoryRequest request, CancellationToken cancellationToken);
 
     Task<NotificationStatisticsData> GetNotificationStatistics(CancellationToken cancellationToken);
 
@@ -21,9 +21,9 @@ public interface INotificationService
     Task<QueryExecutionHistoryDetailsData?> GetQueryExecutionHistoryDetails(int queryExecutionHistoryId, CancellationToken cancellationToken);
 }
 
-public class GetQueryExecutionHistoryRequest : SortedListRequest
+public record GetQueryExecutionHistoryRequest : ListRequest
 {
-    public int? SubscriptionId { get; set; }
-    public int? LastQueryExecutionHistoryId { get; set; }
-    public NotificationStatus? NotificationStatus { get; set; }
+    public int? SubscriptionId { get; init; }
+
+    public NotificationStatus? NotificationStatus { get; init; }
 }

@@ -11,8 +11,8 @@ internal static class QueryVersionsEndpoints
     public static RouteGroupBuilder MapQueryVersionsEndpoints(this RouteGroupBuilder group)
     {
         // Versions for a specific query — sit under /queries to make the parent obvious.
-        group.MapGet("/queries/{queryId:int}/versions", (int queryId, IMediator m, CancellationToken ct) =>
-                m.Send(new GetQueryVersionsQuery { QueryId = queryId }, ct))
+        group.MapGet("/queries/{queryId:int}/versions", ([AsParameters] GetQueryVersionsQuery query, IMediator m, CancellationToken ct) =>
+                m.Send(query, ct))
             .WithName("GetQueryVersions")
             .WithTags("QueryVersions");
 

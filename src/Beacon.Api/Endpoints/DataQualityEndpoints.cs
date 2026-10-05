@@ -22,8 +22,7 @@ internal static class DataQualityEndpoints
                 m.Send(new GetDataQualityOverviewQuery(dataSourceId), ct))
             .WithName("GetDataQualityOverview");
 
-        quality.MapGet("/contracts", ([FromQuery] int? dataSourceId, IMediator m, CancellationToken ct) =>
-                m.Send(new GetDataContractsQuery(dataSourceId), ct))
+        quality.MapGet("/contracts", ([AsParameters] GetDataContractsQuery query, IMediator m, CancellationToken ct) => m.Send(query, ct))
             .WithName("GetDataContracts");
 
         quality.MapGet("/contracts/{id:int}", (int id, IMediator m, CancellationToken ct) =>

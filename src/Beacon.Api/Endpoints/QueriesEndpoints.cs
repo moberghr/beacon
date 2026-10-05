@@ -1,3 +1,4 @@
+using Beacon.Core.Helpers;
 using System.Security.Claims;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.Queries;
@@ -14,34 +15,8 @@ internal static class QueriesEndpoints
     {
         var queries = group.MapGroup("/queries").WithTags("Queries");
 
-        queries.MapGet("/", (
-                [FromQuery] int? queryId,
-                [FromQuery] int? dataSourceId,
-                [FromQuery] string? queryName,
-                [FromQuery] int? folderId,
-                [FromQuery] string? searchTerm,
-                [FromQuery] int? page,
-                [FromQuery] int? pageSize,
-                IMediator m,
-                CancellationToken ct) =>
-        {
-            // BaseListRequest.Page is 0-indexed (Skip = Page * PageSize).
-            // HTTP query string uses 1-indexed pages for human readability.
-            var oneBasedPage = Math.Max(1, page ?? 1);
-            return m.Send(new GetQueriesQuery
-            {
-                Request = new GetQueriesRequest
-                {
-                    QueryId = queryId,
-                    DataSourceId = dataSourceId,
-                    QueryName = queryName,
-                    FolderId = folderId,
-                    SearchTerm = searchTerm,
-                    Page = oneBasedPage - 1,
-                    PageSize = pageSize ?? 50,
-                },
-            }, ct);
-        }).WithName("GetQueries");
+        queries.MapGet("/", ([AsParameters] GetQueriesQuery query, IMediator m, CancellationToken ct) => m.Send(query, ct))
+            .WithName("GetQueries");
 
         queries.MapGet("/{id:int}", (int id, IMediator m, CancellationToken ct) =>
                 m.Send(new GetQueryDetailQuery { QueryId = id }, ct))
@@ -65,24 +40,8 @@ internal static class QueriesEndpoints
                 }, ct))
             .WithName("ToggleQueryLock");
 
-        queries.MapGet("/{id:int}/change-history", (
-                int id,
-                [FromQuery] int? stepId,
-                [FromQuery] ChangeSource? changeSource,
-                [FromQuery] DateTime? fromDate,
-                [FromQuery] DateTime? toDate,
-                [FromQuery] int? maxResults,
-                IMediator m,
-                CancellationToken ct) =>
-                m.Send(new GetQueryChangeHistoryQuery
-                {
-                    QueryId = id,
-                    StepId = stepId,
-                    ChangeSource = changeSource,
-                    FromDate = fromDate,
-                    ToDate = toDate,
-                    MaxResults = maxResults ?? 50,
-                }, ct))
+        queries.MapGet("/{queryId:int}/change-history", ([AsParameters] GetQueryChangeHistoryQuery query, IMediator m, CancellationToken ct) =>
+                m.Send(query, ct))
             .WithName("GetQueryChangeHistory");
 
         queries.MapPut("/{id:int}", (int id, QueryData body, IMediator m, CancellationToken ct) =>
@@ -108,8 +67,14 @@ internal static class QueriesEndpoints
 
         // SQL-executing endpoints: require the Execute (or Admin) scope for API-key callers (§1.4).
         // Interactive cookie/OIDC sessions carry no scope claim and pass through, governed by role.
-        queries.MapPost("/{id:int}/preview", (int id, IMediator m, CancellationToken ct) =>
-                m.Send(new ExecuteQueryPreviewCommand { QueryId = id }, ct))
+        queries.MapPost("/{id:int}/preview", (int id, [AsParameters] PreviewPageQuery paging, IMediator m, CancellationToken ct) =>
+                m.Send(new ExecuteQueryPreviewCommand
+                {
+                    QueryId = id,
+                    Page = paging.Page,
+                    PageSize = paging.PageSize,
+                    Sort = paging.Sort,
+                }, ct))
             .WithName("ExecuteQueryPreview")
             .RequireAuthorization(BeaconApiEndpoints.ExecuteScopePolicyName);
 
@@ -117,6 +82,7 @@ internal static class QueriesEndpoints
                 int id,
                 int stepOrder,
                 ExecuteStepPreviewRequest? body,
+                [AsParameters] PreviewPageQuery paging,
                 IMediator m,
                 CancellationToken ct) =>
                 m.Send(new ExecuteStepPreviewCommand
@@ -124,6 +90,9 @@ internal static class QueriesEndpoints
                     QueryId = id,
                     StepOrder = stepOrder,
                     Parameters = body?.Parameters,
+                    Page = paging.Page,
+                    PageSize = paging.PageSize,
+                    Sort = paging.Sort,
                 }, ct))
             .WithName("ExecuteStepPreview")
             .RequireAuthorization(BeaconApiEndpoints.ExecuteScopePolicyName);
@@ -136,3 +105,6 @@ internal sealed record ToggleQueryLockRequest(bool Lock);
 internal sealed record ExecuteStepPreviewRequest(List<ParameterValue>? Parameters);
 internal sealed record CreateQueryBody(string Name, string? Description);
 internal sealed record SetQueryMcpToolRequest(bool Enabled, string? Name, string? Description);
+
+/// <summary>`?page=&amp;pageSize=&amp;sort=` for the preview endpoints, whose route and body carry the rest.</summary>
+internal sealed record PreviewPageQuery : ListRequest;

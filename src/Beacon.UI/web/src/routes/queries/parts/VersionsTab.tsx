@@ -3,7 +3,7 @@ import { AlertTriangle, Clock } from 'lucide-react';
 import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { formatDateTime, formatNumber } from '@/lib/format';
-import { useQueryVersionsQuery, type QueryVersionSummary } from '../queries';
+import { useQueryVersionsList, type QueryVersionSummary } from '../queries';
 
 interface VersionsTabProps {
   queryId: number;
@@ -12,7 +12,8 @@ interface VersionsTabProps {
 const GRID_TEMPLATE = '0.6fr 2fr 0.6fr 1fr 1.4fr';
 
 export function VersionsTab({ queryId }: VersionsTabProps) {
-  const { data, isLoading, isError, error } = useQueryVersionsQuery(queryId);
+  const list = useQueryVersionsList(queryId, 'versions');
+  const { isLoading, isError, error } = list;
 
   if (isError) {
     return (
@@ -26,7 +27,7 @@ export function VersionsTab({ queryId }: VersionsTabProps) {
     );
   }
 
-  const versions = data ?? [];
+  const versions = list.items;
 
   const columns: Column<QueryVersionSummary>[] = [
     {
@@ -69,6 +70,7 @@ export function VersionsTab({ queryId }: VersionsTabProps) {
     <DataTable
       columns={columns}
       rows={versions}
+      {...list.tableProps}
       rowKey={v => v.id}
       gridTemplate={GRID_TEMPLATE}
       className="rounded-none border-0 shadow-none"

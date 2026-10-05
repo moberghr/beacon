@@ -1,19 +1,19 @@
-using MediatR;
+using Beacon.Core.Helpers;
 using Beacon.Core.Models.Queries;
 using Beacon.Core.Services;
+using MediatR;
 
 namespace Beacon.Core.Handlers.QueryVersions;
 
 internal sealed class GetQueryVersionsHandler(IQueryVersionService versionService)
-    : IRequestHandler<GetQueryVersionsQuery, List<QueryVersionSummary>>
+    : IRequestHandler<GetQueryVersionsQuery, PagedList<QueryVersionSummary>>
 {
-    public async Task<List<QueryVersionSummary>> Handle(GetQueryVersionsQuery request, CancellationToken cancellationToken)
-    {
-        return await versionService.GetVersionsAsync(request.QueryId, cancellationToken);
-    }
+    public Task<PagedList<QueryVersionSummary>> Handle(GetQueryVersionsQuery request, CancellationToken cancellationToken) =>
+        versionService.GetVersionsAsync(request.QueryId, request, cancellationToken);
 }
 
-public record GetQueryVersionsQuery : IRequest<List<QueryVersionSummary>>
+/// <summary>A query's versions, newest first unless <c>sort</c> says otherwise. <c>QueryId</c> binds from the route.</summary>
+public record GetQueryVersionsQuery : ListRequest, IRequest<PagedList<QueryVersionSummary>>
 {
-    public required int QueryId { get; init; }
+    public int QueryId { get; init; }
 }

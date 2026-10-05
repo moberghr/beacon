@@ -1,19 +1,34 @@
-﻿namespace Beacon.Core.Helpers;
+namespace Beacon.Core.Helpers;
 
-public class PagedList<T>
+/// <summary>
+/// One page of a list — the single wire shape of every paged list endpoint:
+/// <c>{ items, totalCount, pageCount }</c>. <see cref="TotalCount"/> counts the whole filtered set,
+/// not the page.
+/// </summary>
+public sealed class PagedList<T>
 {
-    public PagedList(List<T> items)
-    {
-        Items = items;
-    }
+    public required List<T> Items { get; init; }
 
-    public PagedList(List<T> items, int totalCount)
-        : this(items)
-    {
-        TotalCount = totalCount;
-    }
+    public required int TotalCount { get; init; }
 
-    public int? TotalCount { get; set; }
+    public required int PageCount { get; init; }
 
-    public List<T> Items { get; set; }
+    public static PagedList<T> Create(List<T> items, int totalCount, int pageSize) =>
+        new()
+        {
+            Items = items,
+            TotalCount = totalCount,
+            PageCount = totalCount == 0 ? 0 : (int)Math.Ceiling(totalCount / (double)pageSize)
+        };
+
+    /// <summary>The same page with its items mapped, for results enriched after the paged query.</summary>
+    public PagedList<TResult> Map<TResult>(Func<T, TResult> map) =>
+        new()
+        {
+            Items = Items
+                .Select(map)
+                .ToList(),
+            TotalCount = TotalCount,
+            PageCount = PageCount
+        };
 }
