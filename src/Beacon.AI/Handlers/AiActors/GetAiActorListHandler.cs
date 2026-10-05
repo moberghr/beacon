@@ -1,51 +1,52 @@
-using MediatR;
-using Microsoft.Extensions.Logging;
-using Beacon.Core.Data.Enums;
-using Beacon.AI.Services.Ai.AiActor;
+using Beacon.Core.Data;
 using Beacon.Core.Handlers.AiActors;
+using Beacon.Core.Helpers;
+using MediatR;
+using Microsoft.EntityFrameworkCore;
 
 namespace Beacon.AI.Handlers.AiActors;
 
-internal sealed class GetAiActorListHandler : IRequestHandler<GetAiActorListQuery, GetAiActorListResult>
+internal sealed class GetAiActorListHandler(IDbContextFactory<BeaconContext> contextFactory)
+    : IRequestHandler<GetAiActorListQuery, PagedList<AiActorListItem>>
 {
-    private readonly IAiActorServiceExtended _aiActorService;
-    private readonly ILogger<GetAiActorListHandler> _logger;
+    private const int InstructionsPreviewLength = 100;
 
-    public GetAiActorListHandler(
-        IAiActorServiceExtended aiActorService,
-        ILogger<GetAiActorListHandler> logger)
-    {
-        _aiActorService = aiActorService;
-        _logger = logger;
-    }
-
-    public async Task<GetAiActorListResult> Handle(
+    public async Task<PagedList<AiActorListItem>> Handle(
         GetAiActorListQuery request,
         CancellationToken cancellationToken)
     {
-        var actors = await _aiActorService.GetActorsForDataSourceAsync(
-            request.DataSourceId,
-            request.IncludeArchived ?? false,
-            cancellationToken);
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        return new GetAiActorListResult
+        var query = context.AiActors.AsNoTracking();
+
+        // The global soft-delete filter excludes archived actors by default; opt back in explicitly.
+        if (request.IncludeArchived == true)
         {
-            Actors = actors.Select(a => new AiActorListItem
-            {
-                ActorId = a.Id,
-                Name = a.Name,
-                Instructions = a.Instructions.Length > 100
-                    ? a.Instructions[..100] + "..."
-                    : a.Instructions,
-                DataSourceId = a.DataSourceId,
-                DataSourceName = a.DataSource?.Name ?? "Unknown",
-                Status = a.Status,
-                ThinkCount = a.ThinkCount,
-                LastThinkTime = a.LastThinkTime,
-                TotalCost = a.TotalCost,
-                CreatedTime = a.CreatedTime
-            }).ToList()
-        };
+            query = query.IgnoreQueryFilters();
+        }
+
+        if (request.DataSourceId.HasValue)
+        {
+            query = query.Where(x => x.DataSourceId == request.DataSourceId.Value);
+        }
+
+        return await query
+            .Select(x =>
+                new AiActorListItem
+                {
+                    ActorId = x.Id,
+                    Name = x.Name,
+                    Instructions = x.Instructions.Length > InstructionsPreviewLength
+                        ? x.Instructions.Substring(0, InstructionsPreviewLength) + "..."
+                        : x.Instructions,
+                    DataSourceId = x.DataSourceId,
+                    DataSourceName = x.DataSource != null ? x.DataSource.Name : "Unknown",
+                    Status = x.Status,
+                    ThinkCount = x.ThinkCount,
+                    LastThinkTime = x.LastThinkTime,
+                    TotalCost = x.TotalCost,
+                    CreatedTime = x.CreatedTime
+                })
+            .ToPagedListAsync(request, cancellationToken, defaultSort: "-createdTime", tiebreaker: "actorId");
     }
 }
-

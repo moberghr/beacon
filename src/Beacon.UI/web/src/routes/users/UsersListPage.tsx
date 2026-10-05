@@ -5,7 +5,8 @@ import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { Button, Pill, Card, CardBody, Input, PageHeader } from '@/components/beacon';
 import { formatDateTime, formatNumber } from '@/lib/format';
-import { useToggleUserEnabled, useUsersQuery, type UserEntry } from './queries';
+import { useSearchFilter } from '@/lib/usePagedList';
+import { useToggleUserEnabled, useUsersList, type UserEntry } from './queries';
 import { UserDialog } from './UserDialog';
 
 const GRID_TEMPLATE = '0.5fr 1.2fr 1.4fr 1fr 0.8fr 1.4fr 0.7fr 1.2fr';
@@ -18,12 +19,13 @@ function roleLevelTone(level: number): 'crit' | 'warn' | 'info' | 'neutral' {
 }
 
 export default function UsersListPage() {
-  const [search, setSearch] = useState('');
   const [editing, setEditing] = useState<UserEntry | null | undefined>(undefined);
-  const usersQuery = useUsersQuery(search);
+  const usersQuery = useUsersList();
+  const [search, setSearch] = useSearchFilter(usersQuery.filters.search, value => usersQuery.setFilter('search', value));
   const toggle = useToggleUserEnabled();
 
-  const entries = usersQuery.data?.entries ?? [];
+  const entries = usersQuery.items;
+  const totalCount = usersQuery.data?.totalCount ?? 0;
 
   const handleToggle = async (user: UserEntry) => {
     try {
@@ -35,14 +37,15 @@ export default function UsersListPage() {
   };
 
   const columns = useMemo<Column<UserEntry>[]>(() => [
-    { key: 'id', header: 'Id', render: u => <span className="text-text-muted mono">#{u.id}</span> },
+    { key: 'id', header: 'Id', sortKey: 'id', render: u => <span className="text-text-muted mono">#{u.id}</span> },
     {
       key: 'userName',
+      sortKey: 'userName',
       header: 'Username',
       render: u => <span className="font-semibold text-text">{u.userName}</span>,
     },
-    { key: 'email', header: 'Email', render: u => u.email ?? <span className="text-text-muted">—</span> },
-    { key: 'displayName', header: 'Display name', render: u => u.displayName ?? <span className="text-text-muted">—</span> },
+    { key: 'email', header: 'Email', sortKey: 'email', render: u => u.email ?? <span className="text-text-muted">—</span> },
+    { key: 'displayName', header: 'Display name', sortKey: 'displayName', render: u => u.displayName ?? <span className="text-text-muted">—</span> },
     {
       key: 'type',
       header: 'Type',
@@ -77,6 +80,7 @@ export default function UsersListPage() {
     },
     {
       key: 'lastLogin',
+      sortKey: 'lastLoginAt',
       header: 'Last login',
       render: u => u.lastLoginAt ? formatDateTime(u.lastLoginAt) : <span className="text-text-muted">Never</span>,
     },
@@ -91,7 +95,7 @@ export default function UsersListPage() {
         sub={
           usersQuery.isLoading
             ? <span className="text-text-muted">Loading…</span>
-            : <span className="text-text-muted">{formatNumber(entries.length)} user{entries.length === 1 ? '' : 's'}</span>
+            : <span className="text-text-muted">{formatNumber(totalCount)} user{totalCount === 1 ? '' : 's'}</span>
         }
         actions={
           <>
@@ -129,6 +133,7 @@ export default function UsersListPage() {
           <DataTable
             columns={columns}
             rows={entries}
+            {...usersQuery.tableProps}
             rowKey={u => u.id}
             gridTemplate={GRID_TEMPLATE}
             onRowClick={u => setEditing(u)}

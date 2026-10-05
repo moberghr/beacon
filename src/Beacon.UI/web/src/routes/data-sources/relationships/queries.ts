@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchJson } from '@/lib/api';
+import { usePagedList } from '@/lib/usePagedList';
 import { createSimpleMutation } from '@/lib/mutations';
 
 /**
@@ -62,10 +63,6 @@ export interface SchemaRelationshipEntry {
   verifiedTime: string | null;
 }
 
-interface GetSchemaRelationshipsResult {
-  relationships: SchemaRelationshipEntry[];
-}
-
 export interface ProposedRelationship {
   sourceSchema: string;
   sourceTable: string;
@@ -109,11 +106,11 @@ const relationshipsKey = (dataSourceId: number) =>
   ['schema-relationships', dataSourceId] as const;
 const healthKey = (dataSourceId: number) => ['schema-health', dataSourceId] as const;
 
-export function useSchemaRelationshipsQuery(dataSourceId: number) {
-  return useQuery({
+/** A data source's registered relationships: server-paged, by source schema/table/column. */
+export function useSchemaRelationshipsList(dataSourceId: number) {
+  return usePagedList<SchemaRelationshipEntry>({
     queryKey: relationshipsKey(dataSourceId),
-    queryFn: () =>
-      fetchJson<GetSchemaRelationshipsResult>(`${base(dataSourceId)}/relationships`),
+    path: `${base(dataSourceId)}/relationships`,
     enabled: dataSourceId > 0,
   });
 }

@@ -1,6 +1,6 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { unwrap } from '@/lib/api';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { beaconApi } from '@/api/client';
+import { usePagedList } from '@/lib/usePagedList';
 import { NotificationType } from '@/lib/enums';
 import { createSimpleMutation } from '@/lib/mutations';
 
@@ -23,10 +23,6 @@ export interface RecipientEntry {
   subscriptionCount: number;
 }
 
-interface GetRecipientsResult {
-  entries: RecipientEntry[];
-}
-
 export interface RecipientFormValues {
   name: string;
   description: string | null;
@@ -38,12 +34,20 @@ export interface RecipientFormValues {
 
 const RECIPIENTS_KEY = ['recipients'] as const;
 
-export function useRecipientsQuery() {
-  return useQuery({
+/** The recipients grid: server-paged, alphabetical; search (name, destination, description) in the URL. */
+export function useRecipientsList() {
+  return usePagedList<RecipientEntry, { search: string }>({
     queryKey: RECIPIENTS_KEY,
-    queryFn: async () =>
-      unwrap<GetRecipientsResult>(await beaconApi().getRecipients()),
+    path: '/beacon/api/recipients',
+    filters: { search: '' },
+    defaultSort: { column: 'name', direction: 'asc' },
   });
+}
+
+/** What a recipient picker needs; full `RecipientEntry` rows satisfy it. */
+export interface RecipientOption {
+  id: number;
+  name: string;
 }
 
 export function useCreateRecipient() {

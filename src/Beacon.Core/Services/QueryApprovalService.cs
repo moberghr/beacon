@@ -1,3 +1,4 @@
+using Beacon.Core.Helpers;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Data;
@@ -9,7 +10,7 @@ namespace Beacon.Core.Services;
 
 public interface IQueryApprovalService
 {
-    Task<List<ApprovalRequestSummary>> GetPendingApprovalsAsync(int? queryId = null, CancellationToken cancellationToken = default);
+    Task<PagedList<ApprovalRequestSummary>> GetPendingApprovalsAsync(ListRequest request, int? queryId, CancellationToken cancellationToken);
     Task<ApprovalRequestDetail?> GetApprovalDetailAsync(int requestId, CancellationToken cancellationToken = default);
     Task ApproveAsync(int requestId, string? reviewerUserId, string? reviewerName, string? comment, CancellationToken cancellationToken = default);
     Task RejectAsync(int requestId, string? reviewerUserId, string? reviewerName, string? comment, CancellationToken cancellationToken = default);
@@ -25,14 +26,13 @@ internal class QueryApprovalService(
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase
     };
 
-    public async Task<List<ApprovalRequestSummary>> GetPendingApprovalsAsync(int? queryId = null, CancellationToken cancellationToken = default)
+    public async Task<PagedList<ApprovalRequestSummary>> GetPendingApprovalsAsync(ListRequest request, int? queryId, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         return await context.QueryApprovalRequests
             .Where(r => r.Status == ApprovalStatus.Pending)
             .Where(r => !queryId.HasValue || r.QueryId == queryId.Value)
-            .OrderByDescending(r => r.CreatedTime)
             .Select(r => new ApprovalRequestSummary
             {
                 Id = r.Id,
@@ -44,7 +44,7 @@ internal class QueryApprovalService(
                 CreatedTime = r.CreatedTime,
                 ChangeSummary = r.ChangeSummary
             })
-            .ToListAsync(cancellationToken);
+            .ToPagedListAsync(request, cancellationToken, defaultSort: "-createdTime");
     }
 
     public async Task<ApprovalRequestDetail?> GetApprovalDetailAsync(int requestId, CancellationToken cancellationToken = default)

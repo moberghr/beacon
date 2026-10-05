@@ -1,37 +1,33 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AlertTriangle, Check, RefreshCw } from 'lucide-react';
 import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { Button, Card, PageHeader, Pill } from '@/components/beacon';
-import { cn } from '@/lib/cn';
 import { formatDateTime, formatNumber, formatRelativeTime } from '@/lib/format';
-import { useTasksQuery, type TaskEntry, type TaskStatusFilter } from './queries';
+import { useTasksList, type TaskEntry, type TaskStatusFilter } from './queries';
 
-const PAGE_SIZE = 25;
 const GRID_TEMPLATE = '0.5fr 1.2fr 1.6fr 0.7fr 0.7fr 0.9fr 1.1fr';
 
 export default function TasksListPage() {
-  const [status, setStatus] = useState<TaskStatusFilter>('unresolved');
-  const [page, setPage] = useState(0);
   const navigate = useNavigate();
-
-  const { data, isLoading, isError, error, refetch } = useTasksQuery({ status, page, pageSize: PAGE_SIZE });
-
-  const entries = data?.entries ?? [];
-  const totalCount = data?.totalCount ?? 0;
-  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+  const list = useTasksList();
+  const { items, isLoading, isError, error, refetch } = list;
+  const status = list.filters.status;
+  const totalCount = list.data?.totalCount ?? 0;
 
   const columns = useMemo<Column<TaskEntry>[]>(() => [
-    { key: 'id', header: 'Id', render: t => <span className="text-text-muted mono">#{t.id}</span> },
+    { key: 'id', header: 'Id', sortKey: 'id', render: t => <span className="text-text-muted mono">#{t.id}</span> },
     {
       key: 'created',
       header: 'Created',
+      sortKey: 'createdAt',
       render: t => <span title={formatDateTime(t.createdAt)}>{formatRelativeTime(t.createdAt)}</span>,
     },
     {
       key: 'subscription',
       header: 'Subscription',
+      sortKey: 'subscriptionName',
       render: t => (
         <div>
           <div className="font-semibold text-text">{t.subscriptionName}</div>
@@ -39,22 +35,20 @@ export default function TasksListPage() {
         </div>
       ),
     },
-    { key: 'latest', header: 'Latest', render: t => formatNumber(t.latestResultCount) },
-    { key: 'execs', header: 'Execs', render: t => formatNumber(t.executionCount) },
-    { key: 'unique', header: 'Unique', render: t => formatNumber(t.uniqueResultCounts) },
+    { key: 'latest', header: 'Latest', sortKey: 'latestResultCount', align: 'right', render: t => formatNumber(t.latestResultCount) },
+    { key: 'execs', header: 'Execs', sortKey: 'executionCount', align: 'right', render: t => formatNumber(t.executionCount) },
+    { key: 'unique', header: 'Unique', sortKey: 'uniqueResultCounts', align: 'right', render: t => formatNumber(t.uniqueResultCounts) },
     {
       key: 'status',
       header: 'Status',
+      sortKey: 'resolved',
       render: t => t.resolved
         ? <Pill tone="ok">Resolved</Pill>
         : <Pill tone="warn">Unresolved</Pill>,
     },
   ], []);
 
-  const onChangeStatus = (next: TaskStatusFilter) => {
-    setStatus(next);
-    setPage(0);
-  };
+  const onChangeStatus = (next: TaskStatusFilter) => list.setFilter('status', next);
 
   return (
     <div className="flex flex-col gap-5 p-7">
@@ -99,8 +93,9 @@ export default function TasksListPage() {
       {!isError && (
         <DataTable
           columns={columns}
-          rows={entries}
+          rows={items}
           rowKey={t => t.id}
+          {...list.tableProps}
           gridTemplate={GRID_TEMPLATE}
           onRowClick={t => navigate(`/tasks/${t.id}`)}
           empty={
@@ -113,21 +108,6 @@ export default function TasksListPage() {
         />
       )}
 
-      {totalPages > 1 && (
-        <Card className={cn('p-2.5 flex justify-between items-center')}>
-          <span className="text-text-muted text-xs">
-            Page {page + 1} of {totalPages}
-          </span>
-          <div className="flex gap-1.5">
-            <Button size="sm" onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0 || isLoading}>
-              Previous
-            </Button>
-            <Button size="sm" onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1 || isLoading}>
-              Next
-            </Button>
-          </div>
-        </Card>
-      )}
     </div>
   );
 }

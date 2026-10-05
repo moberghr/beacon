@@ -22,13 +22,12 @@ internal class NotificationService(IDbContextFactory<BeaconContext> contextFacto
         await adapter.SendNotificationAsync(recipientQueryResult, lastExecutedQueryResultCount, cancellationToken);
     }
 
-    public async Task<QueryExecutionHistoryListData> GetQueryExecutionHistory(GetQueryExecutionHistoryRequest request, CancellationToken cancellationToken)
+    public async Task<PagedList<QueryExecutionHistoryData>> GetQueryExecutionHistory(GetQueryExecutionHistoryRequest request, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        var queryExecutionHistory = await context.QueryExecutionHistory
+        return await context.QueryExecutionHistory
             .WhereIf(request.SubscriptionId.HasValue, x => x.SubscriptionId == request.SubscriptionId)
-            .WhereIf(request.LastQueryExecutionHistoryId.HasValue, x => x.Id < request.LastQueryExecutionHistoryId)
             .WhereIf(request.NotificationStatus.HasValue, x => x.NotificationStatus == request.NotificationStatus)
             .Select(x => new QueryExecutionHistoryData
             {
@@ -51,14 +50,7 @@ internal class NotificationService(IDbContextFactory<BeaconContext> contextFacto
                 AiActorId = x.Subscription.AiActorId,
                 AiActorName = x.Subscription.AiActor != null ? x.Subscription.AiActor.Name : null
             })
-            .ToPagedListAsync(request, cancellationToken);
-
-        return new QueryExecutionHistoryListData
-        {
-            LastQueryExecutionHistoryId = queryExecutionHistory.Items.LastOrDefault()?.QueryExecutionHistoryId,
-            Data = queryExecutionHistory.Items,
-            TotalCount = queryExecutionHistory.TotalCount
-        };
+            .ToPagedListAsync(request, cancellationToken, defaultSort: "-createdTime", tiebreaker: "queryExecutionHistoryId");
     }
 
     public async Task<NotificationStatisticsData> GetNotificationStatistics(CancellationToken cancellationToken)

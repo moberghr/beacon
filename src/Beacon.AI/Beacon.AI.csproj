@@ -45,7 +45,6 @@
 		<PackageReference Include="Microsoft.ML.Tokenizers" />
 
 		<!-- Document generation packages -->
-		<PackageReference Include="QuestPDF" />
 		<PackageReference Include="Markdig" />
 
 		<!-- Required dependencies from Core -->

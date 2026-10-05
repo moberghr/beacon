@@ -10,8 +10,7 @@ internal static class UsersEndpoints
     {
         var users = group.MapGroup("/users").WithTags("Users");
 
-        users.MapGet("/", ([FromQuery] string? search, IMediator m, CancellationToken ct) =>
-                m.Send(new GetUsersQuery(search), ct))
+        users.MapGet("/", ([AsParameters] GetUsersQuery query, IMediator m, CancellationToken ct) => m.Send(query, ct))
             .WithName("GetUsers");
 
         users.MapGet("/roles", (IMediator m, CancellationToken ct) => m.Send(new GetRolesQuery(), ct))

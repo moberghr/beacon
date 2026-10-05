@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { AlertTriangle, Plus, RefreshCw, Users, X } from 'lucide-react';
 import { Button, PageHeader, Pill } from '@/components/beacon';
+import { useSearchFilter } from '@/lib/usePagedList';
 import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -9,7 +10,7 @@ import { formatNumber } from '@/lib/format';
 import {
   NOTIFICATION_TYPE_LABEL,
   useDeleteRecipient,
-  useRecipientsQuery,
+  useRecipientsList,
   type RecipientEntry,
 } from './queries';
 import { RecipientDialog } from './RecipientDialog';
@@ -17,37 +18,31 @@ import { RecipientDialog } from './RecipientDialog';
 const GRID_TEMPLATE = '0.6fr 1.4fr 1.6fr 0.9fr 1.6fr 0.6fr 60px';
 
 export default function RecipientsListPage() {
-  const { data, isLoading, isError, error, refetch } = useRecipientsQuery();
+  const list = useRecipientsList();
+  const { data, isLoading, isError, error, refetch } = list;
   const deleteMutation = useDeleteRecipient();
 
   const [editing, setEditing] = useState<RecipientEntry | null | undefined>(undefined); // undefined = closed
   const [deleting, setDeleting] = useState<RecipientEntry | null>(null);
-  const [search, setSearch] = useState('');
-
-  const entries = data?.entries ?? [];
-  const filtered = useMemo(() => {
-    if (!search.trim()) return entries;
-    const q = search.trim().toLowerCase();
-    return entries.filter(r =>
-      r.name.toLowerCase().includes(q)
-      || r.destination.toLowerCase().includes(q)
-      || (r.description ?? '').toLowerCase().includes(q));
-  }, [entries, search]);
+  const [search, setSearch] = useSearchFilter(list.filters.search, value => list.setFilter('search', value));
 
   const columns = useMemo<Column<RecipientEntry>[]>(() => [
-    { key: 'id', header: 'Id', render: r => <span className="text-text-muted mono">{r.id}</span> },
+    { key: 'id', header: 'Id', sortKey: 'id', render: r => <span className="text-text-muted mono">{r.id}</span> },
     {
       key: 'name',
+      sortKey: 'name',
       header: 'Name',
       render: r => <span className="font-semibold text-text">{r.name}</span>,
     },
     {
       key: 'destination',
+      sortKey: 'destination',
       header: 'Destination',
       render: r => <span className="mono text-xs">{r.destination}</span>,
     },
     {
       key: 'type',
+      sortKey: 'notificationType',
       header: 'Type',
       render: r => <Pill>{NOTIFICATION_TYPE_LABEL[r.notificationType] ?? r.notificationType}</Pill>,
     },
@@ -60,6 +55,7 @@ export default function RecipientsListPage() {
     },
     {
       key: 'subs',
+      sortKey: 'subscriptionCount',
       header: 'Subs',
       render: r => formatNumber(r.subscriptionCount),
     },
@@ -97,7 +93,7 @@ export default function RecipientsListPage() {
         sub={
           isLoading
             ? <span className="text-text-muted">Loading…</span>
-            : <span className="text-text-muted">{formatNumber(entries.length)} total</span>
+            : <span className="text-text-muted">{formatNumber(data?.totalCount ?? 0)} total</span>
         }
         actions={
           <>
@@ -138,7 +134,8 @@ export default function RecipientsListPage() {
 
           <DataTable
             columns={columns}
-            rows={filtered}
+            rows={list.items}
+            {...list.tableProps}
             rowKey={r => r.id}
             gridTemplate={GRID_TEMPLATE}
             onRowClick={r => setEditing(r)}

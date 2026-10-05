@@ -13,6 +13,7 @@ export const UNAUTHENTICATED_USER: CurrentUser = {
   // Not "realtime is off" — this is the logged-out placeholder after a 401, and the real value
   // arrives with the next /auth/me. Left true so signing back in does not have to re-enable it.
   realtimeEnabled: true,
+  externalLogin: null,
 };
 
 /**
@@ -24,11 +25,16 @@ export const UNAUTHENTICATED_USER: CurrentUser = {
  * the cached auth state to unauthenticated on any 401, so <RequireAuth> re-evaluates and
  * redirects to /login via SPA navigation (no full reload). The `/auth/me` query itself is
  * anonymous-tolerant (returns 200 with isAuthenticated:false), so it never 401s and cannot loop.
+ * `externalLogin` is host configuration, not user state, so it is carried over: dropping it would
+ * send an expired session on a host that owns sign-in to Beacon's login page instead of the host's.
  */
 export function createQueryClient(): QueryClient {
   const onError = (error: unknown) => {
     if (error instanceof ApiError && error.status === 401) {
-      client.setQueryData(AUTH_QUERY_KEY, UNAUTHENTICATED_USER);
+      client.setQueryData<CurrentUser>(AUTH_QUERY_KEY, (previous) => ({
+        ...UNAUTHENTICATED_USER,
+        externalLogin: previous?.externalLogin ?? null,
+      }));
     }
   };
 

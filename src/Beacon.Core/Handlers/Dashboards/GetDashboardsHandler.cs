@@ -9,9 +9,9 @@ namespace Beacon.Core.Handlers.Dashboards.GetDashboards;
 
 internal sealed class GetDashboardsHandler(
     IDbContextFactory<BeaconContext> contextFactory,
-    IBeaconUserContext userContext) : IRequestHandler<GetDashboardsQuery, DashboardsListData>
+    IBeaconUserContext userContext) : IRequestHandler<GetDashboardsQuery, PagedList<DashboardListData>>
 {
-    public async Task<DashboardsListData> Handle(GetDashboardsQuery query, CancellationToken cancellationToken)
+    public async Task<PagedList<DashboardListData>> Handle(GetDashboardsQuery query, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
@@ -44,10 +44,7 @@ internal sealed class GetDashboardsHandler(
                                      (d.Description != null && d.Description.Contains(request.SearchKeyword)));
         }
 
-        var projected = dashboardQuery
-            .OrderByDescending(d => d.IsDefault)
-            .ThenBy(d => d.SortOrder)
-            .ThenByDescending(d => d.CreatedTime)
+        return await dashboardQuery
             .Select(d => new DashboardListData
             {
                 Id = d.Id,
@@ -55,28 +52,16 @@ internal sealed class GetDashboardsHandler(
                 Description = d.Description,
                 IsShared = d.IsShared,
                 IsDefault = d.IsDefault,
+                SortOrder = d.SortOrder,
                 WidgetCount = d.Widgets.Count,
                 CreatedTime = d.CreatedTime,
                 IsOwner = d.CreatedByUserId == userId,
                 CreatedByUserName = d.CreatedByUserName
-            });
-
-        var paged = await projected.ToPagedListAsync(request, cancellationToken);
-
-        return new DashboardsListData
-        {
-            Data = paged.Items,
-            TotalCount = paged.TotalCount
-        };
+            })
+            .ToPagedListAsync(request, cancellationToken, defaultSort: "-isDefault,sortOrder,-createdTime");
     }
 }
 
 public record GetDashboardsQuery(
     GetDashboardsRequest Request
-) : IRequest<DashboardsListData>;
-
-public class DashboardsListData : IPagedListResponse<DashboardListData>
-{
-    public List<DashboardListData> Data { get; set; } = new();
-    public int? TotalCount { get; set; }
-}
+) : IRequest<PagedList<DashboardListData>>;

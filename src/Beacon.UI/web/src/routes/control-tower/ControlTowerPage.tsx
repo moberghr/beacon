@@ -1,11 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Activity,
   AlertTriangle,
-  ArrowDown,
-  ArrowUp,
-  ChevronLeft,
-  ChevronRight,
   ListChecks,
   RefreshCw,
   Search,
@@ -26,17 +22,9 @@ import {
   type SegOption,
 } from '@/components/beacon';
 import { formatNumber, formatPercentage, formatRelativeTime } from '@/lib/format';
-import { ControlTowerSortBy, HealthStatus, NotificationStatus } from '@/lib/enums';
-import {
-  type AnomalySparklinePoint,
-  type ControlTowerFilters,
-  type ControlTowerSubscriptionHealthData,
-} from './api';
-import {
-  CONTROL_TOWER_PAGE_SIZE,
-  useControlTowerQuery,
-  useQueryFolders,
-} from './queries';
+import { HealthStatus, NotificationStatus } from '@/lib/enums';
+import { type AnomalySparklinePoint, type ControlTowerSubscriptionHealthData } from './api';
+import { useControlTowerList, useControlTowerStatistics, useQueryFolders } from './queries';
 import { SubscriptionDetailPanel } from './SubscriptionDetailPanel';
 
 const HEALTH_PILL: Record<HealthStatus, { label: string; tone: 'ok' | 'warn' | 'crit' | 'neutral' | 'info' }> = {
@@ -71,18 +59,6 @@ const TIME_RANGE_OPTIONS: SegOption<string>[] = [
   { value: '90', label: '90d' },
 ];
 
-type SortColumn = 'name' | 'successRate' | 'executions' | 'openTasks' | 'anomalies' | 'lastExec';
-type SortDirection = 'asc' | 'desc';
-
-const SORT_TO_API: Record<SortColumn, ControlTowerSortBy> = {
-  name: ControlTowerSortBy.Name,
-  successRate: ControlTowerSortBy.SuccessRate,
-  executions: ControlTowerSortBy.Executions,
-  openTasks: ControlTowerSortBy.OpenTasks,
-  anomalies: ControlTowerSortBy.Anomalies,
-  lastExec: ControlTowerSortBy.LastExecution,
-};
-
 function Sparkline({ points }: { points: AnomalySparklinePoint[] }) {
   if (points.length === 0) {
     return <span className="text-text-subtle text-2xs">—</span>;
@@ -109,79 +85,34 @@ function Sparkline({ points }: { points: AnomalySparklinePoint[] }) {
   );
 }
 
-function SortHeader({
-  label,
-  column,
-  sort,
-  setSort,
-  align = 'left',
-}: {
-  label: string;
-  column: SortColumn;
-  sort: { column: SortColumn | null; direction: SortDirection };
-  setSort: (s: { column: SortColumn; direction: SortDirection }) => void;
-  align?: 'left' | 'right';
-}) {
-  const active = sort.column === column;
-  return (
-    <button
-      type="button"
-      onClick={() =>
-        setSort({
-          column,
-          direction: active && sort.direction === 'asc' ? 'desc' : 'asc',
-        })
-      }
-      className={`inline-flex items-center gap-1 hover:text-text ${
-        align === 'right' ? 'flex-row-reverse w-full justify-start' : ''
-      } ${active ? 'text-text' : 'text-text-muted'}`}
-    >
-      <span>{label}</span>
-      {active && (sort.direction === 'asc' ? <ArrowUp size={11} /> : <ArrowDown size={11} />)}
-    </button>
-  );
-}
-
 export default function ControlTowerPage() {
-  const [searchInput, setSearchInput] = useState('');
-  const [searchKeyword, setSearchKeyword] = useState<string | undefined>();
-  const [folderId, setFolderId] = useState<number | undefined>();
-  const [healthFilter, setHealthFilter] = useState<string>('all');
-  const [onlyOpenTasks, setOnlyOpenTasks] = useState(false);
-  const [timeRange, setTimeRange] = useState<string>('30');
-  // `column: null` means "no user-chosen sort" — the API then sorts worst-first,
-  // which is the intended default for an operations view.
-  const [sort, setSort] = useState<{ column: SortColumn | null; direction: SortDirection }>({
-    column: null,
-    direction: 'asc',
-  });
-  const [page, setPage] = useState(0);
+  // Filters, sort and page live in the URL (usePagedList); the statistics tiles use the same filters.
+  const list = useControlTowerList();
+  const { filters, setFilter } = list;
+  const statistics = useControlTowerStatistics(filters);
+  const [searchInput, setSearchInput] = useState(filters.searchKeyword);
   // Store the id, not a row snapshot — rows go stale across the 30s refetch.
   const [selectedSubscriptionId, setSelectedSubscriptionId] = useState<number | null>(null);
 
-  const filters = useMemo<ControlTowerFilters>(
-    () => ({
-      searchKeyword,
-      folderId,
-      healthStatus: healthFilter === 'all' ? undefined : (Number(healthFilter) as HealthStatus),
-      hasUnresolvedTasks: onlyOpenTasks ? true : undefined,
-      timeRangeDays: Number(timeRange),
-      sortBy: sort.column == null ? ControlTowerSortBy.WorstFirst : SORT_TO_API[sort.column],
-    }),
-    [searchKeyword, folderId, healthFilter, onlyOpenTasks, timeRange, sort.column],
-  );
+  const folderId = filters.folderId === '' ? undefined : Number(filters.folderId);
+  const healthFilter = filters.healthStatus;
+  const onlyOpenTasks = filters.openTasks === 'true';
+  const timeRange = filters.timeRangeDays;
+  const setFolderId = (value: number | undefined) => setFilter('folderId', value == null ? '' : String(value));
+  const setHealthFilter = (value: string) => setFilter('healthStatus', value);
+  const setOnlyOpenTasks = (value: boolean) => setFilter('openTasks', value ? 'true' : '');
+  const setTimeRange = (value: string) => setFilter('timeRangeDays', value);
 
-  // Filters define a new result set — page 0 is the only valid start.
-  useEffect(() => {
-    setPage(0);
-  }, [filters]);
-
-  const { data, isLoading, isFetching, isError, error, refetch } = useControlTowerQuery(filters, page);
+  const { data, isLoading, isError, error } = list;
+  const isFetching = list.isFetching || statistics.isFetching;
+  const refetch = () => {
+    void list.refetch();
+    void statistics.refetch();
+  };
   const { data: folders } = useQueryFolders();
-  const totalPages = Math.max(1, Math.ceil((data?.totalCount ?? 0) / CONTROL_TOWER_PAGE_SIZE));
 
-  const stats = data?.stats;
-  const entries = data?.entries ?? [];
+  const stats = statistics.data;
+  const entries = list.items;
 
   const selectedRow =
     selectedSubscriptionId == null
@@ -193,61 +124,18 @@ export default function ControlTowerPage() {
     if (selectedSubscriptionId == null || data == null) {
       return;
     }
-    if (!data.entries.some(r => r.subscriptionId === selectedSubscriptionId)) {
+    if (!data.items.some(r => r.subscriptionId === selectedSubscriptionId)) {
       setSelectedSubscriptionId(null);
     }
   }, [data, selectedSubscriptionId]);
 
-  // Client-side sort overlay for direction + tie-breaking. NOTE: this sorts
-  // only within the currently fetched page — the API's `sortBy` drives the
-  // server-side order that decides which rows land on each page.
-  const sortedEntries = useMemo(() => {
-    const column = sort.column;
-    if (column == null) {
-      // No user-chosen sort — keep the server's worst-first order.
-      return entries;
-    }
-    // The client-side overlay reorders only the current page. When the result spans multiple pages
-    // the server order (driven by `sortBy`) decides which rows land on each page, so re-sorting a
-    // single page would surface the wrong rows in the wrong order. Defer entirely to the server then.
-    if (totalPages > 1) {
-      return entries;
-    }
-    const list = [...entries];
-    const dir = sort.direction === 'asc' ? 1 : -1;
-    list.sort((a, b) => {
-      switch (column) {
-        case 'name':
-          return a.queryName.localeCompare(b.queryName) * dir;
-        case 'successRate':
-          return ((a.successRate || 0) - (b.successRate || 0)) * dir;
-        case 'executions':
-          return (a.totalExecutions - b.totalExecutions) * dir;
-        case 'openTasks':
-          return (a.unresolvedTaskCount - b.unresolvedTaskCount) * dir;
-        case 'anomalies':
-          return (a.anomalyCount30Days - b.anomalyCount30Days) * dir;
-        case 'lastExec': {
-          const at = a.lastExecutionTime ? new Date(a.lastExecutionTime).getTime() : 0;
-          const bt = b.lastExecutionTime ? new Date(b.lastExecutionTime).getTime() : 0;
-          return (at - bt) * dir;
-        }
-      }
-    });
-    return list;
-  }, [entries, sort]);
-
   function applySearch() {
-    setSearchKeyword(searchInput.trim() || undefined);
+    setFilter('searchKeyword', searchInput.trim());
   }
 
   function clearFilters() {
     setSearchInput('');
-    setSearchKeyword(undefined);
-    setFolderId(undefined);
-    setHealthFilter('all');
-    setOnlyOpenTasks(false);
-    setTimeRange('30');
+    list.resetFilters();
   }
 
   const columns: Column<ControlTowerSubscriptionHealthData>[] = [
@@ -261,7 +149,8 @@ export default function ControlTowerPage() {
     },
     {
       key: 'name',
-      header: <SortHeader label="Subscription" column="name" sort={sort} setSort={setSort} />,
+      header: 'Subscription',
+      sortKey: 'queryName',
       render: r => (
         <div className="min-w-0">
           <div className="font-semibold text-text truncate">{r.queryName}</div>
@@ -275,7 +164,8 @@ export default function ControlTowerPage() {
     },
     {
       key: 'success',
-      header: <SortHeader label="Success" column="successRate" sort={sort} setSort={setSort} />,
+      header: 'Success',
+      sortKey: 'successRate',
       render: r =>
         r.totalExecutions === 0 ? (
           <span className="text-text-muted">—</span>
@@ -285,7 +175,8 @@ export default function ControlTowerPage() {
     },
     {
       key: 'execs',
-      header: <SortHeader label="Runs" column="executions" sort={sort} setSort={setSort} />,
+      header: 'Runs',
+      sortKey: 'totalExecutions',
       render: r => (
         <span className="tabular-nums">
           <span className="text-text">{formatNumber(r.totalExecutions)}</span>
@@ -297,7 +188,8 @@ export default function ControlTowerPage() {
     },
     {
       key: 'tasks',
-      header: <SortHeader label="Tasks" column="openTasks" sort={sort} setSort={setSort} />,
+      header: 'Tasks',
+      sortKey: 'unresolvedTaskCount',
       render: r =>
         r.unresolvedTaskCount > 0 ? (
           <Pill tone="warn">{r.unresolvedTaskCount} open</Pill>
@@ -307,12 +199,12 @@ export default function ControlTowerPage() {
     },
     {
       key: 'anomalies',
-      header: <SortHeader label="Anomalies" column="anomalies" sort={sort} setSort={setSort} />,
+      header: 'Anomalies',
       render: r => <Sparkline points={r.anomalySparkline} />,
     },
     {
       key: 'lastExec',
-      header: <SortHeader label="Last run" column="lastExec" sort={sort} setSort={setSort} />,
+      header: 'Last run',
       render: r => {
         if (!r.lastExecutionTime) {
           return <span className="text-text-muted">never</span>;
@@ -477,7 +369,8 @@ export default function ControlTowerPage() {
             </div>
             <DataTable
               columns={columns}
-              rows={sortedEntries}
+              rows={entries}
+              {...list.tableProps}
               rowKey={r => r.subscriptionId}
               gridTemplate={gridTemplate}
               onRowClick={r => setSelectedSubscriptionId(r.subscriptionId)}
@@ -493,27 +386,6 @@ export default function ControlTowerPage() {
                 />
               }
             />
-            {totalPages > 1 && (
-              <div className="flex items-center justify-end gap-2 p-3 border-t border-border text-xs text-text-muted">
-                <Button
-                  size="sm"
-                  icon={<ChevronLeft />}
-                  onClick={() => setPage(p => Math.max(0, p - 1))}
-                  disabled={page <= 0}
-                >
-                  Prev
-                </Button>
-                <span className="tabular-nums">Page {page + 1} of {totalPages}</span>
-                <Button
-                  size="sm"
-                  icon={<ChevronRight />}
-                  onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
-                  disabled={page >= totalPages - 1}
-                >
-                  Next
-                </Button>
-              </div>
-            )}
           </Card>
         </>
       )}

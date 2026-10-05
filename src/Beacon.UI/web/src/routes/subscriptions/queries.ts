@@ -1,6 +1,8 @@
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
+import { fetchPagedList } from '@/lib/paging';
+import { usePagedList } from '@/lib/usePagedList';
 import {
   AnomalyDetectionMethod,
   AnomalySensitivity,
@@ -23,10 +25,6 @@ export interface SubscriptionEntry {
   storeResults: boolean;
 }
 
-interface GetSubscriptionsResult {
-  entries: SubscriptionEntry[];
-}
-
 export interface CreateSubscriptionPayload {
   queryId: number;
   cronExpression: string;
@@ -41,12 +39,16 @@ export interface CreateSubscriptionPayload {
 
 const SUBSCRIPTIONS_KEY = ['subscriptions'] as const;
 
-export function useSubscriptionsQuery(search?: string) {
-  return useQuery({
-    queryKey: [...SUBSCRIPTIONS_KEY, search ?? null],
-    queryFn: async () =>
-      unwrap<GetSubscriptionsResult>(await beaconApi().getSubscriptions(search?.trim() || undefined)),
-    placeholderData: keepPreviousData,
+export type SubscriptionListStatus = 'active' | 'archived';
+
+/** The subscriptions grid: server-paged, alphabetical by query name, name search + status tab in the URL. */
+export function useSubscriptionsList() {
+  return usePagedList<SubscriptionEntry, { search: string; status: SubscriptionListStatus }>({
+    queryKey: SUBSCRIPTIONS_KEY,
+    path: '/beacon/api/subscriptions',
+    filters: { search: '', status: 'active' },
+    mapFilters: x => ({ search: x.search, archived: x.status === 'archived' }),
+    defaultSort: { column: 'queryName', direction: 'asc' },
   });
 }
 
@@ -178,17 +180,32 @@ export interface SubscriptionExecutionEntry {
   recipientNames: string[];
 }
 
-interface GetSubscriptionExecutionsResult {
-  entries: SubscriptionExecutionEntry[];
-  totalCount: number;
+/**
+ * The latest executions as a bounded sample for the KPI tiles and right rail (success rate, last failure).
+ * Not a grid — the Execution history tab pages through `useSubscriptionExecutionsList`.
+ */
+export function useSubscriptionExecutionsQuery(id: number | undefined, sampleSize = 200) {
+  return useQuery({
+    queryKey: ['subscriptions', id, 'executions', 'sample', sampleSize] as const,
+    queryFn: () =>
+      fetchPagedList<SubscriptionExecutionEntry>('/beacon/api/notifications', {
+        subscriptionId: id,
+        page: 0,
+        pageSize: sampleSize,
+        sort: '-createdTime',
+      }),
+    enabled: typeof id === 'number' && Number.isFinite(id),
+  });
 }
 
-export function useSubscriptionExecutionsQuery(id: number | undefined, pageSize = 200) {
-  return useQuery({
-    queryKey: ['subscriptions', id, 'executions', pageSize] as const,
-    queryFn: async () =>
-      unwrap<GetSubscriptionExecutionsResult>(await beaconApi().getNotifications(0, pageSize, undefined, id)),
-    enabled: typeof id === 'number' && Number.isFinite(id),
+/** The Execution history tab: server-paged, newest first; URL keys prefixed `runs` (`?runsPage=2`). */
+export function useSubscriptionExecutionsList(id: number) {
+  return usePagedList<SubscriptionExecutionEntry>({
+    queryKey: ['subscriptions', id, 'executions'],
+    path: '/beacon/api/notifications',
+    fixedParams: { subscriptionId: id },
+    defaultSort: { column: 'createdTime', direction: 'desc' },
+    urlPrefix: 'runs',
   });
 }
 
@@ -256,6 +273,19 @@ export function useArchiveSubscription(id: number | undefined) {
       invalidate: subscriptionMutationKeys(id),
       successMsg: 'Subscription archived',
       errorFallback: 'Archive failed',
+    }),
+  );
+}
+
+export function useReactivateSubscription(id: number | undefined) {
+  const qc = useQueryClient();
+  return useMutation(
+    createSimpleMutation<void, void>({
+      qc,
+      mutationFn: () => beaconApi().reactivateSubscription(id as number),
+      invalidate: subscriptionMutationKeys(id),
+      successMsg: 'Subscription reactivated',
+      errorFallback: 'Reactivate failed',
     }),
   );
 }

@@ -2,13 +2,14 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Helpers;
 
 namespace Beacon.Core.Handlers.McpLearning;
 
 internal sealed class GetLearnedPatternsHandler(IDbContextFactory<BeaconContext> contextFactory)
-    : IRequestHandler<GetLearnedPatternsQuery, GetLearnedPatternsResult>
+    : IRequestHandler<GetLearnedPatternsQuery, PagedList<LearnedPatternEntry>>
 {
-    public async Task<GetLearnedPatternsResult> Handle(GetLearnedPatternsQuery request, CancellationToken cancellationToken)
+    public async Task<PagedList<LearnedPatternEntry>> Handle(GetLearnedPatternsQuery request, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
@@ -29,9 +30,7 @@ internal sealed class GetLearnedPatternsHandler(IDbContextFactory<BeaconContext>
         if (!string.IsNullOrEmpty(request.TableName))
             query = query.Where(p => p.TableName == request.TableName);
 
-        var items = await query
-            .OrderByDescending(p => p.Confidence)
-            .ThenByDescending(p => p.SignalCount)
+        return await query
             .Select(p => new LearnedPatternEntry
             {
                 Id = p.Id,
@@ -50,13 +49,12 @@ internal sealed class GetLearnedPatternsHandler(IDbContextFactory<BeaconContext>
                 CreatedTime = p.CreatedTime,
                 LastRefreshedAt = p.LastRefreshedAt
             })
-            .ToListAsync(cancellationToken);
-
-        return new GetLearnedPatternsResult(items);
+            .ToPagedListAsync(request, cancellationToken, defaultSort: "-confidence,-signalCount");
     }
 }
 
-public record GetLearnedPatternsQuery : IRequest<GetLearnedPatternsResult>
+/// <summary>Most confident first (then most signals) unless <c>sort</c> says otherwise.</summary>
+public record GetLearnedPatternsQuery : ListRequest, IRequest<PagedList<LearnedPatternEntry>>
 {
     public int? ProjectId { get; init; }
     public int? DataSourceId { get; init; }
@@ -64,8 +62,6 @@ public record GetLearnedPatternsQuery : IRequest<GetLearnedPatternsResult>
     public McpPatternType? PatternType { get; init; }
     public string? TableName { get; init; }
 }
-
-public record GetLearnedPatternsResult(List<LearnedPatternEntry> Patterns);
 
 public record LearnedPatternEntry
 {

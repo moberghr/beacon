@@ -40,22 +40,7 @@ internal static class McpEndpoints
         .WithName("UpdateMcpProjectSettings")
         .RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
 
-        mcp.MapGet("/learned-patterns", (
-                [FromQuery] int? projectId,
-                [FromQuery] int? dataSourceId,
-                [FromQuery] McpPatternStatus? status,
-                [FromQuery] McpPatternType? patternType,
-                [FromQuery] string? tableName,
-                IMediator m,
-                CancellationToken ct) =>
-                m.Send(new GetLearnedPatternsQuery
-                {
-                    ProjectId = projectId,
-                    DataSourceId = dataSourceId,
-                    Status = status,
-                    PatternType = patternType,
-                    TableName = tableName,
-                }, ct))
+        mcp.MapGet("/learned-patterns", ([AsParameters] GetLearnedPatternsQuery query, IMediator m, CancellationToken ct) => m.Send(query, ct))
             .WithName("GetLearnedPatterns");
 
         mcp.MapPut("/learned-patterns/{id:int}/status", async (
@@ -75,16 +60,7 @@ internal static class McpEndpoints
             return TypedResults.NoContent();
         }).WithName("UpdatePatternStatus");
 
-        mcp.MapGet("/documentation-patches", (
-                [FromQuery] int? projectId,
-                [FromQuery] McpDocPatchStatus? status,
-                IMediator m,
-                CancellationToken ct) =>
-                m.Send(new GetDocumentationPatchesQuery
-                {
-                    ProjectId = projectId,
-                    Status = status,
-                }, ct))
+        mcp.MapGet("/documentation-patches", ([AsParameters] GetDocumentationPatchesQuery query, IMediator m, CancellationToken ct) => m.Send(query, ct))
             .WithName("GetDocumentationPatches");
 
         mcp.MapPost("/documentation-patches/{id:int}/apply", async (

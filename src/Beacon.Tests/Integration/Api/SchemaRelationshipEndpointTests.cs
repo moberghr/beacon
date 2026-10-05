@@ -107,7 +107,7 @@ public class SchemaRelationshipEndpointTests
         var handler = new GetSchemaRelationshipsHandler(
             Mock.Of<Microsoft.EntityFrameworkCore.IDbContextFactory<Core.Data.BeaconContext>>());
 
-        var act = async () => await handler.Handle(new GetSchemaRelationshipsQuery(0), CancellationToken.None);
+        var act = async () => await handler.Handle(new GetSchemaRelationshipsQuery { DataSourceId = 0 }, CancellationToken.None);
 
         await act.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*must be positive*");

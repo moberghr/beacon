@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
@@ -26,13 +26,13 @@ import {
   Field,
   Input,
   Textarea,
-  Select,
   Kbd,
 } from '@/components/beacon';
 import { InputPromptDialog } from '@/components/ui/InputPromptDialog';
 import { StepEditorWithExplorer } from './parts/StepEditorWithExplorer';
 import { InfoRow, CheckRow, type CheckTone } from './new/atoms';
-import { useDataSourcesQuery } from '@/routes/data-sources/queries';
+import { DataSourcePicker } from '@/routes/data-sources/DataSourcePicker';
+import { useDataSourceLookup, useDefaultDataSource } from '@/routes/data-sources/queries';
 import { ParameterType } from '@/lib/enums';
 import {
   PARAMETER_TYPE_LABEL,
@@ -104,7 +104,7 @@ function toStepPayload(step: DraftStep, idx: number): UpdateQueryStepPayload {
 
 export default function NewQueryPage() {
   const navigate = useNavigate();
-  const dataSources = useDataSourcesQuery();
+  const defaultDataSource = useDefaultDataSource().data ?? null;
   const create = useCreateQuery();
   const [createdId, setCreatedId] = useState<number | null>(null);
   // Takes the target id from the payload, so updating the just-created query
@@ -116,33 +116,24 @@ export default function NewQueryPage() {
   const [steps, setSteps] = useState<DraftStep[]>(() => [emptyStep(1)]);
   const [parameterPromptDraftId, setParameterPromptDraftId] = useState<number | null>(null);
 
-  const dataSourceOptions = dataSources.data?.entries ?? [];
-
   useEffect(() => {
-    if (dataSourceOptions.length === 0) return;
+    if (!defaultDataSource) return;
     setSteps(prev => {
       let changed = false;
       const next = prev.map(s => {
         if (s.dataSourceId !== 0) return s;
         changed = true;
-        const ds = dataSourceOptions[0];
         return {
           ...s,
-          dataSourceId: ds.id,
-          dataSourceName: ds.name,
+          dataSourceId: defaultDataSource.id,
+          dataSourceName: defaultDataSource.name,
         };
       });
       return changed ? next : prev;
     });
-  }, [dataSourceOptions]);
+  }, [defaultDataSource]);
 
-  const dataSourceLookup = useMemo(() => {
-    const map = new Map<number, { name: string; engine: string }>();
-    for (const ds of dataSourceOptions) {
-      map.set(ds.id, { name: ds.name, engine: ds.databaseEngineType ?? ds.dataSourceType });
-    }
-    return map;
-  }, [dataSourceOptions]);
+  const dataSourceLookup = useDataSourceLookup(steps.map(x => x.dataSourceId));
 
   const trimmedName = name.trim();
   const trimmedDesc = description.trim();
@@ -244,7 +235,7 @@ export default function NewQueryPage() {
 
   const addStep = () => {
     setSteps(prev => {
-      const firstDs = dataSourceOptions[0];
+      const firstDs = defaultDataSource;
       const fresh = emptyStep(prev.length + 1);
       if (firstDs) {
         fresh.dataSourceId = firstDs.id;
@@ -462,24 +453,17 @@ export default function NewQueryPage() {
                             />
                           </Field>
                           <Field label="Target database" hint={ds ? ds.engine : undefined}>
-                            <Select
-                              value={step.dataSourceId || ''}
-                              onChange={e => {
-                                const newId = Number(e.target.value);
-                                const meta = dataSourceLookup.get(newId);
+<DataSourcePicker
+                              className="min-w-[220px]"
+                              value={step.dataSourceId || null}
+                              selectedLabel={ds ? `${ds.name} (${ds.engine})` : step.dataSourceName || undefined}
+                              onSelect={x =>
                                 updateStep(step.draftId, {
-                                  dataSourceId: newId,
-                                  dataSourceName: meta?.name ?? '',
-                                });
-                              }}
-                            >
-                              <option value="">Select data source…</option>
-                              {dataSourceOptions.map(d => (
-                                <option key={d.id} value={d.id}>
-                                  {d.name} ({d.databaseEngineType ?? d.dataSourceType})
-                                </option>
-                              ))}
-                            </Select>
+                                  dataSourceId: x?.id ?? 0,
+                                  dataSourceName: x?.name ?? '',
+                                })
+                              }
+                            />
                           </Field>
                         </div>
 

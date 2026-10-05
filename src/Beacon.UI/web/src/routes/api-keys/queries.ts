@@ -1,6 +1,7 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
+import { usePagedList } from '@/lib/usePagedList';
 import { createSimpleMutation } from '@/lib/mutations';
 
 // Local strict interfaces bridged via unwrap<T>() — the generated `ApiKeyEntry`
@@ -17,10 +18,6 @@ export interface ApiKeyEntry {
   isActive: boolean;
 }
 
-interface GetApiKeysResult {
-  entries: ApiKeyEntry[];
-}
-
 export interface CreateApiKeyPayload {
   name: string;
   scopes: string[];
@@ -34,10 +31,12 @@ export interface CreateApiKeyResult {
 
 const KEYS = ['api-keys'] as const;
 
-export function useApiKeysQuery() {
-  return useQuery({
+/** The caller's API keys: server-paged, newest first. */
+export function useApiKeysList() {
+  return usePagedList<ApiKeyEntry>({
     queryKey: KEYS,
-    queryFn: async () => unwrap<GetApiKeysResult>(await beaconApi().getApiKeys()),
+    path: '/beacon/api/api-keys',
+    defaultSort: { column: 'createdAt', direction: 'desc' },
   });
 }
 

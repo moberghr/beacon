@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
+import { usePagedList } from '@/lib/usePagedList';
 import { createSimpleMutation } from '@/lib/mutations';
 import type { ApprovalStatus } from '@/lib/enums';
 
@@ -61,11 +62,12 @@ export interface ApprovalRequestDetail {
 const PENDING_KEY = ['approvals', 'pending'] as const;
 const DETAIL_KEY = (id: number | undefined) => ['approvals', 'detail', id] as const;
 
-export function usePendingApprovalsQuery() {
-  return useQuery({
+/** Pending approval requests: server-paged, newest first. */
+export function usePendingApprovalsList() {
+  return usePagedList<ApprovalRequestSummary>({
     queryKey: PENDING_KEY,
-    queryFn: async () =>
-      unwrap<ApprovalRequestSummary[]>(await beaconApi().getPendingApprovals(undefined)),
+    path: '/beacon/api/approvals/pending',
+    defaultSort: { column: 'createdTime', direction: 'desc' },
   });
 }
 

@@ -16,6 +16,7 @@ import {
   Pill,
   Select,
 } from '@/components/beacon';
+import { Pager } from '@/components/data/Pager';
 import { SchemaHealthPanel } from './SchemaHealthPanel';
 import {
   CARDINALITY_LABEL,
@@ -26,7 +27,7 @@ import {
   useDeleteRelationship,
   useDiscoveryPreview,
   useSchemaHealthQuery,
-  useSchemaRelationshipsQuery,
+  useSchemaRelationshipsList,
   useVerifyRelationship,
   type CreateRelationshipPayload,
   type ProposedRelationship,
@@ -56,7 +57,7 @@ export function RelationshipsPage() {
   const params = useParams();
   const dataSourceId = Number(params.id ?? 0);
 
-  const relationships = useSchemaRelationshipsQuery(dataSourceId);
+  const relationships = useSchemaRelationshipsList(dataSourceId);
   const health = useSchemaHealthQuery(dataSourceId);
   const discover = useDiscoveryPreview(dataSourceId);
   const verify = useVerifyRelationship(dataSourceId);
@@ -67,7 +68,7 @@ export function RelationshipsPage() {
   const [isAdding, setIsAdding] = useState(false);
   const [proposals, setProposals] = useState<ProposedRelationship[]>([]);
 
-  const entries = relationships.data?.relationships ?? [];
+  const entries = relationships.items;
 
   const runDiscovery = () => {
     discover.mutate(undefined, {
@@ -300,6 +301,7 @@ export function RelationshipsPage() {
                   ))}
                 </tbody>
               </table>
+              <Pager {...relationships.tableProps.paging} />
             </div>
           )}
         </CardBody>

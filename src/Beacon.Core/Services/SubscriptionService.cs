@@ -21,6 +21,8 @@ public interface ISubscriptionService
 
     Task DeleteSubscription(int subscriptionId, CancellationToken cancellationToken);
 
+    Task ReactivateSubscription(int subscriptionId, CancellationToken cancellationToken);
+
     Task AddRecipients(int subscriptionId, List<int> recipientIds, CancellationToken cancellationToken);
 
     Task RemoveRecipient(int subscriptionId, int recipientId, CancellationToken cancellationToken);
@@ -100,10 +102,49 @@ internal class SubscriptionService(
             .FirstOrDefaultAsync(cancellationToken)
             ?? throw new InvalidOperationException($"Query {subscriptionData.QueryId} not found.");
 
-        // Name is a display/telemetry hint only — the recurring-job identity is the subscription id (see BeaconScheduler).
-        await beaconScheduler.AddOrUpdate(subscription.Id, query.Name, subscription.CronExpression);
+        await ScheduleOrArchiveAsync(context, subscription, query.Name);
 
         return new BaseResponse { Success = true, Message = "Subscription created successfully" };
+    }
+
+    public async Task ReactivateSubscription(int subscriptionId, CancellationToken cancellationToken)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        var subscription = await context.Subscriptions
+            .IgnoreQueryFilters()
+            .Include(x => x.Parameters)
+            .Include(x => x.Query)
+            .Where(x => x.Id == subscriptionId)
+            .FirstOrDefaultAsync(cancellationToken)
+            ?? throw new InvalidOperationException($"Subscription {subscriptionId} not found.");
+
+        if (subscription.ArchivedTime == null)
+        {
+            throw new InvalidOperationException($"Subscription {subscriptionId} is not archived.");
+        }
+
+        if (subscription.Query.ArchivedTime != null)
+        {
+            throw new InvalidOperationException($"Query '{subscription.Query.Name}' is archived. Restore the query before reactivating its subscription.");
+        }
+
+        // Archiving stamps the subscription first and its parameters after it, so the parameters archived with it
+        // are the ones at or after its archive time. Older archived parameters were replaced by an edit.
+        var archivedTime = subscription.ArchivedTime.Value;
+        subscription.Unarchive();
+
+        foreach (var parameter in subscription.Parameters)
+        {
+            if (parameter.ArchivedTime >= archivedTime)
+            {
+                parameter.Unarchive();
+            }
+        }
+
+        await context.SaveChangesAsync(cancellationToken);
+
+        await ScheduleOrArchiveAsync(context, subscription, subscription.Query.Name);
     }
 
     public async Task DeleteSubscription(int subscriptionId, CancellationToken cancellationToken)
@@ -276,7 +317,7 @@ internal class SubscriptionService(
         if (shouldUpdateSchedule)
         {
             // Name is a display/telemetry hint only — the recurring-job identity is the subscription id (see BeaconScheduler).
-        await beaconScheduler.AddOrUpdate(subscription.Id, query.Name, subscription.CronExpression);
+            await beaconScheduler.AddOrUpdate(subscription.Id, query.Name, subscription.CronExpression);
         }
     }
 
@@ -362,5 +403,33 @@ internal class SubscriptionService(
         subscription.Recipients.AddRange(recipients);
 
         await context.SaveChangesAsync(cancellationToken);
+    }
+
+    // BeaconContext and the host scheduler's store can't share a transaction, so the subscription is saved first.
+    // When scheduling then fails, archive it again so the caller's error doesn't leave behind an active-looking
+    // subscription that never runs. CancellationToken.None: the compensation must finish even if the request aborts.
+    private async Task ScheduleOrArchiveAsync(BeaconContext context, Subscription subscription, string queryName)
+    {
+        try
+        {
+            // Name is a display/telemetry hint only — the recurring-job identity is the subscription id (see BeaconScheduler).
+            await beaconScheduler.AddOrUpdate(subscription.Id, queryName, subscription.CronExpression);
+        }
+        catch
+        {
+            subscription.Archive();
+
+            foreach (var parameter in subscription.Parameters)
+            {
+                if (parameter.ArchivedTime == null)
+                {
+                    parameter.Archive();
+                }
+            }
+
+            await context.SaveChangesAsync(CancellationToken.None);
+
+            throw;
+        }
     }
 }

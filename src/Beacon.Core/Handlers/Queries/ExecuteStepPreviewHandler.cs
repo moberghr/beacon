@@ -1,3 +1,4 @@
+using Beacon.Core.Helpers;
 using Beacon.Core.Models.Queries;
 using Beacon.Core.Services;
 using MediatR;
@@ -5,14 +6,15 @@ using MediatR;
 namespace Beacon.Core.Handlers.Queries;
 
 internal sealed class ExecuteStepPreviewHandler(IQueryExecutionPreviewService previewService)
-    : IRequestHandler<ExecuteStepPreviewCommand, QueryStepResult>
+    : IRequestHandler<ExecuteStepPreviewCommand, QueryPreviewResult>
 {
-    public async Task<QueryStepResult> Handle(ExecuteStepPreviewCommand request, CancellationToken cancellationToken)
+    public async Task<QueryPreviewResult> Handle(ExecuteStepPreviewCommand request, CancellationToken cancellationToken)
     {
         var result = await previewService.ExecuteStepPreview(
             request.QueryId,
             request.StepOrder,
             request.Parameters,
+            request,
             cancellationToken);
 
         if (result == null)
@@ -25,7 +27,8 @@ internal sealed class ExecuteStepPreviewHandler(IQueryExecutionPreviewService pr
     }
 }
 
-public record ExecuteStepPreviewCommand : IRequest<QueryStepResult>
+/// <summary>Runs one step on its own and returns one page of its result; <c>sort</c> names a result column.</summary>
+public record ExecuteStepPreviewCommand : ListRequest, IRequest<QueryPreviewResult>
 {
     public required int QueryId { get; init; }
 

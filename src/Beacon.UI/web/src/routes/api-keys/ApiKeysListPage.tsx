@@ -6,7 +6,7 @@ import { EmptyState } from '@/components/data/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Button, Pill, Card, Banner, PageHeader } from '@/components/beacon';
 import { formatDateTime, formatNumber } from '@/lib/format';
-import { useApiKeysQuery, useRevokeApiKey, type ApiKeyEntry } from './queries';
+import { useApiKeysList, useRevokeApiKey, type ApiKeyEntry } from './queries';
 import { GenerateApiKeyDialog } from './GenerateApiKeyDialog';
 
 const GRID_TEMPLATE = '1.4fr 0.9fr 1.2fr 1fr 1fr 0.9fr 0.7fr 80px';
@@ -21,16 +21,18 @@ function scopeTone(scope: string): 'crit' | 'warn' | 'info' | 'neutral' {
 }
 
 export default function ApiKeysListPage() {
-  const { data, isLoading, isError, error, refetch } = useApiKeysQuery();
+  const list = useApiKeysList();
+  const { data, isLoading, isError, error, refetch } = list;
   const revoke = useRevokeApiKey();
   const [generateOpen, setGenerateOpen] = useState(false);
   const [revoking, setRevoking] = useState<ApiKeyEntry | null>(null);
 
-  const entries = data?.entries ?? [];
+  const entries = list.items;
 
   const columns = useMemo<Column<ApiKeyEntry>[]>(() => [
     {
       key: 'name',
+      sortKey: 'name',
       header: 'Name',
       render: k => <span className="font-semibold text-text">{k.name}</span>,
     },
@@ -50,11 +52,13 @@ export default function ApiKeysListPage() {
     },
     {
       key: 'created',
+      sortKey: 'createdAt',
       header: 'Created',
       render: k => <span className="text-text-muted">{formatDateTime(k.createdAt)}</span>,
     },
     {
       key: 'lastUsed',
+      sortKey: 'lastUsedAt',
       header: 'Last used',
       render: k => k.lastUsedAt
         ? <span className="text-text-muted">{formatDateTime(k.lastUsedAt)}</span>
@@ -62,6 +66,7 @@ export default function ApiKeysListPage() {
     },
     {
       key: 'expires',
+      sortKey: 'expiresAt',
       header: 'Expires',
       render: k => {
         if (!k.expiresAt) return <span className="text-text-muted">Never</span>;
@@ -118,7 +123,7 @@ export default function ApiKeysListPage() {
         sub={
           isLoading
             ? <span className="text-text-muted">Loading…</span>
-            : <span className="text-text-muted">{formatNumber(entries.length)} total</span>
+            : <span className="text-text-muted">{formatNumber(data?.totalCount ?? 0)} total</span>
         }
         actions={
           <>
@@ -152,6 +157,7 @@ export default function ApiKeysListPage() {
           <DataTable
             columns={columns}
             rows={entries}
+            {...list.tableProps}
             rowKey={k => k.id}
             gridTemplate={GRID_TEMPLATE}
             empty={

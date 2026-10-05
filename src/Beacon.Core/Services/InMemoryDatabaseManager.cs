@@ -166,6 +166,10 @@ public class InMemoryDatabaseManager : IDisposable
         }
     }
 
+    /// <summary>One page of <paramref name="sql"/> and its total row count, via the SQLite paging plan.</summary>
+    public Task<SqlResultPage> ExecutePagedAsync(string sql, Helpers.ListRequest paging, CancellationToken cancellationToken) =>
+        SqlPageExecutor.ExecuteAsync(_connection, sql, null, "SQLite", paging, _ => true, null, cancellationToken);
+
     public string TranslateFinalQuery(string originalQuery)
     {
         // Replace @result references with actual table names

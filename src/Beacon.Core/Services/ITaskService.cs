@@ -10,7 +10,7 @@ public interface ITaskService
     Task<int> CreateOrUpdateTask(int subscriptionId, int resultCount, CancellationToken cancellationToken);
     Task ResolveTask(int taskId, string? resolutionNotes, string? userId, CancellationToken cancellationToken);
     Task ReopenTask(int taskId, CancellationToken cancellationToken);
-    Task<TaskListData> GetTasks(GetTasksRequest request, CancellationToken cancellationToken);
+    Task<PagedList<TaskData>> GetTasks(GetTasksRequest request, CancellationToken cancellationToken);
     Task<TaskDetailsData?> GetTaskDetails(int taskId, string? currentUserId, CancellationToken cancellationToken);
     Task<TaskStatisticsData> GetTaskStatistics(CancellationToken cancellationToken);
 

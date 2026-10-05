@@ -37,9 +37,12 @@ internal static class AuthEndpoints
         HttpContext httpContext,
         BeaconApiOptions? apiOptions)
     {
+        var realtime = apiOptions?.Realtime ?? false;
+        var externalLogin = ExternalLoginResponse.From(apiOptions?.ExternalLogin);
+
         if (!userContext.IsAuthenticated)
         {
-            return CurrentUserResponse.Anonymous(apiOptions?.Realtime ?? false);
+            return CurrentUserResponse.Anonymous(realtime, externalLogin);
         }
 
         var roles = httpContext.User
@@ -55,7 +58,8 @@ internal static class AuthEndpoints
             Email: userContext.Email,
             IsAuthenticated: true,
             Roles: roles,
-            RealtimeEnabled: apiOptions?.Realtime ?? false);
+            RealtimeEnabled: realtime,
+            ExternalLogin: externalLogin);
     }
 
     private static async Task<CurrentPermissionsResponse> GetCurrentPermissions(
@@ -75,15 +79,23 @@ internal sealed record CurrentUserResponse(
     string? Email,
     bool IsAuthenticated,
     IReadOnlyList<string> Roles,
-    bool RealtimeEnabled)
+    bool RealtimeEnabled,
+    ExternalLoginResponse? ExternalLogin)
 {
     /// <summary>
     /// The unauthenticated shape. Still carries <paramref name="realtimeEnabled"/> so the shell
-    /// knows whether to open a hub connection once the user signs in — a static singleton cannot,
-    /// because the value is host configuration rather than a constant.
+    /// knows whether to open a hub connection once the user signs in, and <paramref name="externalLogin"/>
+    /// so it knows where to send the user to sign in — a static singleton cannot, because both are
+    /// host configuration rather than constants.
     /// </summary>
-    public static CurrentUserResponse Anonymous(bool realtimeEnabled) =>
-        new(null, null, null, null, false, Array.Empty<string>(), realtimeEnabled);
+    public static CurrentUserResponse Anonymous(bool realtimeEnabled, ExternalLoginResponse? externalLogin) =>
+        new(null, null, null, null, false, Array.Empty<string>(), realtimeEnabled, externalLogin);
+}
+
+internal sealed record ExternalLoginResponse(string LoginUrl, string ReturnUrlParameter)
+{
+    public static ExternalLoginResponse? From(ExternalLoginOptions? options) =>
+        options == null ? null : new ExternalLoginResponse(options.LoginUrl, options.ReturnUrlParameter);
 }
 
 internal sealed record CurrentPermissionsResponse(bool CanRead, bool CanWrite);

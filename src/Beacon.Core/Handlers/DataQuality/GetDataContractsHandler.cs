@@ -1,14 +1,15 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Data;
+using Beacon.Core.Helpers;
 using Beacon.Core.Models.DataQuality;
 
 namespace Beacon.Core.Handlers.DataQuality.GetDataContracts;
 
 internal sealed class GetDataContractsHandler(
-    IDbContextFactory<BeaconContext> contextFactory) : IRequestHandler<GetDataContractsQuery, List<DataContractData>>
+    IDbContextFactory<BeaconContext> contextFactory) : IRequestHandler<GetDataContractsQuery, PagedList<DataContractData>>
 {
-    public async Task<List<DataContractData>> Handle(GetDataContractsQuery request, CancellationToken cancellationToken)
+    public async Task<PagedList<DataContractData>> Handle(GetDataContractsQuery request, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
@@ -18,7 +19,6 @@ internal sealed class GetDataContractsHandler(
             query = query.Where(c => c.DataSourceId == request.DataSourceId.Value);
 
         return await query
-            .OrderByDescending(c => c.CreatedTime)
             .Select(c => new DataContractData
             {
                 Id = c.Id,
@@ -41,8 +41,12 @@ internal sealed class GetDataContractsHandler(
                     .Select(s => (double?)s.Score)
                     .FirstOrDefault()
             })
-            .ToListAsync(cancellationToken);
+            .ToPagedListAsync(request, cancellationToken, defaultSort: "-createdTime");
     }
 }
 
-public record GetDataContractsQuery(int? DataSourceId = null) : IRequest<List<DataContractData>>;
+/// <summary>Newest first unless <c>sort</c> says otherwise; optionally one data source.</summary>
+public record GetDataContractsQuery : ListRequest, IRequest<PagedList<DataContractData>>
+{
+    public int? DataSourceId { get; init; }
+}

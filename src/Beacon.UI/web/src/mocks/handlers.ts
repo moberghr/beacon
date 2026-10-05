@@ -157,8 +157,7 @@ const homeHandlers = [
 
 const projectsHandlers = [
   http.get('/beacon/api/projects', () =>
-    HttpResponse.json({
-      entries: [
+    HttpResponse.json(paged([
         {
           id: 1,
           name: 'Demo Analytics',
@@ -181,8 +180,7 @@ const projectsHandlers = [
           lastScanAt: null,
           createdAt: iso(12),
         },
-      ],
-    })),
+      ]))),
   http.get('/beacon/api/projects/:id', ({ params }) =>
     HttpResponse.json({
       project: {
@@ -217,6 +215,11 @@ const projectsHandlers = [
 
 // ---------- queries ----------------------------------------------------------
 
+/** Wraps fixture rows in the paged list wire shape every list endpoint returns. */
+function paged<T>(items: T[]) {
+  return { items, totalCount: items.length, pageCount: items.length === 0 ? 0 : 1 };
+}
+
 const queriesHandlers = [
   http.get('/beacon/api/queries', () =>
     HttpResponse.json({
@@ -250,6 +253,7 @@ const queriesHandlers = [
         },
       ],
       totalCount: 2,
+      pageCount: 1,
     })),
   http.get('/beacon/api/query-folders', () => HttpResponse.json({ folders: [] })),
   // Detail for the two list fixtures above (QueryDetailsData, returned unwrapped).
@@ -337,8 +341,41 @@ const queriesHandlers = [
     });
   }),
   // Versions tab (QueryVersionSummary[], returned unwrapped).
+  // Paged preview: honours ?page, ?pageSize and ?sort over a 137-row fixture, like the server's paging.
+  http.post('/beacon/api/queries/:id/preview', ({ request }) => {
+    const url = new URL(request.url);
+    const page = Number(url.searchParams.get('page') ?? 0);
+    const pageSize = Number(url.searchParams.get('pageSize') ?? 20);
+    const sort = url.searchParams.get('sort');
+    const rows = Array.from({ length: 137 }, (_, index) => ({
+      order_id: 9001 + index,
+      status: ['shipped', 'pending', 'returned'][index % 3],
+      amount: Math.round(((index * 37) % 500) * 1.5 * 100) / 100,
+    }));
+    if (sort) {
+      const column = sort.replace(/^-/, '') as keyof (typeof rows)[number];
+      const direction = sort.startsWith('-') ? -1 : 1;
+      rows.sort((a, b) => (a[column] > b[column] ? 1 : a[column] < b[column] ? -1 : 0) * direction);
+    }
+    return HttpResponse.json({
+      success: true,
+      errorMessage: null,
+      totalExecutionTimeMs: 412,
+      dataSourcesInvolved: ['Demo Warehouse'],
+      steps: [{ stepOrder: 1, stepName: 'Step 1', dataSourceName: 'Demo Warehouse', databaseEngine: 'PostgreSQL', success: true, errorMessage: null, executionTimeMs: 412, totalRows: rows.length, previewRows: [] }],
+      result: {
+        rows: rows.slice(page * pageSize, page * pageSize + pageSize),
+        totalCount: rows.length,
+        pageCount: Math.ceil(rows.length / pageSize),
+        page,
+        pageSize,
+        sortable: true,
+        sort,
+      },
+    });
+  }),
   http.get('/beacon/api/queries/:id/versions', ({ params }) =>
-    HttpResponse.json([
+    HttpResponse.json(paged([
       {
         id: 102,
         versionNumber: 2,
@@ -361,7 +398,7 @@ const queriesHandlers = [
         changeReason: null,
         stepCount: 1,
       },
-    ])),
+    ]))),
   // Version detail (QueryVersionDetail with step snapshots, unwrapped).
   http.get('/beacon/api/query-versions/:id', ({ params }) =>
     HttpResponse.json({
@@ -390,10 +427,7 @@ const queriesHandlers = [
 
 // ---------- data sources -----------------------------------------------------
 
-const dataSourcesHandlers = [
-  http.get('/beacon/api/data-sources', () =>
-    HttpResponse.json({
-      entries: [
+const dataSourceEntries = [
         {
           id: 1,
           name: 'Demo Warehouse (PostgreSQL)',
@@ -412,8 +446,15 @@ const dataSourcesHandlers = [
           migrationJobsCount: 0,
           metadataLoadingEnabled: false,
         },
-      ],
-    })),
+      ];
+
+const dataSourcesHandlers = [
+  http.get('/beacon/api/data-sources/:id', ({ params }) => {
+    const entry = dataSourceEntries.find(x => x.id === Number(params.id));
+    return entry ? HttpResponse.json(entry) : new HttpResponse(null, { status: 404 });
+  }),
+  http.get('/beacon/api/data-sources', () =>
+    HttpResponse.json(paged(dataSourceEntries))),
   // Schema explorer on the detail page (DatabaseMetadataSnapshot, unwrapped).
   http.get('/beacon/api/data-sources/:id/metadata', ({ params }) => {
     const id = Number(params.id);
@@ -509,7 +550,7 @@ const listHandlers = [
     const entries = subscriptionId
       ? notificationEntries.filter(x => x.subscriptionId === Number(subscriptionId))
       : notificationEntries;
-    return HttpResponse.json({ entries, totalCount: entries.length });
+    return HttpResponse.json(paged(entries));
   }),
   // NotificationDetailPage (wrapped in { entry }).
   http.get('/beacon/api/notifications/:id', ({ params }) => {
@@ -539,7 +580,7 @@ const listHandlers = [
   }),
   http.get('/beacon/api/tasks', () =>
     HttpResponse.json({
-      entries: [
+      items: [
         {
           id: 1,
           subscriptionName: 'Demo: orders watch',
@@ -572,6 +613,7 @@ const listHandlers = [
         },
       ],
       totalCount: 2,
+      pageCount: 1,
     })),
   // TaskDetailPage fires all five of these on mount (TaskDetail is unwrapped).
   http.get('/beacon/api/tasks/:id', ({ params }) =>
@@ -641,7 +683,7 @@ const listHandlers = [
       ],
     })),
   http.get('/beacon/api/approvals/pending', () =>
-    HttpResponse.json([
+    HttpResponse.json(paged([
       {
         id: 1,
         queryId: 2,
@@ -652,7 +694,7 @@ const listHandlers = [
         createdTime: iso(0, 5),
         changeSummary: `Mock change (source: ${ChangeSource.User}) — widened revenue window`,
       },
-    ])),
+    ]))),
   // ApprovalDetailPage (ApprovalRequestDetail, unwrapped). Keep AFTER the
   // /approvals/pending handler — both match two path segments.
   http.get('/beacon/api/approvals/:id', ({ params }) => {
@@ -707,8 +749,7 @@ const listHandlers = [
     });
   }),
   http.get('/beacon/api/subscriptions', () =>
-    HttpResponse.json({
-      entries: [
+    HttpResponse.json(paged([
         {
           id: 1,
           queryId: 1,
@@ -733,8 +774,7 @@ const listHandlers = [
           createTasks: false,
           storeResults: false,
         },
-      ],
-    })),
+      ]))),
   // SubscriptionDetailPage (wrapped in { detail }). The executions tab reuses
   // GET /notifications?subscriptionId=N above; anomaly chart is below.
   http.get('/beacon/api/subscriptions/:id', ({ params }) => {
@@ -818,8 +858,7 @@ const listHandlers = [
   }),
   // Recipients tab on the subscription detail page + /recipients list page.
   http.get('/beacon/api/recipients', () =>
-    HttpResponse.json({
-      entries: [
+    HttpResponse.json(paged([
         {
           id: 1,
           name: 'Demo Ops Team',
@@ -840,16 +879,14 @@ const listHandlers = [
           bodyTemplate: null,
           subscriptionCount: 1,
         },
-      ],
-    })),
+      ]))),
 ];
 
 // ---------- ai actors ----------------------------------------------------------
 
 const aiActorsHandlers = [
   http.get('/beacon/api/ai-actors', () =>
-    HttpResponse.json({
-      actors: [
+    HttpResponse.json(paged([
         {
           actorId: 1,
           name: 'Demo Revenue Watcher',
@@ -862,8 +899,7 @@ const aiActorsHandlers = [
           totalCost: 0.42,
           createdTime: iso(15),
         },
-      ],
-    })),
+      ]))),
   http.get('/beacon/api/ai-actors/:id', ({ params }) =>
     HttpResponse.json({
       actorId: Number(params.id),
@@ -928,8 +964,7 @@ const mcpHandlers = [
       ],
     })),
   http.get('/beacon/api/mcp/learned-patterns', () =>
-    HttpResponse.json({
-      patterns: [
+    HttpResponse.json(paged([
         {
           id: 1,
           projectId: 1,
@@ -947,11 +982,9 @@ const mcpHandlers = [
           createdTime: iso(4),
           lastRefreshedAt: iso(1),
         },
-      ],
-    })),
+      ]))),
   http.get('/beacon/api/mcp/documentation-patches', () =>
-    HttpResponse.json({
-      patches: [
+    HttpResponse.json(paged([
         {
           id: 1,
           projectId: 1,
@@ -966,8 +999,7 @@ const mcpHandlers = [
           createdTime: iso(3),
           appliedAt: null,
         },
-      ],
-    })),
+      ]))),
 ];
 
 // ---------- control tower ----------------------------------------------------
@@ -989,7 +1021,7 @@ const controlTowerHandlers = [
     })),
   http.get('/beacon/api/control-tower/health', () =>
     HttpResponse.json({
-      entries: [
+      items: [
         {
           subscriptionId: 1,
           queryName: 'Demo: Daily Order Count',
@@ -1043,6 +1075,7 @@ const controlTowerHandlers = [
         },
       ],
       totalCount: 2,
+      pageCount: 1,
     })),
   http.get('/beacon/api/control-tower/subscriptions/:id/detail', ({ params }) =>
     HttpResponse.json({
@@ -1106,9 +1139,10 @@ const controlTowerHandlers = [
 // ---------- migrations (honest empty) -----------------------------------------
 
 const migrationHandlers = [
-  http.get('/beacon/api/migrations/jobs', () => HttpResponse.json({ jobs: [] })),
+  http.get('/beacon/api/migrations/jobs', () => HttpResponse.json(paged([]))),
+  http.get('/beacon/api/migrations/jobs/:id', () => new HttpResponse(null, { status: 404 })),
   http.get('/beacon/api/migrations/executions', () =>
-    HttpResponse.json({ executions: [], totalCount: 0 })),
+    HttpResponse.json(paged([]))),
 ];
 
 // ---------- admin / users / settings / data-quality --------------------------
@@ -1116,8 +1150,7 @@ const migrationHandlers = [
 const adminHandlers = [
   // API keys list (raw key only ever returned once on create — list omits it).
   http.get('/beacon/api/api-keys', () =>
-    HttpResponse.json({
-      entries: [
+    HttpResponse.json(paged([
         {
           id: 1,
           name: 'Demo CI Key',
@@ -1128,13 +1161,11 @@ const adminHandlers = [
           expiresAt: null,
           isActive: true,
         },
-      ],
-    })),
+      ]))),
 
   // Users + roles (admin user management).
   http.get('/beacon/api/users', () =>
-    HttpResponse.json({
-      entries: [
+    HttpResponse.json(paged([
         {
           id: 1,
           userName: 'mock.admin',
@@ -1146,8 +1177,7 @@ const adminHandlers = [
           lastLoginAt: '2026-06-25T08:00:00Z',
           roles: [{ id: 1, name: 'Admin', level: 100 }],
         },
-      ],
-    })),
+      ]))),
   http.get('/beacon/api/users/roles', () =>
     HttpResponse.json({
       entries: [
@@ -1193,7 +1223,7 @@ const adminHandlers = [
 
   // Data quality (overview + contracts are top-level arrays).
   http.get('/beacon/api/data-quality/overview', () => HttpResponse.json([])),
-  http.get('/beacon/api/data-quality/contracts', () => HttpResponse.json([])),
+  http.get('/beacon/api/data-quality/contracts', () => HttpResponse.json(paged([]))),
 ];
 
 // ---------- catch-alls (keep LAST) --------------------------------------------

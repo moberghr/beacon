@@ -12,14 +12,13 @@ import {
   Card,
   Field,
   Input,
-  Select,
   Textarea,
 } from '@/components/beacon';
 import { Tabs } from '@/components/Tabs';
 import { useRequireAdmin } from '@/auth/useRequireAdmin';
 import { unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
-import { useProjectsQuery } from '@/routes/projects/queries';
+import { ProjectPicker } from '@/routes/projects/ProjectPicker';
 import {
   useMcpProjectSettings,
   useMcpSettings,
@@ -114,31 +113,28 @@ export default function McpSettingsPage() {
  * header so it stays reachable while a scope is loading or failed to load.
  */
 function McpSettingsShell() {
-  const projectsQuery = useProjectsQuery();
   const [scope, setScope] = useState<Scope>('global');
-  const projects = projectsQuery.data?.entries ?? [];
+  // The picked project's name, for the heading; the picker fetches matches as the user types.
+  const [scopeName, setScopeName] = useState<string | null>(null);
 
   const scopeSelector = (
-    <Select
-      aria-label="Settings scope"
+    <ProjectPicker
+      ariaLabel="Settings scope"
       className="w-auto min-w-[14rem]"
-      value={scope === 'global' ? 'global' : String(scope)}
-      onChange={e => setScope(e.target.value === 'global' ? 'global' : Number(e.target.value))}
-    >
-      <option value="global">Global defaults</option>
-      {projects.map(p => (
-        <option key={p.id} value={p.id}>
-          Project: {p.name}
-        </option>
-      ))}
-    </Select>
+      value={scope === 'global' ? null : scope}
+      clearLabel="Global defaults"
+      onSelect={x => {
+        setScope(x ? x.id : 'global');
+        setScopeName(x?.name ?? null);
+      }}
+    />
   );
 
   if (scope === 'global') {
     return <McpSettingsForm scopeSelector={scopeSelector} />;
   }
 
-  const projectName = projects.find(p => p.id === scope)?.name ?? `#${scope}`;
+  const projectName = scopeName ?? `#${scope}`;
   return (
     <ProjectSettingsForm
       key={scope}
@@ -890,7 +886,6 @@ function lowerFirst(name: string): string {
 }
 
 function ProjectContextPreview() {
-  const projectsQuery = useProjectsQuery();
   const [selectedProjectId, setSelectedProjectId] = useState<number | undefined>(undefined);
 
   const contextQuery = useQuery({
@@ -902,8 +897,6 @@ function ProjectContextPreview() {
     enabled: selectedProjectId !== undefined,
   });
 
-  const projects = projectsQuery.data?.entries ?? [];
-
   return (
     <div className="flex flex-col gap-3">
       <p className="text-text-muted text-sm">
@@ -911,17 +904,7 @@ function ProjectContextPreview() {
         project.
       </p>
       <Field label="Project">
-        <Select
-          value={selectedProjectId ?? ''}
-          onChange={e => setSelectedProjectId(e.target.value ? Number(e.target.value) : undefined)}
-        >
-          <option value="">— Select project —</option>
-          {projects.map(p => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </Select>
+        <ProjectPicker value={selectedProjectId} onSelect={x => setSelectedProjectId(x?.id)} />
       </Field>
 
       {contextQuery.isLoading && <div className="text-text-muted">Loading context…</div>}

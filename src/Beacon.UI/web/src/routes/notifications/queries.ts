@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
 import type { NotificationStatus } from '@/lib/enums';
+import { usePagedList } from '@/lib/usePagedList';
 
 // Local strict mirror of the generated `NotificationEntry` — dates are
 // strings on the wire (see `unwrap` docs in @/lib/api).
@@ -19,16 +20,13 @@ export interface NotificationEntry {
   recipientNames: string[];
 }
 
-interface GetNotificationsResult {
-  entries: NotificationEntry[];
-  totalCount: number;
-}
-
-export function useNotificationsQuery() {
-  return useQuery({
+/** The notifications grid: server-paged, newest first, optionally filtered by status. */
+export function useNotificationsList() {
+  return usePagedList<NotificationEntry, { status: string }>({
     queryKey: ['notifications'],
-    queryFn: async () =>
-      unwrap<GetNotificationsResult>(await beaconApi().getNotifications(0, 100, undefined, undefined)),
+    path: '/beacon/api/notifications',
+    filters: { status: '' },
+    defaultSort: { column: 'createdTime', direction: 'desc' },
   });
 }
 

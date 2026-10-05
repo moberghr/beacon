@@ -1,4 +1,5 @@
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Helpers;
 using Beacon.Core.Models.DataMigration;
 using Beacon.Core.Services;
 using MediatR;
@@ -6,32 +7,38 @@ using MediatR;
 namespace Beacon.Core.Handlers.DataMigration;
 
 internal sealed class GetMigrationExecutionsHandler(IMigrationService migrationService)
-    : IRequestHandler<GetMigrationExecutionsQuery, GetMigrationExecutionsResult>
+    : IRequestHandler<GetMigrationExecutionsQuery, PagedList<MigrationExecutionDto>>
 {
-    public async Task<GetMigrationExecutionsResult> Handle(
+    public Task<PagedList<MigrationExecutionDto>> Handle(
         GetMigrationExecutionsQuery request,
         CancellationToken cancellationToken)
     {
-        var serviceRequest = new GetMigrationExecutionsRequest(
-            MigrationJobId: request.MigrationJobId,
-            Status: request.Status,
-            StartDate: request.StartDate,
-            EndDate: request.EndDate,
-            Skip: request.Skip,
-            Take: request.Take);
+        var serviceRequest = new GetMigrationExecutionsRequest
+        {
+            Page = request.Page,
+            PageSize = request.PageSize,
+            Sort = request.Sort,
+            MigrationJobId = request.MigrationJobId,
+            Status = request.Status,
+            StartDate = request.StartDate,
+            EndDate = request.EndDate,
+        };
 
-        var response = await migrationService.GetMigrationExecutions(serviceRequest, cancellationToken);
-
-        return new GetMigrationExecutionsResult(response.Executions, response.TotalCount, response.HasMore);
+        return migrationService.GetMigrationExecutions(serviceRequest, cancellationToken);
     }
 }
 
-public record GetMigrationExecutionsQuery(
-    int? MigrationJobId = null,
-    MigrationStatus? Status = null,
-    DateTime? StartDate = null,
-    DateTime? EndDate = null,
-    int Skip = 0,
-    int Take = 100) : IRequest<GetMigrationExecutionsResult>;
+/// <summary>
+/// Newest first unless <c>sort</c> names <c>startedAt</c>, <c>completedAt</c>, <c>status</c> or
+/// <c>sourceRowsRead</c> (optionally <c>-</c> prefixed).
+/// </summary>
+public record GetMigrationExecutionsQuery : ListRequest, IRequest<PagedList<MigrationExecutionDto>>
+{
+    public int? MigrationJobId { get; init; }
 
-public record GetMigrationExecutionsResult(List<MigrationExecutionDto> Executions, int TotalCount, bool HasMore);
+    public MigrationStatus? Status { get; init; }
+
+    public DateTime? StartDate { get; init; }
+
+    public DateTime? EndDate { get; init; }
+}

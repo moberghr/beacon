@@ -20,7 +20,7 @@ export function ExecutionsTab({ notificationHistory, executionTimeHistory }: Exe
         <EmptyState
           icon={<Zap size={20} />}
           title="No executions recorded"
-          description="Hit Execute query to populate run statistics."
+          description="Executions are recorded when a subscription runs this query. Execute query previews are not counted."
         />
       </div>
     );

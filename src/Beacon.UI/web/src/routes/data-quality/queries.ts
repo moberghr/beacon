@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
+import { usePagedList } from '@/lib/usePagedList';
 import { createSimpleMutation } from '@/lib/mutations';
 
 export type ScoreTone = 'ok' | 'warn' | 'crit' | 'neutral';
@@ -109,11 +110,12 @@ export function useDataQualityOverview() {
   });
 }
 
-export function useDataContracts() {
-  return useQuery({
+/** The data contracts grid: server-paged, newest first. */
+export function useDataContractsList() {
+  return usePagedList<DataContractData>({
     queryKey: DATA_CONTRACTS_KEY,
-    queryFn: async () =>
-      unwrap<DataContractData[]>(await beaconApi().getDataContracts(undefined)),
+    path: '/beacon/api/data-quality/contracts',
+    defaultSort: { column: 'createdTime', direction: 'desc' },
   });
 }
 

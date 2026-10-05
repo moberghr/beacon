@@ -28,24 +28,8 @@ internal static class ControlTowerEndpoints
                     cancellationToken))
             .WithName("GetControlTowerStatistics");
 
-        ct.MapGet("/health", (
-                [FromQuery] int? page,
-                [FromQuery] int? pageSize,
-                [FromQuery] int? dataSourceId,
-                [FromQuery] int? folderId,
-                [FromQuery] HealthStatus? healthStatus,
-                [FromQuery] bool? hasUnresolvedTasks,
-                [FromQuery] string? searchKeyword,
-                [FromQuery] int? timeRangeDays,
-                [FromQuery] ControlTowerSortBy? sortBy,
-                IMediator m,
-                CancellationToken cancellationToken) =>
-                m.Send(
-                    new GetControlTowerHealthQuery(
-                        page ?? 0, pageSize ?? 100, dataSourceId, folderId, healthStatus,
-                        hasUnresolvedTasks, searchKeyword, timeRangeDays ?? 30,
-                        sortBy ?? ControlTowerSortBy.WorstFirst),
-                    cancellationToken))
+        ct.MapGet("/health", ([AsParameters] GetControlTowerHealthQuery query, IMediator m, CancellationToken cancellationToken) =>
+                m.Send(query, cancellationToken))
             .WithName("GetControlTowerHealth");
 
         ct.MapGet("/subscriptions/{id:int}/detail", (

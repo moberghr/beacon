@@ -1,3 +1,4 @@
+using Beacon.Core.Helpers;
 using Beacon.Core.Models.Queries;
 using Beacon.Core.Services;
 using MediatR;
@@ -5,11 +6,11 @@ using MediatR;
 namespace Beacon.Core.Handlers.Queries;
 
 internal sealed class ExecuteQueryPreviewHandler(IQueryExecutionPreviewService previewService)
-    : IRequestHandler<ExecuteQueryPreviewCommand, QueryExecutionResult>
+    : IRequestHandler<ExecuteQueryPreviewCommand, QueryPreviewResult>
 {
-    public async Task<QueryExecutionResult> Handle(ExecuteQueryPreviewCommand request, CancellationToken cancellationToken)
+    public async Task<QueryPreviewResult> Handle(ExecuteQueryPreviewCommand request, CancellationToken cancellationToken)
     {
-        var result = await previewService.ExecuteQueryPreview(request.QueryId, cancellationToken);
+        var result = await previewService.ExecuteQueryPreview(request.QueryId, request, cancellationToken);
 
         if (result == null)
         {
@@ -20,7 +21,8 @@ internal sealed class ExecuteQueryPreviewHandler(IQueryExecutionPreviewService p
     }
 }
 
-public record ExecuteQueryPreviewCommand : IRequest<QueryExecutionResult>
+/// <summary>Runs the query and returns one page of its result; <c>sort</c> names a result column.</summary>
+public record ExecuteQueryPreviewCommand : ListRequest, IRequest<QueryPreviewResult>
 {
     public required int QueryId { get; init; }
 }

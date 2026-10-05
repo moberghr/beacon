@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
+import { usePagedList } from '@/lib/usePagedList';
 import { AiActorStatus } from '@/lib/enums';
 import { createSimpleMutation } from '@/lib/mutations';
 
@@ -26,10 +27,6 @@ export interface AiActorListItem {
   lastThinkTime: string | null;
   totalCost: number;
   createdTime: string;
-}
-
-export interface GetAiActorListResult {
-  actors: AiActorListItem[];
 }
 
 export interface AiActorDetails {
@@ -64,12 +61,13 @@ export interface CreateAiActorPayload {
   activateImmediately: boolean;
 }
 
-export function useAiActorsQuery(dataSourceId: number | undefined, includeArchived: boolean) {
-  return useQuery({
-    queryKey: ['ai-actors', dataSourceId ?? null, includeArchived],
-    queryFn: async () =>
-      unwrap<GetAiActorListResult>(await beaconApi().getAiActorList(dataSourceId!, includeArchived)),
-    enabled: dataSourceId !== undefined && dataSourceId > 0,
+/** The AI actors grid: server-paged, newest first; data source and archived filters in the URL. */
+export function useAiActorsList() {
+  return usePagedList<AiActorListItem, { dataSourceId: string; includeArchived: string }>({
+    queryKey: ['ai-actors'],
+    path: '/beacon/api/ai-actors',
+    filters: { dataSourceId: '', includeArchived: '' },
+    defaultSort: { column: 'createdTime', direction: 'desc' },
   });
 }
 

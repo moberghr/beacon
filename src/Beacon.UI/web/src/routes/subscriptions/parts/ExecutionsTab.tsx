@@ -7,18 +7,19 @@ import { NotificationStatus } from '@/lib/enums';
 import { formatDateTime } from '@/lib/format';
 import {
   NOTIFICATION_STATUS_LABEL,
+  useSubscriptionExecutionsList,
   type SubscriptionExecutionEntry,
 } from '../queries';
 
 interface ExecutionsTabProps {
-  executions: SubscriptionExecutionEntry[] | undefined;
-  isLoading: boolean;
+  subscriptionId: number;
 }
 
 const COLUMNS: Column<SubscriptionExecutionEntry>[] = [
   {
     key: 'id',
     header: 'Execution',
+    sortKey: 'createdTime',
     render: e => (
       <div className="flex flex-col gap-0.5">
         <Link to={`/notifications/${e.id}`} className="text-brand-600 font-medium">
@@ -68,15 +69,17 @@ function pillTone(status: number): PillProps['tone'] {
   }
 }
 
-export function ExecutionsTab({ executions, isLoading }: ExecutionsTabProps) {
-  if (isLoading && (executions?.length ?? 0) === 0) {
+export function ExecutionsTab({ subscriptionId }: ExecutionsTabProps) {
+  const list = useSubscriptionExecutionsList(subscriptionId);
+  if (list.isLoading) {
     return <div className="p-4 text-text-muted">Loading executions…</div>;
   }
   return (
     <DataTable
       columns={COLUMNS}
-      rows={executions ?? []}
+      rows={list.items}
       rowKey={e => e.id}
+      {...list.tableProps}
       gridTemplate={GRID_TEMPLATE}
       empty={
         <EmptyState

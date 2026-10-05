@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { toast } from 'sonner';
 import { AlertTriangle } from 'lucide-react';
 import {
@@ -11,6 +11,7 @@ import {
   Select,
   type PillProps,
 } from '@/components/beacon';
+import { Pager } from '@/components/data/Pager';
 import { EmptyState } from '@/components/data/EmptyState';
 import { Tabs } from '@/components/Tabs';
 import { McpDocPatchStatus, McpPatternStatus } from '@/lib/enums';
@@ -19,8 +20,8 @@ import {
   PATTERN_STATUS_LABEL,
   PATTERN_TYPE_LABEL,
   useApplyPatch,
-  useDocumentationPatches,
-  useLearnedPatterns,
+  useDocumentationPatchesList,
+  useLearnedPatternsList,
   useLearningStats,
   useRejectPatch,
   useUpdatePatternStatus,
@@ -30,29 +31,20 @@ type TabKey = 'patterns' | 'patches' | 'problems';
 
 export default function McpLearningPage() {
   const statsQ = useLearningStats();
-  const patternsQ = useLearnedPatterns();
-  const patchesQ = useDocumentationPatches();
+  const patternsQ = useLearnedPatternsList();
+  const patchesQ = useDocumentationPatchesList();
   const updatePattern = useUpdatePatternStatus();
   const applyPatch = useApplyPatch();
   const rejectPatch = useRejectPatch();
 
   const [tab, setTab] = useState<TabKey>('patterns');
-  const [statusFilter, setStatusFilter] = useState<string>('');
-  const [typeFilter, setTypeFilter] = useState<string>('');
+  const statusFilter = patternsQ.filters.status;
+  const typeFilter = patternsQ.filters.patternType;
 
   const stats = statsQ.data;
-  const patterns = patternsQ.data?.patterns ?? [];
-  const patches = patchesQ.data?.patches ?? [];
+  const filteredPatterns = patternsQ.items;
+  const patches = patchesQ.items;
 
-  const filteredPatterns = useMemo(
-    () =>
-      patterns.filter(p => {
-        if (statusFilter !== '' && p.status !== Number(statusFilter)) return false;
-        if (typeFilter !== '' && p.patternType !== Number(typeFilter)) return false;
-        return true;
-      }),
-    [patterns, statusFilter, typeFilter],
-  );
 
   // Error toasts come from createSimpleMutation — no onError here (single-toast rule).
   function handleUpdatePattern(id: number, status: number) {
@@ -140,13 +132,13 @@ export default function McpLearningPage() {
         {tab === 'patterns' && (
           <>
             <div className="flex gap-2 mb-3">
-              <Select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+              <Select value={statusFilter} onChange={e => patternsQ.setFilter('status', e.target.value)}>
                 <option value="">All statuses</option>
                 {Object.entries(PATTERN_STATUS_LABEL).map(([k, label]) => (
                   <option key={k} value={k}>{label}</option>
                 ))}
               </Select>
-              <Select value={typeFilter} onChange={e => setTypeFilter(e.target.value)}>
+              <Select value={typeFilter} onChange={e => patternsQ.setFilter('patternType', e.target.value)}>
                 <option value="">All types</option>
                 {Object.entries(PATTERN_TYPE_LABEL).map(([k, label]) => (
                   <option key={k} value={k}>{label}</option>
@@ -158,6 +150,7 @@ export default function McpLearningPage() {
             ) : filteredPatterns.length === 0 ? (
               <EmptyState title="No patterns" description="No learned patterns match the current filters." />
             ) : (
+              <>
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-left text-2xs font-semibold uppercase tracking-eyebrow text-text-muted border-b border-border">
@@ -223,6 +216,8 @@ export default function McpLearningPage() {
                   ))}
                 </tbody>
               </table>
+              <Pager {...patternsQ.tableProps.paging} />
+              </>
             )}
           </>
         )}
@@ -233,6 +228,7 @@ export default function McpLearningPage() {
           ) : patches.length === 0 ? (
             <EmptyState title="No documentation patches" />
           ) : (
+            <>
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-2xs font-semibold uppercase tracking-eyebrow text-text-muted border-b border-border">
@@ -278,6 +274,8 @@ export default function McpLearningPage() {
                 ))}
               </tbody>
             </table>
+            <Pager {...patchesQ.tableProps.paging} />
+            </>
           )
         )}
 

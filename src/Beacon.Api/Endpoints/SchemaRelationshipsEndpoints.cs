@@ -18,8 +18,7 @@ internal static class SchemaRelationshipsEndpoints
         var relationships = group.MapGroup("/data-sources/{dataSourceId:int}").WithTags("SchemaRelationships");
 
         relationships.MapGet("/relationships",
-                (int dataSourceId, SchemaRelationshipOrigin? origin, bool? verifiedOnly, IMediator m, CancellationToken ct) =>
-                    m.Send(new GetSchemaRelationshipsQuery(dataSourceId, origin, verifiedOnly ?? false), ct))
+                ([AsParameters] GetSchemaRelationshipsQuery query, IMediator m, CancellationToken ct) => m.Send(query, ct))
             .WithName("GetSchemaRelationships");
 
         relationships.MapPost("/relationships",

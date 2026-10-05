@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -7,21 +7,27 @@ import { ChevronRight } from 'lucide-react';
 import { StepperDialog, type StepperDialogStep } from '@/components/ui/StepperDialog';
 import { Field, Input, Pill } from '@/components/beacon';
 import { cn } from '@/lib/cn';
-import { useRecipientsQuery, NOTIFICATION_TYPE_LABEL } from '@/routes/recipients/queries';
+import { SearchMultiSelect } from '@/components/data/SearchMultiSelect';
+import { NOTIFICATION_TYPE_LABEL, type RecipientEntry } from '@/routes/recipients/queries';
 import { useQueriesListQuery, useQueryDetailQuery } from '@/routes/queries/queries';
 import { useCreateSubscription } from './queries';
 
 const SCHEMA = z.object({
   queryId: z.number({ message: 'Query id is required' }).int().min(1, 'Query id is required'),
   cronExpression: z.string().trim().min(1, 'Cron expression is required').max(200),
-  recipientIds: z.array(z.number().int()).min(1, 'Pick at least one recipient'),
+  recipientIds: z.array(z.number().int()),
   maxRows: z.number().int().min(0).nullable().optional(),
   timeoutSeconds: z.number().int().min(0).nullable().optional(),
   includeAttachment: z.boolean(),
   showQuery: z.boolean(),
   storeResults: z.boolean(),
   createTasks: z.boolean(),
-});
+})
+  // Mirrors SubscriptionService: a task-tracking subscription needs no one to notify.
+  .refine(x => x.createTasks || x.recipientIds.length > 0, {
+    message: 'Pick at least one recipient, or enable Create tasks',
+    path: ['recipientIds'],
+  });
 
 type FormValues = z.infer<typeof SCHEMA>;
 
@@ -44,7 +50,6 @@ interface AddSubscriptionDialogProps {
 }
 
 export function AddSubscriptionDialog({ open, onClose, initialQueryId }: AddSubscriptionDialogProps) {
-  const { data: recipientsData, isLoading: recipientsLoading } = useRecipientsQuery();
   const createMutation = useCreateSubscription();
 
   const form = useForm<FormValues>({
@@ -54,29 +59,22 @@ export function AddSubscriptionDialog({ open, onClose, initialQueryId }: AddSubs
   });
   const { register, watch, setValue, reset, formState: { errors } } = form;
 
+  // The picked recipients themselves, so their names survive new searches; the form holds only ids.
+  const [selectedRecipients, setSelectedRecipients] = useState<RecipientEntry[]>([]);
+
   useEffect(() => {
     if (!open) return;
     reset({ ...DEFAULTS, queryId: initialQueryId ?? 0 });
+    setSelectedRecipients([]);
   }, [open, reset, initialQueryId]);
 
-  const recipients = recipientsData?.entries ?? [];
-  const recipientIds = watch('recipientIds');
+  const createTasks = watch('createTasks');
   const queryId = watch('queryId');
   const cronExpression = watch('cronExpression');
 
-  const selectedRecipients = useMemo(
-    () => recipients.filter(r => recipientIds.includes(r.id)),
-    [recipients, recipientIds],
-  );
-
-  const toggleRecipient = (id: number) => {
-    const current = new Set(recipientIds);
-    if (current.has(id)) {
-      current.delete(id);
-    } else {
-      current.add(id);
-    }
-    setValue('recipientIds', Array.from(current), { shouldValidate: true });
+  const onRecipientsChange = (next: RecipientEntry[]) => {
+    setSelectedRecipients(next);
+    setValue('recipientIds', next.map(x => x.id), { shouldValidate: true });
   };
 
   const onFinish = async () => {
@@ -143,37 +141,25 @@ export function AddSubscriptionDialog({ open, onClose, initialQueryId }: AddSubs
       fields: ['recipientIds'],
       render: () => (
         <div className="flex flex-col gap-3.5">
-          <Field label={<>Recipients <span className="text-crit">*</span></>}>
-            {recipientsLoading && <div className="text-text-muted">Loading recipients…</div>}
-            {!recipientsLoading && recipients.length === 0 && (
-              <div className="text-text-muted">
-                No recipients yet. Add one from the Recipients page first.
-              </div>
-            )}
-            {!recipientsLoading && recipients.length > 0 && (
-              <div className="flex flex-col gap-1.5 max-h-56 overflow-auto">
-                {recipients.map(r => {
-                  const checked = recipientIds.includes(r.id);
-                  return (
-                    <label
-                      key={r.id}
-                      className="flex items-center gap-2 px-2 py-1.5 border border-border rounded-sm cursor-pointer"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => toggleRecipient(r.id)}
-                      />
-                      <span className="font-medium">{r.name}</span>
-                      <span className="text-text-muted mono text-xs">{r.destination}</span>
-                      <Pill className="ml-auto">
-                        {NOTIFICATION_TYPE_LABEL[r.notificationType] ?? r.notificationType}
-                      </Pill>
-                    </label>
-                  );
-                })}
-              </div>
-            )}
+          <Field label={<>Recipients {!createTasks && <span className="text-crit">*</span>}</>}>
+            <SearchMultiSelect<RecipientEntry>
+              path="/beacon/api/recipients"
+              queryKey={['recipients']}
+              selected={selectedRecipients}
+              onChange={onRecipientsChange}
+              getId={x => x.id}
+              getLabel={x => x.name}
+              noun="recipients"
+              emptyContent="No recipients yet. Add one from the Recipients page first."
+              hasError={!!errors.recipientIds}
+              renderItem={r => (
+                <span className="flex items-center gap-2">
+                  <span className="font-medium">{r.name}</span>
+                  <span className="text-text-muted mono text-xs truncate">{r.destination}</span>
+                  <Pill className="ml-auto">{NOTIFICATION_TYPE_LABEL[r.notificationType] ?? r.notificationType}</Pill>
+                </span>
+              )}
+            />
             {errors.recipientIds && (
               <span className="text-xs text-crit">{errors.recipientIds.message as string}</span>
             )}
@@ -215,7 +201,17 @@ export function AddSubscriptionDialog({ open, onClose, initialQueryId }: AddSubs
               <span>Store result rows for later viewing</span>
             </label>
             <label className="flex items-center gap-2">
-              <input type="checkbox" {...register('createTasks')} />
+              <input
+                type="checkbox"
+                {...register('createTasks', {
+                  // Ticking it lifts the recipients requirement, so clear an error already shown.
+                  onChange: () => {
+                    if (errors.recipientIds) {
+                      void form.trigger('recipientIds');
+                    }
+                  },
+                })}
+              />
               <span>Create tasks for each result row</span>
             </label>
           </div>

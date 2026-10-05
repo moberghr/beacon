@@ -13,22 +13,7 @@ internal static class TasksEndpoints
     {
         var tasks = group.MapGroup("/tasks").WithTags("Tasks");
 
-        tasks.MapGet("/", (
-                IMediator m,
-                CancellationToken ct,
-                [FromQuery] int? subscriptionId,
-                [FromQuery] bool? resolved,
-                [FromQuery] string? sortColumn,
-                [FromQuery] bool sortDescending = false,
-                [FromQuery] int page = 0,
-                [FromQuery] int pageSize = 25) =>
-                m.Send(new GetTasksQuery(
-                    Page: page,
-                    PageSize: pageSize <= 0 ? 25 : pageSize,
-                    SubscriptionId: subscriptionId,
-                    Resolved: resolved,
-                    SortColumn: sortColumn,
-                    SortDescending: sortDescending), ct))
+        tasks.MapGet("/", ([AsParameters] GetTasksQuery query, IMediator m, CancellationToken ct) => m.Send(query, ct))
             .WithName("GetTasks");
 
         tasks.MapGet("/{id:int}", async Task<Results<Ok<TaskDetailResult>, NotFound>> (int id, IMediator m, CancellationToken ct) =>

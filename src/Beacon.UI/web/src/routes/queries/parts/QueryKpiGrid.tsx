@@ -29,7 +29,7 @@ export function QueryKpiGrid({ query }: QueryKpiGridProps) {
         label="Executions"
         value={totalExecutions.toLocaleString()}
         sub={totalExecutions === 0
-          ? <Pill>never run</Pill>
+          ? <Pill>no scheduled runs</Pill>
           : <span className="text-text-muted">total runs</span>}
       />
       <KPI

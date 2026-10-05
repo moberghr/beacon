@@ -11,7 +11,7 @@ internal static class ProjectsEndpoints
     {
         var projects = group.MapGroup("/projects").WithTags("Projects");
 
-        projects.MapGet("/", (IMediator m, CancellationToken ct) => m.Send(new GetProjectsQuery(), ct))
+        projects.MapGet("/", ([AsParameters] GetProjectsQuery query, IMediator m, CancellationToken ct) => m.Send(query, ct))
             .WithName("GetProjects");
 
         projects.MapGet("/{id:int}", async Task<Results<Ok<GetProjectDetailResult>, NotFound>> (int id, IMediator m, CancellationToken ct) =>

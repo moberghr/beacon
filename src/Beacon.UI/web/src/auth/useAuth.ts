@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
+import type { ExternalLogin } from './externalLogin';
 
 export interface CurrentUser {
   userId: string | null;
@@ -10,6 +11,8 @@ export interface CurrentUser {
   roles: string[];
   /** Server-advertised: false when the host runs with `Realtime = false`. */
   realtimeEnabled: boolean;
+  /** Server-advertised: set when the host owns sign-in, `null` when Beacon's login page is used. */
+  externalLogin: ExternalLogin | null;
 }
 
 export function useAuth() {

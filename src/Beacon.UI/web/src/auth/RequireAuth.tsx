@@ -1,6 +1,7 @@
-import type { ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { Button } from '@/components/beacon';
+import { redirectToExternalLogin } from './externalLogin';
 import { useAuth } from './useAuth';
 
 interface RequireAuthProps {
@@ -12,10 +13,21 @@ interface RequireAuthProps {
  * via the SPA router (no full page reload), preserving the originally
  * requested URL in location.state.returnTo so the post-login flow can
  * deep-link the user back to where they were going.
+ *
+ * On a host that owns sign-in (`externalLogin`), Beacon's login page is skipped: the browser does a
+ * full-page redirect to the host's login page, which brings the user back to this URL afterwards.
  */
 export function RequireAuth({ children }: RequireAuthProps) {
   const { data, isLoading, isError, refetch } = useAuth();
   const location = useLocation();
+  const externalLogin = data && !data.isAuthenticated ? data.externalLogin : null;
+
+  useEffect(() => {
+    if (externalLogin) {
+      const { pathname, search, hash } = window.location;
+      redirectToExternalLogin(externalLogin, `${pathname}${search}${hash}`);
+    }
+  }, [externalLogin]);
 
   if (isLoading) {
     return (
@@ -32,6 +44,14 @@ export function RequireAuth({ children }: RequireAuthProps) {
           <span className="text-crit text-sm">Failed to load authentication state.</span>
           <Button type="button" onClick={() => refetch()}>Retry</Button>
         </div>
+      </div>
+    );
+  }
+
+  if (externalLogin) {
+    return (
+      <div className="grid place-items-center h-full">
+        <span className="text-text-muted text-sm">Redirecting to sign in…</span>
       </div>
     );
   }

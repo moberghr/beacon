@@ -1,4 +1,4 @@
-import { RefreshCw, Zap } from 'lucide-react';
+import { RefreshCw, RotateCcw, Zap } from 'lucide-react';
 import { Button, Pill } from '@/components/beacon';
 import { SubscriptionStatus, type SubscriptionDetail } from '../queries';
 
@@ -9,8 +9,10 @@ interface SubscriptionSaveBarProps {
   canArchive: boolean;
   isTesting: boolean;
   isArchiving: boolean;
+  isReactivating: boolean;
   onTest: () => void;
   onArchive: () => void;
+  onReactivate: () => void;
 }
 
 export function SubscriptionSaveBar({
@@ -20,8 +22,10 @@ export function SubscriptionSaveBar({
   canArchive,
   isTesting,
   isArchiving,
+  isReactivating,
   onTest,
   onArchive,
+  onReactivate,
 }: SubscriptionSaveBarProps) {
   const isActive = subscription.status === SubscriptionStatus.Active;
   return (
@@ -39,13 +43,23 @@ export function SubscriptionSaveBar({
         </span>
       </span>
       <div className="ml-auto flex items-center gap-1.5">
-        <Button
-          icon={<RefreshCw />}
-          onClick={onArchive}
-          disabled={!canArchive || !isActive || isArchiving}
-        >
-          {isArchiving ? 'Archiving…' : 'Archive'}
-        </Button>
+        {isActive ? (
+          <Button
+            icon={<RefreshCw />}
+            onClick={onArchive}
+            disabled={!canArchive || isArchiving}
+          >
+            {isArchiving ? 'Archiving…' : 'Archive'}
+          </Button>
+        ) : (
+          <Button
+            icon={<RotateCcw />}
+            onClick={onReactivate}
+            disabled={!canArchive || isReactivating}
+          >
+            {isReactivating ? 'Reactivating…' : 'Reactivate'}
+          </Button>
+        )}
         <Button
           variant="primary"
           icon={<Zap />}

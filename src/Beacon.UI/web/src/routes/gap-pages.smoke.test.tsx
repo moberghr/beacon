@@ -33,7 +33,9 @@ describe('ApiKeysListPage', () => {
     mswServer.use(
       http.get('*/beacon/api/api-keys', () =>
         HttpResponse.json({
-          entries: [
+          totalCount: 1,
+          pageCount: 1,
+          items: [
             {
               id: 1,
               name: 'Demo CI Key',
@@ -60,7 +62,9 @@ describe('UsersListPage', () => {
     mswServer.use(
       http.get('*/beacon/api/users', () =>
         HttpResponse.json({
-          entries: [
+          totalCount: 1,
+          pageCount: 1,
+          items: [
             {
               id: 1,
               userName: 'mock.admin',

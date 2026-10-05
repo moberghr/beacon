@@ -6,6 +6,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useAuth, useIsAdmin } from '@/auth/useAuth';
 import {
   useArchiveSubscription,
+  useReactivateSubscription,
   useSubscriptionDetailQuery,
   useSubscriptionExecutionsQuery,
   useTestSubscription,
@@ -34,6 +35,7 @@ export default function SubscriptionDetailPage() {
   const executions = useSubscriptionExecutionsQuery(validId, 200);
   const test = useTestSubscription(validId);
   const archive = useArchiveSubscription(validId);
+  const reactivate = useReactivateSubscription(validId);
 
   const [tab, setTab] = useState<SubscriptionTabKey>('recipients');
   const [confirmingArchive, setConfirmingArchive] = useState(false);
@@ -67,11 +69,12 @@ export default function SubscriptionDetailPage() {
   }
 
   const subscription = detail.data.detail;
-  const execList = executions.data?.entries;
+  const execList = executions.data?.items;
   const totalExecutions = executions.data?.totalCount ?? execList?.length ?? 0;
 
   const onTest = () => test.mutate();
   const onArchive = () => setConfirmingArchive(true);
+  const onReactivate = () => reactivate.mutate();
 
   return (
     <div className="flex flex-col gap-5 p-7" data-screen-label="04 Subscription Detail">
@@ -81,8 +84,10 @@ export default function SubscriptionDetailPage() {
         canArchive={isAdmin}
         isTesting={test.isPending}
         isArchiving={archive.isPending}
+        isReactivating={reactivate.isPending}
         onTest={onTest}
         onArchive={onArchive}
+        onReactivate={onReactivate}
       />
 
       <SubscriptionKpiGrid
@@ -96,8 +101,7 @@ export default function SubscriptionDetailPage() {
           <SubscriptionInfoCard subscription={subscription} />
           <SubscriptionTabsCard
             subscription={subscription}
-            executions={execList}
-            executionsLoading={executions.isLoading}
+            totalExecutions={totalExecutions}
             tab={tab}
             onTabChange={setTab}
             canWrite={canWrite}
@@ -114,14 +118,16 @@ export default function SubscriptionDetailPage() {
         canArchive={isAdmin}
         isTesting={test.isPending}
         isArchiving={archive.isPending}
+        isReactivating={reactivate.isPending}
         onTest={onTest}
         onArchive={onArchive}
+        onReactivate={onReactivate}
       />
 
       <ConfirmDialog
         open={confirmingArchive}
         title="Archive subscription?"
-        message="The schedule will stop firing and the row will be moved to archived state. You can recreate it later."
+        message="The schedule will stop firing and the row will be moved to archived state. You can reactivate it later from the Archived list."
         confirmLabel="Archive"
         destructive
         busy={archive.isPending}

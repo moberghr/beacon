@@ -13,8 +13,7 @@ internal static class ApprovalsEndpoints
     {
         var approvals = group.MapGroup("/approvals").WithTags("Approvals");
 
-        approvals.MapGet("/pending", ([FromQuery] int? queryId, IMediator m, CancellationToken ct) =>
-                m.Send(new GetPendingApprovalsQuery { QueryId = queryId }, ct))
+        approvals.MapGet("/pending", ([AsParameters] GetPendingApprovalsQuery query, IMediator m, CancellationToken ct) => m.Send(query, ct))
             .WithName("GetPendingApprovals");
 
         approvals.MapGet("/{id:int}", async Task<Results<Ok<ApprovalRequestDetail>, NotFound>> (int id, IMediator m, CancellationToken ct) =>

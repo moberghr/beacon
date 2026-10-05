@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Http.HttpResults;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.DataMigration;
 using MediatR;
@@ -11,9 +12,15 @@ internal static class MigrationsEndpoints
     {
         var migrations = group.MapGroup("/migrations").WithTags("Migrations");
 
-        migrations.MapGet("/jobs", (IMediator m, CancellationToken ct) =>
-                m.Send(new GetMigrationJobsQuery(), ct))
+        migrations.MapGet("/jobs", ([AsParameters] GetMigrationJobsQuery query, IMediator m, CancellationToken ct) => m.Send(query, ct))
             .WithName("GetMigrationJobs");
+
+        migrations.MapGet("/jobs/{id:int}", async Task<Results<Ok<MigrationJobListItem>, NotFound>> (int id, IMediator m, CancellationToken ct) =>
+            {
+                var job = await m.Send(new GetMigrationJobQuery(id), ct);
+                return job is null ? TypedResults.NotFound() : TypedResults.Ok(job);
+            })
+            .WithName("GetMigrationJob");
 
         migrations.MapPost("/jobs", ([FromBody] CreateMigrationJobCommand cmd, IMediator m, CancellationToken ct) =>
                 m.Send(cmd, ct))
@@ -30,17 +37,7 @@ internal static class MigrationsEndpoints
             .WithName("DeleteMigrationJob")
             .RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
 
-        migrations.MapGet("/executions", (
-                [FromQuery] int? migrationJobId,
-                [FromQuery] MigrationStatus? status,
-                [FromQuery] DateTime? startDate,
-                [FromQuery] DateTime? endDate,
-                [FromQuery] int? skip,
-                [FromQuery] int? take,
-                IMediator m,
-                CancellationToken ct) =>
-                m.Send(new GetMigrationExecutionsQuery(
-                    migrationJobId, status, startDate, endDate, skip ?? 0, take ?? 100), ct))
+        migrations.MapGet("/executions", ([AsParameters] GetMigrationExecutionsQuery query, IMediator m, CancellationToken ct) => m.Send(query, ct))
             .WithName("GetMigrationExecutions");
 
         return group;

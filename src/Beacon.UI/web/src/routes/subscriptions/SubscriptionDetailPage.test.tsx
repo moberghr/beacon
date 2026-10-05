@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { Route, Routes } from 'react-router-dom';
-import { screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { mswServer } from '../../../vitest.setup';
 import { renderWithProviders } from '@/test/render';
 import SubscriptionDetailPage from './SubscriptionDetailPage';
@@ -60,7 +60,7 @@ describe('SubscriptionDetailPage', () => {
       ),
       http.get('*/beacon/api/notifications', () =>
         HttpResponse.json({
-          entries: [
+          items: [
             {
               id: 1001,
               subscriptionId: 42,
@@ -76,6 +76,7 @@ describe('SubscriptionDetailPage', () => {
             },
           ],
           totalCount: 1,
+          pageCount: 1,
         }),
       ),
     );
@@ -105,5 +106,54 @@ describe('SubscriptionDetailPage', () => {
 
     // Hero ACTIVE pill present.
     expect(screen.getAllByText('ACTIVE').length).toBeGreaterThan(0);
+  });
+
+  it('offers Reactivate instead of Archive for an archived subscription and posts to the reactivate endpoint', async () => {
+    let status = 'Archived';
+    let reactivateCalls = 0;
+    mswServer.use(
+      http.get('*/beacon/api/auth/me', () =>
+        HttpResponse.json({
+          userId: 'u1',
+          displayName: 'Tester',
+          email: 't@example.com',
+          isAuthenticated: true,
+          roles: ['Admin'],
+        }),
+      ),
+      http.get('*/beacon/api/subscriptions/42', () =>
+        HttpResponse.json(detailPayload({ status })),
+      ),
+      http.post('*/beacon/api/subscriptions/42/reactivate', () => {
+        reactivateCalls += 1;
+        status = 'Active';
+        return new HttpResponse(null, { status: 204 });
+      }),
+      http.get('*/beacon/api/notifications', () =>
+        HttpResponse.json({ items: [], totalCount: 0, pageCount: 0 }),
+      ),
+    );
+
+    renderWithProviders(
+      <Routes>
+        <Route path="/subscriptions/:id" element={<SubscriptionDetailPage />} />
+      </Routes>,
+      { initialEntries: ['/subscriptions/42'] },
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('button', { name: /reactivate/i }).length).toBeGreaterThan(0);
+    });
+    expect(screen.queryByRole('button', { name: /^archive$/i })).not.toBeInTheDocument();
+
+    const reactivate = screen.getAllByRole('button', { name: /reactivate/i })[0];
+    await waitFor(() => expect(reactivate).toBeEnabled());
+    fireEvent.click(reactivate);
+
+    await waitFor(() => expect(reactivateCalls).toBe(1));
+    // The detail refetches after the mutation, so the page flips back to the active lifecycle.
+    await waitFor(() => {
+      expect(screen.getAllByRole('button', { name: /^archive$/i }).length).toBeGreaterThan(0);
+    });
   });
 });

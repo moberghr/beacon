@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { AlertTriangle, Inbox, Plus, RefreshCw, X } from 'lucide-react';
@@ -7,10 +7,12 @@ import { EmptyState } from '@/components/data/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Button, Card, Input, PageHeader, Pill } from '@/components/beacon';
 import { formatNumber } from '@/lib/format';
+import { useSearchFilter } from '@/lib/usePagedList';
 import {
   useDeleteSubscription,
-  useSubscriptionsQuery,
+  useSubscriptionsList,
   type SubscriptionEntry,
+  type SubscriptionListStatus,
 } from './queries';
 import { AddSubscriptionDialog } from './AddSubscriptionDialog';
 
@@ -18,23 +20,22 @@ const GRID_TEMPLATE = '0.6fr 0.6fr 1.6fr 1.4fr 1.6fr 0.8fr 60px';
 
 export default function SubscriptionsListPage() {
   const navigate = useNavigate();
-  const [search, setSearch] = useState('');
-  // Debounce before the term enters the query key — one request per pause,
-  // not per keystroke.
-  const debouncedSearch = useDebouncedValue(search, 300);
-  const { data, isLoading, isError, error, refetch } = useSubscriptionsQuery(debouncedSearch);
+  const list = useSubscriptionsList();
+  const { data, items: entries, isLoading, isError, error, refetch } = list;
+  const [search, setSearch] = useSearchFilter(list.filters.search, value => list.setFilter('search', value));
+  const status = list.filters.status;
+  const isArchivedView = status === 'archived';
   const deleteMutation = useDeleteSubscription();
 
   const [adding, setAdding] = useState(false);
   const [deleting, setDeleting] = useState<SubscriptionEntry | null>(null);
 
-  const entries = data?.entries ?? [];
-
   const columns = useMemo<Column<SubscriptionEntry>[]>(() => [
-    { key: 'id', header: 'Id', render: r => <span className="text-text-muted mono">{r.id}</span> },
+    { key: 'id', header: 'Id', sortKey: 'id', render: r => <span className="text-text-muted mono">{r.id}</span> },
     { key: 'queryId', header: 'Query', render: r => <span className="text-text-muted mono">{r.queryId}</span> },
     {
       key: 'queryName',
+      sortKey: 'queryName',
       header: 'Query name',
       render: r => <span className="font-semibold text-text">{r.queryName}</span>,
     },
@@ -45,6 +46,7 @@ export default function SubscriptionsListPage() {
     },
     {
       key: 'recipients',
+      sortKey: 'recipientCount',
       header: 'Recipients',
       render: r => {
         if (r.recipientCount === 0) {
@@ -71,7 +73,7 @@ export default function SubscriptionsListPage() {
     {
       key: 'actions',
       header: '',
-      render: r => (
+      render: r => isArchivedView ? null : (
         <Button
           variant="ghost"
           size="sm"
@@ -82,7 +84,7 @@ export default function SubscriptionsListPage() {
         />
       ),
     },
-  ], []);
+  ], [isArchivedView]);
 
   const onConfirmDelete = async () => {
     if (deleting == null) return;
@@ -103,7 +105,7 @@ export default function SubscriptionsListPage() {
         sub={
           isLoading
             ? <span className="text-text-muted">Loading…</span>
-            : <span className="text-text-muted">{formatNumber(entries.length)} total</span>
+            : <span className="text-text-muted">{formatNumber(data?.totalCount ?? 0)} {status}</span>
         }
         actions={
           <>
@@ -130,26 +132,39 @@ export default function SubscriptionsListPage() {
 
       {!isError && (
         <>
-          <Card className="p-3">
-            <Input
-              type="search"
-              placeholder="Search by query name…"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-            />
+          <Card className="p-3 flex gap-2 items-center">
+            {(['active', 'archived'] as SubscriptionListStatus[]).map(s => (
+              <Button
+                key={s}
+                variant={status === s ? 'primary' : 'secondary'}
+                size="sm"
+                onClick={() => list.setFilter('status', s)}
+              >
+                {s.charAt(0).toUpperCase() + s.slice(1)}
+              </Button>
+            ))}
+            <div className="flex-1">
+              <Input
+                type="search"
+                placeholder="Search by query name…"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+              />
+            </div>
           </Card>
 
           <DataTable
             columns={columns}
             rows={entries}
             rowKey={r => r.id}
+            {...list.tableProps}
             gridTemplate={GRID_TEMPLATE}
             onRowClick={r => navigate(`/subscriptions/${r.id}`)}
             empty={
               <EmptyState
                 icon={<Inbox />}
-                title={isLoading ? 'Loading subscriptions…' : 'No subscriptions yet'}
-                description={isLoading ? '' : 'Schedule a query and route its results to recipients.'}
+                title={isLoading ? 'Loading subscriptions…' : isArchivedView ? 'No archived subscriptions' : 'No subscriptions yet'}
+                description={isLoading || isArchivedView ? '' : 'Schedule a query and route its results to recipients.'}
               />
             }
           />
@@ -174,13 +189,4 @@ export default function SubscriptionsListPage() {
       />
     </div>
   );
-}
-
-function useDebouncedValue<T>(value: T, delayMs: number): T {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const t = window.setTimeout(() => setDebounced(value), delayMs);
-    return () => window.clearTimeout(t);
-  }, [value, delayMs]);
-  return debounced;
 }

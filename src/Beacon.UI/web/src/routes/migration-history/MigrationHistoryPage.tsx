@@ -5,7 +5,7 @@ import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { MigrationStatus } from '@/lib/enums';
 import { formatDateTime, formatNumber } from '@/lib/format';
-import { useMigrationExecutionsQuery, type MigrationExecutionEntry } from './queries';
+import { useMigrationExecutionsList, type MigrationExecutionEntry } from './queries';
 import { CreateMigrationJobDialog } from './CreateMigrationJobDialog';
 
 const STATUS_PILL: Record<MigrationStatus, { label: string; tone: PillProps['tone'] }> = {
@@ -20,6 +20,7 @@ const STATUS_PILL: Record<MigrationStatus, { label: string; tone: PillProps['ton
 const COLUMNS: Column<MigrationExecutionEntry>[] = [
   {
     key: 'started',
+    sortKey: 'startedAt',
     header: 'Started',
     render: r => <span className="mono text-text-muted">{formatDateTime(r.startedAt)}</span>,
   },
@@ -35,6 +36,7 @@ const COLUMNS: Column<MigrationExecutionEntry>[] = [
   },
   {
     key: 'status',
+    sortKey: 'status',
     header: 'Status',
     render: r => {
       const map = STATUS_PILL[r.status] ?? { label: String(r.status), tone: 'neutral' as const };
@@ -43,6 +45,7 @@ const COLUMNS: Column<MigrationExecutionEntry>[] = [
   },
   {
     key: 'rows',
+    sortKey: 'sourceRowsRead',
     header: 'Rows',
     render: r => (
       <span className="mono">
@@ -68,9 +71,9 @@ const COLUMNS: Column<MigrationExecutionEntry>[] = [
 const GRID_TEMPLATE = '1.4fr 2fr 0.9fr 1.1fr 0.7fr 0.7fr';
 
 export default function MigrationHistoryPage() {
-  const { data, isLoading, isError, error, refetch } = useMigrationExecutionsQuery();
+  const list = useMigrationExecutionsList();
+  const { data, items: rows, isLoading, isError, error, refetch } = list;
   const [createOpen, setCreateOpen] = useState(false);
-  const rows = data?.executions ?? [];
 
   return (
     <div className="flex flex-col gap-5 p-7">
@@ -82,7 +85,7 @@ export default function MigrationHistoryPage() {
         sub={
           isLoading
             ? <span className="text-text-muted">Loading…</span>
-            : <span className="text-text-muted">{formatNumber(rows.length)} of {formatNumber(data?.totalCount ?? 0)}</span>
+            : <span className="text-text-muted">{formatNumber(data?.totalCount ?? 0)} execution{data?.totalCount === 1 ? '' : 's'}</span>
         }
         actions={
           <>
@@ -116,6 +119,7 @@ export default function MigrationHistoryPage() {
           columns={COLUMNS}
           rows={rows}
           rowKey={r => r.id}
+          {...list.tableProps}
           gridTemplate={GRID_TEMPLATE}
           empty={
             <EmptyState

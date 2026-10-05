@@ -12,16 +12,7 @@ internal static class AiActorsEndpoints
     {
         var actors = group.MapGroup("/ai-actors").WithTags("AiActors");
 
-        actors.MapGet("/", (
-                [FromQuery] int? dataSourceId,
-                [FromQuery] bool? includeArchived,
-                IMediator m,
-                CancellationToken ct) =>
-                m.Send(new GetAiActorListQuery
-                {
-                    DataSourceId = dataSourceId,
-                    IncludeArchived = includeArchived,
-                }, ct))
+        actors.MapGet("/", ([AsParameters] GetAiActorListQuery query, IMediator m, CancellationToken ct) => m.Send(query, ct))
             .WithName("GetAiActorList");
 
         actors.MapPost("/", (CreateAiActorCommand cmd, IMediator m, CancellationToken ct) =>

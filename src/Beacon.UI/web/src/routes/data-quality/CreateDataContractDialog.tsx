@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useState } from 'react';
 import { useFieldArray, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -11,8 +11,9 @@ import {
   Select,
   Textarea,
 } from '@/components/beacon';
-import { useDataSourcesQuery } from '../data-sources/queries';
-import { useRecipientsQuery } from '../recipients/queries';
+import { SearchMultiSelect } from '@/components/data/SearchMultiSelect';
+import { DataSourcePicker } from '../data-sources/DataSourcePicker';
+import type { RecipientOption } from '../recipients/queries';
 import { DataContractRuleType, DataContractSeverity } from '@/lib/enums';
 import {
   useCreateContract,
@@ -115,8 +116,8 @@ function blankRule(index: number): FormValues['rules'][number] {
 
 export function CreateDataContractDialog({ editContractId, onClose }: Props) {
   const isEdit = editContractId !== null;
-  const dataSources = useDataSourcesQuery();
-  const recipientsQ = useRecipientsQuery();
+  // Chips keep recipient names across searches; the form holds only their ids.
+  const [selectedRecipients, setSelectedRecipients] = useState<RecipientOption[]>([]);
   const existingQ = useDataContract(editContractId);
   const createMutation = useCreateContract();
   const updateMutation = useUpdateContract(editContractId ?? 0);
@@ -159,6 +160,7 @@ export function CreateDataContractDialog({ editContractId, onClose }: Props) {
         isEnabled: r.isEnabled,
       })),
     });
+    setSelectedRecipients(c.recipients.map(r => ({ id: r.id, name: r.name })));
   }, [existingQ.data, reset]);
 
   const submitting = createMutation.isPending || updateMutation.isPending;
@@ -171,10 +173,6 @@ export function CreateDataContractDialog({ editContractId, onClose }: Props) {
   const editFailed = isEdit && existingQ.data == null && existingQ.isError;
   const formReady = !isEdit || existingQ.data != null;
 
-  const recipientOptions = useMemo(
-    () => recipientsQ.data?.entries ?? [],
-    [recipientsQ.data],
-  );
 
   const onSubmit = (values: FormValues) => {
     const rulesData: DataContractRuleData[] = values.rules.map(r => ({
@@ -266,16 +264,10 @@ export function CreateDataContractDialog({ editContractId, onClose }: Props) {
           </Field>
 
           <Field label={<>Data source {REQ}</>}>
-            <Select
-              {...register('dataSourceId', { valueAsNumber: true })}
-              required
-              defaultValue=""
-            >
-              <option value="">Select…</option>
-              {(dataSources.data?.entries ?? []).map(d => (
-                <option key={d.id} value={d.id}>{d.name}</option>
-              ))}
-            </Select>
+            <DataSourcePicker
+              value={watch('dataSourceId') || null}
+              onSelect={x => setValue('dataSourceId', x?.id ?? 0, { shouldValidate: true, shouldDirty: true })}
+            />
           </Field>
 
           <div className="grid grid-cols-2 gap-3">
@@ -314,19 +306,18 @@ export function CreateDataContractDialog({ editContractId, onClose }: Props) {
 
           {alertOnFailure && (
             <Field label="Notification recipients">
-              <Select
-                multiple
-                size={4}
-                value={watch('recipientIds').map(String)}
-                onChange={e => {
-                  const opts = Array.from(e.target.selectedOptions).map(o => Number(o.value));
-                  setValue('recipientIds', opts, { shouldDirty: true });
+              <SearchMultiSelect<RecipientOption>
+                path="/beacon/api/recipients"
+                queryKey={['recipients']}
+                selected={selectedRecipients}
+                onChange={next => {
+                  setSelectedRecipients(next);
+                  setValue('recipientIds', next.map(x => x.id), { shouldDirty: true });
                 }}
-              >
-                {recipientOptions.map(r => (
-                  <option key={r.id} value={r.id}>{r.name}</option>
-                ))}
-              </Select>
+                getId={x => x.id}
+                getLabel={x => x.name}
+                noun="recipients"
+              />
             </Field>
           )}
 

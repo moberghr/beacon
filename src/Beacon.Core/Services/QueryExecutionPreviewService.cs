@@ -1,3 +1,4 @@
+using Beacon.Core.Helpers;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Models.Queries;
 
@@ -5,9 +6,10 @@ namespace Beacon.Core.Services;
 
 public interface IQueryExecutionPreviewService
 {
-    Task<QueryExecutionResult?> ExecuteQueryPreview(int queryId, CancellationToken cancellationToken);
-    Task<QueryStepResult?> ExecuteStepPreview(int queryId, int stepOrder, CancellationToken cancellationToken);
-    Task<QueryStepResult?> ExecuteStepPreview(int queryId, int stepOrder, List<ParameterValue>? parameters, CancellationToken cancellationToken);
+    /// <summary>One page of a saved query's result; a failure comes back as the result, with its cause.</summary>
+    Task<QueryPreviewResult?> ExecuteQueryPreview(int queryId, ListRequest paging, CancellationToken cancellationToken);
+    /// <summary>One page of a single step's result, run on its own.</summary>
+    Task<QueryPreviewResult?> ExecuteStepPreview(int queryId, int stepOrder, List<ParameterValue>? parameters, ListRequest paging, CancellationToken cancellationToken);
     Task<QueryExecutionResult?> ExecuteTemporaryQueryPreview(QueryData queryData, CancellationToken cancellationToken, List<ParameterValue>? parameters = null);
     Task<QueryStepResult?> ExecuteTemporaryStepPreview(QueryData queryData, int stepOrder, List<ParameterValue>? parameters, CancellationToken cancellationToken);
 }
@@ -23,11 +25,11 @@ internal sealed class QueryExecutionPreviewService : IQueryExecutionPreviewServi
         _logger = logger;
     }
 
-    public async Task<QueryExecutionResult?> ExecuteQueryPreview(int queryId, CancellationToken cancellationToken)
+    public async Task<QueryPreviewResult?> ExecuteQueryPreview(int queryId, ListRequest paging, CancellationToken cancellationToken)
     {
         try
         {
-            return await _queryService.ExecuteQueryAdvanced(queryId, cancellationToken: cancellationToken);
+            return await _queryService.PreviewQuery(queryId, paging, cancellationToken);
         }
         catch (OperationCanceledException)
         {
@@ -37,15 +39,20 @@ internal sealed class QueryExecutionPreviewService : IQueryExecutionPreviewServi
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Error executing query preview for query {QueryId}", queryId);
-            return null;
+            return Failed(ex);
         }
     }
 
-    public async Task<QueryStepResult?> ExecuteStepPreview(int queryId, int stepOrder, CancellationToken cancellationToken)
+    public async Task<QueryPreviewResult?> ExecuteStepPreview(
+        int queryId,
+        int stepOrder,
+        List<ParameterValue>? parameters,
+        ListRequest paging,
+        CancellationToken cancellationToken)
     {
         try
         {
-            return await _queryService.PreviewQueryStep(queryId, stepOrder, cancellationToken);
+            return await _queryService.PreviewQueryStepPaged(queryId, stepOrder, parameters, paging, cancellationToken);
         }
         catch (OperationCanceledException)
         {
@@ -55,25 +62,7 @@ internal sealed class QueryExecutionPreviewService : IQueryExecutionPreviewServi
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Error executing step preview for query {QueryId} step {StepOrder}", queryId, stepOrder);
-            return null;
-        }
-    }
-
-    public async Task<QueryStepResult?> ExecuteStepPreview(int queryId, int stepOrder, List<ParameterValue>? parameters, CancellationToken cancellationToken)
-    {
-        try
-        {
-            return await _queryService.PreviewQueryStep(queryId, stepOrder, parameters, cancellationToken);
-        }
-        catch (OperationCanceledException)
-        {
-            _logger.LogDebug("Step preview with parameters for query {QueryId} step {StepOrder} was cancelled", queryId, stepOrder);
-            return null;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Error executing step preview with parameters for query {QueryId} step {StepOrder}", queryId, stepOrder);
-            return null;
+            return Failed(ex);
         }
     }
 
@@ -186,4 +175,10 @@ internal sealed class QueryExecutionPreviewService : IQueryExecutionPreviewServi
             }
         }
     }
+
+    // A preview is run by the user who wrote the query, so the failure goes back to them as the result
+    // (the shell renders ErrorMessage) instead of null, which the handlers could only turn into
+    // "preview failed" — hiding the cause in a host log the user usually cannot see.
+    private static QueryPreviewResult Failed(Exception exception) =>
+        new() { Success = false, ErrorMessage = exception.Message };
 }

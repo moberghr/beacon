@@ -3,6 +3,7 @@ import { unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
 import type { TaskPriority } from '@/lib/enums';
 import { createSimpleMutation } from '@/lib/mutations';
+import { usePagedList } from '@/lib/usePagedList';
 
 export interface TaskEntry {
   id: number;
@@ -18,11 +19,6 @@ export interface TaskEntry {
   resolvedByUserName: string | null;
   aiActorId: number | null;
   aiActorName: string | null;
-}
-
-export interface GetTasksResult {
-  entries: TaskEntry[];
-  totalCount: number;
 }
 
 
@@ -102,27 +98,14 @@ export interface TaskCommentsResult {
 
 export type TaskStatusFilter = 'all' | 'unresolved' | 'resolved';
 
-interface UseTasksArgs {
-  status: TaskStatusFilter;
-  page: number;
-  pageSize: number;
-}
-
-const TASKS_KEY = (args: UseTasksArgs) => ['tasks', args] as const;
-
-export function useTasksQuery(args: UseTasksArgs) {
-  const resolved = args.status === 'all' ? undefined : args.status === 'resolved';
-  return useQuery({
-    queryKey: TASKS_KEY(args),
-    queryFn: async () =>
-      unwrap<GetTasksResult>(await beaconApi().getTasks(
-        undefined,
-        resolved,
-        'CreatedAt',
-        true,
-        args.page,
-        args.pageSize,
-      )),
+/** The tasks grid: server-paged, newest first, filtered by status tab; state lives in the URL. */
+export function useTasksList() {
+  return usePagedList<TaskEntry, { status: TaskStatusFilter }>({
+    queryKey: ['tasks'],
+    path: '/beacon/api/tasks',
+    filters: { status: 'unresolved' },
+    mapFilters: x => ({ resolved: x.status === 'all' ? undefined : x.status === 'resolved' }),
+    defaultSort: { column: 'createdAt', direction: 'desc' },
   });
 }
 

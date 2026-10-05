@@ -1,3 +1,4 @@
+using Beacon.Core.Helpers;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -11,7 +12,7 @@ namespace Beacon.Core.Services;
 public interface IQueryVersionService
 {
     Task<QueryVersion> CreateVersionAsync(int queryId, string? userId, string? source, string? reason, QueryVersionStatus status, CancellationToken cancellationToken = default);
-    Task<List<QueryVersionSummary>> GetVersionsAsync(int queryId, CancellationToken cancellationToken = default);
+    Task<PagedList<QueryVersionSummary>> GetVersionsAsync(int queryId, ListRequest request, CancellationToken cancellationToken);
     Task<QueryVersionDetail?> GetVersionDetailAsync(int versionId, CancellationToken cancellationToken = default);
     Task<int> RestoreVersionAsync(int versionId, string? userId, CancellationToken cancellationToken = default);
     Task<QueryVersionDiff> DiffVersionsAsync(int versionIdA, int versionIdB, CancellationToken cancellationToken = default);
@@ -89,29 +90,29 @@ internal class QueryVersionService(IDbContextFactory<BeaconContext> contextFacto
         return version;
     }
 
-    public async Task<List<QueryVersionSummary>> GetVersionsAsync(int queryId, CancellationToken cancellationToken = default)
+    public async Task<PagedList<QueryVersionSummary>> GetVersionsAsync(int queryId, ListRequest request, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        var versions = await context.QueryVersions
+        // StepCount is parsed from StepsJson, so the page is mapped after it is read.
+        var page = await context.QueryVersions
             .Where(v => v.QueryId == queryId)
-            .OrderByDescending(v => v.VersionNumber)
-            .Select(v => new
+            .Select(v => new VersionRow
             {
-                v.Id,
-                v.VersionNumber,
-                v.Label,
-                v.Status,
-                v.Name,
-                v.CreatedTime,
-                v.CreatedByUserId,
-                v.ChangeSource,
-                v.ChangeReason,
-                v.StepsJson
+                Id = v.Id,
+                VersionNumber = v.VersionNumber,
+                Label = v.Label,
+                Status = v.Status,
+                Name = v.Name,
+                CreatedTime = v.CreatedTime,
+                CreatedByUserId = v.CreatedByUserId,
+                ChangeSource = v.ChangeSource,
+                ChangeReason = v.ChangeReason,
+                StepsJson = v.StepsJson
             })
-            .ToListAsync(cancellationToken);
+            .ToPagedListAsync(request, cancellationToken, defaultSort: "-versionNumber");
 
-        return versions.Select(v => new QueryVersionSummary
+        return page.Map(v => new QueryVersionSummary
         {
             Id = v.Id,
             VersionNumber = v.VersionNumber,
@@ -123,7 +124,7 @@ internal class QueryVersionService(IDbContextFactory<BeaconContext> contextFacto
             ChangeSource = v.ChangeSource,
             ChangeReason = v.ChangeReason,
             StepCount = CountSteps(v.StepsJson)
-        }).ToList();
+        });
     }
 
     public async Task<QueryVersionDetail?> GetVersionDetailAsync(int versionId, CancellationToken cancellationToken = default)
@@ -341,5 +342,28 @@ internal class QueryVersionService(IDbContextFactory<BeaconContext> contextFacto
             logger.LogWarning(ex, "Failed to deserialize query version steps; treating as zero-step version");
             return 0;
         }
+    }
+
+    private sealed class VersionRow
+    {
+        public int Id { get; init; }
+
+        public int VersionNumber { get; init; }
+
+        public string? Label { get; init; }
+
+        public QueryVersionStatus Status { get; init; }
+
+        public string Name { get; init; } = string.Empty;
+
+        public DateTime CreatedTime { get; init; }
+
+        public string? CreatedByUserId { get; init; }
+
+        public string? ChangeSource { get; init; }
+
+        public string? ChangeReason { get; init; }
+
+        public string StepsJson { get; init; } = string.Empty;
     }
 }

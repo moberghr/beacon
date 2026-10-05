@@ -43,6 +43,12 @@ public interface IQueryService
 
     Task<QueryStepResult> PreviewQueryStep(int queryId, int stepOrder, List<ParameterValue>? parameters, CancellationToken cancellationToken);
 
+    /// <summary>One page of a saved query's result (steps summarised, final or single result paged).</summary>
+    Task<QueryPreviewResult> PreviewQuery(int queryId, ListRequest paging, CancellationToken cancellationToken);
+
+    /// <summary>One page of a single step's result, run on its own.</summary>
+    Task<QueryPreviewResult> PreviewQueryStepPaged(int queryId, int stepOrder, List<ParameterValue>? parameters, ListRequest paging, CancellationToken cancellationToken);
+
     // Step management with data source context
     Task<BaseResponse> AddQueryStep(int queryId, QueryStepData stepData, CancellationToken cancellationToken);
 
@@ -174,22 +180,23 @@ public class SubscriptionListData
     public string CronExpression { get; set; }
 }
 
-public class GetQueriesRequest : SortedListRequest
+public record GetQueriesRequest : ListRequest
 {
-    public int? QueryId { get; set; }
-    public int? DataSourceId { get; set; }
+    public int? QueryId { get; init; }
 
-    public string? QueryName { get; set; }
+    public int? DataSourceId { get; init; }
+
+    public string? QueryName { get; init; }
 
     /// <summary>
     /// Filter by folder ID. Null means show all queries regardless of folder. Use -1 to show only root-level queries (no folder).
     /// </summary>
-    public int? FolderId { get; set; }
+    public int? FolderId { get; init; }
 
     /// <summary>
     /// Search term to filter queries by name (case-insensitive partial match).
     /// </summary>
-    public string? SearchTerm { get; set; }
+    public string? SearchTerm { get; init; }
 }
 
 internal partial class QueryService(IDbContextFactory<BeaconContext> contextFactory, HostData.IDataSourceConnectionResolver connectionResolver, IManualQueryExecutionLogger queryExecutionLogger, ILogger<QueryService> logger, ILoggerFactory loggerFactory, IQueryVersionService queryVersionService, BeaconConfiguration beaconConfiguration, IBeaconUserContext userContext, SqlReadOnlyAstValidator readOnlyAstValidator, HostData.IHostDataSourceGuard hostGuard) : IQueryService
@@ -342,7 +349,7 @@ internal partial class QueryService(IDbContextFactory<BeaconContext> contextFact
                         }).ToList()
                     }).ToList()
                 })
-            .ToPagedListAsync(request, cancellationToken);
+            .ToPagedListAsync(request, cancellationToken, defaultSort: "-createdTime", tiebreaker: "queryId");
 
         return results;
     }

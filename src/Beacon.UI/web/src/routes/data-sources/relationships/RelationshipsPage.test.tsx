@@ -28,7 +28,7 @@ const HEALTH = {
 };
 
 const RELATIONSHIPS = {
-  relationships: [
+  items: [
     {
       id: 1,
       sourceSchema: 'sales',
@@ -63,11 +63,11 @@ const RELATIONSHIPS = {
 };
 
 function mockEndpoints(
-  relationships: typeof RELATIONSHIPS | { relationships: [] } = RELATIONSHIPS,
+  relationships: { items: unknown[]; totalCount?: number; pageCount?: number } = RELATIONSHIPS,
   health: typeof HEALTH = HEALTH,
 ) {
   mswServer.use(
-    http.get('*/beacon/api/data-sources/:id/relationships', () => HttpResponse.json(relationships)),
+    http.get('*/beacon/api/data-sources/:id/relationships', () => HttpResponse.json({ totalCount: relationships.items.length, pageCount: relationships.items.length ? 1 : 0, ...relationships })),
     http.get('*/beacon/api/data-sources/:id/schema-health', () => HttpResponse.json(health)),
   );
 }
@@ -86,7 +86,7 @@ describe('RelationshipsPage', () => {
   });
 
   it('shows an empty state and never invents rows when nothing is registered', async () => {
-    mockEndpoints({ relationships: [] }, { ...HEALTH, relationshipCount: 0 });
+    mockEndpoints({ items: [], totalCount: 0, pageCount: 0 }, { ...HEALTH, relationshipCount: 0 });
     renderPage();
 
     await screen.findByText(/No relationships registered yet/i);

@@ -1,14 +1,15 @@
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Helpers;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 
 namespace Beacon.Core.Handlers.Metadata;
 
 internal sealed class GetSchemaRelationshipsHandler(IDbContextFactory<BeaconContext> contextFactory)
-    : IRequestHandler<GetSchemaRelationshipsQuery, GetSchemaRelationshipsResult>
+    : IRequestHandler<GetSchemaRelationshipsQuery, PagedList<SchemaRelationshipItem>>
 {
-    public async Task<GetSchemaRelationshipsResult> Handle(GetSchemaRelationshipsQuery request, CancellationToken cancellationToken)
+    public async Task<PagedList<SchemaRelationshipItem>> Handle(GetSchemaRelationshipsQuery request, CancellationToken cancellationToken)
     {
         if (request.DataSourceId <= 0)
         {
@@ -26,15 +27,12 @@ internal sealed class GetSchemaRelationshipsHandler(IDbContextFactory<BeaconCont
             relationships = relationships.Where(x => x.Origin == request.Origin);
         }
 
-        if (request.VerifiedOnly)
+        if (request.VerifiedOnly == true)
         {
             relationships = relationships.Where(x => x.IsVerified);
         }
 
-        var items = await relationships
-            .OrderBy(x => x.SourceSchema)
-            .ThenBy(x => x.SourceTable)
-            .ThenBy(x => x.SourceColumn)
+        return await relationships
             .Select(x =>
                 new SchemaRelationshipItem
                 {
@@ -52,18 +50,22 @@ internal sealed class GetSchemaRelationshipsHandler(IDbContextFactory<BeaconCont
                     IsVerified = x.IsVerified,
                     VerifiedTime = x.VerifiedTime
                 })
-            .ToListAsync(cancellationToken);
-
-        return new GetSchemaRelationshipsResult(items);
+            .ToPagedListAsync(request, cancellationToken, defaultSort: "sourceSchema,sourceTable,sourceColumn");
     }
 }
 
-public record GetSchemaRelationshipsQuery(
-    int DataSourceId,
-    SchemaRelationshipOrigin? Origin = null,
-    bool VerifiedOnly = false) : IRequest<GetSchemaRelationshipsResult>;
+/// <summary>
+/// A data source's relationships, ordered by source schema, table and column unless <c>sort</c> says
+/// otherwise. <c>DataSourceId</c> binds from the route.
+/// </summary>
+public record GetSchemaRelationshipsQuery : ListRequest, IRequest<PagedList<SchemaRelationshipItem>>
+{
+    public int DataSourceId { get; init; }
 
-public record GetSchemaRelationshipsResult(IReadOnlyList<SchemaRelationshipItem> Relationships);
+    public SchemaRelationshipOrigin? Origin { get; init; }
+
+    public bool? VerifiedOnly { get; init; }
+}
 
 public record SchemaRelationshipItem
 {

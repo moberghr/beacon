@@ -2,6 +2,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Helpers;
 using Beacon.Core.Models.Ai;
 using Beacon.Core.Data.Entities;
 
@@ -10,31 +11,16 @@ using Beacon.Core.Data.Entities;
 namespace Beacon.Core.Handlers.Queries;
 
 internal sealed class GetQueryChangeHistoryHandler(IDbContextFactory<BeaconContext> contextFactory)
-    : IRequestHandler<GetQueryChangeHistoryQuery, GetQueryChangeHistoryResult>
+    : IRequestHandler<GetQueryChangeHistoryQuery, PagedList<QueryChangeHistoryItem>>
 {
-    public async Task<GetQueryChangeHistoryResult> Handle(
+    public async Task<PagedList<QueryChangeHistoryItem>> Handle(
         GetQueryChangeHistoryQuery request,
         CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        // First get all step IDs for this query
-        var stepIds = await context.QuerySteps
-            .Where(s => s.QueryId == request.QueryId)
-            .Select(s => s.Id)
-            .ToListAsync(cancellationToken);
-
-        if (stepIds.Count == 0)
-        {
-            return new GetQueryChangeHistoryResult
-            {
-                QueryId = request.QueryId,
-                Changes = []
-            };
-        }
-
         var query = context.QueryStepChangeHistory
-            .Where(c => stepIds.Contains(c.QueryStepId));
+            .Where(c => c.QueryStep.QueryId == request.QueryId);
 
         // Apply optional filters
         if (request.StepId.HasValue)
@@ -57,8 +43,7 @@ internal sealed class GetQueryChangeHistoryHandler(IDbContextFactory<BeaconConte
             query = query.Where(c => c.ChangedAt <= request.ToDate.Value);
         }
 
-        var changes = await query
-            .OrderByDescending(c => c.ChangedAt)
+        return await query
             .Select(c => new QueryChangeHistoryItem
             {
                 Id = c.Id,
@@ -76,31 +61,22 @@ internal sealed class GetQueryChangeHistoryHandler(IDbContextFactory<BeaconConte
                 ChangeSource = c.ChangeSource,
                 ChangedAt = c.ChangedAt
             })
-            .Take(request.MaxResults)
-            .ToListAsync(cancellationToken);
-
-        return new GetQueryChangeHistoryResult
-        {
-            QueryId = request.QueryId,
-            Changes = changes
-        };
+            .ToPagedListAsync(request, cancellationToken, defaultSort: "-changedAt");
     }
 }
 
-public record GetQueryChangeHistoryQuery : IRequest<GetQueryChangeHistoryResult>
-{
-    public required int QueryId { get; init; }
-    public int? StepId { get; init; }
-    public ChangeSource? ChangeSource { get; init; }
-    public DateTime? FromDate { get; init; }
-    public DateTime? ToDate { get; init; }
-    public int MaxResults { get; init; } = 50;
-}
-
-public record GetQueryChangeHistoryResult
+/// <summary>A query's SQL changes, newest first unless <c>sort</c> says otherwise. <c>QueryId</c> binds from the route.</summary>
+public record GetQueryChangeHistoryQuery : ListRequest, IRequest<PagedList<QueryChangeHistoryItem>>
 {
     public int QueryId { get; init; }
-    public List<QueryChangeHistoryItem> Changes { get; init; } = [];
+
+    public int? StepId { get; init; }
+
+    public ChangeSource? ChangeSource { get; init; }
+
+    public DateTime? FromDate { get; init; }
+
+    public DateTime? ToDate { get; init; }
 }
 
 public record QueryChangeHistoryItem

@@ -1,10 +1,11 @@
 import { AlertTriangle, Clock } from 'lucide-react';
 import { Pill } from '@/components/beacon';
 import { EmptyState } from '@/components/data/EmptyState';
+import { Pager } from '@/components/data/Pager';
 import { formatDateTime } from '@/lib/format';
 import {
   CHANGE_SOURCE_LABEL,
-  useQueryChangeHistoryQuery,
+  useQueryChangeHistoryList,
   type QueryChangeHistoryEntry,
 } from '../queries';
 
@@ -13,9 +14,8 @@ interface ChangeHistoryTabProps {
 }
 
 export function ChangeHistoryTab({ queryId }: ChangeHistoryTabProps) {
-  const { data, isLoading, isError, error } = useQueryChangeHistoryQuery(queryId, {
-    maxResults: 50,
-  });
+  const list = useQueryChangeHistoryList(queryId);
+  const { isLoading, isError, error } = list;
 
   if (isError) {
     return (
@@ -29,7 +29,7 @@ export function ChangeHistoryTab({ queryId }: ChangeHistoryTabProps) {
     );
   }
 
-  const changes = data?.changes ?? [];
+  const changes = list.items;
 
   if (!isLoading && changes.length === 0) {
     return (
@@ -64,6 +64,9 @@ export function ChangeHistoryTab({ queryId }: ChangeHistoryTabProps) {
             {changes.map(c => <ChangeRow key={c.id} entry={c} />)}
           </tbody>
         </table>
+      )}
+      {changes.length > 0 && (
+        <Pager {...list.tableProps.paging} />
       )}
     </div>
   );

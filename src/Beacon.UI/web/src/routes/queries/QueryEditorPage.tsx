@@ -26,15 +26,15 @@ import {
   Select,
 } from '@/components/beacon';
 import { EmptyState } from '@/components/data/EmptyState';
-import { useDataSourcesQuery } from '@/routes/data-sources/queries';
+import { DataSourcePicker } from '@/routes/data-sources/DataSourcePicker';
+import { useDataSourceLookup, useDefaultDataSource } from '@/routes/data-sources/queries';
 import { ParameterType } from '@/lib/enums';
 import {
   PARAMETER_TYPE_LABEL,
   type ParameterValueInput,
   type QueryDetail,
   type QueryStep,
-  type QueryStepPreviewResult,
-  type QueryExecutionPreviewResult,
+  type QueryPreviewResult,
   type UpdateQueryPayload,
   type UpdateQueryStepPayload,
   useQueryDetailQuery,
@@ -43,7 +43,8 @@ import {
   useUpdateQueryMutation,
 } from './queries';
 import { StepParameterDialog } from './parts/StepParameterDialog';
-import { PreviewResultsCard } from './parts/PreviewResultsCard';
+import { QueryRunPanel } from './parts/QueryRunPanel';
+import { sortToParam, toggleSort, type SortState } from '@/lib/paging';
 import { StepEditorWithExplorer } from './parts/StepEditorWithExplorer';
 import { detectParameters as detectParametersShared } from './helpers/parameters';
 
@@ -139,6 +140,9 @@ function toPayload(state: EditorState, queryId: number): UpdateQueryPayload {
   };
 }
 
+/** What the editor's result panel is previewing, so paging and sorting can re-run it. */
+type PreviewTarget = { kind: 'query' } | { kind: 'step'; stepOrder: number; parameters?: ParameterValueInput[] };
+
 export default function QueryEditorPage() {
   const params = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -146,7 +150,7 @@ export default function QueryEditorPage() {
   const validId = Number.isFinite(id) ? id : undefined;
 
   const detail = useQueryDetailQuery(validId);
-  const dataSources = useDataSourcesQuery();
+  const defaultDataSource = useDefaultDataSource().data ?? null;
   const update = useUpdateQueryMutation();
   const previewStep = usePreviewStepMutation(validId);
   const previewQuery = usePreviewQueryMutation(validId);
@@ -156,8 +160,10 @@ export default function QueryEditorPage() {
     stepOrder: number;
     parameters: EditorParameter[];
   } | null>(null);
-  const [stepResult, setStepResult] = useState<QueryStepPreviewResult | null>(null);
-  const [queryResult, setQueryResult] = useState<QueryExecutionPreviewResult | null>(null);
+  // One result panel for both step and query previews; each page or sort re-runs the same preview.
+  const [previewTarget, setPreviewTarget] = useState<PreviewTarget | null>(null);
+  const [previewResult, setPreviewResult] = useState<QueryPreviewResult | null>(null);
+  const [previewSort, setPreviewSort] = useState<SortState | null>(null);
 
   useEffect(() => {
     if (detail.data && state == null) {
@@ -165,15 +171,7 @@ export default function QueryEditorPage() {
     }
   }, [detail.data, state]);
 
-  const dataSourceOptions = dataSources.data?.entries ?? [];
-
-  const dataSourceLookup = useMemo(() => {
-    const map = new Map<number, { name: string; engine: string }>();
-    for (const ds of dataSourceOptions) {
-      map.set(ds.id, { name: ds.name, engine: ds.databaseEngineType ?? ds.dataSourceType });
-    }
-    return map;
-  }, [dataSourceOptions]);
+  const dataSourceLookup = useDataSourceLookup(state?.steps.map(x => x.dataSourceId) ?? []);
 
   const detailSnapshot = useMemo(
     () => (detail.data ? JSON.stringify(fromDetail(detail.data)) : null),
@@ -241,7 +239,7 @@ export default function QueryEditorPage() {
     setState(prev => {
       if (!prev) return prev;
       const nextOrder = prev.steps.length + 1;
-      const firstDs = dataSourceOptions[0];
+      const firstDs = defaultDataSource;
       const newStep: EditorStep = {
         stepId: 0,
         stepOrder: nextOrder,
@@ -310,40 +308,46 @@ export default function QueryEditorPage() {
       setParamDialog({ stepOrder: step.stepOrder, parameters: step.parameters });
       return;
     }
-    try {
-      await saveIfDirty();
-      const result = await previewStep.mutateAsync({ stepOrder: step.stepOrder });
-      setStepResult(result);
-      setQueryResult(null);
-    } catch {
-      // Error toasts already raised by the mutation hooks.
-    }
+    await startPreview({ kind: 'step', stepOrder: step.stepOrder });
   };
 
   const onParamSubmit = async (values: ParameterValueInput[]) => {
     if (!paramDialog) return;
     const stepOrder = paramDialog.stepOrder;
     setParamDialog(null);
+    await startPreview({ kind: 'step', stepOrder, parameters: values });
+  };
+
+  const onRunQuery = async () => {
+    await startPreview({ kind: 'query' });
+  };
+
+  const runPreview = async (target: PreviewTarget, page: number, sort: SortState | null) => {
+    const paging = { page, sort: sortToParam(sort) };
     try {
-      await saveIfDirty();
-      const result = await previewStep.mutateAsync({ stepOrder, parameters: values });
-      setStepResult(result);
-      setQueryResult(null);
+      const result =
+        target.kind === 'query'
+          ? await previewQuery.mutateAsync(paging)
+          : await previewStep.mutateAsync({ stepOrder: target.stepOrder, parameters: target.parameters, paging });
+      setPreviewResult(result);
     } catch {
       // Error toasts already raised by the mutation hooks.
     }
   };
 
-  const onRunQuery = async () => {
+  const startPreview = async (target: PreviewTarget) => {
     try {
       await saveIfDirty();
-      const result = await previewQuery.mutateAsync();
-      setQueryResult(result);
-      setStepResult(null);
     } catch {
-      // Error toasts already raised by the mutation hooks.
+      return;
     }
+    setPreviewTarget(target);
+    setPreviewResult(null);
+    setPreviewSort(null);
+    await runPreview(target, 0, null);
   };
+
+  const previewRunning = previewQuery.isPending || previewStep.isPending;
 
   const onSave = async () => {
     try {
@@ -429,25 +433,17 @@ export default function QueryEditorPage() {
                         value={step.name}
                         onChange={e => updateStep(step.stepOrder, { name: e.target.value })}
                       />
-                      <Select
+<DataSourcePicker
                         className="min-w-[220px]"
-                        value={step.dataSourceId || ''}
-                        onChange={e => {
-                          const newId = Number(e.target.value);
-                          const meta = dataSourceLookup.get(newId);
+                        value={step.dataSourceId || null}
+                        selectedLabel={ds ? `${ds.name} (${ds.engine})` : step.dataSourceName || undefined}
+                        onSelect={x =>
                           updateStep(step.stepOrder, {
-                            dataSourceId: newId,
-                            dataSourceName: meta?.name ?? '',
-                          });
-                        }}
-                      >
-                        <option value="">Select data source…</option>
-                        {dataSourceOptions.map(d => (
-                          <option key={d.id} value={d.id}>
-                            {d.name} ({d.databaseEngineType ?? d.dataSourceType})
-                          </option>
-                        ))}
-                      </Select>
+                            dataSourceId: x?.id ?? 0,
+                            dataSourceName: x?.name ?? '',
+                          })
+                        }
+                      />
                       <Button
                         size="sm"
                         onClick={() => moveStep(step.stepOrder, -1)}
@@ -570,31 +566,24 @@ export default function QueryEditorPage() {
         </Card>
       )}
 
-      {stepResult && (
-        <PreviewResultsCard
-          title={`Step ${stepResult.stepOrder} preview · ${stepResult.stepName}`}
-          rows={stepResult.previewResults ?? []}
-          totalRows={stepResult.totalRows}
-          executionTimeMs={stepResult.executionTimeMs}
-          error={stepResult.success ? null : stepResult.errorMessage ?? 'Preview failed'}
-          onClose={() => setStepResult(null)}
-        />
-      )}
-
-      {queryResult && (
-        <PreviewResultsCard
-          title="Query preview"
-          rows={queryResult.finalResult?.rows ?? []}
-          totalRows={queryResult.finalResult?.rowCount ?? 0}
-          executionTimeMs={queryResult.totalExecutionTimeMs}
-          error={
-            queryResult.success
-              ? queryResult.finalResult?.success
-                ? null
-                : queryResult.finalResult?.error ?? null
-              : queryResult.errorMessage ?? 'Query preview failed'
-          }
-          onClose={() => setQueryResult(null)}
+      {previewTarget && (
+        <QueryRunPanel
+          label={previewTarget.kind === 'query' ? 'Query preview' : `Step ${previewTarget.stepOrder} preview`}
+          running={previewRunning}
+          result={previewResult}
+          requestError={null}
+          sort={previewSort}
+          onPageChange={page => void runPreview(previewTarget, page, previewSort)}
+          onSortChange={column => {
+            const next = toggleSort(previewSort, column);
+            setPreviewSort(next);
+            void runPreview(previewTarget, 0, next);
+          }}
+          onRerun={() => void runPreview(previewTarget, previewResult?.result?.page ?? 0, previewSort)}
+          onClose={() => {
+            setPreviewTarget(null);
+            setPreviewResult(null);
+          }}
         />
       )}
 

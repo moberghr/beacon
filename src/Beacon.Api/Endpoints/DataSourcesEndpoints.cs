@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Http.HttpResults;
 using Beacon.Core.Handlers.DataSources;
 using MediatR;
 
@@ -9,8 +10,15 @@ internal static class DataSourcesEndpoints
     {
         var ds = group.MapGroup("/data-sources").WithTags("DataSources");
 
-        ds.MapGet("/", (IMediator m, CancellationToken ct) => m.Send(new GetDataSourcesQuery(), ct))
+        ds.MapGet("/", ([AsParameters] GetDataSourcesQuery query, IMediator m, CancellationToken ct) => m.Send(query, ct))
             .WithName("GetDataSources");
+
+        ds.MapGet("/{id:int}", async Task<Results<Ok<DataSourceEntry>, NotFound>> (int id, IMediator m, CancellationToken ct) =>
+            {
+                var dataSource = await m.Send(new GetDataSourceQuery(id), ct);
+                return dataSource is null ? TypedResults.NotFound() : TypedResults.Ok(dataSource);
+            })
+            .WithName("GetDataSource");
 
         ds.MapPost("/", (CreateDataSourceCommand cmd, IMediator m, CancellationToken ct) => m.Send(cmd, ct))
             .WithName("CreateDataSource")

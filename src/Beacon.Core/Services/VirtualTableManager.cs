@@ -121,6 +121,26 @@ public class VirtualTableManager : IDisposable
         };
     }
 
+    /// <summary>
+    /// The final query of a multi-step preview, one page at a time: the virtual tables are loaded into SQLite
+    /// as for <see cref="ExecuteFinalQueryWithInMemoryDatabase"/>, then only the page is read back.
+    /// </summary>
+    public async Task<SqlResultPage> ExecuteFinalQueryPagedAsync(
+        string finalQuery,
+        ILogger<InMemoryDatabaseManager> inMemoryDbLogger,
+        Helpers.ListRequest paging,
+        CancellationToken cancellationToken)
+    {
+        using var inMemoryDb = new InMemoryDatabaseManager(inMemoryDbLogger);
+
+        foreach (var kvp in _virtualTables)
+        {
+            await inMemoryDb.CreateTableFromResults(kvp.Key.Substring(1), kvp.Value, _tableProjectInfo[kvp.Key]);
+        }
+
+        return await inMemoryDb.ExecutePagedAsync(inMemoryDb.TranslateFinalQuery(finalQuery), paging, cancellationToken);
+    }
+
     public void Dispose()
     {
         ClearVirtualTables();
