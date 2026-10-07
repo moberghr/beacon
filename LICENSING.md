@@ -58,10 +58,21 @@ negotiated terms.
 
 ---
 
+## Moberg partners
+
+If Moberg develops, maintains, or operates software for your organization and
+has integrated Beacon into it, you may use Beacon with that software **free of
+charge and without the AGPL's copyleft obligations**. This is an additional
+permission under AGPLv3 §7; its full terms are in
+[`LICENSE-EXCEPTION-PARTNERS.md`](LICENSE-EXCEPTION-PARTNERS.md).
+
+---
+
 ## Which one applies to me?
 
 | Your situation | License you need |
 |---|---|
+| Moberg built Beacon into software it develops, maintains, or operates for you | [Partner permission](LICENSE-EXCEPTION-PARTNERS.md) (free) |
 | Personal, hobby, academic, or evaluation use | AGPLv3 (free) |
 | Internal use, and you're willing to publish any modifications under AGPLv3 | AGPLv3 (free) |
 | You run a **modified** Beacon as a network service and **will** share your source under AGPLv3 | AGPLv3 (free) |
