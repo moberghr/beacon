@@ -4,6 +4,7 @@ using System.Text;
 using Dapper;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
+using SQLitePCL;
 using Beacon.Core.Data.Enums;
 
 namespace Beacon.Core.Services;
@@ -122,20 +123,26 @@ public class InMemoryDatabaseManager : IDisposable
 
     public async Task<(List<IDictionary<string, object?>> Results, double ExecutionTimeMs, bool TimedOut)> ExecuteQueryAsync(
         string sql,
-        int? timeoutSeconds = null)
+        int? timeoutSeconds = null,
+        CancellationToken cancellationToken = default)
     {
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
+        using var timeoutCts = timeoutSeconds.HasValue
+            ? new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds.Value))
+            : new CancellationTokenSource();
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(timeoutCts.Token, cancellationToken);
+
+        // Microsoft.Data.Sqlite checks the token only before a statement starts and ignores CommandTimeout for a
+        // running one, so a fired token interrupts the statement on the connection instead.
+        using var interruptRegistration = linkedCts.Token.Register(() => raw.sqlite3_interrupt(_connection.Handle));
+
         try
         {
-            using var timeoutCts = timeoutSeconds.HasValue
-                ? new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds.Value))
-                : new CancellationTokenSource();
-
             var commandDefinition = new CommandDefinition(
                 commandText: sql,
                 commandTimeout: timeoutSeconds,
-                cancellationToken: timeoutCts.Token
+                cancellationToken: linkedCts.Token
             );
 
             var dapperRows = await _connection.QueryAsync(commandDefinition);
@@ -150,9 +157,11 @@ public class InMemoryDatabaseManager : IDisposable
 
             return (results, executionTimeMs, false);
         }
-        catch (OperationCanceledException)
+        catch (Exception ex) when (IsCancellation(ex) && linkedCts.IsCancellationRequested)
         {
             stopwatch.Stop();
+            cancellationToken.ThrowIfCancellationRequested();
+
             var executionTimeMs = stopwatch.Elapsed.TotalMilliseconds;
 
             _logger.LogWarning("SQLite query timed out after {ExecutionTimeMs}ms", executionTimeMs);
@@ -237,6 +246,9 @@ public class InMemoryDatabaseManager : IDisposable
         }
         GC.SuppressFinalize(this);
     }
+
+    private static bool IsCancellation(Exception ex) =>
+        ex is OperationCanceledException or SqliteException { SqliteErrorCode: raw.SQLITE_INTERRUPT };
 }
 
 public class InMemoryDatabaseAnalysis

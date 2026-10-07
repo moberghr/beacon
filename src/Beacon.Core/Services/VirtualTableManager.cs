@@ -4,6 +4,7 @@ using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Recipients;
+using Beacon.Core.Services.Validation;
 
 namespace Beacon.Core.Services;
 
@@ -74,10 +75,22 @@ public class VirtualTableManager : IDisposable
 
     public async Task<QueryResult> ExecuteFinalQueryWithInMemoryDatabase(
         string finalQuery,
+        SqlReadOnlyAstValidator readOnlyAstValidator,
         ILogger<InMemoryDatabaseManager> inMemoryDbLogger,
         CancellationToken cancellationToken)
     {
         using var inMemoryDb = new InMemoryDatabaseManager(inMemoryDbLogger);
+
+        // Translate the final query to use actual table names
+        var translatedQuery = inMemoryDb.TranslateFinalQuery(finalQuery);
+
+        // The final query is stored or LLM-written SQL — gate the text that runs (§1.5) before anything is loaded,
+        // so a statement like ATTACH never reaches SQLite (it would create files on the host).
+        var rejection = readOnlyAstValidator.Validate(translatedQuery, nameof(DatabaseEngineType.SQLite));
+        if (rejection != null)
+        {
+            throw new InvalidOperationException(rejection);
+        }
 
         _logger.LogInformation("Executing final query using in-memory SQLite database with {TableCount} virtual tables",
             _virtualTables.Count);
@@ -92,13 +105,10 @@ public class VirtualTableManager : IDisposable
             await inMemoryDb.CreateTableFromResults(tableName, data, projectInfo);
         }
 
-        // Translate the final query to use actual table names
-        var translatedQuery = inMemoryDb.TranslateFinalQuery(finalQuery);
-
         _logger.LogDebug("Translated query: {TranslatedQuery}", translatedQuery);
 
         // Execute the query against SQLite
-        var (results, executionTimeMs, timedOut) = await inMemoryDb.ExecuteQueryAsync(translatedQuery);
+        var (results, executionTimeMs, timedOut) = await inMemoryDb.ExecuteQueryAsync(translatedQuery, cancellationToken: cancellationToken);
 
         // Log database analysis
         var analysis = inMemoryDb.AnalyzeDatabase();

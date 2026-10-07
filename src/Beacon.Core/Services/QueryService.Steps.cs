@@ -181,7 +181,7 @@ internal partial class QueryService
 
         if (!string.IsNullOrEmpty(finalQuery) && allStepsSucceeded)
         {
-            finalResult = await ExecuteFinalQuery(finalQuery, virtualTableManager);
+            finalResult = await ExecuteFinalQuery(finalQuery, virtualTableManager, cancellationToken);
             totalExecutionTime += finalResult.ExecutionTimeMs;
         }
         else if (query.Steps.Count == 1 && string.IsNullOrEmpty(finalQuery) && allStepsSucceeded)
@@ -317,14 +317,15 @@ internal partial class QueryService
         return stepResult;
     }
 
-    private async Task<QueryResult> ExecuteFinalQuery(string finalQuery, VirtualTableManager virtualTableManager)
+    private async Task<QueryResult> ExecuteFinalQuery(string finalQuery, VirtualTableManager virtualTableManager, CancellationToken cancellationToken)
     {
         logger.LogInformation("Using in-memory SQLite database for final query execution");
         var inMemoryDbLogger = loggerFactory.CreateLogger<InMemoryDatabaseManager>();
         return await virtualTableManager.ExecuteFinalQueryWithInMemoryDatabase(
             finalQuery,
+            readOnlyAstValidator,
             inMemoryDbLogger,
-            CancellationToken.None);
+            cancellationToken);
     }
 
     private QueryResult ConvertStepToQueryResult(QueryStepResult stepResult, Query query)
