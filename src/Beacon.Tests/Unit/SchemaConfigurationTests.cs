@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Migrations.Operations;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Npgsql;
 using NUnit.Framework;
 using Beacon.Core;
 using Beacon.Core.Data;
@@ -268,6 +269,21 @@ public class SchemaConfigurationTests
         var sql = string.Join(Environment.NewLine, commands.Select(x => x.CommandText));
 
         sql.Should().Contain("beacon.widgets");
+    }
+
+    // A host database that already has pgvector usually has it in public. AddMcpEmbedding's
+    // CREATE EXTENSION IF NOT EXISTS is then a no-op, so its unqualified vector(384) /
+    // vector_cosine_ops (and the runtime ::vector / <=>) resolve only if public is searched too.
+    // beacon must stay first so Beacon's own unqualified names never fall through to a host table.
+    [Test]
+    public void UsePostgreSql_SearchesBeaconThenPublic()
+    {
+        using var provider = BuildPostgreSqlProvider("beacon");
+        using var context = provider.GetRequiredService<IDbContextFactory<BeaconContext>>().CreateDbContext();
+
+        var searchPath = new NpgsqlConnectionStringBuilder(context.Database.GetConnectionString()).SearchPath;
+
+        searchPath.Should().Be("beacon,public");
     }
 
     // The existing SqlServerGenerator_RetargetsCreateTableSchema populates only Columns, and a

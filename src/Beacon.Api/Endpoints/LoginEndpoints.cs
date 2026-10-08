@@ -76,8 +76,8 @@ public static partial class LoginEndpoints
             context.User = principal;
             antiforgery.SetCookieTokenAndHeader(context);
 
-            // LoginRedirectPath is an absolute UI path — the React shell is
-            // mounted at root, not under the API base path.
+            // LoginRedirectPath is a full browser path, /beacon mount point
+            // included — the SPA navigates to it with a full page load.
             return Results.Ok(new LoginResponse
             {
                 Success = true,

@@ -2,6 +2,8 @@ using FluentAssertions;
 using NUnit.Framework;
 using Beacon.Api.Endpoints;
 using Beacon.Api.Authentication;
+using Beacon.Core;
+using Beacon.UI;
 
 namespace Beacon.Tests.Unit;
 
@@ -64,5 +66,14 @@ public class LoginEndpointsTests
     {
         LoginEndpoints.IsSafeReturnUrl(url, RootBasePath)
             .Should().BeFalse("absolute URLs must never be honoured as post-login destinations");
+    }
+
+    // The local-login response and the SSO fallback both send the browser to LoginRedirectPath with a
+    // full page load, outside the SPA router, so it must already sit under the path the SPA is mounted at.
+    [Test]
+    public void LoginRedirectPath_DefaultsToHomeUnderTheUiBasePath()
+    {
+        new AuthenticationOptions().LoginRedirectPath
+            .Should().Be($"{BeaconUiEndpointRouteBuilderExtensions.BasePath}/home");
     }
 }

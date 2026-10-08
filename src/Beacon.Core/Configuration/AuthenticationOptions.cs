@@ -18,12 +18,12 @@ public class AuthenticationOptions
     public Type? ProviderType { get; set; }
 
     /// <summary>
-    /// Path to redirect to after successful login. The React shell serves
-    /// its routes at the root, so this is an absolute UI path (not prefixed
-    /// by the API base path).
-    /// Default: "/home"
+    /// Path to redirect to after successful login (local sign-in and the SSO fallback). The browser
+    /// reaches it with a full page load, outside the SPA router, so this is the full path including
+    /// the <c>/beacon</c> mount point the React shell is served under.
+    /// Default: "/beacon/home"
     /// </summary>
-    public string LoginRedirectPath { get; set; } = "/home";
+    public string LoginRedirectPath { get; set; } = "/beacon/home";
 
     /// <summary>
     /// Path to the login page.

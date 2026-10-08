@@ -51,15 +51,16 @@ export default function LoginPage() {
     (location.state as { returnTo?: string } | null)?.returnTo,
   );
   const auth = useAuth();
+  // Both ways out of this page bypass the router (the host redirecting back after its own login, or
+  // the full page load after a local sign-in), so the target needs the router basename: useHref adds it.
+  const returnHref = useHref(returnTo ?? '/home');
   // A host that owns sign-in never shows this page: send the user to the host's login instead.
-  // useHref adds the router basename, since the host (not the router) redirects back afterwards.
   const externalLogin = auth.data && !auth.data.isAuthenticated ? auth.data.externalLogin : null;
-  const externalReturnTo = useHref(returnTo ?? '/home');
   useEffect(() => {
     if (externalLogin) {
-      redirectToExternalLogin(externalLogin, externalReturnTo);
+      redirectToExternalLogin(externalLogin, returnHref);
     }
-  }, [externalLogin, externalReturnTo]);
+  }, [externalLogin, returnHref]);
   // SSO is only offered when the backend has OIDC configured. The flag is read pre-auth
   // (anonymous endpoint); the button stays hidden until it resolves true, so we never show a
   // link that would 404 against an SSO-disabled deployment.
@@ -101,9 +102,9 @@ export default function LoginPage() {
         return;
       }
       // Prefer the deep-link the user originally requested, then the
-      // server-supplied redirect, then home — both guarded to same-origin
-      // relative paths to block open-redirect.
-      window.location.href = returnTo ?? safeRelativePath(result.redirectUrl) ?? '/home';
+      // server-supplied redirect (already a full path), then home — both
+      // guarded to same-origin relative paths to block open-redirect.
+      window.location.href = returnTo ? returnHref : safeRelativePath(result.redirectUrl) ?? returnHref;
     } catch (e) {
       setServerError(extractLoginError(e));
     }

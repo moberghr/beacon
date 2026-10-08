@@ -35,9 +35,15 @@ public static class ServiceCollectionExtensions
     {
         BeaconDatabaseConfiguration.RequireSupportedSchema(schema);
 
+        // The schema comes first so Beacon's own unqualified names resolve there and never fall through to a
+        // host table. public follows because a database that already has pgvector usually has it there:
+        // AddMcpEmbedding's CREATE EXTENSION IF NOT EXISTS is then a no-op, and its unqualified vector(384) /
+        // vector_cosine_ops (plus the runtime ::vector / <=>) resolve only through the search path. On a
+        // database without pgvector that migration still installs it into the schema, and a DBA can later move
+        // it to public (ALTER EXTENSION vector SET SCHEMA public) without breaking Beacon.
         var dataSource = new NpgsqlDataSourceBuilder(connectionString)
         {
-            ConnectionStringBuilder = { SearchPath = schema }
+            ConnectionStringBuilder = { SearchPath = $"{schema},public" }
         }.Build();
 
         // TODO(B5): vector type handler / raw-SQL vector query.
