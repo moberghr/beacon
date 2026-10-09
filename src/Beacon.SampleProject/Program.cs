@@ -36,9 +36,7 @@ using Beacon.SampleProject.Middleware;
 using Beacon.SampleProject.Services;
 using Beacon.UI;
 using Microsoft.AspNetCore.HttpOverrides;
-using Microsoft.AspNetCore.RateLimiting;
 using System.Net;
-using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -218,25 +216,6 @@ builder.Services.AddAntiforgery(options =>
 });
 builder.Services.AddBeaconApiAuthorization();
 
-// Rate limiting for sensitive anonymous endpoints (login). 10 requests / 60 seconds
-// per remote-IP partition; clients beyond the window get 429 Too Many Requests.
-builder.Services.AddRateLimiter(options =>
-{
-    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-    options.AddPolicy("login", httpContext =>
-    {
-        var remoteIp = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-        return RateLimitPartition.GetFixedWindowLimiter(remoteIp, _ => new FixedWindowRateLimiterOptions
-        {
-            PermitLimit = 10,
-            Window = TimeSpan.FromSeconds(60),
-            QueueLimit = 0,
-            QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
-            AutoReplenishment = true,
-        });
-    });
-});
-
 // SignalR + the IUserIdProvider are wired by AddBeaconApiServices() itself; the host adds nothing.
 // Turn realtime off with AddBeaconApiServices(x => x.Realtime = false).
 builder.Services.AddBeaconApiServices();
@@ -329,9 +308,6 @@ if (beaconConfiguration.UserManagement.Enabled)
 
 // Antiforgery middleware must run after auth so it can issue tokens for the current user.
 app.UseAntiforgery();
-
-// Rate limiter — sits after auth/antiforgery so endpoint-level policies (e.g. "login") apply.
-app.UseRateLimiter();
 
 // OpenAPI document at /openapi/v1.json - consumed by NSwag for React TS codegen.
 app.MapOpenApi();

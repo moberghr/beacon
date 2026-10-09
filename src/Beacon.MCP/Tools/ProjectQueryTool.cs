@@ -165,13 +165,18 @@ internal sealed class ProjectQueryTool(
 
             if (result.Rows != null && result.Rows.Count > 0)
             {
-                // Mask PII column values before returning to the MCP client (§1.6/§1.11). Mirrors
-                // SemanticSearchService; no-op when detection is off or no PII column was selected.
-                var rows = result.Rows;
-                if (piiColumns is { Count: > 0 } piiCols)
-                {
-                    rows = rows.Select(x => guardrailService.MaskPiiValues(x, piiCols)).ToList();
-                }
+                // Mask PII column values before returning to the MCP client (§1.6/§1.11): the SQL-text
+                // matches (incl. host-masked columns), every result column whose name is PII, and the names
+                // the executed SQL aliases PII columns to — so SELECT *, customer_email and email AS contact
+                // are covered. API sources have no SQL to resolve aliases from.
+                var rows = PiiRowMasker.Mask(
+                    guardrailService,
+                    result.Rows,
+                    piiColumns ?? [],
+                    settings.EnablePiiDetection,
+                    settings.CustomPiiPatterns.Count > 0 ? settings.CustomPiiPatterns : null,
+                    isApi ? null : queryText,
+                    dataSource.DatabaseEngineType?.ToString());
 
                 text += ToolHelper.FormatResultsAsMarkdown(rows, maxRows);
                 structured = ToolHelper.BuildStructuredPayload(rows, maxRows);

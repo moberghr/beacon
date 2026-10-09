@@ -59,7 +59,13 @@ internal sealed class ProjectGetDocumentationTool(
         }
 
         var resolveError = ToolHelper.ResolveProjectId(projectContext, project_id, out var projectId);
-        if (resolveError != null) return ToolHelper.Error(resolveError);
+        if (resolveError != null)
+        {
+            sw.Stop();
+            await auditService.LogToolCallAsync(null, projectContext.UserId, "get_documentation",
+                datasource_name ?? table_name, null, null, (int)sw.ElapsedMilliseconds, null, resolveError, ct: cancellationToken);
+            return ToolHelper.Error(resolveError);
+        }
 
         // No McpSignalService call here (audit-only) — see GetContextTool for the full rationale.
         try
@@ -99,7 +105,14 @@ internal sealed class ProjectGetDocumentationTool(
             if (!string.IsNullOrEmpty(datasource_name))
             {
                 var (resolvedId, nameError) = await ToolHelper.ResolveDataSourceByNameAsync(contextFactory, projectId, datasource_name, cancellationToken);
-                if (nameError != null) return ToolHelper.Error(nameError);
+                if (nameError != null)
+                {
+                    sw.Stop();
+                    await auditService.LogToolCallAsync(null, projectContext.UserId, "get_documentation",
+                        datasource_name, null, projectId, (int)sw.ElapsedMilliseconds, null, nameError, ct: cancellationToken);
+                    return ToolHelper.Error(nameError);
+                }
+
                 dsId = resolvedId;
             }
 
@@ -108,11 +121,23 @@ internal sealed class ProjectGetDocumentationTool(
             {
                 dsId = await FindDataSourceForTableAsync(projectId, table_name, schema_name, cancellationToken);
                 if (dsId == null)
-                    return ToolHelper.Error($"Could not find table '{table_name}' in any data source of this project.");
+                {
+                    var tableError = $"Could not find table '{table_name}' in any data source of this project.";
+                    sw.Stop();
+                    await auditService.LogToolCallAsync(null, projectContext.UserId, "get_documentation",
+                        table_name, null, projectId, (int)sw.ElapsedMilliseconds, null, tableError, ct: cancellationToken);
+                    return ToolHelper.Error(tableError);
+                }
             }
 
             if (dsId == null)
-                return ToolHelper.Error("Could not resolve data source.");
+            {
+                const string unresolvedError = "Could not resolve data source.";
+                sw.Stop();
+                await auditService.LogToolCallAsync(null, projectContext.UserId, "get_documentation",
+                    datasource_name ?? table_name, null, projectId, (int)sw.ElapsedMilliseconds, null, unresolvedError, ct: cancellationToken);
+                return ToolHelper.Error(unresolvedError);
+            }
 
             // Table- and data-source-level docs are bounded — detailed is the default there.
             var includeDetailSections = (format ?? "detailed") == "detailed";

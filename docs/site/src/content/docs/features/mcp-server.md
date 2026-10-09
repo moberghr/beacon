@@ -421,7 +421,9 @@ Some deployments need a setting to be non-negotiable no matter what an administr
         "MaxRowLimit": 1000,
         "StatementTimeoutSeconds": 60,
         "MaxResultBytes": 1048576,
-        "MaxConcurrentQueriesPerKey": 8
+        "MaxConcurrentQueriesPerKey": 8,
+        "MaxSqlChars": 100000,
+        "MaxQuestionChars": 4000
       }
     }
   }
@@ -430,6 +432,7 @@ Some deployments need a setting to be non-negotiable no matter what an administr
 
 - A **lock** (`ForceReadOnly`, `ForceNoContentRetention`) pins the effective value. The UI hides locked fields and names them in a banner; an API call that tries to set one gets **HTTP 409** with the RFC 7807 type `/errors/setting-locked`.
 - A **ceiling** clamps a numeric value downward only — it can lower what an administrator configured, never raise it. Clamped fields are flagged in the UI.
+- `Ceilings:MaxSqlChars` (default `100000`) and `Ceilings:MaxQuestionChars` (default `4000`) cap the length of SQL and of `ask` questions. They **always apply** at their defaults, even when the section is absent. With no section there are no locks and no deployment-set ceilings, but these two length caps still hold.
 - Settings resolve as **lock → project override → global value → built-in default**, then ceilings are applied.
 - Saving the global page never bakes a locked or clamped value into the stored row, so lifting a lock or raising a ceiling restores what was configured underneath.
 

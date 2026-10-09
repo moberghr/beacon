@@ -153,7 +153,7 @@ function toDraft(state: EditorState, queryId: number): QueryDraftInput {
 type PreviewRequest = { kind: 'query' } | { kind: 'step'; stepOrder: number; parameters?: ParameterValueInput[] };
 
 /** What the editor's result panel is previewing, so paging and sorting re-run the same draft. */
-type PreviewTarget = PreviewRequest & { draft: QueryDraftInput };
+type PreviewTarget = PreviewRequest & { draft?: QueryDraftInput };
 
 export default function QueryEditorPage() {
   const params = useParams<{ id: string }>();
@@ -348,9 +348,12 @@ export default function QueryEditorPage() {
     }
   };
 
+  // Only unsaved edits travel as a draft; without one the server runs the stored query, which Viewers may run too.
+  const currentDraft = () => (dirty ? toDraft(state, id) : undefined);
+
   // Runs what is in the editor without saving it; only Save persists the query (and writes a version).
   const startPreview = async (request: PreviewRequest) => {
-    const target: PreviewTarget = { ...request, draft: toDraft(state, id) };
+    const target: PreviewTarget = { ...request, draft: currentDraft() };
     setPreviewTarget(target);
     setPreviewResult(null);
     setPreviewSort(null);
@@ -595,7 +598,7 @@ export default function QueryEditorPage() {
           }}
           onRerun={() => {
             // Rerun picks up edits made since the last run; paging and sorting stay on the run they page.
-            const target: PreviewTarget = { ...previewTarget, draft: toDraft(state, id) };
+            const target: PreviewTarget = { ...previewTarget, draft: currentDraft() };
             setPreviewTarget(target);
             void runPreview(target, previewResult?.result?.page ?? 0, previewSort);
           }}

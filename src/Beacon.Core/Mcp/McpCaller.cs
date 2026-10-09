@@ -51,6 +51,15 @@ public static class McpCallerClaimTypes
     public const string ApiKeyId = "api_key_id";
     public const string ApiKeyName = "api_key_name";
 
+    /// <summary>Claim type <c>ApiKeyAuthMiddleware</c> mints with the linked user's user name.</summary>
+    public const string UserNameClaim = "username";
+
+    /// <summary><c>auth_method</c> value for an API-key caller. Scope-gated.</summary>
+    public const string ApiKeyAuthMethod = "api_key";
+
+    /// <summary>Authentication type of the identity <c>ApiKeyAuthMiddleware</c> builds.</summary>
+    public const string ApiKeyAuthenticationType = "ApiKey";
+
     /// <summary><c>auth_method</c> value for a JWT caller on the MCP route. Scope-gated like an API key.</summary>
     public const string McpCallerAuthMethod = "mcp_caller";
 

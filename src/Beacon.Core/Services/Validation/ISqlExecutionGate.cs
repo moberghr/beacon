@@ -3,7 +3,7 @@ using Beacon.Core.Models;
 namespace Beacon.Core.Services.Validation;
 
 /// <summary>
-/// The single pre-execution gate every MCP SQL path runs before SQL reaches a connector: regex guardrail →
+/// The single pre-execution gate every MCP SQL path runs before SQL reaches a connector: length cap → regex guardrail →
 /// AST read-only validator → schema catalog check → semantic lint → row-limit rewrite. Pure and synchronous
 /// (no I/O) so it can be evaluated on every candidate, including every repair attempt, at no cost beyond a
 /// parse. Provider-side checks (dry-run / EXPLAIN) deliberately live outside it.
@@ -83,6 +83,9 @@ public static class SqlGateCodes
 
     /// <summary>Read-only: blank SQL.</summary>
     public const string Empty = "empty";
+
+    /// <summary>Read-only: the SQL is longer than <c>Beacon:Mcp:Ceilings:MaxSqlChars</c>, so no other stage ran.</summary>
+    public const string SqlTooLong = "sql_too_long";
 
     /// <summary>Read-only: the regex guardrail rejected the SQL.</summary>
     public const string Guardrail = "guardrail";

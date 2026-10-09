@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
+using Beacon.Core.Mcp;
 using Beacon.Core.Services.Security;
 
 namespace Beacon.Api.Authentication;
@@ -52,9 +53,9 @@ public sealed class ApiKeyAuthMiddleware(RequestDelegate next)
         var claims = new List<Claim>
         {
             new(ClaimTypes.NameIdentifier, credential.UserId?.ToString() ?? credential.Id.ToString()),
-            new("api_key_id", credential.Id.ToString()),
-            new("api_key_name", credential.Name),
-            new("auth_method", "api_key")
+            new(McpCallerClaimTypes.ApiKeyId, credential.Id.ToString()),
+            new(McpCallerClaimTypes.ApiKeyName, credential.Name),
+            new(McpCallerClaimTypes.AuthMethod, McpCallerClaimTypes.ApiKeyAuthMethod)
         };
 
         // Add scope claims
@@ -79,24 +80,24 @@ public sealed class ApiKeyAuthMiddleware(RequestDelegate next)
             if (scopes != null)
             {
                 foreach (var scope in scopes)
-                    claims.Add(new Claim("scope", scope));
+                    claims.Add(new Claim(McpCallerClaimTypes.Scope, scope));
             }
         }
 
         // Add project restriction claims
         if (credential.AllowedProjectIds != null)
         {
-            claims.Add(new Claim("allowed_projects", credential.AllowedProjectIds));
+            claims.Add(new Claim(McpCallerClaimTypes.AllowedProjects, credential.AllowedProjectIds));
         }
 
         // Add user claims if linked to a user
         if (credential.User != null)
         {
             claims.Add(new Claim(ClaimTypes.Name, credential.User.DisplayName ?? credential.User.UserName));
-            claims.Add(new Claim("username", credential.User.UserName));
+            claims.Add(new Claim(McpCallerClaimTypes.UserNameClaim, credential.User.UserName));
         }
 
-        var identity = new ClaimsIdentity(claims, "ApiKey");
+        var identity = new ClaimsIdentity(claims, McpCallerClaimTypes.ApiKeyAuthenticationType);
         context.User = new ClaimsPrincipal(identity);
 
         await next(context);

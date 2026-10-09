@@ -132,15 +132,26 @@ public class VirtualTableManager : IDisposable
     }
 
     /// <summary>
-    /// The final query of a multi-step preview, one page at a time: the virtual tables are loaded into SQLite
-    /// as for <see cref="ExecuteFinalQueryWithInMemoryDatabase"/>, then only the page is read back.
+    /// The final query of a multi-step preview, one page at a time: gated and loaded into SQLite as for
+    /// <see cref="ExecuteFinalQueryWithInMemoryDatabase"/>, then only the page is read back. The page and count
+    /// rewrites pass the same read-only gate.
     /// </summary>
     public async Task<SqlResultPage> ExecuteFinalQueryPagedAsync(
         string finalQuery,
+        SqlReadOnlyAstValidator readOnlyAstValidator,
         ILogger<InMemoryDatabaseManager> inMemoryDbLogger,
         Helpers.ListRequest paging,
         CancellationToken cancellationToken)
     {
+        var translatedQuery = InMemoryDatabaseManager.TranslateResultReferences(finalQuery);
+
+        // Gate the text that runs (§1.5) before any virtual table is loaded, as the non-paged path does.
+        var rejection = readOnlyAstValidator.Validate(translatedQuery, nameof(DatabaseEngineType.SQLite));
+        if (rejection != null)
+        {
+            throw new InvalidOperationException(rejection);
+        }
+
         using var inMemoryDb = new InMemoryDatabaseManager(inMemoryDbLogger);
 
         foreach (var kvp in _virtualTables)
@@ -148,7 +159,11 @@ public class VirtualTableManager : IDisposable
             await inMemoryDb.CreateTableFromResults(kvp.Key.Substring(1), kvp.Value, _tableProjectInfo[kvp.Key]);
         }
 
-        return await inMemoryDb.ExecutePagedAsync(inMemoryDb.TranslateFinalQuery(finalQuery), paging, cancellationToken);
+        return await inMemoryDb.ExecutePagedAsync(
+            translatedQuery,
+            paging,
+            x => readOnlyAstValidator.Validate(x, nameof(DatabaseEngineType.SQLite)),
+            cancellationToken);
     }
 
     public void Dispose()

@@ -231,7 +231,7 @@ public class AiActorService : IAiActorServiceExtended
 
             foreach (var actionPlan in planResponse.Actions)
             {
-                var action = await ExecuteActionAsync(
+                var action = await ExecuteOrProposeAsync(
                     actor, actionPlan, newlyCreatedQueries, cancellationToken);
                 executedActions.Add(action);
 
@@ -465,7 +465,7 @@ public class AiActorService : IAiActorServiceExtended
 
             foreach (var actionPlan in planResponse.Actions)
             {
-                var action = await ExecuteActionAsync(actor, actionPlan, newlyCreatedQueries, cancellationToken);
+                var action = await ExecuteOrProposeAsync(actor, actionPlan, newlyCreatedQueries, cancellationToken);
                 executedActions.Add(action);
 
                 if (action.ActionType == AiActorActionType.CreateQuery &&
@@ -757,7 +757,7 @@ public class AiActorService : IAiActorServiceExtended
 
             foreach (var actionPlan in planResponse.Actions)
             {
-                var action = await ExecuteActionAsync(actor, actionPlan, newlyCreatedQueries, cancellationToken);
+                var action = await ExecuteOrProposeAsync(actor, actionPlan, newlyCreatedQueries, cancellationToken);
                 executedActions.Add(action);
 
                 if (action.ActionType == AiActorActionType.CreateQuery &&
@@ -920,6 +920,42 @@ public class AiActorService : IAiActorServiceExtended
         }
     }
 
+    // Used by the think / refine / initial-setup loops. Actors that require approval only record
+    // what they would do; the approve path calls ExecuteActionAsync directly.
+    internal Task<AiActorAction> ExecuteOrProposeAsync(
+        Beacon.Core.Data.Entities.AiActor actor,
+        AiActorActionPlan plan,
+        Dictionary<string, int> newlyCreatedQueries,
+        CancellationToken cancellationToken)
+    {
+        if (!AiActorActionGuard.ShouldExecute(actor))
+        {
+            return Task.FromResult(ProposeAction(actor, plan));
+        }
+
+        return ExecuteActionAsync(actor, plan, newlyCreatedQueries, cancellationToken);
+    }
+
+    // A malformed plan is a failed action, as it is on the execute path — never a failed cycle.
+    private AiActorAction ProposeAction(Beacon.Core.Data.Entities.AiActor actor, AiActorActionPlan plan)
+    {
+        try
+        {
+            return AiActorActionGuard.ToProposed(plan);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError("AI Actor {ActorId} could not record a proposed action ({ExceptionType})", actor.Id, ex.GetType().Name);
+
+            return new AiActorAction
+            {
+                Reasoning = plan?.Reasoning,
+                Success = false,
+                ErrorMessage = ex.Message
+            };
+        }
+    }
+
     private async Task<AiActorAction> ExecuteActionAsync(
         Beacon.Core.Data.Entities.AiActor actor,
         AiActorActionPlan plan,
@@ -954,18 +990,22 @@ public class AiActorService : IAiActorServiceExtended
 
                 case "ARCHIVE_QUERY":
                     action.ActionType = AiActorActionType.ArchiveQuery;
-                    await ExecuteArchiveQueryAsync(plan, action, cancellationToken);
+                    await ExecuteArchiveQueryAsync(actor, plan, action, cancellationToken);
                     break;
 
                 case "ARCHIVE_SUBSCRIPTION":
                     action.ActionType = AiActorActionType.ArchiveSubscription;
-                    await ExecuteArchiveSubscriptionAsync(plan, action, cancellationToken);
+                    await ExecuteArchiveSubscriptionAsync(actor, plan, action, cancellationToken);
                     break;
 
                 default:
                     action.ErrorMessage = $"Unknown action type: {plan.ActionType}";
                     break;
             }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -998,6 +1038,18 @@ public class AiActorService : IAiActorServiceExtended
 
         // Create query directly in context to get the ID back
         await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
+
+        var ownedQueries = await context.Queries
+            .Where(x => x.AiActorId == actor.Id)
+            .CountAsync(cancellationToken);
+
+        var capError = AiActorActionGuard.CheckQueryCap(ownedQueries, actor.MaxQueries);
+        if (capError != null)
+        {
+            action.ErrorMessage = capError;
+            _logger.LogWarning("AI Actor {ActorId} hit the query cap", actor.Id);
+            return;
+        }
 
         // Single unit of work: build the Query + its first QueryStep via the navigation
         // collection so EF resolves the FK during SaveChanges. Previously this method
@@ -1110,6 +1162,41 @@ public class AiActorService : IAiActorServiceExtended
 
         // Create subscription directly in context to get the ID back
         await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
+
+        var targetQuery = await context.Queries
+            .Where(x => x.Id == queryId.Value)
+            .Select(x =>
+                new
+                {
+                    x.AiActorId
+                })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (targetQuery == null)
+        {
+            action.ErrorMessage = $"Query {queryId} not found";
+            return;
+        }
+
+        var ownershipError = AiActorActionGuard.CheckOwnership(actor.Id, targetQuery.AiActorId, false);
+        if (ownershipError != null)
+        {
+            action.ErrorMessage = $"Query {queryId}: {ownershipError}";
+            _logger.LogWarning("AI Actor {ActorId} was denied subscribing to query {QueryId}", actor.Id, queryId);
+            return;
+        }
+
+        var existingSubscriptions = await context.Subscriptions
+            .Where(x => x.QueryId == queryId.Value)
+            .CountAsync(cancellationToken);
+
+        var capError = AiActorActionGuard.CheckSubscriptionCap(existingSubscriptions, actor.MaxSubscriptionsPerQuery);
+        if (capError != null)
+        {
+            action.ErrorMessage = capError;
+            _logger.LogWarning("AI Actor {ActorId} hit the subscription cap for query {QueryId}", actor.Id, queryId);
+            return;
+        }
 
         var subscription = new Subscription
         {
@@ -1250,6 +1337,7 @@ public class AiActorService : IAiActorServiceExtended
     }
 
     private async Task ExecuteArchiveQueryAsync(
+        Beacon.Core.Data.Entities.AiActor actor,
         AiActorActionPlan plan,
         AiActorAction action,
         CancellationToken cancellationToken)
@@ -1268,6 +1356,32 @@ public class AiActorService : IAiActorServiceExtended
 
         action.TargetQueryId = queryId;
 
+        await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
+
+        var target = await context.Queries
+            .Where(x => x.Id == queryId)
+            .Select(x =>
+                new
+                {
+                    x.AiActorId,
+                    x.IsLocked
+                })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (target == null)
+        {
+            action.ErrorMessage = $"Query {queryId} not found";
+            return;
+        }
+
+        var ownershipError = AiActorActionGuard.CheckOwnership(actor.Id, target.AiActorId, target.IsLocked);
+        if (ownershipError != null)
+        {
+            action.ErrorMessage = $"Query {queryId}: {ownershipError}";
+            _logger.LogWarning("AI Actor {ActorId} was denied archiving query {QueryId}", actor.Id, queryId);
+            return;
+        }
+
         await _queryService.DeleteQuery(queryId, cancellationToken);
 
         action.Success = true;
@@ -1275,6 +1389,7 @@ public class AiActorService : IAiActorServiceExtended
     }
 
     private async Task ExecuteArchiveSubscriptionAsync(
+        Beacon.Core.Data.Entities.AiActor actor,
         AiActorActionPlan plan,
         AiActorAction action,
         CancellationToken cancellationToken)
@@ -1292,6 +1407,31 @@ public class AiActorService : IAiActorServiceExtended
         }
 
         action.TargetSubscriptionId = subscriptionId;
+
+        await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
+
+        var owner = await context.Subscriptions
+            .Where(x => x.Id == subscriptionId)
+            .Select(x =>
+                new
+                {
+                    x.AiActorId
+                })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (owner == null)
+        {
+            action.ErrorMessage = $"Subscription {subscriptionId} not found";
+            return;
+        }
+
+        var ownershipError = AiActorActionGuard.CheckOwnership(actor.Id, owner.AiActorId, false);
+        if (ownershipError != null)
+        {
+            action.ErrorMessage = $"Subscription {subscriptionId}: {ownershipError}";
+            _logger.LogWarning("AI Actor {ActorId} was denied archiving subscription {SubscriptionId}", actor.Id, subscriptionId);
+            return;
+        }
 
         await _subscriptionService.DeleteSubscription(subscriptionId, cancellationToken);
 

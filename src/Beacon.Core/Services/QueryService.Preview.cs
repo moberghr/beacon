@@ -203,6 +203,7 @@ internal partial class QueryService
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
             var page = await virtualTableManager.ExecuteFinalQueryPagedAsync(
                 finalQuery,
+                readOnlyAstValidator,
                 loggerFactory.CreateLogger<InMemoryDatabaseManager>(),
                 paging,
                 cancellationToken);

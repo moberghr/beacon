@@ -45,6 +45,27 @@ public class SqlRowLimitRewriterTests
         result.Outcome.Should().Be(SqlRowLimitOutcome.Applied);
     }
 
+    [TestCase("MSSQL")]
+    [TestCase("AzureSynapse")]
+    public void Apply_TSql_NestedLeadingComment_PutsTopOnTheRealSelect(string dialect)
+    {
+        // T-SQL nests block comments: the first `*/` closes only the inner one, so the first SELECT is still
+        // commented out. A TOP placed there would leave the query uncapped.
+        var result = SqlRowLimitRewriter.Apply("/* /* */ SELECT */ SELECT a FROM t", 100, dialect);
+
+        result.Outcome.Should().Be(SqlRowLimitOutcome.Applied);
+        result.Sql.Should().Be("/* /* */ SELECT */ SELECT TOP 100 a FROM t");
+    }
+
+    [Test]
+    public void Apply_TSql_LeadingCommentsAndDistinct_PutsTopAfterDistinct()
+    {
+        var result = SqlRowLimitRewriter.Apply("-- note\n/* a /* b */ c */ select distinct a FROM t", 100, "MSSQL");
+
+        result.Sql.Should().Be("-- note\n/* a /* b */ c */ select distinct TOP 100 a FROM t");
+        result.Outcome.Should().Be(SqlRowLimitOutcome.Applied);
+    }
+
     [Test]
     public void Apply_TSql_Union_UsesOrderByOffsetFetch()
     {

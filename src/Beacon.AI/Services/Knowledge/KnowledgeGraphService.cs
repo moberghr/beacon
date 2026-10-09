@@ -302,33 +302,6 @@ internal sealed class KnowledgeGraphService(
             });
         }
 
-        // Search project documentation sections — match ANY term.
-        var docSections = await context.ProjectDocumentationSections
-            .Where(s => terms.Any(t => s.Content.ToLower().Contains(t)))
-            .Select(s => new
-            {
-                s.Id,
-                ProjectName = s.Documentation.Project.Name,
-                s.Title,
-                s.Content
-            })
-            .Take(maxResults / 2)
-            .ToListAsync(ct);
-
-        foreach (var docSection in docSections)
-        {
-            results.Add(new SearchResult
-            {
-                Type = "documentation",
-                DataSourceName = docSection.ProjectName,
-                SchemaName = string.Empty,
-                TableName = string.Empty,
-                Description = TruncateContent(docSection.Content, 200),
-                Relevance = 0.5,
-                DocIdentity = $"docsection:{docSection.Id}"
-            });
-        }
-
         // Lexical (sparse) arm — the historical token-overlap ranking. This is exactly the result
         // returned before hybrid retrieval existed, and stays the behaviour-preserving fallback.
         var lexicalRanked = results

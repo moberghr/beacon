@@ -1,5 +1,6 @@
 using Beacon.Core.Helpers;
 using System.Security.Claims;
+using Beacon.Api.Authentication;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.Queries;
 using Beacon.Core.Models.Queries;
@@ -68,6 +69,8 @@ internal static class QueriesEndpoints
         // SQL-executing endpoints: require the Execute (or Admin) scope for API-key callers (§1.4).
         // Interactive cookie/OIDC sessions carry no scope claim and pass through, governed by role.
         // An optional draft runs the editor's unsaved steps instead of the stored query, so Run never saves.
+        // Viewers may run existing queries, so read permission suffices for both previews; a draft is unsaved SQL,
+        // so running one needs write permission.
         queries.MapPost("/{id:int}/preview", (
                 int id,
                 ExecuteQueryPreviewRequest? body,
@@ -83,7 +86,8 @@ internal static class QueriesEndpoints
                     Sort = paging.Sort,
                 }, ct))
             .WithName("ExecuteQueryPreview")
-            .RequireAuthorization(BeaconApiEndpoints.ExecuteScopePolicyName);
+            .RequireAuthorization(BeaconApiEndpoints.ExecuteScopePolicyName)
+            .AllowViewerAccess(RunsStoredQuery);
 
         queries.MapPost("/{id:int}/steps/{stepOrder:int}/preview", (
                 int id,
@@ -103,15 +107,28 @@ internal static class QueriesEndpoints
                     Sort = paging.Sort,
                 }, ct))
             .WithName("ExecuteStepPreview")
-            .RequireAuthorization(BeaconApiEndpoints.ExecuteScopePolicyName);
+            .RequireAuthorization(BeaconApiEndpoints.ExecuteScopePolicyName)
+            .AllowViewerAccess(RunsStoredQuery);
 
         return group;
+    }
+
+    private static bool RunsStoredQuery(EndpointFilterInvocationContext context)
+    {
+        return context.Arguments
+            .OfType<IQueryDraftBody>()
+            .All(x => x.Draft == null);
     }
 }
 
 internal sealed record ToggleQueryLockRequest(bool Lock);
-internal sealed record ExecuteQueryPreviewRequest(QueryDraft? Draft);
-internal sealed record ExecuteStepPreviewRequest(List<ParameterValue>? Parameters, QueryDraft? Draft);
+internal interface IQueryDraftBody
+{
+    QueryDraft? Draft { get; }
+}
+
+internal sealed record ExecuteQueryPreviewRequest(QueryDraft? Draft) : IQueryDraftBody;
+internal sealed record ExecuteStepPreviewRequest(List<ParameterValue>? Parameters, QueryDraft? Draft) : IQueryDraftBody;
 internal sealed record CreateQueryBody(string Name, string? Description);
 internal sealed record SetQueryMcpToolRequest(bool Enabled, string? Name, string? Description);
 

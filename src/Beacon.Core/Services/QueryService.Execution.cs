@@ -117,6 +117,9 @@ internal partial class QueryService
 
     public async Task<BaseResponse> UpdateQuery(QueryData queryData, CancellationToken cancellationToken)
     {
+        // Before anything is written — including the version snapshot or approval request below.
+        ValidateFinalQuery(queryData.FinalQuery);
+
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         var query = await context.Queries

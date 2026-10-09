@@ -1,3 +1,5 @@
+using System.Security.Claims;
+using Beacon.Api.Authentication;
 using Beacon.Api.Hubs;
 using Beacon.Core.Mcp;
 using Microsoft.AspNetCore.Antiforgery;
@@ -19,8 +21,6 @@ public static class BeaconApiEndpoints
     /// scope-gated — they are a full authenticated session governed by role.
     /// </summary>
     public const string ExecuteScopePolicyName = "BeaconApiExecute";
-
-    private const string ApiKeyAuthMethod = "api_key";
 
     private static readonly string[] WriteScopes = ["Execute", "Admin"];
 
@@ -46,32 +46,42 @@ public static class BeaconApiEndpoints
             // caller must present Execute or Admin. An unmapped MCP JWT caller has no scope → 403.
             options.AddPolicy(ExecuteScopePolicyName, new AuthorizationPolicyBuilder()
                 .RequireAuthenticatedUser()
-                .RequireAssertion(context =>
-                {
-                    var isScoped = context.User.HasClaim(McpCallerClaimTypes.AuthMethod, ApiKeyAuthMethod)
-                        || context.User.HasClaim(McpCallerClaimTypes.AuthMethod, McpCallerClaimTypes.McpCallerAuthMethod);
-                    if (!isScoped)
-                    {
-                        return true;
-                    }
-
-                    return context.User
-                        .FindAll("scope")
-                        .Any(x => WriteScopes.Contains(x.Value));
-                })
+                .RequireAssertion(x => SatisfiesExecuteScope(x.User))
                 .Build());
         });
 
         return services;
     }
 
+    /// <summary>
+    /// The Execute-scope assertion (§1.4), shared by <see cref="ExecuteScopePolicyName"/> and the write gate of
+    /// <see cref="BeaconPermissionEndpointFilter"/>: a caller without a scope marker passes; a scoped caller (API key or
+    /// mapped MCP JWT caller) must hold the Execute or Admin scope.
+    /// </summary>
+    internal static bool SatisfiesExecuteScope(ClaimsPrincipal user)
+    {
+        var isScoped = user.HasClaim(McpCallerClaimTypes.AuthMethod, McpCallerClaimTypes.ApiKeyAuthMethod)
+            || user.HasClaim(McpCallerClaimTypes.AuthMethod, McpCallerClaimTypes.McpCallerAuthMethod);
+        if (!isScoped)
+        {
+            return true;
+        }
+
+        return user
+            .FindAll(McpCallerClaimTypes.Scope)
+            .Any(x => WriteScopes.Contains(x.Value));
+    }
+
     public static IEndpointRouteBuilder MapBeaconApi(this IEndpointRouteBuilder endpoints)
     {
         // Group-level auth policy: every endpoint requires an authenticated cookie session.
         // Endpoints opt out via .AllowAnonymous() (health, auth/me, csrf).
+        // The permission filter enforces Viewer (read) vs Editor (write) when authorization or user
+        // management is on; it runs after antiforgery so a forged request never reaches the user lookup.
         var group = endpoints.MapGroup("/beacon/api")
             .RequireAuthorization(AuthPolicyName)
             .AddEndpointFilter<AntiforgeryEndpointFilter>()
+            .AddEndpointFilter<BeaconPermissionEndpointFilter>()
             .WithOpenApi();
 
         group.MapHealthEndpoints();

@@ -1,3 +1,6 @@
+using System.Diagnostics;
+using System.Reflection;
+using System.Text.RegularExpressions;
 using FluentAssertions;
 using NUnit.Framework;
 using Beacon.Core.Services.Security;
@@ -46,6 +49,103 @@ public class QueryGuardrailServiceTests
         var result = _service.ValidateQuery("SELECT 1; DROP TABLE orders", new QueryGuardrailOptions { ReadOnly = true });
 
         result.IsValid.Should().BeFalse();
+    }
+
+    [Test]
+    public void ValidateQuery_UnclosedCommentBomb_128Kb_ValidatesInUnderOneSecond()
+    {
+        // 2026-10-08 audit: the comment alternative of the dangerous-pattern regex backtracked super-linearly on
+        // an unclosed comment run (16 KB took 1.7 s). Keyword-free, so the regex stage must pass it — quickly.
+        var sql = "SELECT 1 " + string.Concat(Enumerable.Repeat("/* ", 128 * 1024 / 3));
+
+        var stopwatch = Stopwatch.StartNew();
+        var result = _service.ValidateQuery(sql, new QueryGuardrailOptions { ReadOnly = true, DetectPii = true });
+        stopwatch.Stop();
+
+        result.IsValid.Should().BeTrue("the input carries no write keyword; the AST stage rejects the unclosed comment");
+        stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(1));
+    }
+
+    // Boundary: everything the regex stage rejected before the ReDoS fix is still rejected — the stacked-statement
+    // form (no FROM, so only the stacked alternative sees it) and a write keyword split out of a MySQL executable
+    // comment (no write form WriteOperationPattern recognises, so only the comment alternative sees it).
+    [Test]
+    public void EveryStaticPattern_HasAMatchTimeout()
+    {
+        // A pattern added later without the timeout argument gets Regex.InfiniteMatchTimeout, and IsMatchFailClosed's
+        // backstop silently stops applying to it.
+        var patterns = typeof(QueryGuardrailService)
+            .GetFields(BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public)
+            .Where(x => x.FieldType == typeof(Regex))
+            .Select(x => (Name: x.Name, Pattern: (Regex)x.GetValue(null)!))
+            .ToList();
+
+        patterns.Should().HaveCountGreaterThanOrEqualTo(5, "the guardrail's own patterns must be found, or this check is vacuous");
+        patterns.Should().OnlyContain(
+            x => x.Pattern.MatchTimeout != Regex.InfiniteMatchTimeout,
+            "every guardrail pattern must be built with a match timeout");
+    }
+
+    [TestCase("SELECT 1; DROP TABLE orders")]
+    [TestCase("SELECT 1;\n\tDELETE orders")]
+    [TestCase("SELECT 1 /*!50000;*/ /*!50000DELETE*/ FROM orders")]
+    [TestCase("SELECT 1 /* x */ ; /* y */ DROP TABLE orders")]
+    public void ValidateQuery_StackedOrCommentHiddenWrite_IsStillRejected(string sql)
+    {
+        var result = _service.ValidateQuery(sql, new QueryGuardrailOptions { ReadOnly = true });
+
+        result.IsValid.Should().BeFalse();
+        result.Error.Should().NotBeNullOrWhiteSpace();
+    }
+
+    [TestCase("SELECT 1;\n\tDELETE orders")]
+    [TestCase("SELECT 1 /*!50000;*/ /*!50000DELETE*/ FROM orders")]
+    public void ValidateQuery_WriteOnlyTheDangerousPatternSees_IsRejectedAsDangerous(string sql)
+    {
+        var result = _service.ValidateQuery(sql, new QueryGuardrailOptions { ReadOnly = true });
+
+        result.IsValid.Should().BeFalse();
+        result.Error.Should().Be("Query contains potentially dangerous patterns.");
+    }
+
+    [Test]
+    public void ValidateQuery_CommentHiddenWriteCheck_RejectsExactlyWhatTheFormerAlternativeRejected()
+    {
+        // The linear rewrite must accept the same language as the dropped super-linear alternative — nothing that
+        // was rejected is now admitted, nothing new is rejected. The generated tails hold no whitespace and no `;`,
+        // so neither WriteOperationPattern nor the stacked-statement check can fire: the comment check alone decides.
+        var former = new Regex(@"/\*.*?(INSERT|UPDATE|DELETE|DROP).*?\*/", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        string[] tokens = ["/*", "*/", "/", "*", "x", "DROP", "delete", "Update", "INSERT", "DEL", "UPD", "é"];
+        var random = new Random(20261008);
+        var options = new QueryGuardrailOptions { ReadOnly = true, DetectPii = false };
+
+        for (var i = 0; i < 2_000; i++)
+        {
+            var tail = string.Concat(Enumerable.Range(0, random.Next(1, 24)).Select(_ => tokens[random.Next(tokens.Length)]));
+            var sql = "SELECT " + tail;
+
+            _service.ValidateQuery(sql, options).IsValid
+                .Should().Be(!former.IsMatch(sql), "input #{0}: {1}", i, sql);
+        }
+    }
+
+    [Test]
+    public void IsMatchFailClosed_PatternThatTimesOut_ReturnsTrue()
+    {
+        // Catastrophic backtracking under a 1 ms budget: the seam every guardrail match goes through must read a
+        // timeout as "dangerous", never as a pass (§1.5 fail closed).
+        var catastrophic = new Regex(@"^(a+)+$", RegexOptions.None, TimeSpan.FromMilliseconds(1));
+
+        QueryGuardrailService.IsMatchFailClosed(catastrophic, new string('a', 64) + "!").Should().BeTrue();
+    }
+
+    [Test]
+    public void IsMatchFailClosed_PatternThatCompletes_ReturnsTheMatchResult()
+    {
+        var pattern = new Regex(@"\bDROP\b", RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(250));
+
+        QueryGuardrailService.IsMatchFailClosed(pattern, "SELECT 1").Should().BeFalse();
+        QueryGuardrailService.IsMatchFailClosed(pattern, "drop table x").Should().BeTrue();
     }
 
     [Test]

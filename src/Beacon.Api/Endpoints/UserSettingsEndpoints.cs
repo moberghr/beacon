@@ -1,3 +1,4 @@
+using Beacon.Api.Authentication;
 using Beacon.Core.Handlers.UserSettings;
 using MediatR;
 
@@ -12,11 +13,14 @@ internal static class UserSettingsEndpoints
         settings.MapGet("/", (IMediator m, CancellationToken ct) => m.Send(new GetUserSettingsQuery(), ct))
             .WithName("GetUserSettings");
 
+        // Every signed-in user (Viewers included) may change their own password.
         settings.MapPost("/change-password", async (ChangeOwnPasswordCommand cmd, IMediator m, CancellationToken ct) =>
         {
             await m.Send(cmd, ct);
             return TypedResults.NoContent();
-        }).WithName("ChangeOwnPassword");
+        })
+        .WithName("ChangeOwnPassword")
+        .AllowViewerAccess();
 
         return group;
     }

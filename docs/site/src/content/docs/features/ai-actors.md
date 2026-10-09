@@ -22,6 +22,11 @@ An **AI Actor** is an LLM-driven monitoring agent attached to a single data sour
 - Modify queries it doesn't own — refinements only apply to queries created by that actor
 - Modify **locked** queries — locked query IDs are excluded in the prompt and hard-checked again at execution time
 - Exceed its configured limits (`MaxQueries`, `MaxSubscriptionsPerQuery`)
+- Archive queries or subscriptions it doesn't own, or archive locked queries — ownership and lock are checked again when an action executes
+
+:::note[Interim behavior: actions are proposed, not executed]
+Every actor currently has **Requires approval** on, and in that mode the think cycle, refine, and initial setup **only record** the actions the LLM chose. Each recorded action is marked `proposed` in the execution history and nothing is created, refined, or archived. Proposed actions are recorded on the execution for review; executing them needs the approval workflow, which arrives in a later release. Until then, an actor's think cycles produce analysis and proposals but no changes to your queries or subscriptions.
+:::
 
 All LLM calls go through the configured provider (see [AI Integration](/features/ai-integration/)) and are metered — each actor tracks total tokens used and estimated cost.
 

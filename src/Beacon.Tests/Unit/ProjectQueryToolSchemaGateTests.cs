@@ -156,6 +156,51 @@ public class ProjectQueryToolSchemaGateTests
         settingsProvider.Verify(x => x.GetEffectiveSettingsAsync(It.Is<int>(id => id != ProjectId), It.IsAny<CancellationToken>()), Times.Never);
     }
 
+    [TestCase("SELECT * FROM orders", "email")]
+    [TestCase("SELECT * FROM orders", "customer_email")]
+    [TestCase("SELECT * FROM orders", "email_address")]
+    public async Task PiiResultColumns_AreMasked_EvenWhenTheSqlTextDoesNotNameThem(string sql, string resultColumn)
+    {
+        WithCatalog(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
+        _provider
+            .Setup(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ProviderQueryResult
+            {
+                Success = true,
+                Rows = [new Dictionary<string, object?> { [resultColumn] = "ada@example.com", ["id"] = 1 }]
+            });
+
+        var result = await CreateTool().ExecuteAsync(datasource_id: DataSourceId, sql: sql, cancellationToken: CancellationToken.None);
+
+        (result.IsError ?? false).Should().BeFalse();
+        var text = string.Join("\n", result.Content.OfType<TextContentBlock>().Select(x => x.Text));
+        text.Should().NotContain("ada@example.com");
+        text.Should().Contain("a***m");
+    }
+
+    // SC7: the result key "contact" is not PII by name and the SQL-text match is "email" — only the executed SQL's
+    // alias resolution masks it.
+    [TestCase("SELECT email AS contact, id FROM orders")]
+    [TestCase("SELECT upper(o.email) AS contact, o.id FROM orders o")]
+    public async Task AnAliasedPiiColumn_IsMasked(string sql)
+    {
+        WithCatalog(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
+        _provider
+            .Setup(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ProviderQueryResult
+            {
+                Success = true,
+                Rows = [new Dictionary<string, object?> { ["contact"] = "ada@example.com", ["id"] = 1 }]
+            });
+
+        var result = await CreateTool().ExecuteAsync(datasource_id: DataSourceId, sql: sql, cancellationToken: CancellationToken.None);
+
+        (result.IsError ?? false).Should().BeFalse();
+        var text = string.Join("\n", result.Content.OfType<TextContentBlock>().Select(x => x.Text));
+        text.Should().NotContain("ada@example.com");
+        text.Should().Contain("a***m");
+    }
+
     private void WithCatalog(Dictionary<string, HashSet<string>> catalog)
     {
         _knowledgeGraph

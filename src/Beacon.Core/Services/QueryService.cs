@@ -243,6 +243,8 @@ internal partial class QueryService(IDbContextFactory<BeaconContext> contextFact
             }).ToList());
         }
 
+        ValidateFinalQuery(queryData.FinalQuery);
+
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         // Build the full object graph (query + steps + parameters via navigation
@@ -463,5 +465,33 @@ internal partial class QueryService(IDbContextFactory<BeaconContext> contextFact
         result.ExecutionTimeHistory = executionTimeHistory;
 
         return result;
+    }
+
+    /// <summary>
+    /// A saved final query runs against the in-memory SQLite join store, so it must pass the read-only gate (§1.5)
+    /// in the form that runs — after <c>@resultN</c> translation — before it is persisted. Empty means "no final
+    /// query", the same test both execution paths use. A nested block comment is refused first: SQLite ends a block
+    /// comment at its first <c>*/</c> while the gate's parser nests them, so such text can hide a second statement
+    /// from the gate. SQLite's own single-statement check needs the tables, which do not exist at save time; it runs
+    /// again, with the nested-comment check, when the query executes.
+    /// </summary>
+    private void ValidateFinalQuery(string? finalQuery)
+    {
+        if (string.IsNullOrEmpty(finalQuery))
+        {
+            return;
+        }
+
+        var translated = InMemoryDatabaseManager.TranslateResultReferences(finalQuery);
+        if (InMemoryDatabaseManager.HasNestedBlockComment(translated))
+        {
+            throw new InvalidOperationException($"Final query rejected: {InMemoryDatabaseManager.NestedBlockCommentRejection}");
+        }
+
+        var rejection = readOnlyAstValidator.Validate(translated, nameof(DatabaseEngineType.SQLite));
+        if (rejection != null)
+        {
+            throw new InvalidOperationException($"Final query rejected: {rejection}");
+        }
     }
 }

@@ -23,6 +23,12 @@ public class AiActorAction
     public bool Success { get; set; }
 
     /// <summary>
+    /// True when the action was recorded as a proposal and deliberately not executed
+    /// (the actor requires approval).
+    /// </summary>
+    public bool Proposed { get; set; }
+
+    /// <summary>
     /// Error message if the action failed
     /// </summary>
     public string? ErrorMessage { get; set; }

@@ -22,6 +22,13 @@ public sealed class SqlReadOnlyAstValidator(ILogger<SqlReadOnlyAstValidator> log
             return "Empty SQL is not a valid read-only statement. Submit a SELECT query.";
         }
 
+        // The parser nests block comments for every dialect. An engine that ends a comment at its first `*/` would
+        // run a different statement than the one validated here, so nesting is refused for those engines.
+        if (!SqlDialects.NestsBlockComments(dialect) && OpensCommentInsideComment(sql))
+        {
+            return "Nested block comments are not allowed. Remove the inner /* ... */ comment.";
+        }
+
         Sequence<Statement> statements;
         try
         {
@@ -135,6 +142,32 @@ public sealed class SqlReadOnlyAstValidator(ILogger<SqlReadOnlyAstValidator> log
         }
 
         return null;
+    }
+
+    // Deliberately ignores quoting: string escapes differ per engine (MySQL backslash escapes), so a quote-aware scan
+    // could be steered by the text it judges. Any `/*` before the `*/` closing an earlier `/*` counts, which also
+    // rejects the rare literal holding two `/*`. Linear: each step moves past the previous opener.
+    private static bool OpensCommentInsideComment(string sql)
+    {
+        var open = sql.IndexOf("/*", StringComparison.Ordinal);
+        while (open >= 0)
+        {
+            var next = sql.IndexOf("/*", open + 2, StringComparison.Ordinal);
+            if (next < 0)
+            {
+                return false;
+            }
+
+            var close = sql.IndexOf("*/", open + 2, StringComparison.Ordinal);
+            if (close < 0 || next < close)
+            {
+                return true;
+            }
+
+            open = next;
+        }
+
+        return false;
     }
 
     private static Dialect ResolveDialect(string? dialect)

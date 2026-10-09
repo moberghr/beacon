@@ -1,5 +1,8 @@
+using System.Security.Claims;
+using Beacon.Core.Mcp;
 using Beacon.Core.Models.UserManagement;
 using Beacon.Core.Services;
+using Microsoft.AspNetCore.Http;
 
 namespace Beacon.Core.Authorization.Providers;
 
@@ -8,7 +11,7 @@ namespace Beacon.Core.Authorization.Providers;
 /// Provides role-based authorization: Admin (level 3), Editor (level 2), Viewer (level 1).
 /// </summary>
 public class DatabaseAuthorizationProvider(
-    IBeaconUserContext userContext,
+    IHttpContextAccessor httpContextAccessor,
     IUserManagementService userService) : IBeaconAuthorizationProvider
 {
     private BeaconUserData? _cachedUser;
@@ -143,17 +146,41 @@ public class DatabaseAuthorizationProvider(
     private async Task<BeaconUserData?> GetCurrentUserAsync(CancellationToken cancellationToken)
     {
         if (_userFetched)
-            return _cachedUser;
-
-        var externalId = userContext.UserId;
-        if (string.IsNullOrEmpty(externalId))
         {
-            _userFetched = true;
-            return null;
+            return _cachedUser;
         }
 
-        _cachedUser = await userService.GetUserByExternalIdAsync(externalId, cancellationToken);
+        _cachedUser = await FindCurrentUserAsync(cancellationToken);
         _userFetched = true;
         return _cachedUser;
+    }
+
+    // Not IBeaconUserContext.UserId: it prefers BeaconClaims.UserId, which a host's claims transformation may set to
+    // the username, and API keys put the numeric Beacon user id in NameIdentifier — neither matches Users.ExternalId.
+    // API keys therefore resolve by their username claim (a user-less key has none and resolves to nobody); every other
+    // principal resolves by NameIdentifier, where cookie logins put Users.ExternalId and OIDC puts the subject.
+    private Task<BeaconUserData?> FindCurrentUserAsync(CancellationToken cancellationToken)
+    {
+        var principal = httpContextAccessor.HttpContext?.User;
+        if (principal == null)
+        {
+            return Task.FromResult<BeaconUserData?>(null);
+        }
+
+        if (principal.Identity?.AuthenticationType == McpCallerClaimTypes.ApiKeyAuthenticationType
+            && principal.HasClaim(McpCallerClaimTypes.AuthMethod, McpCallerClaimTypes.ApiKeyAuthMethod))
+        {
+            var userName = principal.FindFirst(McpCallerClaimTypes.UserNameClaim)?.Value;
+
+            return string.IsNullOrEmpty(userName)
+                ? Task.FromResult<BeaconUserData?>(null)
+                : userService.GetUserByUserNameAsync(userName, cancellationToken);
+        }
+
+        var externalId = principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+        return string.IsNullOrEmpty(externalId)
+            ? Task.FromResult<BeaconUserData?>(null)
+            : userService.GetUserByExternalIdAsync(externalId, cancellationToken);
     }
 }

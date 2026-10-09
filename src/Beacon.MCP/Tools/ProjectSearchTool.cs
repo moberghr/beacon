@@ -34,14 +34,30 @@ internal sealed class ProjectSearchTool(
 
         if (offsetValue > 200)
         {
-            return ToolHelper.Error("offset must be between 0 and 200.");
+            const string offsetError = "offset must be between 0 and 200.";
+            sw.Stop();
+            await auditService.LogToolCallAsync(null, projectContext.UserId, "search",
+                query, null, null, (int)sw.ElapsedMilliseconds, null, offsetError, ct: cancellationToken);
+            return ToolHelper.Error(offsetError);
         }
 
         if (string.IsNullOrEmpty(query))
-            return ToolHelper.Error("Missing required parameter: query");
+        {
+            const string queryError = "Missing required parameter: query";
+            sw.Stop();
+            await auditService.LogToolCallAsync(null, projectContext.UserId, "search",
+                query, null, null, (int)sw.ElapsedMilliseconds, null, queryError, ct: cancellationToken);
+            return ToolHelper.Error(queryError);
+        }
 
         var resolveError = ToolHelper.ResolveProjectId(projectContext, project_id, out var projectId);
-        if (resolveError != null) return ToolHelper.Error(resolveError);
+        if (resolveError != null)
+        {
+            sw.Stop();
+            await auditService.LogToolCallAsync(null, projectContext.UserId, "search",
+                query, null, null, (int)sw.ElapsedMilliseconds, null, resolveError, ct: cancellationToken);
+            return ToolHelper.Error(resolveError);
+        }
 
         // No McpSignalService call here (audit-only) — see GetContextTool for the full rationale.
         try

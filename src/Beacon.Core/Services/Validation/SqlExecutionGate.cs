@@ -1,4 +1,6 @@
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using Beacon.Core.Configuration;
 using Beacon.Core.HostData;
 using Beacon.Core.Services.Security;
 
@@ -6,9 +8,10 @@ namespace Beacon.Core.Services.Validation;
 
 /// <summary>
 /// Composes the existing validators into one ordered gate (§1.5 defense in depth). Stage order and the
-/// fail-closed rules are load-bearing: the regex guardrail runs first, the AST validator second, and a
-/// read-only failure short-circuits every later stage so no schema, lint or row-limit work is ever done
-/// on a statement that may not run. Stateless — the validators keep their own identifier-only logging.
+/// fail-closed rules are load-bearing: the length cap runs first (so no regex or parser ever sees an
+/// over-long input), the regex guardrail second, the AST validator third, and a read-only failure
+/// short-circuits every later stage so no schema, lint or row-limit work is ever done on a statement that
+/// may not run. Stateless — the validators keep their own identifier-only logging.
 /// </summary>
 public sealed class SqlExecutionGate(
     IQueryGuardrailService guardrail,
@@ -16,13 +19,19 @@ public sealed class SqlExecutionGate(
     SqlSchemaValidator schemaValidator,
     SqlSemanticLinter semanticLinter,
     ILogger<SqlExecutionGate> logger,
-    IHostDataSourceGuard? hostGuard = null) : ISqlExecutionGate
+    IHostDataSourceGuard? hostGuard = null,
+    IOptions<McpDeploymentOptions>? deploymentOptions = null) : ISqlExecutionGate
 {
     private const string NotRequested = SqlGateCodes.NotRequested;
     private const string NotEvaluated = SqlGateCodes.NotEvaluated;
 
     public SqlGateReport Evaluate(SqlGateRequest request)
     {
+        if (IsTooLong(request.Sql, out var maxSqlChars))
+        {
+            return RejectTooLong(request, maxSqlChars);
+        }
+
         var validation = guardrail.ValidateQuery(request.Sql, new QueryGuardrailOptions
         {
             ReadOnly = request.EnforceReadOnly,
@@ -98,6 +107,34 @@ public sealed class SqlExecutionGate(
             piiColumns,
             lintFindings,
             new SqlGateVerdicts(readOnly, schema, lint, rowLimit));
+    }
+
+    private bool IsTooLong(string? sql, out int maxSqlChars)
+    {
+        maxSqlChars = (deploymentOptions?.Value.Ceilings ?? new McpCeilingOptions()).EffectiveMaxSqlChars;
+
+        return (sql?.Length ?? 0) > maxSqlChars;
+    }
+
+    // Read-only verdict, so every caller's existing "read-only failed → blocked, nothing ran" handling applies.
+    // The reason carries counts only, never SQL text (§1.11).
+    private static SqlGateReport RejectTooLong(SqlGateRequest request, int maxSqlChars)
+    {
+        var message = $"SQL is {request.Sql.Length} characters long; the limit is {maxSqlChars}.";
+
+        return new SqlGateReport(
+            true,
+            message,
+            request.Sql,
+            [],
+            [],
+            [],
+            [],
+            new SqlGateVerdicts(
+                SqlGateVerdict.Fail(SqlGateCodes.SqlTooLong, message),
+                SqlGateVerdict.Skipped(NotEvaluated),
+                SqlGateVerdict.Skipped(NotEvaluated),
+                SqlGateVerdict.Skipped(NotEvaluated)));
     }
 
     private HostPolicyResult? EvaluateHostPolicy(SqlGateRequest request)
@@ -189,7 +226,8 @@ public sealed class SqlExecutionGate(
         var result = SqlRowLimitRewriter.Apply(request.Sql, request.MaxRows.Value, request.Dialect);
         if (result.Outcome == SqlRowLimitOutcome.TextualFallback)
         {
-            // Reachable only when EnforceReadOnly is off (the AST gate rejects unparseable SQL otherwise).
+            // Reachable when EnforceReadOnly is off (the AST gate rejects unparseable SQL otherwise); the rewriter
+            // falls back to text only when the parser throws.
             // The textual heuristic is the pre-gate behaviour and cannot see inside comments or literals,
             // so say so on the verdict and leave an identifier-only trace (§1.11) — never the SQL text.
             logger.LogWarning(
