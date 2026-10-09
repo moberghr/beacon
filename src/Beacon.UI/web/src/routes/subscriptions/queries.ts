@@ -35,6 +35,18 @@ export interface CreateSubscriptionPayload {
   showQuery: boolean;
   storeResults: boolean;
   createTasks: boolean;
+  notificationTrigger: NotificationTrigger;
+  minimumRowCount: number | null;
+  resultAttachmentType: FileType | null;
+  parameters: { queryPlaceholder: string; value: string }[];
+  anomalyConfig: {
+    detectionMethod: AnomalyDetectionMethod;
+    sensitivity: AnomalySensitivity;
+    lookbackDays: number;
+    minimumDataPoints: number;
+    alertOnIncrease: boolean;
+    alertOnDecrease: boolean;
+  } | null;
 }
 
 const SUBSCRIPTIONS_KEY = ['subscriptions'] as const;

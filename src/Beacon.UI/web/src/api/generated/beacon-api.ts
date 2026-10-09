@@ -8963,6 +8963,17 @@ export interface CreateRecipientResult {
   [key: string]: any;
 }
 
+export interface CreateSubscriptionAnomalyConfig {
+  detectionMethod: AnomalyDetectionMethod;
+  sensitivity: AnomalySensitivity;
+  lookbackDays: number;
+  minimumDataPoints: number;
+  alertOnIncrease: boolean;
+  alertOnDecrease: boolean;
+
+  [key: string]: any;
+}
+
 export interface CreateSubscriptionCommand {
   queryId: number;
   cronExpression: string;
@@ -8973,6 +8984,18 @@ export interface CreateSubscriptionCommand {
   showQuery: boolean;
   storeResults: boolean;
   createTasks: boolean;
+  notificationTrigger: NotificationTrigger;
+  minimumRowCount: number | null;
+  resultAttachmentType: FileType | null;
+  parameters: CreateSubscriptionParameter[] | null;
+  anomalyConfig: CreateSubscriptionAnomalyConfig | null;
+
+  [key: string]: any;
+}
+
+export interface CreateSubscriptionParameter {
+  queryPlaceholder: string;
+  value: string;
 
   [key: string]: any;
 }
