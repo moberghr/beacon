@@ -11,7 +11,8 @@ public interface IUserManagementService
 {
     // Setup
     /// <summary>
-    /// Checks if this is the first run (no users exist).
+    /// Checks if this is the first run: no super admin has ever existed (an archived super admin counts, so archiving
+    /// it never reopens first-run setup).
     /// </summary>
     Task<bool> IsFirstRunAsync(CancellationToken ct = default);
 
@@ -39,6 +40,19 @@ public interface IUserManagementService
     Task<BeaconUserData?> GetUserByExternalIdAndProviderAsync(string externalId, string? identityProvider, CancellationToken ct = default);
 
     /// <summary>
+    /// The external users a bearer token with subject <paramref name="externalId"/> and issuer
+    /// <paramref name="identityProvider"/> may be bound to, in one query: users keyed by that pair and, when
+    /// <paramref name="includeWithoutIdentityProvider"/> is set, users pre-registered with that external id and no
+    /// identity provider. Internal (password) users and super admins are never returned. Archived users are returned
+    /// and flagged, so the caller refuses them.
+    /// </summary>
+    Task<List<BearerUserCandidate>> GetBearerUserCandidatesAsync(
+        string externalId,
+        string identityProvider,
+        bool includeWithoutIdentityProvider,
+        CancellationToken ct = default);
+
+    /// <summary>
     /// Gets a user by their username.
     /// </summary>
     Task<BeaconUserData?> GetUserByUserNameAsync(string userName, CancellationToken ct = default);
@@ -53,13 +67,19 @@ public interface IUserManagementService
     /// </summary>
     Task<BaseResponse> CreateExternalUserAsync(CreateExternalUserRequest request, CancellationToken ct = default);
 
+    /// <summary>
+    /// Returns the external user keyed by (<paramref name="externalId"/>, <paramref name="identityProvider"/>), creating
+    /// it on first sign-in. A null or blank <paramref name="defaultRoleName"/> creates the user with no role. Throws
+    /// <see cref="Models.BeaconException"/> for a disabled or archived user, and refuses to create a user before first-run
+    /// setup has created the super admin.
+    /// </summary>
     Task<BeaconUserData> GetOrCreateExternalUserAsync(
         string externalId,
         string identityProvider,
         string userName,
         string? email,
         string? displayName,
-        string defaultRoleName,
+        string? defaultRoleName,
         CancellationToken ct = default);
 
     /// <summary>
@@ -106,7 +126,7 @@ public interface IUserManagementService
     Task<AuthenticationResult> AuthenticateInternalUserAsync(string username, string password, CancellationToken ct = default);
 
     /// <summary>
-    /// Updates the last login timestamp for a user.
+    /// Updates the last login timestamp of the user with Beacon id <paramref name="userId"/>.
     /// </summary>
-    Task UpdateLastLoginAsync(string externalId, CancellationToken ct = default);
+    Task UpdateLastLoginAsync(int userId, CancellationToken ct = default);
 }

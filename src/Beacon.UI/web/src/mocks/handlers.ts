@@ -91,6 +91,7 @@ const authHandlers = [
       roles: ['Admin'],
       realtimeEnabled: true,
     })),
+  http.get('/beacon/api/auth/permissions', () => HttpResponse.json({ canRead: true, canWrite: true })),
   http.get('/beacon/api/auth/sso', () => HttpResponse.json({ enabled: false })),
   http.post('/beacon/api/auth/logout', () => new HttpResponse(null, { status: 204 })),
 ];

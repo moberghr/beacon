@@ -2,11 +2,12 @@ using Microsoft.AspNetCore.Http;
 using Beacon.Core;
 using Beacon.Core.Services;
 using Beacon.Core.Mcp;
+using Beacon.Core.Services.Security;
 
 namespace Beacon.Api.Authentication;
 
 /// <summary>
-/// Middleware that redirects to the setup page if no users exist (first-run scenario).
+/// Middleware that redirects to the setup page while no super admin has ever existed (first-run scenario).
 /// Only active when User Management is enabled.
 /// </summary>
 public sealed class FirstRunSetupMiddleware(
@@ -32,10 +33,13 @@ public sealed class FirstRunSetupMiddleware(
             return;
         }
 
-        // Check if this is first run (no users exist)
+        // Check if this is first run (no super admin has ever existed)
         var isFirstRun = await userService.IsFirstRunAsync(context.RequestAborted);
         if (isFirstRun)
         {
+            // Covers a process whose startup check could not reach the database: the setup token is announced once.
+            context.RequestServices.GetService<FirstRunSetupToken>()?.AnnounceWhileFirstRun();
+
             // Redirect to setup page
             context.Response.Redirect($"{_basePath}/setup");
             return;

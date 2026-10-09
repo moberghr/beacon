@@ -30,15 +30,16 @@ public class JwtAuthenticationOptions
     public JwtClaimsMappingOptions ClaimsMapping { get; set; } = new();
 
     /// <summary>
-    /// Validates that the options are internally consistent. Call after binding configuration
-    /// (e.g. from <c>AddBeaconServices</c> / the host composition root) before the provider is used.
-    /// Any flow that validates tokens — bearer authentication or external login — requires either a
-    /// signing key or a JWKS endpoint; otherwise token signatures cannot be verified.
+    /// Validates that the options are internally consistent. <c>AddBeaconServices</c> and
+    /// <c>AddBeaconJwtAuthentication</c> call it, so a host fails at startup rather than accepting tokens it cannot pin.
+    /// Any flow that validates tokens — bearer authentication or external login — requires a signing key or a JWKS
+    /// endpoint, at least one issuer and one audience, issuer, audience and lifetime validation left on, and a clock skew of
+    /// at most five minutes: a shared JWKS (Entra's, for one) signs tokens for every tenant and every application.
     /// </summary>
     public void Validate()
     {
-        var requiresKey = EnableBearerAuthentication || !string.IsNullOrWhiteSpace(ExternalLoginEndpoint);
-        if (!requiresKey)
+        var validatesTokens = EnableBearerAuthentication || !string.IsNullOrWhiteSpace(ExternalLoginEndpoint);
+        if (!validatesTokens)
         {
             return;
         }
@@ -48,6 +49,33 @@ public class JwtAuthenticationOptions
             throw new InvalidOperationException(
                 "JWT authentication requires Validation.SigningKey or Validation.JwksEndpoint to be configured " +
                 "when EnableBearerAuthentication or ExternalLoginEndpoint is set.");
+        }
+
+        if (!Validation.ValidateIssuer || Validation.EffectiveIssuers().Count == 0)
+        {
+            throw new InvalidOperationException(
+                "JWT authentication requires issuer validation when EnableBearerAuthentication or ExternalLoginEndpoint " +
+                "is set: configure Validation.ValidIssuer (or ValidIssuers) and leave ValidateIssuer on.");
+        }
+
+        if (!Validation.ValidateAudience || Validation.EffectiveAudiences().Count == 0)
+        {
+            throw new InvalidOperationException(
+                "JWT authentication requires audience validation when EnableBearerAuthentication or ExternalLoginEndpoint " +
+                "is set: configure Validation.ValidAudience (or ValidAudiences) and leave ValidateAudience on.");
+        }
+
+        if (!Validation.ValidateLifetime)
+        {
+            throw new InvalidOperationException(
+                "JWT authentication requires lifetime validation when EnableBearerAuthentication or ExternalLoginEndpoint " +
+                "is set: leave Validation.ValidateLifetime on.");
+        }
+
+        if (Validation.ClockSkew < TimeSpan.Zero || Validation.ClockSkew > JwtValidationOptions.MaxClockSkew)
+        {
+            throw new InvalidOperationException(
+                $"JWT Validation.ClockSkew must be between zero and {JwtValidationOptions.MaxClockSkew.TotalMinutes:0} minutes.");
         }
     }
 }
@@ -91,27 +119,31 @@ public class JwtValidationOptions
     /// </summary>
     public string? JwksEndpoint { get; set; }
 
+    /// <summary>The largest <see cref="ClockSkew"/> <see cref="JwtAuthenticationOptions.Validate"/> accepts.</summary>
+    public static readonly TimeSpan MaxClockSkew = TimeSpan.FromMinutes(5);
+
     /// <summary>
-    /// Allowed clock skew for token expiration validation.
+    /// Allowed clock skew for token expiration validation, at most <see cref="MaxClockSkew"/>.
     /// Default: 5 minutes.
     /// </summary>
     public TimeSpan ClockSkew { get; set; } = TimeSpan.FromMinutes(5);
 
     /// <summary>
-    /// Whether to validate the token lifetime (exp claim).
+    /// Whether to validate the token lifetime (exp claim). Must stay true whenever tokens are validated:
+    /// <see cref="JwtAuthenticationOptions.Validate"/> refuses to start with it off.
     /// Default: true.
     /// </summary>
     public bool ValidateLifetime { get; set; } = true;
 
     /// <summary>
-    /// Whether to validate the issuer (iss claim).
-    /// Default: true when ValidIssuer is set.
+    /// Whether to validate the issuer (iss claim). Must stay true whenever tokens are validated:
+    /// <see cref="JwtAuthenticationOptions.Validate"/> refuses to start with it off.
     /// </summary>
     public bool ValidateIssuer { get; set; } = true;
 
     /// <summary>
-    /// Whether to validate the audience (aud claim).
-    /// Default: true when ValidAudience is set.
+    /// Whether to validate the audience (aud claim). Must stay true whenever tokens are validated:
+    /// <see cref="JwtAuthenticationOptions.Validate"/> refuses to start with it off.
     /// </summary>
     public bool ValidateAudience { get; set; } = true;
 

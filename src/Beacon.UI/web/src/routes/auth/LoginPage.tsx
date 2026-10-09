@@ -71,7 +71,11 @@ export default function LoginPage() {
   });
   const ssoEnabled = ssoConfig.data?.enabled === true;
   const [serverError, setServerError] = useState<string | null>(
-    ssoError ? 'Single sign-on failed. Please try again or sign in with username and password.' : null,
+    ssoError === 'not_admitted'
+      ? 'Your account is not permitted to use Beacon. Ask an administrator to grant you access.'
+      : ssoError
+        ? 'Single sign-on failed. Please try again or sign in with username and password.'
+        : null,
   );
   const [showPassword, setShowPassword] = useState(false);
 

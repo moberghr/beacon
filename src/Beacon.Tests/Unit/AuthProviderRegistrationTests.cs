@@ -39,7 +39,12 @@ public class AuthProviderRegistrationTests
             x.Authentication.Jwt = new JwtAuthenticationOptions
             {
                 ExternalLoginEndpoint = "https://auth.example.test/api/login",
-                Validation = new JwtValidationOptions { SigningKey = "test-signing-key-not-a-secret-0123456789" }
+                Validation = new JwtValidationOptions
+                {
+                    SigningKey = "test-signing-key-not-a-secret-0123456789",
+                    ValidIssuer = "https://auth.example.test",
+                    ValidAudience = "beacon"
+                }
             };
         });
 

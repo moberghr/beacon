@@ -28,4 +28,13 @@ public class UserManagementOptions
     /// Default: true
     /// </summary>
     public bool RequirePasswordComplexity { get; set; } = true;
+
+    /// <summary>
+    /// The secret the first-run setup page must present to create the initial super admin; at least 32 characters, or
+    /// startup fails. Also read from the <c>Beacon:UserManagement:SetupToken</c> configuration key when not set here.
+    /// When neither is set, Beacon generates a random token per process and writes it once to the process console
+    /// (standard error, never the log) while no super admin exists. Set it explicitly when several replicas serve the
+    /// setup page, since each replica generates its own.
+    /// </summary>
+    public string? SetupToken { get; set; }
 }

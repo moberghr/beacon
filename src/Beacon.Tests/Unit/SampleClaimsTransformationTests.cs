@@ -29,16 +29,18 @@ public class SampleClaimsTransformationTests
 
     private static ClaimsPrincipal AuthenticatedPrincipal(string username, params Claim[] extraClaims)
     {
-        var claims = new List<Claim> { new(ClaimTypes.Name, username) };
+        var claims = new List<Claim> { new(ClaimTypes.Name, username), new(ClaimTypes.NameIdentifier, ExternalId(username)) };
         claims.AddRange(extraClaims);
 
         return new ClaimsPrincipal(new ClaimsIdentity(claims, authenticationType: "test"));
     }
 
+    private static string ExternalId(string username) => $"ext-{username}";
+
     private void SetupUser(string username, BeaconUserData? user)
     {
         _userService
-            .Setup(x => x.GetUserByUserNameAsync(username, It.IsAny<CancellationToken>()))
+            .Setup(x => x.GetUserByExternalIdAsync(ExternalId(username), It.IsAny<CancellationToken>()))
             .ReturnsAsync(user);
     }
 
@@ -111,6 +113,36 @@ public class SampleClaimsTransformationTests
         // Existing role claim short-circuits — the user store is never consulted, and no duplicate is added.
         result.FindAll(BeaconClaims.Role).Should().ContainSingle()
             .Which.Value.Should().Be(RoleService.RoleNames.Viewer);
+        _userService.Verify(x => x.GetUserByExternalIdAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Test]
+    public async Task TransformAsync_UserWithoutAnyRole_GetsNoRoleClaim()
+    {
+        SetupUser("erin", new BeaconUserData
+        {
+            UserName = "erin",
+            IsEnabled = true,
+            IsSuperAdmin = false
+        });
+
+        var result = await _transformation.TransformAsync(AuthenticatedPrincipal("erin"));
+
+        result.HasClaim(x => x.Type == BeaconClaims.Role).Should().BeFalse("no role in Beacon means no role label");
+    }
+
+    [Test]
+    public async Task TransformAsync_ResolvesTheUserBySessionId_NeverByTheDisplayedName()
+    {
+        // The session's name is a display name another account could share; only the user id selects the account.
+        _userService
+            .Setup(x => x.GetUserByUserNameAsync("admin", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new BeaconUserData { UserName = "admin", IsEnabled = true, IsSuperAdmin = true });
+        SetupUser("admin", null);
+
+        var result = await _transformation.TransformAsync(AuthenticatedPrincipal("admin"));
+
+        result.HasClaim(x => x.Type == BeaconClaims.Role).Should().BeFalse();
         _userService.Verify(x => x.GetUserByUserNameAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 }

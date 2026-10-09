@@ -1,3 +1,5 @@
+using System.Data;
+using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Authentication;
 using Beacon.Core.Data;
@@ -15,85 +17,123 @@ internal class UserManagementService(
     IRoleService roleService,
     BeaconConfiguration configuration) : IUserManagementService
 {
+    private const string InvalidCredentials = "Invalid username or password.";
+
+    // A well-formed credential no password matches: verifying against it costs what a real verification costs.
+    private static readonly string DummyPasswordHash = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
+    private static readonly string DummyPasswordSalt = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
+
+    // "No super admin has EVER existed": an archived super admin counts, so archiving it never reopens first-run setup,
+    // and users created by any other path (SSO, MCP, an administrator) never close it.
     public async Task<bool> IsFirstRunAsync(CancellationToken ct = default)
     {
         await using var context = await contextFactory.CreateDbContextAsync(ct);
-        return !await context.Users.AnyAsync(ct);
+
+        return !await context.Users
+            .IgnoreQueryFilters()
+            .Where(x => x.IsSuperAdmin)
+            .AnyAsync(ct);
     }
 
     public async Task<BeaconUserData> CreateSuperAdminAsync(CreateSuperAdminRequest request, CancellationToken ct = default)
     {
-        await using var context = await contextFactory.CreateDbContextAsync(ct);
-
-        // Ensure this is actually the first run
-        if (await context.Users.AnyAsync(ct))
-        {
-            throw new BeaconException("Super admin already exists. Setup has already been completed.");
-        }
-
-        // Ensure system roles exist
-        await roleService.SeedSystemRolesAsync(ct);
-
-        // Get the Admin role
-        var adminRole = await context.Roles.FirstAsync(r => r.Name == RoleService.RoleNames.Admin, ct);
-
-        // Validate password
         ValidatePassword(request.Password);
 
-        // Hash the password
+        // Seeded on its own connection before the transaction below, so the serializable unit stays
+        // read-super-admins-then-insert. Two concurrent first-run requests may both try to seed: the loser's unique
+        // violation is harmless, and the Admin role lookup inside the transaction proves the roles exist.
+        try
+        {
+            await roleService.SeedSystemRolesAsync(ct);
+        }
+        catch (DbUpdateException ex) when (DbUniqueViolation.IsUniqueViolation(ex))
+        {
+            // A concurrent request seeded the roles first; nothing is lost.
+        }
+
         var (hash, salt) = passwordHasher.HashPassword(request.Password);
 
-        // EF fixes up the join-table FK on SaveChanges, so the user row and its
-        // Admin role assignment commit together (§5.7 — one SaveChangesAsync per unit
-        // of work). Previously this was two consecutive saves, which left an admin
-        // row without a role visible to readers between the two transactions.
-        var user = new BeaconUser
-        {
-            ExternalId = Guid.NewGuid().ToString(),
-            UserName = request.UserName,
-            Email = request.Email,
-            DisplayName = request.DisplayName ?? request.UserName,
-            IsInternalUser = true,
-            PasswordHash = hash,
-            PasswordSalt = salt,
-            IsSuperAdmin = true,
-            IsEnabled = true,
-            UserRoles = new List<BeaconUserRole>
-            {
-                new()
-                {
-                    RoleId = adminRole.Id,
-                    AssignedAt = DateTime.UtcNow,
-                },
-            },
-        };
+        await using var context = await contextFactory.CreateDbContextAsync(ct);
 
-        context.Users.Add(user);
-        await context.SaveChangesAsync(ct);
+        // Through the execution strategy, so a host that enables retry-on-failure gets a retried unit instead of an
+        // "execution strategy does not support user-initiated transactions" error. A retry starts from a clean tracker
+        // and re-reads: after a concurrent setup committed, it refuses below.
+        var strategy = context.Database.CreateExecutionStrategy();
 
-        return new BeaconUserData
+        return await strategy.ExecuteAsync(async () =>
         {
-            Id = user.Id,
-            ExternalId = user.ExternalId,
-            UserName = user.UserName,
-            Email = user.Email,
-            DisplayName = user.DisplayName,
-            IsInternalUser = user.IsInternalUser,
-            IsSuperAdmin = user.IsSuperAdmin,
-            IsEnabled = user.IsEnabled,
-            CreatedTime = user.CreatedTime,
-            Roles = new List<BeaconRoleData>
+            context.ChangeTracker.Clear();
+
+            // Serializable makes "no super admin has ever existed → insert" atomic on both providers without
+            // provider-specific SQL: PostgreSQL's SSI aborts one of two concurrent attempts with a serialization
+            // failure, and SQL Server's key-range locks make them deadlock so one is chosen as the victim. Either way
+            // exactly one first-run insert commits.
+            await using var transaction = await context.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
+
+            var superAdminEverExisted = await context.Users
+                .IgnoreQueryFilters()
+                .Where(x => x.IsSuperAdmin)
+                .AnyAsync(ct);
+            if (superAdminEverExisted)
             {
-                new()
-                {
-                    Id = adminRole.Id,
-                    Name = adminRole.Name,
-                    Description = adminRole.Description,
-                    IsSystemRole = adminRole.IsSystemRole,
-                    Level = adminRole.Level
-                }
+                throw new BeaconException("Super admin already exists. Setup has already been completed.");
             }
-        };
+
+            var adminRole = await context.Roles
+                .Where(x => x.Name == RoleService.RoleNames.Admin)
+                .FirstAsync(ct);
+
+            // EF fixes up the join-table FK on SaveChanges, so the user row and its Admin role assignment commit
+            // together (§5.7 — one SaveChangesAsync per unit of work).
+            var user = new BeaconUser
+            {
+                ExternalId = Guid.NewGuid().ToString(),
+                UserName = request.UserName,
+                Email = request.Email,
+                DisplayName = request.DisplayName ?? request.UserName,
+                IsInternalUser = true,
+                PasswordHash = hash,
+                PasswordSalt = salt,
+                IsSuperAdmin = true,
+                IsEnabled = true,
+                UserRoles = new List<BeaconUserRole>
+                {
+                    new()
+                    {
+                        RoleId = adminRole.Id,
+                        AssignedAt = DateTime.UtcNow,
+                    },
+                },
+            };
+
+            context.Users.Add(user);
+            await context.SaveChangesAsync(ct);
+            await transaction.CommitAsync(ct);
+
+            return new BeaconUserData
+            {
+                Id = user.Id,
+                ExternalId = user.ExternalId,
+                UserName = user.UserName,
+                Email = user.Email,
+                DisplayName = user.DisplayName,
+                IsInternalUser = user.IsInternalUser,
+                IsSuperAdmin = user.IsSuperAdmin,
+                IsEnabled = user.IsEnabled,
+                CreatedTime = user.CreatedTime,
+                Roles = new List<BeaconRoleData>
+                {
+                    new()
+                    {
+                        Id = adminRole.Id,
+                        Name = adminRole.Name,
+                        Description = adminRole.Description,
+                        IsSystemRole = adminRole.IsSystemRole,
+                        Level = adminRole.Level
+                    }
+                }
+            };
+        });
     }
 
     public async Task<List<BeaconUserData>> GetUsersAsync(string? search = null, CancellationToken ct = default)
@@ -233,6 +273,54 @@ internal class UserManagementService(
             .FirstOrDefaultAsync(ct);
     }
 
+    public async Task<List<BearerUserCandidate>> GetBearerUserCandidatesAsync(
+        string externalId,
+        string identityProvider,
+        bool includeWithoutIdentityProvider,
+        CancellationToken ct = default)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(ct);
+
+        // Archived rows included (flagged): the binding refuses an archived match instead of overlooking it.
+        return await context.Users
+            .IgnoreQueryFilters()
+            .Where(x => !x.IsInternalUser)
+            .Where(x => !x.IsSuperAdmin)
+            .Where(x => x.ExternalId == externalId)
+            .Where(x => x.IdentityProvider == identityProvider
+                || (includeWithoutIdentityProvider && x.IdentityProvider == null))
+            .OrderBy(x => x.Id)
+            .Select(x =>
+                new BearerUserCandidate
+                {
+                    IsArchived = x.ArchivedTime != null,
+                    User = new BeaconUserData
+                    {
+                        Id = x.Id,
+                        ExternalId = x.ExternalId,
+                        IdentityProvider = x.IdentityProvider,
+                        UserName = x.UserName,
+                        Email = x.Email,
+                        DisplayName = x.DisplayName,
+                        IsInternalUser = x.IsInternalUser,
+                        IsSuperAdmin = x.IsSuperAdmin,
+                        IsEnabled = x.IsEnabled,
+                        LastLoginAt = x.LastLoginAt,
+                        CreatedTime = x.CreatedTime,
+                        Roles = x.UserRoles.Select(y =>
+                            new BeaconRoleData
+                            {
+                                Id = y.Role.Id,
+                                Name = y.Role.Name,
+                                Description = y.Role.Description,
+                                IsSystemRole = y.Role.IsSystemRole,
+                                Level = y.Role.Level
+                            }).ToList()
+                    }
+                })
+            .ToListAsync(ct);
+    }
+
     public async Task<BeaconUserData?> GetUserByUserNameAsync(string userName, CancellationToken ct = default)
     {
         await using var context = await contextFactory.CreateDbContextAsync(ct);
@@ -330,12 +418,14 @@ internal class UserManagementService(
         string userName,
         string? email,
         string? displayName,
-        string defaultRoleName,
+        string? defaultRoleName,
         CancellationToken ct = default)
     {
         await using var context = await contextFactory.CreateDbContextAsync(ct);
 
+        // Archived rows included: an archived subject is refused below instead of being provisioned again.
         var existingData = await context.Users
+            .IgnoreQueryFilters()
             .Where(x => x.ExternalId == externalId)
             .Where(x => x.IdentityProvider == identityProvider)
             .Select(x =>
@@ -398,12 +488,30 @@ internal class UserManagementService(
             };
         }
 
+        // Nobody is provisioned before first-run setup: the first user of an installation is always the super admin
+        // created with the setup token, never whoever reaches SSO or MCP first.
+        var setupCompleted = await context.Users
+            .IgnoreQueryFilters()
+            .Where(x => x.IsSuperAdmin)
+            .AnyAsync(ct);
+        if (!setupCompleted)
+        {
+            throw new BeaconException(
+                "First-run setup has not been completed: users are provisioned only after the super admin exists.");
+        }
+
         await roleService.SeedSystemRolesAsync(ct);
 
-        var defaultRole = await context.Roles
-            .Where(x => x.Name == defaultRoleName)
-            .FirstOrDefaultAsync(ct)
-            ?? throw new BeaconException($"Default role '{defaultRoleName}' does not exist.");
+        // No default role configured: the user is provisioned with no role and has no permissions until an admin
+        // assigns one.
+        BeaconRole? defaultRole = null;
+        if (!string.IsNullOrWhiteSpace(defaultRoleName))
+        {
+            defaultRole = await context.Roles
+                .Where(x => x.Name == defaultRoleName)
+                .FirstOrDefaultAsync(ct)
+                ?? throw new BeaconException($"Default role '{defaultRoleName}' does not exist.");
+        }
 
         // Stage the default role on the navigation collection so the user and
         // the UserRole commit together in a single SaveChanges (§5.7).
@@ -418,14 +526,16 @@ internal class UserManagementService(
             IsSuperAdmin = false,
             IsEnabled = true,
             LastLoginAt = DateTime.UtcNow,
-            UserRoles = new List<BeaconUserRole>
-            {
-                new()
+            UserRoles = defaultRole == null
+                ? new List<BeaconUserRole>()
+                : new List<BeaconUserRole>
                 {
-                    RoleId = defaultRole.Id,
-                    AssignedAt = DateTime.UtcNow,
-                }
-            },
+                    new()
+                    {
+                        RoleId = defaultRole.Id,
+                        AssignedAt = DateTime.UtcNow,
+                    }
+                },
         };
 
         context.Users.Add(newUser);
@@ -444,17 +554,19 @@ internal class UserManagementService(
             IsEnabled = newUser.IsEnabled,
             LastLoginAt = newUser.LastLoginAt,
             CreatedTime = newUser.CreatedTime,
-            Roles = new List<BeaconRoleData>
-            {
-                new()
+            Roles = defaultRole == null
+                ? new List<BeaconRoleData>()
+                : new List<BeaconRoleData>
                 {
-                    Id = defaultRole.Id,
-                    Name = defaultRole.Name,
-                    Description = defaultRole.Description,
-                    IsSystemRole = defaultRole.IsSystemRole,
-                    Level = defaultRole.Level
+                    new()
+                    {
+                        Id = defaultRole.Id,
+                        Name = defaultRole.Name,
+                        Description = defaultRole.Description,
+                        IsSystemRole = defaultRole.IsSystemRole,
+                        Level = defaultRole.Level
+                    }
                 }
-            }
         };
     }
 
@@ -716,41 +828,30 @@ internal class UserManagementService(
     {
         await using var context = await contextFactory.CreateDbContextAsync(ct);
 
+        // Internal users only, in a deterministic order: an exact user name (unique among active users) wins over an
+        // e-mail match, and among several e-mail matches the oldest account wins.
         var user = await context.Users
-            .Include(u => u.UserRoles)
-            .ThenInclude(ur => ur.Role)
-            .FirstOrDefaultAsync(u => u.UserName == username || u.Email == username, ct);
+            .Include(x => x.UserRoles)
+            .ThenInclude(x => x.Role)
+            .Where(x => x.IsInternalUser)
+            .Where(x => x.UserName == username || x.Email == username)
+            .OrderBy(x => x.UserName == username ? 0 : 1)
+            .ThenBy(x => x.Id)
+            .FirstOrDefaultAsync(ct);
 
-        if (user == null)
+        // The password is verified BEFORE the account state is looked at, and against a dummy credential when there is
+        // no account, so neither the answer nor its timing tells an unknown or disabled account from a wrong password.
+        var passwordMatches = user is { PasswordHash: not null, PasswordSalt: not null }
+            ? passwordHasher.VerifyPassword(password, user.PasswordHash, user.PasswordSalt)
+            : VerifyAgainstDummyCredential(password);
+
+        if (user == null || !passwordMatches || !user.IsEnabled || user.ArchivedTime.HasValue)
         {
-            return AuthenticationResult.Failed("Invalid username or password.");
+            return AuthenticationResult.Failed(InvalidCredentials);
         }
 
-        if (!user.IsInternalUser)
-        {
-            return AuthenticationResult.Failed("Invalid username or password.");
-        }
-
-        if (!user.IsEnabled)
-        {
-            return AuthenticationResult.Failed("This account has been disabled.");
-        }
-
-        if (user.ArchivedTime.HasValue)
-        {
-            return AuthenticationResult.Failed("Invalid username or password.");
-        }
-
-        if (!passwordHasher.VerifyPassword(password, user.PasswordHash!, user.PasswordSalt!))
-        {
-            return AuthenticationResult.Failed("Invalid username or password.");
-        }
-
-        // Update last login
         user.LastLoginAt = DateTime.UtcNow;
         await context.SaveChangesAsync(ct);
-
-        var roles = user.UserRoles.Select(ur => ur.Role.Name).ToList();
 
         return AuthenticationResult.Succeeded(new AuthenticatedUser
         {
@@ -758,20 +859,31 @@ internal class UserManagementService(
             UserName = user.UserName,
             Email = user.Email,
             DisplayName = user.DisplayName,
-            Roles = roles
+            Roles = user.UserRoles
+                .Select(x => x.Role.Name)
+                .ToList()
         });
     }
 
-    public async Task UpdateLastLoginAsync(string externalId, CancellationToken ct = default)
+    public async Task UpdateLastLoginAsync(int userId, CancellationToken ct = default)
     {
         await using var context = await contextFactory.CreateDbContextAsync(ct);
 
-        var user = await context.Users.FirstOrDefaultAsync(u => u.ExternalId == externalId, ct);
+        var user = await context.Users
+            .Where(x => x.Id == userId)
+            .FirstOrDefaultAsync(ct);
         if (user != null)
         {
             user.LastLoginAt = DateTime.UtcNow;
             await context.SaveChangesAsync(ct);
         }
+    }
+
+    private bool VerifyAgainstDummyCredential(string password)
+    {
+        passwordHasher.VerifyPassword(password, DummyPasswordHash, DummyPasswordSalt);
+
+        return false;
     }
 
     private void ValidatePassword(string password)

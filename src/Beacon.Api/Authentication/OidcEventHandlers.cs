@@ -16,6 +16,16 @@ namespace Beacon.Api.Authentication;
 
 internal static class OidcEventHandlers
 {
+    private const string BeaconClaimPrefix = "beacon:";
+
+    private static readonly HashSet<string> AuthorizationClaimTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "role",
+        "roles",
+        "groups",
+        "wids"
+    };
+
     public static async Task HandleTokenValidatedAsync(TokenValidatedContext context)
     {
         var services = context.HttpContext.RequestServices;
@@ -37,6 +47,18 @@ internal static class OidcEventHandlers
             return;
         }
 
+        // Admission runs before anything is looked up or provisioned: a subject outside the allowed tenants, a guest,
+        // or a user without a required group/app role never gets a Beacon user.
+        var admission = OidcAdmission.Evaluate(principal, oidcOptions);
+        if (admission != OidcAdmissionDecision.Admitted)
+        {
+            LogRefusal(logger, admission.ToString(), principal, externalId);
+            context.Fail(new OidcNotAdmittedException());
+            return;
+        }
+
+        OidcAdmission.WarnOnceWhenGuestSignalMissing(principal, oidcOptions, logger);
+
         var identityProvider = GetClaim(principal, "iss") ?? oidcOptions.Authority ?? string.Empty;
         var email = GetClaim(principal, "email");
         var displayName = GetClaim(principal, "name");
@@ -54,13 +76,14 @@ internal static class OidcEventHandlers
                 userName,
                 email,
                 displayName,
-                oidcOptions.DefaultRoleName,
+                string.IsNullOrWhiteSpace(oidcOptions.DefaultRoleName) ? null : oidcOptions.DefaultRoleName,
                 context.HttpContext.RequestAborted);
         }
         catch (BeaconException ex)
         {
-            logger.LogWarning("SSO sign-in denied for external id {ExternalId}: {Reason}", externalId, ex.Message);
-            context.Fail(ex.Message);
+            // Disabled, archived, or first-run setup not completed: the message is a fixed string from the user store.
+            LogRefusal(logger, ex.Message, principal, externalId);
+            context.Fail(new OidcNotAdmittedException());
             return;
         }
 
@@ -70,6 +93,15 @@ internal static class OidcEventHandlers
     public static Task HandleRemoteFailureAsync(RemoteFailureContext context)
     {
         var logger = context.HttpContext.RequestServices.GetRequiredService<ILogger<OpenIdConnectEvents>>();
+        // A subject Beacon refused (not admitted, disabled or archived) gets its own message on the login page; the
+        // exception carries no detail, so there is nothing to log beyond the reason already logged above.
+        if (context.Failure is OidcNotAdmittedException)
+        {
+            context.Response.Redirect("/beacon/login?ssoError=not_admitted");
+            context.HandleResponse();
+            return Task.CompletedTask;
+        }
+
         logger.LogWarning(context.Failure, "OIDC remote failure");
 
         context.Response.Redirect("/beacon/login?ssoError=1");
@@ -80,6 +112,17 @@ internal static class OidcEventHandlers
     private static void EnrichBeaconClaims(TokenValidatedContext context, BeaconUserData user)
     {
         var identity = context.Principal!.Identities.First();
+
+        // Authorization comes from Beacon only: every role-like claim the identity provider sent (whatever the
+        // identity's role claim type is), its groups and directory roles, and any beacon:* claim are removed before
+        // Beacon's own claims are added.
+        var tokenSupplied = identity.Claims
+            .Where(x => IsAuthorizationClaim(x.Type, identity.RoleClaimType))
+            .ToList();
+        foreach (var claim in tokenSupplied)
+        {
+            identity.RemoveClaim(claim);
+        }
 
         ReplaceClaim(identity, ClaimTypes.NameIdentifier, user.ExternalId);
         ReplaceClaim(identity, ClaimTypes.Name, user.DisplayName ?? user.UserName);
@@ -94,33 +137,51 @@ internal static class OidcEventHandlers
             ReplaceClaim(identity, "DisplayName", user.DisplayName!);
         }
 
-        ReplaceClaim(identity, BeaconClaims.UserId, user.ExternalId);
-        ReplaceClaim(identity, BeaconClaims.UserName, user.UserName);
-
-        var existingRoles = identity.FindAll(ClaimTypes.Role).ToList();
-        foreach (var claim in existingRoles)
-        {
-            identity.RemoveClaim(claim);
-        }
-
-        foreach (var existingSemRole in identity.FindAll(BeaconClaims.Role).ToList())
-        {
-            identity.RemoveClaim(existingSemRole);
-        }
+        identity.AddClaim(new Claim(BeaconClaims.UserId, user.ExternalId));
+        identity.AddClaim(new Claim(BeaconClaims.UserName, user.UserName));
 
         foreach (var role in user.Roles)
         {
             identity.AddClaim(new Claim(ClaimTypes.Role, role.Name));
             identity.AddClaim(new Claim(BeaconClaims.Role, role.Name));
+            if (!string.Equals(identity.RoleClaimType, ClaimTypes.Role, StringComparison.Ordinal))
+            {
+                identity.AddClaim(new Claim(identity.RoleClaimType, role.Name));
+            }
         }
 
         context.Properties!.IsPersistent = true;
         context.Properties.AllowRefresh = true;
     }
 
+    private static bool IsAuthorizationClaim(string claimType, string roleClaimType)
+    {
+        return string.Equals(claimType, roleClaimType, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(claimType, ClaimTypes.Role, StringComparison.OrdinalIgnoreCase)
+            || AuthorizationClaimTypes.Contains(claimType)
+            || claimType.StartsWith(BeaconClaimPrefix, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // Reason, tenant, issuer and a subject hash: never the raw subject, an e-mail or other claim values.
+    private static void LogRefusal(ILogger logger, string reason, ClaimsPrincipal principal, string externalId)
+    {
+        logger.LogWarning(
+            "SSO sign-in refused: {Reason} (tenant {TenantId}, issuer {Issuer}, subject {SubjectHash}).",
+            reason,
+            GetClaim(principal, "tid") ?? "-",
+            GetClaim(principal, "iss") ?? "-",
+            SubjectFingerprint.Of(externalId));
+    }
+
+    // Exact (case-sensitive) claim names, as the identity provider sent them (MapInboundClaims is off).
     private static string? GetClaim(ClaimsPrincipal principal, string type)
     {
-        return principal.FindFirst(type)?.Value;
+        var value = principal.Claims
+            .Where(x => string.Equals(x.Type, type, StringComparison.Ordinal))
+            .Select(x => x.Value)
+            .FirstOrDefault();
+
+        return string.IsNullOrWhiteSpace(value) ? null : value;
     }
 
     private static void ReplaceClaim(ClaimsIdentity identity, string type, string value)
@@ -133,3 +194,9 @@ internal static class OidcEventHandlers
         identity.AddClaim(new Claim(type, value));
     }
 }
+
+/// <summary>
+/// The SSO subject authenticated at the identity provider but may not use Beacon (not admitted, disabled or archived).
+/// Carries no detail: the reason is logged where the decision is made.
+/// </summary>
+internal sealed class OidcNotAdmittedException() : Exception("The signed-in account is not permitted to use Beacon.");

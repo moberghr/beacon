@@ -46,6 +46,30 @@ describe('LoginPage SSO button', () => {
   });
 });
 
+describe('LoginPage SSO errors', () => {
+  it('tells a refused SSO account that it is not permitted', async () => {
+    mswServer.use(
+      anonymousMe,
+      http.get('*/beacon/api/auth/sso', () => HttpResponse.json({ enabled: true })),
+    );
+
+    renderWithProviders(<LoginPage />, { initialEntries: ['/login?ssoError=not_admitted'] });
+
+    expect(await screen.findByText(/not permitted to use beacon/i)).toBeInTheDocument();
+  });
+
+  it('keeps the generic message for other SSO failures', async () => {
+    mswServer.use(
+      anonymousMe,
+      http.get('*/beacon/api/auth/sso', () => HttpResponse.json({ enabled: true })),
+    );
+
+    renderWithProviders(<LoginPage />, { initialEntries: ['/login?ssoError=1'] });
+
+    expect(await screen.findByText(/single sign-on failed/i)).toBeInTheDocument();
+  });
+});
+
 // A local sign-in ends with a full page load, which the router never sees, so the target must
 // carry the /beacon basename itself — otherwise the browser lands on the host's own /home.
 describe('LoginPage local sign-in redirect', () => {

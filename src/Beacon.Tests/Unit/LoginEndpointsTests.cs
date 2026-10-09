@@ -160,6 +160,20 @@ public class LoginEndpointsTests
         services.Should().Contain(x => x.ServiceType == typeof(LoginRateLimiter));
     }
 
+    [Test]
+    public async Task SignOut_IsPostOnly_ThereIsNoAnonymousGetThatEndsASession()
+    {
+        await using var app = await StartHostAsync(useHostRateLimiter: false, registerLimiter: true);
+        var client = app.GetTestClient();
+
+        var signOutGet = await client.GetAsync("/beacon/api/auth/signout");
+        var logoutGet = await client.GetAsync("/beacon/api/auth/logout");
+
+        signOutGet.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        logoutGet.StatusCode.Should().Be(HttpStatusCode.MethodNotAllowed);
+        signOutGet.Headers.Contains("Set-Cookie").Should().BeFalse();
+    }
+
     private static async Task<WebApplication> StartHostAsync(bool useHostRateLimiter, bool registerLimiter)
     {
         var builder = WebApplication.CreateBuilder();

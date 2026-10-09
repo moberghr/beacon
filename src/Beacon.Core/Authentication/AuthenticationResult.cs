@@ -29,6 +29,13 @@ public class AuthenticationResult
     public ClaimsPrincipal? TokenPrincipal { get; init; }
 
     /// <summary>
+    /// The Beacon user id the result is bound to, when the provider bound one (the login-form JWT flow binds the token
+    /// to an existing Beacon user). A provider that wraps another re-reads exactly this user, never one found by a
+    /// provider-agnostic external id.
+    /// </summary>
+    public int? BeaconUserId { get; init; }
+
+    /// <summary>
     /// Creates a failed authentication result with an error message.
     /// </summary>
     public static AuthenticationResult Failed(string message) =>

@@ -104,24 +104,11 @@ public static partial class LoginEndpoints
             return Results.Ok(new { success = true });
         })
         .AllowAnonymous()
-        // Logout must succeed even when the client holds a stale CSRF cookie (e.g. after
-        // identity rotation on a second tab); antiforgery on logout has no security benefit.
+        // Logout must succeed even when the client holds a stale CSRF cookie (e.g. after identity rotation on a second
+        // tab), so antiforgery is off here. POST only: there is no GET sign-out endpoint, and the SameSite=Lax session
+        // cookie is not sent on a cross-site POST. The SPA's /logout page posts here only after a click, or when the app
+        // itself navigated there, so a link from another site cannot end the session either.
         .DisableAntiforgery();
-
-        // GET /beacon/api/auth/signout — browser-navigable signout that clears the cookie and redirects
-        var loginPath = $"{basePath}{configuration.Authentication.LoginPath}";
-        endpoints.MapGet($"{basePath}/api/auth/signout", async (
-            HttpContext context,
-            IBeaconAuthenticationProvider authProvider,
-            IAntiforgery antiforgery) =>
-        {
-            await authProvider.SignOutAsync();
-            await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
-            context.User = new ClaimsPrincipal(new ClaimsIdentity());
-            antiforgery.SetCookieTokenAndHeader(context);
-
-            return Results.Redirect(loginPath);
-        }).AllowAnonymous();
     }
 }
 

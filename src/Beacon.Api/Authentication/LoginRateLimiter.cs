@@ -56,13 +56,36 @@ internal sealed class LoginRateLimiter : IDisposable
 /// <summary>Endpoint filter that rejects login attempts over the per-IP limit with 429 and <c>Retry-After</c>.</summary>
 internal sealed class LoginRateLimitFilter : IEndpointFilter
 {
-    public async ValueTask<object?> InvokeAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
+    public ValueTask<object?> InvokeAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
+    {
+        return PerIpThrottle.InvokeAsync(context, next, partitionPrefix: string.Empty);
+    }
+}
+
+/// <summary>
+/// Endpoint filter for the anonymous first-run setup endpoints: the same per-IP limit as login, in its own partition so
+/// setup requests never consume an address's login budget (or the reverse).
+/// </summary>
+internal sealed class SetupRateLimitFilter : IEndpointFilter
+{
+    public ValueTask<object?> InvokeAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
+    {
+        return PerIpThrottle.InvokeAsync(context, next, partitionPrefix: "setup:");
+    }
+}
+
+internal static class PerIpThrottle
+{
+    public static async ValueTask<object?> InvokeAsync(
+        EndpointFilterInvocationContext context,
+        EndpointFilterDelegate next,
+        string partitionPrefix)
     {
         var httpContext = context.HttpContext;
         var limiter = httpContext.RequestServices.GetService<LoginRateLimiter>() ?? LoginRateLimiter.Default;
         var remoteIp = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 
-        if (limiter.TryAcquire(remoteIp, out var retryAfter))
+        if (limiter.TryAcquire(partitionPrefix + remoteIp, out var retryAfter))
         {
             return await next(context);
         }

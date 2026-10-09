@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Beacon.Api.Authentication;
 using Beacon.Core.Authentication;
 using Beacon.Core.Authorization;
 using Microsoft.Extensions.Options;
@@ -22,7 +23,10 @@ internal static class AuthEndpoints
             .WithName("GetSsoConfig")
             .WithTags("Auth");
 
+        // Authenticated but not permission-gated: a user without a role gets { canRead: false } (the shell shows a
+        // "no access yet" message) rather than a 403.
         group.MapGet("/auth/permissions", GetCurrentPermissions)
+            .SkipBeaconPermissionCheck()
             .WithName("GetCurrentPermissions")
             .WithTags("Auth");
 

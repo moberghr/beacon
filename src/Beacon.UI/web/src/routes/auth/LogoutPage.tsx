@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { ArrowRight } from 'lucide-react';
 import { beaconApi } from '@/api/client';
@@ -9,15 +9,29 @@ import {
   AuthAlert,
   EmphasisWord,
   AuthSpinner,
+  AuthSubmit,
   authLinkButtonClass,
 } from './AuthLayout';
 
+/** Router state the app sets when it sends the user to /logout itself (e.g. the "Sign out" link). */
+interface LogoutState {
+  fromApp?: boolean;
+}
+
+/**
+ * Ends the Beacon session. When the app itself navigated here, sign-out starts at once; a visit from anywhere else
+ * (a link on another site, a typed URL) asks for a click first, so a link alone can never sign a user out.
+ */
 export default function LogoutPage() {
+  const location = useLocation();
+  const fromApp = (location.state as LogoutState | null)?.fromApp === true;
+  const [confirmed, setConfirmed] = useState(fromApp);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   useEffect(() => {
+    if (!confirmed) return;
     let cancelled = false;
     (async () => {
       try {
@@ -35,7 +49,29 @@ export default function LogoutPage() {
     return () => {
       cancelled = true;
     };
-  }, [queryClient]);
+  }, [confirmed, queryClient]);
+
+  if (!confirmed) {
+    return (
+      <AuthLayout
+        eyebrow="SIGN OUT"
+        title={
+          <>
+            Sign <EmphasisWord>out</EmphasisWord>?
+          </>
+        }
+        subtitle="This ends your Beacon session in this browser."
+      >
+        <AuthSubmit type="button" onClick={() => setConfirmed(true)}>
+          Sign out
+          <ArrowRight size={14} />
+        </AuthSubmit>
+        <Link to="/" className={authLinkButtonClass()}>
+          Stay signed in
+        </Link>
+      </AuthLayout>
+    );
+  }
 
   return (
     <AuthLayout

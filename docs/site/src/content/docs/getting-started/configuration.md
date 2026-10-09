@@ -222,7 +222,10 @@ builder.Services.AddBeaconOidcAuthentication(builder.Configuration);
         "ClientSecret": "${OIDC_CLIENT_SECRET}",
         "CallbackPath": "/signin-oidc",
         "Scopes": ["openid", "profile", "email"],
-        "DefaultRoleName": "Viewer",
+        "AllowedTenants": ["{YOUR_TENANT_ID}"],
+        "BlockGuests": true,
+        "RequiredRoles": [],
+        "RequiredGroups": [],
         "DisplayName": "Microsoft",
         "McpJwksEndpoint": "https://login.microsoftonline.com/{YOUR_TENANT_ID}/discovery/v2.0/keys"
       }
@@ -231,7 +234,20 @@ builder.Services.AddBeaconOidcAuthentication(builder.Configuration);
 }
 ```
 
-`DefaultRoleName` is the role assigned to first-time SSO users; `DisplayName` labels the SSO button on the login page.
+Beacon decides who may sign in **before** it provisions anything. A subject that is not admitted gets a "not permitted" message on the login page and no Beacon user is created for it.
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `AllowedTenants` | Entra tenant ids (`tid` claim) whose users may sign in. **Startup fails** when SSO is enabled with no tenant listed and `AllowAnyTenant` off. | empty |
+| `AllowAnyTenant` | Skip the tenant check. Only for an identity provider that issues no `tid` claim (the `Authority` then decides who can sign in). | `false` |
+| `BlockGuests` | Refuse Entra B2B guests: an `acct` claim of `1`, or an `idp` claim that is not exactly the token issuer or one of the tenant's own Entra issuers. Applies to tokens that carry `tid`. A token with neither `acct` nor `idp` is admitted as a member (a one-time Warning says so). | `true` |
+| `RequiredRoles` / `RequiredGroups` | App roles (`roles` claim) / group object ids (`groups` claim). When either is set, a user must hold at least one listed role or group (case-insensitive). An app role listed here must exist in the app registration and be assigned, or nobody is admitted. | empty |
+| `DefaultRoleName` | Role given to a user provisioned on first SSO sign-in. **Unset means no role**: the user can sign in but sees nothing until an administrator assigns one. | unset |
+| `EnableFrontChannelLogout` | Serve the OIDC front-channel sign-out path (`/signout-oidc`). Off by default: it is an anonymous `GET` that ends the session. | `false` |
+
+For reliable guest detection, add `acct` as an optional claim (ID and access tokens) in the Entra app registration: `idp` alone only reveals guests whose home is another identity provider, and while `BlockGuests` is on Beacon logs a one-time Warning when a token carries neither claim. With `AllowAnyTenant` on and an Entra authority, Beacon logs a Warning at startup, since every tenant the authority accepts can then sign in.
+
+Prefer **app roles** in `RequiredRoles` over `RequiredGroups`: Entra leaves the `groups` claim out of a token when the user belongs to more groups than fit (the "overage" case, about 200 for a JWT), and such a user then fails the group requirement. As defence in depth, set the enterprise application to **assignment required** and assign only the approved users or groups. `DisplayName` labels the SSO button on the login page.
 
 ### API Keys
 
@@ -244,7 +260,23 @@ Beacon issues API keys for programmatic and MCP access — see the [API Keys Gui
 
 ### JWT Bearer for MCP Clients
 
-MCP clients can also authenticate with **JWT bearer** tokens issued by your OIDC provider. When OIDC is enabled, set `McpJwksEndpoint` to the provider's JWKS (signing keys) URL — Beacon validates the token's signature, issuer, and audience against it. This lets AI assistants use the same identity provider as your users, without cookies or long-lived API keys.
+MCP clients can also authenticate with **JWT bearer** tokens issued by your OIDC provider. When OIDC is enabled, set `McpJwksEndpoint` to the provider's JWKS (signing keys) URL — the sample host then enables bearer tokens with the OIDC authority as the issuer and the client id as the audience. This lets AI assistants use the same identity provider as your users, without cookies or long-lived API keys.
+
+In your own host, bearer tokens are enabled with `AddBeaconJwtAuthentication`. Whenever bearer authentication or an external login endpoint is on, **at least one issuer and one audience are required**, issuer, audience and lifetime validation cannot be turned off, and `ClockSkew` may be at most five minutes — the host refuses to start otherwise:
+
+```csharp
+builder.Services.AddBeaconJwtAuthentication(jwt =>
+{
+    jwt.EnableBearerAuthentication = true;
+    jwt.Validation.JwksEndpoint = "https://login.microsoftonline.com/{tenant}/discovery/v2.0/keys";
+    jwt.Validation.ValidIssuer = "https://login.microsoftonline.com/{tenant}/v2.0";
+    jwt.Validation.ValidAudience = "{beacon-client-id}"; // the application (client) id GUID for v2.0 access tokens
+});
+```
+
+Match the issuer and audience to the access-token version your app registration issues (`accessTokenAcceptedVersion` in its manifest). A **v2.0** access token (`accessTokenAcceptedVersion: 2`) has the issuer `https://login.microsoftonline.com/{tenant}/v2.0` and the application's client id GUID as `aud`. A **v1.0** token (the default, `null` or `1`) has the issuer `https://sts.windows.net/{tenant}/` and the Application ID URI (for example `api://{beacon-client-id}`) as `aud`. List both in `ValidIssuers` / `ValidAudiences` only if you accept both versions.
+
+On `/beacon/mcp` the token is mapped by the MCP caller configuration (see [Entra MCP callers](/features/mcp-entra-callers/)). On every other route a bearer token must be an access token (an ID token is refused), must pass the SSO admission rules when the SSO authority issued it, and must name an **existing, enabled, external Beacon user** — by its subject and issuer, or a pre-registered user's subject when only one issuer is configured (see [User Management → Option 2](/features/user-management/#option-2-external-identity-provider-jwtoauth)). The session gets that user's **Beacon roles**, never roles from the token. Any other token gets `401` with `WWW-Authenticate: Bearer error="invalid_token"`. This needs user management; without it, bearer tokens are refused outside `/beacon/mcp`.
 
 :::note
 For complete user-management and provider documentation (external JWT setup, custom providers, roles), see the [User Management Guide](/features/user-management/).
@@ -312,6 +344,11 @@ options.UserManagement = new UserManagementOptions
 | `AllowInternalUsers` | Allow password-based users | `true` |
 | `MinimumPasswordLength` | Minimum password length | `8` |
 | `RequirePasswordComplexity` | Require mixed case, numbers, symbols | `true` |
+| `SetupToken` | Secret the first-run setup page must present; at least 32 characters, or startup fails. Also read from `Beacon:UserManagement:SetupToken`. When unset, Beacon generates one per process and prints it once to the process console (standard error, never the log) while no super admin exists. Required when several replicas serve the setup page. | unset (generated) |
+
+:::caution[Upgrading from 4.5]
+Identity and admission are tighter: first-run setup needs a setup token, SSO needs `AllowedTenants` (or `AllowAnyTenant`) and no longer gives new users a role by default, JWT issuer, audience and lifetime validation are mandatory, REST bearer tokens must name an existing external Beacon user, and `GET /beacon/api/auth/signout` is gone. See [User Management → Upgrading from 4.5](/features/user-management/#upgrading-from-45) for what to change.
+:::
 
 ## AI / LLM Configuration (Optional — Experimental)
 

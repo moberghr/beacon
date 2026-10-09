@@ -230,6 +230,23 @@ public static class ServiceConfiguration
             services.TryAddTransient<IRoleService, RoleService>();
             services.TryAddTransient<IUserManagementService, UserManagementService>();
 
+            // First-run setup needs a secret: the code-configured one, else Beacon:UserManagement:SetupToken, else one
+            // generated per process and written once to the console while no super admin exists (FirstRunSetupToken).
+            if (string.IsNullOrWhiteSpace(configurationOptions.UserManagement.SetupToken))
+            {
+                configurationOptions.UserManagement.SetupToken = configuration["Beacon:UserManagement:SetupToken"];
+            }
+
+            var setupToken = configurationOptions.UserManagement.SetupToken?.Trim();
+            if (!string.IsNullOrEmpty(setupToken) && setupToken.Length < Services.Security.FirstRunSetupToken.MinimumConfiguredLength)
+            {
+                throw new InvalidOperationException(
+                    $"Beacon:UserManagement:SetupToken must be at least {Services.Security.FirstRunSetupToken.MinimumConfiguredLength} " +
+                    "characters. Leave it unset to have Beacon generate one at startup.");
+            }
+
+            services.TryAddSingleton<Services.Security.FirstRunSetupToken>();
+
             // Register database-backed authentication provider
             if (configurationOptions.UserManagement.AllowInternalUsers)
             {

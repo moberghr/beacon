@@ -22,6 +22,25 @@ export function useAuth() {
   });
 }
 
+export interface CurrentPermissions {
+  canRead: boolean;
+  canWrite: boolean;
+}
+
+/**
+ * The signed-in user's Beacon permissions. `canRead` is false for an account with no role yet (e.g. a user
+ * provisioned by SSO who is waiting for an administrator to assign one). Re-checked when the window regains focus,
+ * so a user who was just granted a role gets in without reloading.
+ */
+export function usePermissions(enabled: boolean) {
+  return useQuery<CurrentPermissions>({
+    queryKey: ['auth', 'permissions'],
+    queryFn: async () => unwrap<CurrentPermissions>(await beaconApi().getCurrentPermissions()),
+    enabled,
+    refetchOnWindowFocus: true,
+  });
+}
+
 /**
  * True iff the current user is in the `Admin` role (case-insensitive).
  * Returns `undefined` while the auth query is loading.
