@@ -38,6 +38,8 @@ public class BeaconPermissionEndpointFilterTests
 {
     private const string TestUserHeader = "X-Test-User";
     private const string AntiforgeryCookieName = "test.antiforgery";
+    private const string DraftBody =
+        "{\"draft\":{\"steps\":[{\"stepOrder\":1,\"name\":\"s\",\"sqlValue\":\"SELECT 1\",\"dataSourceId\":1}]}}";
 
     private static readonly ClaimsPrincipal CookieUser = new(new ClaimsIdentity(
         [new Claim(ClaimTypes.NameIdentifier, Guid.NewGuid().ToString())],
@@ -318,6 +320,39 @@ public class BeaconPermissionEndpointFilterTests
             .OfType<ToggleQueryLockCommand>()
             .Should()
             .BeEmpty("a denied request must never reach its handler");
+    }
+
+    [TestCase("/beacon/api/queries/1/preview")]
+    [TestCase("/beacon/api/queries/1/steps/1/preview")]
+    public async Task MapBeaconApi_Viewer_CanRunTheStoredQuery_ButNotADraft(string path)
+    {
+        GrantPermissions(read: true, write: false);
+        var mediator = new Mock<IMediator>();
+        await using var app = await StartBeaconApiAsync(mediator.Object);
+
+        var stored = await SendAsync(app, HttpMethod.Post, path, "{\"draft\":null}");
+        var draft = await SendAsync(app, HttpMethod.Post, path, DraftBody);
+
+        stored.StatusCode.Should().Be(HttpStatusCode.OK, "Viewers may run existing queries");
+        draft.StatusCode.Should().Be(HttpStatusCode.Forbidden, "a draft is unsaved SQL, which needs write permission");
+        mediator.Invocations.Should().ContainSingle("the draft request must never reach its handler");
+    }
+
+    [Test]
+    public async Task MapBeaconApi_Editor_CanRunADraft()
+    {
+        GrantPermissions(read: true, write: true);
+        var mediator = new Mock<IMediator>();
+        await using var app = await StartBeaconApiAsync(mediator.Object);
+
+        var response = await SendAsync(app, HttpMethod.Post, "/beacon/api/queries/1/preview", DraftBody);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        mediator.Invocations
+            .Select(x => x.Arguments[0])
+            .OfType<ExecuteQueryPreviewCommand>()
+            .Should()
+            .ContainSingle(x => x.Draft != null);
     }
 
     [Test]

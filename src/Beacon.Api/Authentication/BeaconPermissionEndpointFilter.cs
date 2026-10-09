@@ -43,7 +43,8 @@ internal sealed class BeaconPermissionEndpointFilter(ILogger<BeaconPermissionEnd
 
         var method = httpContext.Request.Method;
         var isSafeMethod = HttpMethods.IsGet(method) || HttpMethods.IsHead(method) || HttpMethods.IsOptions(method);
-        var requiresWrite = !isSafeMethod && endpoint?.Metadata.GetMetadata<BeaconViewerAccessMetadata>() == null;
+        var viewerAccess = endpoint?.Metadata.GetMetadata<BeaconViewerAccessMetadata>();
+        var requiresWrite = !isSafeMethod && viewerAccess?.AppliesTo(context) != true;
 
         var isAllowed = requiresWrite
             ? await HasWriteAccessAsync(httpContext)
@@ -107,14 +108,28 @@ internal sealed class BeaconPermissionEndpointFilter(ILogger<BeaconPermissionEnd
 
 /// <summary>
 /// Marks a mutating <c>/beacon/api</c> endpoint that a Viewer may call (read permission suffices). Applied only to the
-/// endpoints the Viewer scope allows: running an existing query's previews and changing one's own password.
+/// endpoints the Viewer scope allows: running an existing query's previews and changing one's own password. A
+/// condition narrows it per request (the bound arguments are available); a request it rejects needs write permission.
 /// </summary>
 internal sealed class BeaconViewerAccessMetadata
 {
-    public static readonly BeaconViewerAccessMetadata Instance = new();
+    public static readonly BeaconViewerAccessMetadata Instance = new(null);
 
-    private BeaconViewerAccessMetadata()
+    private readonly Func<EndpointFilterInvocationContext, bool>? _condition;
+
+    private BeaconViewerAccessMetadata(Func<EndpointFilterInvocationContext, bool>? condition)
     {
+        _condition = condition;
+    }
+
+    public static BeaconViewerAccessMetadata When(Func<EndpointFilterInvocationContext, bool> condition)
+    {
+        return new BeaconViewerAccessMetadata(condition);
+    }
+
+    public bool AppliesTo(EndpointFilterInvocationContext context)
+    {
+        return _condition?.Invoke(context) ?? true;
     }
 }
 
@@ -125,5 +140,14 @@ internal static class BeaconViewerAccessExtensions
         where TBuilder : IEndpointConventionBuilder
     {
         return builder.WithMetadata(BeaconViewerAccessMetadata.Instance);
+    }
+
+    /// <summary>Lets Viewers reach this mutating endpoint only for requests matching <paramref name="condition"/>.</summary>
+    public static TBuilder AllowViewerAccess<TBuilder>(
+        this TBuilder builder,
+        Func<EndpointFilterInvocationContext, bool> condition)
+        where TBuilder : IEndpointConventionBuilder
+    {
+        return builder.WithMetadata(BeaconViewerAccessMetadata.When(condition));
     }
 }

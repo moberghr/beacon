@@ -138,6 +138,26 @@ describe('QueryEditorPage', () => {
     expect(screen.getByText('Unsaved changes')).toBeInTheDocument();
   });
 
+  it('runs the stored query without a draft when nothing was edited', async () => {
+    stubEditorEndpoints();
+    let previewBody: { draft?: unknown } | null = null;
+    mswServer.use(
+      http.post('*/beacon/api/queries/99/preview', async ({ request }) => {
+        previewBody = (await request.json()) as typeof previewBody;
+        return HttpResponse.json({ success: true, steps: [], dataSourcesInvolved: [], totalExecutionTimeMs: 1 });
+      }),
+    );
+
+    renderEditor();
+    await screen.findByDisplayValue('SELECT 1');
+
+    fireEvent.click(screen.getByRole('button', { name: /Run query/i }));
+
+    await waitFor(() => {
+      expect(previewBody).toEqual({ draft: null });
+    });
+  });
+
   it('asks before leaving with unsaved changes', async () => {
     stubEditorEndpoints();
 
