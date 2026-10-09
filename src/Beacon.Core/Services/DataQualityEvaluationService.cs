@@ -7,6 +7,7 @@ using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Entities.DataQuality;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Exceptions;
 using Beacon.Core.Models.DataQuality;
 using Beacon.Core.Services.Providers;
 using Beacon.Core.Services.Validation;
@@ -64,6 +65,12 @@ internal class DataQualityEvaluationService(
         var provider = providerFactory.GetProvider(contract.DataSource.DataSourceType);
         var engineType = contract.DataSource.DatabaseEngineType.Value;
         var enabledRules = contract.Rules.Where(r => r.IsEnabled).ToList();
+
+        // Scoring no rules would report 100, overwrite the real score and keep alerts quiet, so nothing is recorded.
+        if (enabledRules.Count == 0)
+        {
+            throw new DataContractHasNoEnabledRulesException(contract.Id);
+        }
 
         var totalStopwatch = Stopwatch.StartNew();
         var ruleResults = new List<DataQualityRuleResult>();

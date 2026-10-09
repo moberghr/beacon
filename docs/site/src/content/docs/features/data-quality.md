@@ -59,6 +59,8 @@ If you already maintain reusable checks as saved [queries](/features/queries/), 
 
 :::caution[Upgrading]
 Upgrading to this version disables every existing Custom SQL rule (its contract stays enabled). An Admin re-enables a rule by turning it back on and saving the contract, which checks its SQL against the rules above.
+
+A contract with no enabled rules is not evaluated: it keeps its last score, records no history and sends no alert. **Evaluate now** reports that it has no enabled rules, and the scheduled run is skipped.
 :::
 
 ### Severity and weight
@@ -114,7 +116,7 @@ with severity multipliers Critical = 4, High = 3, Medium = 2, Low = 1. Then:
 overallScore = Σ(ruleScore × effectiveWeight) / Σ(effectiveWeight)
 ```
 
-rounded to two decimals. A contract with no enabled rules scores 100.
+rounded to two decimals. A contract with no enabled rules is not evaluated and keeps its last score.
 
 **Example:** a contract with a passing Critical freshness rule (weight 1, score 100) and a failing Low volume rule (weight 1, score 0) scores `(100×4 + 0×1) / (4+1) = 80%` — the critical rule dominates.
 
@@ -223,9 +225,9 @@ The rule's SQL could not run against the source. The server's error text is not 
 
 The contract targets a REST API data source. Contracts can only be evaluated against database sources.
 
-**Score is 100% but I expected checks to run**
+**"This data contract has no enabled rules, so it was not evaluated."**
 
-A contract with no *enabled* rules scores 100 by definition. Verify that at least one rule has its **Enabled** toggle on.
+A contract with no *enabled* rules is not evaluated, and its scheduled runs are skipped. Turn at least one rule's **Enabled** toggle on and save the contract.
 
 **No notifications despite a failing score**
 

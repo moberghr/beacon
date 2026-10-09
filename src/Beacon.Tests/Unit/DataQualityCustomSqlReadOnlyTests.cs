@@ -31,6 +31,7 @@ using Beacon.Core.Models;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Providers;
 using Beacon.Core.Services.Validation;
+using Beacon.Core.Worker.Services;
 using Beacon.Tests.Common;
 using Beacon.Tests.Unit.HostData;
 
@@ -51,6 +52,8 @@ public class DataQualityCustomSqlReadOnlyTests
     private const string HostKey = "efcore:Netgiro";
     private const string RowValue = "IBAN123";
     private const string MaskedValue = "0101302989";
+
+    private static readonly DateTime PriorEvaluatedAt = new(2026, 10, 1, 6, 0, 0, DateTimeKind.Utc);
 
     private static readonly DatabaseEngineType[] RegisteredEngines = [DatabaseEngineType.PostgreSQL, DatabaseEngineType.MySQL, DatabaseEngineType.MSSQL];
 
@@ -202,16 +205,48 @@ public class DataQualityCustomSqlReadOnlyTests
     }
 
     [Test]
-    public async Task EvaluateContractAsync_DisabledRule_IsNotRun()
+    public async Task EvaluateContractAsync_OnlyDisabledRules_IsNotEvaluatedAndKeepsThePriorScore()
+    {
+        // A failing contract whose only rule (Custom SQL) was switched off on upgrade.
+        var server = Register(DatabaseEngineType.MySQL, new FakeServer { Result = CustomSqlRow() });
+        var saved = new List<object>();
+        var priorScore = PriorFailingScore();
+        var service = CreateService(Contract(OrdinarySource(DatabaseEngineType.MySQL), CustomSqlRule(WriteBatch, isEnabled: false)), saved, scores: [priorScore]);
+
+        var act = () => service.EvaluateContractAsync(42, CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("This data contract has no enabled rules, so it was not evaluated.*");
+        server.Commands.Should().BeEmpty();
+        saved.Should().BeEmpty("no history row and no new score is recorded");
+        priorScore.Score.Should().Be(40, "scoring no rules would have reported 100");
+        priorScore.EvaluatedAt.Should().Be(PriorEvaluatedAt);
+    }
+
+    [Test]
+    public async Task ScheduledEvaluation_OnlyDisabledRules_IsSkippedWithoutAlertOrJobFailure()
     {
         var server = Register(DatabaseEngineType.MySQL, new FakeServer { Result = CustomSqlRow() });
-        var service = CreateService(Contract(OrdinarySource(DatabaseEngineType.MySQL), CustomSqlRule(WriteBatch, isEnabled: false)), []);
+        var saved = new List<object>();
+        var priorScore = PriorFailingScore();
+        var evaluation = CreateService(Contract(OrdinarySource(DatabaseEngineType.MySQL), CustomSqlRule(WriteBatch, isEnabled: false)), saved, scores: [priorScore]);
+        var notifications = new Mock<INotificationService>(MockBehavior.Strict);
+        var jobService = new JobService(
+            new Mock<IDbContextFactory<BeaconContext>>(MockBehavior.Strict).Object,
+            Mock.Of<IQueryService>(),
+            notifications.Object,
+            Mock.Of<ITaskService>(),
+            Mock.Of<IAnomalyDetectionService>(),
+            evaluation,
+            NullLogger<JobService>.Instance);
 
-        var result = await service.EvaluateContractAsync(42, CancellationToken.None);
+        var act = () => jobService.EvaluateDataContract(42, CancellationToken.None);
 
+        await act.Should().NotThrowAsync("a contract with nothing to score does not fail its recurring job");
+        notifications.VerifyNoOtherCalls();
         server.Commands.Should().BeEmpty();
-        result.RuleResults.Should().BeEmpty();
-        result.TotalRules.Should().Be(0);
+        saved.Should().BeEmpty();
+        priorScore.Score.Should().Be(40);
+        priorScore.EvaluatedAt.Should().Be(PriorEvaluatedAt);
     }
 
     [Test]
@@ -461,7 +496,11 @@ public class DataQualityCustomSqlReadOnlyTests
         yield return new TestCaseData("EXPLAIN ANALYZE DELETE FROM accounts", DatabaseEngineType.PostgreSQL);
     }
 
-    private static DataQualityEvaluationService CreateService(DataContract contract, List<object> saved, TimeSpan? ruleTimeout = null)
+    private static DataQualityEvaluationService CreateService(
+        DataContract contract,
+        List<object> saved,
+        TimeSpan? ruleTimeout = null,
+        List<DataQualityScore>? scores = null)
     {
         var resolver = new Mock<IDataSourceConnectionResolver>();
         resolver
@@ -477,7 +516,7 @@ public class DataQualityCustomSqlReadOnlyTests
         {
             [typeof(DataContract)] = RecordingBeaconContext.MemorySet([contract], saved),
             [typeof(DataQualityEvaluation)] = RecordingBeaconContext.MemorySet(new List<DataQualityEvaluation>(), saved),
-            [typeof(DataQualityScore)] = RecordingBeaconContext.MemorySet(new List<DataQualityScore>(), saved)
+            [typeof(DataQualityScore)] = RecordingBeaconContext.MemorySet(scores ?? [], saved)
         };
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory
@@ -492,6 +531,19 @@ public class DataQualityCustomSqlReadOnlyTests
             NullLogger<DataQualityEvaluationService>.Instance)
         {
             RuleTimeout = ruleTimeout ?? TimeSpan.FromSeconds(60)
+        };
+    }
+
+    private static DataQualityScore PriorFailingScore()
+    {
+        return new DataQualityScore
+        {
+            DataSourceId = 7,
+            SchemaName = "sales",
+            TableName = "orders",
+            Score = 40,
+            EvaluatedAt = PriorEvaluatedAt,
+            TrendDirection = DataQualityTrendDirection.Degrading
         };
     }
 
