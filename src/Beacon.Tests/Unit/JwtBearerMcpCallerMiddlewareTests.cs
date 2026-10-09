@@ -135,23 +135,42 @@ public class JwtBearerMcpCallerMiddlewareTests
     }
 
     [Test]
-    public async Task OtherRoute_KeepsPassThroughClaims_ButStripsReservedOnes_AndSkipsTheMapper()
+    public async Task OtherRoute_IsTheBeaconUser_WithNoTokenClaims_AndSkipsTheMapper()
     {
         var mapper = new Mock<IMcpCallerMapper>(MockBehavior.Strict);
+        var userService = new Mock<IUserManagementService>();
+        userService
+            .Setup(x => x.GetBearerUserCandidatesAsync("pairwise-sub", Issuer, true, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(
+            [
+                new BearerUserCandidate
+                {
+                    User = new BeaconUserData
+                    {
+                        Id = 5,
+                        ExternalId = "pairwise-sub",
+                        IdentityProvider = Issuer,
+                        UserName = "ana",
+                        IsEnabled = true,
+                        Roles = [new BeaconRoleData { Id = 1, Name = "Editor", Level = 2 }]
+                    }
+                }
+            ]);
         var token = MintToken(
             DelegatedClaims(),
             new Claim("allowed_projects", "[99]"),
             new Claim("scope", "Admin"),
             new Claim("region", "eu"));
 
-        var (_, user) = await RunAsync("/beacon/api/projects", token, mapperOverride: mapper.Object);
+        var (_, user) = await RunAsync("/beacon/api/projects", token, userService: userService.Object, mapperOverride: mapper.Object);
 
-        user.FindFirst("region")!.Value.Should().Be("eu");
+        user.FindFirst("region").Should().BeNull("token claims do not reach a REST session");
         user.FindFirst("allowed_projects").Should().BeNull();
         user.FindFirst("scope").Should().BeNull();
         user.FindAll("auth_method").Select(x => x.Value).Should().Equal("jwt");
-        user.FindFirst(ClaimTypes.NameIdentifier)!.Value.Should().Be("pairwise-sub", "non-MCP identity is unchanged");
-        (await AuthorizeExecuteAsync(user)).Should().BeTrue("JWT callers outside MCP are not scope-gated");
+        user.FindFirst(ClaimTypes.NameIdentifier)!.Value.Should().Be("pairwise-sub");
+        user.FindAll(ClaimTypes.Role).Select(x => x.Value).Should().Equal("Editor");
+        (await AuthorizeExecuteAsync(user)).Should().BeTrue("a Beacon user's REST session is governed by role, not scope");
     }
 
     private static async Task<(HttpContext Context, ClaimsPrincipal User)> RunAsync(
@@ -192,7 +211,13 @@ public class JwtBearerMcpCallerMiddlewareTests
             },
             jwtOptions,
             NullLogger<JwtBearerAuthMiddleware>.Instance);
-        var context = new DefaultHttpContext();
+        var services = new ServiceCollection();
+        if (userService != null)
+        {
+            services.AddSingleton(userService);
+        }
+
+        var context = new DefaultHttpContext { RequestServices = services.BuildServiceProvider() };
         context.Request.Path = path;
         context.Request.Headers.Authorization = $"Bearer {token}";
 

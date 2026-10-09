@@ -23,4 +23,10 @@ public class CreateSuperAdminRequest
     [Required]
     [Compare(nameof(Password), ErrorMessage = "Passwords do not match.")]
     public string ConfirmPassword { get; set; } = null!;
+
+    /// <summary>
+    /// The first-run setup token: the configured <c>Beacon:UserManagement:SetupToken</c>, or the one Beacon wrote to
+    /// the server log at startup. Compared in constant time; never logged or echoed.
+    /// </summary>
+    public string? SetupToken { get; set; }
 }

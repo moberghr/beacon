@@ -104,24 +104,15 @@ public static partial class LoginEndpoints
             return Results.Ok(new { success = true });
         })
         .AllowAnonymous()
-        // Logout must succeed even when the client holds a stale CSRF cookie (e.g. after
-        // identity rotation on a second tab); antiforgery on logout has no security benefit.
+        // POST only (there is no GET sign-out endpoint), and only with a valid antiforgery token, anonymous callers
+        // included: a cross-site form POST arrives without the SameSite=Lax session cookie, yet the sign-out answer
+        // would still delete it. Without a token the request is refused before anything is signed out or any cookie is
+        // emitted. A stale token (identity rotated in another tab) gets the same 400, and the SPA re-primes its token
+        // and retries once (beaconFetch). The built-in antiforgery middleware stays off: the filter validates, and it
+        // also accepts the SPA's X-XSRF-TOKEN header on a host that kept the default header name.
+        .AddEndpointFilter<AntiforgeryEndpointFilter>()
+        .WithMetadata(AntiforgeryForAnonymousCallers.Instance)
         .DisableAntiforgery();
-
-        // GET /beacon/api/auth/signout — browser-navigable signout that clears the cookie and redirects
-        var loginPath = $"{basePath}{configuration.Authentication.LoginPath}";
-        endpoints.MapGet($"{basePath}/api/auth/signout", async (
-            HttpContext context,
-            IBeaconAuthenticationProvider authProvider,
-            IAntiforgery antiforgery) =>
-        {
-            await authProvider.SignOutAsync();
-            await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
-            context.User = new ClaimsPrincipal(new ClaimsIdentity());
-            antiforgery.SetCookieTokenAndHeader(context);
-
-            return Results.Redirect(loginPath);
-        }).AllowAnonymous();
     }
 }
 

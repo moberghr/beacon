@@ -1,7 +1,10 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Security.Claims;
 using FluentAssertions;
 using Microsoft.AspNetCore.Antiforgery;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.RateLimiting;
@@ -16,6 +19,7 @@ using Beacon.Api.Endpoints;
 using Beacon.Api.Authentication;
 using Beacon.Core;
 using Beacon.UI;
+using AuthenticationOptions = Beacon.Core.AuthenticationOptions;
 
 namespace Beacon.Tests.Unit;
 
@@ -29,6 +33,8 @@ namespace Beacon.Tests.Unit;
 public class LoginEndpointsTests
 {
     private const string RootBasePath = "";
+    private const string SessionCookieName = "Beacon.Auth";
+    private const string LogoutPath = "/beacon/api/auth/logout";
 
     [TestCase("/projects")]
     [TestCase("/queries/123")]
@@ -160,6 +166,85 @@ public class LoginEndpointsTests
         services.Should().Contain(x => x.ServiceType == typeof(LoginRateLimiter));
     }
 
+    [Test]
+    public async Task SignOut_IsPostOnly_ThereIsNoAnonymousGetThatEndsASession()
+    {
+        await using var app = await StartHostAsync(useHostRateLimiter: false, registerLimiter: true);
+        var client = app.GetTestClient();
+
+        var signOutGet = await client.GetAsync("/beacon/api/auth/signout");
+        var logoutGet = await client.GetAsync("/beacon/api/auth/logout");
+
+        signOutGet.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        logoutGet.StatusCode.Should().Be(HttpStatusCode.MethodNotAllowed);
+        signOutGet.Headers.Contains("Set-Cookie").Should().BeFalse();
+    }
+
+    [Test]
+    public async Task Logout_CrossSiteFormPost_SignsNothingOut_AndEmitsNoCookie()
+    {
+        var authProvider = new Mock<IBeaconAuthenticationProvider>();
+        await using var app = await StartSessionHostAsync(authProvider.Object);
+        using var client = app.GetTestClient();
+
+        // What a browser sends for a top-level form POST from another site: no custom header, and neither the Lax
+        // session cookie nor the Strict antiforgery cookie.
+        using var request = new HttpRequestMessage(HttpMethod.Post, LogoutPath)
+        {
+            Content = new FormUrlEncodedContent([])
+        };
+        request.Headers.Add("Origin", "https://other-site.example");
+        request.Headers.Add("Sec-Fetch-Site", "cross-site");
+
+        var response = await client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        response.Headers.Contains("Set-Cookie").Should().BeFalse("no cookie deletion may reach the browser");
+        authProvider.Verify(x => x.SignOutAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Test]
+    public async Task Logout_WithTheSessionCookieButNoToken_IsRefused_AndTheSessionSurvives()
+    {
+        var authProvider = new Mock<IBeaconAuthenticationProvider>();
+        await using var app = await StartSessionHostAsync(authProvider.Object);
+        using var client = app.GetTestClient();
+        var session = await StartSessionAsync(client);
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, LogoutPath);
+        request.Headers.Add("Cookie", session.SessionCookie);
+        request.Headers.Add("Origin", "https://other-site.example");
+
+        var response = await client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync()).Should().Contain("antiforgery", "the SPA re-primes its token on this answer");
+        response.Headers.Contains("Set-Cookie").Should().BeFalse("the session cookie is not deleted");
+        authProvider.Verify(x => x.SignOutAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Test]
+    public async Task Logout_SameOriginWithTheSpaToken_SignsOut()
+    {
+        var authProvider = new Mock<IBeaconAuthenticationProvider>();
+        await using var app = await StartSessionHostAsync(authProvider.Object);
+        using var client = app.GetTestClient();
+        var session = await StartSessionAsync(client);
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, LogoutPath);
+        request.Headers.Add("Cookie", session.AllCookies);
+        request.Headers.Add(AntiforgeryEndpointFilter.SpaHeaderName, session.RequestToken);
+        request.Headers.Add("Origin", "http://localhost");
+        request.Headers.Add("Sec-Fetch-Site", "same-origin");
+
+        var response = await client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        response.Headers.GetValues("Set-Cookie")
+            .Should().Contain(x => x.StartsWith($"{SessionCookieName}=;", StringComparison.Ordinal) && x.Contains("1970"));
+        authProvider.Verify(x => x.SignOutAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
     private static async Task<WebApplication> StartHostAsync(bool useHostRateLimiter, bool registerLimiter)
     {
         var builder = WebApplication.CreateBuilder();
@@ -204,6 +289,51 @@ public class LoginEndpointsTests
         return app;
     }
 
+    // The login endpoints over a real cookie scheme and the real antiforgery service (default header name, so the SPA
+    // header is bridged). GET /test/session stands in for a completed sign-in: it issues the session cookie and the
+    // antiforgery pair minted for that session.
+    private static async Task<WebApplication> StartSessionHostAsync(IBeaconAuthenticationProvider authProvider)
+    {
+        var builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseTestServer();
+        builder.Services
+            .AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+            .AddCookie(x => x.Cookie.Name = SessionCookieName);
+        builder.Services.AddAntiforgery(x => x.Cookie.Name = ".Beacon.Antiforgery");
+        builder.Services.AddSingleton(authProvider);
+        builder.Services.AddSingleton(new LoginRateLimiter());
+
+        var app = builder.Build();
+        app.UseAuthentication();
+        app.MapGet("/test/session", async (HttpContext context, IAntiforgery antiforgery) =>
+        {
+            var principal = new ClaimsPrincipal(new ClaimsIdentity(
+                [new Claim(ClaimTypes.NameIdentifier, "ana"), new Claim(ClaimTypes.Name, "ana")],
+                CookieAuthenticationDefaults.AuthenticationScheme));
+            await context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal);
+            context.User = principal;
+
+            return Results.Text(antiforgery.GetAndStoreTokens(context).RequestToken);
+        });
+        app.MapLoginEndpoints("/beacon", new BeaconConfiguration());
+        await app.StartAsync();
+
+        return app;
+    }
+
+    private static async Task<Session> StartSessionAsync(HttpClient client)
+    {
+        var response = await client.GetAsync("/test/session");
+        var cookies = response.Headers.GetValues("Set-Cookie")
+            .Select(x => x.Split(';')[0])
+            .ToList();
+
+        return new Session(
+            cookies.First(x => x.StartsWith($"{SessionCookieName}=", StringComparison.Ordinal)),
+            string.Join("; ", cookies),
+            await response.Content.ReadAsStringAsync());
+    }
+
     private static Task<HttpResponseMessage> PostLoginAsync(HttpClient client, string ip)
     {
         var request = new HttpRequestMessage(HttpMethod.Post, "/beacon/api/auth/login")
@@ -214,4 +344,6 @@ public class LoginEndpointsTests
 
         return client.SendAsync(request);
     }
+
+    private sealed record Session(string SessionCookie, string AllCookies, string RequestToken);
 }

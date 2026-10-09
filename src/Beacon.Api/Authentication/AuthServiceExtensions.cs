@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.SignalR;
@@ -103,13 +104,11 @@ public static class AuthServiceExtensions
             return services;
         }
 
-        if (string.IsNullOrWhiteSpace(options.Authority)
-            || string.IsNullOrWhiteSpace(options.ClientId)
-            || string.IsNullOrWhiteSpace(options.ClientSecret))
-        {
-            throw new InvalidOperationException(
-                "Beacon:Authentication:Oidc is Enabled but Authority, ClientId, or ClientSecret is missing.");
-        }
+        // Fails startup without Authority/ClientId/ClientSecret, or without a tenant admission rule.
+        options.Validate();
+
+        // Warns at startup when the tenant check is skipped for an Entra authority.
+        services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, OidcStartupWarnings>());
 
         services.AddAuthentication()
             .AddOpenIdConnect(OpenIdConnectDefaults.AuthenticationScheme, oidc =>
@@ -125,6 +124,12 @@ public static class AuthServiceExtensions
                 oidc.SaveTokens = false;
                 oidc.GetClaimsFromUserInfoEndpoint = true;
                 oidc.MapInboundClaims = false;
+
+                // Front-channel sign-out is an anonymous GET that ends the Beacon session; served only on opt-in.
+                if (!options.EnableFrontChannelLogout)
+                {
+                    oidc.RemoteSignOutPath = PathString.Empty;
+                }
 
                 oidc.Scope.Clear();
                 foreach (var scope in options.Scopes)
@@ -151,6 +156,9 @@ public static class AuthServiceExtensions
     {
         var options = new JwtAuthenticationOptions();
         configure(options);
+
+        // Validated on the instance that is registered and used: no signing key, issuer or audience fails startup.
+        options.Validate();
 
         services.AddSingleton(options);
 

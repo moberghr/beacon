@@ -7,7 +7,8 @@ namespace Beacon.Api.Endpoints;
 
 /// <summary>
 /// Validates the antiforgery token for non-GET/HEAD/OPTIONS requests from
-/// authenticated users. Anonymous endpoints opt out via <c>.DisableAntiforgery()</c>.
+/// authenticated users, and from anonymous callers too on an endpoint that carries
+/// <see cref="AntiforgeryForAnonymousCallers"/>. Anonymous endpoints opt out via <c>.DisableAntiforgery()</c>.
 /// </summary>
 internal sealed class AntiforgeryEndpointFilter(
     IAntiforgery antiforgery,
@@ -31,7 +32,7 @@ internal sealed class AntiforgeryEndpointFilter(
             return await next(context);
         }
 
-        if (httpContext.User.Identity?.IsAuthenticated != true)
+        if (httpContext.User.Identity?.IsAuthenticated != true && !ValidatesAnonymousCallers(httpContext))
         {
             return await next(context);
         }
@@ -54,6 +55,11 @@ internal sealed class AntiforgeryEndpointFilter(
         return await next(context);
     }
 
+    private static bool ValidatesAnonymousCallers(HttpContext httpContext)
+    {
+        return httpContext.GetEndpoint()?.Metadata.GetMetadata<AntiforgeryForAnonymousCallers>() != null;
+    }
+
     // Only the header NAME is bridged; the token itself is still validated against the host's
     // antiforgery cookie and the caller's identity, so this does not weaken the check.
     private void CopySpaHeaderToConfiguredHeader(HttpRequest request)
@@ -71,4 +77,15 @@ internal sealed class AntiforgeryEndpointFilter(
 
         request.Headers[headerName] = token;
     }
+}
+
+/// <summary>
+/// Endpoint metadata: <see cref="AntiforgeryEndpointFilter"/> validates the token on this endpoint even when the caller
+/// is anonymous. For an anonymous endpoint whose answer changes browser state without a session, such as sign-out,
+/// which emits cookie deletions: the session cookie is withheld from a cross-site request, so "anonymous" says nothing
+/// about where the request came from.
+/// </summary>
+internal sealed class AntiforgeryForAnonymousCallers
+{
+    public static readonly AntiforgeryForAnonymousCallers Instance = new();
 }

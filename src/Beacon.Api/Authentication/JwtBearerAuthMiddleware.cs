@@ -2,9 +2,13 @@ using System.Security.Claims;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Beacon.Core.Authentication;
 using Beacon.Core.Authentication.Providers;
+using Beacon.Core.Authorization;
 using Beacon.Core.Mcp;
+using Beacon.Core.Models.UserManagement;
+using Beacon.Core.Services;
 
 namespace Beacon.Api.Authentication;
 
@@ -12,15 +16,23 @@ namespace Beacon.Api.Authentication;
 /// Middleware that validates JWT bearer tokens from the Authorization header.
 /// Sets HttpContext.User for stateless authentication (no cookie created).
 /// <para>
-/// Token-supplied claims of the <see cref="McpCallerClaimTypes.Reserved"/> types (<c>allowed_projects</c>,
-/// <c>scope</c>, <c>auth_method</c>, <c>api_key_id</c>, <c>caller_*</c>) are stripped on every route: those claims are
-/// minted by Beacon only, and a token must never grant itself projects, a scope or an audit identity.
+/// A token is proof of identity only. Beacon never takes roles, projects, a scope, a Beacon user id or an audit
+/// identity from it: on <c>/beacon/mcp</c> the principal is built from an allow-list (name, e-mail, display name) plus
+/// what the mapper decides; on every other route it is the bound Beacon user, with no token claim at all.
 /// </para>
 /// <para>
 /// On <c>/beacon/mcp</c> the validated token is passed to <see cref="IMcpCallerMapper"/>, which decides the caller's
 /// projects, scope and Beacon user. Every JWT principal there carries <c>auth_method=mcp_caller</c>, so the
-/// Execute-scope policy gates it like an API key; an unmapped caller has no scope and is rejected with 403. Other
-/// routes keep the pre-existing behaviour (claims pass through, <c>auth_method=jwt</c>, not scope-gated).
+/// Execute-scope policy gates it like an API key; an unmapped caller has no scope and is rejected with 403.
+/// </para>
+/// <para>
+/// On every other route the token must be an access token (positive evidence, never inferred from <c>roles</c>), must
+/// pass the SSO admission rules when the SSO authority issued it, and must name an existing, enabled, non-archived
+/// external Beacon user — the same screen and binding as the login-form JWT flow
+/// (<see cref="BearerUserBinding.ScreenAndBindAsync"/>); the principal is that user, with that user's Beacon roles,
+/// and carries <c>auth_method=jwt</c>. Any other token is refused: API requests get a generic 401
+/// (<c>WWW-Authenticate: Bearer error="invalid_token"</c>), other requests continue anonymously. Refusals are logged
+/// with a reason code, the tenant, the issuer and a subject hash — at Warning at most once a minute, otherwise at Debug.
 /// </para>
 /// </summary>
 internal sealed class JwtBearerAuthMiddleware(
@@ -29,6 +41,11 @@ internal sealed class JwtBearerAuthMiddleware(
     ILogger<JwtBearerAuthMiddleware> logger)
 {
     private const string BearerPrefix = "Bearer ";
+    private const string InvalidTokenChallenge = "Bearer error=\"invalid_token\"";
+    private static readonly long RefusalWarningIntervalMs = (long)TimeSpan.FromMinutes(1).TotalMilliseconds;
+
+    private int _warnedNoUserStore;
+    private long _nextRefusalWarningAt;
 
     public async Task InvokeAsync(
         HttpContext context,
@@ -64,50 +81,47 @@ internal sealed class JwtBearerAuthMiddleware(
             return;
         }
 
-        // Validate the token
-        var result = await jwtProvider.ValidateTokenAsync(token);
-        if (!result.Success || result.User == null)
+        var result = await jwtProvider.ValidateTokenAsync(token, context.RequestAborted);
+        if (!result.Success || result.User == null || result.TokenPrincipal == null)
         {
-            logger.LogDebug("JWT bearer token validation failed: {Error}", result.ErrorMessage);
-
-            // For API requests, return 401
-            if (IsApiRequest(context))
-            {
-                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-                context.Response.Headers.WWWAuthenticate = "Bearer";
-                await context.Response.WriteAsJsonAsync(new
-                {
-                    error = "unauthorized",
-                    message = result.ErrorMessage ?? "Invalid token"
-                });
-                return;
-            }
-
-            // For other requests, continue without authentication
-            await next(context);
+            // The caller only learns that the token was not accepted; the fixed reason string goes to the log.
+            LogRefusal(BearerRefusal.InvalidToken, tokenPrincipal: null, result.ErrorMessage);
+            await RejectAsync(context);
             return;
         }
-
-        var claims = result.User
-            .ToClaims()
-            .Where(x => !McpCallerClaimTypes.Reserved.Contains(x.Type))
-            .ToList();
 
         if (!context.Request.Path.StartsWithSegments(McpDiscoveryPaths.McpPath))
         {
-            claims.Add(new Claim(McpCallerClaimTypes.AuthMethod, McpCallerClaimTypes.JwtAuthMethod));
-            context.User = new ClaimsPrincipal(new ClaimsIdentity(claims, "Bearer"));
+            var binding = await BindBeaconUserAsync(context, result.TokenPrincipal, result.TokenType);
+            if (binding.User == null)
+            {
+                LogRefusal(binding.Refusal, result.TokenPrincipal, detail: null);
+                await RejectAsync(context);
+                return;
+            }
 
-            logger.LogDebug("JWT bearer authentication successful for user {UserId}", result.User.UserId);
+            var userClaims = BearerUserBinding.ToAuthenticatedUser(binding.User).ToClaims();
+            userClaims.Add(new Claim(McpCallerClaimTypes.AuthMethod, McpCallerClaimTypes.JwtAuthMethod));
+            context.User = new ClaimsPrincipal(new ClaimsIdentity(userClaims, "Bearer"));
+
+            logger.LogDebug("JWT bearer authentication successful for Beacon user {UserId}", binding.User.Id);
 
             await next(context);
             return;
         }
 
+        // Allow-list: identity only. Token roles, groups, beacon:* claims, a token-supplied name identifier and the
+        // reserved MCP claim types never reach the principal, whatever their spelling.
+        var claims = new AuthenticatedUser
+        {
+            UserId = result.User.UserId,
+            UserName = result.User.UserName,
+            Email = result.User.Email,
+            DisplayName = result.User.DisplayName
+        }.ToClaims();
         claims.Add(new Claim(McpCallerClaimTypes.AuthMethod, McpCallerClaimTypes.McpCallerAuthMethod));
 
-        var tokenPrincipal = result.TokenPrincipal ?? new ClaimsPrincipal(new ClaimsIdentity(claims, "Bearer"));
-        var caller = await callerMapper.MapAsync(tokenPrincipal, context.RequestAborted);
+        var caller = await callerMapper.MapAsync(result.TokenPrincipal, context.RequestAborted);
         if (caller != null)
         {
             AddCallerClaims(claims, caller);
@@ -119,12 +133,99 @@ internal sealed class JwtBearerAuthMiddleware(
                 caller.Kind,
                 caller.AllowedProjectIds.Count);
         }
+        else
+        {
+            // An unmapped caller keeps no token-derived name identifier either: only the mapper sets one.
+            claims.RemoveAll(x => x.Type == ClaimTypes.NameIdentifier);
+        }
 
         // An unmapped caller stays authenticated but carries no scope and no projects: the Execute-scope policy
         // answers 403 and ProjectContextFactory fails closed.
         context.User = new ClaimsPrincipal(new ClaimsIdentity(claims, "Bearer"));
 
         await next(context);
+    }
+
+    private async Task<BearerBinding> BindBeaconUserAsync(
+        HttpContext context,
+        ClaimsPrincipal tokenPrincipal,
+        string? tokenType)
+    {
+        var users = context.RequestServices.GetService<IUserManagementService>();
+        if (users == null)
+        {
+            if (Interlocked.Exchange(ref _warnedNoUserStore, 1) == 0)
+            {
+                logger.LogWarning(
+                    "Bearer tokens are refused outside /beacon/mcp: binding a token to a Beacon user needs user management.");
+            }
+
+            return BearerBinding.Refused(BearerRefusal.NoUserStore);
+        }
+
+        var oidc = context.RequestServices.GetService<IOptions<OidcAuthenticationOptions>>()?.Value;
+
+        return await BearerUserBinding.ScreenAndBindAsync(
+            users,
+            tokenPrincipal,
+            tokenType,
+            options,
+            oidc,
+            logger,
+            context.RequestAborted);
+    }
+
+    // Reason code, tenant, issuer and a subject hash: never the token, the raw subject, an e-mail or other claim values.
+    private void LogRefusal(BearerRefusal reason, ClaimsPrincipal? tokenPrincipal, string? detail)
+    {
+        var level = TryClaimRefusalWarning() ? LogLevel.Warning : LogLevel.Debug;
+        if (!logger.IsEnabled(level))
+        {
+            return;
+        }
+
+        var tenantId = tokenPrincipal == null ? null : BearerUserBinding.ExactClaim(tokenPrincipal, "tid");
+        var issuer = tokenPrincipal == null ? null : BearerUserBinding.ExactClaim(tokenPrincipal, "iss");
+        var subject = tokenPrincipal == null ? null : BearerUserBinding.ExactClaim(tokenPrincipal, "sub");
+
+        logger.Log(
+            level,
+            "Bearer token refused: {Reason} {Detail} (tenant {TenantId}, issuer {Issuer}, subject {SubjectHash}). Further refusals within a minute are logged at Debug.",
+            reason,
+            detail ?? string.Empty,
+            tenantId ?? "-",
+            issuer ?? "-",
+            SubjectFingerprint.Of(subject));
+    }
+
+    // At most one Warning per interval across all requests; the rest are logged at Debug.
+    private bool TryClaimRefusalWarning()
+    {
+        var now = Environment.TickCount64;
+        var next = Interlocked.Read(ref _nextRefusalWarningAt);
+
+        return now >= next
+            && Interlocked.CompareExchange(ref _nextRefusalWarningAt, now + RefusalWarningIntervalMs, next) == next;
+    }
+
+    private async Task RejectAsync(HttpContext context)
+    {
+        if (!IsApiRequest(context))
+        {
+            // Non-API requests continue unauthenticated (the login redirect applies).
+            await next(context);
+            return;
+        }
+
+        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+        context.Response.Headers.WWWAuthenticate = InvalidTokenChallenge;
+        await context.Response.WriteAsJsonAsync(
+            new
+            {
+                error = "invalid_token",
+                message = "The bearer token was not accepted."
+            },
+            context.RequestAborted);
     }
 
     private static void AddCallerClaims(List<Claim> claims, McpCaller caller)

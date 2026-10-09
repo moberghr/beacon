@@ -34,7 +34,8 @@ internal sealed class BeaconPermissionEndpointFilter(ILogger<BeaconPermissionEnd
         }
 
         var endpoint = httpContext.GetEndpoint();
-        if (endpoint?.Metadata.GetMetadata<IAllowAnonymous>() != null)
+        if (endpoint?.Metadata.GetMetadata<IAllowAnonymous>() != null
+            || endpoint?.Metadata.GetMetadata<BeaconPermissionCheckExemptMetadata>() != null)
         {
             return await next(context);
         }
@@ -133,8 +134,24 @@ internal sealed class BeaconViewerAccessMetadata
     }
 }
 
+/// <summary>
+/// Marks an authenticated <c>/beacon/api</c> endpoint the permission filter does not gate, because it only reports the
+/// caller's own state (e.g. <c>auth/permissions</c>, which must answer a user with no role instead of refusing them).
+/// </summary>
+internal sealed class BeaconPermissionCheckExemptMetadata
+{
+    public static readonly BeaconPermissionCheckExemptMetadata Instance = new();
+}
+
 internal static class BeaconViewerAccessExtensions
 {
+    /// <summary>Exempts this authenticated endpoint from the Viewer/Editor permission filter.</summary>
+    public static TBuilder SkipBeaconPermissionCheck<TBuilder>(this TBuilder builder)
+        where TBuilder : IEndpointConventionBuilder
+    {
+        return builder.WithMetadata(BeaconPermissionCheckExemptMetadata.Instance);
+    }
+
     /// <summary>Lets callers with read permission (Viewers) reach this mutating endpoint.</summary>
     public static TBuilder AllowViewerAccess<TBuilder>(this TBuilder builder)
         where TBuilder : IEndpointConventionBuilder

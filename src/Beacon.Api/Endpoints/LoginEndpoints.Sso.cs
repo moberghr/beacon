@@ -49,12 +49,19 @@ public static partial class LoginEndpoints
     /// Accepts only local, root-relative URLs (starts with "/", not "//" or "/\", no scheme).
     /// UI routes live at the root, so there is no base-path prefix requirement — any other
     /// shape (absolute URL, protocol-relative, backslash trick) is rejected to prevent open
-    /// redirects. <paramref name="basePath"/> is retained for signature compatibility only.
+    /// redirects. Control characters, whitespace and backslashes are rejected anywhere: browsers
+    /// strip tabs and newlines and read "\" as "/", so a tab between two slashes would become "//evil.example".
+    /// <paramref name="basePath"/> is retained for signature compatibility only.
     /// </summary>
     internal static bool IsSafeReturnUrl(string? returnUrl, string basePath)
     {
         _ = basePath;
         if (string.IsNullOrWhiteSpace(returnUrl))
+        {
+            return false;
+        }
+
+        if (returnUrl.Any(x => char.IsControl(x) || char.IsWhiteSpace(x) || x == '\\'))
         {
             return false;
         }

@@ -4,27 +4,40 @@ using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
+using Beacon.Core.Services;
 
 namespace Beacon.Core.Authentication.Providers;
 
 /// <summary>
 /// Authentication provider that authenticates against an external JWT-issuing API.
-/// Sends credentials to the external endpoint and validates the returned JWT token.
+/// Sends credentials to the external endpoint and validates the returned JWT token. The token passes the same screen as
+/// a REST bearer token (an access token, admitted by the SSO rules when the SSO authority issued it), and a login only
+/// succeeds for an existing, enabled Beacon user the token names (<see cref="BearerUserBinding.ScreenAndBindAsync"/>);
+/// the session carries that user's Beacon roles, never the token's. Without user management
+/// (<see cref="IUserManagementService"/>) every login fails. Every failure answers with the same message; the reason is
+/// logged without the user name.
 /// </summary>
 public class JwtExternalApiAuthenticationProvider : IBeaconAuthenticationProvider
 {
+    private const string LoginFailed = "Invalid username or password.";
+
     private readonly HttpClient _httpClient;
     private readonly JwtAuthenticationOptions _options;
     private readonly ILogger<JwtExternalApiAuthenticationProvider> _logger;
     private readonly JwksSigningKeyCache _keyCache;
+    private readonly IUserManagementService? _userService;
+    private readonly IOptions<OidcAuthenticationOptions>? _oidcOptions;
     private readonly JwtSecurityTokenHandler _tokenHandler = new();
 
     public JwtExternalApiAuthenticationProvider(
         HttpClient httpClient,
         JwtAuthenticationOptions options,
-        ILogger<JwtExternalApiAuthenticationProvider> logger)
-        : this(httpClient, options, logger, JwksSigningKeyCache.Shared)
+        ILogger<JwtExternalApiAuthenticationProvider> logger,
+        IUserManagementService? userService = null,
+        IOptions<OidcAuthenticationOptions>? oidcOptions = null)
+        : this(httpClient, options, logger, JwksSigningKeyCache.Shared, userService, oidcOptions)
     {
     }
 
@@ -32,12 +45,16 @@ public class JwtExternalApiAuthenticationProvider : IBeaconAuthenticationProvide
         HttpClient httpClient,
         JwtAuthenticationOptions options,
         ILogger<JwtExternalApiAuthenticationProvider> logger,
-        JwksSigningKeyCache keyCache)
+        JwksSigningKeyCache keyCache,
+        IUserManagementService? userService = null,
+        IOptions<OidcAuthenticationOptions>? oidcOptions = null)
     {
         _httpClient = httpClient;
         _options = options;
         _logger = logger;
         _keyCache = keyCache;
+        _userService = userService;
+        _oidcOptions = oidcOptions;
     }
 
     public async Task<AuthenticationResult> AuthenticateAsync(
@@ -45,15 +62,15 @@ public class JwtExternalApiAuthenticationProvider : IBeaconAuthenticationProvide
         string password,
         CancellationToken cancellationToken = default)
     {
+        // Every failure answers the caller the same way; the reason goes to the log, without the user name (§1.11).
         if (string.IsNullOrWhiteSpace(_options.ExternalLoginEndpoint))
         {
-            return AuthenticationResult.Failed(
-                "JWT external login endpoint is not configured.");
+            _logger.LogError("JWT login refused: the external login endpoint is not configured.");
+            return AuthenticationResult.Failed(LoginFailed);
         }
 
         try
         {
-            // Call external API
             var response = await _httpClient.PostAsJsonAsync(
                 _options.ExternalLoginEndpoint,
                 new { username, password },
@@ -61,44 +78,75 @@ public class JwtExternalApiAuthenticationProvider : IBeaconAuthenticationProvide
 
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogWarning(
-                    "External authentication API returned {StatusCode} for user {Username}",
-                    response.StatusCode, username);
-                return AuthenticationResult.Failed("Authentication failed.");
+                _logger.LogInformation("JWT login refused: the external login API answered {StatusCode}.", response.StatusCode);
+                return AuthenticationResult.Failed(LoginFailed);
             }
 
-            // Parse response - expects { "token": "jwt..." } or { "access_token": "jwt..." }
+            // Expects { "token": "jwt..." } or { "access_token": "jwt..." } (see ExtractTokenFromResponse).
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
             var token = ExtractTokenFromResponse(content);
-
             if (string.IsNullOrEmpty(token))
             {
-                _logger.LogWarning("No token found in external API response for user {Username}", username);
-                return AuthenticationResult.Failed("No token received from authentication server.");
+                _logger.LogWarning("JWT login refused: the external login API answered without a token.");
+                return AuthenticationResult.Failed(LoginFailed);
             }
 
-            // Validate and parse the JWT
             var validationResult = await ValidateTokenAsync(token, cancellationToken);
-            if (!validationResult.Success)
+            if (!validationResult.Success || validationResult.TokenPrincipal == null)
             {
-                return validationResult;
+                _logger.LogWarning("JWT login refused: the issued token was not accepted ({Reason}).", validationResult.ErrorMessage);
+                return AuthenticationResult.Failed(LoginFailed);
             }
 
-            // Extract claims and build AuthenticatedUser
-            var jwtToken = _tokenHandler.ReadJwtToken(token);
-            var user = BuildAuthenticatedUser(jwtToken);
+            // The session belongs to the Beacon user the token names, with Beacon's roles (never the token's).
+            if (_userService == null)
+            {
+                _logger.LogError(
+                    "JWT login refused: binding a token to a Beacon user needs user management, and a token alone never builds a session.");
+                return AuthenticationResult.Failed(LoginFailed);
+            }
 
-            return AuthenticationResult.Succeeded(user);
+            // The same screen and binding as a REST bearer token: an ID token, a token without access-token evidence or
+            // one the SSO admission rules refuse never reaches the user lookup.
+            var binding = await BearerUserBinding.ScreenAndBindAsync(
+                _userService,
+                validationResult.TokenPrincipal,
+                validationResult.TokenType,
+                _options,
+                _oidcOptions?.Value,
+                _logger,
+                cancellationToken);
+            if (binding.User == null)
+            {
+                _logger.LogInformation(
+                    "JWT login refused ({Reason}) for subject {SubjectHash}.",
+                    binding.Refusal,
+                    SubjectFingerprint.Of(BearerUserBinding.ExactClaim(validationResult.TokenPrincipal, "sub")));
+                return AuthenticationResult.Failed(LoginFailed);
+            }
+
+            await _userService.UpdateLastLoginAsync(binding.User.Id, cancellationToken);
+
+            return new AuthenticationResult
+            {
+                Success = true,
+                User = BearerUserBinding.ToAuthenticatedUser(binding.User),
+                BeaconUserId = binding.User.Id
+            };
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (HttpRequestException ex)
         {
-            _logger.LogError(ex, "Failed to reach external authentication API at {Endpoint}", _options.ExternalLoginEndpoint);
-            return AuthenticationResult.Failed("Unable to reach authentication server.");
+            _logger.LogError(ex, "JWT login refused: the external login API at {Endpoint} could not be reached.", _options.ExternalLoginEndpoint);
+            return AuthenticationResult.Failed(LoginFailed);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Unexpected error during JWT authentication for user {Username}", username);
-            return AuthenticationResult.Failed("Authentication error occurred.");
+            _logger.LogError(ex, "JWT login refused: unexpected error.");
+            return AuthenticationResult.Failed(LoginFailed);
         }
     }
 
@@ -137,9 +185,12 @@ public class JwtExternalApiAuthenticationProvider : IBeaconAuthenticationProvide
             {
                 Success = true,
                 User = user,
-                TokenPrincipal = new ClaimsPrincipal(new ClaimsIdentity(jwtToken.Claims, "Bearer"))
+                TokenPrincipal = new ClaimsPrincipal(new ClaimsIdentity(jwtToken.Claims, "Bearer")),
+                TokenType = jwtToken.Header.Typ
             };
         }
+        // The reasons below are fixed strings, logged by the caller (rate-limited for bearer requests); nothing here is
+        // logged above Debug, so an anonymous stream of bad tokens cannot flood the log.
         catch (SecurityTokenExpiredException)
         {
             _logger.LogDebug("JWT token has expired");
@@ -147,22 +198,28 @@ public class JwtExternalApiAuthenticationProvider : IBeaconAuthenticationProvide
         }
         catch (SecurityTokenInvalidSignatureException)
         {
-            _logger.LogWarning("JWT token has invalid signature");
+            _logger.LogDebug("JWT token has invalid signature");
             return AuthenticationResult.Failed("Invalid token signature.");
         }
         catch (SecurityTokenInvalidIssuerException)
         {
-            _logger.LogWarning("JWT token has invalid issuer");
+            _logger.LogDebug("JWT token has invalid issuer");
             return AuthenticationResult.Failed("Invalid token issuer.");
         }
         catch (SecurityTokenInvalidAudienceException)
         {
-            _logger.LogWarning("JWT token has invalid audience");
+            _logger.LogDebug("JWT token has invalid audience");
             return AuthenticationResult.Failed("Invalid token audience.");
         }
         catch (SecurityTokenException ex)
         {
-            _logger.LogWarning(ex, "JWT token validation failed");
+            _logger.LogDebug(ex, "JWT token validation failed");
+            return AuthenticationResult.Failed("Invalid token.");
+        }
+        catch (ArgumentException)
+        {
+            // A string that is not a JWT at all (the handler cannot even read it).
+            _logger.LogDebug("JWT token is malformed");
             return AuthenticationResult.Failed("Invalid token.");
         }
     }
@@ -194,18 +251,22 @@ public class JwtExternalApiAuthenticationProvider : IBeaconAuthenticationProvide
         bool forceKeyRefresh,
         CancellationToken cancellationToken)
     {
-        // Issuer/audience checks are on only when a value is configured. Hosts that accept JWT callers on /beacon/mcp
-        // are required to configure both (McpCallerOptionsValidator), and the MCP caller mapper re-checks aud and tid.
+        // Issuer and audience are always validated: JwtAuthenticationOptions.Validate() refuses to start without them,
+        // and an empty list here fails every token closed rather than accepting any issuer or audience.
         var issuers = _options.Validation.EffectiveIssuers();
         var audiences = _options.Validation.EffectiveAudiences();
         var parameters = new TokenValidationParameters
         {
-            ValidateIssuer = _options.Validation.ValidateIssuer && issuers.Count > 0,
+            ValidateIssuer = true,
             ValidIssuers = issuers,
-            ValidateAudience = _options.Validation.ValidateAudience && audiences.Count > 0,
+            ValidateAudience = true,
             ValidAudiences = audiences,
-            ValidateLifetime = _options.Validation.ValidateLifetime,
-            ClockSkew = _options.Validation.ClockSkew
+            // Always on, whatever the options say: JwtAuthenticationOptions.Validate() refuses to start otherwise.
+            ValidateLifetime = true,
+            RequireExpirationTime = true,
+            ClockSkew = _options.Validation.ClockSkew > JwtValidationOptions.MaxClockSkew
+                ? JwtValidationOptions.MaxClockSkew
+                : _options.Validation.ClockSkew
         };
 
         // Configure signing key

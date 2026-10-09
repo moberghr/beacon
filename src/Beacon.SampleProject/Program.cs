@@ -143,6 +143,8 @@ builder.Services.AddBeaconServices(builder.Configuration, options =>
         // Enable login form authentication
         options.Authentication.EnableLoginForm = true;
         options.AddAuthenticationProvider<DatabaseAuthenticationProvider>();
+        // First-run setup asks for a setup token: Beacon:UserManagement:SetupToken when configured, otherwise the
+        // token Beacon writes to this host's log at startup while no user exists yet.
         options.UserManagement = new UserManagementOptions
         {
             // For demo purposes, allow user registration. In production, you would likely disable this.
@@ -185,7 +187,7 @@ if (oidcEnabled && !string.IsNullOrWhiteSpace(mcpJwksEndpoint))
         jwt.Validation.ValidIssuer = oidcAuthority;
         jwt.Validation.ValidAudience = oidcClientId;
         jwt.Validation.ValidateIssuer = true;
-        jwt.Validation.ValidateAudience = !string.IsNullOrEmpty(oidcClientId);
+        jwt.Validation.ValidateAudience = true;
     });
 }
 

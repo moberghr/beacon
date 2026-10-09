@@ -5,6 +5,8 @@ import { http, HttpResponse } from 'msw';
  * `mswServer.use(...)` from vitest.setup.ts.
  */
 export const handlers = [
+  // RequireAuth asks for the signed-in user's permissions; a user with a role can read and write.
+  http.get('*/beacon/api/auth/permissions', () => HttpResponse.json({ canRead: true, canWrite: true })),
   // Match any origin so we don't have to mirror jsdom's default (currently 'http://localhost:3000').
   http.get('*/beacon/api/projects', () =>
     HttpResponse.json({

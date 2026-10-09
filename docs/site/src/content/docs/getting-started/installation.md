@@ -93,7 +93,7 @@ Other frontend commands (run inside `src/Beacon.UI/web`):
 | **`/openapi/v1.json`** | OpenAPI document |
 | **`/beacon/mcp`** | MCP server (auth required) |
 
-On the **first run** Beacon walks you through a setup flow that creates the initial admin user. There are **no hardcoded credentials** — you set them during setup.
+On the **first run** Beacon walks you through a setup flow that creates the initial admin user. There are **no hardcoded credentials** — you set them during setup. The setup page asks for a **setup token**: the value of `Beacon:UserManagement:SetupToken`, or, when it is not set, the token Beacon prints once to the process console (standard error, not the log) at startup while no super admin has ever existed. A configured token must be at least 32 characters. Configure the token explicitly when several replicas serve the setup page, since each replica generates its own.
 
 ---
 
@@ -486,7 +486,7 @@ GRANT CREATE SCHEMA TO your_user;
 
 ### Security
 
-- **Set a strong admin password** during first-run setup — there are no default credentials.
+- **Set a strong admin password** during first-run setup — there are no default credentials. Keep the setup token out of shared channels; it stops working once the super admin exists.
 - **Keep the encryption key out of source control** — use environment variables or a secrets manager.
 - **Enable HTTPS** in production.
 - **Use OIDC/SSO** for production identity where possible.

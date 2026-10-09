@@ -35,7 +35,16 @@ The token only proves **who** is calling. **What** the caller may do (which proj
 
 A caller that is neither a configured system nor an accepted user is **unknown**. It gets no projects and no scope, and it is rejected. This fails closed.
 
-Other routes (`/beacon/api/*`) keep their existing JWT behaviour: token claims pass through, apart from the reserved ones listed above, and they are not scope-gated.
+Other routes (`/beacon/api/*`) accept a bearer token only when it names an **existing, enabled, external Beacon
+user** by its subject (`sub`) and issuer, or a pre-registered user's subject when only one issuer is configured. A user
+that MCP user provisioning created (keyed on `oid` within the tenant) gets **no** REST session from a token. The
+session is that user, with the user's **Beacon roles**; no token claim (roles included) reaches it. Any other token gets
+`401` with `WWW-Authenticate: Bearer error="invalid_token"`. A configured system identity therefore reaches only
+`/beacon/mcp`, where its projects and scope apply.
+
+On `/beacon/mcp` the principal carries only the caller's name, e-mail and display name from the token, plus what the
+mapper decides: token roles, groups, `beacon:*` claims and the token's own subject never reach it. Until first-run
+setup has created the super admin, `AutoProvision` creates no user and such a caller is rejected.
 
 ### Token classification
 

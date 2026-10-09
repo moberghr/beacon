@@ -35,38 +35,36 @@ public class HybridAuthenticationProvider : IBeaconAuthenticationProvider
         if (_jwtProvider != null)
         {
             var jwtResult = await _jwtProvider.AuthenticateAsync(username, password, cancellationToken);
-            if (jwtResult.Success && jwtResult.User != null)
+            if (!jwtResult.Success || jwtResult.User == null)
             {
-                // Check if this external user is pre-registered in Beacon
-                var user = await _userService.GetUserByExternalIdAsync(jwtResult.User.UserId, cancellationToken);
-                if (user == null)
-                {
-                    // External user is not pre-registered
-                    return AuthenticationResult.Failed("User is not registered in this system. Please contact an administrator.");
-                }
+                return jwtResult;
+            }
 
-                if (!user.IsEnabled)
-                {
-                    return AuthenticationResult.Failed("This account has been disabled.");
-                }
+            // The JWT provider already bound the token to one Beacon user (and recorded the login); re-read exactly that
+            // user by id, never by an external id that another account (an internal one included) could share.
+            var user = jwtResult.BeaconUserId is { } userId
+                ? await _userService.GetUserByIdAsync(userId, cancellationToken)
+                : null;
+            if (user == null || !user.IsEnabled)
+            {
+                return AuthenticationResult.Failed("Invalid username or password.");
+            }
 
-                // Update last login
-                await _userService.UpdateLastLoginAsync(user.ExternalId, cancellationToken);
-
-                // Return authenticated user with roles from Beacon database
-                return AuthenticationResult.Succeeded(new AuthenticatedUser
+            return new AuthenticationResult
+            {
+                Success = true,
+                BeaconUserId = user.Id,
+                User = new AuthenticatedUser
                 {
                     UserId = user.ExternalId,
                     UserName = user.UserName,
-                    Email = user.Email ?? jwtResult.User.Email,
-                    DisplayName = user.DisplayName ?? jwtResult.User.DisplayName,
-                    Roles = user.Roles.Select(r => r.Name),
-                    Claims = jwtResult.User.Claims
-                });
-            }
-
-            // Return the JWT error if internal auth also failed
-            return jwtResult;
+                    Email = user.Email,
+                    DisplayName = user.DisplayName,
+                    Roles = user.Roles
+                        .Select(x => x.Name)
+                        .ToList()
+                }
+            };
         }
 
         // Return the internal auth error

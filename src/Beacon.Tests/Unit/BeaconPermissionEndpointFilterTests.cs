@@ -400,6 +400,32 @@ public class BeaconPermissionEndpointFilterTests
         _authorization.VerifyNoOtherCalls();
     }
 
+    [Test]
+    public async Task MapBeaconApi_UserWithoutRole_LearnsItHasNoPermissions_InsteadOfA403()
+    {
+        GrantPermissions(read: false, write: false);
+        await using var app = await StartBeaconApiAsync(Mock.Of<IMediator>());
+
+        var permissions = await SendAsync(app, HttpMethod.Get, "/beacon/api/auth/permissions");
+        var read = await SendAsync(app, HttpMethod.Get, "/beacon/api/queries/1");
+
+        permissions.StatusCode.Should().Be(HttpStatusCode.OK, "the shell needs the answer to explain that no role is assigned");
+        (await permissions.Content.ReadAsStringAsync()).Should().Contain("\"canRead\":false").And.Contain("\"canWrite\":false");
+        read.StatusCode.Should().Be(HttpStatusCode.Forbidden, "a user without a role still reads nothing");
+    }
+
+    [Test]
+    public async Task MapBeaconApi_PermissionsEndpoint_StillRequiresAnAuthenticatedUser()
+    {
+        GrantPermissions(read: true, write: true);
+        await using var app = await StartBeaconApiAsync(Mock.Of<IMediator>());
+
+        var response = await app.GetTestClient().GetAsync("/beacon/api/auth/permissions");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        _authorization.VerifyNoOtherCalls();
+    }
+
     private async Task<WebApplication> StartBeaconApiAsync(IMediator mediator)
     {
         var configuration = new BeaconConfiguration();

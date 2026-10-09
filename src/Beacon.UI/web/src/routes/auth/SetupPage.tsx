@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { User, Mail, IdCard, Lock, ShieldCheck, ArrowRight } from 'lucide-react';
+import { User, Mail, IdCard, Lock, ShieldCheck, ArrowRight, KeyRound } from 'lucide-react';
 import { describeError, fetchJson } from '@/lib/api';
 import {
   AuthLayout,
@@ -18,11 +18,12 @@ import {
 } from './AuthLayout';
 
 interface SetupStatusResponse {
-  isSetupComplete: boolean;
+  isFirstRun: boolean;
 }
 
 const SCHEMA = z
   .object({
+    setupToken: z.string().trim().min(1, 'Setup token is required'),
     userName: z.string().trim().min(1, 'Username is required'),
     email: z.union([z.literal(''), z.email('Invalid email').max(200)]).optional(),
     displayName: z.string().trim().optional().or(z.literal('')),
@@ -42,14 +43,14 @@ export default function SetupPage() {
 
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<FormValues>({
     resolver: zodResolver(SCHEMA),
-    defaultValues: { userName: '', email: '', displayName: '', password: '', confirmPassword: '' },
+    defaultValues: { setupToken: '', userName: '', email: '', displayName: '', password: '', confirmPassword: '' },
   });
 
   useEffect(() => {
     (async () => {
       try {
         const r = await fetchJson<SetupStatusResponse>('/beacon/api/setup/status');
-        setStatus(r.isSetupComplete ? 'already' : 'open');
+        setStatus(r.isFirstRun ? 'open' : 'already');
       } catch {
         setStatus('error');
       }
@@ -62,6 +63,7 @@ export default function SetupPage() {
       await fetchJson<unknown>('/beacon/api/setup/superadmin', {
         method: 'POST',
         body: JSON.stringify({
+          setupToken: values.setupToken,
           userName: values.userName,
           email: values.email || null,
           displayName: values.displayName || null,
@@ -103,7 +105,7 @@ export default function SetupPage() {
           ? 'The setup endpoint is unreachable. Refresh the page once the server is up.'
           : status === 'loading'
             ? 'Checking setup status…'
-            : 'Create the super admin account that will own this Beacon workspace.';
+            : 'Create the super admin account that will own this Beacon workspace. You need the setup token printed to the server console at startup (or the configured Beacon:UserManagement:SetupToken).';
 
   return (
     <AuthLayout
@@ -145,6 +147,19 @@ export default function SetupPage() {
           {serverError && <AuthAlert tone="error">{serverError}</AuthAlert>}
 
           <form className="flex flex-col gap-3.5" onSubmit={handleSubmit(onSubmit)} noValidate autoComplete="on">
+            <label className="flex flex-col gap-1.5">
+              <AuthLabel>Setup token *</AuthLabel>
+              <AuthField
+                icon={<KeyRound size={14} />}
+                type="password"
+                autoComplete="off"
+                placeholder="From the server console or Beacon:UserManagement:SetupToken"
+                disabled={isSubmitting}
+                {...register('setupToken')}
+              />
+              {errors.setupToken && <AuthFieldError>{errors.setupToken.message}</AuthFieldError>}
+            </label>
+
             <label className="flex flex-col gap-1.5">
               <AuthLabel>Username *</AuthLabel>
               <AuthField
