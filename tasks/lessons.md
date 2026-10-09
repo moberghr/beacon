@@ -523,7 +523,7 @@ metric tags.
 
 ## A guard regex is not redundant until adversarial inputs say so (2026-10-09)
 
-**What happened:** The spec planned to delete `QueryGuardrailService`'s comment-hidden-write pattern as redundant with the AST validator while fixing its ReDoS. The implementer found it is the only check that sees comment contents: MySQL executable comments (`/*!50000 DELETE ... */`) are invisible to the AST.
+**What happened:** The spec planned to delete `QueryGuardrailService`'s comment-hidden-write pattern as redundant with the AST validator while fixing its ReDoS. The implementer found it is the only check that sees comment contents, which the AST never does.
 
 **Rule:** Before removing a guard, list the inputs only it catches. Fix a ReDoS by rewriting the pattern linearly (and giving every static `Regex` a `MatchTimeout`, enforced by a reflection test in `QueryGuardrailServiceTests`), not by deleting it.
 
