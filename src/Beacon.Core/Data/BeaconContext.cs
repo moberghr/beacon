@@ -957,6 +957,7 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             entity.Property(e => e.Label).HasMaxLength(200);
             entity.Property(e => e.StepsJson).IsRequired();
             entity.Property(e => e.CreatedByUserId).HasMaxLength(100);
+            entity.Property(e => e.CreatedByUserName).HasMaxLength(200);
             entity.Property(e => e.ChangeSource).HasMaxLength(50);
             entity.Property(e => e.ChangeReason).HasMaxLength(2000);
 

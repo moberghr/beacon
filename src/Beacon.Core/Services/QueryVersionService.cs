@@ -2,6 +2,7 @@ using Beacon.Core.Helpers;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Beacon.Core.Authorization;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
@@ -11,14 +12,29 @@ namespace Beacon.Core.Services;
 
 public interface IQueryVersionService
 {
+    /// <summary>
+    /// Snapshots the stored query as a new version. An Active version replaces the one that was live: every version
+    /// still marked Active is archived, so a query has one active version.
+    /// </summary>
     Task<QueryVersion> CreateVersionAsync(int queryId, string? userId, string? source, string? reason, QueryVersionStatus status, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Before an edit replaces the stored query, makes sure history already holds it. The active version normally
+    /// does; an unattributed Archived baseline is written only when there is none yet or the query was changed
+    /// outside a versioned save.
+    /// </summary>
+    Task EnsureBaselineVersionAsync(int queryId, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// A PendingApproval version holding <paramref name="proposed"/> — the edit awaiting review — rather than the
+    /// stored query, because approving a version applies its steps to the live query.
+    /// </summary>
+    Task<QueryVersion> CreateProposedVersionAsync(int queryId, QueryData proposed, string? userId, string? source, string? reason, CancellationToken cancellationToken = default);
     Task<PagedList<QueryVersionSummary>> GetVersionsAsync(int queryId, ListRequest request, CancellationToken cancellationToken);
     Task<QueryVersionDetail?> GetVersionDetailAsync(int versionId, CancellationToken cancellationToken = default);
     Task<int> RestoreVersionAsync(int versionId, string? userId, CancellationToken cancellationToken = default);
     Task<QueryVersionDiff> DiffVersionsAsync(int versionIdA, int versionIdB, CancellationToken cancellationToken = default);
 }
 
-internal class QueryVersionService(IDbContextFactory<BeaconContext> contextFactory, ILogger<QueryVersionService> logger) : IQueryVersionService
+internal class QueryVersionService(IDbContextFactory<BeaconContext> contextFactory, IBeaconUserContext userContext, ILogger<QueryVersionService> logger) : IQueryVersionService
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -46,23 +62,6 @@ internal class QueryVersionService(IDbContextFactory<BeaconContext> contextFacto
 
         var maxVersion = maxVersionNullable ?? 0;
 
-        var snapshots = query.Steps.OrderBy(s => s.StepOrder).Select(s => new QueryStepSnapshot
-        {
-            StepOrder = s.StepOrder,
-            SqlValue = s.SqlValue,
-            DataSourceId = s.DataSourceId,
-            DataSourceName = s.DataSource.Name,
-            Name = s.Name,
-            Description = s.Description,
-            Parameters = s.Parameters.Select(p => new QueryStepParameterSnapshot
-            {
-                Name = p.Name,
-                Type = p.Type,
-                Description = p.Description,
-                Placeholder = p.Placeholder
-            }).ToList()
-        }).ToList();
-
         var version = new QueryVersion
         {
             QueryId = queryId,
@@ -71,20 +70,154 @@ internal class QueryVersionService(IDbContextFactory<BeaconContext> contextFacto
             Name = query.Name,
             Description = query.Description,
             FinalQuery = query.FinalQuery,
+            StepsJson = SerializeSteps(query),
+            CreatedByUserId = userId,
+            CreatedByUserName = AuthorName(userId),
+            ChangeSource = source,
+            ChangeReason = reason
+        };
+
+        // If this is the active version, it replaces whatever was live (older data can hold several), and the
+        // query points at it via navigation so EF resolves the FK during the single SaveChanges below (§5.7).
+        if (status == QueryVersionStatus.Active)
+        {
+            var previousActive = await context.QueryVersions
+                .Where(v => v.QueryId == queryId)
+                .Where(v => v.Status == QueryVersionStatus.Active)
+                .ToListAsync(cancellationToken);
+
+            foreach (var x in previousActive)
+            {
+                x.Status = QueryVersionStatus.Archived;
+            }
+
+            query.ActiveVersion = version;
+        }
+
+        context.QueryVersions.Add(version);
+
+        await context.SaveChangesAsync(cancellationToken);
+        return version;
+    }
+
+    public async Task EnsureBaselineVersionAsync(int queryId, CancellationToken cancellationToken = default)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        var query = await context.Queries
+            .Include(q => q.Steps)
+                .ThenInclude(s => s.DataSource)
+            .Include(q => q.Steps)
+                .ThenInclude(s => s.Parameters)
+            .Where(q => q.Id == queryId)
+            .FirstOrDefaultAsync(cancellationToken)
+            ?? throw new InvalidOperationException($"Query {queryId} not found.");
+
+        var stepsJson = SerializeSteps(query);
+
+        var active = await context.QueryVersions
+            .Where(v => v.QueryId == queryId)
+            .Where(v => v.Status == QueryVersionStatus.Active)
+            .OrderByDescending(v => v.VersionNumber)
+            .Select(v =>
+                new
+                {
+                    v.StepsJson,
+                    v.FinalQuery
+                })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (active != null && active.StepsJson == stepsJson && active.FinalQuery == query.FinalQuery)
+        {
+            return;
+        }
+
+        var maxVersionNullable = await context.QueryVersions
+            .Where(v => v.QueryId == queryId)
+            .Select(v => (int?)v.VersionNumber)
+            .MaxAsync(cancellationToken);
+
+        context.QueryVersions.Add(new QueryVersion
+        {
+            QueryId = queryId,
+            VersionNumber = (maxVersionNullable ?? 0) + 1,
+            Status = QueryVersionStatus.Archived,
+            Name = query.Name,
+            Description = query.Description,
+            FinalQuery = query.FinalQuery,
+            StepsJson = stepsJson,
+            ChangeSource = "Baseline",
+            ChangeReason = "The query as stored before this edit"
+        });
+
+        await context.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task<QueryVersion> CreateProposedVersionAsync(int queryId, QueryData proposed, string? userId, string? source, string? reason, CancellationToken cancellationToken = default)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        var dataSourceIds = proposed.Steps
+            .Select(x => x.DataSourceId)
+            .Distinct()
+            .ToList();
+
+        var dataSourceNames = await context.DataSources
+            .Where(x => dataSourceIds.Contains(x.Id))
+            .ToDictionaryAsync(x => x.Id, x => x.Name, cancellationToken);
+
+        // Approval recreates steps from this snapshot, so an unknown data source has to fail now, not then.
+        var missing = dataSourceIds.FirstOrDefault(x => !dataSourceNames.ContainsKey(x), -1);
+        if (missing != -1)
+        {
+            throw new InvalidOperationException($"Data source {missing} not found.");
+        }
+
+        var maxVersionNullable = await context.QueryVersions
+            .Where(v => v.QueryId == queryId)
+            .Select(v => (int?)v.VersionNumber)
+            .MaxAsync(cancellationToken);
+
+        var snapshots = proposed.Steps
+            .OrderBy(x => x.StepOrder)
+            .Select(x =>
+                new QueryStepSnapshot
+                {
+                    StepOrder = x.StepOrder,
+                    SqlValue = x.SqlValue,
+                    DataSourceId = x.DataSourceId,
+                    DataSourceName = dataSourceNames[x.DataSourceId],
+                    Name = x.Name,
+                    Description = x.Description,
+                    Parameters = x.Parameters
+                        .Select(y =>
+                            new QueryStepParameterSnapshot
+                            {
+                                Name = y.Name,
+                                Type = y.Type,
+                                Description = y.Description,
+                                Placeholder = y.Placeholder
+                            })
+                        .ToList()
+                })
+            .ToList();
+
+        var version = new QueryVersion
+        {
+            QueryId = queryId,
+            VersionNumber = (maxVersionNullable ?? 0) + 1,
+            Status = QueryVersionStatus.PendingApproval,
+            Name = proposed.Name,
+            Description = proposed.Description,
+            FinalQuery = proposed.FinalQuery,
             StepsJson = JsonSerializer.Serialize(snapshots, JsonOptions),
             CreatedByUserId = userId,
+            CreatedByUserName = AuthorName(userId),
             ChangeSource = source,
             ChangeReason = reason
         };
 
         context.QueryVersions.Add(version);
-
-        // If this is the active version, point the query at it via navigation
-        // so EF resolves the FK during the single SaveChanges below (§5.7).
-        if (status == QueryVersionStatus.Active)
-        {
-            query.ActiveVersion = version;
-        }
 
         await context.SaveChangesAsync(cancellationToken);
         return version;
@@ -106,6 +239,7 @@ internal class QueryVersionService(IDbContextFactory<BeaconContext> contextFacto
                 Name = v.Name,
                 CreatedTime = v.CreatedTime,
                 CreatedByUserId = v.CreatedByUserId,
+                CreatedByUserName = v.CreatedByUserName,
                 ChangeSource = v.ChangeSource,
                 ChangeReason = v.ChangeReason,
                 StepsJson = v.StepsJson
@@ -121,6 +255,7 @@ internal class QueryVersionService(IDbContextFactory<BeaconContext> contextFacto
             Name = v.Name,
             CreatedTime = v.CreatedTime,
             CreatedByUserId = v.CreatedByUserId,
+            CreatedByUserName = v.CreatedByUserName,
             ChangeSource = v.ChangeSource,
             ChangeReason = v.ChangeReason,
             StepCount = CountSteps(v.StepsJson)
@@ -158,15 +293,15 @@ internal class QueryVersionService(IDbContextFactory<BeaconContext> contextFacto
 
         var snapshots = JsonSerializer.Deserialize<List<QueryStepSnapshot>>(version.StepsJson, JsonOptions) ?? [];
 
-        // Archive the current active version
+        // Archive the current active version (older data can hold several)
         var currentActive = await context.QueryVersions
             .Where(v => v.QueryId == query.Id)
             .Where(v => v.Status == QueryVersionStatus.Active)
-            .FirstOrDefaultAsync(cancellationToken);
+            .ToListAsync(cancellationToken);
 
-        if (currentActive != null)
+        foreach (var x in currentActive)
         {
-            currentActive.Status = QueryVersionStatus.Archived;
+            x.Status = QueryVersionStatus.Archived;
         }
 
         // Apply snapshot to live query
@@ -228,6 +363,7 @@ internal class QueryVersionService(IDbContextFactory<BeaconContext> contextFacto
             FinalQuery = version.FinalQuery,
             StepsJson = version.StepsJson,
             CreatedByUserId = userId,
+            CreatedByUserName = AuthorName(userId),
             ChangeSource = "Restore",
             ChangeReason = $"Restored from version {version.VersionNumber}"
         };
@@ -269,6 +405,40 @@ internal class QueryVersionService(IDbContextFactory<BeaconContext> contextFacto
         };
     }
 
+    // A version with an author id was made by the user behind this request. A snapshot without one (the
+    // pre-edit baseline) holds someone else's earlier SQL, so it stays unattributed.
+    private string? AuthorName(string? userId) =>
+        userId == null ? null : userContext.DisplayName ?? userContext.UserName;
+
+    private static string SerializeSteps(Query query)
+    {
+        var snapshots = query.Steps
+            .OrderBy(x => x.StepOrder)
+            .Select(x =>
+                new QueryStepSnapshot
+                {
+                    StepOrder = x.StepOrder,
+                    SqlValue = x.SqlValue,
+                    DataSourceId = x.DataSourceId,
+                    DataSourceName = x.DataSource.Name,
+                    Name = x.Name,
+                    Description = x.Description,
+                    Parameters = x.Parameters
+                        .Select(y =>
+                            new QueryStepParameterSnapshot
+                            {
+                                Name = y.Name,
+                                Type = y.Type,
+                                Description = y.Description,
+                                Placeholder = y.Placeholder
+                            })
+                        .ToList()
+                })
+            .ToList();
+
+        return JsonSerializer.Serialize(snapshots, JsonOptions);
+    }
+
     private static QueryVersionDetail ToDetail(QueryVersion version)
     {
         var steps = JsonSerializer.Deserialize<List<QueryStepSnapshot>>(version.StepsJson, JsonOptions) ?? [];
@@ -284,6 +454,7 @@ internal class QueryVersionService(IDbContextFactory<BeaconContext> contextFacto
             FinalQuery = version.FinalQuery,
             CreatedTime = version.CreatedTime,
             CreatedByUserId = version.CreatedByUserId,
+            CreatedByUserName = version.CreatedByUserName,
             ChangeSource = version.ChangeSource,
             ChangeReason = version.ChangeReason,
             Steps = steps
@@ -359,6 +530,8 @@ internal class QueryVersionService(IDbContextFactory<BeaconContext> contextFacto
         public DateTime CreatedTime { get; init; }
 
         public string? CreatedByUserId { get; init; }
+
+        public string? CreatedByUserName { get; init; }
 
         public string? ChangeSource { get; init; }
 

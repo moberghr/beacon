@@ -67,6 +67,9 @@ export default function QueryVersionDetailPage() {
             <Link to={`/queries/${queryId}/versions`} className="text-brand-600">← versions</Link>
             <span className="mx-1.5">·</span>
             {version?.createdTime ? formatDateTime(version.createdTime) : '—'}
+            {version?.createdByUserName && (
+              <span className="ml-1.5">· by {version.createdByUserName}</span>
+            )}
             {version?.changeSource && (
               <span className="ml-1.5">· {version.changeSource}</span>
             )}

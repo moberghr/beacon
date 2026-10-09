@@ -6,10 +6,13 @@ namespace Beacon.Core.Services;
 
 public interface IQueryExecutionPreviewService
 {
-    /// <summary>One page of a saved query's result; a failure comes back as the result, with its cause.</summary>
-    Task<QueryPreviewResult?> ExecuteQueryPreview(int queryId, ListRequest paging, CancellationToken cancellationToken);
-    /// <summary>One page of a single step's result, run on its own.</summary>
-    Task<QueryPreviewResult?> ExecuteStepPreview(int queryId, int stepOrder, List<ParameterValue>? parameters, ListRequest paging, CancellationToken cancellationToken);
+    /// <summary>
+    /// One page of a query's result (the saved query, or <paramref name="draft"/> when given); a failure comes
+    /// back as the result, with its cause.
+    /// </summary>
+    Task<QueryPreviewResult?> ExecuteQueryPreview(int queryId, QueryDraft? draft, ListRequest paging, CancellationToken cancellationToken);
+    /// <summary>One page of a single step's result, run on its own; from <paramref name="draft"/> when given.</summary>
+    Task<QueryPreviewResult?> ExecuteStepPreview(int queryId, int stepOrder, List<ParameterValue>? parameters, QueryDraft? draft, ListRequest paging, CancellationToken cancellationToken);
     Task<QueryExecutionResult?> ExecuteTemporaryQueryPreview(QueryData queryData, CancellationToken cancellationToken, List<ParameterValue>? parameters = null);
     Task<QueryStepResult?> ExecuteTemporaryStepPreview(QueryData queryData, int stepOrder, List<ParameterValue>? parameters, CancellationToken cancellationToken);
 }
@@ -25,11 +28,11 @@ internal sealed class QueryExecutionPreviewService : IQueryExecutionPreviewServi
         _logger = logger;
     }
 
-    public async Task<QueryPreviewResult?> ExecuteQueryPreview(int queryId, ListRequest paging, CancellationToken cancellationToken)
+    public async Task<QueryPreviewResult?> ExecuteQueryPreview(int queryId, QueryDraft? draft, ListRequest paging, CancellationToken cancellationToken)
     {
         try
         {
-            return await _queryService.PreviewQuery(queryId, paging, cancellationToken);
+            return await _queryService.PreviewQuery(queryId, draft, paging, cancellationToken);
         }
         catch (OperationCanceledException)
         {
@@ -47,12 +50,13 @@ internal sealed class QueryExecutionPreviewService : IQueryExecutionPreviewServi
         int queryId,
         int stepOrder,
         List<ParameterValue>? parameters,
+        QueryDraft? draft,
         ListRequest paging,
         CancellationToken cancellationToken)
     {
         try
         {
-            return await _queryService.PreviewQueryStepPaged(queryId, stepOrder, parameters, paging, cancellationToken);
+            return await _queryService.PreviewQueryStepPaged(queryId, stepOrder, parameters, draft, paging, cancellationToken);
         }
         catch (OperationCanceledException)
         {

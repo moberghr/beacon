@@ -67,10 +67,17 @@ internal static class QueriesEndpoints
 
         // SQL-executing endpoints: require the Execute (or Admin) scope for API-key callers (§1.4).
         // Interactive cookie/OIDC sessions carry no scope claim and pass through, governed by role.
-        queries.MapPost("/{id:int}/preview", (int id, [AsParameters] PreviewPageQuery paging, IMediator m, CancellationToken ct) =>
+        // An optional draft runs the editor's unsaved steps instead of the stored query, so Run never saves.
+        queries.MapPost("/{id:int}/preview", (
+                int id,
+                ExecuteQueryPreviewRequest? body,
+                [AsParameters] PreviewPageQuery paging,
+                IMediator m,
+                CancellationToken ct) =>
                 m.Send(new ExecuteQueryPreviewCommand
                 {
                     QueryId = id,
+                    Draft = body?.Draft,
                     Page = paging.Page,
                     PageSize = paging.PageSize,
                     Sort = paging.Sort,
@@ -90,6 +97,7 @@ internal static class QueriesEndpoints
                     QueryId = id,
                     StepOrder = stepOrder,
                     Parameters = body?.Parameters,
+                    Draft = body?.Draft,
                     Page = paging.Page,
                     PageSize = paging.PageSize,
                     Sort = paging.Sort,
@@ -102,7 +110,8 @@ internal static class QueriesEndpoints
 }
 
 internal sealed record ToggleQueryLockRequest(bool Lock);
-internal sealed record ExecuteStepPreviewRequest(List<ParameterValue>? Parameters);
+internal sealed record ExecuteQueryPreviewRequest(QueryDraft? Draft);
+internal sealed record ExecuteStepPreviewRequest(List<ParameterValue>? Parameters, QueryDraft? Draft);
 internal sealed record CreateQueryBody(string Name, string? Description);
 internal sealed record SetQueryMcpToolRequest(bool Enabled, string? Name, string? Description);
 

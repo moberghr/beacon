@@ -383,6 +383,7 @@ const queriesHandlers = [
         name: Number(params.id) === 2 ? 'Demo: Cross-Source Revenue Join' : 'Demo: Daily Order Count',
         createdTime: iso(3),
         createdByUserId: 'mock-admin',
+        createdByUserName: 'Mock Admin',
         changeSource: 'User',
         changeReason: 'Mock change — widened date window',
         stepCount: Number(params.id) === 2 ? 2 : 1,
@@ -394,6 +395,7 @@ const queriesHandlers = [
         name: Number(params.id) === 2 ? 'Demo: Cross-Source Revenue Join' : 'Demo: Daily Order Count',
         createdTime: iso(20),
         createdByUserId: 'mock-admin',
+        createdByUserName: 'Mock Admin',
         changeSource: 'User',
         changeReason: null,
         stepCount: 1,
@@ -410,6 +412,7 @@ const queriesHandlers = [
       finalQuery: null,
       createdTime: iso(Number(params.id) === 101 ? 20 : 3),
       createdByUserId: 'mock-admin',
+      createdByUserName: 'Mock Admin',
       changeSource: 'User',
       changeReason: Number(params.id) === 101 ? null : 'Mock change — widened date window',
       steps: [

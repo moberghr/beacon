@@ -16,6 +16,8 @@ export interface QueryVersionSummary {
   name: string;
   createdTime: string;
   createdByUserId: string | null;
+  /** Author's display name; null for the pre-edit baseline snapshot and versions saved before it was recorded. */
+  createdByUserName: string | null;
   changeSource: string | null;
   changeReason: string | null;
   stepCount: number;
@@ -39,6 +41,8 @@ export interface QueryVersionDetail {
   finalQuery: string | null;
   createdTime: string;
   createdByUserId: string | null;
+  /** Author's display name; null for the pre-edit baseline snapshot and versions saved before it was recorded. */
+  createdByUserName: string | null;
   changeSource: string | null;
   changeReason: string | null;
   steps: QueryVersionStepSnapshot[];
@@ -426,31 +430,49 @@ export interface ParameterValueInput {
   value: string;
 }
 
+/** The editor's unsaved steps. A preview runs these instead of the stored query, so Run never saves. */
+export interface QueryDraftInput {
+  steps: UpdateQueryStepPayload[];
+  finalQuery: string | null;
+}
+
 export function usePreviewStepMutation(id: number | undefined) {
   const qc = useQueryClient();
   return useMutation(
-    createSimpleMutation<{ stepOrder: number; parameters?: ParameterValueInput[]; paging?: PreviewPaging }, QueryPreviewResult>({
+    createSimpleMutation<
+      { stepOrder: number; parameters?: ParameterValueInput[]; draft?: QueryDraftInput; paging?: PreviewPaging },
+      QueryPreviewResult
+    >({
       qc,
       mutationFn: vars =>
         fetchJson<QueryPreviewResult>(
           `/beacon/api/queries/${id}/steps/${vars.stepOrder}/preview${listQueryString({ ...vars.paging })}`,
-          { method: 'POST', body: JSON.stringify({ parameters: vars.parameters ?? null }) },
+          {
+            method: 'POST',
+            body: JSON.stringify({ parameters: vars.parameters ?? null, draft: vars.draft ?? null }),
+          },
         ),
       errorFallback: 'Step preview failed',
     }),
   );
 }
 
-/** Runs the saved query and returns one page of its result; call again with another page or sort. */
+/**
+ * Runs the query and returns one page of its result; call again with another page or sort. With a `draft`
+ * it runs the editor's unsaved steps instead of the saved query.
+ */
 export function usePreviewQueryMutation(id: number | undefined) {
   const qc = useQueryClient();
   return useMutation(
-    createSimpleMutation<PreviewPaging | void, QueryPreviewResult>({
+    createSimpleMutation<(PreviewPaging & { draft?: QueryDraftInput }) | void, QueryPreviewResult>({
       qc,
-      mutationFn: paging =>
-        fetchJson<QueryPreviewResult>(`/beacon/api/queries/${id}/preview${listQueryString({ ...(paging ?? {}) })}`, {
+      mutationFn: vars => {
+        const { draft, ...paging } = vars ?? {};
+        return fetchJson<QueryPreviewResult>(`/beacon/api/queries/${id}/preview${listQueryString(paging)}`, {
           method: 'POST',
-        }),
+          body: JSON.stringify({ draft: draft ?? null }),
+        });
+      },
       errorFallback: 'Query preview failed',
     }),
   );

@@ -128,15 +128,24 @@ internal partial class QueryService
         // Determine if SQL has changed (for versioning)
         var sqlChanged = HasSqlChanged(query, queryData);
 
-        // Snapshot current state before modifying (archive the old version)
         if (sqlChanged)
         {
-            // When approval workflow is enabled, create a PendingApproval version instead of applying changes directly
+            // Check the edit before anything is written — a direct save and a submission alike.
+            foreach (var stepData in queryData.Steps)
+            {
+                QueryValidator.CheckForFlaggedWords(stepData.SqlValue);
+            }
+
+            // History must already hold the SQL this edit replaces; the active version normally does.
+            await queryVersionService.EnsureBaselineVersionAsync(query.Id, cancellationToken);
+
+            // When approval workflow is enabled, create a PendingApproval version instead of applying changes directly.
+            // Approving applies the version's steps to the live query, so the version must hold the submitted edit —
+            // snapshotting the stored query would approve the old SQL back in.
             if (beaconConfiguration.ApprovalWorkflow.Enabled)
             {
-                var pendingVersion = await queryVersionService.CreateVersionAsync(
-                    query.Id, null, "UserEdit", "Submitted for approval",
-                    Data.Enums.QueryVersionStatus.PendingApproval, cancellationToken);
+                var pendingVersion = await queryVersionService.CreateProposedVersionAsync(
+                    query.Id, queryData, userContext.UserId, "UserEdit", "Submitted for approval", cancellationToken);
 
                 // Create the approval request
                 await using var approvalContext = await contextFactory.CreateDbContextAsync(cancellationToken);
@@ -145,6 +154,8 @@ internal partial class QueryService
                     QueryId = query.Id,
                     QueryVersionId = pendingVersion.Id,
                     Status = Data.Enums.ApprovalStatus.Pending,
+                    RequestedByUserId = userContext.UserId,
+                    RequestedByUserName = userContext.DisplayName ?? userContext.UserName,
                     ChangeSummary = "SQL query modified"
                 });
                 await approvalContext.SaveChangesAsync(cancellationToken);
@@ -155,10 +166,6 @@ internal partial class QueryService
                     Success = true
                 };
             }
-
-            await queryVersionService.CreateVersionAsync(
-                query.Id, null, "UserEdit", null,
-                Data.Enums.QueryVersionStatus.Archived, cancellationToken);
         }
 
         // Update basic query properties
@@ -256,7 +263,7 @@ internal partial class QueryService
         if (sqlChanged)
         {
             await queryVersionService.CreateVersionAsync(
-                query.Id, null, "UserEdit", null,
+                query.Id, userContext.UserId, "UserEdit", null,
                 Data.Enums.QueryVersionStatus.Active, cancellationToken);
         }
 

@@ -26,6 +26,12 @@ public class QueryVersion : BaseEntity
 
     public string? CreatedByUserId { get; set; }
 
+    /// <summary>
+    /// Display name of the author at the time of the change, so history reads the same whichever
+    /// sign-in produced <see cref="CreatedByUserId"/>.
+    /// </summary>
+    public string? CreatedByUserName { get; set; }
+
     public string? ChangeSource { get; set; }
 
     public string? ChangeReason { get; set; }

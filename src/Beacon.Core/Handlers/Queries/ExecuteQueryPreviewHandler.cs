@@ -10,7 +10,7 @@ internal sealed class ExecuteQueryPreviewHandler(IQueryExecutionPreviewService p
 {
     public async Task<QueryPreviewResult> Handle(ExecuteQueryPreviewCommand request, CancellationToken cancellationToken)
     {
-        var result = await previewService.ExecuteQueryPreview(request.QueryId, request, cancellationToken);
+        var result = await previewService.ExecuteQueryPreview(request.QueryId, request.Draft, request, cancellationToken);
 
         if (result == null)
         {
@@ -25,4 +25,7 @@ internal sealed class ExecuteQueryPreviewHandler(IQueryExecutionPreviewService p
 public record ExecuteQueryPreviewCommand : ListRequest, IRequest<QueryPreviewResult>
 {
     public required int QueryId { get; init; }
+
+    /// <summary>The editor's unsaved steps; when set they run instead of the stored query, which stays untouched.</summary>
+    public QueryDraft? Draft { get; init; }
 }
