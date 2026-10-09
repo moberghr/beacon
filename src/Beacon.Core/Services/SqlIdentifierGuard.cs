@@ -9,11 +9,12 @@ namespace Beacon.Core.Services;
 /// </summary>
 public static partial class SqlIdentifierGuard
 {
-    [GeneratedRegex("^[A-Za-z_][A-Za-z0-9_]*$")]
+    // \z, not $: `$` also matches before a trailing newline, which would let "orders\n" through.
+    [GeneratedRegex(@"^[A-Za-z_][A-Za-z0-9_]*\z")]
     private static partial Regex IdentifierRegex();
 
     /// <summary>
-    /// Validates a single SQL identifier against <c>^[A-Za-z_][A-Za-z0-9_]*$</c> and returns it unchanged.
+    /// Validates a single SQL identifier against <c>^[A-Za-z_][A-Za-z0-9_]*\z</c> and returns it unchanged.
     /// Throws <see cref="InvalidOperationException"/> for anything that is not a plain identifier.
     /// </summary>
     public static string Validate(string identifier, string kind = "identifier")

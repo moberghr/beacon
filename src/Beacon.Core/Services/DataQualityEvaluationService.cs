@@ -1,14 +1,15 @@
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
-using Dapper;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Data;
+using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Entities.DataQuality;
 using Beacon.Core.Data.Enums;
-using Beacon.Core.Helpers;
-using Beacon.Core.HostData;
 using Beacon.Core.Models.DataQuality;
+using Beacon.Core.Services.Providers;
+using Beacon.Core.Services.Validation;
 
 namespace Beacon.Core.Services;
 
@@ -19,13 +20,31 @@ public interface IDataQualityEvaluationService
     Task<List<DataQualityEvaluationData>> GetEvaluationHistoryAsync(int dataContractId, int take = 20, CancellationToken cancellationToken = default);
 }
 
+/// <summary>
+/// Evaluates a data contract's rules. Every rule's SQL passes the read-only gate (<see cref="DataQualityRuleGuard"/>) and
+/// runs through <see cref="IDataSourceProvider.ExecuteReadOnlyQueryAsync"/>, which owns the host policy, host column
+/// masking, the generic host error and the READ ONLY transaction (§1.5). A failed rule never stores or returns the
+/// server's error text: a server or conversion error can quote row values (§1.11).
+/// </summary>
 internal class DataQualityEvaluationService(
     IDbContextFactory<BeaconContext> contextFactory,
     IDataQualitySqlGenerator sqlGenerator,
-    IDataSourceConnectionResolver connectionResolver,
-    IHostDataSourceGuard hostGuard,
+    IDataSourceProviderFactory providerFactory,
+    ISqlExecutionGate gate,
     ILogger<DataQualityEvaluationService> logger) : IDataQualityEvaluationService
 {
+    /// <summary>What a rule result says when its query fails on an ordinary data source.</summary>
+    public const string ExecutionFailedMessage = "Execution failed on the data source.";
+
+    /// <summary>What a rule result says when its query runs longer than <see cref="RuleTimeout"/>.</summary>
+    public const string TimedOutMessage = "Rule timed out.";
+
+    /// <summary>What a rule result says when its row lacks a column the rule reads, or holds a value of the wrong type.</summary>
+    public const string UnexpectedResultMessage = "Rule result did not have the expected columns or types.";
+
+    /// <summary>How long one rule's query may run. Settable for tests.</summary>
+    internal TimeSpan RuleTimeout { get; init; } = TimeSpan.FromSeconds(60);
+
     public async Task<DataQualityEvaluationData> EvaluateContractAsync(int dataContractId, CancellationToken cancellationToken = default)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
@@ -37,10 +56,12 @@ internal class DataQualityEvaluationService(
             .FirstOrDefaultAsync(cancellationToken)
             ?? throw new Models.BeaconException($"Data contract {dataContractId} not found");
 
-        if (contract.DataSource.DatabaseEngineType == null)
+        if (contract.DataSource.DataSourceType != DataSourceType.Database || contract.DataSource.DatabaseEngineType == null)
+        {
             throw new Models.BeaconException("Data contract's data source must be a database type");
+        }
 
-        var connectionString = connectionResolver.GetConnectionString(contract.DataSource);
+        var provider = providerFactory.GetProvider(contract.DataSource.DataSourceType);
         var engineType = contract.DataSource.DatabaseEngineType.Value;
         var enabledRules = contract.Rules.Where(r => r.IsEnabled).ToList();
 
@@ -49,7 +70,7 @@ internal class DataQualityEvaluationService(
 
         foreach (var rule in enabledRules)
         {
-            var result = await EvaluateRuleAsync(rule, contract, engineType, connectionString, cancellationToken);
+            var result = await EvaluateRuleAsync(rule, contract, provider, engineType, cancellationToken);
             ruleResults.Add(result);
         }
 
@@ -143,12 +164,89 @@ internal class DataQualityEvaluationService(
     private async Task<DataQualityRuleResult> EvaluateRuleAsync(
         DataContractRule rule,
         DataContract contract,
+        IDataSourceProvider provider,
         DatabaseEngineType engineType,
-        string connectionString,
         CancellationToken cancellationToken)
     {
         var ruleStopwatch = Stopwatch.StartNew();
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
+        // A caller's cancellation propagates (nothing is stored); every other failure becomes a failed rule result.
+        try
+        {
+            if (!TryPrepareQuery(rule, contract, engineType, out var query, out var rejection))
+            {
+                ruleStopwatch.Stop();
+
+                return Failed(rule, rejection, ruleStopwatch.Elapsed.TotalMilliseconds);
+            }
+
+            timeoutCts.CancelAfter(RuleTimeout);
+
+            // §1.5 — the read-only path: a READ ONLY transaction on PostgreSQL; on a host-managed source the host
+            // policy, host column masking and the generic host error. The provider reports a cancellation as a failed
+            // result, so the caller's token is checked here.
+            var result = await provider.ExecuteReadOnlyQueryAsync(contract.DataSource, query.Sql, query.Parameters, timeoutCts.Token);
+            ruleStopwatch.Stop();
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (!result.Success)
+            {
+                var timedOut = timeoutCts.IsCancellationRequested;
+                logger.LogWarning(
+                    "Data-quality rule {RuleId} ({RuleType}) of contract {ContractId} on data source {DataSourceId} failed on the data source after {ElapsedMs} ms (timed out: {TimedOut})",
+                    rule.Id,
+                    rule.RuleType,
+                    contract.Id,
+                    contract.DataSourceId,
+                    ruleStopwatch.ElapsedMilliseconds,
+                    timedOut);
+
+                return Failed(rule, timedOut ? TimedOutMessage : FailureMessage(contract.DataSource), ruleStopwatch.Elapsed.TotalMilliseconds);
+            }
+
+            try
+            {
+                return InterpretResult(rule, result.Rows.FirstOrDefault(), ruleStopwatch.Elapsed.TotalMilliseconds);
+            }
+            catch (Exception ex) when (ex is KeyNotFoundException or InvalidCastException or FormatException or OverflowException)
+            {
+                // A conversion error quotes the value it could not convert, so neither the result nor the log carries it.
+                LogFailure(rule, contract, ruleStopwatch, ex);
+
+                return Failed(rule, UnexpectedResultMessage, ruleStopwatch.Elapsed.TotalMilliseconds);
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            ruleStopwatch.Stop();
+            LogFailure(rule, contract, ruleStopwatch, ex);
+            var message = timeoutCts.IsCancellationRequested ? TimedOutMessage : FailureMessage(contract.DataSource);
+
+            return Failed(rule, message, ruleStopwatch.Elapsed.TotalMilliseconds);
+        }
+    }
+
+    // Builds the rule's query and passes it through the read-only gate. A rejection is derived from the rule's own
+    // configuration or SQL, never from data, so it is returned as is; the log carries identifiers only (§1.11).
+    private bool TryPrepareQuery(
+        DataContractRule rule,
+        DataContract contract,
+        DatabaseEngineType engineType,
+        [NotNullWhen(true)] out DataQualityQuery? query,
+        [NotNullWhen(false)] out string? rejection)
+    {
+        query = null;
+
+        // A CustomSql rule could project the host's masked columns, so it never runs on a host-managed source.
+        if (rule.RuleType == DataContractRuleType.CustomSql && contract.DataSource.HostManagedKey != null)
+        {
+            rejection = DataQualityRuleGuard.HostManagedCustomSqlMessage;
+            LogRejection(rule, contract, "host-managed source");
+            return false;
+        }
+
+        DataQualityQuery generated;
         try
         {
             // Enrich config with schema/table from the contract
@@ -166,49 +264,82 @@ internal class DataQualityEvaluationService(
                 DataContractId = rule.DataContractId
             };
 
-            var sql = sqlGenerator.GenerateSql(enrichedRule, engineType);
-
-            // Host-managed sources: rule SQL obeys the same allow-list / exclusion policy as any other query.
-            var hostCheck = hostGuard.Check(contract.DataSource, sql);
-            if (!hostCheck.Allowed)
-            {
-                throw new InvalidOperationException(hostCheck.Error);
-            }
-
-            using var connection = DbConnectionFactory.CreateConnection(engineType, connectionString);
-            await connection.OpenAsync(cancellationToken);
-
-            var commandDefinition = new CommandDefinition(
-                commandText: sql,
-                commandTimeout: 60,
-                cancellationToken: cancellationToken);
-
-            var row = await connection.QueryFirstOrDefaultAsync<dynamic>(commandDefinition);
-            ruleStopwatch.Stop();
-
-            return InterpretResult(rule, row, ruleStopwatch.Elapsed.TotalMilliseconds);
+            generated = sqlGenerator.GenerateSql(enrichedRule, engineType);
+        }
+        catch (NotSupportedException)
+        {
+            rejection = $"Rule type {rule.RuleType} is not supported on {engineType}.";
+            LogRejection(rule, contract, "unsupported engine");
+            return false;
         }
         catch (Exception ex)
         {
-            ruleStopwatch.Stop();
-            logger.LogWarning(ex, "Rule {RuleName} ({RuleId}) failed for contract {ContractId}",
-                rule.Name, rule.Id, contract.Id);
-
-            return new DataQualityRuleResult
-            {
-                DataContractRuleId = rule.Id,
-                Passed = false,
-                Score = 0,
-                ActualValue = "Error",
-                Message = $"Execution failed: {ex.Message}",
-                ExecutionTimeMs = ruleStopwatch.Elapsed.TotalMilliseconds
-            };
+            // The generator reads only the rule's configuration, so its message cannot carry data.
+            rejection = $"Invalid rule configuration: {ex.Message}";
+            LogRejection(rule, contract, "invalid configuration");
+            return false;
         }
+
+        // Re-checked on every run, so a rule saved before the gate existed (or edited in the database) cannot write.
+        var report = gate.Evaluate(DataQualityRuleGuard.GateRequest(generated.Sql, engineType, contract.DataSource.HostManagedKey));
+        var gateRejection = DataQualityRuleGuard.RejectionOf(report);
+        if (gateRejection != null)
+        {
+            rejection = gateRejection;
+            LogRejection(rule, contract, "read-only gate");
+            return false;
+        }
+
+        query = generated with { Sql = report.FinalSql };
+        rejection = null;
+        return true;
     }
 
-    private DataQualityRuleResult InterpretResult(DataContractRule rule, dynamic? row, double executionTimeMs)
+    private void LogRejection(DataContractRule rule, DataContract contract, string reason)
     {
-        if (row == null)
+        logger.LogWarning(
+            "Data-quality rule {RuleId} ({RuleType}) of contract {ContractId} on data source {DataSourceId} was not run: {Reason}",
+            rule.Id,
+            rule.RuleType,
+            contract.Id,
+            contract.DataSourceId,
+            reason);
+    }
+
+    // The exception type only (§1.11): its message can quote row values.
+    private void LogFailure(DataContractRule rule, DataContract contract, Stopwatch ruleStopwatch, Exception ex)
+    {
+        logger.LogWarning(
+            "Data-quality rule {RuleId} ({RuleType}) of contract {ContractId} on data source {DataSourceId} failed after {ElapsedMs} ms with {ExceptionType}",
+            rule.Id,
+            rule.RuleType,
+            contract.Id,
+            contract.DataSourceId,
+            ruleStopwatch.ElapsedMilliseconds,
+            ex.GetType().Name);
+    }
+
+    private static string FailureMessage(DataSource dataSource)
+    {
+        return dataSource.HostManagedKey == null ? ExecutionFailedMessage : DatabaseProvider.HostQueryFailedMessage;
+    }
+
+    private static DataQualityRuleResult Failed(DataContractRule rule, string message, double executionTimeMs)
+    {
+        return new DataQualityRuleResult
+        {
+            DataContractRuleId = rule.Id,
+            Passed = false,
+            Score = 0,
+            ActualValue = "Error",
+            Message = message,
+            ExecutionTimeMs = executionTimeMs
+        };
+    }
+
+    private DataQualityRuleResult InterpretResult(DataContractRule rule, Dictionary<string, object?>? dict, double executionTimeMs)
+    {
+        if (dict == null)
         {
             return new DataQualityRuleResult
             {
@@ -220,7 +351,6 @@ internal class DataQualityEvaluationService(
             };
         }
 
-        var dict = (IDictionary<string, object>)row;
         using var config = JsonDocument.Parse(rule.Configuration);
 
         switch (rule.RuleType)
