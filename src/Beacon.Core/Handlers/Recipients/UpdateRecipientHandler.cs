@@ -1,11 +1,19 @@
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Notifications;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 
 namespace Beacon.Core.Handlers.Recipients;
 
-internal sealed class UpdateRecipientHandler(IDbContextFactory<BeaconContext> contextFactory)
+/// <summary>
+/// Admin only (the endpoint carries the admin policy). Reads return masked secrets, so a destination or header value
+/// echoed back masked (or left empty) keeps the stored secret while the destination stays the same
+/// (<see cref="RecipientSecrets"/>); whatever is stored must pass the destination policy and is stored encrypted.
+/// </summary>
+internal sealed class UpdateRecipientHandler(
+    IDbContextFactory<BeaconContext> contextFactory,
+    RecipientSecretEditor secretEditor)
     : IRequestHandler<UpdateRecipientCommand>
 {
     public async Task Handle(UpdateRecipientCommand request, CancellationToken cancellationToken)
@@ -13,11 +21,6 @@ internal sealed class UpdateRecipientHandler(IDbContextFactory<BeaconContext> co
         if (string.IsNullOrWhiteSpace(request.Name))
         {
             throw new InvalidOperationException("Recipient name is required.");
-        }
-
-        if (string.IsNullOrWhiteSpace(request.Destination))
-        {
-            throw new InvalidOperationException("Recipient destination is required.");
         }
 
         if (!Enum.IsDefined(typeof(NotificationType), request.NotificationType))
@@ -46,22 +49,30 @@ internal sealed class UpdateRecipientHandler(IDbContextFactory<BeaconContext> co
             throw new InvalidOperationException($"A recipient named '{request.Name}' already exists.");
         }
 
+        var notificationType = (NotificationType)request.NotificationType;
+        var (destination, headersJson) = secretEditor.Prepare(
+            notificationType,
+            request.Destination,
+            request.HeadersJson,
+            new StoredRecipientSecrets(entity.NotificationType, entity.Destination, entity.HeadersJson));
+
         entity.Name = request.Name;
         entity.Description = request.Description;
-        entity.Destination = request.Destination;
-        entity.NotificationType = (NotificationType)request.NotificationType;
-        entity.HeadersJson = request.HeadersJson;
+        entity.Destination = destination;
+        entity.NotificationType = notificationType;
+        entity.HeadersJson = headersJson;
         entity.BodyTemplate = request.BodyTemplate;
 
         await context.SaveChangesAsync(cancellationToken);
     }
 }
 
+/// <summary>An empty or masked <c>Destination</c>, or masked header values, keep the stored secrets.</summary>
 public record UpdateRecipientCommand(
     int Id,
     string Name,
     string? Description,
-    string Destination,
+    string? Destination,
     int NotificationType,
     string? HeadersJson,
     string? BodyTemplate) : IRequest;

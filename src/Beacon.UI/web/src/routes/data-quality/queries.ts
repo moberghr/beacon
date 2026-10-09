@@ -47,7 +47,8 @@ export interface DataContractRuleData {
 export interface DataContractRecipientData {
   id: number;
   name: string;
-  destination?: string;
+  /** Always null: destinations are secrets, shown masked to admins on the recipients page only. */
+  destination?: string | null;
   notificationType?: number;
 }
 

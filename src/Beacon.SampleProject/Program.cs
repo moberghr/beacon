@@ -7,6 +7,7 @@ using Beacon.SampleProject.Warp;
 using Beacon.SampleProject.Warp.Jobs;
 using Beacon.AI;
 using Beacon.Core;
+using Beacon.Core.Notifications;
 using Beacon.Core.Worker;
 using Beacon.Core.PostgreSql;
 using Beacon.Core.SqlServer;
@@ -80,7 +81,8 @@ if (!string.IsNullOrWhiteSpace(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOIN
         .ConfigureResource(x => x.AddService(serviceName: builder.Configuration["OTEL_SERVICE_NAME"] ?? "beacon"))
         .WithTracing(x => x
             .AddAspNetCoreInstrumentation(y => y.Filter = z => !z.Request.Path.StartsWithSegments("/beacon/api/health"))
-            .AddHttpClientInstrumentation()
+            // Notification calls are left out: their URLs carry the recipients' secrets (e.g. a Slack webhook path).
+            .AddHttpClientInstrumentation(y => y.FilterHttpRequestMessage = z => !NotificationRequests.IsNotificationRequest(z))
             .AddBeaconInstrumentation()
             .AddOtlpExporter())
         .WithMetrics(x => x
@@ -377,6 +379,13 @@ using (var warpStartupScope = app.Services.CreateScope())
 
     // MCP Doc chunks (Tier-3 ⑨/⑩): re-chunk + (optional contextual blurb) + re-embed project docs every 12 hours
     await recurringJobPublisher.AddOrUpdateRecurringJob(new ReindexDocChunksJob(), "mcp-docchunk-reindex", "0 */12 * * *");
+
+    // Notification recipients: encrypt any destination or header stored before secrets were encrypted at rest. A
+    // one-off per start (idempotent, a no-op once everything is encrypted); a schema migration cannot do it because it
+    // has no access to Beacon:EncryptionKey.
+    var publisher = warpStartupScope.ServiceProvider.GetRequiredService<IPublisher>();
+    await publisher.Enqueue(new EncryptRecipientSecretsJob());
+    await publisher.SaveChangesAsync();
 }
 
 app.Run();

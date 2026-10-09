@@ -162,6 +162,7 @@ builder.Configuration["Beacon:EncryptionKey"] = secret.Value.Value;
 ### What Gets Encrypted
 
 - Data-source connection strings (stored in the metadata database)
+- Notification recipient destinations and webhook headers (Slack/Teams webhook URLs, Jira API tokens, webhook auth headers). Rows saved by an older version are encrypted by the `IRecipientSecretEncryptionService` job (see [Notification Destinations](#notification-destinations-optional)) or when they are next saved.
 - Other sensitive configuration values as needed
 
 API keys are **not** encrypted — they are SHA256-hashed, and the raw key is shown to the user once at creation.
@@ -672,6 +673,87 @@ builder.Services.AddBeaconServices(builder.Configuration, options =>
 ```
 
 Teams and Jira notifications work out of the box — configure them per recipient in the UI. See the [Notifications Guide](/features/notifications/).
+
+## Notification Destinations (Optional)
+
+:::caution[Upgrading]
+This version changes how notifications are managed and delivered. Before upgrading a host:
+
+- **Recipients outside the destination policy stop delivering.** Plain `http://` webhooks, private or internal webhook hosts, an on-premises Jira, retired Office 365 connector URLs (`outlook.office.com`) and anything else outside the rules below fail with "the destination is not allowed by policy". Allow them with `AllowedHosts:{Type}` and, for private addresses, `AllowedPrivateNetworks:{Type}`, or re-create them with a supported URL.
+- **Only `Authorization`, `Api-Key`, `X-Api-Key` and `Ocp-Apim-Subscription-Key` webhook headers are sent.** Add any other header a webhook needs to `AllowedHeaders`; until then those recipients fail.
+- **Email recipients must be bare addresses** (`ops@example.com, risk@example.com`); `Name <address>` forms fail until re-saved.
+- **The system HTTP proxy is ignored** unless `UseSystemProxy` is `true`. Hosts that can only reach the internet through a proxy must turn it on (and then list `AllowedHosts:Webhook`).
+- **Encrypt the stored secrets.** Recipients saved by an earlier version keep working but stay unencrypted until `IRecipientSecretEncryptionService.EncryptStoredSecretsAsync` runs or they are saved again. Schedule it once after upgrading, as the sample does at startup:
+
+  ```csharp
+  var publisher = scope.ServiceProvider.GetRequiredService<IPublisher>();
+  await publisher.Enqueue(new EncryptRecipientSecretsJob());   // handler calls EncryptStoredSecretsAsync
+  await publisher.SaveChangesAsync();
+  ```
+
+  It is idempotent, includes archived recipients, never overwrites a recipient edited while it runs, and fails (listing nothing but recipient ids in the log) if any recipient could not be encrypted. Once it has succeeded, set `RequireEncryptedSecrets` to `true`.
+- **Only Admins create, change or delete recipients.** API keys carry no role, so no API key can manage recipients any more; other users and keys can still list them (names and types) and attach them.
+- **Changing subscriptions needs the Execute scope**: an API key with only the Read scope can no longer create, change, run, archive or reactivate subscriptions, or attach and detach their recipients (data contracts already needed it).
+- **Failures show a generic reason.** The notification history records, for example, "the destination returned HTTP 5xx" or "connection refused by policy", never the destination's response or the connection error. Failures recorded by earlier versions may still contain the old detail.
+- **API responses no longer contain destinations** except, masked, for Admins on `GET /beacon/api/recipients`: `destination` is null on subscription and data-contract details, `RecipientData.Destination` is empty from `ISubscriptionService`, and recipient search no longer matches destinations.
+:::
+
+Only Admins create, change or delete recipients; other users see recipient names and types only, and Admins see secrets masked (`********`). A masked or empty value sent back on update keeps the stored secret only while the destination stays exactly the same (scheme, host, port, path and query); otherwise the secrets must be entered again. Every destination is checked when it is saved and again before each delivery:
+
+- Slack, Teams, Jira and webhooks need an `https` URL without user credentials.
+- Slack must be `hooks.slack.com`; Teams `*.webhook.office.com`, `*.logic.azure.com` or `*.environment.api.powerplatform.com` (Power Automate workflows); Jira `*.atlassian.net` or `api.atlassian.com`.
+- Webhooks may target any public host, and email any domain, unless you configure an allow-list.
+- Webhook custom headers are limited to `Authorization`, `Api-Key`, `X-Api-Key`, `Ocp-Apim-Subscription-Key` and the names in `AllowedHeaders`. Headers that control the connection, routing, cookies or cloud metadata (`Host`, `Content-Length`, `X-Forwarded-*`, `Metadata-Flavor`, …) can never be added.
+- Email destinations are bare addresses separated by commas; they are stored and sent as a normalised list.
+
+Notification calls never follow redirects, speak HTTP/1.1 only, time out after 30 seconds and cap response bodies (which are never logged). By default they connect directly, and only to public addresses: Beacon resolves the host itself, refuses loopback, private (RFC 1918), CGNAT, link-local (including `169.254.169.254`), the Azure wire server (`168.63.129.16`), unique-local IPv6, everything outside IPv6 global unicast, and the IPv4 addresses carried inside mapped, NAT64 and 6to4 IPv6 addresses, and connects to the address it checked, so a DNS answer that changes after the check cannot redirect the call. Each notification type has its own allowances: an `AllowedPrivateNetworks:Jira` entry never lets a webhook reach that network. A failed delivery records a generic reason only, and is logged at Warning with the notification and recipient ids, HTTP status and exception types, never a message, URL or body.
+
+If outbound traffic must go through a corporate proxy, set `UseSystemProxy` to `true`. Notification calls then use the system proxy (`HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY`, or the platform's proxy settings), and Beacon checks each destination before sending instead: it resolves the host and refuses the call unless every address it resolves to is public or allowed. A destination Beacon cannot resolve is refused, so the host must still be able to resolve the notification services' names. The proxy resolves the name again when it connects, so a DNS answer that changes between Beacon's check and the proxy's lookup is the proxy's to catch: the proxy must enforce its own egress policy (no internal or metadata addresses). Destinations the proxy settings bypass are connected to directly and checked as in the default mode. In proxy mode generic webhooks must be limited to `AllowedHosts:Webhook` (or Webhook disabled); the host refuses to start otherwise.
+
+```json
+{
+  "Beacon": {
+    "Notifications": {
+      "AllowedHosts": {
+        "Jira": [ "jira.example.internal" ],
+        "Teams": [ "*.webhook.office365.us" ],
+        "Webhook": [ "hooks.example.com", "*.partner.example" ],
+        "Email": [ "example.com" ]
+      },
+      "DisabledTypes": [ "Webhook" ],
+      "AllowedPrivateNetworks": {
+        "Jira": [ "10.20.0.0/16", "jira.example.internal" ]
+      },
+      "AllowedHeaders": [ "X-Signature" ],
+      "Nat64Prefixes": [ "2001:db8:64::/96" ],
+      "UseSystemProxy": false,
+      "RequireEncryptedSecrets": false
+    }
+  }
+}
+```
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `AllowedHosts:Slack` / `Teams` / `Jira` | empty | Extra hosts on top of the built-in vendor hosts. `*.example.com` matches any subdomain, not `example.com` itself. |
+| `AllowedHosts:Webhook` | empty (any public host) | When set, the only hosts a webhook may target. Required when `UseSystemProxy` is on (unless Webhook is disabled). |
+| `AllowedHosts:Email` | empty (any domain) | When set, the only domains an email recipient may use. |
+| `DisabledTypes` | empty | Notification types this host does not deliver (`Email`, `Teams`, `Slack`, `Jira`, `Webhook`). |
+| `AllowedPrivateNetworks:Webhook` / `Slack` / `Teams` / `Jira` | empty | IP addresses, CIDR ranges (no host bits set) or host names that calls of that type only may still reach, for example an on-premises Jira. A host-name entry never reaches link-local, metadata or Azure wire-server addresses, in any IPv6 form; only an explicit address or range does. |
+| `AllowedHeaders` | empty | Webhook header names allowed on top of the built-in four. Reserved names are refused at startup. |
+| `Nat64Prefixes` | empty | Extra NAT64 prefixes (IPv6 `/96`) used on the host's network, besides `64:ff9b::/96`; addresses in them are judged by the IPv4 address they carry. |
+| `UseSystemProxy` | `false` | Send notification calls through the system HTTP proxy, with the destination checked before sending (see above). The proxy itself is not checked. |
+| `RequireEncryptedSecrets` | `false` | Refuse to send to a recipient whose destination or headers are still stored unencrypted. Turn it on once `EncryptStoredSecretsAsync` has succeeded. |
+
+A malformed entry (including a wildcard over a whole top-level domain such as `*.com`, a reserved header name, a NAT64 prefix that is not a `/96`, or a switch that is not `true` or `false`) fails the host at startup, naming the entry. The effective policy (types, host patterns, entry counts; no secrets) is logged once at startup.
+
+Notification URLs are secrets (a Slack webhook's token is in its path). If the host traces outgoing HTTP calls with OpenTelemetry, leave notification calls out:
+
+```csharp
+.AddHttpClientInstrumentation(x => x.FilterHttpRequestMessage = y => !NotificationRequests.IsNotificationRequest(y))
+```
+
+Other APM agents (Application Insights auto-collection, Datadog, Dynatrace, …) may record full outgoing URLs, vendor webhook paths included; configure them to exclude or redact notification calls the same way.
 
 ## MCP Deployment Locks (Optional)
 

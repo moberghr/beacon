@@ -106,7 +106,8 @@ export interface SubscriptionDetailRecipient {
   id: number;
   name: string;
   description: string | null;
-  destination: string;
+  /** Always null: destinations are secrets, shown masked to admins on the recipients page only. */
+  destination: string | null;
   notificationType: number;
 }
 

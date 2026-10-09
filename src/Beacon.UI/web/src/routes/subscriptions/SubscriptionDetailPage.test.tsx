@@ -32,7 +32,7 @@ function detailPayload(overrides: Record<string, unknown> = {}) {
         {
           id: 7,
           name: 'Ops',
-          description: null,
+          description: 'Operations inbox',
           destination: 'ops@example.com',
           notificationType: 2,
         },
@@ -102,7 +102,9 @@ describe('SubscriptionDetailPage', () => {
 
     // Recipients tab is the default — Ops recipient card should render.
     expect(screen.getAllByText('Ops').length).toBeGreaterThan(0);
-    expect(screen.getByText('ops@example.com')).toBeInTheDocument();
+    expect(screen.getByText('Operations inbox')).toBeInTheDocument();
+    // Destinations are never shown on a subscription, even if a server sent one.
+    expect(screen.queryByText('ops@example.com')).not.toBeInTheDocument();
 
     // Hero ACTIVE pill present.
     expect(screen.getAllByText('ACTIVE').length).toBeGreaterThan(0);

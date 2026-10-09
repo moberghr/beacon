@@ -12,14 +12,20 @@ export const NOTIFICATION_TYPE_LABEL: Record<number, string> = {
   [NotificationType.Webhook]: 'Webhook',
 };
 
+/**
+ * `destination`, `headersJson` and `bodyTemplate` are returned to admins only, with secrets masked (`********`);
+ * they are null for everyone else. Sending a masked value back on update keeps the stored secret while the destination
+ * stays the same. `secretsUnreadable` (admins only) means a stored value cannot be decrypted and must be entered again.
+ */
 export interface RecipientEntry {
   id: number;
   name: string;
   description: string | null;
-  destination: string;
+  destination: string | null;
   notificationType: number;
   headersJson: string | null;
   bodyTemplate: string | null;
+  secretsUnreadable?: boolean;
   subscriptionCount: number;
 }
 
@@ -34,7 +40,7 @@ export interface RecipientFormValues {
 
 const RECIPIENTS_KEY = ['recipients'] as const;
 
-/** The recipients grid: server-paged, alphabetical; search (name, destination, description) in the URL. */
+/** The recipients grid: server-paged, alphabetical; search (name, description) in the URL. */
 export function useRecipientsList() {
   return usePagedList<RecipientEntry, { search: string }>({
     queryKey: RECIPIENTS_KEY,

@@ -21,7 +21,7 @@ internal sealed class GetSubscriptionDetailHandler(ISubscriptionService subscrip
                     x.RecipientId ?? 0,
                     x.Name,
                     x.Description,
-                    x.Destination,
+                    null,
                     x.NotificationType))
             .ToList();
 
@@ -98,11 +98,12 @@ public record SubscriptionDetail(
 
 public record SubscriptionDetailParameter(string? QueryPlaceholder, string? Value);
 
+/// <summary><c>Destination</c> is always null: destinations are secrets, shown masked to admins on the recipients list only.</summary>
 public record SubscriptionDetailRecipient(
     int Id,
     string Name,
     string? Description,
-    string Destination,
+    string? Destination,
     NotificationType NotificationType);
 
 public record SubscriptionDetailAnomalyConfig(

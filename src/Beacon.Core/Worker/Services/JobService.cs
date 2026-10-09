@@ -7,6 +7,7 @@ using Beacon.Core.Data.Entities.DataQuality;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Exceptions;
 using Beacon.Core.Helpers.File;
+using Beacon.Core.Notifications;
 using Beacon.Core.Services;
 
 namespace Beacon.Core.Worker.Services;
@@ -136,7 +137,9 @@ internal class JobService(
             return;
         }
 
-        // Create Notification records for each recipient that was notified
+        // One Notification row per recipient, saved first because its id goes into the message (the link back to
+        // Beacon). A row whose delivery fails is removed again, so a Notification always means the recipient was
+        // notified.
         var notifications = new List<Notification>();
         foreach (var recipient in queryResult.Recipients)
         {
@@ -154,17 +157,6 @@ internal class JobService(
 
         await context.SaveChangesAsync(cancellationToken);
 
-        // Record anomaly event if anomaly was detected
-        if (anomalyEvaluation?.IsAnomaly == true)
-        {
-            await anomalyDetectionService.RecordAnomalyEventAsync(
-                subscriptionId,
-                anomalyEvaluation,
-                notifications.FirstOrDefault()?.Id,
-                cancellationToken);
-        }
-
-        var recipientsQueryResults = new List<RecipientQueryResult>();
         QueryResultFile? resultFile = null;
 
         // Only create attachment if subscription has attachments enabled and a file type is specified
@@ -173,36 +165,65 @@ internal class JobService(
             resultFile = await ExportProvider.GetReport(subscription.ResultAttachmentType.Value, queryResult.AllRecords);
         }
 
-        for (int i = 0; i < queryResult.Recipients.Count; i++)
+        // Every recipient is tried; one failing does not stop the others.
+        var failures = new List<(int? RecipientId, string Reason)>();
+        var delivered = new List<Notification>();
+        for (var i = 0; i < queryResult.Recipients.Count; i++)
         {
             var recipient = queryResult.Recipients[i];
-            recipientsQueryResults.Add(new RecipientQueryResult
+            var recipientQueryResult = new RecipientQueryResult
             {
                 RecipientDestination = recipient.Destination,
                 RecipientNotificationType = recipient.NotificationType,
                 QueryResult = queryResult,
                 QueryResultFile = resultFile,
                 NotificationId = notifications[i].Id,
+                RecipientId = recipient.RecipientId,
                 AnomalyEvaluation = anomalyEvaluation?.IsAnomaly == true ? anomalyEvaluation : null,
                 HeadersJson = recipient.HeadersJson,
                 BodyTemplate = recipient.BodyTemplate
-            });
-        }
+            };
 
-        try
-        {
-            foreach (var recipientQueryResult in recipientsQueryResults)
+            try
             {
                 await notificationService.SendNotification(recipientQueryResult, lastExecutedQuery?.ResultCount, cancellationToken);
+                delivered.Add(notifications[i]);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                // Shutting down: the recipients not reached yet were not notified either.
+                failures.AddRange(queryResult.Recipients
+                    .Skip(i)
+                    .Select(x => (x.RecipientId, NotificationFailureReasons.Generic)));
+                await RecordFailedDeliveriesAsync(context, executedQuery, notifications.Except(delivered), failures, CancellationToken.None);
+                throw;
+            }
+            catch (Exception ex)
+            {
+                failures.Add((recipient.RecipientId, NotificationFailureReasons.For(ex)));
             }
         }
-        catch (Exception ex)
+
+        // Record anomaly event if anomaly was detected, linked to a notification that actually went out
+        if (anomalyEvaluation?.IsAnomaly == true)
         {
-            logger.LogError(ex, "Failed to send notification for subscription {SubscriptionId}", subscriptionId);
-            executedQuery.NotificationStatus = NotificationStatus.Failed;
-            executedQuery.Comment = ex.Message;
-            await context.SaveChangesAsync(cancellationToken);
-            throw;
+            await anomalyDetectionService.RecordAnomalyEventAsync(
+                subscriptionId,
+                anomalyEvaluation,
+                delivered.FirstOrDefault()?.Id,
+                cancellationToken);
+        }
+
+        if (failures.Count > 0)
+        {
+            await RecordFailedDeliveriesAsync(context, executedQuery, notifications.Except(delivered), failures, cancellationToken);
+            logger.LogError(
+                "Notification delivery failed for {FailedCount} of {RecipientCount} recipients of subscription {SubscriptionId}",
+                failures.Count,
+                notifications.Count,
+                subscriptionId);
+
+            throw new NotificationDeliveryException(executedQuery.Comment!);
         }
 
         // Trigger AI Actor think cycle if this subscription belongs to an actor
@@ -334,6 +355,7 @@ internal class JobService(
                 RecipientDestination = recipient.Destination,
                 RecipientNotificationType = recipient.NotificationType,
                 QueryResult = queryResult,
+                RecipientId = recipient.Id,
                 HeadersJson = recipient.HeadersJson,
                 BodyTemplate = recipient.BodyTemplate
             };
@@ -342,10 +364,19 @@ internal class JobService(
             {
                 await notificationService.SendNotification(recipientQueryResult, null, cancellationToken);
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Failed to send data quality notification to recipient {RecipientId} '{RecipientName}' for contract {ContractId}",
-                    recipient.Id, recipient.Name, contractId);
+                // The reason and the exception types only: a host's notification service may put remote text in messages.
+                logger.LogError(
+                    "Data quality notification to recipient {RecipientId} for contract {ContractId} failed: {Reason} ({ExceptionTypes})",
+                    recipient.Id,
+                    contractId,
+                    NotificationFailureReasons.For(ex),
+                    NotificationHttpClient.TypeChain(ex));
             }
         }
     }
@@ -433,6 +464,29 @@ internal class JobService(
             // Log but don't fail the subscription execution
             logger.LogWarning(ex, "Failed to trigger AI Actor for subscription {SubscriptionId}", subscriptionId);
         }
+    }
+
+    // The run failed if any recipient was not notified: those recipients' Notification rows are removed, and the
+    // comment, shown to every reader of the history, names them with a generic reason each (never remote content).
+    private static async Task RecordFailedDeliveriesAsync(
+        BeaconContext context,
+        QueryExecutionHistory executedQuery,
+        IEnumerable<Notification> undelivered,
+        List<(int? RecipientId, string Reason)> failures,
+        CancellationToken cancellationToken)
+    {
+        foreach (var notification in undelivered)
+        {
+            executedQuery.Notifications.Remove(notification);
+            if (context.Entry(notification).State != EntityState.Detached)
+            {
+                context.Remove(notification);
+            }
+        }
+
+        executedQuery.NotificationStatus = NotificationStatus.Failed;
+        executedQuery.Comment = string.Join(" ", failures.Select(x => $"Recipient {x.RecipientId}: {x.Reason}"));
+        await context.SaveChangesAsync(cancellationToken);
     }
 
     private NotificationStatus DetermineNotificationStatus(

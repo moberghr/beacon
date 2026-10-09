@@ -1,12 +1,19 @@
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Notifications;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 
 namespace Beacon.Core.Handlers.Recipients;
 
-internal sealed class CreateRecipientHandler(IDbContextFactory<BeaconContext> contextFactory)
+/// <summary>
+/// Admin only (the endpoint carries the admin policy). The destination and headers must pass the destination policy
+/// and are stored encrypted.
+/// </summary>
+internal sealed class CreateRecipientHandler(
+    IDbContextFactory<BeaconContext> contextFactory,
+    RecipientSecretEditor secretEditor)
     : IRequestHandler<CreateRecipientCommand, CreateRecipientResult>
 {
     public async Task<CreateRecipientResult> Handle(CreateRecipientCommand request, CancellationToken cancellationToken)
@@ -26,6 +33,9 @@ internal sealed class CreateRecipientHandler(IDbContextFactory<BeaconContext> co
             throw new InvalidOperationException("Unknown notification type.");
         }
 
+        var notificationType = (NotificationType)request.NotificationType;
+        var (destination, headersJson) = secretEditor.Prepare(notificationType, request.Destination, request.HeadersJson, stored: null);
+
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         var nameTaken = await context.Recipients
@@ -41,9 +51,9 @@ internal sealed class CreateRecipientHandler(IDbContextFactory<BeaconContext> co
         {
             Name = request.Name,
             Description = request.Description,
-            Destination = request.Destination,
-            NotificationType = (NotificationType)request.NotificationType,
-            HeadersJson = request.HeadersJson,
+            Destination = destination,
+            NotificationType = notificationType,
+            HeadersJson = headersJson,
             BodyTemplate = request.BodyTemplate,
         };
 

@@ -2,12 +2,12 @@
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Adapters.Shared;
 using Beacon.Core.Data.Enums;
-using Beacon.Core.Models;
+using Beacon.Core.Notifications;
 using System.Text;
 
 namespace Beacon.Core.Adapters.Teams;
 
-internal class TeamsAdapter(IHttpClientFactory httpClientFactory, BeaconConfiguration configuration, ILogger<TeamsAdapter> logger) : IAdapter
+internal class TeamsAdapter(NotificationHttpSender sender, BeaconConfiguration configuration, ILogger<TeamsAdapter> logger) : IAdapter
 {
     private const int MaxColumns = AdapterConstants.Teams.MaxColumns;
     private const int MaxRows = AdapterConstants.Teams.MaxRows;
@@ -19,7 +19,6 @@ internal class TeamsAdapter(IHttpClientFactory httpClientFactory, BeaconConfigur
         int? lastNotificationResultCount,
         CancellationToken cancellationToken = default)
     {
-        var client = httpClientFactory.CreateClient();
         var queryResult = recipientQueryResult.QueryResult;
 
         string jsonPayload;
@@ -43,15 +42,7 @@ internal class TeamsAdapter(IHttpClientFactory httpClientFactory, BeaconConfigur
 
         var content = new StringContent(jsonPayload, Encoding.UTF8, System.Net.Mime.MediaTypeNames.Application.Json);
 
-        var response = await client.PostAsync(recipientQueryResult.RecipientDestination, content, cancellationToken);
-
-        if (!response.IsSuccessStatusCode)
-        {
-            var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
-            logger.LogError("Microsoft Teams webhook returned error {StatusCode}: {ErrorBody}", response.StatusCode, errorBody);
-            throw new BeaconException(
-                $"Failed to send Teams notification: {response.StatusCode}. {errorBody}");
-        }
+        await sender.PostAsync(NotificationType.Teams, recipientQueryResult.RecipientDestination, content, headers: null, cancellationToken);
     }
 
     private string BuildDefaultAdaptiveCard(RecipientQueryResult recipientQueryResult, QueryResult queryResult)

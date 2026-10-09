@@ -26,6 +26,7 @@ public record DataContractRecipientData
 {
     public int Id { get; init; }
     public string Name { get; init; } = null!;
-    public string Destination { get; init; } = null!;
+    /// <summary>Always null: destinations are secrets, shown masked to admins on the recipients list only.</summary>
+    public string? Destination { get; init; }
     public NotificationType NotificationType { get; init; }
 }

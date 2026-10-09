@@ -191,14 +191,18 @@ internal class SubscriptionService(
                     QueryName = x.Query.Name,
                     AiActorId = x.AiActorId,
                     AiActorName = x.AiActor != null ? x.AiActor.Name : null,
-                    Recipients = x.Recipients.Select(y => new RecipientData
-                    {
-                        RecipientId = y.Id,
-                        Name = y.Name,
-                        Description = y.Description,
-                        Destination = y.Destination,
-                        NotificationType = y.NotificationType
-                    }).ToList(),
+                    // Destinations are secrets: never part of a subscription read (admins see them masked on recipients).
+                    Recipients = x.Recipients
+                        .Select(y =>
+                            new RecipientData
+                            {
+                                RecipientId = y.Id,
+                                Name = y.Name,
+                                Description = y.Description,
+                                Destination = string.Empty,
+                                NotificationType = y.NotificationType
+                            })
+                        .ToList(),
                     CronExpression = x.CronExpression,
                     MaxRows = x.MaxRows,
                     MinimumRowCount = x.MinimumRowCount,
@@ -332,14 +336,20 @@ internal class SubscriptionService(
             {
                 SubscriptionId = x.Id,
                 QueryId = x.QueryId,
-                Recipients = x.Recipients.Select(y => new RecipientData
-                {
-                    RecipientId = y.Id,
-                    Name = y.Name,
-                    Description = y.Description,
-                    Destination = y.Destination,
-                    NotificationType = y.NotificationType
-                }).ToList(),
+                // IgnoreQueryFilters (archived subscriptions have details too) drops the recipients' soft-delete filter,
+                // so it is re-applied: an archived recipient must not reappear. Destinations are never part of this read.
+                Recipients = x.Recipients
+                    .Where(y => y.ArchivedTime == null)
+                    .Select(y =>
+                        new RecipientData
+                        {
+                            RecipientId = y.Id,
+                            Name = y.Name,
+                            Description = y.Description,
+                            Destination = string.Empty,
+                            NotificationType = y.NotificationType
+                        })
+                    .ToList(),
                 QueryName = x.Query.Name,
                 AiActorId = x.AiActorId,
                 AiActorName = x.AiActor != null ? x.AiActor.Name : null,

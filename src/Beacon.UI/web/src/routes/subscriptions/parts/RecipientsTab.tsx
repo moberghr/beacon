@@ -75,7 +75,6 @@ export function RecipientsTab({ subscription, canWrite, isAdmin }: RecipientsTab
                 />
               </div>
               <div className="font-semibold">{r.name}</div>
-              <div className="mono text-text-muted text-xs break-all">{r.destination}</div>
               {r.description && (
                 <div className="text-text-muted text-xs">{r.description}</div>
               )}
@@ -171,7 +170,7 @@ function RecipientPicker({ existingIds, onClose, subscriptionId }: RecipientPick
             renderItem={r => (
               <span className="flex items-center gap-2">
                 <span className="font-medium">{r.name}</span>
-                <span className="text-text-muted mono text-xs truncate">{r.destination}</span>
+                {r.description && <span className="text-text-muted text-xs truncate">{r.description}</span>}
                 <Pill className="ml-auto">{NOTIFICATION_TYPE_LABEL[r.notificationType] ?? r.notificationType}</Pill>
               </span>
             )}
@@ -192,7 +191,6 @@ function RecipientPicker({ existingIds, onClose, subscriptionId }: RecipientPick
               >
                 <Check className="size-3 text-text-muted" />
                 <span className="font-medium">{r.name}</span>
-                <span className="text-text-muted mono text-xs">{r.destination}</span>
                 <Pill className="ml-auto">
                   {NOTIFICATION_TYPE_LABEL[r.notificationType] ?? r.notificationType}
                 </Pill>

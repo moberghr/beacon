@@ -29,6 +29,18 @@ Beacon supports four notification channels:
 Email is the only channel that delivers complete query results as attachments. This makes it suited to scheduled reporting where stakeholders need full datasets for analysis in Excel or other tools.
 :::
 
+:::caution[Upgrading]
+Recipients and deliveries are locked down in this version; read the [upgrade notes](/getting-started/configuration/#notification-destinations-optional) before upgrading. In short: recipients outside the destination policy (plain `http://` webhooks, private hosts, an on-premises Jira, retired Office 365 connector URLs, unlisted webhook headers, email display names) stop delivering until they are allowed or re-saved; the system proxy is ignored unless `UseSystemProxy` is on; stored secrets need `IRecipientSecretEncryptionService` run once; only Admins manage recipients; changing subscriptions needs the Execute scope; failures show a generic reason; API responses no longer contain destinations.
+:::
+
+:::note[Who manages recipients]
+Only Admins create, change or delete recipients. Other users can attach existing recipients to subscriptions and data contracts (with write permission and, for API keys, the Execute scope), but never see their destinations; Admins see them masked. Destinations must use `https` and, for Slack, Teams and Jira, the vendor's own hosts; see [Notification Destinations](/getting-started/configuration/#notification-destinations-optional).
+
+Notification calls connect directly by default. Hosts whose outbound traffic must go through a corporate proxy set `Beacon:Notifications:UseSystemProxy` to `true`; Beacon then checks each destination's addresses before sending, and the proxy must enforce its own egress policy.
+
+A failed delivery shows a generic reason in the notification history, never the destination's response; a run that fails for some recipients still notifies the others and names the failed recipient ids. Failures recorded by earlier versions may still show the old detail.
+:::
+
 ## Email Notifications
 
 ### Prerequisites
