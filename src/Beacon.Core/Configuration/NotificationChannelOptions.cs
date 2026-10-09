@@ -51,9 +51,10 @@ public sealed class NotificationChannelOptions
     /// Send notification calls through the system (default) HTTP proxy, for hosts whose egress must go through one.
     /// Off by default: Beacon then connects directly and vets the address it connects to. When on, the connect-time
     /// check sees only the proxy, so Beacon resolves each destination itself before sending and refuses it unless every
-    /// resolved address is public or allowed; the proxy resolves the name again, so it must enforce its own egress
-    /// policy (a DNS answer that changes in between is the proxy's to catch). A destination Beacon cannot resolve is
-    /// refused. Generic webhooks then need an explicit <c>AllowedHosts:Webhook</c> list (or Webhook disabled).
+    /// resolved address is public or allowed. That check is advisory: the proxy resolves the name again and connects
+    /// wherever its own answer points, so in this mode the destination guarantee rests on the proxy's resolution and
+    /// egress policy, not on Beacon. A destination Beacon cannot resolve is refused. Generic webhooks then need an
+    /// explicit <c>AllowedHosts:Webhook</c> list (or Webhook disabled).
     /// </summary>
     public bool UseSystemProxy { get; set; }
 

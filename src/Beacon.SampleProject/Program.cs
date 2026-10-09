@@ -380,12 +380,9 @@ using (var warpStartupScope = app.Services.CreateScope())
     // MCP Doc chunks (Tier-3 ⑨/⑩): re-chunk + (optional contextual blurb) + re-embed project docs every 12 hours
     await recurringJobPublisher.AddOrUpdateRecurringJob(new ReindexDocChunksJob(), "mcp-docchunk-reindex", "0 */12 * * *");
 
-    // Notification recipients: encrypt any destination or header stored before secrets were encrypted at rest. A
-    // one-off per start (idempotent, a no-op once everything is encrypted); a schema migration cannot do it because it
-    // has no access to Beacon:EncryptionKey.
-    var publisher = warpStartupScope.ServiceProvider.GetRequiredService<IPublisher>();
-    await publisher.Enqueue(new EncryptRecipientSecretsJob());
-    await publisher.SaveChangesAsync();
+    // EncryptRecipientSecretsJob (Warp/Jobs/NotificationJobs.cs) is deliberately not enqueued here: it rewrites stored
+    // recipient secrets, which an older version cannot read, so an operator runs it once every node runs this version
+    // (see "Notification Destinations" in the configuration docs).
 }
 
 app.Run();

@@ -9,8 +9,9 @@ namespace Beacon.Core.Notifications;
 /// run repeatedly or from several replicas: it only touches values that are still plaintext, archived recipients
 /// included, and each write is conditional on the stored value being unchanged, so a concurrent edit is never
 /// overwritten. A recipient that fails is logged and skipped, the others are still encrypted, and the run then throws so
-/// the job shows as failed. A schema migration cannot do this because it has no access to <c>Beacon:EncryptionKey</c>;
-/// the host runs it as a background job after deploying (the sample enqueues it at startup).
+/// the job shows as failed. A schema migration cannot do this because it has no access to <c>Beacon:EncryptionKey</c>.
+/// Nothing runs it automatically: an operator runs it once (for example as a background job) after every node runs a
+/// version that reads encrypted secrets, since an older version cannot read what it writes.
 /// </summary>
 public interface IRecipientSecretEncryptionService
 {

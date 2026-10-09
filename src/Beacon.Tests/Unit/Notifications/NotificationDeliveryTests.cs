@@ -23,6 +23,7 @@ using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Entities.DataQuality;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Models;
+using Beacon.Core.Models.Anomaly;
 using Beacon.Core.Models.DataQuality;
 using Beacon.Core.Models.Recipients;
 using Beacon.Core.Notifications;
@@ -381,6 +382,57 @@ public class NotificationDeliveryTests
     }
 
     [Test]
+    public async Task ExecuteQuery_AnomalyWriteFailsAfterAFailedDelivery_TheFailureIsAlreadyRecorded()
+    {
+        var store = new JobStore();
+        store.AnomalyConfigs.Add(new AnomalyConfig { SubscriptionId = 5, Enabled = true });
+        var notifications = new Mock<INotificationService>();
+        notifications
+            .Setup(x => x.SendNotification(It.Is<RecipientQueryResult>(y => y.RecipientId == 9), It.IsAny<int?>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(NotificationDeliveryException.ForStatus(HttpStatusCode.InternalServerError));
+        JobStore.SavedState? persistedBeforeAnomaly = null;
+        var anomaly = new Mock<IAnomalyDetectionService>();
+        anomaly
+            .Setup(x => x.EvaluateAnomalyAsync(5, It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AnomalyEvaluationResult { IsAnomaly = true });
+        anomaly
+            .Setup(x => x.RecordAnomalyEventAsync(5, It.IsAny<AnomalyEvaluationResult>(), It.IsAny<int?>(), It.IsAny<CancellationToken>()))
+            .Callback(() => persistedBeforeAnomaly = store.Saves.LastOrDefault())
+            .ThrowsAsync(new InvalidOperationException("anomaly store unavailable"));
+
+        var act = () => JobService(store, notifications.Object, new CapturingLogger<JobService>(), recipientIds: [9, 10], anomaly: anomaly.Object).ExecuteQuery(5, CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("anomaly store unavailable");
+        persistedBeforeAnomaly.Should().NotBeNull();
+        persistedBeforeAnomaly!.Status.Should().Be(NotificationStatus.Failed);
+        persistedBeforeAnomaly.Comment.Should().Be("Recipient 9: Notification delivery failed: the destination returned HTTP 5xx.");
+        persistedBeforeAnomaly.NotifiedRecipientIds.Should().Equal(10);
+    }
+
+    [Test]
+    public async Task ExecuteQuery_RequestCancelledAfterTheSends_StillRecordsTheFailures()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var store = new JobStore();
+        var notifications = new Mock<INotificationService>();
+        notifications
+            .Setup(x => x.SendNotification(It.Is<RecipientQueryResult>(y => y.RecipientId == 9), It.IsAny<int?>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(NotificationDeliveryException.ForStatus(HttpStatusCode.BadGateway));
+        notifications
+            .Setup(x => x.SendNotification(It.Is<RecipientQueryResult>(y => y.RecipientId == 10), It.IsAny<int?>(), It.IsAny<CancellationToken>()))
+            .Callback(cancellation.Cancel)
+            .Returns(Task.CompletedTask);
+
+        var act = () => JobService(store, notifications.Object, new CapturingLogger<JobService>(), recipientIds: [9, 10]).ExecuteQuery(5, cancellation.Token);
+
+        await act.Should().ThrowAsync<NotificationDeliveryException>();
+        var saved = store.Saves.Last();
+        saved.Status.Should().Be(NotificationStatus.Failed);
+        saved.Comment.Should().StartWith("Recipient 9:");
+        saved.NotifiedRecipientIds.Should().Equal(10);
+    }
+
+    [Test]
     public async Task DataContractAlert_FailedRecipient_LogsTheReasonOnlyAndTriesTheRest()
     {
         var store = new JobStore();
@@ -523,7 +575,8 @@ public class NotificationDeliveryTests
         INotificationService notifications,
         ILogger<JobService> logger,
         int[] recipientIds,
-        IDataQualityEvaluationService? evaluation = null)
+        IDataQualityEvaluationService? evaluation = null,
+        IAnomalyDetectionService? anomaly = null)
     {
         var queryService = new Mock<IQueryService>();
         queryService
@@ -549,7 +602,7 @@ public class NotificationDeliveryTests
             queryService.Object,
             notifications,
             Mock.Of<ITaskService>(),
-            Mock.Of<IAnomalyDetectionService>(),
+            anomaly ?? Mock.Of<IAnomalyDetectionService>(),
             evaluation ?? Mock.Of<IDataQualityEvaluationService>(),
             logger);
     }
@@ -584,6 +637,13 @@ public class NotificationDeliveryTests
         public List<QueryExecutionHistory> History { get; } = [];
 
         public List<DataContract> Contracts { get; } = [];
+
+        public List<AnomalyConfig> AnomalyConfigs { get; } = [];
+
+        /// <summary>What each save persisted for the run's history row, in order.</summary>
+        public List<SavedState> Saves { get; } = [];
+
+        public sealed record SavedState(NotificationStatus? Status, string? Comment, List<int> NotifiedRecipientIds);
     }
 
     /// <summary>A <see cref="BeaconContext"/> over in-memory sets for the jobs (§4.7: no in-memory provider).</summary>
@@ -613,7 +673,7 @@ public class NotificationDeliveryTests
 
             if (typeof(TEntity) == typeof(AnomalyConfig))
             {
-                return (DbSet<TEntity>)(object)MemorySet(new List<AnomalyConfig>());
+                return (DbSet<TEntity>)(object)MemorySet(store.AnomalyConfigs);
             }
 
             if (typeof(TEntity) == typeof(DataContract))
@@ -624,8 +684,15 @@ public class NotificationDeliveryTests
             return base.Set<TEntity>();
         }
 
+        // Like EF: a cancelled token fails the save before anything is written.
         public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+            var history = store.History.SingleOrDefault();
+            store.Saves.Add(new JobStore.SavedState(
+                history?.NotificationStatus,
+                history?.Comment,
+                history?.Notifications.Select(x => x.RecipientId).ToList() ?? []));
             return Task.FromResult(0);
         }
 

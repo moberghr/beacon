@@ -137,9 +137,18 @@ internal class JobService(
             return;
         }
 
-        // One Notification row per recipient, saved first because its id goes into the message (the link back to
-        // Beacon). A row whose delivery fails is removed again, so a Notification always means the recipient was
-        // notified.
+        QueryResultFile? resultFile = null;
+
+        // Only create attachment if subscription has attachments enabled and a file type is specified. Built before any
+        // Notification row exists, so a failure here leaves no recipient recorded as notified.
+        if (subscription.IncludeAttachment && subscription.ResultAttachmentType.HasValue)
+        {
+            resultFile = await ExportProvider.GetReport(subscription.ResultAttachmentType.Value, queryResult.AllRecords);
+        }
+
+        // One Notification row per recipient, saved just before sending because its id goes into the message (the
+        // link back to Beacon). A row whose delivery fails is removed as soon as the sends are done, before any other
+        // write, so a Notification always means the recipient was notified.
         var notifications = new List<Notification>();
         foreach (var recipient in queryResult.Recipients)
         {
@@ -156,14 +165,6 @@ internal class JobService(
         }
 
         await context.SaveChangesAsync(cancellationToken);
-
-        QueryResultFile? resultFile = null;
-
-        // Only create attachment if subscription has attachments enabled and a file type is specified
-        if (subscription.IncludeAttachment && subscription.ResultAttachmentType.HasValue)
-        {
-            resultFile = await ExportProvider.GetReport(subscription.ResultAttachmentType.Value, queryResult.AllRecords);
-        }
 
         // Every recipient is tried; one failing does not stop the others.
         var failures = new List<(int? RecipientId, string Reason)>();
@@ -204,6 +205,13 @@ internal class JobService(
             }
         }
 
+        // The outcome is persisted before any other write, and with a token the caller's cancellation cannot stop: a
+        // failing anomaly write or a cancelled request must not leave failed recipients recorded as notified.
+        if (failures.Count > 0)
+        {
+            await RecordFailedDeliveriesAsync(context, executedQuery, notifications.Except(delivered), failures, CancellationToken.None);
+        }
+
         // Record anomaly event if anomaly was detected, linked to a notification that actually went out
         if (anomalyEvaluation?.IsAnomaly == true)
         {
@@ -216,7 +224,6 @@ internal class JobService(
 
         if (failures.Count > 0)
         {
-            await RecordFailedDeliveriesAsync(context, executedQuery, notifications.Except(delivered), failures, cancellationToken);
             logger.LogError(
                 "Notification delivery failed for {FailedCount} of {RecipientCount} recipients of subscription {SubscriptionId}",
                 failures.Count,
