@@ -24,6 +24,8 @@ public class SqlIdentifierGuardTests
     [TestCase("col\"; DROP TABLE users;--")]
     [TestCase("col')")]
     [TestCase("a.b")]
+    [TestCase("orders\n")]
+    [TestCase("orders\r\n")]
     public void Validate_NonIdentifier_Throws(string identifier)
     {
         var act = () => SqlIdentifierGuard.Validate(identifier, "column");

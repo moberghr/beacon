@@ -1,21 +1,49 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Beacon.Core.Authorization;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities.DataQuality;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Models;
 using Beacon.Core.Models.DataQuality;
+using Beacon.Core.Services;
+using Beacon.Core.Services.Validation;
 using Beacon.Core.Worker;
 
 namespace Beacon.Core.Handlers.DataQuality.UpdateDataContract;
 
 internal sealed class UpdateDataContractHandler(
     IDbContextFactory<BeaconContext> contextFactory,
-    IBeaconScheduler scheduler) : IRequestHandler<UpdateDataContractCommand>
+    IBeaconScheduler scheduler,
+    IBeaconUserContext userContext,
+    ISqlExecutionGate gate) : IRequestHandler<UpdateDataContractCommand>
 {
     public async Task Handle(UpdateDataContractCommand request, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        // Checked before the transaction: a contract that carries a CustomSql rule, now or after this update, is
+        // changed by an Admin only, and the new rules' SQL must pass the read-only gate.
+        var addsCustomSql = DataQualityRuleGuard.HasCustomSql(request.Rules);
+        var hasCustomSql = addsCustomSql || await context.DataContractRules
+            .Where(x => x.DataContractId == request.DataContractId)
+            .Where(x => x.RuleType == DataContractRuleType.CustomSql)
+            .AnyAsync(cancellationToken);
+        if (hasCustomSql)
+        {
+            DataQualityRuleGuard.EnsureAdmin(userContext);
+        }
+
+        if (addsCustomSql)
+        {
+            var dataSource = await context.DataSources
+                .Where(x => x.Id == request.DataSourceId)
+                .Select(x =>
+                    new DataQualityRuleTarget(x.DataSourceType, x.DatabaseEngineType, x.HostManagedKey))
+                .FirstOrDefaultAsync(cancellationToken);
+
+            DataQualityRuleGuard.EnsureCustomSqlRunnable(request.Rules, dataSource, gate);
+        }
 
         // The rule-result purge below runs as raw SQL (ExecuteDeleteAsync) outside the change
         // tracker, so it would commit immediately and wipe history even if the subsequent save
@@ -28,6 +56,12 @@ internal sealed class UpdateDataContractHandler(
             .Where(c => c.Id == request.DataContractId)
             .FirstOrDefaultAsync(cancellationToken)
             ?? throw new BeaconException($"Data contract {request.DataContractId} not found");
+
+        // Re-checked on the rows this transaction rewrites: a CustomSql rule added after the check above is an Admin's.
+        if (contract.Rules.Any(x => x.RuleType == DataContractRuleType.CustomSql))
+        {
+            DataQualityRuleGuard.EnsureAdmin(userContext);
+        }
 
         contract.DataSourceId = request.DataSourceId;
         contract.Name = request.Name;

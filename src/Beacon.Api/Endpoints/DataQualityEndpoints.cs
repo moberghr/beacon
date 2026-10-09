@@ -29,9 +29,12 @@ internal static class DataQualityEndpoints
                 m.Send(new GetDataContractDetailQuery(id), ct))
             .WithName("GetDataContractDetail");
 
+        // Create, update, delete and evaluate need the Execute scope (§1.4): an enabled contract schedules rule SQL,
+        // evaluate runs it. A contract with a Custom SQL rule is further restricted to Admins by the handlers.
         quality.MapPost("/contracts", (CreateDataContractCommand cmd, IMediator m, CancellationToken ct) =>
                 m.Send(cmd, ct))
-            .WithName("CreateDataContract");
+            .WithName("CreateDataContract")
+            .RequireAuthorization(BeaconApiEndpoints.ExecuteScopePolicyName);
 
         quality.MapPut("/contracts/{id:int}", async (int id, UpdateDataContractBody body, IMediator m, CancellationToken ct) =>
         {
@@ -43,13 +46,13 @@ internal static class DataQualityEndpoints
                 body.Description, body.CronExpression, body.IsEnabled,
                 body.AlertOnFailure, body.FailureThresholdScore, body.Rules, body.RecipientIds), ct);
             return TypedResults.NoContent();
-        }).WithName("UpdateDataContract");
+        }).WithName("UpdateDataContract").RequireAuthorization(BeaconApiEndpoints.ExecuteScopePolicyName);
 
         quality.MapDelete("/contracts/{id:int}", async (int id, IMediator m, CancellationToken ct) =>
         {
             await m.Send(new DeleteDataContractCommand(id), ct);
             return TypedResults.NoContent();
-        }).WithName("DeleteDataContract");
+        }).WithName("DeleteDataContract").RequireAuthorization(BeaconApiEndpoints.ExecuteScopePolicyName);
 
         quality.MapGet("/contracts/{id:int}/evaluations", (int id, [FromQuery] int? take, IMediator m, CancellationToken ct) =>
                 m.Send(new GetEvaluationHistoryQuery(id, take), ct))
@@ -57,7 +60,8 @@ internal static class DataQualityEndpoints
 
         quality.MapPost("/contracts/{id:int}/evaluate", (int id, IMediator m, CancellationToken ct) =>
                 m.Send(new EvaluateDataContractCommand(id), ct))
-            .WithName("EvaluateDataContract");
+            .WithName("EvaluateDataContract")
+            .RequireAuthorization(BeaconApiEndpoints.ExecuteScopePolicyName);
 
         return group;
     }

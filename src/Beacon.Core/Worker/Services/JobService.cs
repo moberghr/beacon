@@ -5,6 +5,7 @@ using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Entities.DataQuality;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Exceptions;
 using Beacon.Core.Helpers.File;
 using Beacon.Core.Services;
 
@@ -215,6 +216,11 @@ internal class JobService(
             var evaluationResult = await dataQualityEvaluationService.EvaluateContractAsync(contractId, cancellationToken);
 
             await SendDataQualityNotificationsIfNeeded(contractId, evaluationResult, cancellationToken);
+        }
+        catch (DataContractHasNoEnabledRulesException)
+        {
+            // Nothing to score: no history, score or alert is written, and the recurring job is not failed for it.
+            logger.LogWarning("Data contract {ContractId} has no enabled rules; its scheduled evaluation was skipped", contractId);
         }
         catch (Exception ex)
         {

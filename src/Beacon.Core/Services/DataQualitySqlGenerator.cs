@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using Beacon.Core.Data.Entities.DataQuality;
 using Beacon.Core.Data.Enums;
@@ -6,25 +7,35 @@ namespace Beacon.Core.Services;
 
 public interface IDataQualitySqlGenerator
 {
-    string GenerateSql(DataContractRule rule, DatabaseEngineType engineType);
+    DataQualityQuery GenerateSql(DataContractRule rule, DatabaseEngineType engineType);
 }
+
+/// <summary>
+/// A rule's SQL and the values it binds as database parameters (§1.10): a user-supplied value such as a Pattern rule's
+/// pattern goes into <see cref="Parameters"/>, never into <see cref="Sql"/>.
+/// </summary>
+public sealed record DataQualityQuery(string Sql, Dictionary<string, object?> Parameters);
 
 internal class DataQualitySqlGenerator : IDataQualitySqlGenerator
 {
-    public string GenerateSql(DataContractRule rule, DatabaseEngineType engineType)
+    // Named like the binders' generated parameters (@p0, @p1 …): the host query policy recognises only that shape as a
+    // PostgreSQL placeholder.
+    private const string PatternParameter = "p0";
+
+    public DataQualityQuery GenerateSql(DataContractRule rule, DatabaseEngineType engineType)
     {
         var config = new RuleConfig(rule.Configuration);
 
         return rule.RuleType switch
         {
-            DataContractRuleType.Freshness => GenerateFreshnessSql(config, engineType),
-            DataContractRuleType.Volume => GenerateVolumeSql(config, engineType),
-            DataContractRuleType.NullRate => GenerateNullRateSql(config, engineType),
-            DataContractRuleType.Uniqueness => GenerateUniquenessSql(config, engineType),
-            DataContractRuleType.Referential => GenerateReferentialSql(config, engineType),
-            DataContractRuleType.Range => GenerateRangeSql(config, engineType),
-            DataContractRuleType.Pattern => GeneratePatternSql(config, engineType),
-            DataContractRuleType.CustomSql => GenerateCustomSql(config),
+            DataContractRuleType.Freshness => Unbound(GenerateFreshnessSql(config, engineType)),
+            DataContractRuleType.Volume => Unbound(GenerateVolumeSql(config, engineType)),
+            DataContractRuleType.NullRate => Unbound(GenerateNullRateSql(config, engineType)),
+            DataContractRuleType.Uniqueness => Unbound(GenerateUniquenessSql(config, engineType)),
+            DataContractRuleType.Referential => Unbound(GenerateReferentialSql(config, engineType)),
+            DataContractRuleType.Range => Unbound(GenerateRangeSql(config, engineType)),
+            DataContractRuleType.Pattern => GeneratePatternQuery(config, engineType),
+            DataContractRuleType.CustomSql => Unbound(GenerateCustomSql(config)),
             _ => throw new ArgumentOutOfRangeException(nameof(rule.RuleType), rule.RuleType, "Unsupported rule type")
         };
     }
@@ -35,6 +46,12 @@ internal class DataQualitySqlGenerator : IDataQualitySqlGenerator
         var table = config.GetString("table");
         var column = SqlIdentifierGuard.Validate(config.GetString("column"), "column");
         var maxAgeMinutes = config.GetInt("maxAgeMinutes");
+        // Written into the SQL as a number; a negative value would turn T-SQL's "-{n}" into a "--" comment.
+        if (maxAgeMinutes <= 0)
+        {
+            throw new InvalidOperationException("Rule config property 'maxAgeMinutes' must be greater than zero.");
+        }
+
         var qualifiedTable = QualifyTable(schema, table, engineType);
 
         return engineType switch
@@ -144,15 +161,13 @@ internal class DataQualitySqlGenerator : IDataQualitySqlGenerator
         var conditions = new List<string>();
         if (min != null)
         {
-            ValidateNumeric(min, "min");
             var quotedCol = QuoteColumn(column, engineType);
-            conditions.Add($"{quotedCol} < {min}");
+            conditions.Add($"{quotedCol} < {ValidateNumeric(min, "min")}");
         }
         if (max != null)
         {
-            ValidateNumeric(max, "max");
             var quotedCol = QuoteColumn(column, engineType);
-            conditions.Add($"{quotedCol} > {max}");
+            conditions.Add($"{quotedCol} > {ValidateNumeric(max, "max")}");
         }
 
         var whereClause = conditions.Count > 0 ? string.Join(" OR ", conditions) : "1=0";
@@ -160,7 +175,9 @@ internal class DataQualitySqlGenerator : IDataQualitySqlGenerator
         return $"SELECT COUNT(*) AS out_of_range, (SELECT COUNT(*) FROM {qualifiedTable}) AS total FROM {qualifiedTable} WHERE {whereClause}";
     }
 
-    private static string GeneratePatternSql(RuleConfig config, DatabaseEngineType engineType)
+    // The pattern is bound as a parameter, never written into the SQL as a literal: literal escaping is engine-specific
+    // (MySQL and MariaDB also treat a backslash as an escape character), a bound value needs none.
+    private static DataQualityQuery GeneratePatternQuery(RuleConfig config, DatabaseEngineType engineType)
     {
         var schema = config.GetString("schema");
         var table = config.GetString("table");
@@ -168,16 +185,18 @@ internal class DataQualitySqlGenerator : IDataQualitySqlGenerator
         var pattern = config.GetString("pattern");
         var qualifiedTable = QualifyTable(schema, table, engineType);
 
-        return engineType switch
+        var sql = engineType switch
         {
             DatabaseEngineType.PostgreSQL =>
-                $"SELECT COUNT(*) AS non_matching FROM {qualifiedTable} WHERE \"{column}\" !~ '{EscapeSqlString(pattern)}'",
+                $"SELECT COUNT(*) AS non_matching FROM {qualifiedTable} WHERE \"{column}\" !~ @{PatternParameter}",
             DatabaseEngineType.MySQL =>
-                $"SELECT COUNT(*) AS non_matching FROM {qualifiedTable} WHERE `{column}` NOT REGEXP '{EscapeSqlString(pattern)}'",
+                $"SELECT COUNT(*) AS non_matching FROM {qualifiedTable} WHERE `{column}` NOT REGEXP @{PatternParameter}",
             DatabaseEngineType.MSSQL =>
-                $"SELECT COUNT(*) AS non_matching FROM {qualifiedTable} WHERE [{column}] NOT LIKE '{EscapeSqlString(pattern)}'",
+                $"SELECT COUNT(*) AS non_matching FROM {qualifiedTable} WHERE [{column}] NOT LIKE @{PatternParameter}",
             _ => throw new NotSupportedException($"Engine {engineType} not supported for Pattern rule")
         };
+
+        return new DataQualityQuery(sql, new Dictionary<string, object?> { [PatternParameter] = pattern });
     }
 
     private static string GenerateCustomSql(RuleConfig config)
@@ -212,17 +231,20 @@ internal class DataQualitySqlGenerator : IDataQualitySqlGenerator
         };
     }
 
+    // A plain number only (optional leading minus, digits, optional decimal point): no whitespace, thousands separators,
+    // trailing sign or exponent. The SQL gets the parsed value re-printed with the invariant culture, never the input.
     private static string ValidateNumeric(string value, string property)
     {
-        if (!decimal.TryParse(value, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out _))
+        const NumberStyles plainNumber = NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint;
+        if (!decimal.TryParse(value, plainNumber, CultureInfo.InvariantCulture, out var number))
         {
             throw new InvalidOperationException($"Rule config property '{property}' must be numeric.");
         }
 
-        return value;
+        return number.ToString(CultureInfo.InvariantCulture);
     }
 
-    private static string EscapeSqlString(string value) => value.Replace("'", "''");
+    private static DataQualityQuery Unbound(string sql) => new(sql, []);
 
     private class RuleConfig
     {

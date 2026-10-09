@@ -1,6 +1,8 @@
 using System.Data.Common;
 using System.Diagnostics;
+using System.Globalization;
 using Dapper;
+using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
@@ -332,21 +334,40 @@ internal class DatabaseProvider(
         }
     }
 
-    // A host data source is reached by agents that may be prompt-injected: a server error message can quote the
-    // values of masked or unexposed columns (conversion errors, constraint text), so neither the caller nor the log
-    // ever sees it — only the exception type is logged (§1.11). Ordinary sources keep the full message.
+    // A server or conversion error message can quote row values, so the log never carries the message or the
+    // exception: only its type and the driver's error code (§1.11). The caller of an ordinary source still gets the
+    // message; a host data source is reached by agents that may be prompt-injected and could quote masked or
+    // unexposed columns, so its caller gets the generic text.
     private string DescribeFailure(DataSource dataSource, Exception ex, string what, LogLevel level)
     {
-        if (dataSource.HostManagedKey == null)
-        {
-            logger.Log(level, ex, "{What} for database data source {DataSourceId}", what, dataSource.Id);
+        logger.Log(
+            level,
+            "{What} for {SourceKind} data source {DataSourceId} with {ExceptionType} (error code {ErrorCode})",
+            what,
+            dataSource.HostManagedKey == null ? "database" : "host",
+            dataSource.Id,
+            ex.GetType().Name,
+            ErrorCodeOf(ex) ?? "none");
 
-            return ex.Message;
+        return dataSource.HostManagedKey == null ? ex.Message : HostQueryFailedMessage;
+    }
+
+    // The driver's error code, never text: SQL Server's error number, otherwise the SQLSTATE that the PostgreSQL and
+    // MySQL drivers expose through DbException. Looks through wrapping exceptions.
+    private static string? ErrorCodeOf(Exception ex)
+    {
+        for (var current = ex; current != null; current = current.InnerException)
+        {
+            switch (current)
+            {
+                case SqlException sqlServer:
+                    return sqlServer.Number.ToString(CultureInfo.InvariantCulture);
+                case DbException { SqlState: { Length: > 0 } sqlState }:
+                    return sqlState;
+            }
         }
 
-        logger.Log(level, "{What} for host data source {DataSourceId} with {ExceptionType}", what, dataSource.Id, ex.GetType().Name);
-
-        return HostQueryFailedMessage;
+        return null;
     }
 
     // PostgreSQL supports the session-level default_transaction_read_only backstop plus

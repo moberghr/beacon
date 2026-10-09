@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using NUnit.Framework;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Models.Ai;
+using Beacon.Core.Services;
 using Beacon.Tests.Common;
 
 namespace Beacon.Tests.Integration;
@@ -394,6 +395,34 @@ public class QueryTranslationTests : QueryTranslationTestBase
                 s.PreviousScore,
                 s.Id
             }));
+    }
+
+    // ─── Data-contract CustomSql checks (Create/Update/DeleteDataContractHandler) ───
+
+    /// <summary>
+    /// Mirrors the CustomSql check in <c>UpdateDataContractHandler</c> (before its transaction) and
+    /// <c>DeleteDataContractHandler</c> (<c>AnyAsync</c> over the contract's CustomSql rules): the enum comparison must
+    /// translate.
+    /// </summary>
+    [Test]
+    public void UpdateDataContract_ExistingCustomSqlRules_Translates()
+    {
+        AssertQueryTranslates(ctx => ctx.DataContractRules
+            .Where(x => x.DataContractId == 1)
+            .Where(x => x.RuleType == DataContractRuleType.CustomSql));
+    }
+
+    /// <summary>
+    /// Mirrors the data-source lookup a CustomSql rule is validated against in <c>CreateDataContractHandler</c> and
+    /// <c>UpdateDataContractHandler</c> (positional record projection).
+    /// </summary>
+    [Test]
+    public void DataContract_CustomSqlTargetProjection_Translates()
+    {
+        AssertQueryTranslates(ctx => ctx.DataSources
+            .Where(x => x.Id == 1)
+            .Select(x =>
+                new DataQualityRuleTarget(x.DataSourceType, x.DatabaseEngineType, x.HostManagedKey)));
     }
 
     // ─── Project search (KnowledgeGraphService.SearchProjectAsync) ───

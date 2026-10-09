@@ -46,7 +46,7 @@ You do not need to include `schema` or `table` in the configuration — Beacon i
 
 ### Custom SQL rules
 
-A Custom SQL rule runs your query verbatim and reads the first row of the result. Return these columns:
+A Custom SQL rule runs your query and reads the first row of the result. The query must be a single read-only `SELECT` in the data source's SQL dialect: it is checked when the contract is saved and again on every evaluation, and it runs through the same read-only path as MCP queries (a `READ ONLY` transaction on PostgreSQL). Beacon caps the result at one row itself, so the query must not set its own outer `LIMIT`, `TOP` or `FETCH`. Only an **Admin** can create, change or delete a contract that contains a Custom SQL rule, and Custom SQL rules are not available on host-managed data sources. Return these columns:
 
 | Column | Required | Meaning |
 |--------|----------|---------|
@@ -56,6 +56,12 @@ A Custom SQL rule runs your query verbatim and reads the first row of the result
 | `message` | No | Shown as the result message |
 
 If you already maintain reusable checks as saved [queries](/features/queries/), a Custom SQL rule is the natural way to fold the same logic into a quality score.
+
+:::caution[Upgrading]
+Upgrading to this version disables every existing Custom SQL rule (its contract stays enabled). An Admin re-enables a rule by turning it back on and saving the contract, which checks its SQL against the rules above.
+
+A contract with no enabled rules is not evaluated: it keeps its last score, records no history and sends no alert. **Evaluate now** reports that it has no enabled rules, and the scheduled run is skipped.
+:::
 
 ### Severity and weight
 
@@ -110,7 +116,7 @@ with severity multipliers Critical = 4, High = 3, Medium = 2, Low = 1. Then:
 overallScore = Σ(ruleScore × effectiveWeight) / Σ(effectiveWeight)
 ```
 
-rounded to two decimals. A contract with no enabled rules scores 100.
+rounded to two decimals. A contract with no enabled rules is not evaluated and keeps its last score.
 
 **Example:** a contract with a passing Critical freshness rule (weight 1, score 100) and a failing Low volume rule (weight 1, score 0) scores `(100×4 + 0×1) / (4+1) = 80%` — the critical rule dominates.
 
@@ -203,17 +209,25 @@ Quality scores also surface elsewhere in Beacon: the [MCP server](/features/mcp-
 
 ## Troubleshooting
 
-**A rule always fails with "Execution failed: ..."**
+**A rule always fails with "Execution failed on the data source."**
 
-The generated SQL could not run against the source. Check that the column named in the configuration exists, the configuration JSON has the required properties for the rule type, and the data source connection is healthy.
+The rule's SQL could not run against the source. The server's error text is not shown (or stored), because it can quote row values. Check that the column named in the configuration exists and the data source connection is healthy. Other failures name their cause instead:
+
+- "Invalid rule configuration: ..." — the configuration JSON is incomplete for the rule type.
+- "Rule type ... is not supported on ..." — the rule type has no SQL for the data source's engine.
+- "Rule SQL was rejected: ..." — the SQL is not a single read-only `SELECT`, or reads something a host-managed source does not expose.
+- "Custom SQL must not set its own LIMIT, TOP or FETCH; Beacon reads one row." — remove the outer row limit from the Custom SQL.
+- "Rule timed out." — the query ran longer than 60 seconds.
+- "Rule result did not have the expected columns or types." — a Custom SQL rule did not return `passed` (and the optional columns) as described above.
+- "Query failed on the host database." — any failure on a host-managed data source.
 
 **"Data contract's data source must be a database type" error**
 
 The contract targets a REST API data source. Contracts can only be evaluated against database sources.
 
-**Score is 100% but I expected checks to run**
+**"This data contract has no enabled rules, so it was not evaluated."**
 
-A contract with no *enabled* rules scores 100 by definition. Verify that at least one rule has its **Enabled** toggle on.
+A contract with no *enabled* rules is not evaluated, and its scheduled runs are skipped. Turn at least one rule's **Enabled** toggle on and save the contract.
 
 **No notifications despite a failing score**
 
