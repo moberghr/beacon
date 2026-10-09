@@ -35,6 +35,18 @@ internal static class SqlDialects
     }
 
     /// <summary>
+    /// Engines whose lexer nests block comments the way SqlParserCS does (PostgreSQL, T-SQL). Every other engine —
+    /// SQLite and MySQL among them — ends a block comment at its first <c>*/</c>.
+    /// </summary>
+    public static bool NestsBlockComments(string? dialect)
+    {
+        return dialect != null
+            && (TSqlEngines.Contains(dialect)
+                || dialect.Equals("postgresql", StringComparison.OrdinalIgnoreCase)
+                || dialect.Equals("postgres", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
     /// T-SQL engines have no LIMIT keyword — they take the TOP / OFFSET-FETCH row-limit path.
     /// </summary>
     public static bool IsTSql(string? dialect)

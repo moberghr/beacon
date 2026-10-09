@@ -509,7 +509,7 @@ metric tags.
 
 **What happened:** The Phase 0 audit found that SqlParserCS nests `/* */` block comments for every dialect, while SQLite and MySQL end a comment at the first `*/`. The AST gate and the engine could therefore disagree about where a statement ends.
 
-**Rule:** The AST validator is never the only barrier for an engine whose lexer differs from the parser's. For the in-memory SQLite store the engine enforces it (authorizer + single-statement prepare + `HasNestedBlockComment` rejection); give every other engine whose lexer differs the same engine-side treatment.
+**Rule:** The AST validator is never the only barrier for an engine whose lexer differs from the parser's. `SqlReadOnlyAstValidator` refuses nested block comments for every dialect whose engine does not nest them (all but PostgreSQL and T-SQL), with a quote-blind scan so per-engine string escapes cannot steer it; the in-memory SQLite store also refuses them on its own (authorizer + single-statement prepare + `HasNestedBlockComment`).
 
 **When it applies:** Any new SQL surface validated by `SqlReadOnlyAstValidator` / `SqlExecutionGate` for a dialect other than PostgreSQL/T-SQL, and any SqlParserCS upgrade.
 

@@ -41,8 +41,7 @@ public class QueryServiceReadOnlyGateTests
 
     private const string ReadOnlyFinalQuery = "SELECT * FROM @result1";
 
-    // The gate's parser nests block comments and reads one SELECT; SQLite ends the comment at the first `*/` and would
-    // run the PRAGMA after the `;` when the saved query executes.
+    // A nested block comment, which the gate's parser and SQLite end in different places; refused before saving.
     private const string NestedCommentFinalQuery = "SELECT * FROM @result1 /* /* */ ; PRAGMA user_version=7; -- */";
 
     private static QueryService BuildService(ContextSpy? spy = null, IQueryVersionService? versionService = null)

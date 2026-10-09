@@ -28,8 +28,8 @@ public class InMemoryDatabaseManagerTests
     // Counts to 100M one row at a time — tens of seconds of CPU, far past every deadline below.
     private const string RunawayQuery = "WITH RECURSIVE r(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM r WHERE i < 100000000) SELECT COUNT(*) FROM r";
 
-    // The reproduced parser differential: SqlParserCS nests block comments, SQLite does not. The AST gate reads one
-    // SELECT; SQLite ends the comment at the first `*/` and runs the statement after the `;`.
+    // A nested block comment, which SqlParserCS and SQLite end in different places. The AST gate refuses it, and the
+    // store must refuse it on its own too when handed the text directly.
     private const string NestedCommentSmuggle = "SELECT * FROM [result1] /* /* */ ; CREATE TABLE smuggled(x); -- */";
 
     private static readonly SqlReadOnlyAstValidator Validator = new(NullLogger<SqlReadOnlyAstValidator>.Instance);
@@ -49,10 +49,11 @@ public class InMemoryDatabaseManagerTests
     }
 
     [Test]
-    public void NestedCommentSmuggle_PassesTheAstGate()
+    public void NestedCommentSmuggle_IsRejectedByTheAstGate()
     {
-        // The precondition every nested-comment test below relies on: the AST gate alone approves the payload.
-        Validator.Validate(NestedCommentSmuggle, nameof(DatabaseEngineType.SQLite)).Should().BeNull();
+        Validator.Validate(NestedCommentSmuggle, nameof(DatabaseEngineType.SQLite))
+            .Should()
+            .StartWith("Nested block comments are not allowed");
     }
 
     [Test]
