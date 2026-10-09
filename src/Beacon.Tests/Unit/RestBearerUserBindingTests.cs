@@ -5,8 +5,12 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using FluentAssertions;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -17,6 +21,7 @@ using Moq;
 using NUnit.Framework;
 using Beacon.Api.Authentication;
 using Beacon.Api.Endpoints;
+using Beacon.Core;
 using Beacon.Core.Authentication;
 using Beacon.Core.Authentication.Providers;
 using Beacon.Core.Authorization;
@@ -38,6 +43,8 @@ public class RestBearerUserBindingTests
 {
     private const string Issuer = "https://login.microsoftonline.com/tenant-1/v2.0";
     private const string OtherIssuer = "https://sts.windows.net/tenant-1/";
+    private const string GenericIssuer = "https://idp.example.test";
+    private const string SessionCookieName = "Beacon.Auth";
     private const string Audience = "api://beacon";
     private const string SsoClientId = "beacon-sso-client";
     private const string TenantId = "tenant-1";
@@ -331,6 +338,111 @@ public class RestBearerUserBindingTests
     }
 
     [Test]
+    public async Task NonceFreeIdTokenWithRoles_ForTheSsoClient_IsRefused()
+    {
+        var users = Store(Row(External(UserSub, Issuer, "Viewer")));
+
+        var outcome = await RunAsync(
+            "/beacon/api/projects",
+            MintToken(IdTokenClaims(), audience: SsoClientId),
+            CreateMapper(),
+            users.Object,
+            oidc: Sso());
+
+        AssertRefused(outcome);
+        users.Invocations.Should().BeEmpty("roles are no evidence of an access token, and the screen runs before any lookup");
+    }
+
+    [Test]
+    public async Task NonceFreeIdTokenWithRoles_IsRefused_WithSsoDisabled()
+    {
+        var users = Store(Row(External(UserSub, Issuer, "Viewer")));
+
+        var outcome = await RunAsync(
+            "/beacon/api/projects",
+            MintToken(IdTokenClaims(), audience: SsoClientId),
+            CreateMapper(),
+            users.Object,
+            oidc: new OidcAuthenticationOptions { Enabled = false, ClientId = SsoClientId });
+
+        AssertRefused(outcome);
+        users.Invocations.Should().BeEmpty();
+    }
+
+    [TestCase(Issuer, "azp", "scp", "Mcp.Access")]
+    [TestCase(OtherIssuer, "appid", "scp", "Mcp.Access")]
+    [TestCase(Issuer, "azp", "roles", "Beacon.Reader")]
+    public async Task EntraAccessToken_IsAccepted(string issuer, string clientClaim, string accessClaim, string accessValue)
+    {
+        var users = Store(Row(External(UserSub, issuer, "Viewer")));
+        var claims = new List<Claim>
+        {
+            new("sub", UserSub),
+            new("tid", TenantId),
+            new(clientClaim, AiProxyClientId),
+            new(accessClaim, accessValue)
+        };
+
+        var outcome = await RunAsync(
+            "/beacon/api/projects",
+            MintToken(claims, issuer, Audience, type: null),
+            CreateMapper(),
+            users.Object,
+            jwtOptions: CreateJwtOptions(moreIssuers: [OtherIssuer]));
+
+        outcome.NextInvoked.Should().BeTrue();
+        outcome.User!.FindAll(ClaimTypes.Role).Select(x => x.Value).Should().Equal("Viewer");
+    }
+
+    [TestCase("at+jwt")]
+    [TestCase("application/at+jwt")]
+    public async Task AtJwtAccessToken_FromAnotherIssuer_IsAccepted(string type)
+    {
+        var users = Store(Row(External(UserSub, GenericIssuer, "Viewer")));
+
+        var outcome = await RunAsync(
+            "/beacon/api/projects",
+            MintToken(GenericIssuerClaims(), GenericIssuer, Audience, type),
+            CreateMapper(),
+            users.Object,
+            jwtOptions: CreateJwtOptions(moreIssuers: [GenericIssuer]));
+
+        outcome.NextInvoked.Should().BeTrue();
+        outcome.User!.FindAll(ClaimTypes.Role).Select(x => x.Value).Should().Equal("Viewer");
+    }
+
+    [Test]
+    public async Task TokenFromAnotherIssuer_WithoutAccessTokenEvidence_IsRefused()
+    {
+        var users = Store(Row(External(UserSub, GenericIssuer, "Viewer")));
+
+        var outcome = await RunAsync(
+            "/beacon/api/projects",
+            MintToken(GenericIssuerClaims(), GenericIssuer, Audience, type: "JWT"),
+            CreateMapper(),
+            users.Object,
+            jwtOptions: CreateJwtOptions(moreIssuers: [GenericIssuer]));
+
+        AssertRefused(outcome);
+        users.Invocations.Should().BeEmpty("neither roles nor an unconfigured scope claim marks an access token");
+    }
+
+    [Test]
+    public async Task TokenFromAnotherIssuer_WithTheConfiguredAccessTokenClaim_IsAccepted()
+    {
+        var users = Store(Row(External(UserSub, GenericIssuer, "Viewer")));
+
+        var outcome = await RunAsync(
+            "/beacon/api/projects",
+            MintToken(GenericIssuerClaims(), GenericIssuer, Audience, type: "JWT"),
+            CreateMapper(),
+            users.Object,
+            jwtOptions: CreateJwtOptions(accessTokenClaim: "scope", moreIssuers: [GenericIssuer]));
+
+        outcome.NextInvoked.Should().BeTrue();
+    }
+
+    [Test]
     public async Task SsoIssuedToken_FromAnotherTenant_IsRefused()
     {
         var users = Store(Row(External(UserSub, Issuer, "Viewer")));
@@ -571,6 +683,50 @@ public class RestBearerUserBindingTests
         result.ErrorMessage.Should().Be("Invalid username or password.");
     }
 
+    [Test]
+    public async Task LoginFormJwt_NonceFreeIdToken_IsRefused_BeforeAnyLookup()
+    {
+        var users = Store(Row(External(UserSub, Issuer, "Viewer", id: 42)));
+        var provider = CreateLoginProvider(MintToken(IdTokenClaims(), audience: SsoClientId), users.Object);
+
+        var result = await provider.AuthenticateAsync("ana", "secret");
+
+        result.Success.Should().BeFalse();
+        result.ErrorMessage.Should().Be("Invalid username or password.");
+        users.Invocations.Should().BeEmpty("the login-form token is screened like a bearer token");
+    }
+
+    [Test]
+    public async Task LoginFormJwt_SsoIssuedTokenForAGuest_IsRefused_BeforeAnyLookup()
+    {
+        var users = Store(Row(External(UserSub, Issuer, "Viewer", id: 42)));
+        var provider = CreateLoginProvider(MintToken(UserClaims(), new Claim("acct", "1")), users.Object, Sso());
+
+        var result = await provider.AuthenticateAsync("ana", "secret");
+
+        result.Success.Should().BeFalse();
+        result.ErrorMessage.Should().Be("Invalid username or password.");
+        users.Invocations.Should().BeEmpty("the SSO admission rules apply to the login-form token too");
+    }
+
+    [TestCase(false, HttpStatusCode.Unauthorized)]
+    [TestCase(true, HttpStatusCode.OK)]
+    public async Task LoginForm_OnlyATokenTheBearerScreenAccepts_GetsASessionCookie(bool accessToken, HttpStatusCode expected)
+    {
+        var users = Store(Row(External(UserSub, Issuer, "Viewer", id: 42)));
+        var issued = accessToken
+            ? MintToken(UserClaims(), audience: SsoClientId)
+            : MintToken(IdTokenClaims(), audience: SsoClientId);
+        await using var app = await StartLoginHostAsync(CreateLoginProvider(issued, users.Object, Sso()));
+        using var client = app.GetTestClient();
+
+        var response = await client.PostAsJsonAsync("/beacon/api/auth/login", new LoginRequest("ana", "secret"));
+
+        response.StatusCode.Should().Be(expected);
+        var cookies = response.Headers.TryGetValues("Set-Cookie", out var values) ? values.ToList() : [];
+        cookies.Any(x => x.StartsWith($"{SessionCookieName}=", StringComparison.Ordinal)).Should().Be(accessToken);
+    }
+
     [TestCase(HttpStatusCode.Unauthorized)]
     [TestCase(HttpStatusCode.InternalServerError)]
     public async Task LoginFormJwt_EveryFailure_AnswersTheSame_AndNeverLogsTheUserName(HttpStatusCode status)
@@ -700,28 +856,53 @@ public class RestBearerUserBindingTests
             CreateJwtOptions());
     }
 
-    private static JwtAuthenticationOptions CreateJwtOptions()
+    private static JwtAuthenticationOptions CreateJwtOptions(string? accessTokenClaim = null, List<string>? moreIssuers = null)
     {
         return new JwtAuthenticationOptions
         {
             EnableBearerAuthentication = true,
             ExternalLoginEndpoint = "https://auth.example.test/login",
+            AccessTokenClaim = accessTokenClaim,
             Validation = new JwtValidationOptions
             {
                 SigningKey = SigningKey,
                 ValidIssuer = Issuer,
+                ValidIssuers = moreIssuers ?? [],
                 ValidAudiences = [Audience, SsoClientId]
             }
         };
     }
 
-    private static JwtExternalApiAuthenticationProvider CreateLoginProvider(string issuedToken, IUserManagementService? userService)
+    private static JwtExternalApiAuthenticationProvider CreateLoginProvider(
+        string issuedToken,
+        IUserManagementService? userService,
+        OidcAuthenticationOptions? oidc = null)
     {
         return new JwtExternalApiAuthenticationProvider(
             new HttpClient(new TokenIssuingHandler(issuedToken)),
             CreateJwtOptions(),
             NullLogger<JwtExternalApiAuthenticationProvider>.Instance,
-            userService);
+            userService,
+            oidc == null ? null : Options.Create(oidc));
+    }
+
+    // The login endpoints over a real cookie scheme, with the given provider behind the login form.
+    private static async Task<WebApplication> StartLoginHostAsync(IBeaconAuthenticationProvider provider)
+    {
+        var builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseTestServer();
+        builder.Services
+            .AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+            .AddCookie(x => x.Cookie.Name = SessionCookieName);
+        builder.Services.AddAntiforgery();
+        builder.Services.AddSingleton(new LoginRateLimiter());
+        builder.Services.AddSingleton(provider);
+
+        var app = builder.Build();
+        app.MapLoginEndpoints("/beacon", new BeaconConfiguration());
+        await app.StartAsync();
+
+        return app;
     }
 
     private static JwtBearerAuthMiddleware CreateMiddleware(
@@ -819,18 +1000,29 @@ public class RestBearerUserBindingTests
 
     private static string MintToken(IEnumerable<Claim> claims, string audience)
     {
+        return MintToken(claims, Issuer, audience, type: null);
+    }
+
+    /// <summary>A signed token from <paramref name="issuer"/>; <paramref name="type"/> replaces the header <c>typ</c>.</summary>
+    private static string MintToken(IEnumerable<Claim> claims, string issuer, string audience, string? type)
+    {
         var credentials = new SigningCredentials(
             new SymmetricSecurityKey(Encoding.UTF8.GetBytes(SigningKey)),
             SecurityAlgorithms.HmacSha256);
-        var token = new JwtSecurityToken(
-            Issuer,
+        var header = new JwtHeader(credentials);
+        if (type != null)
+        {
+            header[JwtHeaderParameterNames.Typ] = type;
+        }
+
+        var payload = new JwtPayload(
+            issuer,
             audience,
             claims,
             notBefore: DateTime.UtcNow.AddMinutes(-1),
-            expires: DateTime.UtcNow.AddMinutes(10),
-            signingCredentials: credentials);
+            expires: DateTime.UtcNow.AddMinutes(10));
 
-        return new JwtSecurityTokenHandler().WriteToken(token);
+        return new JwtSecurityTokenHandler().WriteToken(new JwtSecurityToken(header, payload));
     }
 
     private static List<Claim> UserClaims()
@@ -842,6 +1034,30 @@ public class RestBearerUserBindingTests
             new Claim("tid", TenantId),
             new Claim("azp", AiProxyClientId),
             new Claim("scp", "Mcp.Access")
+        ];
+    }
+
+    // An Entra ID token issued without a nonce: app roles, but no client claim (azp/appid) and no scope.
+    private static List<Claim> IdTokenClaims()
+    {
+        return
+        [
+            new Claim("sub", UserSub),
+            new Claim("oid", UserOid),
+            new Claim("tid", TenantId),
+            new Claim("name", "Ana Analyst"),
+            new Claim("roles", "Beacon.User")
+        ];
+    }
+
+    // A token from an identity provider other than Entra, with roles and a scope claim.
+    private static List<Claim> GenericIssuerClaims()
+    {
+        return
+        [
+            new Claim("sub", UserSub),
+            new Claim("roles", "Admin"),
+            new Claim("scope", "beacon.read")
         ];
     }
 

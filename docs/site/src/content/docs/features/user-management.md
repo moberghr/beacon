@@ -144,10 +144,18 @@ builder.Services.AddBeaconJwtAuthentication(jwt =>
     jwt.Validation.ValidIssuer = "https://your-idp.example";  // required
     jwt.Validation.ValidAudience = "beacon";                   // required
     jwt.ClaimsMapping.UserIdClaim = "sub";
+    jwt.AccessTokenClaim = "scope"; // only for a provider that does not set typ: at+jwt (see below)
 });
 ```
 
 The options are configured in code (there is no `Beacon:Authentication:Jwt` configuration section). With `ExternalLoginEndpoint` or `EnableBearerAuthentication` set, the host **does not start** without a signing key or JWKS endpoint, at least one issuer (`ValidIssuer`/`ValidIssuers`) and at least one audience (`ValidAudience`/`ValidAudiences`); `ValidateIssuer`, `ValidateAudience` and `ValidateLifetime` must stay on, and `ClockSkew` may be at most five minutes.
+
+The token the login API returns passes the same screen as a REST bearer token, whether or not SSO is enabled:
+
+- It must be an **access token**, shown by positive evidence. A Microsoft Entra ID token (issuer `login.microsoftonline.com` or `sts.windows.net`) must name the client it was issued to (`azp` or `appid`) and carry `scp` or `roles`. A token from any other issuer must have the JWT header `typ: at+jwt` (RFC 9068), or carry the claim named by `AccessTokenClaim` (for example `scope` or `scp`; not set by default). A token with `nonce`, `at_hash` or `c_hash` is an ID token and is refused. `roles` alone never counts as evidence.
+- When the SSO authority issued it, it must pass the [SSO admission rules](#single-sign-on-admission).
+
+`AccessTokenClaim` must name a claim your provider puts in access tokens and never in ID tokens; a claim any ID token can carry (`sub`, `aud`, `nonce`, `azp`, `roles`, …) stops the host at startup.
 
 A token proves identity only. Sign-in (and a REST bearer request) succeeds only for an **existing, enabled, external Beacon user** the token names, and the session carries that user's **Beacon roles** — roles in the token are ignored. This needs user management: without an `IUserManagementService`, every login-form JWT sign-in and every REST bearer token is refused. External users must be pre-registered (or provisioned by SSO). The login form answers every failure — wrong credentials, an unreachable login API, an unknown or disabled user — with the same "Invalid username or password." message, and the log never carries the user name.
 
@@ -367,7 +375,7 @@ These are part of Beacon's REST minimal-API surface under `/beacon/api/*` (OpenA
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/beacon/api/auth/login` | POST | Authenticate with username/password |
-| `/beacon/api/auth/logout` | POST | Clear session cookie (there is no `GET` sign-out) |
+| `/beacon/api/auth/logout` | POST | Clear session cookie; requires the antiforgery token (`X-XSRF-TOKEN` header), `400` without it (there is no `GET` sign-out) |
 
 ### First-Run Setup
 
@@ -398,7 +406,8 @@ These are part of Beacon's REST minimal-API surface under `/beacon/api/*` (OpenA
 1. Pre-register the user with their `ExternalId` matching the JWT `sub` claim, and make sure the account is enabled
 2. Verify JWT validation settings (issuer, audience, signing key) — both an issuer and an audience are required
 3. Check claims mapping matches your JWT token structure
-4. Bearer failures are deliberately generic (`invalid_token`); the server logs a reason code (for example `NoBeaconUser`, `DisabledUser`, `IdToken`, `NotAdmitted`) with the tenant, the issuer and a hash of the subject — at Warning at most once a minute, otherwise at Debug
+4. Bearer failures are deliberately generic (`invalid_token`); the server logs a reason code (for example `NoBeaconUser`, `DisabledUser`, `IdToken`, `NotAccessToken`, `NotAdmitted`) with the tenant, the issuer and a hash of the subject — at Warning at most once a minute, otherwise at Debug. Login-form JWT refusals log the same reason codes at Information
+5. `NotAccessToken` from an identity provider other than Entra: the token has neither the header `typ: at+jwt` nor the configured `AccessTokenClaim` — set `AccessTokenClaim` to a claim the provider puts in access tokens only (for example `scope`)
 
 ### Roles Not Applied
 
@@ -424,7 +433,7 @@ These are part of Beacon's REST minimal-API surface under `/beacon/api/*` (OpenA
 
 ## Single Sign-On Admission
 
-When OIDC SSO is enabled, Beacon admits only subjects that pass the configured rules — `AllowedTenants` (or an explicit `AllowAnyTenant`), `BlockGuests` (on by default) and the optional `RequiredRoles`/`RequiredGroups` — and provisions nothing for anyone else. A bearer token on the REST API that the SSO authority issued passes the same rules before it is bound to a user. A refused sign-in is logged at Warning with the reason, the tenant, the issuer and a hash of the subject — never the subject, an e-mail or other claim values. See [Configuration → OIDC / SSO](/getting-started/configuration/#optional-oidc--sso) for the options.
+When OIDC SSO is enabled, Beacon admits only subjects that pass the configured rules — `AllowedTenants` (or an explicit `AllowAnyTenant`), `BlockGuests` (on by default) and the optional `RequiredRoles`/`RequiredGroups` — and provisions nothing for anyone else. A bearer token on the REST API, and a token returned to the login form, that the SSO authority issued passes the same rules before it is bound to a user. A refused sign-in is logged at Warning with the reason, the tenant, the issuer and a hash of the subject — never the subject, an e-mail or other claim values. See [Configuration → OIDC / SSO](/getting-started/configuration/#optional-oidc--sso) for the options.
 
 ## Upgrading from 4.5
 
@@ -438,10 +447,12 @@ Hosts upgrading from 4.5 must act on the following:
 - **Review the users SSO already provisioned.** Earlier versions gave every new SSO user the `Viewer` role and admitted guests and other tenants. Disable, archive or remove the role of accounts that the new admission rules would refuse; a bearer token the SSO authority issued must now pass those rules too.
 - **Archived SSO users are refused** at sign-in instead of being provisioned again. Un-archive a user to restore access.
 - **JWT validation is mandatory and strict.** With bearer authentication or an external login endpoint, configure at least one issuer and one audience, leave issuer, audience and lifetime validation on, and keep `ClockSkew` at five minutes or less, or the host does not start.
+- **Bearer and login-form tokens must prove they are access tokens.** Outside `/beacon/mcp`, and for the token the external login endpoint returns, Beacon no longer infers the token type from `roles`, `scp`/`scope` or the audience, and SSO no longer has to be enabled for the check. An Entra token needs `azp` or `appid` plus `scp` or `roles`; a token from any other issuer needs the header `typ: at+jwt` or the claim named by the new `AccessTokenClaim` option (default: none). Tokens with `nonce`, `at_hash` or `c_hash` are refused. If your provider's access tokens carry neither, set `AccessTokenClaim` (for example `"scope"`), or those tokens are refused (reason `NotAccessToken`).
+- **Login-form JWTs are screened like bearer tokens.** The token the external login endpoint returns must be an access token as above and, when the SSO authority issued it, pass the SSO admission rules (tenant, guests, required roles or groups) — a login API that returns an ID token no longer signs anyone in. `JwtExternalApiAuthenticationProvider` takes an optional `IOptions<OidcAuthenticationOptions>` for the admission rules (resolved from DI automatically).
 - **REST bearer tokens need an external Beacon user.** Outside `/beacon/mcp`, a bearer token must name an existing, enabled, non-archived external Beacon user (see [Option 2](#option-2-external-identity-provider-jwtoauth)); roles come from Beacon. Tokens for internal users or super admins, users created by MCP caller provisioning, pre-registered users without an identity provider when several issuers are configured, ID tokens, and tokens with a configured `UserIdClaim` missing are refused. The `401` body is now `{ "error": "invalid_token", "message": "The bearer token was not accepted." }` with `WWW-Authenticate: Bearer error="invalid_token"`, whatever the reason.
 - **The login-form JWT provider binds to Beacon users.** `JwtExternalApiAuthenticationProvider` takes an optional `IUserManagementService`; without user management every login-form JWT sign-in fails. Every failure answers "Invalid username or password.".
 - **`IUserManagementService` changed** for hosts that implement or call it: `GetOrCreateExternalUserAsync` takes a nullable `defaultRoleName` (null creates a user with no role) and refuses to create users before first-run setup; `GetBearerUserCandidatesAsync` is new; `UpdateLastLoginAsync` takes the Beacon user id (`int`) instead of the external id.
-- **No `GET` sign-out.** `GET /beacon/api/auth/signout` was removed (use `POST /beacon/api/auth/logout`); the OIDC front-channel sign-out path is served only with `EnableFrontChannelLogout: true`. The SPA's `/logout` page asks for a click unless the app itself sent the user there.
+- **No `GET` sign-out, and sign-out needs the antiforgery token.** `GET /beacon/api/auth/signout` was removed (use `POST /beacon/api/auth/logout`); the OIDC front-channel sign-out path is served only with `EnableFrontChannelLogout: true`. `POST /beacon/api/auth/logout` now validates the antiforgery token for every caller, signed in or not, and answers `400` without signing anything out or emitting any cookie when it is missing or invalid. The SPA sends it (`X-XSRF-TOKEN`) and retries once with a fresh token; a custom client must call `GET /beacon/api/csrf` first, keep the cookies it sets, and send the returned token in `X-XSRF-TOKEN`. The SPA's `/logout` page asks for a click unless the app itself sent the user there.
 - **Return URLs** containing control characters, whitespace or backslashes fall back to the default post-login page.
 - **Internal login** matches internal users only and answers every failure (unknown user, wrong password, disabled or archived account) with the same "Invalid username or password." message.
 

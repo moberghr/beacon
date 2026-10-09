@@ -4,6 +4,7 @@ using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Beacon.Core.Services;
 
@@ -11,10 +12,12 @@ namespace Beacon.Core.Authentication.Providers;
 
 /// <summary>
 /// Authentication provider that authenticates against an external JWT-issuing API.
-/// Sends credentials to the external endpoint and validates the returned JWT token. A login only succeeds for an
-/// existing, enabled Beacon user the token names (<see cref="BearerUserBinding"/>), and the session carries that
-/// user's Beacon roles, never the token's. Without user management (<see cref="IUserManagementService"/>) every login
-/// fails. Every failure answers with the same message; the reason is logged without the user name.
+/// Sends credentials to the external endpoint and validates the returned JWT token. The token passes the same screen as
+/// a REST bearer token (an access token, admitted by the SSO rules when the SSO authority issued it), and a login only
+/// succeeds for an existing, enabled Beacon user the token names (<see cref="BearerUserBinding.ScreenAndBindAsync"/>);
+/// the session carries that user's Beacon roles, never the token's. Without user management
+/// (<see cref="IUserManagementService"/>) every login fails. Every failure answers with the same message; the reason is
+/// logged without the user name.
 /// </summary>
 public class JwtExternalApiAuthenticationProvider : IBeaconAuthenticationProvider
 {
@@ -25,14 +28,16 @@ public class JwtExternalApiAuthenticationProvider : IBeaconAuthenticationProvide
     private readonly ILogger<JwtExternalApiAuthenticationProvider> _logger;
     private readonly JwksSigningKeyCache _keyCache;
     private readonly IUserManagementService? _userService;
+    private readonly IOptions<OidcAuthenticationOptions>? _oidcOptions;
     private readonly JwtSecurityTokenHandler _tokenHandler = new();
 
     public JwtExternalApiAuthenticationProvider(
         HttpClient httpClient,
         JwtAuthenticationOptions options,
         ILogger<JwtExternalApiAuthenticationProvider> logger,
-        IUserManagementService? userService = null)
-        : this(httpClient, options, logger, JwksSigningKeyCache.Shared, userService)
+        IUserManagementService? userService = null,
+        IOptions<OidcAuthenticationOptions>? oidcOptions = null)
+        : this(httpClient, options, logger, JwksSigningKeyCache.Shared, userService, oidcOptions)
     {
     }
 
@@ -41,13 +46,15 @@ public class JwtExternalApiAuthenticationProvider : IBeaconAuthenticationProvide
         JwtAuthenticationOptions options,
         ILogger<JwtExternalApiAuthenticationProvider> logger,
         JwksSigningKeyCache keyCache,
-        IUserManagementService? userService = null)
+        IUserManagementService? userService = null,
+        IOptions<OidcAuthenticationOptions>? oidcOptions = null)
     {
         _httpClient = httpClient;
         _options = options;
         _logger = logger;
         _keyCache = keyCache;
         _userService = userService;
+        _oidcOptions = oidcOptions;
     }
 
     public async Task<AuthenticationResult> AuthenticateAsync(
@@ -99,10 +106,15 @@ public class JwtExternalApiAuthenticationProvider : IBeaconAuthenticationProvide
                 return AuthenticationResult.Failed(LoginFailed);
             }
 
-            var binding = await BearerUserBinding.BindAsync(
+            // The same screen and binding as a REST bearer token: an ID token, a token without access-token evidence or
+            // one the SSO admission rules refuse never reaches the user lookup.
+            var binding = await BearerUserBinding.ScreenAndBindAsync(
                 _userService,
                 validationResult.TokenPrincipal,
+                validationResult.TokenType,
                 _options,
+                _oidcOptions?.Value,
+                _logger,
                 cancellationToken);
             if (binding.User == null)
             {
@@ -173,7 +185,8 @@ public class JwtExternalApiAuthenticationProvider : IBeaconAuthenticationProvide
             {
                 Success = true,
                 User = user,
-                TokenPrincipal = new ClaimsPrincipal(new ClaimsIdentity(jwtToken.Claims, "Bearer"))
+                TokenPrincipal = new ClaimsPrincipal(new ClaimsIdentity(jwtToken.Claims, "Bearer")),
+                TokenType = jwtToken.Header.Typ
             };
         }
         // The reasons below are fixed strings, logged by the caller (rate-limited for bearer requests); nothing here is

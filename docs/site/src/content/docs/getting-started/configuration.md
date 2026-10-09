@@ -276,7 +276,24 @@ builder.Services.AddBeaconJwtAuthentication(jwt =>
 
 Match the issuer and audience to the access-token version your app registration issues (`accessTokenAcceptedVersion` in its manifest). A **v2.0** access token (`accessTokenAcceptedVersion: 2`) has the issuer `https://login.microsoftonline.com/{tenant}/v2.0` and the application's client id GUID as `aud`. A **v1.0** token (the default, `null` or `1`) has the issuer `https://sts.windows.net/{tenant}/` and the Application ID URI (for example `api://{beacon-client-id}`) as `aud`. List both in `ValidIssuers` / `ValidAudiences` only if you accept both versions.
 
-On `/beacon/mcp` the token is mapped by the MCP caller configuration (see [Entra MCP callers](/features/mcp-entra-callers/)). On every other route a bearer token must be an access token (an ID token is refused), must pass the SSO admission rules when the SSO authority issued it, and must name an **existing, enabled, external Beacon user** — by its subject and issuer, or a pre-registered user's subject when only one issuer is configured (see [User Management → Option 2](/features/user-management/#option-2-external-identity-provider-jwtoauth)). The session gets that user's **Beacon roles**, never roles from the token. Any other token gets `401` with `WWW-Authenticate: Bearer error="invalid_token"`. This needs user management; without it, bearer tokens are refused outside `/beacon/mcp`.
+On `/beacon/mcp` the token is mapped by the MCP caller configuration (see [Entra MCP callers](/features/mcp-entra-callers/)). On every other route a bearer token must be an access token, must pass the SSO admission rules when the SSO authority issued it, and must name an **existing, enabled, external Beacon user** — by its subject and issuer, or a pre-registered user's subject when only one issuer is configured (see [User Management → Option 2](/features/user-management/#option-2-external-identity-provider-jwtoauth)). The session gets that user's **Beacon roles**, never roles from the token. Any other token gets `401` with `WWW-Authenticate: Bearer error="invalid_token"`. This needs user management; without it, bearer tokens are refused outside `/beacon/mcp`.
+
+The access-token check needs positive evidence and is the same whether or not SSO is enabled; the token returned to the [login form](/features/user-management/#jwtexternalapiauthenticationprovider) passes it too:
+
+- **Microsoft Entra ID** (issuer `login.microsoftonline.com` or `sts.windows.net`): the token names the client it was issued to (`azp` or `appid`) and carries `scp` or `roles`.
+- **Any other issuer**: the JWT header is `typ: at+jwt` (RFC 9068), or the token carries the claim named by `AccessTokenClaim`. Set it for a provider whose access tokens lack `at+jwt` — a claim it puts in access tokens and never in ID tokens. A claim any ID token can carry (`sub`, `aud`, `nonce`, `azp`, `roles`, …) stops the host at startup.
+- A token with `nonce`, `at_hash` or `c_hash` is an ID token and is always refused; `roles` alone never counts as evidence.
+
+```csharp
+builder.Services.AddBeaconJwtAuthentication(jwt =>
+{
+    jwt.EnableBearerAuthentication = true;
+    jwt.Validation.JwksEndpoint = "https://idp.example.com/.well-known/jwks.json";
+    jwt.Validation.ValidIssuer = "https://idp.example.com";
+    jwt.Validation.ValidAudience = "beacon";
+    jwt.AccessTokenClaim = "scope"; // default: not set (only typ: at+jwt is accepted from this issuer)
+});
+```
 
 :::note
 For complete user-management and provider documentation (external JWT setup, custom providers, roles), see the [User Management Guide](/features/user-management/).

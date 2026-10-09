@@ -104,10 +104,14 @@ public static partial class LoginEndpoints
             return Results.Ok(new { success = true });
         })
         .AllowAnonymous()
-        // Logout must succeed even when the client holds a stale CSRF cookie (e.g. after identity rotation on a second
-        // tab), so antiforgery is off here. POST only: there is no GET sign-out endpoint, and the SameSite=Lax session
-        // cookie is not sent on a cross-site POST. The SPA's /logout page posts here only after a click, or when the app
-        // itself navigated there, so a link from another site cannot end the session either.
+        // POST only (there is no GET sign-out endpoint), and only with a valid antiforgery token, anonymous callers
+        // included: a cross-site form POST arrives without the SameSite=Lax session cookie, yet the sign-out answer
+        // would still delete it. Without a token the request is refused before anything is signed out or any cookie is
+        // emitted. A stale token (identity rotated in another tab) gets the same 400, and the SPA re-primes its token
+        // and retries once (beaconFetch). The built-in antiforgery middleware stays off: the filter validates, and it
+        // also accepts the SPA's X-XSRF-TOKEN header on a host that kept the default header name.
+        .AddEndpointFilter<AntiforgeryEndpointFilter>()
+        .WithMetadata(AntiforgeryForAnonymousCallers.Instance)
         .DisableAntiforgery();
     }
 }

@@ -118,6 +118,27 @@ public class JwtIssuerAudienceValidationTests
         }
     }
 
+    [TestCase("scope", true)]
+    [TestCase("scp", true)]
+    [TestCase("sub", false)]
+    [TestCase("aud", false)]
+    [TestCase(" nonce ", false)]
+    [TestCase("roles", false)]
+    public void Validate_AccessTokenClaim_MustNotBeAClaimIdTokensCarry(string claim, bool accepted)
+    {
+        var options = Pinned();
+        options.AccessTokenClaim = claim;
+
+        if (accepted)
+        {
+            options.Invoking(x => x.Validate()).Should().NotThrow();
+        }
+        else
+        {
+            options.Invoking(x => x.Validate()).Should().Throw<InvalidOperationException>().WithMessage("*AccessTokenClaim*");
+        }
+    }
+
     [Test]
     public async Task Provider_ExpiredToken_IsRejected_EvenWhenTheOptionsTurnTheLifetimeCheckOff()
     {

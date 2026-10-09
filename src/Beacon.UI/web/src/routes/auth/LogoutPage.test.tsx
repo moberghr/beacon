@@ -47,6 +47,25 @@ describe('LogoutPage', () => {
     expect(await screen.findByText(/session has been cleared/i)).toBeInTheDocument();
   });
 
+  it('sends the antiforgery token the server requires with the sign-out request', async () => {
+    document.cookie = 'XSRF-TOKEN=logout-token; path=/';
+    const tokens: Array<string | null> = [];
+    mswServer.use(
+      http.post('*/beacon/api/auth/logout', ({ request }) => {
+        tokens.push(request.headers.get('X-XSRF-TOKEN'));
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+
+    try {
+      renderLogout({ fromApp: true });
+
+      await waitFor(() => expect(tokens).toEqual(['logout-token']));
+    } finally {
+      document.cookie = 'XSRF-TOKEN=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+    }
+  });
+
   it('signs out at once when the app itself sent the user here', async () => {
     const calls = countLogouts();
 

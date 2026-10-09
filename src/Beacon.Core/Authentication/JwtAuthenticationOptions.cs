@@ -6,6 +6,13 @@ namespace Beacon.Core.Authentication;
 /// </summary>
 public class JwtAuthenticationOptions
 {
+    // Claims an ID token can carry (OpenID Connect Core, plus the app roles some providers add): none of them marks an
+    // access token, so none can be the AccessTokenClaim.
+    private static readonly HashSet<string> IdTokenClaimNames = new(StringComparer.Ordinal)
+    {
+        "iss", "sub", "aud", "exp", "iat", "nbf", "auth_time", "nonce", "acr", "amr", "azp", "at_hash", "c_hash", "roles"
+    };
+
     /// <summary>
     /// External API endpoint for authentication (e.g., "https://auth.example.com/api/login").
     /// When configured, the login form will call this endpoint to authenticate users
@@ -18,6 +25,16 @@ public class JwtAuthenticationOptions
     /// When enabled, requests with "Authorization: Bearer {token}" will be validated.
     /// </summary>
     public bool EnableBearerAuthentication { get; set; }
+
+    /// <summary>
+    /// The claim that marks an access token from an issuer other than Microsoft Entra ID, for identity providers that do
+    /// not set the RFC 9068 header <c>typ: at+jwt</c> on their access tokens (for example <c>scope</c> or <c>scp</c>).
+    /// Outside <c>/beacon/mcp</c> and in the login-form flow, such an issuer's token is accepted only with
+    /// <c>typ: at+jwt</c> or with this claim present; Entra tokens are recognised by their own claims and ignore this
+    /// setting. Name a claim the provider puts in access tokens and never in ID tokens; a claim any ID token can carry
+    /// is refused at startup. Default: null (only <c>at+jwt</c> tokens from issuers other than Entra).
+    /// </summary>
+    public string? AccessTokenClaim { get; set; }
 
     /// <summary>
     /// JWT token validation options.
@@ -34,7 +51,8 @@ public class JwtAuthenticationOptions
     /// <c>AddBeaconJwtAuthentication</c> call it, so a host fails at startup rather than accepting tokens it cannot pin.
     /// Any flow that validates tokens — bearer authentication or external login — requires a signing key or a JWKS
     /// endpoint, at least one issuer and one audience, issuer, audience and lifetime validation left on, and a clock skew of
-    /// at most five minutes: a shared JWKS (Entra's, for one) signs tokens for every tenant and every application.
+    /// at most five minutes: a shared JWKS (Entra's, for one) signs tokens for every tenant and every application. An
+    /// <see cref="AccessTokenClaim"/>, when set, must not be a claim an ID token can carry.
     /// </summary>
     public void Validate()
     {
@@ -76,6 +94,13 @@ public class JwtAuthenticationOptions
         {
             throw new InvalidOperationException(
                 $"JWT Validation.ClockSkew must be between zero and {JwtValidationOptions.MaxClockSkew.TotalMinutes:0} minutes.");
+        }
+
+        if (AccessTokenClaim != null && IdTokenClaimNames.Contains(AccessTokenClaim.Trim()))
+        {
+            throw new InvalidOperationException(
+                $"JWT AccessTokenClaim '{AccessTokenClaim.Trim()}' does not tell an access token from an ID token: name a " +
+                "claim the identity provider puts in access tokens only (for example 'scope' or 'scp').");
         }
     }
 }

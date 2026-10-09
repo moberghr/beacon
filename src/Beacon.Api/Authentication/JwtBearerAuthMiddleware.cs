@@ -26,12 +26,13 @@ namespace Beacon.Api.Authentication;
 /// Execute-scope policy gates it like an API key; an unmapped caller has no scope and is rejected with 403.
 /// </para>
 /// <para>
-/// On every other route the token must not be an ID token, must pass the SSO admission rules when the SSO authority
-/// issued it, and must name an existing, enabled, non-archived external Beacon user (<see cref="BearerUserBinding"/>);
-/// the principal is that user, with that user's Beacon roles, and carries <c>auth_method=jwt</c>. Any other token is
-/// refused: API requests get a generic 401 (<c>WWW-Authenticate: Bearer error="invalid_token"</c>), other requests
-/// continue anonymously. Refusals are logged with a reason code, the tenant, the issuer and a subject hash — at
-/// Warning at most once a minute, otherwise at Debug.
+/// On every other route the token must be an access token (positive evidence, never inferred from <c>roles</c>), must
+/// pass the SSO admission rules when the SSO authority issued it, and must name an existing, enabled, non-archived
+/// external Beacon user — the same screen and binding as the login-form JWT flow
+/// (<see cref="BearerUserBinding.ScreenAndBindAsync"/>); the principal is that user, with that user's Beacon roles,
+/// and carries <c>auth_method=jwt</c>. Any other token is refused: API requests get a generic 401
+/// (<c>WWW-Authenticate: Bearer error="invalid_token"</c>), other requests continue anonymously. Refusals are logged
+/// with a reason code, the tenant, the issuer and a subject hash — at Warning at most once a minute, otherwise at Debug.
 /// </para>
 /// </summary>
 internal sealed class JwtBearerAuthMiddleware(
@@ -91,7 +92,7 @@ internal sealed class JwtBearerAuthMiddleware(
 
         if (!context.Request.Path.StartsWithSegments(McpDiscoveryPaths.McpPath))
         {
-            var binding = await BindBeaconUserAsync(context, result.TokenPrincipal);
+            var binding = await BindBeaconUserAsync(context, result.TokenPrincipal, result.TokenType);
             if (binding.User == null)
             {
                 LogRefusal(binding.Refusal, result.TokenPrincipal, detail: null);
@@ -145,20 +146,11 @@ internal sealed class JwtBearerAuthMiddleware(
         await next(context);
     }
 
-    private async Task<BearerBinding> BindBeaconUserAsync(HttpContext context, ClaimsPrincipal tokenPrincipal)
+    private async Task<BearerBinding> BindBeaconUserAsync(
+        HttpContext context,
+        ClaimsPrincipal tokenPrincipal,
+        string? tokenType)
     {
-        var oidc = context.RequestServices.GetService<IOptions<OidcAuthenticationOptions>>()?.Value;
-        var screening = BearerUserBinding.Screen(tokenPrincipal, oidc);
-        if (screening != BearerRefusal.None)
-        {
-            return BearerBinding.Refused(screening);
-        }
-
-        if (oidc is { Enabled: true } && BearerUserBinding.IsIssuedByAuthority(tokenPrincipal, oidc.Authority))
-        {
-            OidcAdmission.WarnOnceWhenGuestSignalMissing(tokenPrincipal, oidc, logger);
-        }
-
         var users = context.RequestServices.GetService<IUserManagementService>();
         if (users == null)
         {
@@ -171,7 +163,16 @@ internal sealed class JwtBearerAuthMiddleware(
             return BearerBinding.Refused(BearerRefusal.NoUserStore);
         }
 
-        return await BearerUserBinding.BindAsync(users, tokenPrincipal, options, context.RequestAborted);
+        var oidc = context.RequestServices.GetService<IOptions<OidcAuthenticationOptions>>()?.Value;
+
+        return await BearerUserBinding.ScreenAndBindAsync(
+            users,
+            tokenPrincipal,
+            tokenType,
+            options,
+            oidc,
+            logger,
+            context.RequestAborted);
     }
 
     // Reason code, tenant, issuer and a subject hash: never the token, the raw subject, an e-mail or other claim values.
