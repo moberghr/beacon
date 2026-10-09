@@ -25,10 +25,10 @@ public class QueryExecutionPreviewServiceTests
     {
         var queryService = new Mock<IQueryService>();
         queryService
-            .Setup(x => x.PreviewQuery(5, It.IsAny<ListRequest>(), It.IsAny<CancellationToken>()))
+            .Setup(x => x.PreviewQuery(5, null, It.IsAny<ListRequest>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new BeaconException(Cause));
 
-        var result = await CreateService(queryService).ExecuteQueryPreview(5, SecondPage, CancellationToken.None);
+        var result = await CreateService(queryService).ExecuteQueryPreview(5, null, SecondPage, CancellationToken.None);
 
         result.Should().NotBeNull();
         result!.Success.Should().BeFalse();
@@ -40,15 +40,30 @@ public class QueryExecutionPreviewServiceTests
     {
         var queryService = new Mock<IQueryService>();
         queryService
-            .Setup(x => x.PreviewQueryStepPaged(5, 2, It.IsAny<List<ParameterValue>?>(), SecondPage, It.IsAny<CancellationToken>()))
+            .Setup(x => x.PreviewQueryStepPaged(5, 2, It.IsAny<List<ParameterValue>?>(), null, SecondPage, It.IsAny<CancellationToken>()))
             .ThrowsAsync(new BeaconException(Cause));
 
-        var result = await CreateService(queryService).ExecuteStepPreview(5, 2, [], SecondPage, CancellationToken.None);
+        var result = await CreateService(queryService).ExecuteStepPreview(5, 2, [], null, SecondPage, CancellationToken.None);
 
         result.Should().NotBeNull();
         result!.Success.Should().BeFalse();
         result.ErrorMessage.Should().Be(Cause);
-        queryService.Verify(x => x.PreviewQueryStepPaged(5, 2, It.IsAny<List<ParameterValue>?>(), SecondPage, It.IsAny<CancellationToken>()), Times.Once);
+        queryService.Verify(x => x.PreviewQueryStepPaged(5, 2, It.IsAny<List<ParameterValue>?>(), null, SecondPage, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Test]
+    public async Task ExecuteQueryPreview_ForwardsTheEditorDraft()
+    {
+        var draft = new QueryDraft { FinalQuery = "SELECT * FROM @result1" };
+        var queryService = new Mock<IQueryService>();
+        queryService
+            .Setup(x => x.PreviewQuery(5, draft, SecondPage, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new QueryPreviewResult { Success = true });
+
+        var result = await CreateService(queryService).ExecuteQueryPreview(5, draft, SecondPage, CancellationToken.None);
+
+        result!.Success.Should().BeTrue();
+        queryService.Verify(x => x.PreviewQuery(5, draft, SecondPage, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Test]
@@ -56,10 +71,10 @@ public class QueryExecutionPreviewServiceTests
     {
         var queryService = new Mock<IQueryService>();
         queryService
-            .Setup(x => x.PreviewQuery(5, It.IsAny<ListRequest>(), It.IsAny<CancellationToken>()))
+            .Setup(x => x.PreviewQuery(5, null, It.IsAny<ListRequest>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new OperationCanceledException());
 
-        var result = await CreateService(queryService).ExecuteQueryPreview(5, SecondPage, CancellationToken.None);
+        var result = await CreateService(queryService).ExecuteQueryPreview(5, null, SecondPage, CancellationToken.None);
 
         result.Should().BeNull("a cancelled preview is not a failure to report");
     }

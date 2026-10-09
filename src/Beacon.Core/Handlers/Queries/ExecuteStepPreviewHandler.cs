@@ -14,6 +14,7 @@ internal sealed class ExecuteStepPreviewHandler(IQueryExecutionPreviewService pr
             request.QueryId,
             request.StepOrder,
             request.Parameters,
+            request.Draft,
             request,
             cancellationToken);
 
@@ -35,4 +36,7 @@ public record ExecuteStepPreviewCommand : ListRequest, IRequest<QueryPreviewResu
     public required int StepOrder { get; init; }
 
     public List<ParameterValue>? Parameters { get; init; }
+
+    /// <summary>The editor's unsaved steps; when set the step runs from here instead of the stored query.</summary>
+    public QueryDraft? Draft { get; init; }
 }

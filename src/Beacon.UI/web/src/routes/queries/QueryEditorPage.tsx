@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import {
   AlertTriangle,
   ArrowDown,
   ArrowUp,
   GitBranch,
+  History,
   Layers,
   Plus,
   Search,
@@ -26,6 +27,7 @@ import {
   Select,
 } from '@/components/beacon';
 import { EmptyState } from '@/components/data/EmptyState';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { DataSourcePicker } from '@/routes/data-sources/DataSourcePicker';
 import { useDataSourceLookup, useDefaultDataSource } from '@/routes/data-sources/queries';
 import { ParameterType } from '@/lib/enums';
@@ -33,6 +35,7 @@ import {
   PARAMETER_TYPE_LABEL,
   type ParameterValueInput,
   type QueryDetail,
+  type QueryDraftInput,
   type QueryStep,
   type QueryPreviewResult,
   type UpdateQueryPayload,
@@ -45,6 +48,7 @@ import {
 import { StepParameterDialog } from './parts/StepParameterDialog';
 import { QueryRunPanel } from './parts/QueryRunPanel';
 import { sortToParam, toggleSort, type SortState } from '@/lib/paging';
+import { useUnsavedChangesGuard } from '@/lib/useUnsavedChangesGuard';
 import { StepEditorWithExplorer } from './parts/StepEditorWithExplorer';
 import { detectParameters as detectParametersShared } from './helpers/parameters';
 
@@ -140,12 +144,19 @@ function toPayload(state: EditorState, queryId: number): UpdateQueryPayload {
   };
 }
 
-/** What the editor's result panel is previewing, so paging and sorting can re-run it. */
-type PreviewTarget = { kind: 'query' } | { kind: 'step'; stepOrder: number; parameters?: ParameterValueInput[] };
+/** The editor's current steps for a preview, which runs them as they are instead of saving them first. */
+function toDraft(state: EditorState, queryId: number): QueryDraftInput {
+  const { steps, finalQuery } = toPayload(state, queryId);
+  return { steps, finalQuery };
+}
+
+type PreviewRequest = { kind: 'query' } | { kind: 'step'; stepOrder: number; parameters?: ParameterValueInput[] };
+
+/** What the editor's result panel is previewing, so paging and sorting re-run the same draft. */
+type PreviewTarget = PreviewRequest & { draft: QueryDraftInput };
 
 export default function QueryEditorPage() {
   const params = useParams<{ id: string }>();
-  const navigate = useNavigate();
   const id = Number(params.id);
   const validId = Number.isFinite(id) ? id : undefined;
 
@@ -182,6 +193,8 @@ export default function QueryEditorPage() {
     () => state != null && detailSnapshot != null && JSON.stringify(state) !== detailSnapshot,
     [state, detailSnapshot],
   );
+
+  const leaveGuard = useUnsavedChangesGuard(dirty);
 
   if (!Number.isFinite(id)) {
     return (
@@ -298,11 +311,6 @@ export default function QueryEditorPage() {
     }
   };
 
-  const saveIfDirty = async () => {
-    if (!dirty) return;
-    await save();
-  };
-
   const onPreviewStep = async (step: EditorStep) => {
     if (step.parameters.length > 0) {
       setParamDialog({ stepOrder: step.stepOrder, parameters: step.parameters });
@@ -327,20 +335,22 @@ export default function QueryEditorPage() {
     try {
       const result =
         target.kind === 'query'
-          ? await previewQuery.mutateAsync(paging)
-          : await previewStep.mutateAsync({ stepOrder: target.stepOrder, parameters: target.parameters, paging });
+          ? await previewQuery.mutateAsync({ ...paging, draft: target.draft })
+          : await previewStep.mutateAsync({
+            stepOrder: target.stepOrder,
+            parameters: target.parameters,
+            draft: target.draft,
+            paging,
+          });
       setPreviewResult(result);
     } catch {
       // Error toasts already raised by the mutation hooks.
     }
   };
 
-  const startPreview = async (target: PreviewTarget) => {
-    try {
-      await saveIfDirty();
-    } catch {
-      return;
-    }
+  // Runs what is in the editor without saving it; only Save persists the query (and writes a version).
+  const startPreview = async (request: PreviewRequest) => {
+    const target: PreviewTarget = { ...request, draft: toDraft(state, id) };
     setPreviewTarget(target);
     setPreviewResult(null);
     setPreviewSort(null);
@@ -366,8 +376,12 @@ export default function QueryEditorPage() {
           <CardSub>
             {state.steps.length} step{state.steps.length === 1 ? '' : 's'}
           </CardSub>
+          {dirty && <Pill tone="warn">Unsaved changes</Pill>}
           <CardActions>
-            <Button icon={<X />} onClick={() => navigate(`/queries/${id}`)}>Cancel</Button>
+            <Button icon={<History />} onClick={() => leaveGuard.leave(`/queries/${id}/versions`)}>
+              Version history
+            </Button>
+            <Button icon={<X />} onClick={() => leaveGuard.leave(`/queries/${id}`)}>Cancel</Button>
             <Button
               icon={<Zap />}
               onClick={onRunQuery}
@@ -579,7 +593,12 @@ export default function QueryEditorPage() {
             setPreviewSort(next);
             void runPreview(previewTarget, 0, next);
           }}
-          onRerun={() => void runPreview(previewTarget, previewResult?.result?.page ?? 0, previewSort)}
+          onRerun={() => {
+            // Rerun picks up edits made since the last run; paging and sorting stay on the run they page.
+            const target: PreviewTarget = { ...previewTarget, draft: toDraft(state, id) };
+            setPreviewTarget(target);
+            void runPreview(target, previewResult?.result?.page ?? 0, previewSort);
+          }}
           onClose={() => {
             setPreviewTarget(null);
             setPreviewResult(null);
@@ -593,6 +612,17 @@ export default function QueryEditorPage() {
         parameters={paramDialog?.parameters ?? []}
         onClose={() => setParamDialog(null)}
         onSubmit={onParamSubmit}
+      />
+
+      <ConfirmDialog
+        open={leaveGuard.leaveOpen}
+        title="Discard unsaved changes?"
+        message="Your edits to this query are not saved. Leave without saving them?"
+        confirmLabel="Discard and leave"
+        cancelLabel="Keep editing"
+        destructive
+        onConfirm={leaveGuard.confirmLeave}
+        onCancel={leaveGuard.cancelLeave}
       />
     </div>
   );

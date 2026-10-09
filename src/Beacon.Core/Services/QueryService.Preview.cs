@@ -2,6 +2,7 @@ using Beacon.Core.Data.Entities;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Queries;
+using Beacon.Core.Validators;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -16,26 +17,37 @@ internal partial class QueryService
 {
     private const int IntermediatePreviewRows = 10;
 
-    public async Task<QueryPreviewResult> PreviewQuery(int queryId, ListRequest paging, CancellationToken cancellationToken)
+    public async Task<QueryPreviewResult> PreviewQuery(int queryId, QueryDraft? draft, ListRequest paging, CancellationToken cancellationToken)
     {
-        var query = await GetQueryWithSteps(queryId, cancellationToken);
-        var steps = query.Steps
-            .OrderBy(x => x.StepOrder)
-            .ToList();
+        List<QueryStep> steps;
+        string? finalQuery;
+        if (draft == null)
+        {
+            var query = await GetQueryWithSteps(queryId, cancellationToken);
+            steps = query.Steps
+                .OrderBy(x => x.StepOrder)
+                .ToList();
+            finalQuery = query.FinalQuery;
+        }
+        else
+        {
+            steps = await BuildDraftSteps(queryId, draft.Steps, cancellationToken);
+            finalQuery = draft.FinalQuery;
+        }
 
         QueryPreviewResult result;
-        if (steps.Count == 1 && string.IsNullOrEmpty(query.FinalQuery))
+        if (steps.Count == 1 && string.IsNullOrEmpty(finalQuery))
         {
             result = await PreviewSingleStep(steps[0], null, paging, cancellationToken);
         }
         else
         {
-            result = await PreviewMultiStep(steps, query.FinalQuery, paging, cancellationToken);
+            result = await PreviewMultiStep(steps, finalQuery, paging, cancellationToken);
         }
 
         await queryExecutionLogger.LogQueryExecutionAsync(
-            queryText: !string.IsNullOrEmpty(query.FinalQuery)
-                ? query.FinalQuery
+            queryText: !string.IsNullOrEmpty(finalQuery)
+                ? finalQuery
                 : string.Join("; ", steps.Select(x => x.SqlValue)),
             resultCount: result.Result?.TotalCount ?? result.Steps.LastOrDefault()?.TotalRows ?? 0,
             executionTimeMs: result.TotalExecutionTimeMs,
@@ -53,9 +65,25 @@ internal partial class QueryService
         int queryId,
         int stepOrder,
         List<ParameterValue>? parameters,
+        QueryDraft? draft,
         ListRequest paging,
         CancellationToken cancellationToken)
     {
+        if (draft != null)
+        {
+            var draftStep = draft.Steps
+                .Where(x => x.StepOrder == stepOrder)
+                .ToList();
+
+            if (draftStep.Count == 0)
+            {
+                throw new InvalidOperationException($"The draft of query #{queryId} has no step {stepOrder}.");
+            }
+
+            var steps = await BuildDraftSteps(queryId, draftStep, cancellationToken);
+            return await PreviewSingleStep(steps[0], parameters, paging, cancellationToken);
+        }
+
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         var step = await context.QuerySteps
@@ -67,6 +95,54 @@ internal partial class QueryService
             ?? throw new InvalidOperationException($"Query #{queryId} has no step {stepOrder}.");
 
         return await PreviewSingleStep(step, parameters, paging, cancellationToken);
+    }
+
+    /// <summary>
+    /// The editor's unsaved steps as detached entities, checked the way <see cref="UpdateQuery"/> checks a
+    /// save. They are never attached to a context, so running a draft cannot persist it; execution then goes
+    /// through the same read-only, host-policy and masking gates as a saved step.
+    /// </summary>
+    private async Task<List<QueryStep>> BuildDraftSteps(int queryId, List<QueryStepData> stepData, CancellationToken cancellationToken)
+    {
+        foreach (var x in stepData)
+        {
+            QueryValidator.CheckForFlaggedWords(x.SqlValue);
+        }
+
+        var dataSourceIds = stepData
+            .Select(x => x.DataSourceId)
+            .Distinct()
+            .ToList();
+
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        var dataSources = await context.DataSources
+            .AsNoTracking()
+            .Where(x => dataSourceIds.Contains(x.Id))
+            .ToDictionaryAsync(x => x.Id, cancellationToken);
+
+        var steps = new List<QueryStep>();
+        foreach (var x in stepData.OrderBy(y => y.StepOrder))
+        {
+            if (!dataSources.TryGetValue(x.DataSourceId, out var dataSource))
+            {
+                throw new InvalidOperationException($"Data source {x.DataSourceId} not found.");
+            }
+
+            steps.Add(new QueryStep
+            {
+                QueryId = queryId,
+                DataSourceId = x.DataSourceId,
+                DataSource = dataSource,
+                StepOrder = x.StepOrder,
+                Name = x.Name,
+                Description = x.Description,
+                SqlValue = x.SqlValue,
+                Parameters = ParameterEntityFactory.CreateQueryStepParameters(x.Parameters, 0),
+            });
+        }
+
+        return steps;
     }
 
     private async Task<QueryPreviewResult> PreviewSingleStep(

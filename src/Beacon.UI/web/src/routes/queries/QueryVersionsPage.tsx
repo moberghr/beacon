@@ -33,6 +33,11 @@ const COLUMNS: Column<QueryVersionSummary>[] = [
     render: v => <span className="text-text-muted">{v.changeSource ?? '—'}</span>,
   },
   {
+    key: 'author',
+    header: 'By',
+    render: v => <span className="text-text-muted">{v.createdByUserName ?? '—'}</span>,
+  },
+  {
     key: 'created',
     header: 'Created',
     render: v => (
@@ -46,7 +51,7 @@ const COLUMNS: Column<QueryVersionSummary>[] = [
   },
 ];
 
-const GRID_TEMPLATE = '0.6fr 2fr 0.6fr 1fr 1.4fr 28px';
+const GRID_TEMPLATE = '0.6fr 2fr 0.6fr 1fr 1.2fr 1.4fr 28px';
 
 export default function QueryVersionsPage() {
   const { id } = useParams();

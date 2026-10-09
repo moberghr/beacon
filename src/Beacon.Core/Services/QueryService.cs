@@ -43,11 +43,14 @@ public interface IQueryService
 
     Task<QueryStepResult> PreviewQueryStep(int queryId, int stepOrder, List<ParameterValue>? parameters, CancellationToken cancellationToken);
 
-    /// <summary>One page of a saved query's result (steps summarised, final or single result paged).</summary>
-    Task<QueryPreviewResult> PreviewQuery(int queryId, ListRequest paging, CancellationToken cancellationToken);
+    /// <summary>
+    /// One page of a query's result (steps summarised, final or single result paged): the saved query, or
+    /// <paramref name="draft"/> when the editor sends its unsaved steps.
+    /// </summary>
+    Task<QueryPreviewResult> PreviewQuery(int queryId, QueryDraft? draft, ListRequest paging, CancellationToken cancellationToken);
 
-    /// <summary>One page of a single step's result, run on its own.</summary>
-    Task<QueryPreviewResult> PreviewQueryStepPaged(int queryId, int stepOrder, List<ParameterValue>? parameters, ListRequest paging, CancellationToken cancellationToken);
+    /// <summary>One page of a single step's result, run on its own; from <paramref name="draft"/> when given.</summary>
+    Task<QueryPreviewResult> PreviewQueryStepPaged(int queryId, int stepOrder, List<ParameterValue>? parameters, QueryDraft? draft, ListRequest paging, CancellationToken cancellationToken);
 
     // Step management with data source context
     Task<BaseResponse> AddQueryStep(int queryId, QueryStepData stepData, CancellationToken cancellationToken);

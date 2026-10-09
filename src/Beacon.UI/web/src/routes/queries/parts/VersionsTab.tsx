@@ -9,7 +9,7 @@ interface VersionsTabProps {
   queryId: number;
 }
 
-const GRID_TEMPLATE = '0.6fr 2fr 0.6fr 1fr 1.4fr';
+const GRID_TEMPLATE = '0.6fr 2fr 0.6fr 1fr 1.2fr 1.4fr';
 
 export function VersionsTab({ queryId }: VersionsTabProps) {
   const list = useQueryVersionsList(queryId, 'versions');
@@ -56,6 +56,11 @@ export function VersionsTab({ queryId }: VersionsTabProps) {
       key: 'source',
       header: 'Source',
       render: v => <span className="text-text-muted">{v.changeSource ?? '—'}</span>,
+    },
+    {
+      key: 'author',
+      header: 'By',
+      render: v => <span className="text-text-muted">{v.createdByUserName ?? '—'}</span>,
     },
     {
       key: 'created',

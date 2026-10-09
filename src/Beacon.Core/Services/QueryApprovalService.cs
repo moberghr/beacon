@@ -61,10 +61,10 @@ internal class QueryApprovalService(
 
         var proposedDetail = ToVersionDetail(request.QueryVersion);
 
-        // Get current active version for diff
+        // Diff against the version the query points at; older data can mark several versions Active.
         var activeVersion = await context.QueryVersions
-            .Where(v => v.QueryId == request.QueryId && v.Status == QueryVersionStatus.Active)
-            .SingleOrDefaultAsync(cancellationToken);
+            .Where(v => v.Id == request.Query.ActiveVersionId)
+            .FirstOrDefaultAsync(cancellationToken);
 
         QueryVersionDetail? activeDetail = null;
         QueryVersionDiff? autoDiff = null;
@@ -110,14 +110,15 @@ internal class QueryApprovalService(
             .Where(q => q.Id == request.QueryId)
             .SingleAsync(cancellationToken);
 
-        // Mark old active version as Archived
+        // Mark old active versions as Archived (older data can hold several)
         var currentActive = await context.QueryVersions
-            .Where(v => v.QueryId == query.Id && v.Status == QueryVersionStatus.Active)
-            .SingleOrDefaultAsync(cancellationToken);
+            .Where(v => v.QueryId == query.Id)
+            .Where(v => v.Status == QueryVersionStatus.Active)
+            .ToListAsync(cancellationToken);
 
-        if (currentActive != null)
+        foreach (var x in currentActive)
         {
-            currentActive.Status = QueryVersionStatus.Archived;
+            x.Status = QueryVersionStatus.Archived;
         }
 
         // Apply snapshot from draft version to live query

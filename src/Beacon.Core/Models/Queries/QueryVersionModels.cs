@@ -11,6 +11,7 @@ public class QueryVersionSummary
     public string Name { get; set; } = null!;
     public DateTime CreatedTime { get; set; }
     public string? CreatedByUserId { get; set; }
+    public string? CreatedByUserName { get; set; }
     public string? ChangeSource { get; set; }
     public string? ChangeReason { get; set; }
     public int StepCount { get; set; }
@@ -27,6 +28,7 @@ public class QueryVersionDetail
     public string? FinalQuery { get; set; }
     public DateTime CreatedTime { get; set; }
     public string? CreatedByUserId { get; set; }
+    public string? CreatedByUserName { get; set; }
     public string? ChangeSource { get; set; }
     public string? ChangeReason { get; set; }
     public List<QueryStepSnapshot> Steps { get; set; } = [];
